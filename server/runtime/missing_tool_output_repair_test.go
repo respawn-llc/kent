@@ -216,6 +216,83 @@ func TestMissingToolOutputRepairDropsOrphanMaterializedOutput(t *testing.T) {
 	}
 }
 
+func TestMissingToolOutputRepairDropsMisorderedMaterializedOutputAndCall(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, ToolCallID: "late-call", Content: `{"early":true}`})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "late-call", Name: "exec", Input: json.RawMessage(`{}`)}}})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	if messages := repairMessagesFromEvents(t, readRepairEvents(t, store)); len(messages) != 0 {
+		t.Fatalf("expected misordered output and call removed, got %+v", messages)
+	}
+}
+
+func TestMissingToolOutputRepairDropsDuplicateToolCall(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "dup-call", Name: "exec", Input: json.RawMessage(`{}`)}}})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "dup-call", Name: "exec", Input: json.RawMessage(`{}`)}}})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, ToolCallID: "dup-call", Content: `{"ok":true}`})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	messages := repairMessagesFromEvents(t, readRepairEvents(t, store))
+	calls := 0
+	for _, msg := range messages {
+		calls += len(msg.ToolCalls)
+	}
+	if calls != 1 {
+		t.Fatalf("tool call count = %d, want 1; messages=%+v", calls, messages)
+	}
+}
+
+func TestMissingToolOutputRepairFiltersInvalidToolCompletedProviderItems(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "provider-call", Name: "exec", Input: json.RawMessage(`{}`)}}})
+	appendRepairEvent(t, store, "tool_completed", storedToolCompletion{
+		CallID: "provider-call",
+		Name:   "exec",
+		ProviderItems: []llm.ResponseItem{
+			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "provider-call", Name: "exec", Output: json.RawMessage(`{"ok":true}`)},
+			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "provider-call", Name: "exec", Output: json.RawMessage(`{"dup":true}`)},
+			{Type: llm.ResponseItemTypeCustomToolOutput, CallID: "provider-call", Name: "exec", Output: json.RawMessage(`"wrong"`)},
+			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "other-call", Name: "exec", Output: json.RawMessage(`{"wrong_call":true}`)},
+		},
+	})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	for _, event := range readRepairEvents(t, store) {
+		if event.Kind != "tool_completed" {
+			continue
+		}
+		var completion storedToolCompletion
+		if err := json.Unmarshal(event.Payload, &completion); err != nil {
+			t.Fatalf("decode completion: %v", err)
+		}
+		if len(completion.ProviderItems) != 1 || completion.ProviderItems[0].CallID != "provider-call" || completion.ProviderItems[0].Type != llm.ResponseItemTypeFunctionCallOutput {
+			t.Fatalf("unexpected provider items after repair: %+v", completion.ProviderItems)
+		}
+		return
+	}
+	t.Fatal("missing tool_completed event")
+}
+
 func TestMissingToolOutputRepairTreatsToolCompletedOrderInsensitively(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "tool_completed", storedToolCompletion{CallID: "call-1", Name: "exec", Output: json.RawMessage(`{"ok":true}`)})

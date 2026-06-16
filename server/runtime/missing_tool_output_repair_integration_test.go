@@ -209,8 +209,15 @@ func TestExactTokenCountHTTP400RepairsBeforeDiagnosticAndRetries(t *testing.T) {
 		t.Fatalf("retry token-count request should be rebuilt without corrupted call, got %+v", client.requests[1].Items)
 	}
 	for _, event := range readRepairEvents(t, store) {
-		if event.Kind == "local_entry" && strings.Contains(string(event.Payload), "Exact token counting failed") {
-			t.Fatalf("did not expect exact-token diagnostic when repair retry succeeds: %+v", event)
+		if event.Kind != "local_entry" {
+			continue
+		}
+		var entry storedLocalEntry
+		if err := json.Unmarshal(event.Payload, &entry); err != nil {
+			t.Fatalf("decode local entry: %v", err)
+		}
+		if entry.DiagnosticKey == preciseTokenCountFailureDiagnostic {
+			t.Fatalf("did not expect exact-token diagnostic when repair retry succeeds: %+v", entry)
 		}
 	}
 }

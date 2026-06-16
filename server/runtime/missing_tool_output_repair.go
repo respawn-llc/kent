@@ -23,10 +23,13 @@ type missingToolOutputRepairResult struct {
 }
 
 type missingToolOutputRepairPlan struct {
-	removeCalls   map[string]struct{}
-	dropOutputs   map[string]map[repairToolCallKind]struct{}
-	dedupeOutputs map[string]map[repairToolCallKind]struct{}
-	keptOutputs   map[string]map[repairToolCallKind]struct{}
+	removeCalls       map[string]struct{}
+	dedupeCalls       map[string]struct{}
+	keptCalls         map[string]struct{}
+	dropOutputs       map[string]map[repairToolCallKind]struct{}
+	dedupeOutputs     map[string]map[repairToolCallKind]struct{}
+	filterCompletions map[string]repairToolCallKind
+	keptOutputs       map[string]map[repairToolCallKind]struct{}
 }
 
 type repairToolCallKind uint8
@@ -40,7 +43,10 @@ type missingToolOutputRepairScan struct {
 	boundarySeq int64
 
 	calls                map[string]repairToolCallKind
+	callCounts           map[string]int
+	seenCalls            map[string]struct{}
 	materializedOutputs  map[string]map[repairToolCallKind]int
+	invalidOutputs       map[string]map[repairToolCallKind]int
 	toolCompletions      map[string]storedToolCompletion
 	toolCompletionExists map[string]struct{}
 }
@@ -48,7 +54,10 @@ type missingToolOutputRepairScan struct {
 func newMissingToolOutputRepairScan() *missingToolOutputRepairScan {
 	return &missingToolOutputRepairScan{
 		calls:                make(map[string]repairToolCallKind),
+		callCounts:           make(map[string]int),
+		seenCalls:            make(map[string]struct{}),
 		materializedOutputs:  make(map[string]map[repairToolCallKind]int),
+		invalidOutputs:       make(map[string]map[repairToolCallKind]int),
 		toolCompletions:      make(map[string]storedToolCompletion),
 		toolCompletionExists: make(map[string]struct{}),
 	}
@@ -252,6 +261,19 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 			}
 		}
 		s.messageCount = repairedMessageCount
+		callKinds := repairCallKindsFromItems(s.providerItemsSourceLocked())
+		for _, id := range affectedCallIDs {
+			callID := strings.TrimSpace(id)
+			if callID == "" || len(s.toolCompletionProviderItems[callID]) == 0 {
+				continue
+			}
+			filtered := firstMatchingProviderOutput(s.toolCompletionProviderItems[callID], callID, callKinds[callID])
+			if len(filtered) == 0 {
+				delete(s.toolCompletionProviderItems, callID)
+				continue
+			}
+			s.toolCompletionProviderItems[callID] = filtered
+		}
 		for _, id := range removedCallIDs {
 			delete(s.assistantToolCalls, id)
 			delete(s.materializedToolResults, id)
@@ -275,6 +297,35 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 		})
 		s.transcriptEntryCount++
 	}
+}
+
+func repairCallKindsFromItems(items []llm.ResponseItem) map[string]repairToolCallKind {
+	out := make(map[string]repairToolCallKind)
+	for _, item := range items {
+		if !isToolCallItem(item.Type) {
+			continue
+		}
+		callID := strings.TrimSpace(item.CallID)
+		if callID == "" {
+			callID = strings.TrimSpace(item.ID)
+		}
+		if callID != "" {
+			out[callID] = repairKindForOutputItem(llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall))
+		}
+	}
+	return out
+}
+
+func firstMatchingProviderOutput(items []llm.ResponseItem, callID string, callKind repairToolCallKind) []llm.ResponseItem {
+	if callKind == 0 {
+		return nil
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.CallID) == callID && repairKindForOutputItem(item.Type) == callKind {
+			return llm.CloneResponseItems([]llm.ResponseItem{item})
+		}
+	}
+	return nil
 }
 
 func lastCommittedAssistantFinalAnswerFromItems(items []llm.ResponseItem) string {
@@ -342,7 +393,10 @@ func (s *missingToolOutputRepairScan) apply(evt session.Event) error {
 func (s *missingToolOutputRepairScan) resetAtBoundary(seq int64) {
 	s.boundarySeq = seq
 	s.calls = make(map[string]repairToolCallKind)
+	s.callCounts = make(map[string]int)
+	s.seenCalls = make(map[string]struct{})
 	s.materializedOutputs = make(map[string]map[repairToolCallKind]int)
+	s.invalidOutputs = make(map[string]map[repairToolCallKind]int)
 	s.toolCompletions = make(map[string]storedToolCompletion)
 	s.toolCompletionExists = make(map[string]struct{})
 }
@@ -355,7 +409,11 @@ func (s *missingToolOutputRepairScan) applyMessage(msg llm.Message) {
 			if callID == "" {
 				continue
 			}
-			s.calls[callID] = repairKindForToolCall(call)
+			s.callCounts[callID]++
+			if _, exists := s.calls[callID]; !exists {
+				s.calls[callID] = repairKindForToolCall(call)
+			}
+			s.seenCalls[callID] = struct{}{}
 		}
 	case llm.RoleTool:
 		callID := strings.TrimSpace(msg.ToolCallID)
@@ -365,6 +423,13 @@ func (s *missingToolOutputRepairScan) applyMessage(msg llm.Message) {
 		kind := repairToolCallKindFunction
 		if msg.MessageType == llm.MessageTypeCustomToolCallOutput {
 			kind = repairToolCallKindCustom
+		}
+		if _, seen := s.seenCalls[callID]; !seen {
+			if s.invalidOutputs[callID] == nil {
+				s.invalidOutputs[callID] = make(map[repairToolCallKind]int)
+			}
+			s.invalidOutputs[callID][kind]++
+			return
 		}
 		if s.materializedOutputs[callID] == nil {
 			s.materializedOutputs[callID] = make(map[repairToolCallKind]int)
@@ -389,15 +454,21 @@ func (s *missingToolOutputRepairScan) unfinishedCalls() map[string]struct{} {
 
 func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 	plan := missingToolOutputRepairPlan{
-		removeCalls:   make(map[string]struct{}),
-		dropOutputs:   make(map[string]map[repairToolCallKind]struct{}),
-		dedupeOutputs: make(map[string]map[repairToolCallKind]struct{}),
-		keptOutputs:   make(map[string]map[repairToolCallKind]struct{}),
+		removeCalls:       make(map[string]struct{}),
+		dedupeCalls:       make(map[string]struct{}),
+		keptCalls:         make(map[string]struct{}),
+		dropOutputs:       make(map[string]map[repairToolCallKind]struct{}),
+		dedupeOutputs:     make(map[string]map[repairToolCallKind]struct{}),
+		filterCompletions: make(map[string]repairToolCallKind),
+		keptOutputs:       make(map[string]map[repairToolCallKind]struct{}),
 	}
 	if s == nil {
 		return plan
 	}
 	for callID, callKind := range s.calls {
+		if s.callCounts[callID] > 1 {
+			plan.dedupeCalls[callID] = struct{}{}
+		}
 		outputs := s.materializedOutputs[callID]
 		for outputKind, count := range outputs {
 			if outputKind != callKind {
@@ -415,9 +486,22 @@ func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 			}
 		}
 		if s.callCompleted(callID, callKind) {
+			if completion, ok := s.toolCompletions[callID]; ok && len(completion.ProviderItems) > 0 {
+				if _, changed, hasValid := filteredCompletionProviderItems(completion, callKind); changed && hasValid {
+					plan.filterCompletions[callID] = callKind
+				}
+			}
 			continue
 		}
 		plan.removeCalls[callID] = struct{}{}
+	}
+	for callID, outputs := range s.invalidOutputs {
+		for outputKind := range outputs {
+			if plan.dropOutputs[callID] == nil {
+				plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+			}
+			plan.dropOutputs[callID][outputKind] = struct{}{}
+		}
 	}
 	for callID, outputs := range s.materializedOutputs {
 		if _, hasCall := s.calls[callID]; hasCall {
@@ -444,10 +528,16 @@ func (p missingToolOutputRepairPlan) affectedCallIDs() map[string]struct{} {
 		}
 		out[callID] = struct{}{}
 	}
+	for callID := range p.dedupeCalls {
+		out[callID] = struct{}{}
+	}
 	for callID, kinds := range p.dedupeOutputs {
 		if len(kinds) == 0 {
 			continue
 		}
+		out[callID] = struct{}{}
+	}
+	for callID := range p.filterCompletions {
 		out[callID] = struct{}{}
 	}
 	return out
@@ -470,14 +560,37 @@ func (s *missingToolOutputRepairScan) callCompleted(callID string, callKind repa
 		return true
 	}
 	for _, item := range completion.ProviderItems {
-		if strings.TrimSpace(item.CallID) != callID {
-			continue
-		}
-		if repairKindForOutputItem(item.Type) == callKind {
+		if strings.TrimSpace(item.CallID) == callID && repairKindForOutputItem(item.Type) == callKind {
 			return true
 		}
 	}
 	return false
+}
+
+func filteredCompletionProviderItems(completion storedToolCompletion, callKind repairToolCallKind) ([]llm.ResponseItem, bool, bool) {
+	if len(completion.ProviderItems) == 0 {
+		return nil, false, true
+	}
+	callID := strings.TrimSpace(completion.CallID)
+	filtered := make([]llm.ResponseItem, 0, 1)
+	changed := false
+	hasValid := false
+	for _, item := range completion.ProviderItems {
+		if strings.TrimSpace(item.CallID) != callID || repairKindForOutputItem(item.Type) != callKind {
+			changed = true
+			continue
+		}
+		if hasValid {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+		hasValid = true
+	}
+	if len(filtered) != len(completion.ProviderItems) {
+		changed = true
+	}
+	return filtered, changed, hasValid
 }
 
 func repairKindForToolCall(call llm.ToolCall) repairToolCallKind {
@@ -498,7 +611,35 @@ func repairKindForOutputItem(itemType llm.ResponseItemType) repairToolCallKind {
 }
 
 func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan missingToolOutputRepairPlan) (session.EventRewriteDecision, error) {
-	if plan.affectedCalls() == 0 || evt.Seq <= boundarySeq || strings.TrimSpace(evt.Kind) != "message" {
+	if plan.affectedCalls() == 0 || evt.Seq <= boundarySeq {
+		return session.EventRewriteDecision{Event: evt}, nil
+	}
+	if strings.TrimSpace(evt.Kind) == "tool_completed" {
+		var completion storedToolCompletion
+		if err := json.Unmarshal(evt.Payload, &completion); err != nil {
+			return session.EventRewriteDecision{}, fmt.Errorf("decode tool_completed event: %w", err)
+		}
+		callID := strings.TrimSpace(completion.CallID)
+		callKind, filter := plan.filterCompletions[callID]
+		if !filter {
+			return session.EventRewriteDecision{Event: evt}, nil
+		}
+		filtered, changed, hasValid := filteredCompletionProviderItems(completion, callKind)
+		if !hasValid {
+			return session.EventRewriteDecision{Event: evt}, nil
+		}
+		if !changed {
+			return session.EventRewriteDecision{Event: evt}, nil
+		}
+		completion.ProviderItems = filtered
+		payload, err := json.Marshal(completion)
+		if err != nil {
+			return session.EventRewriteDecision{}, fmt.Errorf("marshal tool_completed event: %w", err)
+		}
+		evt.Payload = payload
+		return session.EventRewriteDecision{Event: evt}, nil
+	}
+	if strings.TrimSpace(evt.Kind) != "message" {
 		return session.EventRewriteDecision{Event: evt}, nil
 	}
 	var msg llm.Message
@@ -509,7 +650,17 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 	case llm.RoleAssistant:
 		filtered := msg.ToolCalls[:0]
 		for _, call := range msg.ToolCalls {
-			if _, remove := plan.removeCalls[strings.TrimSpace(call.ID)]; remove {
+			callID := strings.TrimSpace(call.ID)
+			if _, remove := plan.removeCalls[callID]; remove {
+				continue
+			}
+			if _, dedupe := plan.dedupeCalls[callID]; dedupe {
+				if _, kept := plan.keptCalls[callID]; kept {
+					continue
+				}
+				plan.keptCalls[callID] = struct{}{}
+			}
+			if callID == "" {
 				continue
 			}
 			filtered = append(filtered, call)
