@@ -546,7 +546,7 @@ func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 		}
 		if s.callCompleted(callID, callKind) {
 			if completion, ok := s.toolCompletions[callID]; ok && len(completion.ProviderItems) > 0 {
-				if _, changed, hasValid := filteredCompletionProviderItems(completion, callKind); changed && hasValid {
+				if _, changed, hasValid := filteredCompletionProviderItems(completion, callKind); changed && (hasValid || len(completion.Output) > 0) {
 					plan.filterCompletions[callID] = callKind
 				}
 			}
@@ -624,7 +624,7 @@ func (s *missingToolOutputRepairScan) callCompleted(callID string, callKind repa
 			return true
 		}
 	}
-	return false
+	return len(completion.Output) > 0
 }
 
 func filteredCompletionProviderItems(completion storedToolCompletion, callKind repairToolCallKind) ([]llm.ResponseItem, bool, bool) {
@@ -713,7 +713,7 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 			return session.EventRewriteDecision{Event: evt}, nil
 		}
 		filtered, changed, hasValid := filteredCompletionProviderItems(completion, callKind)
-		if !hasValid {
+		if !hasValid && len(completion.Output) == 0 {
 			return session.EventRewriteDecision{Event: evt}, nil
 		}
 		if !changed {

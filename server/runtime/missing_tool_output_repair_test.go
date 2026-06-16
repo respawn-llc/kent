@@ -298,6 +298,47 @@ func TestMissingToolOutputRepairFiltersInvalidToolCompletedProviderItems(t *test
 	t.Fatal("missing tool_completed event")
 }
 
+func TestMissingToolOutputRepairPreservesCompletionWithCorruptProviderItemsAndStoredOutput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "provider-call", Name: "exec", Input: json.RawMessage(`{}`)}}})
+	appendRepairEvent(t, store, "tool_completed", storedToolCompletion{
+		CallID: "provider-call",
+		Name:   "exec",
+		Output: json.RawMessage(`{"ok":true}`),
+		ProviderItems: []llm.ResponseItem{{
+			Type:   llm.ResponseItemTypeFunctionCallOutput,
+			CallID: "other-call",
+			Output: json.RawMessage(`{"wrong_call":true}`),
+		}},
+	})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	messages := repairMessagesFromEvents(t, readRepairEvents(t, store))
+	if len(messages) == 0 || len(messages[0].ToolCalls) != 1 || messages[0].ToolCalls[0].ID != "provider-call" {
+		t.Fatalf("expected completed call preserved, got %+v", messages)
+	}
+	for _, event := range readRepairEvents(t, store) {
+		if event.Kind != "tool_completed" {
+			continue
+		}
+		var completion storedToolCompletion
+		if err := json.Unmarshal(event.Payload, &completion); err != nil {
+			t.Fatalf("decode completion: %v", err)
+		}
+		if len(completion.ProviderItems) != 0 || string(completion.Output) != `{"ok":true}` {
+			t.Fatalf("expected corrupt provider items cleared and stored output preserved, got %+v", completion)
+		}
+		return
+	}
+	t.Fatal("missing tool_completed event")
+}
+
 func TestMissingToolOutputRepairDropsRemovedCallProviderAttachmentsFromLiveRetry(t *testing.T) {
 	items := []llm.ResponseItem{
 		{Type: llm.ResponseItemTypeFunctionCall, ID: "removed-call", CallID: "removed-call", Name: "exec", Arguments: json.RawMessage(`{}`)},
