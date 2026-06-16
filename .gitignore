@@ -57,6 +57,7 @@ target/
 # vendor/
 
 # Temp docs generated for handoff
+.builder/
 docs/tmp/
 
 # Local runtime state
