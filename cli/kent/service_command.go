@@ -142,6 +142,10 @@ func serviceRestartSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func runServiceCommandAction(ctx context.Context, action serviceAction, opts serviceCommandOptions, stdout io.Writer, stderr io.Writer) int {
+	if err := ensureServiceLifecycleAllowed(action, opts); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	spec, err := loadServiceSpec()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -208,10 +212,6 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 		fmt.Fprintf(stdout, "Stopped %s.\n", serviceDisplayName)
 	case serviceActionRestart:
 		if !opts.IfInstalled {
-			if err := ensureServiceRestartAllowed(); err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
 			if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, action); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
@@ -224,10 +224,6 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 			}
 			if !status.Installed {
 				return 0
-			}
-			if err := ensureServiceRestartAllowed(); err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
 			}
 			if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, action); err != nil {
 				fmt.Fprintln(stderr, err)
@@ -287,13 +283,33 @@ func ensureNoUnmanagedServerConflictForAction(ctx context.Context, backend servi
 	return nil
 }
 
-const serviceRestartCurrentSessionError = "you may not restart the service now as restarting the service will kill your current session, halting your work. Ask the user to restart the service manually."
+const serviceLifecycleCurrentSessionError = "you may not manage the service now as this may kill your current session, halting your work. Ask the user to manage the service manually."
 
-func ensureServiceRestartAllowed() error {
+func serviceLifecycleGuardApplies(action serviceAction, opts serviceCommandOptions) bool {
+	switch action {
+	case serviceActionRestart:
+		return true
+	case serviceActionInstall:
+		return !opts.NoStart
+	case serviceActionUninstall:
+		return !opts.KeepRunning
+	case serviceActionStart:
+		return true
+	case serviceActionStop:
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureServiceLifecycleAllowed(action serviceAction, opts serviceCommandOptions) error {
+	if !serviceLifecycleGuardApplies(action, opts) {
+		return nil
+	}
 	if _, ok := sessionenv.LookupSessionID(os.LookupEnv); !ok {
 		return nil
 	}
-	return errors.New(serviceRestartCurrentSessionError)
+	return errors.New(serviceLifecycleCurrentSessionError)
 }
 
 func readServiceStatus(ctx context.Context, backend serviceBackend, spec serviceSpec) (serviceStatus, error) {

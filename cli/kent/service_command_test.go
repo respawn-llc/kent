@@ -131,6 +131,7 @@ func newServiceHealthTestServer(t *testing.T, body string, statusCode ...int) *h
 }
 
 func TestServiceInstallNoStartAndForce(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
 	backend := &stubServiceBackend{}
 	withServiceCommandTestBackend(t, backend)
 
@@ -148,7 +149,30 @@ func TestServiceInstallNoStartAndForce(t *testing.T) {
 	}
 }
 
+func TestServiceInstallRejectsKentShellSession(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
+	backend := &stubServiceBackend{}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"install"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
 func TestServiceUninstallKeepRunning(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
 	backend := &stubServiceBackend{}
 	withServiceCommandTestBackend(t, backend)
 
@@ -158,8 +182,33 @@ func TestServiceUninstallKeepRunning(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
+	if len(backend.calls) != 1 || backend.calls[0] != serviceActionUninstall {
+		t.Fatalf("calls = %+v, want uninstall only", backend.calls)
+	}
 	if backend.uninstallStop {
 		t.Fatal("expected --keep-running to skip stop")
+	}
+}
+
+func TestServiceUninstallRejectsKentShellSession(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
+	backend := &stubServiceBackend{}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"uninstall"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -308,6 +357,9 @@ func TestServiceInstallAllowsHealthyServerOwnedByLoadedService(t *testing.T) {
 	if len(backend.calls) != 2 || backend.calls[0] != serviceActionStatus || backend.calls[1] != serviceActionInstall {
 		t.Fatalf("calls = %+v, want status then install", backend.calls)
 	}
+	if !backend.installForce || !backend.installStart {
+		t.Fatalf("install flags force=%v start=%v, want force true start true", backend.installForce, backend.installStart)
+	}
 }
 
 func TestServiceRestartAllowsHealthyServerOwnedByLoadedServiceBeforePIDIsVisible(t *testing.T) {
@@ -348,8 +400,41 @@ func TestServiceRestartRejectsKentShellSession(t *testing.T) {
 	if len(backend.calls) != 0 {
 		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
 	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceRestartCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session restart guard", stderr.String())
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestServiceLifecycleGuardRejectsBeforeSpecLoad(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true}}
+	originalLoadSpec := loadServiceSpec
+	originalBackendFactory := serviceBackendFactory
+	t.Cleanup(func() {
+		loadServiceSpec = originalLoadSpec
+		serviceBackendFactory = originalBackendFactory
+	})
+	loadServiceSpec = func() (serviceSpec, error) {
+		return serviceSpec{}, errors.New("spec load should not run")
+	}
+	serviceBackendFactory = func() serviceBackend {
+		return backend
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
@@ -368,18 +453,18 @@ func TestServiceRestartIfInstalledRejectsKentShellSession(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
-		t.Fatalf("calls = %+v, want status only", backend.calls)
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
 	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceRestartCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session restart guard", stderr.String())
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
-func TestServiceRestartIfInstalledSkipsCurrentShellSessionGuardWhenServiceMissing(t *testing.T) {
+func TestServiceRestartIfInstalledRejectsKentShellSessionBeforeMissingServiceBypass(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-123")
 	backend := &stubServiceBackend{status: serviceStatus{Installed: false}}
 	withServiceCommandTestBackend(t, backend)
@@ -387,14 +472,17 @@ func TestServiceRestartIfInstalledSkipsCurrentShellSessionGuardWhenServiceMissin
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
 	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
-		t.Fatalf("calls = %+v, want status only", backend.calls)
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
 	}
-	if stdout.Len() != 0 || stderr.Len() != 0 {
-		t.Fatalf("unexpected output stdout=%q stderr=%q", stdout.String(), stderr.String())
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -408,17 +496,16 @@ func TestServiceRestartHelpMentionsKentShellGuard(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	expected := "Usage of kent service restart:\n" +
-		"  kent service restart [--if-installed]\n" +
-		"\n" +
-		"Notes:\n" +
-		"  Refuses to run inside Kent shell commands to avoid halting active agent work.\n" +
-		"\n" +
-		"Flags:\n" +
-		"  -if-installed\n" +
-		"    \texit successfully without action when service is not installed\n"
-	if got := stderr.String(); got != expected {
-		t.Fatalf("stderr = %q, want exact help output %q", got, expected)
+	got := stderr.String()
+	for _, want := range []string{
+		"Usage of kent service restart:",
+		"kent service restart [--if-installed]",
+		"Kent shell commands",
+		"-if-installed",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stderr = %q, want %q", got, want)
+		}
 	}
 }
 
@@ -436,8 +523,8 @@ func TestServiceRestartRejectsCurrentShellSessionBeforeHealthProbe(t *testing.T)
 	if len(backend.calls) != 0 {
 		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
 	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceRestartCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session restart guard", stderr.String())
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
@@ -498,6 +585,69 @@ func TestServiceStartRejectsUnmanagedRunningServer(t *testing.T) {
 	}
 	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
 		t.Fatalf("calls = %+v, want status only", backend.calls)
+	}
+}
+
+func TestServiceStartRejectsKentShellSession(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: false}}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"start"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestServiceStartCallsBackendOutsideKentShell(t *testing.T) {
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: false}}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"start"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	want := []serviceAction{serviceActionStatus, serviceActionStart}
+	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
+		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
+	}
+	if !strings.Contains(stdout.String(), "Started") {
+		t.Fatalf("stdout = %q, want start confirmation", stdout.String())
+	}
+}
+
+func TestServiceStopRejectsKentShellSession(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-123")
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true}}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"stop"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 

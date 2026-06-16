@@ -1,4 +1,8 @@
 Usage of kent service uninstall:
   kent service uninstall [--keep-running]
 
+Notes:
+  Refuses to stop the service inside Kent shell commands.
+  `--keep-running` is allowed because it only removes service registration.
+
 Flags:

@@ -43,7 +43,8 @@ kent service uninstall --keep-running
 `install` starts the service after registration. `--no-start` only writes the service registration.
 `uninstall` stops the service before removing registration. `--keep-running` removes registration without stopping an already-running process.
 On macOS, `restart` unloads the LaunchAgent, waits for the old server endpoint to stop responding, and bootstraps the LaunchAgent again.
-`restart` fails inside Kent shell commands, because stopping the service can halt active agent work. Ask the operator to restart it outside the session.
+Lifecycle commands that can stop or restart the service fail inside Kent shell commands, because they can halt active agent work. Ask the operator to manage the service outside the session.
+`install --no-start` and `uninstall --keep-running` are allowed from Kent shell commands because they do not start or stop the service process.
 
 ## Backends
 

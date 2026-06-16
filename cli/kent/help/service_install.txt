@@ -1,4 +1,8 @@
 Usage of kent service install:
   kent service install [--force] [--no-start]
 
+Notes:
+  Refuses to start or restart the service inside Kent shell commands.
+  `--no-start` is allowed because it only writes service registration.
+
 Flags:
