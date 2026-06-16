@@ -52,7 +52,7 @@ export function VirtualizedInfiniteList<TItem>({
   const placeholderCount = hasNextPage ? 1 : 0;
   const count = headerCount + Math.max(items.length, emptyCount) + placeholderCount;
   // TanStack Virtual is the intended windowing boundary; returned instance methods are not passed to memoized children.
-  // eslint-disable-next-line react-hooks/incompatible-library
+  // The react-hooks/incompatible-library check is scoped off for this file in eslint.config.js.
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,

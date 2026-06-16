@@ -1,11 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 
-import {
-  useCurrentWindowChromeTitle,
-  useWindowChromeTitle,
-  WindowChromeTitleProvider,
-} from "./windowChromeTitle";
+import { useCurrentWindowChromeTitle, useWindowChromeTitle } from "./windowChromeTitle";
+import { WindowChromeTitleProvider } from "./WindowChromeTitleProvider";
 
 describe("window chrome title", () => {
   it("sets the current destination title from a one-line hook call", () => {

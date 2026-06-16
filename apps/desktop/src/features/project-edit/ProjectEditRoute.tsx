@@ -7,7 +7,7 @@ import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
-import { usePublishSidebarHeaderAction } from "../../app/sidebarHeaderAction";
+import { usePublishSidebarHeaderAction } from "../../app/sidebarHeaderActionContext";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, LoadingState, TextInput, VirtualizedInfiniteList } from "../../ui";

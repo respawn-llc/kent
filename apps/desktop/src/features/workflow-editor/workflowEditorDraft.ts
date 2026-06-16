@@ -1,15 +1,11 @@
-/* eslint-disable complexity -- The draft reducer and serializers are kept together as one pure state module. */
 import type {
-  WorkflowContextSource,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowGraphDraft,
   WorkflowGraphMetadata,
   WorkflowInputField,
   WorkflowNode,
-  WorkflowNodeGroup,
   WorkflowParameter,
-  WorkflowTransitionGroup,
 } from "../../api";
 import {
   addWorkflowNode,
@@ -34,6 +30,7 @@ import {
   type WorkflowEditorGraphMutationResult,
   type WorkflowEditorSelection,
 } from "./workflowEditorGraphMutations";
+import { workflowGraphsEqual } from "./workflowDraftEquality";
 
 export type DraftInputField = Readonly<{
   rowID: string;
@@ -144,9 +141,114 @@ export function initializeWorkflowEditorDraft(source: WorkflowDefinition): Workf
   };
 }
 
+type LifecycleAction = Extract<
+  WorkflowEditorDraftAction,
+  { type: "reset" | "conflict" | "keepEditing" | "reloadConflict" | "editWorkflowMetadata" }
+>;
+
+type NodeFieldAction = Extract<
+  WorkflowEditorDraftAction,
+  {
+    type:
+      | "editNodeIdentity"
+      | "editAgentNode"
+      | "addInputField"
+      | "updateInputField"
+      | "deleteInputField"
+      | "reorderInputField"
+      | "assignJoinInputProvider";
+  }
+>;
+
+type EdgeFieldAction = Extract<
+  WorkflowEditorDraftAction,
+  {
+    type:
+      | "editEdgePrompt"
+      | "addEdgeParameter"
+      | "updateEdgeParameter"
+      | "deleteEdgeParameter"
+      | "reorderEdgeParameter";
+  }
+>;
+
+type TopologyAction = Extract<
+  WorkflowEditorDraftAction,
+  {
+    type:
+      | "addNode"
+      | "deleteNode"
+      | "connectNodes"
+      | "reconnectEdge"
+      | "deleteEdge"
+      | "editEdgeRoute"
+      | "createNodeGroupFromNode"
+      | "addNodeToGroup"
+      | "deleteNodeGroup"
+      | "extractNodeFromGroup"
+      | "removeNodeFromGroup";
+  }
+>;
+
+type DraftActionType = WorkflowEditorDraftAction["type"];
+
+const lifecycleActionTypes: ReadonlySet<DraftActionType> = new Set<LifecycleAction["type"]>([
+  "reset",
+  "conflict",
+  "keepEditing",
+  "reloadConflict",
+  "editWorkflowMetadata",
+]);
+
+const nodeFieldActionTypes: ReadonlySet<DraftActionType> = new Set<NodeFieldAction["type"]>([
+  "editNodeIdentity",
+  "editAgentNode",
+  "addInputField",
+  "updateInputField",
+  "deleteInputField",
+  "reorderInputField",
+  "assignJoinInputProvider",
+]);
+
+const edgeFieldActionTypes: ReadonlySet<DraftActionType> = new Set<EdgeFieldAction["type"]>([
+  "editEdgePrompt",
+  "addEdgeParameter",
+  "updateEdgeParameter",
+  "deleteEdgeParameter",
+  "reorderEdgeParameter",
+]);
+
+function isLifecycleAction(action: WorkflowEditorDraftAction): action is LifecycleAction {
+  return lifecycleActionTypes.has(action.type);
+}
+
+function isNodeFieldAction(action: WorkflowEditorDraftAction): action is NodeFieldAction {
+  return nodeFieldActionTypes.has(action.type);
+}
+
+function isEdgeFieldAction(action: WorkflowEditorDraftAction): action is EdgeFieldAction {
+  return edgeFieldActionTypes.has(action.type);
+}
+
 export function workflowEditorDraftReducer(
   state: WorkflowEditorDraftState,
   action: WorkflowEditorDraftAction,
+): WorkflowEditorDraftState {
+  if (isLifecycleAction(action)) {
+    return reduceLifecycleAction(state, action);
+  }
+  if (isNodeFieldAction(action)) {
+    return reduceNodeFieldAction(state, action);
+  }
+  if (isEdgeFieldAction(action)) {
+    return reduceEdgeFieldAction(state, action);
+  }
+  return reduceTopologyAction(state, action);
+}
+
+function reduceLifecycleAction(
+  state: WorkflowEditorDraftState,
+  action: LifecycleAction,
 ): WorkflowEditorDraftState {
   switch (action.type) {
     case "reset":
@@ -170,6 +272,14 @@ export function workflowEditorDraftReducer(
         },
         false,
       );
+  }
+}
+
+function reduceNodeFieldAction(
+  state: WorkflowEditorDraftState,
+  action: NodeFieldAction,
+): WorkflowEditorDraftState {
+  switch (action.type) {
     case "editNodeIdentity":
       return editDraftNode(state, action.nodeID, false, (node) => {
         if (node.kind !== "start" && node.kind !== "terminal" && node.kind !== "agent") {
@@ -220,6 +330,14 @@ export function workflowEditorDraftReducer(
         ...node,
         joinInputProviders: assignJoinInputProvider(node.joinInputProviders, action.inputName, action.providerEdgeID),
       }));
+  }
+}
+
+function reduceEdgeFieldAction(
+  state: WorkflowEditorDraftState,
+  action: EdgeFieldAction,
+): WorkflowEditorDraftState {
+  switch (action.type) {
     case "editEdgePrompt":
       return editDraftEdge(state, action.edgeID, false, (edge) => ({
         ...edge,
@@ -256,6 +374,14 @@ export function workflowEditorDraftReducer(
         ...edge,
         parameters: reorderParameterRows(edge.parameters, action.activeRowID, action.overRowID),
       }));
+  }
+}
+
+function reduceTopologyAction(
+  state: WorkflowEditorDraftState,
+  action: TopologyAction,
+): WorkflowEditorDraftState {
+  switch (action.type) {
     case "addNode":
       return applyTopologyMutation(state, addWorkflowNode(state.draft, action.input));
     case "deleteNode":
@@ -508,84 +634,6 @@ function reorderParameterRows(
   return next;
 }
 
-function workflowGraphsEqual(left: WorkflowDefinition, right: WorkflowDefinition): boolean {
-  return (
-    nodeGroupsEqual(left.nodeGroups, right.nodeGroups) &&
-    nodesEqual(left.nodes, right.nodes) &&
-    transitionGroupsEqual(left.transitionGroups, right.transitionGroups) &&
-    edgesEqual(left.edges, right.edges)
-  );
-}
-
-function nodeGroupsEqual(left: readonly WorkflowNodeGroup[], right: readonly WorkflowNodeGroup[]): boolean {
-  return sameLengthAndEvery(left, right, (a, b) => a.id === b.id && a.key === b.key && a.name === b.name);
-}
-
-function nodesEqual(left: readonly WorkflowNode[], right: readonly WorkflowNode[]): boolean {
-  return sameLengthAndEvery(
-    left,
-    right,
-    (a, b) =>
-      a.id === b.id &&
-      a.key === b.key &&
-      a.kind === b.kind &&
-      a.name === b.name &&
-      a.groupID === b.groupID &&
-      a.groupKey === b.groupKey &&
-      a.subagentRole === b.subagentRole &&
-      a.promptTemplate === b.promptTemplate &&
-      inputFieldsEqual(a.inputFields, b.inputFields) &&
-      joinInputProvidersEqual(a.joinInputProviders, b.joinInputProviders),
-  );
-}
-
-function transitionGroupsEqual(
-  left: readonly WorkflowTransitionGroup[],
-  right: readonly WorkflowTransitionGroup[],
-): boolean {
-  return sameLengthAndEvery(
-    left,
-    right,
-    (a, b) =>
-      a.id === b.id &&
-      a.sourceNodeID === b.sourceNodeID &&
-      a.transitionID === b.transitionID &&
-      a.name === b.name &&
-      a.description === b.description,
-  );
-}
-
-function edgesEqual(left: readonly WorkflowEdge[], right: readonly WorkflowEdge[]): boolean {
-  return sameLengthAndEvery(
-    left,
-    right,
-    (a, b) =>
-      a.id === b.id &&
-      a.transitionGroupID === b.transitionGroupID &&
-      a.key === b.key &&
-      a.targetNodeID === b.targetNodeID &&
-      a.requiresApproval === b.requiresApproval &&
-      a.contextMode === b.contextMode &&
-      contextSourceEqual(a.contextSource, b.contextSource) &&
-      a.promptTemplate === b.promptTemplate &&
-      parametersEqual(a.parameters, b.parameters),
-  );
-}
-
-function inputFieldsEqual(
-  left: readonly WorkflowDefinition["nodes"][number]["inputFields"][number][],
-  right: readonly WorkflowDefinition["nodes"][number]["inputFields"][number][],
-): boolean {
-  return sameLengthAndEvery(left, right, (a, b) => a.name === b.name && a.description === b.description);
-}
-
-function parametersEqual(
-  left: readonly WorkflowDefinition["edges"][number]["parameters"][number][],
-  right: readonly WorkflowDefinition["edges"][number]["parameters"][number][],
-): boolean {
-  return sameLengthAndEvery(left, right, (a, b) => a.key === b.key && a.description === b.description);
-}
-
 function assignJoinInputProvider(
   providers: WorkflowDefinition["nodes"][number]["joinInputProviders"],
   inputName: string,
@@ -597,30 +645,4 @@ function assignJoinInputProvider(
     return [...providers, updated];
   }
   return providers.map((provider, index) => (index === providerIndex ? updated : provider));
-}
-
-function joinInputProvidersEqual(
-  left: readonly WorkflowDefinition["nodes"][number]["joinInputProviders"][number][],
-  right: readonly WorkflowDefinition["nodes"][number]["joinInputProviders"][number][],
-): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  const rightByInputName = new Map(right.map((provider) => [provider.inputName, provider.providerEdgeID]));
-  return left.every((provider) => rightByInputName.get(provider.inputName) === provider.providerEdgeID);
-}
-
-function contextSourceEqual(left: WorkflowContextSource, right: WorkflowContextSource): boolean {
-  return left.kind === right.kind && left.nodeKey === right.nodeKey;
-}
-
-function sameLengthAndEvery<T>(
-  left: readonly T[],
-  right: readonly T[],
-  equal: (left: T, right: T) => boolean,
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((item, index) => right[index] !== undefined && equal(item, right[index]))
-  );
 }

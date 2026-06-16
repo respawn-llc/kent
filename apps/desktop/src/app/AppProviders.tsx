@@ -10,7 +10,7 @@ import { createAppQueryClient } from "./queryClient";
 import type { AppServices } from "./services";
 import { AppServicesProvider } from "./servicesContext";
 import { StatusProvider } from "./statusStore";
-import { WindowChromeTitleProvider } from "./windowChromeTitle";
+import { WindowChromeTitleProvider } from "./WindowChromeTitleProvider";
 
 void initializeI18n();
 

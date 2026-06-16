@@ -22,7 +22,8 @@ import {
   SidebarHeaderActionProvider,
   SidebarHeaderActionSlot,
 } from "./sidebarHeaderAction";
-import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
+import { SidebarDestinationView } from "./sidebarDestinations";
+import { sidebarTitle } from "./sidebarTitle";
 import { sidebarSizePreference } from "./sidebarDestinationSizing";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
 import {

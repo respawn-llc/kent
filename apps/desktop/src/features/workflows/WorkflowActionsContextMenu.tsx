@@ -8,7 +8,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../../ui";
-import { useWorkflowDeleteLauncher } from "../workflow-editor/WorkflowDeleteButton";
+import { useWorkflowDeleteLauncher } from "../workflow-editor/useWorkflowDeleteLauncher";
 
 export function WorkflowActionsContextMenu({
   children,

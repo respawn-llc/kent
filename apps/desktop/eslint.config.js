@@ -27,6 +27,13 @@ export default tseslint.config(
   {
     ignores: ["**/dist", "src-tauri/target", "node_modules"],
   },
+  {
+    linterOptions: {
+      // Neutralize every inline eslint directive comment so no rule — including the
+      // app/no-eslint-disable ban below — can be suppressed inline.
+      noInlineConfig: true,
+    },
+  },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
@@ -70,6 +77,7 @@ export default tseslint.config(
       "@typescript-eslint/return-await": ["error", "in-try-catch"],
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "app/no-array-index-key": "error",
+      "app/no-eslint-disable": "error",
       "app/no-mutable-exports": "error",
       "app/no-raw-dto-in-components": "error",
       "app/no-useeffect-data-loading": "error",
@@ -104,6 +112,16 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    // TanStack Virtual's useVirtualizer returns instance methods that cannot be memoized by the
+    // React Compiler. This is an inherent library boundary (the windowing layer owns its own
+    // mutable state), so the compiler-compatibility check is scoped off here at the single
+    // dedicated windowing component instead of suppressed inline.
+    files: ["src/ui/VirtualizedInfiniteList.tsx"],
+    rules: {
+      "react-hooks/incompatible-library": "off",
     },
   },
   {
