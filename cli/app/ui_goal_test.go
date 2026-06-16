@@ -309,8 +309,8 @@ func TestGoalClearActiveGoalRequiresConfirmation(t *testing.T) {
 	if client.clearGoalCalls != 0 {
 		t.Fatalf("clear calls before confirm = %d, want 0", client.clearGoalCalls)
 	}
-	if plain := stripANSIAndTrimRight(updated.View()); !strings.Contains(plain, "Clear active goal?") || !strings.Contains(plain, "Tab/arrows toggle") {
-		t.Fatalf("expected clear confirmation text, got %q", plain)
+	if plain := stripANSIAndTrimRight(updated.View()); !strings.Contains(plain, "Clear active goal?") || !strings.Contains(plain, "[ Confirm ]") {
+		t.Fatalf("expected clear confirmation with choice-group buttons, got %q", plain)
 	}
 
 	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
@@ -451,6 +451,56 @@ func TestGoalOverlayMarkdownCacheRewrapsAfterWidthChange(t *testing.T) {
 	}
 	if !strings.Contains(narrow, "overlay width changes") {
 		t.Fatalf("expected narrow render to preserve tail after rewrap, got %q", narrow)
+	}
+}
+
+func TestGoalConfirmRendersChoiceGroupButtons(t *testing.T) {
+	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
+	m.input = "/goal clear"
+
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if updated.goal.confirmMode != "clear" {
+		t.Fatalf("expected clear confirmation, got %+v", updated.goal)
+	}
+	plain := stripANSIAndTrimRight(updated.View())
+	for _, want := range []string{"[ Cancel ]", "[ Confirm ]"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected confirm to reuse choice-group button %q, got %q", want, plain)
+		}
+	}
+}
+
+func TestGoalConfirmScrollsBodyWhileHorizontalKeysSelect(t *testing.T) {
+	objective := strings.Repeat("long objective line that forces the confirmation body to overflow. ", 40)
+	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: objective, Status: "active"}}
+	m := newSizedProjectedClosedUIModel(client, 60, 8)
+	m.input = "/goal new objective"
+
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if updated.goal.confirmMode != "replace" {
+		t.Fatalf("expected replace confirmation, got %+v", updated.goal)
+	}
+	if updated.goal.confirmSelection != goalConfirmSelectionCancel {
+		t.Fatalf("expected default cancel selection, got %d", updated.goal.confirmSelection)
+	}
+
+	scrollBeforeDown := updated.goal.scroll
+	scrolled := updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+	if scrolled.goal.scroll == scrollBeforeDown {
+		t.Fatalf("expected Down to scroll confirm body, scroll stayed %d", scrolled.goal.scroll)
+	}
+	if scrolled.goal.confirmSelection != goalConfirmSelectionCancel {
+		t.Fatalf("expected Down to leave selection on cancel, got %d", scrolled.goal.confirmSelection)
+	}
+
+	scrollBeforeTab := scrolled.goal.scroll
+	selected := updateGoalForTest(t, scrolled, tea.KeyMsg{Type: tea.KeyTab})
+	if selected.goal.confirmSelection != goalConfirmSelectionConfirm {
+		t.Fatalf("expected Tab to move selection to confirm, got %d", selected.goal.confirmSelection)
+	}
+	if selected.goal.scroll != scrollBeforeTab {
+		t.Fatalf("expected Tab to leave scroll unchanged, was %d now %d", scrollBeforeTab, selected.goal.scroll)
 	}
 }
 

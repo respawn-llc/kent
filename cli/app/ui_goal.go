@@ -104,8 +104,26 @@ func (c uiInputController) handleGoalConfirmKey(msg tea.KeyMsg) (tea.Model, tea.
 		return m, tea.Quit
 	case "esc", "q", "n":
 		return m, c.stopGoalFlowCmd()
-	case "tab", "left", "right", "up", "down":
+	case "tab", "shift+tab", "left", "right", "h", "l":
 		m.toggleGoalConfirmSelection()
+		return m, nil
+	case "up":
+		m.moveGoalScroll(-1)
+		return m, nil
+	case "down":
+		m.moveGoalScroll(1)
+		return m, nil
+	case "pgup":
+		m.moveGoalScrollPage(-1)
+		return m, nil
+	case "pgdown":
+		m.moveGoalScrollPage(1)
+		return m, nil
+	case "home":
+		m.goal.scroll = 0
+		return m, nil
+	case "end":
+		m.goal.scroll = 1 << 30
 		return m, nil
 	case "enter", "y":
 		if strings.ToLower(msg.String()) == "y" {
@@ -402,6 +420,13 @@ func (b *goalOverlayLineBuilder) goalMarkdownRenderer() *glamour.TermRenderer {
 	return renderer
 }
 
+// appendRendered appends an already-styled, full-width line without re-wrapping
+// or re-styling it. Used for pre-rendered UI-kit primitives (e.g. choice groups)
+// whose ANSI must be preserved verbatim.
+func (b *goalOverlayLineBuilder) appendRendered(line string) {
+	b.lines = append(b.lines, padANSIRight(line, b.width))
+}
+
 func (b *goalOverlayLineBuilder) appendGap() {
 	if len(b.lines) > 0 {
 		b.lines = append(b.lines, padRight("", b.width))
@@ -500,16 +525,8 @@ func (l uiViewLayout) goalConfirmContentLines(width int, titleStyle, boldStyle, 
 		builder.appendWrapped("Confirm goal action?", boldStyle)
 	}
 	builder.appendGap()
-	cancel := "Cancel"
-	confirm := "Confirm"
-	if m.goal.confirmSelection == goalConfirmSelectionCancel {
-		cancel = "> " + cancel
-		confirm = "  " + confirm
-	} else {
-		cancel = "  " + cancel
-		confirm = "> " + confirm
-	}
-	builder.appendWrapped(cancel+"    "+confirm, subtleStyle)
-	builder.appendWrapped("Tab/arrows toggle. Enter selects. Esc cancels.", subtleStyle)
+	buttons := []uiChoiceOption{{Label: "Cancel"}, {Label: "Confirm"}}
+	builder.appendRendered(renderUIChoiceGroupLine(width, m.theme, uiChoiceGroupKindButton, buttons, m.goal.confirmSelection))
+	builder.appendWrapped("Tab/←/→ select. Enter confirms. ↑/↓ scroll. Esc cancels.", subtleStyle)
 	return builder.lines
 }

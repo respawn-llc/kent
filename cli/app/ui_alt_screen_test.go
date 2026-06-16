@@ -192,7 +192,7 @@ func TestFullscreenSurfaceOpenClosePolicy(t *testing.T) {
 	}
 }
 
-func TestOngoingOverlaySurfacesDoNotEnableAlternateScroll(t *testing.T) {
+func TestOngoingOverlaySurfacesEnableAndDisableAlternateScroll(t *testing.T) {
 	tests := []struct {
 		name    string
 		surface uiSurface
@@ -226,14 +226,18 @@ func TestOngoingOverlaySurfacesDoNotEnableAlternateScroll(t *testing.T) {
 				t.Fatal("expected open command")
 			}
 			_ = collectCmdMessages(t, openCmd)
+			if got := sequenceLog.String(); strings.Count(got, "\x1b[?1007h") != 1 || strings.Contains(got, "\x1b[?1007l") {
+				t.Fatalf("expected alternate-scroll enabled on overlay open, got sequences %q", got)
+			}
+
 			closeCmd := m.restoreTranscriptSurface()
 			if closeCmd == nil {
 				t.Fatal("expected close command")
 			}
 			_ = collectCmdMessages(t, closeCmd)
 
-			if got := sequenceLog.String(); strings.Contains(got, "\x1b[?1007h") || strings.Contains(got, "\x1b[?1007l") {
-				t.Fatalf("ongoing overlay emitted alternate-scroll sequence: %q", got)
+			if got := sequenceLog.String(); strings.Count(got, "\x1b[?1007h") != 1 || strings.Count(got, "\x1b[?1007l") != 1 {
+				t.Fatalf("expected paired alternate-scroll enable/disable, got sequences %q", got)
 			}
 			if got := m.view.Mode(); got != tui.ModeOngoing {
 				t.Fatalf("mode=%q want ongoing", got)

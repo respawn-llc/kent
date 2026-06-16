@@ -52,12 +52,14 @@ func (surface uiSurface) wantsAltScreen() bool {
 	}
 }
 
-func (m *uiModel) surfaceWantsAlternateScroll(surface uiSurface) bool {
+// wantsAlternateScroll reports whether a surface enables terminal alternate-scroll
+// (`?1007`) while active. Per docs/dev/specs/tui-transcript.md, every alt-screen
+// surface enables it except ongoing (never) and the rollback/edit picker (which
+// renders inside alt-screen but ignores mouse and keeps alt-scroll off).
+func (surface uiSurface) wantsAlternateScroll() bool {
 	switch surface {
-	case uiSurfaceTranscriptDetail:
+	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceWorktree, uiSurfaceProcessList:
 		return true
-	case uiSurfaceStatus, uiSurfaceGoal, uiSurfaceWorktree, uiSurfaceProcessList:
-		return m.transcriptMode() == tui.ModeDetail
 	default:
 		return false
 	}
@@ -90,21 +92,21 @@ func (m *uiModel) altScreenCmdForSurfaceTransition(prev, next uiSurface) tea.Cmd
 	nextWantsAlt := next.wantsAltScreen()
 	if !prevWantsAlt && nextWantsAlt && !m.altScreenActive {
 		m.altScreenActive = true
-		if m.surfaceWantsAlternateScroll(next) {
+		if next.wantsAlternateScroll() {
 			return tea.Sequence(tea.EnterAltScreen, enableAlternateScrollCmd())
 		}
 		return tea.EnterAltScreen
 	}
 	if prevWantsAlt && !nextWantsAlt && m.altScreenActive {
 		m.altScreenActive = false
-		if m.surfaceWantsAlternateScroll(prev) {
+		if prev.wantsAlternateScroll() {
 			return tea.Sequence(disableAlternateScrollCmd(), tea.ExitAltScreen)
 		}
 		return tea.ExitAltScreen
 	}
 	if prevWantsAlt && nextWantsAlt && m.altScreenActive {
-		prevWantsAlternateScroll := m.surfaceWantsAlternateScroll(prev)
-		nextWantsAlternateScroll := m.surfaceWantsAlternateScroll(next)
+		prevWantsAlternateScroll := prev.wantsAlternateScroll()
+		nextWantsAlternateScroll := next.wantsAlternateScroll()
 		if prevWantsAlternateScroll == nextWantsAlternateScroll {
 			return nil
 		}

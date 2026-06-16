@@ -3,9 +3,41 @@ const dtoImportNames = new Set(["Dto", "DTO"]);
 const rawProtocolDirectories = new Set(["generated", "protocol"]);
 const disallowedEffectCalls = new Set(["fetch", "invoke"]);
 const knownBridgeIdentifiers = new Set(["apiClient", "appClient", "nativeBridge", "serverClient"]);
+const eslintDisableDirectiveKeywords = new Set([
+  "eslint-disable",
+  "eslint-disable-line",
+  "eslint-disable-next-line",
+  "eslint-enable",
+]);
 
 export const appArchitecture = {
   rules: {
+    "no-eslint-disable": {
+      meta: {
+        type: "problem",
+        docs: {
+          description:
+            "Disallow eslint-disable/eslint-enable directive comments so rules cannot be suppressed inline.",
+        },
+        messages: {
+          bannedDirective:
+            "Do not suppress ESLint with disable/enable directive comments. Fix the underlying violation at its root instead.",
+        },
+        schema: [],
+      },
+      create(context) {
+        const sourceCode = context.sourceCode ?? context.getSourceCode();
+        return {
+          Program() {
+            for (const comment of sourceCode.getAllComments()) {
+              if (isEslintDisableDirective(comment)) {
+                context.report({ node: comment, messageId: "bannedDirective" });
+              }
+            }
+          },
+        };
+      },
+    },
     "no-array-index-key": {
       meta: {
         type: "problem",
@@ -148,6 +180,23 @@ export const appArchitecture = {
     },
   },
 };
+
+function isEslintDisableDirective(comment) {
+  return eslintDisableDirectiveKeywords.has(firstWhitespaceDelimitedToken(comment.value.trim()));
+}
+
+function firstWhitespaceDelimitedToken(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    if (isWhitespaceCharacter(value[index])) {
+      return value.slice(0, index);
+    }
+  }
+  return value;
+}
+
+function isWhitespaceCharacter(character) {
+  return character === " " || character === "\t" || character === "\n" || character === "\r";
+}
 
 function isIndexLikeExpression(expression) {
   if (expression.type === "Identifier") {

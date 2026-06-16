@@ -12,7 +12,14 @@ import { useAppServices } from "../../app/useAppServices";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
-import { ErrorState, homeListCardListMaxWidthClassName, LoadingState, VirtualizedInfiniteList } from "../../ui";
+import {
+  ErrorState,
+  homeListCardListMaxWidthClassName,
+  islandSurfaceClassName,
+  LoadingState,
+  VirtualizedInfiniteList,
+} from "../../ui";
+import { cx } from "../../ui/classes";
 import { HomePrimaryPane, type HomePrimaryTab } from "./HomePrimaryPane";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
 import {
@@ -151,7 +158,7 @@ export function HomeRoute() {
     <div className="h-full min-h-0" data-testid="home-route-root">
       {projectCreationDialog.fallback}
       <div
-        className="grid h-full min-h-0 grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[var(--space-2)]"
+        className="grid h-full min-h-0 grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[var(--space-3)]"
         data-testid="home-pane-grid"
       >
         <section
@@ -204,7 +211,12 @@ function AttentionList({ items, query }: AttentionListProps) {
       getItemKey={(item) => item.id}
       hasNextPage={query.hasNextPage}
       header={
-        <h2 className="m-0 pb-[var(--space-2)] text-[1.15rem]" id="attention-title">
+        // Mirror the projects-tab pill's internal top inset (1px border + p-1 + button py-2) and label
+        // typography so the "Inbox" upper edge aligns precisely with the tab labels in the adjacent pane.
+        <h2
+          className="m-0 mt-[calc(1px+var(--space-1)+var(--space-2))] text-base font-bold"
+          id="attention-title"
+        >
           {t("home.attentionPane")}
         </h2>
       }
@@ -230,7 +242,10 @@ function AttentionRow({
 }>) {
   return (
     <button
-      className="grid w-full min-w-0 gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] text-left text-[var(--color-on-island)]"
+      className={cx(
+        "grid w-full min-w-0 gap-[var(--space-2)] rounded-[var(--radius-l)] p-[var(--space-3)] text-left text-[var(--color-on-island)]",
+        islandSurfaceClassName(1),
+      )}
       data-testid="attention-row"
       onClick={() => {
         if (item.taskID.length > 0) {

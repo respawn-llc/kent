@@ -1,0 +1,80 @@
+import { type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
+import { X } from "lucide-react";
+
+import type { WorkflowInspectorSelection } from "../../app/sidebarContext";
+import { Button, IslandSurface } from "../../ui";
+import { WorkflowInspectorSidebar } from "./WorkflowInspectorSidebar";
+
+export function WorkflowEditorTopChromeBlur() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[calc(var(--native-titlebar-height)*2)]"
+      data-testid="workflow-editor-top-chrome-blur"
+      style={workflowEditorTopChromeBlurStyle}
+    />
+  );
+}
+
+const workflowEditorTopChromeBlurStyle = {
+  WebkitBackdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
+  WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
+  background: "color-mix(in srgb, var(--window-glass-tint) 65%, transparent)",
+  backdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
+  maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
+} satisfies CSSProperties;
+
+export function WorkflowEditorEmbeddedInspector({
+  onClose,
+  selection,
+  workflowID,
+}: Readonly<{
+  onClose: () => void;
+  selection: WorkflowInspectorSelection | null;
+  workflowID: string;
+}>) {
+  const { t } = useTranslation();
+  if (selection === null) {
+    return null;
+  }
+  const title = workflowInspectorTitle(selection, t);
+  return (
+    <IslandSurface
+      aria-label={title}
+      as="aside"
+      className="absolute top-[var(--space-2)] right-[var(--space-2)] bottom-[var(--space-2)] z-40 grid w-[min(420px,calc(100%-var(--space-4)))] grid-rows-[auto_1fr] overflow-hidden rounded-[var(--radius-l)] p-0"
+      level={3}
+    >
+      <header className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-[var(--space-2)] border-b border-[var(--color-outline)] px-[var(--space-3)] py-[var(--space-2)]">
+        <Button aria-label={t("app.close")} onClick={onClose} size="icon" variant="ghost">
+          <X aria-hidden="true" size={18} strokeWidth={1.5} />
+        </Button>
+        <h2 className="m-0 truncate text-[1rem] font-bold">{title}</h2>
+      </header>
+      <div className="min-h-0 overflow-y-auto p-[var(--space-3)]">
+        <WorkflowInspectorSidebar
+          onMissingSelectedNode={onClose}
+          selection={selection}
+          workflowID={workflowID}
+        />
+      </div>
+    </IslandSurface>
+  );
+}
+
+function workflowInspectorTitle(
+  selection: WorkflowInspectorSelection,
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
+  if (selection.kind === "workflow") {
+    return t("workflowEditor.inspectWorkflow");
+  }
+  if (selection.kind === "node") {
+    return t("workflowEditor.inspectNode");
+  }
+  if (selection.kind === "group") {
+    return t("workflowEditor.inspectGroup");
+  }
+  return t("workflowEditor.inspectEdge");
+}

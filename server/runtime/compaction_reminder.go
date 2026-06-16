@@ -34,7 +34,8 @@ func (c compactionReminderCoordinator) maybeAppend(ctx context.Context, stepID s
 	if !e.usageAtOrAboveLimit(ctx, limit) {
 		return nil
 	}
-	content := prompts.RenderCompactionSoonReminderPrompt(e.triggerHandoffConfigured())
+	estimatedToolCalls := planner.estimatedToolCallsUntilForcedHandoff(planningSnapshot)
+	content := prompts.RenderCompactionSoonReminderPrompt(e.triggerHandoffConfigured(), estimatedToolCalls)
 	if content == "" {
 		return nil
 	}
@@ -52,6 +53,10 @@ func (c compactionReminderCoordinator) maybeAppend(ctx context.Context, stepID s
 		return err
 	}
 	return e.persistCompactionSoonReminderIssued(true)
+}
+
+func (e *Engine) estimatedToolCallsUntilForcedHandoff() int {
+	return e.compactionPlannerState().estimatedToolCallsUntilForcedHandoff(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) handoffToolEnabled() bool {

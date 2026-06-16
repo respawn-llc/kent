@@ -182,11 +182,24 @@ func LaunchCommand() string {
 	return selfcmd.LaunchCommand()
 }
 
-func RenderCompactionSoonReminderPrompt(triggerHandoffEnabled bool) string {
+type compactionSoonReminderTemplateData struct {
+	EstimatedToolCallsTillForcedHandoff int
+}
+
+func RenderCompactionSoonReminderPrompt(triggerHandoffEnabled bool, estimatedToolCallsTillForcedHandoff int) string {
+	text := CompactionSoonReminderPrompt
+	name := "compaction soon reminder"
 	if triggerHandoffEnabled {
-		return strings.TrimSpace(CompactionSoonReminderTriggerHandoffPrompt)
+		text = CompactionSoonReminderTriggerHandoffPrompt
+		name = "compaction soon reminder trigger handoff"
 	}
-	return strings.TrimSpace(CompactionSoonReminderPrompt)
+	rendered, err := renderNamedTemplate(name, text, compactionSoonReminderTemplateData{
+		EstimatedToolCallsTillForcedHandoff: estimatedToolCallsTillForcedHandoff,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return rendered
 }
 
 // goalPromptData is the template data shared by every goal prompt. Goal

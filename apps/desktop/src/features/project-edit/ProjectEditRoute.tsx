@@ -1,15 +1,16 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { Plus, Save } from "lucide-react";
 
 import type { ProjectEdit, WorkspaceSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
+import { usePublishSidebarHeaderAction } from "../../app/sidebarHeaderActionContext";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
-import { ErrorState, LoadingState, TextInput, VirtualizedInfiniteList } from "../../ui";
+import { Button, ErrorState, LoadingState, TextInput, VirtualizedInfiniteList } from "../../ui";
 import {
   ProjectNameField,
   WorkspaceRow,
@@ -171,14 +172,14 @@ function ProjectEditContent({
     }
   }
 
-  async function saveName(): Promise<void> {
+  const saveName = useCallback(async (): Promise<void> => {
     try {
       await nameSave.mutateAsync(nameDraft);
       pushToast("project-edit-name-saved", "success", t("projectEdit.projectSaved"));
     } catch (error) {
       pushToast("project-edit-name-save-error", "danger", errorMessage(error));
     }
-  }
+  }, [nameDraft, nameSave, pushToast, t]);
 
   async function saveDefaultWorkspace(workspace: WorkspaceSummary): Promise<void> {
     if (workspace.id === project.defaultWorkspaceID) {
@@ -192,15 +193,35 @@ function ProjectEditContent({
     }
   }
 
+  // Publish the name-save control into the shared sidebar header (left of delete). It only appears
+  // when the draft differs from the saved name, and is disabled while invalid or disconnected.
+  const canSaveName = nameChanged && nameErrors.length === 0 && !mutating;
+  const headerSaveAction = useMemo<ReactNode>(() => {
+    if (!nameChanged) {
+      return null;
+    }
+    return (
+      <Button
+        aria-label={t("projectEdit.saveName")}
+        disabled={!canSaveName}
+        onClick={() => void saveName()}
+        size="icon"
+        title={t("projectEdit.saveName")}
+        variant="primary"
+      >
+        <Save aria-hidden="true" size={18} strokeWidth={1.5} />
+      </Button>
+    );
+  }, [canSaveName, nameChanged, saveName, t]);
+  usePublishSidebarHeaderAction(headerSaveAction);
+
   const header = (
     <ProjectEditListHeader
       disabled={mutating}
-      nameChanged={nameChanged}
       nameDraft={nameDraft}
       nameErrors={nameErrors}
       onAttach={() => void chooseWorkspace()}
       onNameChange={setNameDraft}
-      onNameSave={() => void saveName()}
       project={project}
     />
   );
@@ -208,7 +229,7 @@ function ProjectEditContent({
   return (
     <section
       aria-labelledby="workspaces-title"
-      className="island-glass h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]"
+      className="h-full min-h-0 overflow-hidden"
       data-testid="project-edit-route"
     >
       {unlinkDialog.fallback}
@@ -235,21 +256,17 @@ function ProjectEditContent({
 
 function ProjectEditListHeader({
   disabled,
-  nameChanged,
   nameDraft,
   nameErrors,
   onAttach,
   onNameChange,
-  onNameSave,
   project,
 }: Readonly<{
   disabled: boolean;
-  nameChanged: boolean;
   nameDraft: string;
   nameErrors: readonly string[];
   onAttach: () => void;
   onNameChange: (value: string) => void;
-  onNameSave: () => void;
   project: ProjectEdit;
 }>) {
   const { t } = useTranslation();
@@ -258,13 +275,17 @@ function ProjectEditListHeader({
       <div className="grid min-w-0 gap-[var(--space-3)]">
         <ProjectNameField
           disabled={disabled}
-          nameChanged={nameChanged}
           nameDraft={nameDraft}
           nameErrors={nameErrors}
           onNameChange={onNameChange}
-          onNameSave={onNameSave}
         />
-        <TextInput disabled label={t("home.projectKey")} value={project.projectKey} />
+        <TextInput
+          className="cursor-not-allowed opacity-55"
+          label={t("home.projectKey")}
+          readOnly
+          title={t("home.projectKeyImmutable")}
+          value={project.projectKey}
+        />
       </div>
       <div className="flex min-w-0 items-center justify-between gap-[var(--space-3)]">
         <h1 className="m-0 text-[1.15rem] font-bold" id="workspaces-title">

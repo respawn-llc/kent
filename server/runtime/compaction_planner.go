@@ -118,6 +118,33 @@ func (p *compactionPlanner) soonReminderLimit(snapshot compactionPlanningSnapsho
 	return reminderLimit
 }
 
+// estimatedToolCallsUntilForcedHandoff estimates how many more assistant tool
+// calls fit between the soon-reminder threshold and the forced compaction
+// threshold, so the reminder can tell the model roughly how much runway it has
+// left to trigger a handoff voluntarily.
+func (p *compactionPlanner) estimatedToolCallsUntilForcedHandoff(snapshot compactionPlanningSnapshot) int {
+	forcedLimit := p.autoCompactTokenLimit(snapshot)
+	reminderLimit := p.soonReminderLimit(snapshot)
+	// Base the estimate on the budget actually remaining when the reminder is issued. A single
+	// large tool result or response can push usage from below the reminder threshold to just under
+	// the forced limit, so the fixed threshold gap (forcedLimit-reminderLimit) would overstate the
+	// runway. Fall back to that gap when current usage is unknown, and never report more than it so
+	// the estimate stays conservative.
+	budget := forcedLimit - reminderLimit
+	if used := snapshot.lastUsage.WindowTokens; used > 0 {
+		if remaining := forcedLimit - used; remaining < budget {
+			budget = remaining
+		}
+	}
+	// Clamp to at least one call: once usage reaches or passes the forced limit the remaining
+	// budget is non-positive, but the reminder must never tell the model it has "0" (or negative)
+	// tool calls left. A floor of one communicates "one more at most".
+	if estimate := compaction.EstimatedToolCallsForTokenBudget(budget); estimate > 1 {
+		return estimate
+	}
+	return 1
+}
+
 func (p *compactionPlanner) reservedOutputTokens(snapshot compactionPlanningSnapshot) int {
 	if snapshot.lockedMaxOutputTokens > 0 {
 		return snapshot.lockedMaxOutputTokens

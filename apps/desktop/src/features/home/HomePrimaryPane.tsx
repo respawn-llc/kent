@@ -87,7 +87,7 @@ function HomePrimaryTabs({
   return (
     <IslandTabs
       ariaLabel={t("home.projectsPane")}
-      className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-2 gap-[var(--space-2)] px-[var(--space-4)] pt-[var(--space-4)] pb-[var(--space-2)]"
+      className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-2 gap-[var(--space-3)] px-[var(--space-4)] pt-[var(--space-4)] pb-[var(--space-3)]"
       containerRef={controlsRef}
       data-testid="home-primary-controls"
       items={[

@@ -58,6 +58,7 @@ export const englishResources = {
       createProject: "Create project",
       projectName: "Project name",
       projectKey: "Project key",
+      projectKeyImmutable: "Project key can't be changed after creation.",
       workspaceRoot: "Workspace root",
       chooseWorkspace: "Choose workspace",
       workspacePickerError: "Workspace picker failed",

@@ -61,6 +61,6 @@ docs/tmp/
 
 # Local runtime state
 .env
-.builder/config.toml
-.builder/plans/
-.builder/proofs/
+.kent/config.toml
+.kent/plans/
+.kent/proofs/
