@@ -636,7 +636,11 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func readTaskBodyFlag(body string, bodyFile string) (string, error) {
+	trimmedBody := strings.TrimSpace(body)
 	if strings.TrimSpace(bodyFile) == "" {
+		if trimmedBody == "" {
+			return "", errors.New("either --body or --body-file is required")
+		}
 		return body, nil
 	}
 	if body != "" {

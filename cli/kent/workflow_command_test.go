@@ -877,6 +877,12 @@ func TestTaskShowHelpIncludesJSONFlag(t *testing.T) {
 	}
 }
 
+func TestReadTaskBodyFlagRequiresInlineOrFileBody(t *testing.T) {
+	if _, err := readTaskBodyFlag(" \t\n", ""); err == nil {
+		t.Fatal("expected missing body flags to fail")
+	}
+}
+
 func TestTaskCommentAuthorForAddUsesUserWithoutKentSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
 	remote := &commentAuthorRemote{}
