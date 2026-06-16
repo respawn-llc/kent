@@ -29,16 +29,16 @@ type steeringIntent struct {
 }
 
 type steeringItem struct {
-	message          *steeringMessage
-	localEntry       *steeringLocalEntry
-	historyReplace   *steeringHistoryReplacement
-	toolCompletion   *tools.Result
-	queuedFlush      *steeringQueuedUserMessageFlush
-	event            *Event
-	streaming        *steeringStreamingOutput
-	cacheWarning     *steeringCacheWarning
-	cacheObservation *steeringCacheObservation
-	repairReload     *steeringRepairReload
+	message            *steeringMessage
+	localEntry         *steeringLocalEntry
+	historyReplace     *steeringHistoryReplacement
+	toolCompletion     *tools.Result
+	queuedFlush        *steeringQueuedUserMessageFlush
+	event              *Event
+	streaming          *steeringStreamingOutput
+	cacheWarning       *steeringCacheWarning
+	cacheObservation   *steeringCacheObservation
+	repairInvalidation *steeringRepairInvalidation
 }
 
 type steeringMessage struct {
@@ -76,11 +76,10 @@ type steeringCacheObservation struct {
 	emit       bool
 }
 
-type steeringRepairReload struct {
-	rewrite                 session.EventRewriteResult
-	removedCallIDs          []string
-	removedToolCallIDs      []string
-	preRepairCommittedCount int
+type steeringRepairInvalidation struct {
+	rewrite            session.EventRewriteResult
+	removedCallIDs     []string
+	removedToolCallIDs []string
 }
 
 type steeringQueuedUserMessageFlush struct {
@@ -242,16 +241,15 @@ func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.
 	}
 }
 
-func steerRepairReloadIntent(rewrite session.EventRewriteResult, removedCallIDs []string, removedToolCallIDs []string, preRepairCommittedCount int) steeringIntent {
+func steerRepairInvalidationIntent(rewrite session.EventRewriteResult, removedCallIDs []string, removedToolCallIDs []string) steeringIntent {
 	copyRemovedCallIDs := append([]string(nil), removedCallIDs...)
 	copyRemovedToolCallIDs := append([]string(nil), removedToolCallIDs...)
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
-		items: []steeringItem{{repairReload: &steeringRepairReload{
-			rewrite:                 rewrite,
-			removedCallIDs:          copyRemovedCallIDs,
-			removedToolCallIDs:      copyRemovedToolCallIDs,
-			preRepairCommittedCount: preRepairCommittedCount,
+		items: []steeringItem{{repairInvalidation: &steeringRepairInvalidation{
+			rewrite:            rewrite,
+			removedCallIDs:     copyRemovedCallIDs,
+			removedToolCallIDs: copyRemovedToolCallIDs,
 		}}},
 	}
 }
@@ -341,8 +339,8 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 		return nil
 	}
-	if item.repairReload != nil {
-		return e.applyRepairReloadRaw(stepID, *item.repairReload)
+	if item.repairInvalidation != nil {
+		return e.applyRepairInvalidationRaw(stepID, *item.repairInvalidation)
 	}
 	if item.streaming != nil {
 		if item.streaming.assistantDelta != nil {
@@ -364,7 +362,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	return nil
 }
 
-func (e *Engine) applyRepairReloadRaw(stepID string, repair steeringRepairReload) error {
+func (e *Engine) applyRepairInvalidationRaw(stepID string, repair steeringRepairInvalidation) error {
 	if e == nil {
 		return nil
 	}

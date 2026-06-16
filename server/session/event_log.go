@@ -27,7 +27,7 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 		return nil
 	}
 	freshness := ConversationFreshnessFresh
-	parsed, err := walkEventsFile(s.eventsFP, func(evt Event) error {
+	parsed, err := walkEventsFileFromOffset(s.eventsFP, 0, func(evt Event) error {
 		freshness = advanceConversationFreshness(freshness, evt)
 		return nil
 	})
@@ -218,10 +218,6 @@ func readEventsFile(path string) (parsedEvents, error) {
 	return parseEventsFromReader(bufio.NewReader(fp))
 }
 
-func walkEventsFile(path string, visit func(Event) error) (parsedEvents, error) {
-	return walkEventsFileFromOffset(path, 0, visit)
-}
-
 func walkEventsFileFromOffset(path string, offset int64, visit func(Event) error) (parsedEvents, error) {
 	fp, err := openRegularSessionFile(path, "events file")
 	if err != nil {
@@ -362,10 +358,6 @@ func writeEventsFile(path string, events []Event) error {
 		return fmt.Errorf("replace events file: %w", err)
 	}
 	return nil
-}
-
-func latestHistoryReplacementEventBoundary(evt Event) (bool, error) {
-	return strings.TrimSpace(evt.Kind) == "history_replaced", nil
 }
 
 func latestEventOffset(path string, match EventBoundaryMatcher) (int64, error) {

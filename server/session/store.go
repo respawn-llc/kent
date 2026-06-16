@@ -771,7 +771,9 @@ func (s *Store) AnalyzeAndRewriteEvents(
 	transform func(Event) (EventRewriteDecision, error),
 	extraEvents func() ([]EventInput, error),
 ) (EventRewriteResult, bool, error) {
-	return s.AnalyzeAndRewriteEventsAfterLatestBoundary(stepID, latestHistoryReplacementEventBoundary, analyze, transform, extraEvents)
+	return s.AnalyzeAndRewriteEventsAfterLatestBoundary(stepID, func(evt Event) (bool, error) {
+		return strings.TrimSpace(evt.Kind) == "history_replaced", nil
+	}, analyze, transform, extraEvents)
 }
 
 func (s *Store) AnalyzeAndRewriteEventsAfterLatestBoundary(
@@ -894,7 +896,7 @@ func (s *Store) WalkEvents(visit func(Event) error) error {
 	if !s.persisted {
 		return nil
 	}
-	parsed, err := walkEventsFile(s.eventsFP, visit)
+	parsed, err := walkEventsFileFromOffset(s.eventsFP, 0, visit)
 	if err != nil {
 		return err
 	}

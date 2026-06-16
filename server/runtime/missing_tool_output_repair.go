@@ -85,7 +85,7 @@ func repairMissingToolOutputsInSessionStore(store *session.Store, stepID string)
 			Payload: storedLocalEntry{
 				Visibility: transcript.EntryVisibilityAll,
 				Role:       string(transcript.EntryRoleDeveloperErrorFeedback),
-				Text:       formatMissingToolOutputRepairWarning(plan.affectedCalls()),
+				Text:       fmt.Sprintf(missingToolOutputRepairWarningTemplate, plan.affectedCalls()),
 			},
 		}}, nil
 	}
@@ -118,15 +118,14 @@ func (e *Engine) repairMissingToolOutputsAfterHTTP400(stepID string) (missingToo
 	if e.pendingToolCallStartStore().Len() > 0 {
 		return missingToolOutputRepairResult{}, false, nil
 	}
-	preRepairCommittedCount := e.CommittedTranscriptEntryCount()
 	result, committed, err := repairMissingToolOutputsInSessionStore(e.store, stepID)
 	if committed {
-		err = errors.Join(err, e.steer(stepID, steerRepairReloadIntent(result.Rewrite, result.RemovedIDs, result.RemovedCallIDs, preRepairCommittedCount)))
+		err = errors.Join(err, e.steer(stepID, steerRepairInvalidationIntent(result.Rewrite, result.RemovedIDs, result.RemovedCallIDs)))
 	}
 	return result, committed, err
 }
 
-func (e *Engine) applyMissingToolOutputRepairProjection(result steeringRepairReload) error {
+func (e *Engine) applyMissingToolOutputRepairProjection(result steeringRepairInvalidation) error {
 	if e == nil || e.store == nil {
 		return nil
 	}
@@ -322,7 +321,10 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 			delete(s.toolCompletions, id)
 			delete(s.toolCompletionProviderItems, id)
 		}
-		s.lastCommittedAssistantFinalAnswer = lastCommittedAssistantFinalAnswerFromItems(s.providerItemsSourceLocked())
+		s.lastCommittedAssistantFinalAnswer = ""
+		for _, msg := range llm.MessagesFromItems(s.providerItemsSourceLocked()) {
+			s.applyLastCommittedAssistantFinalAnswerLocked(msg)
+		}
 		s.providerTokenEstimateDirty = true
 	}
 	for _, entry := range appendedEntries {
@@ -417,26 +419,6 @@ func repairedTailMessageCountThroughOriginalCount(items []llm.ResponseItem, affe
 	}
 	prefixItems := llm.ItemsFromMessages(messages[:originalMessageCount])
 	return len(llm.MessagesFromItems(responseItemsAfterMissingToolOutputRepair(prefixItems, affectedCallIDs, removedCallIDs)))
-}
-
-func lastCommittedAssistantFinalAnswerFromItems(items []llm.ResponseItem) string {
-	messages := llm.MessagesFromItems(items)
-	last := ""
-	for _, msg := range messages {
-		if messagePreservesLastCommittedAssistantFinalAnswer(msg) || isNoopFinalAnswer(msg) {
-			continue
-		}
-		if msg.Role == llm.RoleAssistant && msg.Phase == llm.MessagePhaseFinal && strings.TrimSpace(msg.Content) != "" {
-			last = msg.Content
-			continue
-		}
-		last = ""
-	}
-	return last
-}
-
-func formatMissingToolOutputRepairWarning(removedCalls int) string {
-	return fmt.Sprintf(missingToolOutputRepairWarningTemplate, removedCalls)
 }
 
 func (s *missingToolOutputRepairScan) apply(evt session.Event) error {
