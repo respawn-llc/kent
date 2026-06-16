@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 )
 
@@ -178,6 +179,107 @@ func TestCommittedLocalEntrySteeringSerializesPersistProjectEmitOrder(t *testing
 	}
 	if events[0].CommittedEntryStart > events[1].CommittedEntryStart {
 		t.Fatalf("event committed ranges out of order: first=%d second=%d", events[0].CommittedEntryStart, events[1].CommittedEntryStart)
+	}
+}
+
+func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) {
+	store := mustCreateTestSession(t)
+	var (
+		mu     sync.Mutex
+		events []Event
+	)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		OnEvent: func(evt Event) {
+			mu.Lock()
+			events = append(events, evt)
+			mu.Unlock()
+		},
+	})
+	eng.ensureOrchestrationCollaborators()
+
+	cachePersistEntered := make(chan struct{})
+	releaseCachePersist := make(chan struct{})
+	appendEntered := make(chan struct{})
+	var cacheOnce sync.Once
+	var appendOnce sync.Once
+	eng.beforePersistCacheObservation = func(events []session.EventInput) error {
+		for _, event := range events {
+			if event.Kind == sessionEventCacheWarning {
+				cacheOnce.Do(func() { close(cachePersistEntered) })
+				<-releaseCachePersist
+				return nil
+			}
+		}
+		return nil
+	}
+	eng.beforePersistLocalEntry = func(entry storedLocalEntry) error {
+		if entry.Text == "feedback" {
+			appendOnce.Do(func() { close(appendEntered) })
+		}
+		return nil
+	}
+
+	cacheDone := make(chan error, 1)
+	go func() {
+		cacheDone <- eng.observePromptCacheResponse("cache-step", preparedCacheRequestObservation{
+			request: persistedCacheRequestObserved{
+				DigestVersion: requestCacheDigestVersion,
+				CacheKey:      "session-1/cache-key",
+				Scope:         cachewarn.ScopeConversation,
+			},
+			exactWarning: &cachewarn.Warning{
+				Scope:  cachewarn.ScopeConversation,
+				Reason: cachewarn.ReasonNonPostfix,
+			},
+			previousCachedInputTokens: 10,
+		}, llm.Usage{HasCachedInputTokens: true, CachedInputTokens: 0})
+	}()
+	select {
+	case <-cachePersistEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for cache warning observation to enter persistence")
+	}
+
+	appendDone := make(chan error, 1)
+	go func() {
+		appendDone <- eng.AppendCommittedEntry("system", "feedback")
+	}()
+	select {
+	case <-appendEntered:
+		t.Fatal("committed feedback append entered persistence before cache warning observation completed")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(releaseCachePersist)
+	if err := <-cacheDone; err != nil {
+		t.Fatalf("cache warning observation: %v", err)
+	}
+	if err := <-appendDone; err != nil {
+		t.Fatalf("append feedback: %v", err)
+	}
+
+	snapshot := eng.ChatSnapshot()
+	if len(snapshot.Entries) != 2 || snapshot.Entries[0].Role != cacheWarningTranscriptRole || snapshot.Entries[1].Text != "feedback" {
+		t.Fatalf("committed chat order = %+v, want cache warning then feedback", snapshot.Entries)
+	}
+	persisted, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	if len(persisted) < 3 {
+		t.Fatalf("persisted event count = %d, want at least 3 events=%+v", len(persisted), persisted)
+	}
+	if persisted[0].Kind != sessionEventCacheWarning || persisted[1].Kind != sessionEventCacheResponseObserved || persisted[2].Kind != "local_entry" {
+		t.Fatalf("persisted event order = %s, %s, %s; want cache_warning, cache_response_observed, local_entry", persisted[0].Kind, persisted[1].Kind, persisted[2].Kind)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 2 {
+		t.Fatalf("event count = %d, want 2 events=%+v", len(events), events)
+	}
+	if events[0].Kind != EventCacheWarning || events[1].LocalEntry == nil || events[1].LocalEntry.Text != "feedback" {
+		t.Fatalf("live event order = %+v, want cache warning then feedback", events)
 	}
 }
 

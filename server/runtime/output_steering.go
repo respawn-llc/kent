@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/cachewarn"
 	"core/shared/transcript"
@@ -26,13 +27,14 @@ type steeringIntent struct {
 }
 
 type steeringItem struct {
-	message        *steeringMessage
-	localEntry     *steeringLocalEntry
-	historyReplace *steeringHistoryReplacement
-	toolCompletion *tools.Result
-	event          *Event
-	streaming      *steeringStreamingOutput
-	cacheWarning   *steeringCacheWarning
+	message          *steeringMessage
+	localEntry       *steeringLocalEntry
+	historyReplace   *steeringHistoryReplacement
+	toolCompletion   *tools.Result
+	event            *Event
+	streaming        *steeringStreamingOutput
+	cacheWarning     *steeringCacheWarning
+	cacheObservation *steeringCacheObservation
 }
 
 type steeringMessage struct {
@@ -58,6 +60,13 @@ type steeringStreamingOutput struct {
 }
 
 type steeringCacheWarning struct {
+	warning    cachewarn.Warning
+	visibility transcript.EntryVisibility
+	emit       bool
+}
+
+type steeringCacheObservation struct {
+	events     []session.EventInput
 	warning    cachewarn.Warning
 	visibility transcript.EntryVisibility
 	emit       bool
@@ -190,6 +199,21 @@ func steerCacheWarningIntent(warning cachewarn.Warning, visibility transcript.En
 	}
 }
 
+func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.Warning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
+	copyEvents := make([]session.EventInput, len(events))
+	copy(copyEvents, events)
+	copyWarning := warning
+	return steeringIntent{
+		priority: steeringPriorityRuntimeEvent,
+		items: []steeringItem{{cacheObservation: &steeringCacheObservation{
+			events:     copyEvents,
+			warning:    copyWarning,
+			visibility: transcript.NormalizeEntryVisibility(visibility),
+			emit:       emit,
+		}}},
+	}
+}
+
 func (e *Engine) steerEvent(stepID string, evt Event) error {
 	return e.steer(stepID, steerEventIntent(evt))
 }
@@ -250,6 +274,24 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		visibility := transcript.NormalizeEntryVisibility(item.cacheWarning.visibility)
 		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), visibility)
 		if item.cacheWarning.emit {
+			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
+		}
+		return nil
+	}
+	if item.cacheObservation != nil {
+		observation := item.cacheObservation
+		if e.beforePersistCacheObservation != nil {
+			if err := e.beforePersistCacheObservation(observation.events); err != nil {
+				return err
+			}
+		}
+		if _, err := e.store.AppendTurnAtomic(stepID, observation.events); err != nil {
+			return err
+		}
+		warning := observation.warning
+		visibility := transcript.NormalizeEntryVisibility(observation.visibility)
+		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), visibility)
+		if observation.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
 		return nil

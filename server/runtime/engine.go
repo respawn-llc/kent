@@ -176,8 +176,9 @@ type Engine struct {
 	stepFlow       stepExecutor
 	toolFlow       toolExecutor
 
-	beforePersistMessage    func(llm.Message) error
-	beforePersistLocalEntry func(storedLocalEntry) error
+	beforePersistMessage          func(llm.Message) error
+	beforePersistLocalEntry       func(storedLocalEntry) error
+	beforePersistCacheObservation func([]session.EventInput) error
 
 	// baseMetaInjected guards the single per-conversation injection of base meta
 	// context (AGENTS.md, skills, subagents, environment). It is set when a
