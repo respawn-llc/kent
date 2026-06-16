@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/tui"
 	"core/shared/transcript"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
@@ -157,22 +156,9 @@ func (m *uiModel) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.
 		noticeID = m.nextLocalNoticeID()
 	}
 	if !m.hasRuntimeClient() {
-		return m.appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, noticeID, transcript.EntryVisibilityAuto)
+		return m.sendTransientStatusWithNoticeID(text, statusKindForLocalEntryRole(role), transientStatusDuration, uiStatusNoticeReplace, noticeID)
 	}
 	return m.persistLocalEntryCmd(role, text, noticeID)
-}
-
-func (m *uiModel) appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, noticeID string, visibility transcript.EntryVisibility) tea.Cmd {
-	if m == nil {
-		return nil
-	}
-	transcriptRole := tui.TranscriptRoleFromWire(role)
-	entry := tui.TranscriptEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Role: transcriptRole, Text: text, NoticeID: strings.TrimSpace(noticeID)}
-	m.transcriptEntries = append(m.transcriptEntries, entry)
-	m.transcriptTotalEntries = max(m.transcriptTotalEntries, m.transcriptBaseOffset+len(committedTranscriptEntriesForApp(m.transcriptEntries)))
-	m.refreshRollbackCandidates()
-	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Role: transcriptRole, Text: text, NoticeID: entry.NoticeID})
-	return m.syncNativeHistoryFromTranscript()
 }
 
 func (m *uiModel) persistLocalEntryCmd(role, text, noticeID string) tea.Cmd {
@@ -186,5 +172,16 @@ func (m *uiModel) persistLocalEntryCmd(role, text, noticeID string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.AppendCommittedEntryWithNoticeID(role, text, noticeID)
 		return committedEntryPersistDoneMsg{noticeID: noticeID, role: role, text: text, err: err}
+	}
+}
+
+func statusKindForLocalEntryRole(role string) uiStatusNoticeKind {
+	switch transcript.NormalizeEntryRole(role) {
+	case string(transcript.EntryRoleDeveloperErrorFeedback), "error":
+		return uiStatusNoticeError
+	case "warning":
+		return uiStatusNoticeNeutral
+	default:
+		return uiStatusNoticeNeutral
 	}
 }

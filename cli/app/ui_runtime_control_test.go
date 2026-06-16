@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"core/cli/tui"
 	"core/server/llm"
 	"core/server/primaryrun"
 	"core/shared/clientui"
@@ -635,7 +634,7 @@ func TestSubmitErrorWithRuntimeClientAppendsActivePrimaryRunEntry(t *testing.T) 
 	}
 }
 
-func TestActiveSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *testing.T) {
+func TestActiveSubmitErrorShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	m := newProjectedStaticUIModel()
 	m.engine = client
@@ -657,23 +656,18 @@ func TestActiveSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || client.appendedText != primaryrun.ErrActivePrimaryRun.Error() {
 		t.Fatalf("unexpected runtime committed entry attempt: role=%q text=%q", client.appendedRole, client.appendedText)
 	}
-	if len(updated.transcriptEntries) != 1 {
-		t.Fatalf("expected one fallback transcript entry, got %+v", updated.transcriptEntries)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("runtime append failure must not create local transcript entries: %+v", updated.transcriptEntries)
 	}
-	entry := updated.transcriptEntries[0]
-	if entry.Role != tui.TranscriptRoleDeveloperErrorFeedback || entry.Text != primaryrun.ErrActivePrimaryRun.Error() {
-		t.Fatalf("unexpected fallback transcript entry: %+v", entry)
+	if committed := committedTranscriptEntriesForApp(updated.transcriptEntries); len(committed) != 0 {
+		t.Fatalf("runtime append failure advanced committed transcript entries: %+v", committed)
 	}
-	loaded := updated.view.LoadedTranscriptEntries()
-	if len(loaded) != 1 {
-		t.Fatalf("expected one loaded transcript entry, got %+v", loaded)
-	}
-	if loaded[0].Role != tui.TranscriptRoleDeveloperErrorFeedback || loaded[0].Text != primaryrun.ErrActivePrimaryRun.Error() {
-		t.Fatalf("unexpected loaded transcript entry: %+v", loaded[0])
+	if updated.transientStatus != "append failed" || updated.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("expected append failure status, got status=%q kind=%v", updated.transientStatus, updated.transientStatusKind)
 	}
 }
 
-func TestSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *testing.T) {
+func TestSubmitErrorShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	m := newProjectedStaticUIModel()
 	m.engine = client
@@ -690,12 +684,14 @@ func TestSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *testin
 		next, _ = updated.Update(msg)
 		updated = next.(*uiModel)
 	}
-	if len(updated.transcriptEntries) != 1 {
-		t.Fatalf("expected one fallback transcript entry, got %+v", updated.transcriptEntries)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("runtime append failure must not create local transcript entries: %+v", updated.transcriptEntries)
 	}
-	entry := updated.transcriptEntries[0]
-	if entry.Role != tui.TranscriptRoleDeveloperErrorFeedback || entry.Text != "submit failed" {
-		t.Fatalf("unexpected fallback transcript entry: %+v", entry)
+	if committed := committedTranscriptEntriesForApp(updated.transcriptEntries); len(committed) != 0 {
+		t.Fatalf("runtime append failure advanced committed transcript entries: %+v", committed)
+	}
+	if updated.transientStatus != "append failed" || updated.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("expected append failure status, got status=%q kind=%v", updated.transientStatus, updated.transientStatusKind)
 	}
 }
 

@@ -245,7 +245,7 @@ func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
 	}
 }
 
-func TestNativeSubmitErrorFallbackAppendsToScrollbackWhenRuntimeAppendFails(t *testing.T) {
+func TestNativeSubmitErrorShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 	out := &bytes.Buffer{}
 	client := &runtimeControlFakeClient{submitErr: errors.New("daemon stalled"), appendErr: errors.New("append failed")}
 	model := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
@@ -262,23 +262,26 @@ func TestNativeSubmitErrorFallbackAppendsToScrollbackWhenRuntimeAppendFails(t *t
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if len(model.transcriptEntries) == 1 && strings.Contains(normalizedOutput(out.String()), "daemon stalled") {
+		if len(model.transcriptEntries) == 0 && model.transientStatus == "append failed" {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for submit error fallback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for submit append error status output=%q status=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transientStatus, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	program.QuitAndWait(2 * time.Second)
 
-	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, "daemon stalled") {
-		t.Fatalf("expected submit error in native ongoing scrollback, got %q", normalized)
+	if len(model.transcriptEntries) != 0 {
+		t.Fatalf("runtime append failure must not create native transcript entries: %+v", model.transcriptEntries)
+	}
+	if normalized := normalizedOutput(out.String()); strings.Contains(normalized, "daemon stalled") {
+		t.Fatalf("submit error was written into native scrollback/status output: %q", normalized)
 	}
 }
 
-func TestNativeDisconnectedSubmissionAppendsToScrollbackWhenRuntimeAppendFails(t *testing.T) {
+func TestNativeDisconnectedSubmissionShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 	out := &bytes.Buffer{}
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	model := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
@@ -296,19 +299,22 @@ func TestNativeDisconnectedSubmissionAppendsToScrollbackWhenRuntimeAppendFails(t
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if len(model.transcriptEntries) == 1 && strings.Contains(normalizedOutput(out.String()), runtimeDisconnectedStatusMessage) {
+		if len(model.transcriptEntries) == 0 && model.transientStatus == "append failed" {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for disconnected submit fallback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for disconnected append error status output=%q status=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transientStatus, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	program.QuitAndWait(2 * time.Second)
 
-	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, runtimeDisconnectedStatusMessage) {
-		t.Fatalf("expected disconnect error in native ongoing scrollback, got %q", normalized)
+	if len(model.transcriptEntries) != 0 {
+		t.Fatalf("runtime append failure must not create native transcript entries: %+v", model.transcriptEntries)
+	}
+	if normalized := normalizedOutput(out.String()); strings.Contains(normalized, runtimeDisconnectedStatusMessage) {
+		t.Fatalf("disconnect feedback was written into native scrollback/status output: %q", normalized)
 	}
 }
 
@@ -348,11 +354,11 @@ func TestNativeDisconnectedSubmissionAfterRealRemoteDisconnectAppendsToScrollbac
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if len(model.transcriptEntries) == 1 && strings.Contains(normalizedOutput(out.String()), runtimeDisconnectedStatusMessage) {
+		if len(model.transcriptEntries) == 0 && strings.Contains(normalizedOutput(out.String()), runtimeDisconnectedStatusMessage) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for real disconnect fallback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for real disconnect status output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -360,7 +366,10 @@ func TestNativeDisconnectedSubmissionAfterRealRemoteDisconnectAppendsToScrollbac
 	program.QuitAndWait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, runtimeDisconnectedStatusMessage) {
-		t.Fatalf("expected disconnect error in native ongoing scrollback, got %q", normalized)
+		t.Fatalf("expected disconnect error in native status output, got %q", normalized)
+	}
+	if len(model.transcriptEntries) != 0 {
+		t.Fatalf("real disconnect must not create local transcript entries: %+v", model.transcriptEntries)
 	}
 }
 
@@ -380,11 +389,11 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if len(model.transcriptEntries) == 1 && strings.Contains(normalizedOutput(out.String()), "No parent session available") {
+		if len(model.transcriptEntries) == 0 && strings.Contains(normalizedOutput(out.String()), "No parent session available") {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for back command feedback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for back command status output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -392,7 +401,10 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 	program.QuitAndWait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, "No parent session available") {
-		t.Fatalf("expected back command feedback in native ongoing scrollback, got %q", normalized)
+		t.Fatalf("expected back command feedback in native status output, got %q", normalized)
+	}
+	if len(model.transcriptEntries) != 0 {
+		t.Fatalf("back command feedback must not create transcript entries: %+v", model.transcriptEntries)
 	}
 }
 

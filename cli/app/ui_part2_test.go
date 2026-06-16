@@ -931,7 +931,7 @@ func TestTabIdleAppendsUserOnce(t *testing.T) {
 	}
 }
 
-func TestSubmitErrorShowsFullMessageInDetailMode(t *testing.T) {
+func TestSubmitErrorShowsStatusOnlyWithoutRuntimeClient(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	longErr := "openai status 400: " + strings.Repeat("X", 320)
 
@@ -940,16 +940,15 @@ func TestSubmitErrorShowsFullMessageInDetailMode(t *testing.T) {
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	updated = next.(*uiModel)
 
-	view := updated.View()
-	if !strings.Contains(view, "openai status 400:") {
-		t.Fatalf("expected status text in detail mode, got: %q", view)
+	if !strings.Contains(updated.transientStatus, "openai status 400:") {
+		t.Fatalf("expected status text, got: %q", updated.transientStatus)
 	}
-	if strings.Count(view, "X") < 320 {
-		t.Fatalf("expected full wrapped body in detail mode, got: %q", view)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("submit error without runtime must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 }
 
-func TestSubmitErrorShowsFullAPIStatusBodyWhenWrapped(t *testing.T) {
+func TestSubmitErrorShowsAPIStatusOnlyWithoutRuntimeClient(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	body := strings.Repeat("AUTH_ERR_", 64)
 	root := &llm.APIStatusError{StatusCode: 429, Body: body}
@@ -960,13 +959,11 @@ func TestSubmitErrorShowsFullAPIStatusBodyWhenWrapped(t *testing.T) {
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	updated = next.(*uiModel)
 
-	view := updated.View()
-	if !strings.Contains(view, "openai status 429") {
-		t.Fatalf("expected status line, got: %q", view)
+	if !strings.Contains(updated.transientStatus, "openai status 429") {
+		t.Fatalf("expected status line, got: %q", updated.transientStatus)
 	}
-	joined := strings.ReplaceAll(view, "\n", "")
-	if strings.Count(joined, "AUTH_ERR_") < 64 {
-		t.Fatalf("expected full API body in detail mode, got: %q", view)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("submit error without runtime must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 }
 

@@ -828,8 +828,8 @@ func TestSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 	updated.queued = append(updated.queued, queuedInputsForTest("follow-up")...)
 	next, cmd := updated.Update(submitDoneMsg{err: errors.New("network failure")})
 	updated = next.(*uiModel)
-	if cmd != nil {
-		t.Fatal("did not expect follow-up queued submission to start while restored steering input is present")
+	if cmd == nil {
+		t.Fatal("expected status clear timer command")
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect busy after submission error")
@@ -839,6 +839,9 @@ func TestSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 	}
 	if updated.input != "please continue with tests\n\nfollow-up" {
 		t.Fatalf("expected queued steering and queued drafts restored into input, got %q", updated.input)
+	}
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("submit error without runtime must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("expected pending injection queue cleared after restore, got %d", len(updated.pendingInjected))
@@ -1298,14 +1301,17 @@ func TestSubmitErrorRestoresPendingInjectedSubmittedAndQueuedInput(t *testing.T)
 	next, cmd := m.Update(submitDoneMsg{submittedText: "sent", err: errors.New("transport down")})
 	updated := next.(*uiModel)
 
-	if cmd != nil {
-		t.Fatal("did not expect follow-up command after failed submit")
+	if cmd == nil {
+		t.Fatal("expected status clear timer command")
 	}
 	if updated.isBusy() {
 		t.Fatal("expected busy=false after failed submit")
 	}
 	if updated.input != "steer\n\nsent\n\nqueued" {
 		t.Fatalf("expected full rollback into input, got %q", updated.input)
+	}
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("submit error without runtime must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("expected pending injected cleared after rollback, got %+v", updated.pendingInjected)
@@ -1451,8 +1457,14 @@ func TestCompactDoneSurfacesQueuedRuntimeWorkProbeFailure(t *testing.T) {
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || !strings.Contains(client.appendedText, "daemon stalled") {
 		t.Fatalf("expected runtime error entry with probe failure, role=%q text=%q", client.appendedRole, client.appendedText)
 	}
-	if len(updated.transcriptEntries) != 1 || updated.transcriptEntries[0].Role != tui.TranscriptRoleDeveloperErrorFeedback || !strings.Contains(updated.transcriptEntries[0].Text, "daemon stalled") {
-		t.Fatalf("expected local fallback error entry with probe failure, got %+v", updated.transcriptEntries)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("runtime append failure must not create local transcript entries: %+v", updated.transcriptEntries)
+	}
+	if committed := committedTranscriptEntriesForApp(updated.transcriptEntries); len(committed) != 0 {
+		t.Fatalf("runtime append failure advanced committed transcript entries: %+v", committed)
+	}
+	if updated.transientStatus == "" || updated.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("expected runtime append failure status, got status=%q kind=%v", updated.transientStatus, updated.transientStatusKind)
 	}
 }
 

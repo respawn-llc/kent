@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"core/cli/app/commands"
-	"core/cli/tui"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/tools"
@@ -533,7 +532,7 @@ func TestDisconnectedEnterKeepsInputAndDoesNotStartSubmission(t *testing.T) {
 	}
 }
 
-func TestDisconnectedEnterAppendsOperatorFeedbackWhenRuntimeAppendFails(t *testing.T) {
+func TestDisconnectedEnterShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
@@ -543,18 +542,20 @@ func TestDisconnectedEnterAppendsOperatorFeedbackWhenRuntimeAppendFails(t *testi
 	updated := next.(*uiModel)
 
 	if len(updated.transcriptEntries) != 0 {
-		t.Fatalf("did not expect immediate fallback transcript entry, got %+v", updated.transcriptEntries)
+		t.Fatalf("did not expect immediate transcript entry, got %+v", updated.transcriptEntries)
 	}
 	for _, msg := range collectCmdMessages(t, cmd) {
 		next, _ = updated.Update(msg)
 		updated = next.(*uiModel)
 	}
-	if len(updated.transcriptEntries) != 1 {
-		t.Fatalf("expected one fallback transcript entry, got %+v", updated.transcriptEntries)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("runtime append failure must not create local transcript entries: %+v", updated.transcriptEntries)
 	}
-	entry := updated.transcriptEntries[0]
-	if entry.Role != tui.TranscriptRoleDeveloperErrorFeedback || entry.Text != runtimeDisconnectedStatusMessage {
-		t.Fatalf("unexpected fallback transcript entry: %+v", entry)
+	if committed := committedTranscriptEntriesForApp(updated.transcriptEntries); len(committed) != 0 {
+		t.Fatalf("runtime append failure advanced committed transcript entries: %+v", committed)
+	}
+	if updated.transientStatus != "append failed" || updated.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("expected append failure status, got status=%q kind=%v", updated.transientStatus, updated.transientStatusKind)
 	}
 	if client.submitText != "" {
 		t.Fatalf("did not expect runtime submit attempt, got %q", client.submitText)
@@ -686,7 +687,7 @@ func TestDisconnectedCommandSubmitRestoresGeneratedPromptAlongsideHiddenSteering
 	}
 }
 
-func TestApplyCommandResultBackWithoutParentReturnsVisibleSystemFeedbackCmd(t *testing.T) {
+func TestApplyCommandResultBackWithoutParentShowsStatusOnly(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.windowSizeKnown = true
 	m.termWidth = 120
@@ -694,22 +695,14 @@ func TestApplyCommandResultBackWithoutParentReturnsVisibleSystemFeedbackCmd(t *t
 	next, cmd := m.inputController().applyCommandResultWithPreSubmitQueuePosition(commands.Result{Handled: true, Action: commands.ActionBack}, preSubmitQueueBack)
 	updated := next.(*uiModel)
 
-	if len(updated.transcriptEntries) != 1 {
-		t.Fatalf("expected one transcript entry, got %+v", updated.transcriptEntries)
-	}
-	entry := updated.transcriptEntries[0]
-	if entry.Role != "system" || entry.Text != "No parent session available" {
-		t.Fatalf("unexpected transcript entry: %+v", entry)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("back command without runtime must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 	if cmd == nil {
-		t.Fatal("expected native history sync command")
+		t.Fatal("expected status clear timer command")
 	}
-	flush, ok := cmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", cmd())
-	}
-	if !strings.Contains(stripANSIAndTrimRight(flush.Text), "No parent session available") {
-		t.Fatalf("expected native history flush to include system feedback, got %q", flush.Text)
+	if updated.transientStatus != "No parent session available" {
+		t.Fatalf("expected back command status, got %q", updated.transientStatus)
 	}
 }
 

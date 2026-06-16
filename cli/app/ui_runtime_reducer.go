@@ -45,7 +45,7 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		m.syncViewport()
 		return handledUIFeatureUpdate(m, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
 	case runtimeLeaseRecoveryWarningMsg:
-		cmd := m.appendLocalEntryFallbackWithNoticeIDAndVisibility("warning", msg.text, "", msg.visibility)
+		cmd := m.sendTransientStatusWithNoticeID(msg.text, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, "")
 		m.syncViewport()
 		return handledUIFeatureUpdate(m, sequenceCmds(cmd, waitRuntimeLeaseRecoveryWarning(m.runtimeLeaseRecoveryWarning)))
 	case runtimeMainViewRefreshedMsg:
