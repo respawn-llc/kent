@@ -309,6 +309,26 @@ func (t blockingTool) Call(_ context.Context, c tools.Call) (tools.Result, error
 	return tools.Result{CallID: c.ID, Name: c.Name, Output: out}, nil
 }
 
+type serialPairProbeTool struct {
+	firstID       string
+	secondID      string
+	firstStarted  chan struct{}
+	secondStarted chan struct{}
+	releaseFirst  chan struct{}
+}
+
+func (t *serialPairProbeTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
+	switch c.ID {
+	case t.firstID:
+		close(t.firstStarted)
+		<-t.releaseFirst
+	case t.secondID:
+		close(t.secondStarted)
+	}
+	out, _ := json.Marshal(map[string]any{"tool": string(c.Name)})
+	return tools.Result{CallID: c.ID, Name: c.Name, Output: out}, nil
+}
+
 type fakeStreamClient struct {
 	mu       sync.Mutex
 	attempts int

@@ -485,8 +485,9 @@ func (s *Store) SetRunWaitingAsk(ctx context.Context, runID workflow.RunID, expe
 	if trimmedAskID == "" {
 		return fmt.Errorf("ask id is required")
 	}
+	now := s.now().UnixMilli()
 	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(setRunWaitingAskQuery, "\n"),
-		s.now().UnixMilli(),
+		now,
 		trimmedAskID,
 		string(runID),
 		expectedGeneration,
@@ -501,7 +502,11 @@ func (s *Store) SetRunWaitingAsk(ctx context.Context, runID workflow.RunID, expe
 	if updated != 1 {
 		return sql.ErrNoRows
 	}
-	return nil
+	event, err := runWaitingAskWorkflowEvent(ctx, s.db, string(runID), "question_waiting", trimmedAskID, now)
+	if err != nil {
+		return err
+	}
+	return s.PublishWorkflowEvent(ctx, event)
 }
 
 func (s *Store) ClearRunWaitingAsk(ctx context.Context, runID workflow.RunID, expectedGeneration int64, askID string) error {
@@ -509,8 +514,9 @@ func (s *Store) ClearRunWaitingAsk(ctx context.Context, runID workflow.RunID, ex
 	if trimmedAskID == "" {
 		return fmt.Errorf("ask id is required")
 	}
+	now := s.now().UnixMilli()
 	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(clearRunWaitingAskQuery, "\n"),
-		s.now().UnixMilli(),
+		now,
 		string(runID),
 		expectedGeneration,
 		trimmedAskID,
@@ -525,7 +531,41 @@ func (s *Store) ClearRunWaitingAsk(ctx context.Context, runID workflow.RunID, ex
 	if updated != 1 {
 		return sql.ErrNoRows
 	}
-	return nil
+	event, err := runWaitingAskWorkflowEvent(ctx, s.db, string(runID), "question_cleared", trimmedAskID, now)
+	if err != nil {
+		return err
+	}
+	return s.PublishWorkflowEvent(ctx, event)
+}
+
+func runWaitingAskWorkflowEvent(
+	ctx context.Context,
+	db *sql.DB,
+	runID string,
+	action string,
+	askID string,
+	occurredAtUnixMs int64,
+) (WorkflowEventRecord, error) {
+	var projectID string
+	var workflowID string
+	var taskID string
+	if err := db.QueryRowContext(ctx, `
+SELECT t.project_id, t.workflow_id, t.id
+FROM task_runs r
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN task_records t ON t.id = p.task_id
+WHERE r.id = ?
+`, strings.TrimSpace(runID)).Scan(&projectID, &workflowID, &taskID); err != nil {
+		return WorkflowEventRecord{}, fmt.Errorf("load waiting ask event run identity: %w", err)
+	}
+	return WorkflowEventRecord{
+		ProjectID:        projectID,
+		WorkflowID:       workflowID,
+		Resource:         "task",
+		Action:           action,
+		ChangedIDs:       []string{taskID, strings.TrimSpace(runID), strings.TrimSpace(askID)},
+		OccurredAtUnixMs: occurredAtUnixMs,
+	}, nil
 }
 
 func (s *Store) ResolveTaskWaitingAsk(ctx context.Context, taskID workflow.TaskID, runID workflow.RunID, askID string) (RunRecord, error) {

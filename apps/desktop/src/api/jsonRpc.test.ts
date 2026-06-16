@@ -212,6 +212,143 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(errors).toEqual(["Subscription socket closed."]);
     subscription.close();
   });
+
+  it("reopens subscription socket after server complete notification", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const completions: string[] = [];
+    const errors: string[] = [];
+    const subscription = transport.subscribe(
+      "workflow.subscribeProject",
+      { project_id: "project-1" },
+      {
+        onEvent() {
+          return;
+        },
+        onComplete(code, message) {
+          completions.push(`${code.toString()}:${message}`);
+        },
+        onError(error) {
+          errors.push(error.message);
+        },
+      },
+    );
+
+    const firstSocket = sockets[0] ?? failTest("subscription socket missing");
+    firstSocket.open();
+    await waitForSent(firstSocket, 1);
+    ack(firstSocket, 0);
+    await waitForSent(firstSocket, 2);
+    ack(firstSocket, 1);
+    await flushPromises();
+
+    firstSocket.receive(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "workflow.project.complete",
+        params: { code: 409, message: "stream gap" },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(sockets.length).toBeGreaterThanOrEqual(2);
+    });
+    const secondSocket = sockets[1] ?? failTest("resubscription socket missing");
+    secondSocket.open();
+    await waitForSent(secondSocket, 1);
+    ack(secondSocket, 0);
+    await waitForSent(secondSocket, 2);
+
+    expect(frame(secondSocket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
+    expect(completions).toEqual(["409:stream gap"]);
+    expect(errors).toEqual(["Subscription socket closed."]);
+    subscription.close();
+  });
+
+  it("does not reconnect after normal server complete notification", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const completions: string[] = [];
+    const errors: string[] = [];
+    const subscription = transport.subscribe(
+      "workflow.subscribeProject",
+      { project_id: "project-1" },
+      {
+        onEvent() {
+          return;
+        },
+        onComplete(code, message) {
+          completions.push(`${code.toString()}:${message}`);
+        },
+        onError(error) {
+          errors.push(error.message);
+        },
+      },
+    );
+
+    const socket = sockets[0] ?? failTest("subscription socket missing");
+    socket.open();
+    await waitForSent(socket, 1);
+    ack(socket, 0);
+    await waitForSent(socket, 2);
+    ack(socket, 1);
+    await flushPromises();
+
+    socket.receive(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "workflow.project.complete",
+        params: { code: 0, message: "" },
+      }),
+    );
+    await flushPromises();
+
+    expect(completions).toEqual(["0:"]);
+    expect(errors).toEqual([]);
+    expect(sockets).toHaveLength(1);
+    subscription.close();
+  });
+
+  it("keeps subscriptions active for non-terminal events ending with complete", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const events: string[] = [];
+    const completions: string[] = [];
+    const subscription = transport.subscribe(
+      "workflow.subscribeProject",
+      { project_id: "project-1" },
+      {
+        onEvent(method) {
+          events.push(method);
+        },
+        onComplete(code, message) {
+          completions.push(`${code.toString()}:${message}`);
+        },
+        onError(error) {
+          throw error;
+        },
+      },
+    );
+
+    const socket = sockets[0] ?? failTest("subscription socket missing");
+    socket.open();
+    await waitForSent(socket, 1);
+    ack(socket, 0);
+    await waitForSent(socket, 2);
+    ack(socket, 1);
+    await flushPromises();
+
+    socket.receive(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "workflow.project.task.complete",
+        params: { event: { project_id: "project-1" } },
+      }),
+    );
+    await flushPromises();
+
+    expect(events).toEqual(["workflow.project.task.complete"]);
+    expect(completions).toEqual([]);
+    expect(sockets).toHaveLength(1);
+    subscription.close();
+  });
 });
 
 function ack(socket: MockWebSocket, sentIndex: number): void {

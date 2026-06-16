@@ -25,8 +25,10 @@ import {
   cardBelongsToColumn,
   dirtyBoardCardCountColumnIDs,
   dirtyBoardCardColumnIDs,
+  pendingBoardCardMoveDestinationMissing,
   type BoardCardColumnCountSnapshot,
   type BoardCardColumnsSnapshot,
+  type PendingBoardCardMove,
 } from "./BoardCardMotionModel";
 import { toKanbanCardVM, toKanbanColumnVM, toKanbanGroupVM, type KanbanCardVM } from "./BoardColumnViewModel";
 import type { BoardCardDragPayload, BoardColumnDropState } from "./BoardDragTypes";
@@ -78,11 +80,13 @@ export type BoardRailMotionControllerProps = Readonly<{
   onInterruptedRunObserved: (input: Readonly<{ runID: string; taskID: string }>) => void;
   onInterruptTask: (taskID: string, runID: string) => void;
   onResumeTask: (taskID: string, runID: string) => void;
+  pendingCardMove: PendingBoardCardMove | null;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>;
 
 const staleSnapshotTimeoutMs = 900;
 const emptyColumnsSnapshot: BoardCardColumnsSnapshot = new Map();
+const emptyPendingMoveColumnIDs: ReadonlySet<string> = new Set();
 
 export function BoardRailMotionController({
   actionsDisabled,
@@ -100,6 +104,7 @@ export function BoardRailMotionController({
   onInterruptedRunObserved,
   onInterruptTask,
   onResumeTask,
+  pendingCardMove,
   scrollportRef,
 }: BoardRailMotionControllerProps) {
   const sections = useMemo(() => boardSections(board), [board]);
@@ -118,6 +123,12 @@ export function BoardRailMotionController({
   const displayedColumns = displayedSnapshot.layoutSignature === layoutSignature ? displayedSnapshot.columns : emptyColumnsSnapshot;
   const displayedColumnCounts =
     displayedSnapshot.layoutSignature === layoutSignature ? displayedSnapshot.columnCounts : boardColumnCounts;
+  const pendingMoveColumnIDs = useMemo(() => {
+    if (pendingCardMove === null) {
+      return emptyPendingMoveColumnIDs;
+    }
+    return new Set([...boardCardColumnIDsWithCards(displayedColumns), pendingCardMove.targetColumnID]);
+  }, [displayedColumns, pendingCardMove]);
   const latestColumnsRef = useRef<ReadonlyMap<string, BoardColumnQuerySnapshot>>(new Map());
   const displayedColumnsRef = useRef(displayedColumns);
   const displayedColumnCountsRef = useRef(displayedColumnCounts);
@@ -163,7 +174,7 @@ export function BoardRailMotionController({
           dirtyCountColumnSet.has(columnID),
         ),
       );
-      if (!fromTimeout && !dirtySettled) {
+      if (!dirtySettled && (!fromTimeout || pendingBoardCardMoveDestinationMissing(nextDisplayed, pendingCardMove))) {
         clearStaleSnapshotTimer(timeoutRef);
         timeoutRef.current = window.setTimeout(() => {
           timeoutRef.current = null;
@@ -196,7 +207,7 @@ export function BoardRailMotionController({
         revealCardIDs: participants.revealCardIDs,
       });
     },
-    [latestSnapshot, layoutSignature],
+    [latestSnapshot, layoutSignature, pendingCardMove],
   );
 
   useLayoutEffect(() => {
@@ -357,7 +368,7 @@ export function BoardRailMotionController({
   );
 
   function effectiveColumnIsCollapsed(column: BoardColumn): boolean {
-    return columnIsCollapsed(column) && !heldExpandedColumnIDs.has(column.id);
+    return columnIsCollapsed(column) && !heldExpandedColumnIDs.has(column.id) && !pendingMoveColumnIDs.has(column.id);
   }
 
   return (
@@ -383,7 +394,7 @@ export function BoardRailMotionController({
                   isCollapsed={effectiveColumnIsCollapsed(column)}
                   isFirstActive={column.id === firstActiveID}
                   key={`${board.projectID}:${board.selectedWorkflow.id}:${column.id}`}
-                  latestIsCollapsed={columnIsCollapsed(column)}
+                  latestIsCollapsed={effectiveColumnIsCollapsed(column)}
                   onCardClick={onCardClick}
                   onCardDragEnd={onCardDragEnd}
                   onCardDragStart={onCardDragStart}
@@ -409,7 +420,7 @@ export function BoardRailMotionController({
               isCollapsed={effectiveColumnIsCollapsed(section.column)}
               isFirstActive={section.column.id === firstActiveID}
               key={`${board.projectID}:${board.selectedWorkflow.id}:${section.id}`}
-              latestIsCollapsed={columnIsCollapsed(section.column)}
+              latestIsCollapsed={effectiveColumnIsCollapsed(section.column)}
               onCardClick={onCardClick}
               onCardDragEnd={onCardDragEnd}
               onCardDragStart={onCardDragStart}

@@ -8,6 +8,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
+	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"core/shared/transcript/toolcodec"
@@ -684,6 +685,116 @@ func TestParallelToolCompletionAppearsInChatSnapshotBeforeAllToolsFinish(t *test
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for submit completion")
+	}
+}
+
+func TestAskQuestionToolCallsExecuteSequentiallyInDeclaredOrder(t *testing.T) {
+	store := mustCreateTestSession(t)
+	sequencer := &serialPairProbeTool{
+		firstID:       "call-ask-1",
+		secondID:      "call-ask-2",
+		firstStarted:  make(chan struct{}),
+		secondStarted: make(chan struct{}),
+		releaseFirst:  make(chan struct{}),
+	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(
+		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: sequencer},
+	), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+
+	done := make(chan struct {
+		results []tools.Result
+		err     error
+	}, 1)
+	go func() {
+		results, err := eng.executeToolCalls(context.Background(), "step", []llm.ToolCall{
+			{ID: "call-ask-1", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{}`)},
+			{ID: "call-ask-2", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{}`)},
+		})
+		done <- struct {
+			results []tools.Result
+			err     error
+		}{results: results, err: err}
+	}()
+
+	select {
+	case <-sequencer.firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first ask_question call to start")
+	}
+	select {
+	case <-sequencer.secondStarted:
+		t.Fatal("second ask_question call started before first completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(sequencer.releaseFirst)
+	select {
+	case <-sequencer.secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second ask_question call to start")
+	}
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("execute tool calls: %v", result.err)
+		}
+		if len(result.results) != 2 || result.results[0].CallID != "call-ask-1" || result.results[1].CallID != "call-ask-2" {
+			t.Fatalf("results = %+v, want declared ask order", result.results)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ask_question tool calls to finish")
+	}
+}
+
+func TestWorkflowPromptCapableToolCallsSerializeWithAskQuestion(t *testing.T) {
+	store := mustCreateTestSession(t)
+	sequencer := &serialPairProbeTool{
+		firstID:       "call-patch",
+		secondID:      "call-ask",
+		firstStarted:  make(chan struct{}),
+		secondStarted: make(chan struct{}),
+		releaseFirst:  make(chan struct{}),
+	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(
+		tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: sequencer},
+		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: sequencer},
+	), Config{
+		Model:        "gpt-5",
+		EnabledTools: []toolspec.ID{toolspec.ToolPatch, toolspec.ToolAskQuestion},
+		WorkflowRun:  testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool),
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := eng.executeToolCalls(context.Background(), "step", []llm.ToolCall{
+			{ID: "call-patch", Name: string(toolspec.ToolPatch), Input: json.RawMessage(`{}`)},
+			{ID: "call-ask", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{}`)},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-sequencer.firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for workflow prompt-capable tool to start")
+	}
+	select {
+	case <-sequencer.secondStarted:
+		t.Fatal("ask_question started before earlier workflow prompt-capable tool completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(sequencer.releaseFirst)
+	select {
+	case <-sequencer.secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ask_question to start")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("execute tool calls: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for workflow prompt-capable tool calls to finish")
 	}
 }
 

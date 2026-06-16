@@ -251,6 +251,191 @@ func TestBoardGroupsHideJoinNodesAndJoinOnlyGroups(t *testing.T) {
 	}
 }
 
+func TestBoardColumnsUseWorkflowStructureInsteadOfDefinitionNodeOrder(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+			{ID: "node-plan", Key: "plan", Kind: string(workflow.NodeKindAgent), DisplayName: "Planning"},
+			{ID: "node-implementation", Key: "implementation", Kind: string(workflow.NodeKindAgent), DisplayName: "Implementation"},
+			{ID: "node-plan-review", Key: "plan_review", Kind: string(workflow.NodeKindAgent), DisplayName: "Plan Review"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+			{ID: "transition-plan", SourceNodeID: "node-plan", TransitionID: "plan_review"},
+			{ID: "transition-review-approved", SourceNodeID: "node-plan-review", TransitionID: "approved"},
+			{ID: "transition-review-rejected", SourceNodeID: "node-plan-review", TransitionID: "rejected"},
+			{ID: "transition-implementation", SourceNodeID: "node-implementation", TransitionID: "done"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-start", TransitionGroupID: "transition-start", Key: "start", TargetNodeID: "node-plan"},
+			{ID: "edge-plan-review", TransitionGroupID: "transition-plan", Key: "plan_review", TargetNodeID: "node-plan-review"},
+			{ID: "edge-approved", TransitionGroupID: "transition-review-approved", Key: "approved", TargetNodeID: "node-implementation"},
+			{ID: "edge-rejected", TransitionGroupID: "transition-review-rejected", Key: "rejected", TargetNodeID: "node-plan"},
+			{ID: "edge-done", TransitionGroupID: "transition-implementation", Key: "done", TargetNodeID: "node-done"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	want := []string{"backlog", "plan", "plan_review", "implementation", "done"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("board column keys = %+v, want structural order %+v", keys, want)
+	}
+}
+
+func TestBoardColumnsOrderAmbiguousSiblingsByNodeKey(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-zeta", Key: "zeta", Kind: string(workflow.NodeKindAgent), DisplayName: "Zeta"},
+			{ID: "node-alpha", Key: "alpha", Kind: string(workflow.NodeKindAgent), DisplayName: "Alpha"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+			{ID: "transition-alpha", SourceNodeID: "node-alpha", TransitionID: "done"},
+			{ID: "transition-zeta", SourceNodeID: "node-zeta", TransitionID: "done"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-zeta", TransitionGroupID: "transition-start", Key: "zeta", TargetNodeID: "node-zeta"},
+			{ID: "edge-alpha", TransitionGroupID: "transition-start", Key: "alpha", TargetNodeID: "node-alpha"},
+			{ID: "edge-alpha-done", TransitionGroupID: "transition-alpha", Key: "done", TargetNodeID: "node-done"},
+			{ID: "edge-zeta-done", TransitionGroupID: "transition-zeta", Key: "done", TargetNodeID: "node-done"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	want := []string{"backlog", "alpha", "zeta", "done"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("board column keys = %+v, want key-tied sibling order %+v", keys, want)
+	}
+}
+
+func TestBoardColumnsKeepReachableTerminalAfterAmbiguousSibling(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-zeta", Key: "zeta", Kind: string(workflow.NodeKindAgent), DisplayName: "Zeta"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-done", TransitionGroupID: "transition-start", Key: "done", TargetNodeID: "node-done"},
+			{ID: "edge-zeta", TransitionGroupID: "transition-start", Key: "zeta", TargetNodeID: "node-zeta"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	want := []string{"backlog", "zeta", "done"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("board column keys = %+v, want terminal after ambiguous non-terminal sibling %+v", keys, want)
+	}
+}
+
+func TestBoardColumnsUseExplicitSiblingEdgeBeforeNodeKeyTie(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-alpha", Key: "alpha", Kind: string(workflow.NodeKindAgent), DisplayName: "Alpha"},
+			{ID: "node-zeta", Key: "zeta", Kind: string(workflow.NodeKindAgent), DisplayName: "Zeta"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+			{ID: "transition-zeta", SourceNodeID: "node-zeta", TransitionID: "alpha"},
+			{ID: "transition-alpha", SourceNodeID: "node-alpha", TransitionID: "done"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-alpha", TransitionGroupID: "transition-start", Key: "alpha", TargetNodeID: "node-alpha"},
+			{ID: "edge-zeta", TransitionGroupID: "transition-start", Key: "zeta", TargetNodeID: "node-zeta"},
+			{ID: "edge-zeta-alpha", TransitionGroupID: "transition-zeta", Key: "alpha", TargetNodeID: "node-alpha"},
+			{ID: "edge-alpha-done", TransitionGroupID: "transition-alpha", Key: "done", TargetNodeID: "node-done"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	want := []string{"backlog", "zeta", "alpha", "done"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("board column keys = %+v, want explicit sibling edge order %+v", keys, want)
+	}
+}
+
+func TestBoardColumnsAppendUnreachableVisibleNodesByKey(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-zeta", Key: "zeta", Kind: string(workflow.NodeKindAgent), DisplayName: "Zeta"},
+			{ID: "node-reachable", Key: "reachable", Kind: string(workflow.NodeKindAgent), DisplayName: "Reachable"},
+			{ID: "node-alpha", Key: "alpha", Kind: string(workflow.NodeKindAgent), DisplayName: "Alpha"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+			{ID: "transition-reachable", SourceNodeID: "node-reachable", TransitionID: "done"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-start", TransitionGroupID: "transition-start", Key: "start", TargetNodeID: "node-reachable"},
+			{ID: "edge-done", TransitionGroupID: "transition-reachable", Key: "done", TargetNodeID: "node-done"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	want := []string{"backlog", "reachable", "done", "alpha", "zeta"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("board column keys = %+v, want unreachable nodes appended by key %+v", keys, want)
+	}
+}
+
+func TestBoardGroupsUseStructuralColumnOrderAndTraverseJoinNodes(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		NodeGroups: []serverapi.WorkflowNodeGroup{
+			{GroupID: "group-implementation", GroupKey: "implementation", DisplayName: "Implementation"},
+		},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-zeta", Key: "zeta", Kind: string(workflow.NodeKindAgent), DisplayName: "Zeta", GroupID: "group-implementation"},
+			{ID: "node-alpha", Key: "alpha", Kind: string(workflow.NodeKindAgent), DisplayName: "Alpha", GroupID: "group-implementation"},
+			{ID: "node-join", Key: "join", Kind: string(workflow.NodeKindJoin), DisplayName: "Join", GroupID: "group-implementation"},
+			{ID: "node-synth", Key: "synth", Kind: string(workflow.NodeKindAgent), DisplayName: "Synthesize", GroupID: "group-implementation"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+			{ID: "transition-alpha", SourceNodeID: "node-alpha", TransitionID: "join"},
+			{ID: "transition-zeta", SourceNodeID: "node-zeta", TransitionID: "join"},
+			{ID: "transition-join", SourceNodeID: "node-join", TransitionID: "synth"},
+			{ID: "transition-synth", SourceNodeID: "node-synth", TransitionID: "done"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-zeta", TransitionGroupID: "transition-start", Key: "zeta", TargetNodeID: "node-zeta"},
+			{ID: "edge-alpha", TransitionGroupID: "transition-start", Key: "alpha", TargetNodeID: "node-alpha"},
+			{ID: "edge-alpha-join", TransitionGroupID: "transition-alpha", Key: "join", TargetNodeID: "node-join"},
+			{ID: "edge-zeta-join", TransitionGroupID: "transition-zeta", Key: "join", TargetNodeID: "node-join"},
+			{ID: "edge-synth", TransitionGroupID: "transition-join", Key: "synth", TargetNodeID: "node-synth"},
+			{ID: "edge-done", TransitionGroupID: "transition-synth", Key: "done", TargetNodeID: "node-done"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	wantKeys := []string{"backlog", "alpha", "zeta", "synth", "done"}
+	if strings.Join(keys, ",") != strings.Join(wantKeys, ",") {
+		t.Fatalf("board column keys = %+v, want join-traversed order %+v", keys, wantKeys)
+	}
+	groups := boardGroups(def)
+	wantNodeIDs := []string{"node-alpha", "node-zeta", "node-synth"}
+	if len(groups) != 1 || strings.Join(groups[0].NodeIDs, ",") != strings.Join(wantNodeIDs, ",") {
+		t.Fatalf("board groups = %+v, want structural visible node ids %+v", groups, wantNodeIDs)
+	}
+}
+
 func TestBoardSelectsWorkflowAndReturnsPickerAndGroups(t *testing.T) {
 	ctx, _, workflowStore, binding, view := newWorkflowViewTestContextService(t)
 	defaultWorkflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
@@ -1624,6 +1809,14 @@ func workflowViewColumnByKey(t *testing.T, board serverapi.WorkflowBoard, key st
 	}
 	t.Fatalf("missing board column key %q in %+v", key, board.Columns)
 	return serverapi.WorkflowBoardColumn{}
+}
+
+func workflowViewBoardColumnKeys(columns []serverapi.WorkflowBoardColumn) []string {
+	keys := make([]string, 0, len(columns))
+	for _, column := range columns {
+		keys = append(keys, column.Node.Key)
+	}
+	return keys
 }
 
 func TestWorkflowViewRejectsMissingIDs(t *testing.T) {

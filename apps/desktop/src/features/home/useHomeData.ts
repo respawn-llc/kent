@@ -1,11 +1,16 @@
 import { useEffect } from "react";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { ProjectBinding } from "../../api";
 import { errorMessage } from "../../api/errors";
 import type { NativeProjectBinding } from "@app/native-bridge";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
+import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
+import {
+  workflowProjectEventCanChangeAttention,
+  workflowProjectQuestionTaskID,
+} from "../../app/workflowProjectEvents";
 
 export function useProjectPages() {
   const { api } = useAppServices();
@@ -21,6 +26,7 @@ export function useProjectPages() {
     queryFn: async ({ pageParam }) => api.listProjects(pageParam),
     initialPageParam: "",
     getNextPageParam: (lastPage) => (lastPage.nextPageToken.length > 0 ? lastPage.nextPageToken : undefined),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -31,7 +37,63 @@ export function useGlobalAttentionPages() {
     queryFn: async ({ pageParam }) => api.listAttention("", pageParam),
     initialPageParam: "",
     getNextPageParam: (lastPage) => (lastPage.nextPageToken.length > 0 ? lastPage.nextPageToken : undefined),
+    placeholderData: keepPreviousData,
   });
+}
+
+export function useGlobalAttentionEvents() {
+  const { api, logger } = useAppServices();
+  const connection = useConnectionSnapshot();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (connection.phase !== "connected") {
+      return;
+    }
+    let refreshFrame: number | null = null;
+    const refreshAttention = () => {
+      if (refreshFrame !== null) {
+        return;
+      }
+      refreshFrame = window.requestAnimationFrame(() => {
+        refreshFrame = null;
+        void queryClient.invalidateQueries({ queryKey: queryKeys.allAttention, refetchType: "active" });
+      });
+    };
+    const refreshQuestionTask = (params: unknown) => {
+      const taskID = workflowProjectQuestionTaskID(params);
+      if (taskID === null) {
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID), refetchType: "active" });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID), refetchType: "active" });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks, refetchType: "active" });
+    };
+    const subscription = api.subscribeProject("", {
+      onOpen() {
+        refreshAttention();
+      },
+      onEvent(_method, params) {
+        refreshQuestionTask(params);
+        if (workflowProjectEventCanChangeAttention(params)) {
+          refreshAttention();
+        }
+      },
+      onComplete() {
+        return;
+      },
+      onError(error) {
+        refreshAttention();
+        void logger.append("warn", "Global attention subscription failed.", { error: errorMessage(error) });
+      },
+    });
+    return () => {
+      if (refreshFrame !== null) {
+        window.cancelAnimationFrame(refreshFrame);
+      }
+      subscription.close();
+    };
+  }, [api, connection.generation, connection.phase, logger, queryClient]);
 }
 
 export function useProjectCreationEvents(onCreated: (binding: NativeProjectBinding) => void) {

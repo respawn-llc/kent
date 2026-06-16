@@ -118,6 +118,35 @@ describe("TaskDetailSurface", () => {
     });
   });
 
+  it("submits a comment after the focused composer receives typed input", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.comment.list", result: commentListResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "workflow.task.comment.add", result: commentAddResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    const composerFrame = await screen.findByTestId("task-comment-input-frame");
+    const composer = within(composerFrame).getByRole("textbox");
+    composer.focus();
+    expect(composer).toHaveFocus();
+    fireEvent.change(composer, {
+      target: { value: "Focused composer comment" },
+    });
+    fireEvent.click(screen.getByTestId("task-comment-save"));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.task.comment.add",
+        params: { author: guiTaskCommentAuthor, body: "Focused composer comment", task_id: "task-1" },
+      });
+    });
+  });
+
   it("surfaces failed comment deletes through the status toast surface", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     const services = createTestServices([

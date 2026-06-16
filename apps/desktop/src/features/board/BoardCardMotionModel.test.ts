@@ -8,6 +8,7 @@ import {
   boardCardSnapshotsEqual,
   boardCardViewTransitionName,
   dirtyBoardCardCountColumnIDs,
+  pendingBoardCardMoveDestinationMissing,
 } from "./BoardCardMotionModel";
 
 describe("BoardCardMotionModel", () => {
@@ -100,6 +101,31 @@ describe("BoardCardMotionModel", () => {
       "backlog",
       "recon",
     ]);
+  });
+
+  it("detects pending manual move snapshots that are still missing the destination card", () => {
+    const pendingMove = { taskID: "task-1", targetColumnID: "review" };
+
+    expect(
+      pendingBoardCardMoveDestinationMissing(
+        boardCardSnapshotFromEntries([
+          ["backlog", []],
+          ["review", []],
+        ]),
+        pendingMove,
+      ),
+    ).toBe(true);
+    expect(
+      pendingBoardCardMoveDestinationMissing(
+        boardCardSnapshotFromEntries([
+          ["backlog", []],
+          ["review", [card("task-1")]],
+        ]),
+        pendingMove,
+      ),
+    ).toBe(false);
+    expect(pendingBoardCardMoveDestinationMissing(boardCardSnapshotFromEntries([["backlog", []]]), pendingMove)).toBe(false);
+    expect(pendingBoardCardMoveDestinationMissing(boardCardSnapshotFromEntries([]), null)).toBe(false);
   });
 });
 

@@ -13,6 +13,7 @@ import {
   responseSchema,
   sendSocketRequest,
   socketRequestError,
+  subscriptionCompleteMethod,
   waitForSubscriptionEnd,
 } from "./jsonRpcSocket";
 import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
@@ -212,14 +213,27 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       { once: true },
     );
     await handshakeSubscription(socket, rpcRequestTimeoutMs);
+    const terminalCompleteRef: { current: Readonly<{ code: number; message: string }> | null } = {
+      current: null,
+    };
+    const completeMethod = subscriptionCompleteMethod(method);
     const subscriptionListener = (event: MessageEvent<unknown>) => {
-      handleSubscriptionMessage(event, handler);
+      const result = handleSubscriptionMessage(event, handler, completeMethod);
+      if (result.kind === "complete") {
+        terminalCompleteRef.current = { code: result.code, message: result.message };
+        socket.close();
+      }
     };
     socket.addEventListener("message", subscriptionListener);
     try {
       await sendSocketRequest(socket, method, params, rpcRequestTimeoutMs);
       handler.onOpen?.();
       await waitForSubscriptionEnd(socket, signal);
+    } catch (error) {
+      if (terminalCompleteRef.current?.code === 0) {
+        return;
+      }
+      throw error;
     } finally {
       socket.removeEventListener("message", subscriptionListener);
       socket.close();

@@ -25,6 +25,9 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 	callErrs := make([]error, len(calls))
 	wg := sync.WaitGroup{}
 	runID := activeRunIDForStep(e, stepID)
+	workflowActive := e.workflowRunActive()
+	serialGate := newSerialToolGate()
+	nextSerialOrdinal := 0
 
 	for i := range calls {
 		call := calls[i]
@@ -50,12 +53,21 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 			continue
 		}
 		idx := i
+		serialOrdinal := -1
+		if serialToolExecutionRequired(toolID, workflowActive) {
+			serialOrdinal = nextSerialOrdinal
+			nextSerialOrdinal++
+		}
 		wg.Add(1)
-		go func(tc llm.ToolCall, toolID toolspec.ID, knownTool bool) {
+		go func(tc llm.ToolCall, toolID toolspec.ID, knownTool bool, serialOrdinal int) {
 			defer wg.Done()
 			defer e.forgetPendingToolCallStart(tc.ID)
 			var callErr error
 
+			if serialOrdinal >= 0 {
+				serialGate.wait(serialOrdinal)
+				defer serialGate.done(serialOrdinal)
+			}
 			if !knownTool {
 				results[idx] = tools.Result{CallID: tc.ID, Name: toolspec.ID(tc.Name), IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: "unknown tool"}
 				if err := e.steer(stepID, steerToolCompletionIntent(results[idx])); err != nil {
@@ -102,7 +114,7 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 				return
 			}
 			callErrs[idx] = callErr
-		}(executableCall, toolID, knownTool)
+		}(executableCall, toolID, knownTool, serialOrdinal)
 	}
 
 	wg.Wait()
@@ -114,6 +126,46 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 		return results, joined
 	}
 	return results, nil
+}
+
+type serialToolGate struct {
+	mu   sync.Mutex
+	cond *sync.Cond
+	next int
+}
+
+func newSerialToolGate() *serialToolGate {
+	gate := &serialToolGate{}
+	gate.cond = sync.NewCond(&gate.mu)
+	return gate
+}
+
+func (g *serialToolGate) wait(ordinal int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for g.next != ordinal {
+		g.cond.Wait()
+	}
+}
+
+func (g *serialToolGate) done(ordinal int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.next == ordinal {
+		g.next++
+		g.cond.Broadcast()
+	}
+}
+
+func serialToolExecutionRequired(toolID toolspec.ID, workflowActive bool) bool {
+	switch toolID {
+	case toolspec.ToolAskQuestion:
+		return true
+	case toolspec.ToolPatch, toolspec.ToolEdit, toolspec.ToolViewImage:
+		return workflowActive
+	default:
+		return false
+	}
 }
 
 func (t *defaultToolExecutor) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) tools.Result {

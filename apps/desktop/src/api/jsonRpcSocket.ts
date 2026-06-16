@@ -193,24 +193,44 @@ export async function delay(milliseconds: number, signal: AbortSignal): Promise<
   });
 }
 
-export function handleSubscriptionMessage(event: MessageEvent<unknown>, handler: RpcEventHandler): void {
+export type SubscriptionMessageResult = Readonly<
+  | { kind: "active" }
+  | { kind: "complete"; code: number; message: string }
+>;
+
+export function subscriptionCompleteMethod(subscriptionMethod: string): string | null {
+  switch (subscriptionMethod) {
+    case "workflow.subscribe":
+      return "workflow.complete";
+    case "workflow.subscribeProject":
+      return "workflow.project.complete";
+    default:
+      return null;
+  }
+}
+
+export function handleSubscriptionMessage(
+  event: MessageEvent<unknown>,
+  handler: RpcEventHandler,
+  completeMethod: string | null,
+): SubscriptionMessageResult {
   if (typeof event.data !== "string") {
-    return;
+    return { kind: "active" };
   }
   const parsed = parseFrame(event.data);
   const notification = notificationSchema.safeParse(parsed);
   if (!notification.success) {
-    return;
+    return { kind: "active" };
   }
-  if (notification.data.method.endsWith(".complete")) {
+  if (completeMethod !== null && notification.data.method === completeMethod) {
     const complete = z
       .object({ code: z.number().optional(), message: z.string().optional() })
       .safeParse(notification.data.params);
-    handler.onComplete(
-      complete.success ? (complete.data.code ?? 0) : 0,
-      complete.success ? (complete.data.message ?? "") : "",
-    );
-    return;
+    const code = complete.success ? (complete.data.code ?? 0) : 0;
+    const message = complete.success ? (complete.data.message ?? "") : "";
+    handler.onComplete(code, message);
+    return { kind: "complete", code, message };
   }
   handler.onEvent(notification.data.method, notification.data.params);
+  return { kind: "active" };
 }

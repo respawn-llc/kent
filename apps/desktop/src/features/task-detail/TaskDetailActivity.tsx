@@ -61,7 +61,7 @@ export function CommentComposer({
           aria-label={editing === null ? t("task.addComment") : t("task.editComment")}
           className={cx(
             fieldIslandInputClassName(1),
-            "col-start-1 row-start-1 block min-h-[112px] resize-none p-[var(--space-2)] pb-12",
+            "relative z-0 col-start-1 row-start-1 block min-h-[112px] resize-none p-[var(--space-2)] pb-12",
           )}
           disabled={interactionDisabled}
           id="task-comment-body"
@@ -80,7 +80,7 @@ export function CommentComposer({
         />
         <Button
           aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
-          className="col-start-1 row-start-1 grid h-9 w-9 place-items-center self-end justify-self-end rounded-full !p-0"
+          className="relative z-10 col-start-1 row-start-1 grid h-9 w-9 place-items-center self-end justify-self-end rounded-full !p-0"
           data-testid="task-comment-save"
           disabled={interactionDisabled || commentBody.trim().length === 0}
           onClick={() => void submit()}

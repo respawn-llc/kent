@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  resolveVirtualizedInitialScroll,
+  virtualizedInitialScrollIndex,
+} from "./virtualizedInfiniteListInitialScroll";
 import { resolveLoadMore } from "./virtualizedInfiniteListLoadMore";
 
 const atBottom = {
@@ -63,5 +67,63 @@ describe("resolveLoadMore", () => {
     expect(
       resolveLoadMore({ ...atBottom, atBottom: false, lastLoadMoreKey: "", loadMoreKey: "page-1" }),
     ).toEqual({ shouldLoad: false, lastLoadMoreKey: "" });
+  });
+});
+
+describe("virtualizedInitialScrollIndex", () => {
+  const items = [{ key: "header" }, { key: "inbox" }, { key: "activity" }];
+  const getItemKey = (item: (typeof items)[number]): string => item.key;
+
+  it("finds the target item after the virtual list header", () => {
+    expect(
+      virtualizedInitialScrollIndex({
+        getItemKey,
+        headerCount: 1,
+        initialScrollKey: "inbox",
+        items,
+      }),
+    ).toBe(2);
+  });
+
+  it("ignores missing or empty initial scroll keys", () => {
+    expect(
+      virtualizedInitialScrollIndex({
+        getItemKey,
+        headerCount: 1,
+        initialScrollKey: "",
+        items,
+      }),
+    ).toBeNull();
+    expect(
+      virtualizedInitialScrollIndex({
+        getItemKey,
+        headerCount: 1,
+        initialScrollKey: "missing",
+        items,
+      }),
+    ).toBeNull();
+  });
+
+  it("suppresses repeated request keys while allowing the same target for a new request", () => {
+    expect(
+      resolveVirtualizedInitialScroll({
+        getItemKey,
+        headerCount: 1,
+        initialScrollKey: "inbox",
+        initialScrollRequestKey: "task-1",
+        items,
+        lastRequestKey: "task-1",
+      }),
+    ).toBeNull();
+    expect(
+      resolveVirtualizedInitialScroll({
+        getItemKey,
+        headerCount: 1,
+        initialScrollKey: "inbox",
+        initialScrollRequestKey: "task-2",
+        items,
+        lastRequestKey: "task-1",
+      }),
+    ).toEqual({ requestKey: "task-2", scrollIndex: 2 });
   });
 });
