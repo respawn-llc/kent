@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/primaryrun"
 	"core/server/requestmemo"
 	"core/server/runtime"
@@ -24,6 +25,64 @@ type stubRuntimeResolver struct {
 
 func (s stubRuntimeResolver) ResolveRuntime(context.Context, string) (*runtime.Engine, error) {
 	return s.engine, nil
+}
+
+var runtimeControlPromptHistoryStores sync.Map
+
+type runtimeControlPromptHistoryStore struct {
+	mu             sync.Mutex
+	records        []metadata.PromptHistoryRecord
+	recordInserted []bool
+	recordErr      error
+	recordCtxErr   error
+}
+
+func newRuntimeControlPromptHistoryStore(sessionID string) *runtimeControlPromptHistoryStore {
+	store := &runtimeControlPromptHistoryStore{}
+	runtimeControlPromptHistoryStores.Store(sessionID, store)
+	return store
+}
+
+func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.recordErr != nil {
+		return metadata.PromptHistoryRecord{}, false, s.recordErr
+	}
+	if s.recordCtxErr != nil && ctx.Err() != nil {
+		return metadata.PromptHistoryRecord{}, false, s.recordCtxErr
+	}
+	for _, record := range s.records {
+		if record.SessionID == entry.SessionID && record.SourceID == entry.SourceID {
+			if record.Text != entry.Text {
+				return metadata.PromptHistoryRecord{}, false, metadata.ErrPromptHistoryConflict
+			}
+			s.recordInserted = append(s.recordInserted, false)
+			return record, false, nil
+		}
+	}
+	record := metadata.PromptHistoryRecord{
+		Sequence:  int64(len(s.records) + 1),
+		SessionID: entry.SessionID,
+		SourceID:  entry.SourceID,
+		Text:      entry.Text,
+		CreatedAt: entry.CreatedAt,
+	}
+	s.records = append(s.records, record)
+	s.recordInserted = append(s.recordInserted, true)
+	return record, true, nil
+}
+
+func (s *runtimeControlPromptHistoryStore) SetRecordError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recordErr = err
+}
+
+func (s *runtimeControlPromptHistoryStore) SetRecordContextError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recordCtxErr = err
 }
 
 type stubRuntimeLeaseVerifier struct {
@@ -143,7 +202,8 @@ func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tool
 func newRuntimeControlTestService(t *testing.T, client llm.Client, registry *tools.Registry, cfg runtime.Config, opts ...session.StoreOption) (*session.Store, *runtime.Engine, *Service) {
 	t.Helper()
 	store, engine := newRuntimeControlTestEngine(t, client, registry, cfg, opts...)
-	return store, engine, NewService(stubRuntimeResolver{engine: engine}, nil)
+	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
+	return store, engine, NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
 }
 
 func finalResponseRuntimeControlClient() *runtimeControlFakeClient {
@@ -683,6 +743,9 @@ func TestServiceSubmitUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	if client.calls != 1 {
 		t.Fatalf("generate call count = %d, want 1", client.calls)
 	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
 }
 
 func TestServiceSubmitUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
@@ -746,6 +809,69 @@ func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
 	}
 	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
 		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
+func TestServiceSubmitUserTurnRecordsPromptHistoryWithUncancelledRunContext(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	cancelledRecordCtx := errors.New("record context was cancelled")
+	history.SetRecordContextError(cancelledRecordCtx)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := service.SubmitUserTurn(ctx, runtimeControlUserTurnRequest(store, "req-uncancelled-history", "hello after cancel"))
+	if err != nil {
+		t.Fatalf("SubmitUserTurn: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("message = %q, want done", resp.Message)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello after cancel"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
+func TestServiceSubmitUserTurnSkipsPromptHistoryWhenAlreadyRecorded(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	req := runtimeControlUserTurnRequest(store, "req-1", "expanded hidden prompt")
+	req.PromptHistoryRecorded = true
+
+	resp, err := service.SubmitUserTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitUserTurn: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("response = %q, want done", resp.Message)
+	}
+	if got := countPromptHistoryEvents(t, store, "expanded hidden prompt"); got != 0 {
+		t.Fatalf("hidden expanded prompt history count = %d, want 0", got)
+	}
+	if got := countUserMessagesWithContent(t, store, "expanded hidden prompt"); got != 1 {
+		t.Fatalf("submitted user message count = %d, want 1", got)
+	}
+}
+
+func TestServiceSubmitUserTurnRejectsPromptHistoryRecordedMismatch(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	first := runtimeControlUserTurnRequest(store, "req-1", "expanded hidden prompt")
+	first.PromptHistoryRecorded = true
+	if _, err := service.SubmitUserTurn(context.Background(), first); err != nil {
+		t.Fatalf("SubmitUserTurn first: %v", err)
+	}
+	second := first
+	second.PromptHistoryRecorded = false
+	if _, err := service.SubmitUserTurn(context.Background(), second); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
+		t.Fatalf("SubmitUserTurn mismatch error = %v, want request id payload mismatch", err)
+	}
+	if got := countPromptHistoryEvents(t, store, "expanded hidden prompt"); got != 0 {
+		t.Fatalf("hidden expanded prompt history count = %d, want 0", got)
+	}
+	if client.calls != 1 {
+		t.Fatalf("generate call count = %d, want 1", client.calls)
 	}
 }
 
@@ -847,6 +973,9 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	if firstQueue.QueueItemID == "" || secondQueue.QueueItemID != firstQueue.QueueItemID {
 		t.Fatalf("queue ids = (%q, %q), want stable non-empty id", firstQueue.QueueItemID, secondQueue.QueueItemID)
 	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("queued prompt history count = %d, want 1 immediately after queue acceptance", got)
+	}
 	if _, err := engine.SubmitQueuedUserMessages(context.Background()); err != nil {
 		t.Fatalf("SubmitQueuedUserMessages: %v", err)
 	}
@@ -855,6 +984,50 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	}
 	if got := countUserMessagesWithContent(t, store, "hello\n\nhello"); got != 0 {
 		t.Fatalf("duplicate queued flush count = %d, want 0", got)
+	}
+}
+
+func TestServiceQueueUserMessageDoesNotEnqueueWhenPromptHistoryRecordFails(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	boom := errors.New("prompt history record failed")
+	history.SetRecordError(boom)
+	req := runtimeControlQueueUserMessageRequest(sessionStore, "req-record-fail", "hello record failure")
+
+	if _, err := service.QueueUserMessage(ctx, req); !errors.Is(err, boom) {
+		t.Fatalf("QueueUserMessage error = %v, want %v", err, boom)
+	}
+	if engine.HasQueuedUserWork() {
+		t.Fatal("did not expect runtime queue mutation after prompt history record failure")
+	}
+}
+
+func TestServiceDiscardQueuedUserMessageIsRuntimeOnly(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-runtime", "discard runtime only"))
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
+		ClientRequestID:   "req-discard-runtime",
+		SessionID:         sessionStore.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		QueueItemID:       queued.QueueItemID,
+	}
+	discarded, err := service.DiscardQueuedUserMessage(ctx, discardReq)
+	if err != nil {
+		t.Fatalf("DiscardQueuedUserMessage: %v", err)
+	}
+	if !discarded.Discarded {
+		t.Fatal("expected runtime discard to remove pending queue item")
+	}
+	if engine.HasQueuedUserWork() {
+		t.Fatal("expected runtime queue item removed")
+	}
+	if got := countPromptHistoryEvents(t, sessionStore, "discard runtime only"); got != 1 {
+		t.Fatalf("prompt history count after discard = %d, want 1", got)
 	}
 }
 

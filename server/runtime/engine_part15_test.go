@@ -642,6 +642,78 @@ func TestRemoteCompactionReinjectsActiveWorkflowPrompt(t *testing.T) {
 	}
 }
 
+func TestRemoteCompactionRefreshesWorkflowTaskCommentCount(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{
+			{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "remote summary"},
+			{Type: llm.ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
+		},
+		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+	}}}
+	counter := &fakeTaskCommentCounter{count: 3}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskCommentCounter = counter
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-1", Content: "old workflow prompt with 1 comment"})); err != nil {
+		t.Fatalf("append stale workflow prompt: %v", err)
+	}
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	if _, err := eng.compactNow(context.Background(), "step-1", compactionModeManual, "", false); err != nil {
+		t.Fatalf("compactNow: %v", err)
+	}
+
+	if got := counter.calls.Load(); got != 1 {
+		t.Fatalf("CountTaskComments calls = %d, want 1", got)
+	}
+	workflowMessages := workflowModeMessagesFromItems(eng.snapshotItems())
+	if len(workflowMessages) != 1 {
+		t.Fatalf("workflow prompt count after compaction = %d, want 1; items=%+v", len(workflowMessages), eng.snapshotItems())
+	}
+	if strings.Contains(workflowMessages[0].Content, "old workflow prompt") || !strings.Contains(workflowMessages[0].Content, "3 comments") {
+		t.Fatalf("workflow prompt was not refreshed from current comment count:\n%s", workflowMessages[0].Content)
+	}
+}
+
+func TestRemoteCompactionTaskCommentCountErrorDoesNotReplaceHistory(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{
+			{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "remote summary"},
+			{Type: llm.ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
+		},
+		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+	}}}
+	countErr := errors.New("count comments failed")
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskCommentCounter = &fakeTaskCommentCounter{err: countErr}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	_, err := eng.compactNow(context.Background(), "step-1", compactionModeManual, "", false)
+	if !errors.Is(err, countErr) {
+		t.Fatalf("compactNow error = %v, want %v", err, countErr)
+	}
+	messages := eng.snapshotMessages()
+	if len(messages) != 1 || messages[0].Role != llm.RoleUser || messages[0].Content != "seed" {
+		t.Fatalf("active list mutated after comment count error: %+v", messages)
+	}
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	for _, event := range events {
+		if event.Kind == "history_replaced" {
+			t.Fatalf("history replacement committed after comment count error: %+v", events)
+		}
+	}
+}
+
 func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAtomically(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{

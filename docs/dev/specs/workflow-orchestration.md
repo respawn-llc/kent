@@ -84,7 +84,7 @@
 - Workflow runtime builds on reusable headless/session infrastructure for session launch, runtime wiring, logging, progress, subagent role handling, and mode prompts.
 - `RunPromptService.RunPrompt` final text is not workflow completion authority.
 - Existing user goal state is not reused as workflow autonomy state.
-- Task comments are not automatically injected into agent context. Agents read comments through CLI/API when needed.
+- Task comment bodies are not automatically injected into agent context. When a task has visible comments, workflow-mode instructions include the visible comment count and a `kent task comment list <task>` pull command. Kent re-queries the visible comment count each time the workflow instructions are appended without mutating previously persisted model-visible prompt items.
 
 ## Questions And Approvals
 
@@ -180,6 +180,7 @@
 - Comments record author/source agent when available.
 - Comments stay in Kent persistence, not files in the worktree.
 - Task comments are hard-deleted task-local notes.
+- CLI task comment management accepts both `kent task comment ...` and `kent task comments ...`.
 - Comment rows do not store source-run links, deleted tombstones, or opaque metadata.
 - Include-deleted comment APIs and read-model state are not product scope.
 

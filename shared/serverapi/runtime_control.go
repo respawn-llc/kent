@@ -100,10 +100,11 @@ type RuntimeSubmitUserMessageResponse struct {
 }
 
 type RuntimeSubmitUserTurnRequest struct {
-	ClientRequestID   string `json:"client_request_id"`
-	SessionID         string `json:"session_id"`
-	ControllerLeaseID string `json:"controller_lease_id"`
-	Text              string `json:"text"`
+	ClientRequestID       string `json:"client_request_id"`
+	SessionID             string `json:"session_id"`
+	ControllerLeaseID     string `json:"controller_lease_id"`
+	Text                  string `json:"text"`
+	PromptHistoryRecorded bool   `json:"prompt_history_recorded,omitempty"`
 }
 
 type RuntimeSubmitUserTurnResponse struct {

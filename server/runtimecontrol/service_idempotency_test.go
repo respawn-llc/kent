@@ -2,7 +2,6 @@ package runtimecontrol
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"core/server/llm"
@@ -468,7 +467,8 @@ func TestServiceRecordPromptHistoryDedupesSuccessfulRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create runtime engine: %v", err)
 	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
+	service := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
 	req := serverapi.RuntimeRecordPromptHistoryRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", Text: "/resume"}
 
 	if err := service.RecordPromptHistory(context.Background(), req); err != nil {
@@ -484,20 +484,16 @@ func TestServiceRecordPromptHistoryDedupesSuccessfulRetry(t *testing.T) {
 
 func countPromptHistoryEvents(t *testing.T, store *session.Store, text string) int {
 	t.Helper()
-	events, err := store.ReadEvents()
-	if err != nil {
-		t.Fatalf("ReadEvents: %v", err)
+	registered, ok := runtimeControlPromptHistoryStores.Load(store.Meta().SessionID)
+	if !ok {
+		return 0
 	}
+	history := registered.(*runtimeControlPromptHistoryStore)
+	history.mu.Lock()
+	defer history.mu.Unlock()
 	count := 0
-	for _, evt := range events {
-		if evt.Kind != "prompt_history" {
-			continue
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
-			t.Fatalf("decode prompt_history: %v", err)
-		}
-		if payload["text"] == text {
+	for _, record := range history.records {
+		if record.Text == text {
 			count++
 		}
 	}

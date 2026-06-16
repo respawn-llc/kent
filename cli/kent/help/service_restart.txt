@@ -3,5 +3,6 @@ Usage of kent service restart:
 
 Notes:
   Refuses to run inside Kent shell commands to avoid halting active agent work.
+  Ask the operator to manage the service manually outside the session.
 
 Flags:

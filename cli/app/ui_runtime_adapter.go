@@ -59,11 +59,11 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	)
 	transcriptSync := a.effectiveRuntimeTranscriptSync(evt, reduction.Transcript.Sync)
 	m.logTranscriptEventDiag("transcript.diag.client.apply_event", evt, map[string]string{
-		"path":                  "live_event",
-		"recovery_cause":        string(evt.RecoveryCause),
-		"sync_session_view":     strconv.FormatBool(transcriptSync.Reason != runtimestate.RuntimeTranscriptSyncNone),
-		"sync_reason":           runtimeTranscriptSyncReasonLabel(transcriptSync),
-		"record_prompt_history": strconv.FormatBool(reduction.PendingInput.PromptHistoryCommand != nil),
+		"path":                     "live_event",
+		"recovery_cause":           string(evt.RecoveryCause),
+		"sync_session_view":        strconv.FormatBool(transcriptSync.Reason != runtimestate.RuntimeTranscriptSyncNone),
+		"sync_reason":              runtimeTranscriptSyncReasonLabel(transcriptSync),
+		"consumed_queued_messages": strconv.Itoa(len(reduction.PendingInput.ConsumedQueueItemIDs)),
 	})
 	m.markActiveSubmitFlushed(evt)
 	m.applyRuntimeEventStatus(evt)
@@ -153,9 +153,6 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 			kind = uiStatusNoticeError
 		}
 		cmds = append(cmds, m.inputController().appendSystemFeedbackWithMirroredStatus(reduction.Notices.DiagnosticNotice.Message, kind))
-	}
-	if reduction.PendingInput.PromptHistoryCommand != nil && strings.TrimSpace(reduction.PendingInput.PromptHistoryCommand.Text) != "" {
-		cmds = append(cmds, m.recordPromptHistory(reduction.PendingInput.PromptHistoryCommand.Text))
 	}
 	if transcriptSync.Reason != runtimestate.RuntimeTranscriptSyncNone {
 		syncDecision := a.syncConversationFromRuntimeTranscriptCommand(transcriptSync)

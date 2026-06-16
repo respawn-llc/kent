@@ -99,6 +99,35 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 	}
 }
 
+func TestSchedulerWorkflowPromptIncludesStoreBackedTaskCommentCount(t *testing.T) {
+	input := json.RawMessage(`{"commentary":"finished tool"}`)
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
+	task := fixture.createStartedTask(t)
+	if _, err := fixture.store.AddComment(context.Background(), task.ID, "first durable note", "user", "nek"); err != nil {
+		t.Fatalf("AddComment first: %v", err)
+	}
+	if _, err := fixture.store.AddComment(context.Background(), task.ID, "second durable note", "agent", "coder"); err != nil {
+		t.Fatalf("AddComment second: %v", err)
+	}
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	fixture.waitForCompletedRun(t, task.ID)
+
+	reqs := fixture.client.Requests()
+	if len(reqs) == 0 {
+		t.Fatal("fake model was not called")
+	}
+	assertPromptContains(t, reqs[0], []string{"2 comments", "task comment list RUN-1"})
+	for _, body := range []string{"first durable note", "second durable note"} {
+		if strings.Contains(requestPromptText(reqs[0]), body) {
+			t.Fatalf("workflow prompt must not include comment body %q:\n%s", body, requestPromptText(reqs[0]))
+		}
+	}
+}
+
 func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 	completeInput := json.RawMessage(`{"commentary":"answered and finished"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,

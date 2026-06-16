@@ -11,12 +11,13 @@ import (
 )
 
 type Transition struct {
-	Action               serverapi.SessionTransitionAction
-	InitialPrompt        string
-	InitialInput         string
-	TargetSessionID      string
-	ForkUserMessageIndex int
-	ParentSessionID      string
+	Action                       serverapi.SessionTransitionAction
+	InitialPrompt                string
+	InitialPromptHistoryRecorded bool
+	InitialInput                 string
+	TargetSessionID              string
+	ForkUserMessageIndex         int
+	ParentSessionID              string
 }
 
 type ResolveRequest struct {
@@ -25,12 +26,13 @@ type ResolveRequest struct {
 }
 
 type Resolved struct {
-	NextSessionID   string
-	InitialPrompt   string
-	InitialInput    string
-	ParentSessionID string
-	ForceNewSession bool
-	ShouldContinue  bool
+	NextSessionID                string
+	InitialPrompt                string
+	InitialPromptHistoryRecorded bool
+	InitialInput                 string
+	ParentSessionID              string
+	ForceNewSession              bool
+	ShouldContinue               bool
 }
 
 func InitialInput(store *session.Store, transitionInput string) string {
@@ -54,10 +56,11 @@ func Resolve(ctx context.Context, req ResolveRequest) (Resolved, error) {
 	switch req.Transition.Action {
 	case serverapi.SessionTransitionActionNewSession:
 		return Resolved{
-			InitialPrompt:   req.Transition.InitialPrompt,
-			ParentSessionID: req.Transition.ParentSessionID,
-			ForceNewSession: true,
-			ShouldContinue:  true,
+			InitialPrompt:                req.Transition.InitialPrompt,
+			InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
+			ParentSessionID:              req.Transition.ParentSessionID,
+			ForceNewSession:              true,
+			ShouldContinue:               true,
 		}, nil
 	case serverapi.SessionTransitionActionResume:
 		return Resolved{ShouldContinue: true}, nil
@@ -92,8 +95,9 @@ func resolveForkRollback(req ResolveRequest) (Resolved, error) {
 		return Resolved{}, err
 	}
 	return Resolved{
-		NextSessionID:  forkedStore.Meta().SessionID,
-		InitialPrompt:  req.Transition.InitialPrompt,
-		ShouldContinue: true,
+		NextSessionID:                forkedStore.Meta().SessionID,
+		InitialPrompt:                req.Transition.InitialPrompt,
+		InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
+		ShouldContinue:               true,
 	}, nil
 }

@@ -44,6 +44,7 @@ type RuntimeStore interface {
 	ClearRunWaitingAsk(context.Context, workflow.RunID, int64, string) error
 	CompleteRun(context.Context, workflowstore.CompleteRunRequest) (workflowstore.CompleteRunResult, error)
 	RecordProtocolViolation(context.Context, workflowstore.RecordProtocolViolationRequest) (workflowstore.RecordProtocolViolationResult, error)
+	CountTaskComments(context.Context, workflow.TaskID) (int64, error)
 	InterruptRun(context.Context, workflow.RunID, string, string) error
 	InterruptRunGeneration(context.Context, workflow.RunID, int64, string, string) error
 }
@@ -475,6 +476,7 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 			MaxFinalAnswerViolations:     s.cfg.Settings.Workflow.MaxFinalAnswerViolations,
 			MaxInvalidCompletionAttempts: s.cfg.Settings.Workflow.MaxInvalidCompletionAttempts,
 			Controller:                   workflowruntime.StoreController{Store: s.store},
+			TaskCommentCounter:           s.store,
 			Instructions:                 instructions,
 		},
 		OnEvent: func(evt runtime.Event) {

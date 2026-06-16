@@ -67,6 +67,14 @@ type Session struct {
 	MetadataJson       string
 }
 
+type SessionPromptHistoryEntry struct {
+	Sequence        int64
+	SessionID       string
+	SourceID        string
+	Text            string
+	CreatedAtUnixMs int64
+}
+
 type Task struct {
 	ID                    string
 	ProjectWorkflowLinkID string

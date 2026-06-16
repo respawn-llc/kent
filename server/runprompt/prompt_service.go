@@ -31,6 +31,7 @@ type PromptAssistantMessage struct {
 }
 
 type PromptSessionRuntime interface {
+	RecordPromptHistory(ctx context.Context, clientRequestID string, prompt string) error
 	SubmitUserMessage(ctx context.Context, prompt string) (PromptAssistantMessage, error)
 	Logf(format string, args ...any)
 	Close() error
@@ -79,6 +80,9 @@ func (s *PromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRe
 	}
 
 	startedAt := time.Now()
+	if err := runtimeHandle.RecordPromptHistory(runCtx, req.ClientRequestID, req.Prompt); err != nil {
+		return serverapi.RunPromptResponse{}, err
+	}
 	assistant, runErr := runtimeHandle.SubmitUserMessage(runCtx, req.Prompt)
 	duration := time.Since(startedAt)
 	result := serverapi.RunPromptResponse{

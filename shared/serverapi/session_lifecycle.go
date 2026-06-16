@@ -21,12 +21,13 @@ const (
 )
 
 type SessionTransition struct {
-	Action               SessionTransitionAction `json:"action"`
-	InitialPrompt        string                  `json:"initial_prompt,omitempty"`
-	InitialInput         string                  `json:"initial_input,omitempty"`
-	TargetSessionID      string                  `json:"target_session_id,omitempty"`
-	ForkRollbackTargetID string                  `json:"fork_rollback_target_id,omitempty"`
-	ParentSessionID      string                  `json:"parent_session_id,omitempty"`
+	Action                       SessionTransitionAction `json:"action"`
+	InitialPrompt                string                  `json:"initial_prompt,omitempty"`
+	InitialPromptHistoryRecorded bool                    `json:"initial_prompt_history_recorded,omitempty"`
+	InitialInput                 string                  `json:"initial_input,omitempty"`
+	TargetSessionID              string                  `json:"target_session_id,omitempty"`
+	ForkRollbackTargetID         string                  `json:"fork_rollback_target_id,omitempty"`
+	ParentSessionID              string                  `json:"parent_session_id,omitempty"`
 }
 
 type SessionInitialInputRequest struct {
@@ -65,13 +66,14 @@ type SessionResolveTransitionRequest struct {
 }
 
 type SessionResolveTransitionResponse struct {
-	NextSessionID   string `json:"next_session_id,omitempty"`
-	InitialPrompt   string `json:"initial_prompt,omitempty"`
-	InitialInput    string `json:"initial_input,omitempty"`
-	ParentSessionID string `json:"parent_session_id,omitempty"`
-	ForceNewSession bool   `json:"force_new_session,omitempty"`
-	ShouldContinue  bool   `json:"should_continue,omitempty"`
-	RequiresReauth  bool   `json:"requires_reauth,omitempty"`
+	NextSessionID                string `json:"next_session_id,omitempty"`
+	InitialPrompt                string `json:"initial_prompt,omitempty"`
+	InitialPromptHistoryRecorded bool   `json:"initial_prompt_history_recorded,omitempty"`
+	InitialInput                 string `json:"initial_input,omitempty"`
+	ParentSessionID              string `json:"parent_session_id,omitempty"`
+	ForceNewSession              bool   `json:"force_new_session,omitempty"`
+	ShouldContinue               bool   `json:"should_continue,omitempty"`
+	RequiresReauth               bool   `json:"requires_reauth,omitempty"`
 }
 
 func (r SessionPersistInputDraftRequest) Validate() error {

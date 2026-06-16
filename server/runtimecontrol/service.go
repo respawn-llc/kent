@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/prompts"
+	"core/server/metadata"
 	"core/server/primaryrun"
 	"core/server/requestmemo"
 	"core/server/runtime"
@@ -25,10 +26,15 @@ type ControllerLeaseVerifier interface {
 	RequireControllerLease(ctx context.Context, sessionID string, leaseID string) error
 }
 
+type PromptHistoryStore interface {
+	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error)
+}
+
 type Service struct {
 	runtimes       RuntimeResolver
 	gate           primaryrun.Gate
 	control        ControllerLeaseVerifier
+	promptStore    PromptHistoryStore
 	sessionNames   *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	thinkingLevels *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	fastModes      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetFastModeEnabledResponse]
@@ -36,7 +42,7 @@ type Service struct {
 	autoCompacts   *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse]
 	questions      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetQuestionsEnabledResponse]
 	submits        *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse]
-	turnSubmits    *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse]
+	turnSubmits    *requestmemo.Memo[turnSubmitMemoRequest, serverapi.RuntimeSubmitUserTurnResponse]
 	queues         *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeQueueUserMessageResponse]
 	shells         *requestmemo.Memo[sessionCommandMemoRequest, struct{}]
 
@@ -65,6 +71,12 @@ type sessionBoolMemoRequest struct {
 type sessionTextMemoRequest struct {
 	SessionID string
 	Text      string
+}
+
+type turnSubmitMemoRequest struct {
+	SessionID             string
+	Text                  string
+	PromptHistoryRecorded bool
 }
 
 type queuedUserMessageMemoRequest struct {
@@ -117,7 +129,7 @@ func NewService(runtimes RuntimeResolver, gate primaryrun.Gate) *Service {
 		autoCompacts:   requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](),
 		questions:      requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetQuestionsEnabledResponse](),
 		submits:        requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse](),
-		turnSubmits:    requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse](),
+		turnSubmits:    requestmemo.New[turnSubmitMemoRequest, serverapi.RuntimeSubmitUserTurnResponse](),
 		queues:         requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeQueueUserMessageResponse](),
 		shells:         requestmemo.New[sessionCommandMemoRequest, struct{}](),
 
@@ -139,6 +151,14 @@ func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) 
 		return nil
 	}
 	s.control = verifier
+	return s
+}
+
+func (s *Service) WithPromptHistoryStore(store PromptHistoryStore) *Service {
+	if s == nil {
+		return nil
+	}
+	s.promptStore = store
 	return s
 }
 
@@ -368,6 +388,9 @@ func (s *Service) SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSu
 		if ctx != nil {
 			runCtx = context.WithoutCancel(ctx)
 		}
+		if _, _, err := s.recordPromptHistory(runCtx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text); err != nil {
+			return serverapi.RuntimeSubmitUserMessageResponse{}, err
+		}
 		msg, err := engine.SubmitUserMessage(runCtx, memoReq.Text)
 		if err != nil {
 			return serverapi.RuntimeSubmitUserMessageResponse{}, err
@@ -520,7 +543,15 @@ func (s *Service) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQue
 		if err != nil {
 			return serverapi.RuntimeQueueUserMessageResponse{}, err
 		}
-		item := engine.QueueUserMessage(memoReq.Text)
+		text := memoReq.Text
+		if s != nil && s.promptStore != nil {
+			record, _, err := s.recordPromptHistory(ctx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
+			if err != nil {
+				return serverapi.RuntimeQueueUserMessageResponse{}, err
+			}
+			text = record.Text
+		}
+		item := engine.QueueUserMessage(text)
 		return serverapi.RuntimeQueueUserMessageResponse{QueueItemID: item.ID, Text: item.Text}, nil
 	})
 }
@@ -538,7 +569,8 @@ func (s *Service) DiscardQueuedUserMessage(ctx context.Context, req serverapi.Ru
 		if err != nil {
 			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 		}
-		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: engine.DiscardQueuedUserMessage(req.QueueItemID)}, nil
+		discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
+		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded}, nil
 	})
 }
 
@@ -551,13 +583,24 @@ func (s *Service) RecordPromptHistory(ctx context.Context, req serverapi.Runtime
 		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
 			return struct{}{}, err
 		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
+		if _, err := s.resolve(ctx, req.SessionID); err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, engine.RecordPromptHistory(req.Text)
+		_, _, err := s.recordPromptHistory(ctx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
+		return struct{}{}, err
 	})
 	return err
+}
+
+func (s *Service) recordPromptHistory(ctx context.Context, sessionID string, sourceID string, text string) (metadata.PromptHistoryRecord, bool, error) {
+	if s == nil || s.promptStore == nil {
+		return metadata.PromptHistoryRecord{}, false, nil
+	}
+	return s.promptStore.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
+		SessionID: strings.TrimSpace(sessionID),
+		SourceID:  strings.TrimSpace(sourceID),
+		Text:      text,
+	})
 }
 
 func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
@@ -743,6 +786,10 @@ func (s *Service) acquirePrimaryRun(sessionID string) (primaryrun.Lease, error) 
 
 func sameSessionTextMemoRequest(a sessionTextMemoRequest, b sessionTextMemoRequest) bool {
 	return a.SessionID == b.SessionID && a.Text == b.Text
+}
+
+func sameTurnSubmitMemoRequest(a turnSubmitMemoRequest, b turnSubmitMemoRequest) bool {
+	return a.SessionID == b.SessionID && a.Text == b.Text && a.PromptHistoryRecorded == b.PromptHistoryRecorded
 }
 
 func sameQueuedUserMessageMemoRequest(a queuedUserMessageMemoRequest, b queuedUserMessageMemoRequest) bool {

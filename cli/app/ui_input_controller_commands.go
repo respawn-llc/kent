@@ -19,12 +19,13 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePosition(commandR
 	}
 	if commandResult.SubmitUser && commandResult.FreshConversation && m.currentConversationFreshness() != clientui.ConversationFreshnessFresh {
 		m.nextSessionInitialPrompt = commandResult.User
+		m.nextSessionInitialPromptHistoryRecorded = true
 		m.nextParentSessionID = m.sessionID
 		m.exitAction = UIActionNewSession
 		return m, tea.Quit
 	}
 	if commandResult.SubmitUser {
-		return m, c.startSubmissionWithPreSubmitQueuePosition(commandResult.User, queuePosition, "")
+		return m, c.startSubmissionWithPreSubmitQueuePosition(commandResult.User, queuePosition, "", true)
 	}
 	prefixCmd := tea.Cmd(nil)
 	if commandResult.Text != "" {

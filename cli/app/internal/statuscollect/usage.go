@@ -20,7 +20,7 @@ import (
 // failures. Callers and tests match these with errors.Is rather than comparing
 // rendered message text.
 var (
-	ErrUsageRequestFailed = errors.New("usage request failed")
+	ErrUsageRequestFailed  = errors.New("usage request failed")
 	ErrDecodeUsageResponse = errors.New("decode usage response")
 )
 

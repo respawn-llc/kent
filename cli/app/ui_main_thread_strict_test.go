@@ -93,6 +93,9 @@ func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
 	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].ID != "server-queue-1" {
 		t.Fatalf("expected server queue item after command, got %+v", updated.pendingInjected)
 	}
+	if len(updated.promptHistory) != 1 || updated.promptHistory[0] != "queued steering" {
+		t.Fatalf("prompt history = %+v, want accepted queued prompt", updated.promptHistory)
+	}
 }
 
 func TestTUIStrictIOCompactDoneChecksQueuedRuntimeWorkAsCommand(t *testing.T) {

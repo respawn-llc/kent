@@ -37,6 +37,20 @@ func (c *fakeWorkflowController) RecordWorkflowProtocolViolation(_ context.Conte
 	return workflowruntime.ViolationResult{Count: count, Interrupted: interrupted}, nil
 }
 
+type fakeTaskCommentCounter struct {
+	count int64
+	err   error
+	calls atomic.Int64
+}
+
+func (c *fakeTaskCommentCounter) CountTaskComments(context.Context, workflow.TaskID) (int64, error) {
+	c.calls.Add(1)
+	if c.err != nil {
+		return 0, c.err
+	}
+	return c.count, nil
+}
+
 type countingTool struct {
 	name  toolspec.ID
 	count atomic.Int64
@@ -170,6 +184,75 @@ func TestWorkflowModePromptInjectedWithoutHeadlessOrUserPrompt(t *testing.T) {
 	}
 }
 
+func TestWorkflowModePromptIncludesCurrentTaskCommentCount(t *testing.T) {
+	store := mustCreateTestSession(t)
+	counter := &fakeTaskCommentCounter{count: 2}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskCommentCounter = counter
+	client := &fakeClient{responses: []llm.Response{commentaryResponse("complete",
+		completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+	)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := counter.calls.Load(); got != 1 {
+		t.Fatalf("CountTaskComments calls = %d, want 1", got)
+	}
+	workflowContent := workflowPromptContentFromRequest(t, client.calls[0])
+	for _, want := range []string{
+		"2 comments",
+		prompts.LaunchCommand() + " task comment list BUI-1",
+	} {
+		if !strings.Contains(workflowContent, want) {
+			t.Fatalf("workflow prompt missing %q:\n%s", want, workflowContent)
+		}
+	}
+}
+
+func TestWorkflowModePromptExistingRunScopedMessageSkipsCommentCountQuery(t *testing.T) {
+	store := mustCreateTestSession(t)
+	if _, _, err := store.AppendEvent("seed", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-1", Content: "existing workflow instructions"}); err != nil {
+		t.Fatalf("seed workflow message: %v", err)
+	}
+	counter := &fakeTaskCommentCounter{count: 2}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskCommentCounter = counter
+	client := &fakeClient{responses: []llm.Response{commentaryResponse("complete",
+		completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+	)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := counter.calls.Load(); got != 0 {
+		t.Fatalf("CountTaskComments calls = %d, want 0", got)
+	}
+	workflowMessages := workflowPromptMessages(requestMessages(client.calls[0]))
+	if len(workflowMessages) != 1 || workflowMessages[0].Content != "existing workflow instructions" {
+		t.Fatalf("workflow messages = %+v, want only the existing run-scoped prompt", workflowMessages)
+	}
+}
+
+func TestWorkflowModePromptCommentCountErrorFailsBeforeWorkflowPromptAppend(t *testing.T) {
+	store := mustCreateTestSession(t)
+	countErr := errors.New("count comments failed")
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskCommentCounter = &fakeTaskCommentCounter{err: countErr}
+	client := &fakeClient{responses: []llm.Response{commentaryResponse("unexpected")}}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	_, err := eng.SubmitWorkflowTurn(context.Background())
+	if !errors.Is(err, countErr) {
+		t.Fatalf("SubmitWorkflowTurn error = %v, want %v", err, countErr)
+	}
+	assertModelCallCount(t, client, 0)
+	for _, msg := range eng.snapshotMessages() {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
+			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.snapshotMessages())
+		}
+	}
+}
+
 func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *testing.T) {
 	store := mustCreateTestSession(t)
 	if _, _, err := store.AppendEvent("seed", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-old", Content: "old workflow instructions"}); err != nil {
@@ -199,6 +282,25 @@ func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *tes
 	if workflowMessages[1].SourcePath != "run-1" || !strings.Contains(workflowMessages[1].Content, "ticket `BUI-1`") {
 		t.Fatalf("new workflow message missing run-scoped source path: %+v", workflowMessages)
 	}
+}
+
+func workflowPromptContentFromRequest(t *testing.T, req llm.Request) string {
+	t.Helper()
+	workflowMessages := workflowPromptMessages(requestMessages(req))
+	if len(workflowMessages) != 1 {
+		t.Fatalf("workflow message count = %d, want 1: %+v", len(workflowMessages), workflowMessages)
+	}
+	return workflowMessages[0].Content
+}
+
+func workflowPromptMessages(messages []llm.Message) []llm.Message {
+	out := []llm.Message{}
+	for _, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {

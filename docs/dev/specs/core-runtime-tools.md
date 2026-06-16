@@ -223,6 +223,7 @@
 - Goal completion is explicit CLI state mutation, not natural-language inference.
 - Goal mode requires `ask_question` for active model loops. Validate parity at model-work startup and surface normal runtime error if violated.
 - Goal CLI never mutates session DB directly. It crosses live server/runtime RPC.
+- `kent service restart`, `kent service restart --if-installed`, `kent service install` without `--no-start`, `kent service start`, `kent service stop`, and `kent service uninstall` without `--keep-running` refuse to run from Kent shell commands when `KENT_SESSION_ID` is present, before backend stop/restart or installation-state mutation, because those commands can stop or restart the server hosting current agent work.
 - Standalone `kent goal` commands do not acquire controller leases; model-shell CLI has narrow lease-free authority for same-session show, first-time set, and confirm-gated complete.
 - While a model turn runs, TUI goal lifecycle accepts only pause and clear.
 - Ctrl+C during active goal work keeps persisted status `active` and creates runtime-local suspension only.

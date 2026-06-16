@@ -96,9 +96,6 @@ func TestHeadlessToInteractiveReopenPreservesPromptCachePrefix(t *testing.T) {
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
-	if err := interactiveEngine.RecordPromptHistory("continue interactively"); err != nil {
-		t.Fatalf("record prompt history: %v", err)
-	}
 	if _, err := interactiveEngine.SubmitUserMessage(context.Background(), "continue interactively"); err != nil {
 		t.Fatalf("interactive submit: %v", err)
 	}
