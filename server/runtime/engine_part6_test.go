@@ -112,7 +112,7 @@ func TestReviewerCompletedEventReflectsPersistedReviewerStatusStateWithoutTransc
 		t.Fatalf("expected completion snapshot to end with reviewer status, got %+v", statusEntry)
 	}
 
-	eng.AppendLocalEntry("warning", "later unrelated note")
+	eng.AppendCommittedEntry("warning", "later unrelated note")
 	finalSnapshot := eng.ChatSnapshot()
 	if got, want := len(finalSnapshot.Entries), len(snapshotAtCompletion.Entries)+1; got != want {
 		t.Fatalf("expected later note after reviewer completion snapshot, got %d entries want %d", got, want)
@@ -122,7 +122,7 @@ func TestReviewerCompletedEventReflectsPersistedReviewerStatusStateWithoutTransc
 	}
 }
 
-func TestAppendPersistedLocalEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
+func TestAppendCommittedEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var events []Event
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
@@ -393,7 +393,7 @@ func TestRestoreMessagesPreservesStoredLocalEntryNoticeID(t *testing.T) {
 	}
 }
 
-func TestAppendPersistedLocalEntryRecordDoesNotMutateChatOnAppendFailure(t *testing.T) {
+func TestAppendCommittedEntryRecordDoesNotMutateChatOnAppendFailure(t *testing.T) {
 	localEntryErr := errors.New("injected local entry persistence failure")
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
@@ -415,7 +415,7 @@ func TestAppendPersistedLocalEntryRecordDoesNotMutateChatOnAppendFailure(t *test
 	}
 }
 
-func TestAppendLocalEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
+func TestAppendCommittedEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var events []Event
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
@@ -423,7 +423,7 @@ func TestAppendLocalEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 
-	eng.AppendLocalEntryWithOngoingText("user", "   ", "ignored")
+	eng.AppendCommittedEntryWithOngoingText("user", "   ", "ignored")
 	if len(events) != 0 {
 		t.Fatalf("expected blank local entry to emit no events, got %+v", events)
 	}

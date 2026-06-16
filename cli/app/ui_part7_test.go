@@ -9,7 +9,6 @@ import (
 	"core/server/session"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
-	"core/shared/transcript"
 	"errors"
 	"strings"
 	"testing"
@@ -581,7 +580,7 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 			}
 			eng := newAppRuntimeEngineWithStore(t, store, &runtimeAdapterFakeClient{}, runtime.Config{})
 			if tt.localEntry != "" {
-				eng.AppendLocalEntry("reviewer_status", tt.localEntry)
+				eng.AppendCommittedEntry("reviewer_status", tt.localEntry)
 			}
 
 			m := newProjectedEngineUIModel(eng)
@@ -807,14 +806,20 @@ func TestBusySlashThinkingExecutesImmediatelyWithoutQueueing(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	if cmd != nil {
-		t.Fatal("did not expect extra command from /thinking")
+	if cmd == nil {
+		t.Fatal("expected status clear timer command")
 	}
 	if !updated.isBusy() {
 		t.Fatal("expected busy state unchanged while command executes")
 	}
 	if updated.thinkingLevel != "low" {
 		t.Fatalf("expected thinking level update, got %q", updated.thinkingLevel)
+	}
+	if updated.transientStatus != "Thinking level set to low" {
+		t.Fatalf("expected thinking status, got %q", updated.transientStatus)
+	}
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("/thinking without runtime must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 	if len(updated.queued) != 0 {
 		t.Fatalf("expected no queued messages, got %d", len(updated.queued))
@@ -864,19 +869,6 @@ func TestMirroredTransientStatusClearsOnlyForMatchingNoticeID(t *testing.T) {
 	}
 }
 
-func TestLocalEntryFallbackForwardsNoticeIDToView(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	_ = m.appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient("system", "Fallback notice", "notice-1", transcript.EntryVisibilityAuto, false)
-
-	loaded := m.view.LoadedTranscriptEntries()
-	if len(loaded) != 1 {
-		t.Fatalf("loaded transcript entry count = %d, want 1", len(loaded))
-	}
-	if loaded[0].NoticeID != "notice-1" {
-		t.Fatalf("view notice id = %q, want notice-1", loaded[0].NoticeID)
-	}
-}
-
 func TestSlashFastTogglesAndShowsStatus(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIFastModeAvailable(true))
 	m.termWidth = 100
@@ -898,11 +890,10 @@ func TestSlashFastTogglesAndShowsStatus(t *testing.T) {
 	}
 	plain := stripANSIAndTrimRight(updated.View())
 	if !strings.Contains(plain, "Fast mode enabled") {
-		t.Fatalf("expected transcript notice for /fast toggle, got %q", plain)
+		t.Fatalf("expected status notice for /fast toggle, got %q", plain)
 	}
-	for _, msg := range collectCmdMessages(t, cmd) {
-		next, _ = updated.Update(msg)
-		updated = next.(*uiModel)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("static /fast toggle must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 
 	updated.input = "/fast off"
@@ -917,26 +908,25 @@ func TestSlashFastTogglesAndShowsStatus(t *testing.T) {
 	if !strings.Contains(updated.transientStatus, "Fast mode disabled") {
 		t.Fatalf("expected disable transient status, got %q", updated.transientStatus)
 	}
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("static /fast off must not create transcript entries: %+v", updated.transcriptEntries)
+	}
 
 	updated.input = "/fast status"
 	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 	if cmd == nil {
-		t.Fatal("expected transcript sync cmd for /fast status")
-	}
-	flush, ok := cmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg for /fast status, got %T", cmd())
-	}
-	if !strings.Contains(stripANSIAndTrimRight(flush.Text), "Fast mode is off") {
-		t.Fatalf("expected /fast status flush to include feedback, got %q", flush.Text)
+		t.Fatal("expected transient status clear timer cmd for /fast status")
 	}
 	plain = stripANSIAndTrimRight(updated.view.OngoingSnapshot())
-	if !strings.Contains(plain, "Fast mode is off") {
-		t.Fatalf("expected status transcript entry, got %q", plain)
+	if strings.Contains(plain, "Fast mode is off") {
+		t.Fatalf("status-only /fast status notice leaked into ongoing transcript: %q", plain)
 	}
-	if updated.transientStatus != "Fast mode disabled" {
-		t.Fatalf("did not expect /fast status to overwrite transient status, got %q", updated.transientStatus)
+	if updated.transientStatus != "Fast mode is off" {
+		t.Fatalf("expected /fast status to show status-only feedback, got %q", updated.transientStatus)
+	}
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("static /fast status must not create transcript entries: %+v", updated.transcriptEntries)
 	}
 }
 

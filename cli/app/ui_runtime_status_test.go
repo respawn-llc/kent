@@ -86,34 +86,34 @@ func TestCurrentConversationFreshnessDoesNotDowngradeLocalTurnFromCachedFresh(t 
 	}
 }
 
-func TestRuntimeBackedLocalEntryFallbackIsTransientUntilEcho(t *testing.T) {
+func TestRuntimeBackedLocalEntryAppendWaitsForCommittedServerEcho(t *testing.T) {
 	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
 
 	_ = m.appendLocalEntryWithNoticeID("developer_feedback", "local feedback", "")
-	if len(m.transcriptEntries) != 1 {
-		t.Fatalf("expected optimistic local entry, got %+v", m.transcriptEntries)
-	}
-	if !m.transcriptEntries[0].Transient {
-		t.Fatalf("expected runtime-backed optimistic entry to be transient, got %+v", m.transcriptEntries[0])
+	if len(m.transcriptEntries) != 0 {
+		t.Fatalf("did not expect local transcript entry before committed server echo, got %+v", m.transcriptEntries)
 	}
 	if committed := committedTranscriptEntriesForApp(m.transcriptEntries); len(committed) != 0 {
-		t.Fatalf("optimistic local entry advanced committed transcript entries: %+v", committed)
+		t.Fatalf("runtime-backed append advanced committed transcript entries before server echo: %+v", committed)
 	}
 }
 
-func TestStaticLocalEntryFallbackRemainsCommitted(t *testing.T) {
+func TestStaticLocalEntryAppendShowsStatusOnly(t *testing.T) {
 	m := newProjectedStaticUIModel()
 
-	_ = m.appendLocalEntryWithNoticeID("developer_feedback", "local feedback", "")
-	if len(m.transcriptEntries) != 1 {
-		t.Fatalf("expected local entry, got %+v", m.transcriptEntries)
+	cmd := m.appendLocalEntryWithNoticeID("developer_feedback", "local feedback", "notice-1")
+	if len(m.transcriptEntries) != 0 {
+		t.Fatalf("static append without runtime must not create transcript entries: %+v", m.transcriptEntries)
 	}
-	if m.transcriptEntries[0].Transient {
-		t.Fatalf("expected static local entry to remain committed, got %+v", m.transcriptEntries[0])
+	if committed := committedTranscriptEntriesForApp(m.transcriptEntries); len(committed) != 0 {
+		t.Fatalf("static append without runtime advanced committed transcript entries: %+v", committed)
 	}
-	if committed := committedTranscriptEntriesForApp(m.transcriptEntries); len(committed) != 1 {
-		t.Fatalf("expected static local entry in committed transcript entries, got %+v", committed)
+	if cmd == nil {
+		t.Fatal("expected status clear timer command")
+	}
+	if m.transientStatus != "local feedback" || m.transientStatusNoticeID != "notice-1" {
+		t.Fatalf("expected status-only local feedback, got status=%q notice=%q", m.transientStatus, m.transientStatusNoticeID)
 	}
 }
 

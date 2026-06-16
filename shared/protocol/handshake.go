@@ -103,7 +103,7 @@ const (
 	MethodRuntimeSetReviewerEnabled             = "runtime.setReviewerEnabled"
 	MethodRuntimeSetAutoCompactionEnabled       = "runtime.setAutoCompactionEnabled"
 	MethodRuntimeSetQuestionsEnabled            = "runtime.setQuestionsEnabled"
-	MethodRuntimeAppendLocalEntry               = "runtime.appendLocalEntry"
+	MethodRuntimeAppendCommittedEntry           = "runtime.appendCommittedEntry"
 	MethodRuntimeShouldCompactBeforeUserMessage = "runtime.shouldCompactBeforeUserMessage"
 	MethodRuntimeSubmitUserMessage              = "runtime.submitUserMessage"
 	MethodRuntimeSubmitUserTurn                 = "runtime.submitUserTurn"

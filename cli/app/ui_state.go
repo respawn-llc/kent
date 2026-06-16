@@ -166,7 +166,6 @@ type uiStatusFeatureState struct {
 	transientStatusToken    uint64
 	transientStatusQueue    []uiStatusNotice
 	localNoticeSequence     uint64
-	localEntryEcho          uiLocalEntryEchoState
 	startupUpdateNotice     bool
 	startupUpdateShown      bool
 	debugKeys               bool

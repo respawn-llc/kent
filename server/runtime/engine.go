@@ -145,6 +145,12 @@ type Engine struct {
 	llm      llm.Client
 	registry *tools.Registry
 	cfg      Config
+	// controlMutationMu serializes multi-step control mutations that need to
+	// persist transcript feedback before applying in-memory runtime state.
+	controlMutationMu sync.Mutex
+	// outputMutationMu keeps durable transcript writes, runtime projections, and
+	// event emission in one order for concurrent steering producers.
+	outputMutationMu sync.Mutex
 
 	diagnostics    *diagnosticDedupeStore
 	toolCallStarts *pendingToolCallStartStore
@@ -170,8 +176,9 @@ type Engine struct {
 	stepFlow       stepExecutor
 	toolFlow       toolExecutor
 
-	beforePersistMessage    func(llm.Message) error
-	beforePersistLocalEntry func(storedLocalEntry) error
+	beforePersistMessage          func(llm.Message) error
+	beforePersistLocalEntry       func(storedLocalEntry) error
+	beforePersistCacheObservation func([]session.EventInput) error
 
 	// baseMetaInjected guards the single per-conversation injection of base meta
 	// context (AGENTS.md, skills, subagents, environment). It is set when a

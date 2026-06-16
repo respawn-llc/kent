@@ -195,7 +195,7 @@ func (b *defaultBackgroundNoticeScheduler) processQueuedNotices(ctx context.Cont
 		if errors.Is(err, context.Canceled) {
 			return
 		}
-		b.engine.AppendLocalEntry("error", fmt.Sprintf("background continuation failed: %v", err))
+		b.engine.AppendCommittedEntry("error", fmt.Sprintf("background continuation failed: %v", err))
 	}
 }
 

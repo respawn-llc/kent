@@ -217,13 +217,12 @@ func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCach
 		}
 	}
 	events = append(events, session.EventInput{Kind: sessionEventCacheResponseObserved, Payload: response})
-	if _, err := e.store.AppendTurnAtomic(stepID, events); err != nil {
-		return err
-	}
 	if warning != nil {
-		if err := e.steer(stepID, steerCacheWarningIntent(*warning, cacheWarningEntryVisibility(e.cfg.CacheWarningMode), true)); err != nil {
+		if err := e.steer(stepID, steerCacheObservationIntent(events, *warning, cacheWarningEntryVisibility(e.cfg.CacheWarningMode), true)); err != nil {
 			return err
 		}
+	} else if _, err := e.store.AppendTurnAtomic(stepID, events); err != nil {
+		return err
 	}
 	e.modelRequests().RequestCache().RecordResponse(response)
 	return nil

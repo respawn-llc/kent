@@ -107,7 +107,6 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		m.sessionName = strings.TrimSpace(page.SessionName)
 	}
 	m.conversationFreshness = page.ConversationFreshness
-	m.acknowledgeLocalEntryEchoesInChatEntries(page.Entries)
 	reduction := reduceRuntimeTranscriptPage(newRuntimeTranscriptPageState(runtimeTranscriptPageSnapshotFromModel(m)), req, page, recoveryCause)
 	pageReq := reduction.request
 	page = reduction.page

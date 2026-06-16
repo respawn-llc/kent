@@ -5,30 +5,13 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/tui"
-	"core/shared/clientui"
 	"core/shared/transcript"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const (
-	localEntryEchoRetentionLimit = 512
-	operatorErrorFeedbackRole    = string(transcript.EntryRoleDeveloperErrorFeedback)
-)
-
-type uiLocalEntryEchoStatus uint8
-
-const (
-	uiLocalEntryEchoPending uiLocalEntryEchoStatus = iota + 1
-	uiLocalEntryEchoAcknowledged
-)
-
-type uiLocalEntryEchoState struct {
-	entries map[string]uiLocalEntryEchoStatus
-	order   []string
-}
+const operatorErrorFeedbackRole = string(transcript.EntryRoleDeveloperErrorFeedback)
 
 func (c uiInputController) appendSystemFeedbackWithMirroredStatus(text string, kind uiStatusNoticeKind) tea.Cmd {
 	noticeID := c.model.nextLocalNoticeID()
@@ -173,25 +156,9 @@ func (m *uiModel) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.
 		noticeID = m.nextLocalNoticeID()
 	}
 	if !m.hasRuntimeClient() {
-		return m.appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient(role, text, noticeID, transcript.EntryVisibilityAuto, false)
+		return m.sendTransientStatusWithNoticeID(text, statusKindForLocalEntryRole(role), transientStatusDuration, uiStatusNoticeReplace, noticeID)
 	}
-	m.trackPendingLocalEntryEcho(noticeID)
-	localCmd := m.appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient(role, text, noticeID, transcript.EntryVisibilityAuto, true)
-	persistCmd := m.persistLocalEntryCmd(role, text, noticeID)
-	return sequenceCmds(localCmd, persistCmd)
-}
-
-func (m *uiModel) appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient(role, text, noticeID string, visibility transcript.EntryVisibility, transient bool) tea.Cmd {
-	if m == nil {
-		return nil
-	}
-	transcriptRole := tui.TranscriptRoleFromWire(role)
-	entry := tui.TranscriptEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Transient: transient, Role: transcriptRole, Text: text, NoticeID: strings.TrimSpace(noticeID)}
-	m.transcriptEntries = append(m.transcriptEntries, entry)
-	m.transcriptTotalEntries = max(m.transcriptTotalEntries, m.transcriptBaseOffset+len(committedTranscriptEntriesForApp(m.transcriptEntries)))
-	m.refreshRollbackCandidates()
-	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Transient: entry.Transient, Role: transcriptRole, Text: text, NoticeID: entry.NoticeID})
-	return m.syncNativeHistoryFromTranscript()
+	return m.persistLocalEntryCmd(role, text, noticeID)
 }
 
 func (m *uiModel) persistLocalEntryCmd(role, text, noticeID string) tea.Cmd {
@@ -203,118 +170,18 @@ func (m *uiModel) persistLocalEntryCmd(role, text, noticeID string) tea.Cmd {
 	text = strings.TrimSpace(text)
 	noticeID = strings.TrimSpace(noticeID)
 	return func() tea.Msg {
-		err := client.AppendLocalEntryWithNoticeID(role, text, noticeID)
-		return localEntryPersistDoneMsg{noticeID: noticeID, err: err}
+		err := client.AppendCommittedEntryWithNoticeID(role, text, noticeID)
+		return committedEntryPersistDoneMsg{noticeID: noticeID, role: role, text: text, err: err}
 	}
 }
 
-func (m *uiModel) trackPendingLocalEntryEcho(noticeID string) {
-	m.trackLocalEntryEcho(noticeID, uiLocalEntryEchoPending)
-}
-
-func (m *uiModel) trackLocalEntryEcho(noticeID string, status uiLocalEntryEchoStatus) {
-	if m == nil {
-		return
+func statusKindForLocalEntryRole(role string) uiStatusNoticeKind {
+	switch transcript.NormalizeEntryRole(role) {
+	case string(transcript.EntryRoleDeveloperErrorFeedback), "error":
+		return uiStatusNoticeError
+	case "warning":
+		return uiStatusNoticeNeutral
+	default:
+		return uiStatusNoticeNeutral
 	}
-	noticeID = strings.TrimSpace(noticeID)
-	if noticeID == "" {
-		return
-	}
-	if m.localEntryEcho.entries == nil {
-		m.localEntryEcho.entries = map[string]uiLocalEntryEchoStatus{}
-	}
-	if _, exists := m.localEntryEcho.entries[noticeID]; !exists {
-		m.localEntryEcho.order = append(m.localEntryEcho.order, noticeID)
-	}
-	m.localEntryEcho.entries[noticeID] = status
-	m.pruneLocalEntryEchoLedger()
-}
-
-func (m *uiModel) acknowledgeLocalEntryEcho(noticeID string) bool {
-	if m == nil {
-		return false
-	}
-	noticeID = strings.TrimSpace(noticeID)
-	if noticeID == "" || m.localEntryEcho.entries == nil {
-		return false
-	}
-	if _, ok := m.localEntryEcho.entries[noticeID]; !ok {
-		return false
-	}
-	m.localEntryEcho.entries[noticeID] = uiLocalEntryEchoAcknowledged
-	return true
-}
-
-func (m *uiModel) acknowledgeLocalEntryEchoesInChatEntries(entries []clientui.ChatEntry) {
-	if m == nil {
-		return
-	}
-	for _, entry := range entries {
-		m.acknowledgeLocalEntryEcho(entry.NoticeID)
-	}
-}
-
-func (m *uiModel) suppressRenderedLocalEntryEchoesInChatEntries(entries []clientui.ChatEntry) []clientui.ChatEntry {
-	if m == nil || len(entries) == 0 {
-		return entries
-	}
-	filtered := entries[:0]
-	for _, entry := range entries {
-		if m.shouldSuppressRenderedLocalEntryEcho(entry.NoticeID) {
-			m.clearMirroredTransientStatusByNoticeID(entry.NoticeID)
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
-}
-
-func (m *uiModel) shouldSuppressRenderedLocalEntryEcho(noticeID string) bool {
-	if m == nil {
-		return false
-	}
-	noticeID = strings.TrimSpace(noticeID)
-	if noticeID == "" || m.localEntryEcho.entries == nil {
-		return false
-	}
-	if _, ok := m.localEntryEcho.entries[noticeID]; !ok {
-		return false
-	}
-	m.acknowledgeLocalEntryEcho(noticeID)
-	return m.localEntryEchoRendered(noticeID)
-}
-
-func (m *uiModel) localEntryEchoRendered(noticeID string) bool {
-	if m == nil {
-		return false
-	}
-	noticeID = strings.TrimSpace(noticeID)
-	if noticeID == "" {
-		return false
-	}
-	for _, entry := range m.transcriptEntries {
-		if strings.TrimSpace(entry.NoticeID) == noticeID {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *uiModel) pruneLocalEntryEchoLedger() {
-	if m == nil || len(m.localEntryEcho.order) <= localEntryEchoRetentionLimit {
-		return
-	}
-	keep := m.localEntryEcho.order[:0]
-	for _, noticeID := range m.localEntryEcho.order {
-		if len(m.localEntryEcho.order)-len(keep) <= localEntryEchoRetentionLimit {
-			keep = append(keep, noticeID)
-			continue
-		}
-		if m.localEntryEcho.entries[noticeID] == uiLocalEntryEchoPending {
-			keep = append(keep, noticeID)
-			continue
-		}
-		delete(m.localEntryEcho.entries, noticeID)
-	}
-	m.localEntryEcho.order = keep
 }

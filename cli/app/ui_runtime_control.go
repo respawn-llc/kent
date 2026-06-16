@@ -124,7 +124,7 @@ func (m *uiModel) clearRuntimeGoal() (*clientui.RuntimeGoal, error) {
 
 func (m *uiModel) appendRuntimeLocalEntryWithNoticeID(role, text, noticeID string) error {
 	if client := m.runtimeClient(); client != nil {
-		err := client.AppendLocalEntryWithNoticeID(role, text, noticeID)
+		err := client.AppendCommittedEntryWithNoticeID(role, text, noticeID)
 		m.observeRuntimeRequestResult(err)
 		return err
 	}
@@ -402,7 +402,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	case runtimeControlSetFastMode:
 		m.fastModeEnabled = msg.enabled
 		status := fastModeToggleStatusMessage(m.fastModeEnabled, msg.changed)
-		return sequenceCmds(m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeSuccess), followUpCmd)
+		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlSetReviewer:
 		nextMode := strings.TrimSpace(msg.mode)
 		if nextMode == "" {
@@ -411,7 +411,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		m.reviewerMode = nextMode
 		m.reviewerEnabled = nextMode != "off"
 		status := reviewerToggleStatusMessage(m.reviewerEnabled, nextMode, msg.changed)
-		return sequenceCmds(m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral), followUpCmd)
+		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlSetAutoCompaction:
 		m.autoCompactionEnabled = msg.enabled
 		status := autoCompactionToggleStatusMessage(msg.enabled, msg.changed, msg.compactionMode)
@@ -419,7 +419,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	case runtimeControlSetQuestions:
 		m.questionsEnabled = msg.enabled
 		status := questionsToggleStatusMessage(msg.enabled, msg.changed)
-		return sequenceCmds(m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral), followUpCmd)
+		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlInterrupt:
 		return followUpCmd
 	default:

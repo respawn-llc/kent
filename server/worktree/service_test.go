@@ -144,7 +144,7 @@ func (r *dirtyCountFailingGitRunner) Run(ctx context.Context, dir string, args .
 	return r.base.Run(ctx, dir, args...)
 }
 
-func (n *serviceTestLocalNotes) AppendLocalEntry(_ context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
+func (n *serviceTestLocalNotes) AppendCommittedEntry(_ context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
 	if n.appendLocalErr != nil {
 		return n.appendLocalErr
 	}

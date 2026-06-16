@@ -73,27 +73,6 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 	}})
 }
 
-// headlessModeActive reports the headless state implied by the last headless
-// enter/exit marker in a message slice. It is used only to seed the persisted
-// Meta.HeadlessActive flag at the restore boundary (including migrating sessions
-// created before the flag existed); per-request transitions read the persisted
-// flag, never the transcript.
-func headlessModeActive(messages []llm.Message) bool {
-	active := false
-	for _, msg := range messages {
-		if msg.Role != llm.RoleDeveloper {
-			continue
-		}
-		switch msg.MessageType {
-		case llm.MessageTypeHeadlessMode:
-			active = true
-		case llm.MessageTypeHeadlessModeExit:
-			active = false
-		}
-	}
-	return active
-}
-
 func (e *Engine) steerPersistedDiagnosticEntry(stepID, diagnosticKey, role, text string) error {
 	diagnosticKey = strings.TrimSpace(diagnosticKey)
 	if diagnosticKey == "" {
@@ -146,20 +125,6 @@ func (e *Engine) appendPersistedLocalEntryRecordRaw(stepID string, entry storedL
 		e.emitRaw(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	}
 	return err
-}
-
-func (e *Engine) appendTransientLocalEntryRecordRaw(entry storedLocalEntry) {
-	entry.Role = strings.TrimSpace(entry.Role)
-	entry.Text = strings.TrimSpace(entry.Text)
-	entry.OngoingText = strings.TrimSpace(entry.OngoingText)
-	entry.DiagnosticKey = strings.TrimSpace(entry.DiagnosticKey)
-	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
-	if entry.Role == "" || entry.Text == "" {
-		return
-	}
-	e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
-	e.emitRaw(Event{Kind: EventLocalEntryAdded, LocalEntry: localEntryChatEntry(entry)})
-	e.emitRaw(Event{Kind: EventConversationUpdated})
 }
 
 func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {

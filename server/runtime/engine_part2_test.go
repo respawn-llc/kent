@@ -8,6 +8,7 @@ import (
 	"core/shared/config"
 	"core/shared/toolspec"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -587,6 +588,51 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 	}
 }
 
+func TestSetFastModeWithCommittedFeedbackDoesNotMutateOnAppendFailure(t *testing.T) {
+	localEntryErr := errors.New("injected feedback persistence failure")
+	store := mustCreateTestSession(t)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
+		Model: "gpt-5.3-codex",
+	})
+	eng.beforePersistLocalEntry = func(entry storedLocalEntry) error {
+		return localEntryErr
+	}
+
+	changed, err := eng.SetFastModeEnabledWithCommittedFeedback(true, func(changed bool) string {
+		if changed {
+			return "Fast mode enabled"
+		}
+		return "Fast mode already enabled"
+	})
+	if !errors.Is(err, localEntryErr) {
+		t.Fatalf("enable fast mode error = %v, want %v", err, localEntryErr)
+	}
+	if changed {
+		t.Fatal("did not expect changed=true when committed feedback append failed")
+	}
+	if eng.FastModeEnabled() {
+		t.Fatal("fast mode mutated after committed feedback append failure")
+	}
+
+	eng.beforePersistLocalEntry = nil
+	changed, err = eng.SetFastModeEnabledWithCommittedFeedback(true, func(changed bool) string {
+		if changed {
+			return "Fast mode enabled"
+		}
+		return "Fast mode already enabled"
+	})
+	if err != nil {
+		t.Fatalf("retry enable fast mode: %v", err)
+	}
+	if !changed || !eng.FastModeEnabled() {
+		t.Fatalf("expected retry to apply original change, changed=%v enabled=%v", changed, eng.FastModeEnabled())
+	}
+	snapshot := eng.ChatSnapshot()
+	if len(snapshot.Entries) != 1 || snapshot.Entries[0].Text != "Fast mode enabled" {
+		t.Fatalf("expected original success feedback after retry, got %+v", snapshot.Entries)
+	}
+}
+
 func TestFastModeSharedStateAppliesAcrossEngines(t *testing.T) {
 	dir := t.TempDir()
 	state := NewFastModeState(false)
@@ -614,6 +660,69 @@ func TestFastModeSharedStateAppliesAcrossEngines(t *testing.T) {
 	}
 }
 
+func TestSharedFastModeCommittedFeedbackSerializesAcrossEngines(t *testing.T) {
+	dir := t.TempDir()
+	state := NewFastModeState(false)
+	storeA := mustCreateNamedTestSessionAt(t, dir, "ws-a", dir)
+	engA := mustNewExecTestEngine(t, storeA, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
+		Model:         "gpt-5.3-codex",
+		FastModeState: state,
+	})
+	storeB := mustCreateNamedTestSessionAt(t, dir, "ws-b", dir)
+	engB := mustNewExecTestEngine(t, storeB, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
+		Model:         "gpt-5.3-codex",
+		FastModeState: state,
+	})
+	blockAppend := make(chan struct{})
+	releaseAppend := make(chan struct{})
+	engA.beforePersistLocalEntry = func(entry storedLocalEntry) error {
+		close(blockAppend)
+		<-releaseAppend
+		return nil
+	}
+	feedback := func(changed bool) string {
+		if changed {
+			return "Fast mode enabled"
+		}
+		return "Fast mode already enabled"
+	}
+
+	type result struct {
+		changed bool
+		err     error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		changed, err := engA.SetFastModeEnabledWithCommittedFeedback(true, feedback)
+		firstDone <- result{changed: changed, err: err}
+	}()
+	<-blockAppend
+
+	secondDone := make(chan result, 1)
+	go func() {
+		changed, err := engB.SetFastModeEnabledWithCommittedFeedback(true, feedback)
+		secondDone <- result{changed: changed, err: err}
+	}()
+	close(releaseAppend)
+
+	first := <-firstDone
+	second := <-secondDone
+	if first.err != nil || second.err != nil {
+		t.Fatalf("shared fast mode committed feedback errors: first=%v second=%v", first.err, second.err)
+	}
+	if !first.changed || second.changed {
+		t.Fatalf("expected serialized changed values true,false; got %v,%v", first.changed, second.changed)
+	}
+	snapshotA := engA.ChatSnapshot()
+	snapshotB := engB.ChatSnapshot()
+	if len(snapshotA.Entries) != 1 || snapshotA.Entries[0].Text != "Fast mode enabled" {
+		t.Fatalf("expected first engine success feedback, got %+v", snapshotA.Entries)
+	}
+	if len(snapshotB.Entries) != 1 || snapshotB.Entries[0].Text != "Fast mode already enabled" {
+		t.Fatalf("expected second engine already-enabled feedback, got %+v", snapshotB.Entries)
+	}
+}
+
 func TestSetAutoCompactionEnabledTogglesRuntimeOnly(t *testing.T) {
 	store := mustCreateTestSession(t)
 	cfg := Config{Model: "gpt-5"}
@@ -630,6 +739,52 @@ func TestSetAutoCompactionEnabledTogglesRuntimeOnly(t *testing.T) {
 	restarted := mustNewExecTestEngine(t, store, &fakeClient{}, cfg)
 	if got := restarted.AutoCompactionEnabled(); !got {
 		t.Fatalf("expected auto-compaction enabled after restart, got %v", got)
+	}
+}
+
+func TestSetQuestionsWithCommittedFeedbackDoesNotMutateOnAppendFailure(t *testing.T) {
+	localEntryErr := errors.New("injected feedback persistence failure")
+	store := mustCreateTestSession(t)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	eng.beforePersistLocalEntry = func(entry storedLocalEntry) error {
+		return localEntryErr
+	}
+
+	changed, enabled, err := eng.SetQuestionsEnabledWithCommittedFeedback(false, func(enabled bool, changed bool) string {
+		if !enabled && changed {
+			return "Questions disabled"
+		}
+		return "Questions already disabled"
+	})
+	if !errors.Is(err, localEntryErr) {
+		t.Fatalf("disable questions error = %v, want %v", err, localEntryErr)
+	}
+	if changed {
+		t.Fatal("did not expect changed=true when committed feedback append failed")
+	}
+	if !enabled {
+		t.Fatal("did not expect returned questions state to change after committed feedback append failure")
+	}
+	if !eng.QuestionsEnabled() {
+		t.Fatal("questions setting mutated after committed feedback append failure")
+	}
+
+	eng.beforePersistLocalEntry = nil
+	changed, enabled, err = eng.SetQuestionsEnabledWithCommittedFeedback(false, func(enabled bool, changed bool) string {
+		if !enabled && changed {
+			return "Questions disabled"
+		}
+		return "Questions already disabled"
+	})
+	if err != nil {
+		t.Fatalf("retry disable questions: %v", err)
+	}
+	if !changed || enabled || eng.QuestionsEnabled() {
+		t.Fatalf("expected retry to apply original questions change, changed=%v enabled=%v current=%v", changed, enabled, eng.QuestionsEnabled())
+	}
+	snapshot := eng.ChatSnapshot()
+	if len(snapshot.Entries) != 1 || snapshot.Entries[0].Text != "Questions disabled" {
+		t.Fatalf("expected original questions success feedback after retry, got %+v", snapshot.Entries)
 	}
 }
 
@@ -719,6 +874,62 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 	restarted := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), cfg)
 	if got := restarted.ReviewerFrequency(); got != "off" {
 		t.Fatalf("reviewer frequency after restart = %q, want off", got)
+	}
+}
+
+func TestSetReviewerWithCommittedFeedbackDoesNotMutateOnAppendFailure(t *testing.T) {
+	localEntryErr := errors.New("injected feedback persistence failure")
+	dir := t.TempDir()
+	store := mustCreateTestSessionAt(t, dir)
+	cfg := Config{
+		Model: "gpt-5",
+		Reviewer: ReviewerConfig{
+			Frequency:     "off",
+			Model:         "gpt-5",
+			ThinkingLevel: "low",
+			Client:        &fakeClient{},
+		},
+	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), cfg)
+	eng.beforePersistLocalEntry = func(entry storedLocalEntry) error {
+		return localEntryErr
+	}
+
+	changed, mode, err := eng.SetReviewerEnabledWithCommittedFeedback(true, func(enabled bool, mode string, changed bool) string {
+		if enabled && changed {
+			return "Supervisor invocation enabled"
+		}
+		return "Supervisor invocation already enabled"
+	})
+	if !errors.Is(err, localEntryErr) {
+		t.Fatalf("enable reviewer error = %v, want %v", err, localEntryErr)
+	}
+	if changed {
+		t.Fatal("did not expect changed=true when committed feedback append failed")
+	}
+	if mode != "edits" {
+		t.Fatalf("expected planned retry mode edits, got %q", mode)
+	}
+	if got := eng.ReviewerFrequency(); got != "off" {
+		t.Fatalf("reviewer frequency mutated after committed feedback append failure: %q", got)
+	}
+
+	eng.beforePersistLocalEntry = nil
+	changed, mode, err = eng.SetReviewerEnabledWithCommittedFeedback(true, func(enabled bool, mode string, changed bool) string {
+		if enabled && changed {
+			return "Supervisor invocation enabled"
+		}
+		return "Supervisor invocation already enabled"
+	})
+	if err != nil {
+		t.Fatalf("retry enable reviewer: %v", err)
+	}
+	if !changed || mode != "edits" || eng.ReviewerFrequency() != "edits" {
+		t.Fatalf("expected retry to apply original reviewer change, changed=%v mode=%q freq=%q", changed, mode, eng.ReviewerFrequency())
+	}
+	snapshot := eng.ChatSnapshot()
+	if len(snapshot.Entries) != 1 || snapshot.Entries[0].Text != "Supervisor invocation enabled" {
+		t.Fatalf("expected original reviewer success feedback after retry, got %+v", snapshot.Entries)
 	}
 }
 

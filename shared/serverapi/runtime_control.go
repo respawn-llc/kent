@@ -69,7 +69,7 @@ type RuntimeSetQuestionsEnabledResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
-type RuntimeAppendLocalEntryRequest struct {
+type RuntimeAppendCommittedEntryRequest struct {
 	ClientRequestID   string `json:"client_request_id"`
 	SessionID         string `json:"session_id"`
 	ControllerLeaseID string `json:"controller_lease_id"`
@@ -285,7 +285,7 @@ func (r RuntimeSetAutoCompactionEnabledRequest) Validate() error {
 func (r RuntimeSetQuestionsEnabledRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
-func (r RuntimeAppendLocalEntryRequest) Validate() error {
+func (r RuntimeAppendCommittedEntryRequest) Validate() error {
 	if err := validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
 		return err
 	}

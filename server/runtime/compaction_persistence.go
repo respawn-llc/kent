@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -22,68 +21,11 @@ func (e *Engine) replaceHistory(stepID, engine string, mode compactionMode, item
 
 func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, items []llm.ResponseItem) error {
 	e := p.engine
-	preparedItems := llm.PrepareOpenAIInputItems(items)
 	workflowRunID := ""
 	if e.cfg.WorkflowRun != nil {
 		workflowRunID = strings.TrimSpace(string(e.cfg.WorkflowRun.RunID))
 	}
-	payload := historyReplacementPayload{
-		Engine:        normalizeHistoryReplacementEngine(engine),
-		Mode:          string(mode),
-		WorkflowRunID: workflowRunID,
-		Items:         llm.CloneResponseItems(preparedItems),
-	}
-	reminderIssued := false
-	projectedStart := e.CommittedTranscriptEntryCount()
-	projectedEntries := transcriptEntriesFromHistoryReplacement(payload.Items)
-	// Compaction reinjects base meta into the same replacement payload, so a
-	// non-empty replacement active list is born already carrying it. Mirror the
-	// restore-time length signal here rather than scanning the items.
-	e.baseMetaInjected = len(preparedItems) > 0
-	_, committed, appendErr := e.store.AppendEvent(stepID, "history_replaced", payload)
-	if appendErr != nil && !committed {
-		return appendErr
-	}
-	// The committed event is the single durable record of this compaction's
-	// provenance; mirror it into runtime state so an in-process gate sees it
-	// without re-reading the transcript, matching what restore reconstructs.
-	e.setLastCompactionWorkflowRunID(workflowRunID)
-	e.resetCurrentPreciseInputTracking()
-	e.resetLocalDiagnostics()
-	e.transcriptPersistence().ReplaceHistory(payload.Items)
-	e.setCompactionSoonReminderIssued(false)
-	p.emitProjectedHistoryReplacementEntries(stepID, projectedStart, projectedEntries)
-	conversationErr := e.steerEvent(stepID, Event{Kind: EventConversationUpdated, StepID: stepID})
-	return errors.Join(
-		appendErr,
-		conversationErr,
-		e.store.SetCompactionSoonReminderIssued(reminderIssued),
-		e.store.SetUsageState(nil),
-	)
-}
-
-func (p compactionPersistence) emitProjectedHistoryReplacementEntries(stepID string, start int, entries []ChatEntry) {
-	e := p.engine
-	if e == nil || len(entries) == 0 {
-		return
-	}
-	// Live subscribers must observe the same committed transcript progression that
-	// restart hydration reconstructs from history_replaced. Emit projected
-	// compaction rows before any later local entry.
-	if start < 0 {
-		start = 0
-	}
-	for idx, entry := range entries {
-		copyEntry := clonePersistedChatEntry(entry)
-		_ = e.steerEvent(stepID, Event{
-			Kind:                       EventLocalEntryAdded,
-			StepID:                     stepID,
-			LocalEntry:                 &copyEntry,
-			CommittedTranscriptChanged: true,
-			CommittedEntryStart:        start + idx,
-			CommittedEntryStartSet:     true,
-		})
-	}
+	return e.steer(stepID, steerHistoryReplacementIntent(engine, mode, workflowRunID, items))
 }
 
 func (e *Engine) emitCompactionStatus(stepID string, kind EventKind, mode compactionMode, engine, provider string, trimmed, count int, errText string) error {

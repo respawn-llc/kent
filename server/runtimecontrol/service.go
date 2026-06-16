@@ -11,6 +11,7 @@ import (
 	"core/server/requestmemo"
 	"core/server/runtime"
 	"core/server/session"
+	"core/shared/controlfeedback"
 	"core/shared/serverapi"
 	"core/shared/servicecontract"
 	"core/shared/transcript"
@@ -211,7 +212,9 @@ func (s *Service) SetFastModeEnabled(ctx context.Context, req serverapi.RuntimeS
 		if err != nil {
 			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
 		}
-		changed, err := engine.SetFastModeEnabled(req.Enabled)
+		changed, err := engine.SetFastModeEnabledWithCommittedFeedback(req.Enabled, func(changed bool) string {
+			return controlfeedback.FastModeToggleStatusMessage(req.Enabled, changed)
+		})
 		if err != nil {
 			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
 		}
@@ -232,7 +235,9 @@ func (s *Service) SetReviewerEnabled(ctx context.Context, req serverapi.RuntimeS
 		if err != nil {
 			return serverapi.RuntimeSetReviewerEnabledResponse{}, err
 		}
-		changed, mode, err := engine.SetReviewerEnabled(req.Enabled)
+		changed, mode, err := engine.SetReviewerEnabledWithCommittedFeedback(req.Enabled, func(enabled bool, mode string, changed bool) string {
+			return controlfeedback.ReviewerToggleStatusMessage(enabled, mode, changed)
+		})
 		if err != nil {
 			return serverapi.RuntimeSetReviewerEnabledResponse{}, err
 		}
@@ -271,12 +276,17 @@ func (s *Service) SetQuestionsEnabled(ctx context.Context, req serverapi.Runtime
 		if err != nil {
 			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err
 		}
-		changed, enabled := engine.SetQuestionsEnabled(req.Enabled)
+		changed, enabled, err := engine.SetQuestionsEnabledWithCommittedFeedback(req.Enabled, func(enabled bool, changed bool) string {
+			return controlfeedback.QuestionsToggleStatusMessage(enabled, changed)
+		})
+		if err != nil {
+			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err
+		}
 		return serverapi.RuntimeSetQuestionsEnabledResponse{Changed: changed, Enabled: enabled}, nil
 	})
 }
 
-func (s *Service) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
+func (s *Service) AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}
@@ -291,13 +301,12 @@ func (s *Service) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeApp
 			return struct{}{}, err
 		}
 		if visibility == transcript.EntryVisibilityAuto && strings.TrimSpace(req.NoticeID) != "" {
-			engine.AppendLocalEntryWithNoticeID(req.Role, req.Text, req.NoticeID)
-		} else if visibility == transcript.EntryVisibilityAuto {
-			engine.AppendLocalEntry(req.Role, req.Text)
-		} else {
-			engine.AppendLocalEntryWithVisibility(req.Role, req.Text, visibility)
+			return struct{}{}, engine.AppendCommittedEntryWithNoticeID(req.Role, req.Text, req.NoticeID)
 		}
-		return struct{}{}, nil
+		if visibility == transcript.EntryVisibilityAuto {
+			return struct{}{}, engine.AppendCommittedEntry(req.Role, req.Text)
+		}
+		return struct{}{}, engine.AppendCommittedEntryWithVisibility(req.Role, req.Text, visibility)
 	})
 	return err
 }
@@ -319,8 +328,7 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 	if err != nil {
 		return err
 	}
-	engine.AppendLocalEntry(trimmedRole, trimmedText)
-	return nil
+	return engine.AppendCommittedEntry(trimmedRole, trimmedText)
 }
 
 func (s *Service) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {

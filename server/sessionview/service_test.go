@@ -246,7 +246,7 @@ func TestServiceGetSessionTranscriptPageUsesLiveRuntimeWhenAttached(t *testing.T
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.AppendLocalEntry("assistant", "two")
+	eng.AppendCommittedEntry("assistant", "two")
 	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
 
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
@@ -644,7 +644,7 @@ func TestServiceGetSessionTranscriptPagePreservesHistoryAcrossActiveCompaction(t
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.AppendLocalEntry("assistant", "live local")
+	eng.AppendCommittedEntry("assistant", "live local")
 	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
 
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 10})
@@ -694,7 +694,7 @@ func TestServiceGetSessionTranscriptPagePaginatesBeforeActiveCompactionBoundary(
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.AppendLocalEntry("assistant", "live local")
+	eng.AppendCommittedEntry("assistant", "live local")
 	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
 
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 2})

@@ -45,7 +45,7 @@ func (transcriptDiagTestRuntimeControlClient) SetAutoCompactionEnabled(context.C
 func (transcriptDiagTestRuntimeControlClient) SetQuestionsEnabled(context.Context, serverapi.RuntimeSetQuestionsEnabledRequest) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
 	return serverapi.RuntimeSetQuestionsEnabledResponse{}, nil
 }
-func (transcriptDiagTestRuntimeControlClient) AppendLocalEntry(context.Context, serverapi.RuntimeAppendLocalEntryRequest) error {
+func (transcriptDiagTestRuntimeControlClient) AppendCommittedEntry(context.Context, serverapi.RuntimeAppendCommittedEntryRequest) error {
 	return nil
 }
 func (transcriptDiagTestRuntimeControlClient) ShouldCompactBeforeUserMessage(context.Context, serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {

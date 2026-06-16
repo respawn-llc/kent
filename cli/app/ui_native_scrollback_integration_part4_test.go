@@ -438,11 +438,11 @@ func (c *slashLocalEntryRuntimeClient) CachedMainView() (clientui.RuntimeMainVie
 	return c.MainView(), true
 }
 
-func (c *slashLocalEntryRuntimeClient) AppendLocalEntry(role, text string) error {
-	return c.AppendLocalEntryWithNoticeID(role, text, "")
+func (c *slashLocalEntryRuntimeClient) AppendCommittedEntry(role, text string) error {
+	return c.AppendCommittedEntryWithNoticeID(role, text, "")
 }
 
-func (c *slashLocalEntryRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
+func (c *slashLocalEntryRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noticeID string) error {
 	entry := clientui.ChatEntry{Role: role, Text: text, NoticeID: noticeID}
 	start := c.page.TotalEntries
 	c.page.Entries = append(c.page.Entries, entry)
