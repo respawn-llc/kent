@@ -407,6 +407,11 @@
 @layer base {
   * {
     box-sizing: border-box;
+    /* Clone box decorations (background, padding, border, shadow) onto every
+       line fragment when inline text wraps, instead of splitting them across the
+       break. Keeps highlighted/badged inline spans visually intact on each line. */
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
     @apply border-border outline-ring/50;
   }
 
