@@ -9,6 +9,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/toolspec"
 	"core/shared/transcript"
 )
 
@@ -258,6 +259,65 @@ func TestCompactionMissingToolOutputRepairRunsSinglePass(t *testing.T) {
 	}
 	if len(client.compactionCalls) != 2 {
 		t.Fatalf("compaction calls = %d, want single repair retry", len(client.compactionCalls))
+	}
+}
+
+// A missing-output 400 repair must not consume a context-overflow collapse
+// attempt: after the repair, the repaired request that overflows still gets
+// collapsed and retried, so both fixes compose within one compaction.
+func TestCompactionMissingOutputRepairDoesNotConsumeOverflowAttempt(t *testing.T) {
+	dir := t.TempDir()
+	store := mustCreateTestSessionAt(t, dir)
+	client := &fakeCompactionClient{
+		errors: []error{
+			&llm.APIStatusError{StatusCode: 400, Body: "tool call without output"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "local summary"},
+			Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		ID: "call-shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"go test ./..."}`),
+	}}})); err != nil {
+		t.Fatalf("append shell call: %v", err)
+	}
+	if err := eng.steer("", steerMessageIntent(llm.Message{
+		Role: llm.RoleTool, ToolCallID: "call-shell", Name: string(toolspec.ToolExecCommand),
+		Content: `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
+	})); err != nil {
+		t.Fatalf("append shell output: %v", err)
+	}
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		ID: "call-missing", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
+	}}})); err != nil {
+		t.Fatalf("append dangling call: %v", err)
+	}
+
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if len(client.calls) != 3 {
+		t.Fatalf("model calls = %d, want 3 (missing-output 400, overflow 400, success)", len(client.calls))
+	}
+	final := client.calls[2].Items
+	if !repairItemsContainOutput(final, "call-missing") {
+		t.Fatalf("final request should include the synthetic output for the dangling call, got %+v", final)
+	}
+	collapsed := false
+	for _, item := range final {
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID == "call-shell" {
+			collapsed = isCollapsedCompactionOverflowShellOutput(item.Output)
+		}
+	}
+	if !collapsed {
+		t.Fatalf("final request should collapse the shell output (overflow attempt preserved), got %+v", final)
 	}
 }
 
