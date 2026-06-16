@@ -73,6 +73,7 @@ func (e *Engine) compactWithContextRepairRetry(
 	currentInput := llm.CloneResponseItems(request.InputItems)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
+	missingOutputRepaired := false
 
 	for attempt := 0; attempt <= len(compactionOverflowRepairTargetPercents); attempt++ {
 		req := request
@@ -81,6 +82,17 @@ func (e *Engine) compactWithContextRepairRetry(
 		resp, err := e.compactWithRetry(ctx, stepID, client, req)
 		if err == nil {
 			return resp, currentInput, repairStats, nil
+		}
+		if llm.HasHTTPStatus(err, 400) && !missingOutputRepaired {
+			repaired, repairErr := e.repairMissingToolOutputsByAppending(stepID)
+			if repairErr != nil {
+				return llm.CompactionResponse{}, nil, repairStats, errors.Join(err, repairErr)
+			}
+			if repaired > 0 {
+				missingOutputRepaired = true
+				currentInput = llm.CloneResponseItems(e.snapshotItems())
+				continue
+			}
 		}
 		if !llm.IsContextLengthOverflowError(err) || attempt == len(compactionOverflowRepairTargetPercents) {
 			return llm.CompactionResponse{}, nil, repairStats, err
@@ -230,10 +242,22 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	window := localCompactionWindow(input)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
+	missingOutputRepaired := false
 	for repairAttempt := 0; repairAttempt <= len(compactionOverflowRepairTargetPercents); repairAttempt++ {
 		summary, err := e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, window, instructions, requestTools, mode)
 		if err == nil {
 			return summary, repairStats, nil
+		}
+		if llm.HasHTTPStatus(err, 400) && !missingOutputRepaired {
+			repaired, repairErr := e.repairMissingToolOutputsByAppending("")
+			if repairErr != nil {
+				return "", repairStats, errors.Join(err, repairErr)
+			}
+			if repaired > 0 {
+				missingOutputRepaired = true
+				window = localCompactionWindow(e.snapshotItems())
+				continue
+			}
 		}
 		if !llm.IsContextLengthOverflowError(err) || repairAttempt == len(compactionOverflowRepairTargetPercents) {
 			return "", repairStats, err

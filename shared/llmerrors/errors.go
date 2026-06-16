@@ -181,6 +181,24 @@ func IsContextLengthOverflowError(err error) bool {
 	return providerErr.Code == UnifiedErrorCodeContextLengthOverflow
 }
 
+// HasHTTPStatus reports whether err (or anything it wraps) carries the given
+// provider HTTP status code. Provider transports surface status either as a
+// ProviderAPIError or a raw APIStatusError, so both shapes are inspected.
+func HasHTTPStatus(err error, statusCode int) bool {
+	if err == nil {
+		return false
+	}
+	var providerErr *ProviderAPIError
+	if errors.As(err, &providerErr) && providerErr.StatusCode == statusCode {
+		return true
+	}
+	var apiErr *APIStatusError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == statusCode {
+		return true
+	}
+	return false
+}
+
 func UserFacingError(err error) string {
 	if err == nil {
 		return ""

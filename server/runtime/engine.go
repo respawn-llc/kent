@@ -581,6 +581,57 @@ func (e *Engine) generateWithRetry(ctx context.Context, stepID string, req llm.R
 	return e.generateWithRetryClient(ctx, stepID, e.llm, req, onDelta, onReasoningDelta, onAttemptReset)
 }
 
+// generateWithMissingToolOutputRepair runs a model turn, and on a provider HTTP
+// 400 attempts an append-only repair that closes any interrupted tool calls that
+// lack outputs, then rebuilds the request and retries. The request is rebuilt
+// each iteration so the retry observes the appended synthetic outputs. When the
+// 400 is unrelated to missing outputs (nothing to repair), the original error is
+// returned unchanged.
+func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+	for {
+		req, err := rebuild()
+		if err != nil {
+			return llm.Response{}, err
+		}
+		var emitted atomic.Bool
+		wrappedDelta := onDelta
+		if onDelta != nil {
+			wrappedDelta = func(delta string) {
+				if delta != "" {
+					emitted.Store(true)
+				}
+				onDelta(delta)
+			}
+		}
+		wrappedReasoningDelta := onReasoningDelta
+		if onReasoningDelta != nil {
+			wrappedReasoningDelta = func(delta llm.ReasoningSummaryDelta) {
+				if strings.TrimSpace(delta.Text) != "" {
+					emitted.Store(true)
+				}
+				onReasoningDelta(delta)
+			}
+		}
+		resp, err := e.generateWithRetry(ctx, stepID, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		if err == nil {
+			return resp, nil
+		}
+		if !llm.HasHTTPStatus(err, 400) {
+			return llm.Response{}, err
+		}
+		if emitted.Load() && onAttemptReset != nil {
+			onAttemptReset()
+		}
+		repaired, repairErr := e.repairMissingToolOutputsByAppending(stepID)
+		if repairErr != nil {
+			return llm.Response{}, errors.Join(err, repairErr)
+		}
+		if repaired == 0 {
+			return llm.Response{}, err
+		}
+	}
+}
+
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client llm.Client, req llm.Request, onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
 	prepared, err := e.modelRequests().RequestCache().Prepare(req)
 	if err != nil {

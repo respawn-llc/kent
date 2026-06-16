@@ -95,6 +95,7 @@
 - Large tool output is truncated for model consumption using standardized head/tail payloads with truncation metadata.
 - Model-step transient failures use exponential backoff retries with 5 attempts: `1s`, `2s`, `4s`, `8s`, `16s`.
 - Model/API errors in ongoing mode are shown as concise single-line errors; full details remain in detail/logs.
+- After a provider HTTP 400, Kent may repair tool calls that lack outputs (typically left dangling by an interruption) by appending an honest synthetic completion to each, then rebuilding the request and retrying. The repair is append-only: it never rewrites or removes persisted history, so the prompt-cache prefix through each repaired call stays intact, and the materialized output matches the original call kind. The synthetic result is an error stating the call was interrupted with no output, never a fabricated success. The repair defers to the resume path while interrupted calls still have pending re-execution starts, and no-ops when a 400 has no missing outputs (the original error then surfaces). Each repair appends one operator-only `developer_error_feedback` warning noting how many calls were closed.
 - Persisted operator-facing turn-start failures that prevent the agent loop from starting use `developer_error_feedback` so they appear in ongoing scrollback.
 - Local command/validation failures that do not block a model turn remain plain `error` diagnostics.
 
