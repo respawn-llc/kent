@@ -39,8 +39,10 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmi
 				return serverapi.RuntimeSubmitUserTurnResponse{}, err
 			}
 		}
-		if _, _, err := s.recordPromptHistory(ctx, metadata.PromptHistorySourceSubmitUserTurn, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), strings.TrimSpace(req.ClientRequestID), memoReq.Text); err != nil {
-			return serverapi.RuntimeSubmitUserTurnResponse{}, err
+		if !req.PromptHistoryRecorded {
+			if _, _, err := s.recordPromptHistory(ctx, metadata.PromptHistorySourceSubmitUserTurn, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), strings.TrimSpace(req.ClientRequestID), memoReq.Text); err != nil {
+				return serverapi.RuntimeSubmitUserTurnResponse{}, err
+			}
 		}
 		msg, err := engine.SubmitUserMessage(runCtx, memoReq.Text)
 		if err != nil {

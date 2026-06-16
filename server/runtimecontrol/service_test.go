@@ -850,6 +850,27 @@ func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
 	}
 }
 
+func TestServiceSubmitUserTurnSkipsPromptHistoryWhenAlreadyRecorded(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	req := runtimeControlUserTurnRequest(store, "req-1", "expanded hidden prompt")
+	req.PromptHistoryRecorded = true
+
+	resp, err := service.SubmitUserTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitUserTurn: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("response = %q, want done", resp.Message)
+	}
+	if got := countPromptHistoryEvents(t, store, "expanded hidden prompt"); got != 0 {
+		t.Fatalf("hidden expanded prompt history count = %d, want 0", got)
+	}
+	if got := countUserMessagesWithContent(t, store, "expanded hidden prompt"); got != 1 {
+		t.Fatalf("submitted user message count = %d, want 1", got)
+	}
+}
+
 func TestServiceSubmitUserTurnDedupesSuccessfulRetry(t *testing.T) {
 	client := finalResponseRuntimeControlClient()
 	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})

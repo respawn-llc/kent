@@ -55,6 +55,7 @@ type leaseRetryRuntimeControlClient struct {
 	queuedWorkCalls int
 	submitLeaseID   []string
 	submitRequestID []string
+	submitRecorded  []bool
 	queueRequestID  []string
 	recordRequestID []string
 	goalLeaseID     []string
@@ -76,6 +77,12 @@ func (c *leaseRetryRuntimeControlClient) submitRequestIDs() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.submitRequestID...)
+}
+
+func (c *leaseRetryRuntimeControlClient) submitPromptHistoryRecorded() []bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]bool(nil), c.submitRecorded...)
 }
 
 func (c *leaseRetryRuntimeControlClient) queueRequestIDs() []string {
@@ -172,6 +179,7 @@ func (c *leaseRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req s
 	defer c.mu.Unlock()
 	c.submitLeaseID = append(c.submitLeaseID, req.ControllerLeaseID)
 	c.submitRequestID = append(c.submitRequestID, req.ClientRequestID)
+	c.submitRecorded = append(c.submitRecorded, req.PromptHistoryRecorded)
 	switch req.ControllerLeaseID {
 	case "lease-old":
 		if c.firstSubmitErr != nil {
@@ -403,6 +411,31 @@ func TestRuntimeClientSubmitUserMessageRecoversInvalidControllerLease(t *testing
 	}
 	if got := controls.submitRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
 		t.Fatalf("submit request ids = %+v, want same non-empty id across retry", got)
+	}
+	if got := controls.submitPromptHistoryRecorded(); !reflect.DeepEqual(got, []bool{false, false}) {
+		t.Fatalf("submit prompt-history-recorded flags = %+v, want false across retry", got)
+	}
+}
+
+func TestRuntimeClientSubmitUserMessageCanSkipPromptHistoryAcrossLeaseRecovery(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	leaseManager := newControllerLeaseManager("lease-old")
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) { return "lease-new", nil })
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	message, err := runtimeClient.SubmitUserMessageWithPromptHistoryRecorded(context.Background(), "expanded hidden prompt")
+	if err != nil {
+		t.Fatalf("SubmitUserMessageWithPromptHistoryRecorded: %v", err)
+	}
+	if message != "recovered" {
+		t.Fatalf("SubmitUserMessageWithPromptHistoryRecorded message = %q, want recovered", message)
+	}
+	if got := controls.submitRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
+		t.Fatalf("submit request ids = %+v, want same non-empty id across retry", got)
+	}
+	if got := controls.submitPromptHistoryRecorded(); !reflect.DeepEqual(got, []bool{true, true}) {
+		t.Fatalf("submit prompt-history-recorded flags = %+v, want true across retry", got)
 	}
 }
 
