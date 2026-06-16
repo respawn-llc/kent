@@ -813,7 +813,7 @@ func (s *Store) AnalyzeAndRewriteEventsAfterLatestBoundary(
 		return result, false, err
 	}
 	result.AppendedEvents = appended
-	stats, err := rewriteEventsFileStreaming(s.eventsFP, rewriteOffset, transform, appended, s.conversationFreshness)
+	stats, err := rewriteEventsFileStreaming(s.eventsFP, rewriteOffset, transform, appended, s.conversationFreshness, s.maybeSyncEventsFileLocked)
 	if err != nil {
 		return result, false, err
 	}

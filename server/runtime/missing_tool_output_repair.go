@@ -26,7 +26,7 @@ type missingToolOutputRepairPlan struct {
 	removeCalls       map[string]struct{}
 	dedupeCalls       map[string]struct{}
 	keptCalls         map[string]struct{}
-	dropOutputs       map[string]map[repairToolCallKind]struct{}
+	dropOutputs       map[string]map[repairToolCallKind]int
 	dedupeOutputs     map[string]map[repairToolCallKind]struct{}
 	filterCompletions map[string]repairToolCallKind
 	keptOutputs       map[string]map[repairToolCallKind]struct{}
@@ -189,6 +189,9 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 			callID = strings.TrimSpace(item.ID)
 		}
 		if callID != "" {
+			if _, exists := callKinds[callID]; exists {
+				continue
+			}
 			callKinds[callID] = repairKindForOutputItem(llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall))
 		}
 	}
@@ -203,16 +206,24 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 		if _, remove := removed[callID]; remove && (isToolCallItem(item.Type) || isToolOutputItem(item.Type)) {
 			continue
 		}
-		if _, repairCall := affected[callID]; repairCall && isToolCallItem(item.Type) {
-			if _, seen := seenCalls[callID]; seen {
-				continue
+		if isToolCallItem(item.Type) {
+			if _, repairCall := affected[callID]; repairCall {
+				if _, seen := seenCalls[callID]; seen {
+					continue
+				}
 			}
 			seenCalls[callID] = struct{}{}
 		}
-		if _, repairOutput := affected[callID]; repairOutput && isToolOutputItem(item.Type) {
+		if isToolOutputItem(item.Type) && len(affected) > 0 {
 			callKind := callKinds[callID]
 			outputKind := repairKindForOutputItem(item.Type)
-			if callKind == 0 || outputKind != callKind {
+			if callKind == 0 {
+				continue
+			}
+			if _, seenCall := seenCalls[callID]; !seenCall {
+				continue
+			}
+			if _, repairOutput := affected[callID]; repairOutput && outputKind != callKind {
 				continue
 			}
 			if seenOutputs[callID] == nil {
@@ -509,7 +520,7 @@ func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 		removeCalls:       make(map[string]struct{}),
 		dedupeCalls:       make(map[string]struct{}),
 		keptCalls:         make(map[string]struct{}),
-		dropOutputs:       make(map[string]map[repairToolCallKind]struct{}),
+		dropOutputs:       make(map[string]map[repairToolCallKind]int),
 		dedupeOutputs:     make(map[string]map[repairToolCallKind]struct{}),
 		filterCompletions: make(map[string]repairToolCallKind),
 		keptOutputs:       make(map[string]map[repairToolCallKind]struct{}),
@@ -525,9 +536,9 @@ func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 		for outputKind, count := range outputs {
 			if outputKind != callKind {
 				if plan.dropOutputs[callID] == nil {
-					plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+					plan.dropOutputs[callID] = make(map[repairToolCallKind]int)
 				}
-				plan.dropOutputs[callID][outputKind] = struct{}{}
+				plan.dropOutputs[callID][outputKind] += count
 				continue
 			}
 			if count > 1 {
@@ -548,22 +559,22 @@ func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 		plan.removeCalls[callID] = struct{}{}
 	}
 	for callID, outputs := range s.invalidOutputs {
-		for outputKind := range outputs {
+		for outputKind, count := range outputs {
 			if plan.dropOutputs[callID] == nil {
-				plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+				plan.dropOutputs[callID] = make(map[repairToolCallKind]int)
 			}
-			plan.dropOutputs[callID][outputKind] = struct{}{}
+			plan.dropOutputs[callID][outputKind] += count
 		}
 	}
 	for callID, outputs := range s.materializedOutputs {
 		if _, hasCall := s.calls[callID]; hasCall {
 			continue
 		}
-		for outputKind := range outputs {
+		for outputKind, count := range outputs {
 			if plan.dropOutputs[callID] == nil {
-				plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+				plan.dropOutputs[callID] = make(map[repairToolCallKind]int)
 			}
-			plan.dropOutputs[callID][outputKind] = struct{}{}
+			plan.dropOutputs[callID][outputKind] += count
 		}
 	}
 	return plan
@@ -752,7 +763,8 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 		if msg.MessageType == llm.MessageTypeCustomToolCallOutput {
 			kind = repairToolCallKindCustom
 		}
-		if _, remove := plan.dropOutputs[callID][kind]; remove {
+		if plan.dropOutputs[callID][kind] > 0 {
+			plan.dropOutputs[callID][kind]--
 			return session.EventRewriteDecision{Drop: true}, nil
 		}
 		if _, dedupe := plan.dedupeOutputs[callID][kind]; dedupe {

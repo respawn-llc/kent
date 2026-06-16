@@ -450,6 +450,7 @@ func rewriteEventsFileStreaming(
 	transform func(Event) (EventRewriteDecision, error),
 	appended []Event,
 	initialFreshness ConversationFreshness,
+	syncBeforeReplace func(*os.File) error,
 ) (rewriteEventsFileStats, error) {
 	source, err := openRegularSessionFile(path, "events file")
 	if err != nil {
@@ -552,6 +553,11 @@ func rewriteEventsFileStreaming(
 	}
 	if err := closeSource(); err != nil {
 		return rewriteEventsFileStats{}, fmt.Errorf("close events file: %w", err)
+	}
+	if syncBeforeReplace != nil {
+		if err := syncBeforeReplace(target); err != nil {
+			return rewriteEventsFileStats{}, err
+		}
 	}
 	if err := target.Close(); err != nil {
 		return rewriteEventsFileStats{}, fmt.Errorf("close events tmp file: %w", err)
