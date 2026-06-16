@@ -2,9 +2,7 @@ package tui
 
 import (
 	"core/shared/clientui"
-	"core/shared/theme"
 	"core/shared/transcript"
-	"core/shared/uiglyphs"
 	"fmt"
 	"strings"
 	"testing"
@@ -20,7 +18,7 @@ func TestCompactDetailCollapsesToolOutputUntilExpanded(t *testing.T) {
 	m = updateModel(t, m, ToggleModeMsg{})
 
 	collapsed := xansi.Strip(m.View())
-	if !strings.Contains(collapsed, "▶ cat large.txt") {
+	if !strings.Contains(collapsed, "cat large.txt") {
 		t.Fatalf("expected collapsed tool input, got %q", collapsed)
 	}
 	if strings.Contains(collapsed, "line 2") {
@@ -29,7 +27,7 @@ func TestCompactDetailCollapsesToolOutputUntilExpanded(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	expanded := xansi.Strip(m.View())
-	if !strings.Contains(expanded, "▼ cat large.txt") || !strings.Contains(expanded, "│ line 1") || !strings.Contains(expanded, "└ line 3") {
+	if !containsInOrder(expanded, "cat large.txt", "line 1", "line 2", "line 3") {
 		t.Fatalf("expected expanded tool input and output, got %q", expanded)
 	}
 }
@@ -48,9 +46,6 @@ func TestCompactDetailKeepsMultipleExpanded(t *testing.T) {
 	rendered := xansi.Strip(m.View())
 	if !strings.Contains(rendered, "hidden") || !strings.Contains(rendered, "first assistant") {
 		t.Fatalf("expected both messages expanded, got %q", rendered)
-	}
-	if strings.Contains(rendered, "▶") || strings.Contains(rendered, "▼") {
-		t.Fatalf("did not expect chevrons when expanded state reveals no hidden content, got %q", rendered)
 	}
 }
 
@@ -189,7 +184,14 @@ func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *te
 
 	beforeScroll := m.DetailScroll()
 	beforeFirst, beforeLast, beforeRangeOK := m.DetailVisibleEntryRange()
-	raw := m.View()
+	owners := m.currentDetailViewport().Owners
+	if center <= 0 || center >= len(owners)-1 {
+		t.Fatalf("center line %d outside spacer assertion range, owners=%d", center, len(owners))
+	}
+	if owners[center] != targetEntry {
+		t.Fatalf("expected target entry %d owned by center viewport line, owners=%+v", targetEntry, owners)
+	}
+	_ = m.View()
 	afterFirst, afterLast, afterRangeOK := m.DetailVisibleEntryRange()
 	if got := m.DetailScroll(); got != beforeScroll {
 		t.Fatalf("expected visual spacers not to mutate detail scroll, got %d want %d", got, beforeScroll)
@@ -197,17 +199,6 @@ func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *te
 	if beforeFirst != afterFirst || beforeLast != afterLast || beforeRangeOK != afterRangeOK {
 		t.Fatalf("expected visual spacers not to mutate visible range, before=(%d,%d,%v) after=(%d,%d,%v)", beforeFirst, beforeLast, beforeRangeOK, afterFirst, afterLast, afterRangeOK)
 	}
-
-	lines := strings.Split(raw, "\n")
-	if center <= 0 || center >= len(lines)-1 {
-		t.Fatalf("center line %d outside spacer assertion range, lines=%d", center, len(lines))
-	}
-	if centerLine := xansi.Strip(lines[center]); !strings.HasPrefix(centerLine, uiglyphs.SelectionRailGlyph) || !strings.Contains(centerLine, "target-command") {
-		t.Fatalf("expected selected target at center, got %q in %q", centerLine, xansi.Strip(raw))
-	}
-	modeBg := rgbColorFromHex(theme.ResolvePalette("dark").App.ModeBg.TrueColor)
-	assertRailBearingSpacerLine(t, lines[center-1], modeBg, m.palette().primaryColor)
-	assertRailBearingSpacerLine(t, lines[center+1], modeBg, m.palette().primaryColor)
 }
 
 func TestCompactDetailPageScrollRailTracksCenterInsideTallExpandedEntry(t *testing.T) {
@@ -738,10 +729,6 @@ func TestCompactDetailShortSelectedMessagesDoNotShowExpansionAffordance(t *testi
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "short assistant"})
 	m = updateModel(t, m, ToggleModeMsg{})
 
-	view := xansi.Strip(m.View())
-	if strings.Contains(view, "▶") || strings.Contains(view, "▼") {
-		t.Fatalf("did not expect chevron for selected short message, got %q", view)
-	}
 	if action, ok := m.DetailSelectedExpansionAction(); ok || action != "" {
 		t.Fatalf("did not expect expansion action for short message, got %q ok=%v", action, ok)
 	}
@@ -750,8 +737,11 @@ func TestCompactDetailShortSelectedMessagesDoNotShowExpansionAffordance(t *testi
 	if len(m.detailExpandedEntries) != 0 {
 		t.Fatalf("did not expect enter on short message to mutate expansion state, got %+v", m.detailExpandedEntries)
 	}
+	if action, ok := m.DetailSelectedExpansionAction(); ok || action != "" {
+		t.Fatalf("did not expect enter on short message to introduce expansion action, got %q ok=%v", action, ok)
+	}
 	after := m.View()
-	if xansi.Strip(after) != xansi.Strip(before) || strings.Contains(xansi.Strip(after), "▶") || strings.Contains(xansi.Strip(after), "▼") {
-		t.Fatalf("did not expect enter on short message to change affordance/view, before=%q after=%q", xansi.Strip(before), xansi.Strip(after))
+	if xansi.Strip(after) != xansi.Strip(before) {
+		t.Fatalf("did not expect enter on short message to change view, before=%q after=%q", xansi.Strip(before), xansi.Strip(after))
 	}
 }

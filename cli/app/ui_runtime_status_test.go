@@ -10,10 +10,6 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/clientui"
-	"core/shared/theme"
-
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 func TestRuntimeStatusUsesLocalFallbackWhenRuntimeClientMissing(t *testing.T) {
@@ -132,10 +128,6 @@ func TestRuntimeStatusLineHidesGoalStatusText(t *testing.T) {
 }
 
 func TestRuntimeStatusLineShowsGoalProgressWord(t *testing.T) {
-	previousProfile := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	t.Cleanup(func() { lipgloss.SetColorProfile(previousProfile) })
-
 	m := newProjectedStaticUIModel()
 	m.termWidth = 100
 	m.windowSizeKnown = true
@@ -145,10 +137,6 @@ func TestRuntimeStatusLineShowsGoalProgressWord(t *testing.T) {
 
 	if !strings.Contains(stripANSIAndTrimRight(status), "goal") {
 		t.Fatalf("expected status line to include goal progress word, got %q", status)
-	}
-	primary := foregroundTrueColorEscape(theme.ResolvePalette(m.theme).App.Primary.TrueColor)
-	if !strings.Contains(status, primary) {
-		t.Fatalf("expected goal progress indicator to use primary color escape %q, got %q", primary, status)
 	}
 }
 

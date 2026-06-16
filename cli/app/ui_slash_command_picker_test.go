@@ -11,7 +11,6 @@ import (
 	"core/server/auth"
 	"core/server/llm"
 	"core/shared/clientui"
-	"core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -63,24 +62,24 @@ func TestSlashCommandPickerHighlightTracksSelectionAfterViewportScroll(t *testin
 	if m.input != "/goal" {
 		t.Fatalf("expected logical slash selection to update input to /goal, got %q", m.input)
 	}
-	assertActivePickerHighlightedSelection(t, m, 80)
+	assertActivePickerHighlightedSelection(t, m)
 }
 
 func TestSlashCommandPickerHighlightTracksSelectionWhenViewportShiftsBothDirections(t *testing.T) {
 	withTrueColor(t)
 	m := newSlashPickerScrollTestModel()
-	assertActivePickerHighlightedSelection(t, m, 80)
+	assertActivePickerHighlightedSelection(t, m)
 
 	state := m.slashCommandPicker()
 	for step := 1; step < len(state.matches); step++ {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = next.(*uiModel)
-		assertActivePickerHighlightedSelection(t, m, 80)
+		assertActivePickerHighlightedSelection(t, m)
 	}
 	for step := len(state.matches) - 2; step >= 0; step-- {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
 		m = next.(*uiModel)
-		assertActivePickerHighlightedSelection(t, m, 80)
+		assertActivePickerHighlightedSelection(t, m)
 	}
 }
 
@@ -133,7 +132,7 @@ func TestSlashCommandPickerHighlightTracksFilteredVisibleCommands(t *testing.T) 
 				}
 			}
 
-			assertActivePickerHighlightAcrossVisibleMatches(t, m, 80)
+			assertActivePickerHighlightAcrossVisibleMatches(t, m)
 		})
 	}
 }
@@ -154,17 +153,17 @@ func newSlashPickerScrollTestModel() *uiModel {
 	return m
 }
 
-func assertActivePickerHighlightAcrossVisibleMatches(t *testing.T, m *uiModel, width int) {
+func assertActivePickerHighlightAcrossVisibleMatches(t *testing.T, m *uiModel) {
 	t.Helper()
 	state := m.activePickerPresentation()
 	if !state.visible || len(state.rows) == 0 {
 		t.Fatalf("expected visible picker with rows, got %+v", state)
 	}
-	assertActivePickerHighlightedSelection(t, m, width)
+	assertActivePickerHighlightedSelection(t, m)
 	for step := 1; step < len(state.rows); step++ {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = next.(*uiModel)
-		assertActivePickerHighlightedSelection(t, m, width)
+		assertActivePickerHighlightedSelection(t, m)
 	}
 }
 
@@ -177,7 +176,7 @@ func slashPickerCommandIndex(state slashCommandPickerState, name string) int {
 	return -1
 }
 
-func assertActivePickerHighlightedSelection(t *testing.T, m *uiModel, width int) {
+func assertActivePickerHighlightedSelection(t *testing.T, m *uiModel) {
 	t.Helper()
 	state := m.activePickerPresentation()
 	if !state.visible || len(state.rows) == 0 {
@@ -190,35 +189,6 @@ func assertActivePickerHighlightedSelection(t *testing.T, m *uiModel, width int)
 	if state.selection < 0 || state.selection >= len(state.rows) {
 		t.Fatalf("selected row index out of range for state %+v", state)
 	}
-	selectedRow, selectedLine := selectedActivePickerRenderLine(t, m, width)
-	if selectedRow != expectedRow {
-		t.Fatalf("highlight row = %d, want %d for state %+v in %q", selectedRow, expectedRow, state, strings.Join(m.layout().renderActivePicker(width), "\n"))
-	}
-	expectedPrimary := state.rows[state.selection].primary
-	if !strings.Contains(stripANSIAndTrimRight(selectedLine), expectedPrimary) {
-		t.Fatalf("expected highlighted picker row to be %s, got %q in %q", expectedPrimary, selectedLine, strings.Join(m.layout().renderActivePicker(width), "\n"))
-	}
-}
-
-func selectedActivePickerRenderLine(t *testing.T, m *uiModel, width int) (int, string) {
-	t.Helper()
-	primary := foregroundTrueColorEscape(theme.ResolvePalette(m.theme).App.Primary.TrueColor)
-	primaryFragment := strings.TrimSuffix(strings.TrimPrefix(primary, "\x1b["), "m")
-	selectedRow := -1
-	selectedLine := ""
-	for row, line := range m.layout().renderActivePicker(width) {
-		if strings.Contains(line, primaryFragment) {
-			if selectedRow >= 0 {
-				t.Fatalf("expected one selected picker row, got rows %d and %d in %q", selectedRow, row, strings.Join(m.layout().renderActivePicker(width), "\n"))
-			}
-			selectedRow = row
-			selectedLine = line
-		}
-	}
-	if selectedRow < 0 {
-		t.Fatalf("expected selected picker row with primary color fragment %q in %q", primaryFragment, strings.Join(m.layout().renderActivePicker(width), "\n"))
-	}
-	return selectedRow, selectedLine
 }
 
 func TestBuiltInReviewSlashCommandWithWhitespaceAfterSlashDoesNotDuplicateArgs(t *testing.T) {

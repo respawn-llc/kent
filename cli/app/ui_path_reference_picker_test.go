@@ -276,7 +276,7 @@ func TestPathReferencePickerHighlightTracksAbsoluteSelectionAfterViewportScroll(
 	if len(state.rows) != len(m.pathReference.matches) {
 		t.Fatalf("expected path picker rows to keep full absolute row list, got %d rows for %d matches", len(state.rows), len(m.pathReference.matches))
 	}
-	assertActivePickerHighlightedSelection(t, m, 80)
+	assertActivePickerHighlightedSelection(t, m)
 }
 
 func TestPathReferencePickerSanitizesControlCharactersForDisplay(t *testing.T) {

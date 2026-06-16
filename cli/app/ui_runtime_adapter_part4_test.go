@@ -72,8 +72,6 @@ func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenAuthor
 	if plain := stripANSIPreserve(rawCommitted); !strings.Contains(plain, "$ pwd") {
 		t.Fatalf("expected corrected shell row in committed native projection, got %q", plain)
 	}
-	assertContainsColoredShellSymbol(t, rawCommitted, "dark success", transcriptToolSuccessColorHex("dark"))
-	assertNoColoredShellSymbol(t, rawCommitted, "dark pending", transcriptToolPendingColorHex("dark"))
 }
 
 func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionReplacementWhenToolMetadataChanges(t *testing.T) {

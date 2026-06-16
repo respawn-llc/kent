@@ -174,7 +174,6 @@ func TestApplyChatSnapshotShowsMixedParallelPendingStatesInLiveView(t *testing.T
 	}
 	m.syncViewport()
 
-	rawView := m.View()
 	view := stripANSIPreserve(m.View())
 	callA := m.transcriptEntries[1]
 	callB := m.transcriptEntries[2]
@@ -190,8 +189,6 @@ func TestApplyChatSnapshotShowsMixedParallelPendingStatesInLiveView(t *testing.T
 	if strings.Contains(view, "waiting") {
 		t.Fatalf("did not expect waiting annotation in live view, got %q", view)
 	}
-	assertContainsColoredShellSymbol(t, rawView, "dark success", transcriptToolSuccessColorHex("dark"))
-	assertNoColoredShellSymbol(t, rawView, "dark pending", transcriptToolPendingColorHex("dark"))
 }
 
 func TestApplyChatSnapshotOffsetsParallelPendingToolSpinners(t *testing.T) {

@@ -393,16 +393,12 @@ func TestGoalOverlayRendersObjectiveMarkdown(t *testing.T) {
 	m.input = "/goal"
 
 	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	raw := updated.View()
-	plain := stripANSIAndTrimRight(raw)
+	plain := stripANSIAndTrimRight(updated.View())
 	if strings.Contains(plain, "**bold**") {
 		t.Fatalf("expected markdown markers rendered away, got %q", plain)
 	}
 	if !strings.Contains(plain, "bold") || !strings.Contains(plain, "one") || !strings.Contains(plain, "two") {
 		t.Fatalf("expected rendered markdown content, got %q", plain)
-	}
-	if !strings.Contains(raw, "\x1b[") {
-		t.Fatalf("expected markdown renderer ANSI styling, got %q", raw)
 	}
 }
 

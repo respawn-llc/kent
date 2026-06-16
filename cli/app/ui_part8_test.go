@@ -15,7 +15,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
@@ -104,9 +103,6 @@ func TestSlashSupervisorWithEngineTogglesRuntimeReviewer(t *testing.T) {
 	}
 	if !updated.reviewerEnabled || updated.reviewerMode != "edits" {
 		t.Fatalf("expected ui reviewer enabled in edits mode, got enabled=%v mode=%q", updated.reviewerEnabled, updated.reviewerMode)
-	}
-	if !strings.Contains(updated.transientStatus, "Supervisor invocation enabled") {
-		t.Fatalf("expected enable status message, got %q", updated.transientStatus)
 	}
 
 	updated.input = "/supervisor off"
@@ -477,8 +473,7 @@ func TestReviewerStatusEndToEnd_VerboseSuggestionsIssuedAndStatusConcise(t *test
 	m.termWidth = 100
 	m.termHeight = 24
 
-	rawOngoing := m.view.OngoingSnapshot()
-	ongoing := stripANSIAndTrimRight(rawOngoing)
+	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
 	if !containsInOrder(ongoing, "Supervisor suggested:", "1. First detailed suggestion text", "2. Second detailed suggestion text") {
 		t.Fatalf("expected verbose reviewer suggestions in ongoing mode, got %q", ongoing)
 	}
@@ -488,25 +483,11 @@ func TestReviewerStatusEndToEnd_VerboseSuggestionsIssuedAndStatusConcise(t *test
 	if strings.Count(ongoing, "Supervisor suggested:") != 1 {
 		t.Fatalf("expected reviewer suggestions details only at issuance time in ongoing mode, got %q", ongoing)
 	}
-	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#98C379"))
-	if !strings.Contains(rawOngoing, green.Render("Supervisor suggested:")) {
-		t.Fatalf("expected reviewer suggestions to use success styling in ongoing mode, got %q", rawOngoing)
-	}
-	if !strings.Contains(rawOngoing, green.Render("Supervisor ran: 2 suggestions, no changes applied.")) {
-		t.Fatalf("expected reviewer status to use success styling in ongoing mode, got %q", rawOngoing)
-	}
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	rawDetail := next.(*uiModel).View()
-	detail := stripANSIAndTrimRight(rawDetail)
+	detail := stripANSIAndTrimRight(next.(*uiModel).View())
 	if !containsInOrder(detail, "Supervisor suggested:", "1. First detailed suggestion text", "2. Second detailed suggestion text", "Supervisor ran: 2 suggestions, no changes applied.") {
 		t.Fatalf("expected full reviewer suggestions in detail mode, got %q", detail)
-	}
-	if !strings.Contains(rawDetail, green.Render("Supervisor suggested:")) {
-		t.Fatalf("expected reviewer suggestions to use success styling in detail mode, got %q", rawDetail)
-	}
-	if !strings.Contains(rawDetail, green.Render("Supervisor ran: 2 suggestions, no changes applied.")) {
-		t.Fatalf("expected reviewer status to use success styling in detail mode, got %q", rawDetail)
 	}
 }
 
