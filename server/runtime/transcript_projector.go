@@ -58,7 +58,7 @@ func (p *TranscriptProjector) ApplyPersistedEvent(evt session.Event) error {
 	case "history_replaced":
 		payload, ignoredLegacy, err := decodePersistedHistoryReplacementPayload(evt.Payload)
 		if err != nil {
-			return fmt.Errorf("decode history_replaced event: %w", err)
+			return fmt.Errorf("%w: %w", errDecodeHistoryReplacedEvent, err)
 		}
 		if ignoredLegacy {
 			return nil

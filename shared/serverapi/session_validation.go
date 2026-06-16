@@ -6,9 +6,16 @@ import (
 	"strings"
 )
 
+// ErrSessionIDRequired is returned when a session id is empty or whitespace-only.
+var ErrSessionIDRequired = errors.New("session_id is required")
+
+// ErrSessionIDNotSingle is returned when a session id is not a single,
+// container-relative session id (absolute, traversal, or contains separators).
+var ErrSessionIDNotSingle = errors.New("session_id must be a single session id")
+
 func validateRequiredSessionID(sessionID string) error {
 	if strings.TrimSpace(sessionID) == "" {
-		return errors.New("session_id is required")
+		return ErrSessionIDRequired
 	}
 	return nil
 }
@@ -19,13 +26,13 @@ func validateScopedSessionID(sessionID string) error {
 		return err
 	}
 	if filepath.IsAbs(trimmed) || trimmed == "." || trimmed == ".." {
-		return errors.New("session_id must be a single session id")
+		return ErrSessionIDNotSingle
 	}
 	if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
-		return errors.New("session_id must be a single session id")
+		return ErrSessionIDNotSingle
 	}
 	if filepath.Clean(trimmed) != trimmed {
-		return errors.New("session_id must be a single session id")
+		return ErrSessionIDNotSingle
 	}
 	return nil
 }

@@ -191,11 +191,8 @@ func TestTriggerHandoffFailsBeforeReminder(t *testing.T) {
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff)}, "", "")
-	if err == nil {
-		t.Fatal("expected trigger_handoff to fail before reminder")
-	}
-	if err.Error() != handoffTooEarlyMessage {
-		t.Fatalf("unexpected early handoff error: %v", err)
+	if !errors.Is(err, errHandoffTooEarly) {
+		t.Fatalf("expected errHandoffTooEarly, got %v", err)
 	}
 }
 
@@ -210,11 +207,8 @@ func TestTriggerHandoffFailsWhenAutoCompactionDisabled(t *testing.T) {
 	}
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff)}, "", "")
-	if err == nil {
-		t.Fatal("expected trigger_handoff to fail while auto compaction is disabled")
-	}
-	if err.Error() != handoffDisabledByUserMessage {
-		t.Fatalf("unexpected disabled handoff error: %v", err)
+	if !errors.Is(err, errHandoffDisabledByUser) {
+		t.Fatalf("expected errHandoffDisabledByUser, got %v", err)
 	}
 }
 
@@ -519,8 +513,8 @@ func TestPendingTriggerHandoffFailsMalformedToolCallWithEmptyID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
-	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); err == nil || err.Error() != "local compaction summary attempted tool call with empty id" {
-		t.Fatalf("expected malformed empty-id tool-call error, got %v", err)
+	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); !errors.Is(err, errLocalCompactionToolCallEmptyID) {
+		t.Fatalf("expected errLocalCompactionToolCallEmptyID, got %v", err)
 	}
 	if eng.pendingHandoffRequestSnapshot() == nil {
 		t.Fatal("expected malformed handoff failure to keep pending request queued")
@@ -666,8 +660,8 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
-	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); err == nil || err.Error() != "local compaction summary attempted tool calls" {
-		t.Fatalf("expected repeated tool-call summary error, got %v", err)
+	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); !errors.Is(err, errLocalCompactionAttemptedToolCalls) {
+		t.Fatalf("expected errLocalCompactionAttemptedToolCalls, got %v", err)
 	}
 	if eng.pendingHandoffRequestSnapshot() == nil {
 		t.Fatal("expected failed handoff retry to keep pending request queued")

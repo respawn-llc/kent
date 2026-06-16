@@ -2,6 +2,7 @@ package sessionlifecycle
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,12 +13,15 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/registry"
+	"core/server/requestmemo"
 	"core/server/runprompt"
 	"core/server/session"
+	"core/server/sessionpath"
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 )
 
 const testControllerLeaseID = "lease-test-controller"
@@ -97,7 +101,7 @@ func TestMetadataBackedLoopbackClientOwnsMetadataStore(t *testing.T) {
 	if err := lifecycleClient.Close(); err != nil {
 		t.Fatalf("Close duplicate: %v", err)
 	}
-	if _, err := lifecycleClient.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{SessionID: sess.Meta().SessionID}); err == nil || !strings.Contains(err.Error(), "closed") {
+	if _, err := lifecycleClient.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{SessionID: sess.Meta().SessionID}); err == nil || !errors.Is(err, errLifecycleClientClosed) {
 		t.Fatalf("GetInitialInput after Close error = %v, want closed client", err)
 	}
 }
@@ -139,7 +143,7 @@ func TestServiceGetInitialInputRejectsPathLikeSessionID(t *testing.T) {
 	_, err := service.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
 		SessionID: "../session-1",
 	})
-	if err == nil || !strings.Contains(err.Error(), "single session id") {
+	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
 		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }
@@ -209,7 +213,7 @@ func TestServiceRetargetSessionWorkspaceRequiresPersistenceRoot(t *testing.T) {
 		SessionID:       "session-1",
 		WorkspaceRoot:   t.TempDir(),
 	})
-	if err == nil || err.Error() != "persistence root is required" {
+	if err == nil || !errors.Is(err, errPersistenceRootRequired) {
 		t.Fatalf("RetargetSessionWorkspace error = %v, want persistence root is required", err)
 	}
 }
@@ -272,7 +276,7 @@ func TestServicePersistInputDraftRejectsClientRequestIDPayloadMismatch(t *testin
 	}
 	second := first
 	second.Input = "different draft"
-	if _, err := service.PersistInputDraft(context.Background(), second); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
+	if _, err := service.PersistInputDraft(context.Background(), second); err == nil || !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("PersistInputDraft mismatch error = %v, want request id payload mismatch", err)
 	}
 	reopened, err := session.Open(store.Dir())
@@ -292,7 +296,7 @@ func TestServicePersistInputDraftRejectsPathLikeSessionID(t *testing.T) {
 		ControllerLeaseID: testControllerLeaseID,
 		Input:             "draft",
 	})
-	if err == nil || !strings.Contains(err.Error(), "single session id") {
+	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
 		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }
@@ -307,7 +311,7 @@ func TestServiceResolveTransitionRejectsPathLikeSessionID(t *testing.T) {
 			Action: "continue",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "single session id") {
+	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
 		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }
@@ -583,7 +587,7 @@ func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testin
 			ForkRollbackTargetID: "not-valid",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "invalid rollback target id") {
+	if !errors.Is(err, rollbacktarget.ErrInvalidRollbackTargetID) {
 		t.Fatalf("expected invalid target token rejection, got %v", err)
 	}
 }
@@ -608,7 +612,7 @@ func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected foreign session lookup rejection")
 	}
-	if !strings.Contains(err.Error(), "not found") && !strings.Contains(err.Error(), "outside workspace container") {
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) && !errors.Is(err, sessionpath.ErrOutsideWorkspaceContainer) {
 		t.Fatalf("expected scoped lookup rejection, got %v", err)
 	}
 }
@@ -638,7 +642,7 @@ func TestServicePersistInputDraftRejectsSessionOutsideContainer(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected foreign session mutation rejection")
 	}
-	if !strings.Contains(err.Error(), "not found") && !strings.Contains(err.Error(), "outside workspace container") {
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) && !errors.Is(err, sessionpath.ErrOutsideWorkspaceContainer) {
 		t.Fatalf("expected scoped lookup rejection, got %v", err)
 	}
 }
@@ -684,7 +688,7 @@ func TestServiceResolveTransitionRequiresClientRequestID(t *testing.T) {
 	_, err := service.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
 		Transition: serverapi.SessionTransition{Action: "continue"},
 	})
-	if err == nil || err.Error() != "client_request_id is required" {
+	if !errors.Is(err, serverapi.ErrClientRequestIDRequired) {
 		t.Fatalf("expected missing client_request_id error, got %v", err)
 	}
 }

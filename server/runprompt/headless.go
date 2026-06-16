@@ -23,6 +23,11 @@ import (
 
 var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions with goals; clear the goal first")
 
+// ErrHeadlessAskUnsupported is returned by the headless ask handler when the
+// model attempts to ask a question in headless/background mode, where no
+// interactive answer is possible.
+var ErrHeadlessAskUnsupported = errors.New("You can't ask questions in headless/background mode. If the question is critical and materially affects the task, ask it by ending your turn after trying to do as much work as possible beforehand. Otherwise, follow best practice and mention the ambiguity in your final answer.")
+
 type HeadlessBootstrap struct {
 	SessionLaunch   *sessionlaunch.Service
 	AuthManager     *auth.Manager
@@ -193,7 +198,7 @@ func (r *headlessPromptRuntime) Close() error {
 }
 
 func RunPromptAskHandler(req askquestion.Request) (askquestion.Response, error) {
-	return askquestion.Response{}, errors.New("You can't ask questions in headless/background mode. If the question is critical and materially affects the task, ask it by ending your turn after trying to do as much work as possible beforehand. Otherwise, follow best practice and mention the ambiguity in your final answer.")
+	return askquestion.Response{}, ErrHeadlessAskUnsupported
 }
 
 func PublishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runtime.Event) {

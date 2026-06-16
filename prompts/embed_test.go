@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -102,8 +103,12 @@ func TestDefaultSystemPromptAssemblyCannotReferenceFullDefaultPrompt(t *testing.
 	if err == nil {
 		t.Fatal("expected default system prompt assembly to reject DefaultSystemPrompt recursion")
 	}
-	if !strings.Contains(err.Error(), "DefaultSystemPrompt") {
-		t.Fatalf("expected error to mention DefaultSystemPrompt, got %v", err)
+	var placeholderErr *UnknownTemplatePlaceholderError
+	if !errors.As(err, &placeholderErr) {
+		t.Fatalf("expected UnknownTemplatePlaceholderError, got %v", err)
+	}
+	if placeholderErr.Placeholder != "DefaultSystemPrompt" {
+		t.Fatalf("expected placeholder DefaultSystemPrompt, got %q", placeholderErr.Placeholder)
 	}
 }
 
@@ -115,8 +120,12 @@ func TestCustomSystemPromptRejectsRemovedManualEditInstructionPlaceholder(t *tes
 	if err == nil {
 		t.Fatal("expected removed ManualEditInstruction placeholder to fail")
 	}
-	if !strings.Contains(err.Error(), "ManualEditInstruction") {
-		t.Fatalf("expected error to mention ManualEditInstruction, got %v", err)
+	var placeholderErr *UnknownTemplatePlaceholderError
+	if !errors.As(err, &placeholderErr) {
+		t.Fatalf("expected UnknownTemplatePlaceholderError, got %v", err)
+	}
+	if placeholderErr.Placeholder != "ManualEditInstruction" {
+		t.Fatalf("expected placeholder ManualEditInstruction, got %q", placeholderErr.Placeholder)
 	}
 }
 

@@ -1,6 +1,7 @@
 package sessionpath
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,10 @@ import (
 
 	"core/shared/sessioncontract"
 )
+
+// ErrOutsideWorkspaceContainer is returned when a resolved session directory
+// escapes the workspace container.
+var ErrOutsideWorkspaceContainer = errors.New("outside workspace container")
 
 func ResolveScopedSessionDir(containerDir string, sessionID string) (string, error) {
 	absContainerDir, candidateSessionDir, err := candidateScopedSessionDir(containerDir, sessionID)
@@ -19,7 +24,7 @@ func ResolveScopedSessionDir(containerDir string, sessionID string) (string, err
 		return "", err
 	}
 	if !isDescendantPath(realContainerDir, realSessionDir) {
-		return "", fmt.Errorf("session %q is outside workspace container", strings.TrimSpace(sessionID))
+		return "", fmt.Errorf("session %q is %w", strings.TrimSpace(sessionID), ErrOutsideWorkspaceContainer)
 	}
 	return realSessionDir, nil
 }

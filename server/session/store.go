@@ -146,20 +146,20 @@ func resolvePersistedSessionRecord(persistenceRoot, sessionID string, storeOpts 
 		return PersistedSessionRecord{}, errors.New("session id is required")
 	}
 	if storeOpts.resolver == nil {
-		return PersistedSessionRecord{}, errors.New("persisted session resolver is required")
+		return PersistedSessionRecord{}, errPersistedSessionResolverRequired
 	}
 	record, err := storeOpts.resolver.ResolvePersistedSession(context.Background(), id)
 	if err != nil {
 		return PersistedSessionRecord{}, err
 	}
 	if strings.TrimSpace(record.SessionDir) == "" {
-		return PersistedSessionRecord{}, fmt.Errorf("resolver returned invalid persisted session record for %q: missing session dir", id)
+		return PersistedSessionRecord{}, fmt.Errorf("session %q: %w", id, errResolverRecordMissingSessionDir)
 	}
 	if !filepath.IsAbs(record.SessionDir) || filepath.Clean(record.SessionDir) != record.SessionDir {
-		return PersistedSessionRecord{}, fmt.Errorf("resolver returned invalid persisted session record for %q: session dir must be an absolute clean path", id)
+		return PersistedSessionRecord{}, fmt.Errorf("session %q: %w", id, errResolverRecordRelativeSessionDir)
 	}
 	if record.Meta == nil {
-		return PersistedSessionRecord{}, fmt.Errorf("resolver returned invalid persisted session record for %q: missing metadata", id)
+		return PersistedSessionRecord{}, fmt.Errorf("session %q: %w", id, errResolverRecordMissingMetadata)
 	}
 	return record, nil
 }

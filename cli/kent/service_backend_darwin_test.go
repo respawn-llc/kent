@@ -479,7 +479,7 @@ func TestLaunchdReloadDoesNotAcceptLaunchdPIDWithoutHealthyServer(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected reload to wait for healthy launchd server")
 	}
-	if !strings.Contains(err.Error(), "did not become healthy") {
+	if !errors.Is(err, errLaunchdServerNotHealthy) {
 		t.Fatalf("error = %v, want healthy startup timeout", err)
 	}
 }
@@ -521,8 +521,8 @@ func TestLaunchdReloadExplainsOldServerStillRunningInsteadOfBootstrapCodeFive(t 
 	if err == nil {
 		t.Fatal("expected reload to fail while old server is still healthy")
 	}
-	if !strings.Contains(err.Error(), "old Kent server did not exit") || !strings.Contains(err.Error(), "running Kent server process 42 did not exit") {
-		t.Fatalf("error = %v, want actionable old-server and process-exit messages", err)
+	if !errors.Is(err, errLaunchdOldServerNotExited) || !errors.Is(err, errLaunchdServerProcessNotExited) {
+		t.Fatalf("error = %v, want actionable old-server and process-exit failures", err)
 	}
 	if countLaunchdCommand(*calls, "bootstrap") != 0 {
 		t.Fatalf("bootstrap should not run while old server still owns port, calls=%#v", *calls)
@@ -645,8 +645,9 @@ func TestLaunchdStartDoesNotHideNonTransientBootstrapError(t *testing.T) {
 	})
 
 	err := (launchdServiceBackend{}).Start(context.Background(), spec)
-	if err == nil || !strings.Contains(err.Error(), "invalid property list") {
-		t.Fatalf("start error = %v, want invalid property list", err)
+	var cmdErr serviceCommandError
+	if !errors.As(err, &cmdErr) || cmdErr.Result.Code != 78 {
+		t.Fatalf("start error = %v, want surfaced non-transient bootstrap command error", err)
 	}
 	want := [][]string{
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},

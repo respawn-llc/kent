@@ -2,6 +2,7 @@ package statuscollect
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -249,7 +250,7 @@ func TestFetchUsagePayloadHandlesUsageErrors(t *testing.T) {
 		defer server.Close()
 
 		_, err := FetchUsagePayload(context.Background(), server.URL+"/backend-api", auth.State{Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "access-token"}}})
-		if err == nil || !strings.Contains(err.Error(), "usage request failed") {
+		if err == nil || !errors.Is(err, ErrUsageRequestFailed) {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -261,7 +262,7 @@ func TestFetchUsagePayloadHandlesUsageErrors(t *testing.T) {
 		defer server.Close()
 
 		_, err := FetchUsagePayload(context.Background(), server.URL+"/backend-api", auth.State{Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "access-token"}}})
-		if err == nil || !strings.Contains(err.Error(), "decode usage response") {
+		if err == nil || !errors.Is(err, ErrDecodeUsageResponse) {
 			t.Fatalf("err = %v", err)
 		}
 	})

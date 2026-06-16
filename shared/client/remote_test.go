@@ -624,8 +624,8 @@ func TestProtocolErrorMapsRequestCanceledCodeToClearMessage(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
-	if err.Error() != "request canceled by client" {
-		t.Fatalf("request canceled error = %q, want request canceled by client", err.Error())
+	if !errors.Is(err, errRequestCanceledByClient) {
+		t.Fatalf("expected normalized request-canceled error, got %v", err)
 	}
 }
 
@@ -634,8 +634,8 @@ func TestProtocolErrorMapsEmptyRequestCanceledCodeToClearMessage(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
-	if err.Error() != "request canceled by client" {
-		t.Fatalf("request canceled error = %q, want request canceled by client", err.Error())
+	if !errors.Is(err, errRequestCanceledByClient) {
+		t.Fatalf("expected normalized request-canceled error, got %v", err)
 	}
 }
 

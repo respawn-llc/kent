@@ -24,6 +24,9 @@ const (
 var skillsPrompt = strings.TrimSpace(prompts.SkillsPrompt)
 var readSkillsDir = os.ReadDir
 
+// errReadSkillsDirectory wraps failures to read a skills discovery directory.
+var errReadSkillsDirectory = errors.New("read skills directory")
+
 type injectedSkill struct {
 	Name        string
 	Description string
@@ -88,7 +91,7 @@ func discoverInjectedSkills(workspaceRoot string, disabledSkills map[string]bool
 			if os.IsNotExist(readErr) {
 				continue
 			}
-			return nil, nil, fmt.Errorf("read skills directory %q: %w", root.Path, readErr)
+			return nil, nil, fmt.Errorf("%w %q: %w", errReadSkillsDirectory, root.Path, readErr)
 		}
 		for _, entry := range entries {
 			resolution := resolveSkillDir(root.Path, entry)

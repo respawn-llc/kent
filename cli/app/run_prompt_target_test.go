@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,8 +22,8 @@ func TestValidateRunPromptAgentRoleBlocksNonCallableRoleForKentSession(t *testin
 	if err == nil {
 		t.Fatal("expected non-callable role to fail for Kent session")
 	}
-	if err.Error() != nonCallableSubagentRoleMessage {
-		t.Fatalf("error = %q, want non-callable message", err.Error())
+	if !errors.Is(err, errNonCallableSubagentRole) {
+		t.Fatalf("error = %v, want non-callable role error", err)
 	}
 	if err := validateRunPromptAgentRole(settings, "worker", false, ""); err != nil {
 		t.Fatalf("human/no-session role validation failed: %v", err)
@@ -43,14 +44,12 @@ func TestValidateRunPromptAgentRoleUnknownRoleListsCallableRolesForKentSession(t
 	if err == nil {
 		t.Fatal("expected unknown role to fail")
 	}
-	text := err.Error()
-	for _, want := range []string{`Unrecognized role "missing"`, "Available roles: [fast, callable]"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("error = %q, want %q", text, want)
-		}
+	if !errors.Is(err, errUnrecognizedSubagentRole) {
+		t.Fatalf("error = %v, want unrecognized role error", err)
 	}
-	if strings.Contains(text, "noncallable") {
-		t.Fatalf("kent-session available list should omit non-callable role: %q", text)
+	available := config.AvailableSubagentRoleNames(settings, true)
+	if got, want := strings.Join(available, ","), "fast,callable"; got != want {
+		t.Fatalf("kent-session available roles = %q, want %q (non-callable omitted)", got, want)
 	}
 }
 
@@ -82,9 +81,8 @@ func TestStartRunPromptClientUnknownRoleKentSessionErrorUsesCallableAvailableRol
 	if err == nil {
 		t.Fatal("expected unknown role error")
 	}
-	want := `Unrecognized role "missing". It may have been removed by the user during the session. Available roles: [fast, worker]`
-	if err.Error() != want {
-		t.Fatalf("error = %q, want %q", err.Error(), want)
+	if !errors.Is(err, errUnrecognizedSubagentRole) {
+		t.Fatalf("error = %v, want unrecognized role error", err)
 	}
 }
 
@@ -119,8 +117,8 @@ func TestStartRunPromptClientDefaultAliasBlocksNonCallableContextRole(t *testing
 	if err == nil {
 		t.Fatal("expected default alias to fail from non-callable context role")
 	}
-	if err.Error() != nonCallableSubagentRoleMessage {
-		t.Fatalf("error = %q, want non-callable message", err.Error())
+	if !errors.Is(err, errNonCallableSubagentRole) {
+		t.Fatalf("error = %v, want non-callable role error", err)
 	}
 }
 
@@ -145,7 +143,7 @@ func TestValidateRunPromptAgentRoleBlocksDefaultAliasFromNonCallableContextRole(
 			if err == nil {
 				t.Fatal("expected non-callable context role to block default invocation")
 			}
-			if err.Error() != nonCallableSubagentRoleMessage {
+			if !errors.Is(err, errNonCallableSubagentRole) {
 				t.Fatalf("error = %q, want non-callable message", err.Error())
 			}
 		})

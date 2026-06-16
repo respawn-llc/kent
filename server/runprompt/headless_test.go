@@ -166,7 +166,7 @@ func TestMemoizingPromptServiceRejectsClientRequestIDPayloadMismatch(t *testing.
 	}
 	second := first
 	second.Prompt = "different"
-	if _, err := service.RunPrompt(context.Background(), second, nil); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
+	if _, err := service.RunPrompt(context.Background(), second, nil); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("RunPrompt mismatch error = %v, want request id payload mismatch", err)
 	}
 	if inner.CallCount() != 1 {

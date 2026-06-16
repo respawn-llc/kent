@@ -85,7 +85,7 @@ func refuseRealPersistenceRootUnderGoTest(absRoot string) error {
 			return fmt.Errorf("resolve protected persistence root: %w", err)
 		}
 		if filepath.Clean(absRoot) == filepath.Clean(realRoot) {
-			return fmt.Errorf("refusing to use protected persistence root %s from a Go test binary; tests must provide an isolated config root before calling Load", absRoot)
+			return fmt.Errorf("%w %s from a Go test binary; tests must provide an isolated config root before calling Load", errProtectedPersistenceRoot, absRoot)
 		}
 	}
 	return nil

@@ -92,7 +92,44 @@ var (
 	ErrProjectKeyImmutable    = errors.New("project key immutable")
 	ErrProjectKeyAlreadyInUse = errors.New("project key already in use")
 	ErrInvalidRuntimeLease    = errors.New("invalid runtime lease")
+
+	// ErrWorkspaceAlreadyBound is returned when a rebind target canonical root
+	// is already bound to a workspace. Callers match it via errors.Is.
+	ErrWorkspaceAlreadyBound = errors.New("workspace is already bound")
+	// ErrWorktreeAlreadyBound is returned when a rebind worktree canonical root
+	// is already bound. Callers match it via errors.Is.
+	ErrWorktreeAlreadyBound = errors.New("worktree is already bound")
+	// ErrWorkspacePathMissing is returned when a workspace path does not exist
+	// on disk. Callers match it via errors.Is.
+	ErrWorkspacePathMissing = errors.New("workspace path does not exist")
+	// ErrPathEscapesPersistenceRoot is returned when a resolved path escapes or
+	// lands outside the persistence root. Callers match it via errors.Is.
+	ErrPathEscapesPersistenceRoot = errors.New("path escapes persistence root")
+
+	// Runtime-lease validation sub-cases. Each chains ErrInvalidRuntimeLease so
+	// existing errors.Is(err, ErrInvalidRuntimeLease) checks keep matching while
+	// callers can match the specific failure via errors.Is.
+	ErrRuntimeLeaseSessionIDRequired = fmt.Errorf("%w: session id is required", ErrInvalidRuntimeLease)
+	ErrRuntimeLeaseIDRequired        = fmt.Errorf("%w: lease id is required", ErrInvalidRuntimeLease)
+	ErrRuntimeLeaseReleased          = fmt.Errorf("%w: runtime lease has been released", ErrInvalidRuntimeLease)
+
+	// Worktree record required-field validation sentinels.
+	ErrWorktreeIDRequired            = errors.New("worktree id is required")
+	ErrWorktreeWorkspaceIDRequired   = errors.New("workspace id is required")
+	ErrWorktreeCanonicalRootRequired = errors.New("worktree canonical root is required")
 )
+
+// WorktreeWorkspaceMismatchError reports that a worktree is not owned by the
+// expected workspace. It exposes the involved identifiers so callers can
+// inspect them via errors.As instead of parsing message wording.
+type WorktreeWorkspaceMismatchError struct {
+	WorktreeID  string
+	WorkspaceID string
+}
+
+func (e *WorktreeWorkspaceMismatchError) Error() string {
+	return fmt.Sprintf("worktree %q does not belong to workspace %q", e.WorktreeID, e.WorkspaceID)
+}
 
 func (s *Store) PersistenceRoot() string {
 	if s == nil {
@@ -316,13 +353,13 @@ func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord)
 		return errors.New("metadata store is required")
 	}
 	if strings.TrimSpace(record.ID) == "" {
-		return errors.New("worktree id is required")
+		return ErrWorktreeIDRequired
 	}
 	if strings.TrimSpace(record.WorkspaceID) == "" {
-		return errors.New("workspace id is required")
+		return ErrWorktreeWorkspaceIDRequired
 	}
 	if strings.TrimSpace(record.CanonicalRoot) == "" {
-		return errors.New("worktree canonical root is required")
+		return ErrWorktreeCanonicalRootRequired
 	}
 	now := time.Now().UTC()
 	createdAt := record.CreatedAt
@@ -383,7 +420,7 @@ func (s *Store) UpdateSessionExecutionTargetByID(ctx context.Context, sessionID 
 			return err
 		}
 		if strings.TrimSpace(record.WorkspaceID) != trimmedWorkspaceID {
-			return fmt.Errorf("worktree %q does not belong to workspace %q", trimmedWorktreeID, trimmedWorkspaceID)
+			return &WorktreeWorkspaceMismatchError{WorktreeID: trimmedWorktreeID, WorkspaceID: trimmedWorkspaceID}
 		}
 	}
 	params := sqlitegen.UpdateSessionExecutionTargetByIDParams{
@@ -835,7 +872,7 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 			}
 			return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
 		}
-		return Binding{}, fmt.Errorf("workspace %q is already bound", newCanonicalRoot)
+		return Binding{}, fmt.Errorf("workspace %q: %w", newCanonicalRoot, ErrWorkspaceAlreadyBound)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Binding{}, fmt.Errorf("get new workspace binding: %w", err)
 	}
@@ -857,10 +894,10 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 			return Binding{}, fmt.Errorf("rollback workspace rebind tx: %w", rollbackErr)
 		}
 		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.ID {
-			return Binding{}, fmt.Errorf("workspace %q is already bound", newCanonicalRoot)
+			return Binding{}, fmt.Errorf("workspace %q: %w", newCanonicalRoot, ErrWorkspaceAlreadyBound)
 		}
 		if isSQLiteUniqueConstraint(err) {
-			return Binding{}, fmt.Errorf("workspace %q is already bound", newCanonicalRoot)
+			return Binding{}, fmt.Errorf("workspace %q: %w", newCanonicalRoot, ErrWorkspaceAlreadyBound)
 		}
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: %w", err)
 	}
@@ -879,7 +916,7 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 		})
 		if updateErr != nil {
 			if isSQLiteUniqueConstraint(updateErr) {
-				return Binding{}, fmt.Errorf("worktree %q is already bound", newWorktreeRoot)
+				return Binding{}, fmt.Errorf("worktree %q: %w", newWorktreeRoot, ErrWorktreeAlreadyBound)
 			}
 			return Binding{}, fmt.Errorf("update worktree canonical root: %w", updateErr)
 		}
@@ -1096,7 +1133,7 @@ func requireExistingDirectory(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("workspace path %q does not exist", path)
+			return fmt.Errorf("workspace path %q: %w", path, ErrWorkspacePathMissing)
 		}
 		return fmt.Errorf("stat workspace path %q: %w", path, err)
 	}
@@ -1674,11 +1711,11 @@ func (s *Store) ValidateRuntimeLease(ctx context.Context, sessionID string, leas
 	}
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID == "" {
-		return RuntimeLeaseRecord{}, fmt.Errorf("%w: session id is required", ErrInvalidRuntimeLease)
+		return RuntimeLeaseRecord{}, ErrRuntimeLeaseSessionIDRequired
 	}
 	trimmedLeaseID := strings.TrimSpace(leaseID)
 	if trimmedLeaseID == "" {
-		return RuntimeLeaseRecord{}, fmt.Errorf("%w: lease id is required", ErrInvalidRuntimeLease)
+		return RuntimeLeaseRecord{}, ErrRuntimeLeaseIDRequired
 	}
 	record, err := s.getRuntimeLeaseByID(ctx, trimmedLeaseID)
 	if err != nil {
@@ -1688,7 +1725,7 @@ func (s *Store) ValidateRuntimeLease(ctx context.Context, sessionID string, leas
 		return RuntimeLeaseRecord{}, fmt.Errorf("%w: runtime lease %q does not belong to session %q", ErrInvalidRuntimeLease, trimmedLeaseID, trimmedSessionID)
 	}
 	if !record.ReleasedAt.IsZero() {
-		return RuntimeLeaseRecord{}, fmt.Errorf("%w: runtime lease %q has been released", ErrInvalidRuntimeLease, trimmedLeaseID)
+		return RuntimeLeaseRecord{}, fmt.Errorf("runtime lease %q: %w", trimmedLeaseID, ErrRuntimeLeaseReleased)
 	}
 	return record, nil
 }
@@ -1699,11 +1736,11 @@ func (s *Store) ReleaseRuntimeLease(ctx context.Context, sessionID string, lease
 	}
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID == "" {
-		return RuntimeLeaseRecord{}, fmt.Errorf("%w: session id is required", ErrInvalidRuntimeLease)
+		return RuntimeLeaseRecord{}, ErrRuntimeLeaseSessionIDRequired
 	}
 	trimmedLeaseID := strings.TrimSpace(leaseID)
 	if trimmedLeaseID == "" {
-		return RuntimeLeaseRecord{}, fmt.Errorf("%w: lease id is required", ErrInvalidRuntimeLease)
+		return RuntimeLeaseRecord{}, ErrRuntimeLeaseIDRequired
 	}
 	record, err := s.getRuntimeLeaseByID(ctx, trimmedLeaseID)
 	if err != nil {
@@ -2154,7 +2191,7 @@ func relativePathWithinRoot(root string, target string) (string, error) {
 	}
 	cleaned := filepath.ToSlash(filepath.Clean(relpath))
 	if cleaned == "." || filepath.IsAbs(filepath.FromSlash(cleaned)) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("session dir %q is outside persistence root %q", target, root)
+		return "", fmt.Errorf("session dir %q is outside persistence root %q: %w", target, root, ErrPathEscapesPersistenceRoot)
 	}
 	return cleaned, nil
 }
@@ -2194,7 +2231,7 @@ func canonicalFilesystemPath(path string) (string, error) {
 func sessionArtifactPathWithinRoot(root string, artifactRelpath string) (string, error) {
 	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(artifactRelpath))))
 	if cleaned == "" || cleaned == "." || filepath.IsAbs(filepath.FromSlash(cleaned)) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("session artifact relpath %q escapes persistence root %q", artifactRelpath, root)
+		return "", fmt.Errorf("session artifact relpath %q escapes persistence root %q: %w", artifactRelpath, root, ErrPathEscapesPersistenceRoot)
 	}
 	return filepath.Join(root, filepath.FromSlash(cleaned)), nil
 }

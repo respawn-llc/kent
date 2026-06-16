@@ -537,7 +537,7 @@ func TestBuildResponsesInputRejectsUnmaterializedViewImageInputFileOutput(t *tes
 			Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "must be materialized") {
+	if !errors.Is(err, ErrViewImageOutputNotMaterialized) {
 		t.Fatalf("expected materialization error, got %v", err)
 	}
 }
@@ -946,7 +946,7 @@ func TestBuildFunctionToolParamRejectsBlankCustomToolName(t *testing.T) {
 		Name:   "   ",
 		Custom: &CustomToolFormat{Type: "grammar", Syntax: "lark", Definition: "start: \"x\""},
 	})
-	if err == nil || !strings.Contains(err.Error(), "custom tool name is required") {
+	if !errors.Is(err, ErrCustomToolNameRequired) {
 		t.Fatalf("error = %v, want blank custom tool name rejection", err)
 	}
 }

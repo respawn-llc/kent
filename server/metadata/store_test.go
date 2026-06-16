@@ -427,11 +427,11 @@ func TestRebindWorkspaceRejectsInvalidTargets(t *testing.T) {
 	if _, err := store.RebindWorkspace(context.Background(), filepath.Join(t.TempDir(), "unknown-old"), otherWorkspace); !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("RebindWorkspace unknown old error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	if _, err := store.RebindWorkspace(context.Background(), oldWorkspace, missingWorkspace); err == nil || !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("RebindWorkspace missing new error = %v, want does not exist", err)
+	if _, err := store.RebindWorkspace(context.Background(), oldWorkspace, missingWorkspace); !errors.Is(err, ErrWorkspacePathMissing) {
+		t.Fatalf("RebindWorkspace missing new error = %v, want ErrWorkspacePathMissing", err)
 	}
-	if _, err := store.RebindWorkspace(context.Background(), oldWorkspace, projectWorkspace); err == nil || !strings.Contains(err.Error(), "already bound") {
-		t.Fatalf("RebindWorkspace bound new error = %v, want already bound", err)
+	if _, err := store.RebindWorkspace(context.Background(), oldWorkspace, projectWorkspace); !errors.Is(err, ErrWorkspaceAlreadyBound) {
+		t.Fatalf("RebindWorkspace bound new error = %v, want ErrWorkspaceAlreadyBound", err)
 	}
 	resolved, err := store.EnsureWorkspaceBinding(context.Background(), oldWorkspace)
 	if err != nil {
@@ -808,8 +808,8 @@ func TestRebindWorkspaceNormalizesUniqueConflictRace(t *testing.T) {
 	}
 	close(release)
 	err = <-errCh
-	if err == nil || !strings.Contains(err.Error(), "already bound") {
-		t.Fatalf("RebindWorkspace race error = %v, want already bound", err)
+	if !errors.Is(err, ErrWorkspaceAlreadyBound) {
+		t.Fatalf("RebindWorkspace race error = %v, want ErrWorkspaceAlreadyBound", err)
 	}
 	resolved, err := storeA.EnsureWorkspaceBinding(ctx, oldWorkspace)
 	if err != nil {
@@ -1005,7 +1005,7 @@ func TestImportSessionSnapshotRejectsSessionDirOutsidePersistenceRoot(t *testing
 			UpdatedAt:          time.Now().UTC(),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "outside persistence root") {
+	if !errors.Is(err, ErrPathEscapesPersistenceRoot) {
 		t.Fatalf("expected outside-persistence-root error, got %v", err)
 	}
 }

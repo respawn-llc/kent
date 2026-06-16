@@ -80,7 +80,8 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 	minimumThreshold := compaction.MinimumThresholdTokens(state.Settings.ModelContextWindow)
 	if state.Settings.ContextCompactionThresholdTokens < minimumThreshold {
 		return fmt.Errorf(
-			"context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
+			"%w: context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
+			errCompactionThresholdBelowMinimum,
 			minimumThreshold,
 			compaction.MinimumWindowPercent,
 			state.Settings.ModelContextWindow,
@@ -95,7 +96,8 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 	)
 	if effectivePreSubmitThreshold < minimumThreshold {
 		return fmt.Errorf(
-			"pre_submit_compaction_lead_tokens makes the effective pre-submit threshold %d, below %d (%d%% of model_context_window=%d)",
+			"%w: pre_submit_compaction_lead_tokens makes the effective pre-submit threshold %d, below %d (%d%% of model_context_window=%d)",
+			errPreSubmitThresholdBelowMinimum,
 			effectivePreSubmitThreshold,
 			minimumThreshold,
 			compaction.MinimumWindowPercent,
@@ -135,7 +137,7 @@ func validateModelNotEmpty(state settingsState, _ map[string]string) error {
 
 func validateProviderOverrideRequiresModel(state settingsState, sources map[string]string) error {
 	if strings.TrimSpace(state.Settings.ProviderOverride) != "" && strings.TrimSpace(sources["model"]) == "default" {
-		return fmt.Errorf("provider_override requires an explicit model override; set model alongside provider_override")
+		return fmt.Errorf("%w; set model alongside provider_override", errProviderOverrideRequiresModel)
 	}
 	return nil
 }
@@ -145,14 +147,14 @@ func validateProviderOverrideValue(state settingsState, _ map[string]string) err
 	case "", "openai", "anthropic":
 		return nil
 	default:
-		return fmt.Errorf("invalid provider_override %q (expected openai|anthropic)", state.Settings.ProviderOverride)
+		return fmt.Errorf("%w %q (expected openai|anthropic)", errInvalidProviderOverride, state.Settings.ProviderOverride)
 	}
 }
 
 func validateOpenAIBaseURL(state settingsState, _ map[string]string) error {
 	provider := strings.ToLower(strings.TrimSpace(state.Settings.ProviderOverride))
 	if strings.TrimSpace(state.Settings.OpenAIBaseURL) != "" && provider != "" && provider != "openai" {
-		return fmt.Errorf("provider_override %q conflicts with openai_base_url; openai_base_url requires provider_override=openai or unset", state.Settings.ProviderOverride)
+		return fmt.Errorf("%w: provider_override %q; openai_base_url requires provider_override=openai or unset", errOpenAIBaseURLConflict, state.Settings.ProviderOverride)
 	}
 	return nil
 }
@@ -163,7 +165,7 @@ func validateProviderCapabilitiesProviderID(state settingsState, _ map[string]st
 		return nil
 	}
 	if capabilities.SupportsResponsesAPI || capabilities.SupportsResponsesCompact || capabilities.SupportsRequestInputTokenCount || capabilities.SupportsPromptCacheKey || capabilities.SupportsNativeWebSearch || capabilities.SupportsReasoningEncrypted || capabilities.SupportsServerSideContextEdit || capabilities.IsOpenAIFirstParty {
-		return fmt.Errorf("provider_capabilities.provider_id must not be empty when provider capability overrides are set")
+		return errProviderCapabilitiesNeedID
 	}
 	return nil
 }
@@ -173,7 +175,7 @@ func validateModelVerbosity(state settingsState, _ map[string]string) error {
 	case "", "low", "medium", "high":
 		return nil
 	default:
-		return fmt.Errorf("invalid model_verbosity %q (expected low|medium|high)", state.Settings.ModelVerbosity)
+		return fmt.Errorf("%w %q (expected low|medium|high)", errInvalidModelVerbosity, state.Settings.ModelVerbosity)
 	}
 }
 
@@ -264,7 +266,7 @@ func validateCacheWarningMode(state settingsState, _ map[string]string) error {
 	case "off", "default", "verbose":
 		return nil
 	default:
-		return fmt.Errorf("invalid cache_warning_mode %q (expected off|default|verbose)", state.Settings.CacheWarningMode)
+		return fmt.Errorf("%w %q (expected off|default|verbose)", errInvalidCacheWarningMode, state.Settings.CacheWarningMode)
 	}
 }
 
@@ -278,16 +280,16 @@ func validateWorkflowSettings(state settingsState, _ map[string]string) error {
 	switch state.Settings.Workflow.CompletionMode {
 	case WorkflowCompletionModeAuto, WorkflowCompletionModeStructuredOutput, WorkflowCompletionModeTool:
 	default:
-		return fmt.Errorf("invalid workflow.completion_mode %q (expected auto|structured_output|tool)", state.Settings.Workflow.CompletionMode)
+		return fmt.Errorf("%w: invalid workflow.completion_mode %q (expected auto|structured_output|tool)", errInvalidWorkflowSettings, state.Settings.Workflow.CompletionMode)
 	}
 	if state.Settings.Workflow.Concurrency <= 0 {
-		return fmt.Errorf("workflow.concurrency must be > 0")
+		return fmt.Errorf("%w: %w must be > 0", errInvalidWorkflowSettings, errWorkflowConcurrency)
 	}
 	if state.Settings.Workflow.MaxFinalAnswerViolations <= 0 {
-		return fmt.Errorf("workflow.max_final_answer_violations must be > 0")
+		return fmt.Errorf("%w: workflow.max_final_answer_violations must be > 0", errInvalidWorkflowSettings)
 	}
 	if state.Settings.Workflow.MaxInvalidCompletionAttempts <= 0 {
-		return fmt.Errorf("workflow.max_invalid_completion_attempts must be > 0")
+		return fmt.Errorf("%w: workflow.max_invalid_completion_attempts must be > 0", errInvalidWorkflowSettings)
 	}
 	return nil
 }
@@ -308,7 +310,8 @@ func validateContextWindow(state settingsState, _ map[string]string) error {
 	minimumThreshold := compaction.MinimumThresholdTokens(state.Settings.ModelContextWindow)
 	if state.Settings.ContextCompactionThresholdTokens < minimumThreshold {
 		return fmt.Errorf(
-			"context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
+			"%w: context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
+			errCompactionThresholdBelowMinimum,
 			minimumThreshold,
 			compaction.MinimumWindowPercent,
 			state.Settings.ModelContextWindow,
@@ -320,7 +323,8 @@ func validateContextWindow(state settingsState, _ map[string]string) error {
 	)
 	if effectivePreSubmitThreshold < minimumThreshold {
 		return fmt.Errorf(
-			"pre_submit_compaction_lead_tokens makes the effective pre-submit threshold %d, below %d (%d%% of model_context_window=%d)",
+			"%w: pre_submit_compaction_lead_tokens makes the effective pre-submit threshold %d, below %d (%d%% of model_context_window=%d)",
+			errPreSubmitThresholdBelowMinimum,
 			effectivePreSubmitThreshold,
 			minimumThreshold,
 			compaction.MinimumWindowPercent,
@@ -358,7 +362,7 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 	switch provider {
 	case "", "openai", "anthropic":
 	default:
-		return fmt.Errorf("invalid reviewer.provider_override %q (expected openai|anthropic)", reviewer.ProviderOverride)
+		return fmt.Errorf("%w %q (expected openai|anthropic)", errInvalidReviewerProvider, reviewer.ProviderOverride)
 	}
 	if strings.TrimSpace(reviewer.OpenAIBaseURL) != "" && provider != "" && provider != "openai" {
 		return fmt.Errorf("reviewer.provider_override %q conflicts with reviewer.openai_base_url; reviewer.openai_base_url requires reviewer.provider_override=openai or unset", reviewer.ProviderOverride)
@@ -367,7 +371,7 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 		return err
 	}
 	if reviewer.ModelContextWindow < 0 {
-		return fmt.Errorf("reviewer.model_context_window must be >= 0")
+		return errReviewerContextWindowNegative
 	}
 	switch normalizeReviewerAuth(reviewer.Auth) {
 	case "inherit":

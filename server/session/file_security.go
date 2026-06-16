@@ -26,7 +26,7 @@ func openRegularSessionFile(path string, label string) (*os.File, error) {
 	fp, err := openSessionFileReadOnly(path)
 	if err != nil {
 		if isSymlinkOpenError(err) {
-			return nil, fmt.Errorf("%s must not be a symlink", label)
+			return nil, fmt.Errorf("%s: %w", label, ErrSessionFileSymlink)
 		}
 		return nil, err
 	}

@@ -57,7 +57,7 @@ func (s *Store) RecordProtocolViolation(ctx context.Context, req RecordProtocolV
 			return RecordProtocolViolationResult{Count: protocolViolationCount(run, req.Kind), Interrupted: true}, nil
 		}
 		if req.RequireGeneration && run.RunGeneration != req.ExpectedGeneration {
-			return RecordProtocolViolationResult{}, fmt.Errorf("stale workflow run generation: got %d want %d", req.ExpectedGeneration, run.RunGeneration)
+			return RecordProtocolViolationResult{}, fmt.Errorf("%w: got %d want %d", ErrStaleRunGeneration, req.ExpectedGeneration, run.RunGeneration)
 		}
 		return RecordProtocolViolationResult{}, sql.ErrNoRows
 	}

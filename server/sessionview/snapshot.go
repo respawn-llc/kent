@@ -81,7 +81,7 @@ func newEnrichedSessionSnapshotSource(base SessionSnapshotSource, targets Execut
 
 func (s *enrichedSessionSnapshotSource) ResolveSessionSnapshot(ctx context.Context, sessionID string) (SessionSnapshot, error) {
 	if s == nil || s.base == nil {
-		return nil, errors.New("session store resolver is required")
+		return nil, errSessionStoreResolverRequired
 	}
 	snapshot, err := s.base.ResolveSessionSnapshot(ctx, sessionID)
 	if err != nil {
@@ -160,7 +160,7 @@ func newResolvedSessionSnapshotSource(sessions SessionStoreResolver, runtimes Ru
 
 func (s *resolvedSessionSnapshotSource) ResolveSessionSnapshot(ctx context.Context, sessionID string) (SessionSnapshot, error) {
 	if s == nil {
-		return nil, errors.New("session store resolver is required")
+		return nil, errSessionStoreResolverRequired
 	}
 	if s.runtimes != nil {
 		engine, err := s.runtimes.ResolveRuntime(ctx, sessionID)
@@ -172,14 +172,14 @@ func (s *resolvedSessionSnapshotSource) ResolveSessionSnapshot(ctx context.Conte
 		}
 	}
 	if s.sessions == nil {
-		return nil, errors.New("session store resolver is required")
+		return nil, errSessionStoreResolverRequired
 	}
 	store, err := s.sessions.ResolveSessionStore(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	if store == nil {
-		return nil, errors.New("session store resolver is required")
+		return nil, errSessionStoreResolverRequired
 	}
 	return s.dormant.snapshot(store), nil
 }
@@ -225,7 +225,7 @@ func (s liveRuntimeSessionSnapshot) Run(ctx context.Context, runID string) (*cli
 		return nil, err
 	}
 	if store == nil {
-		return nil, errors.New("session store resolver is required")
+		return nil, errSessionStoreResolverRequired
 	}
 	return runViewFromStore(store, want)
 }

@@ -1,9 +1,9 @@
 package shell
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -12,7 +12,7 @@ func TestReadOutputFileLimitedRejectsOversizedLog(t *testing.T) {
 	if err := os.WriteFile(path, []byte("abcdef"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if _, err := readOutputFileLimited(path, 5); err == nil || !strings.Contains(err.Error(), "exceeds full-read limit") {
+	if _, err := readOutputFileLimited(path, 5); err == nil || !errors.Is(err, ErrOutputLogExceedsFullReadLimit) {
 		t.Fatalf("expected full-read limit error, got %v", err)
 	}
 }

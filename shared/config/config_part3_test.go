@@ -1,8 +1,8 @@
 package config
 
 import (
+	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -373,7 +373,7 @@ func TestLoadRejectsRemovedUseNativeCompactionSetting(t *testing.T) {
 func TestLoadRejectsUnrelatedUnknownSettingKeys(t *testing.T) {
 	if err := loadConfigTestFileError(t, "model = \"gpt-5\"\nfoo = 1\n", LoadOptions{}); err == nil {
 		t.Fatal("expected unknown settings key error")
-	} else if !strings.Contains(err.Error(), "foo") {
+	} else if !unknownSettingsKeyReported(err, "foo") {
 		t.Fatalf("expected unknown key name in error, got %v", err)
 	}
 }
@@ -407,7 +407,7 @@ func TestLoadRejectsCompactionThresholdNotBelowContextWindow(t *testing.T) {
 func TestLoadRejectsCompactionThresholdBelowHalfWindow(t *testing.T) {
 	if err := loadConfigTestFileError(t, "model_context_window = 300000\ncontext_compaction_threshold_tokens = 149999\n", LoadOptions{}); err == nil {
 		t.Fatal("expected threshold minimum-window-percent validation error")
-	} else if !strings.Contains(err.Error(), "context_compaction_threshold_tokens must be >= 150000") {
+	} else if !errors.Is(err, errCompactionThresholdBelowMinimum) {
 		t.Fatalf("expected threshold minimum-window-percent validation detail, got %v", err)
 	}
 }
@@ -415,7 +415,7 @@ func TestLoadRejectsCompactionThresholdBelowHalfWindow(t *testing.T) {
 func TestLoadRejectsPreSubmitLeadBandBelowHalfWindow(t *testing.T) {
 	if err := loadConfigTestFileError(t, "model_context_window = 300000\ncontext_compaction_threshold_tokens = 200000\npre_submit_compaction_lead_tokens = 100000\n", LoadOptions{}); err == nil {
 		t.Fatal("expected pre-submit effective threshold validation error")
-	} else if !strings.Contains(err.Error(), "effective pre-submit threshold 100000, below 150000") {
+	} else if !errors.Is(err, errPreSubmitThresholdBelowMinimum) {
 		t.Fatalf("expected pre-submit effective threshold validation detail, got %v", err)
 	}
 }

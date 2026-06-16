@@ -27,6 +27,11 @@ import (
 	patchtool "core/server/tools/patch"
 )
 
+// ErrResolveWorkspaceRealPath is returned when the workspace root cannot be
+// resolved to its real (symlink-evaluated) path. Callers and tests match this
+// with errors.Is rather than comparing rendered message text.
+var ErrResolveWorkspaceRealPath = errors.New("resolve workspace real path")
+
 const maxFileSizeBytes int64 = 800 << 10
 const maxOriginalRasterSizeBytes int64 = 10 << 20
 const minOptimizationSizeBytes int64 = 100 << 10
@@ -101,9 +106,9 @@ func New(workspaceRoot string, supported bool, opts ...Option) (*Tool, error) {
 	rootReal, err := filepath.EvalSymlinks(rootAbs)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, tools.WrapMissingWorkspaceRootError(rootAbs, fmt.Errorf("resolve workspace real path: %w", err))
+			return nil, tools.WrapMissingWorkspaceRootError(rootAbs, fmt.Errorf("%w: %w", ErrResolveWorkspaceRealPath, err))
 		}
-		return nil, fmt.Errorf("resolve workspace real path: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrResolveWorkspaceRealPath, err)
 	}
 	rootInfo, err := os.Stat(rootReal)
 	if err != nil {

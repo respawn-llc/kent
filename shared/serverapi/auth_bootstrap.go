@@ -8,6 +8,11 @@ import (
 
 var ErrServerAuthRequired = errors.New("server auth is not configured")
 
+// ErrAuthBootstrapOAuthStateRequired is returned by
+// AuthCompleteBootstrapRequest.Validate when a browser-callback bootstrap
+// request omits the oauth_state binding the callback to the issued flow.
+var ErrAuthBootstrapOAuthStateRequired = errors.New("oauth_state is required")
+
 type AuthBootstrapMode string
 
 const (
@@ -69,7 +74,7 @@ func (r AuthCompleteBootstrapRequest) Validate() error {
 			return errors.New("redirect_uri is required")
 		}
 		if strings.TrimSpace(r.OAuthState) == "" {
-			return errors.New("oauth_state is required")
+			return ErrAuthBootstrapOAuthStateRequired
 		}
 		if strings.TrimSpace(r.OAuthCodeVerifier) == "" {
 			return errors.New("oauth_code_verifier is required")

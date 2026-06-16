@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ func TestValidateWebSearchInputRejectsWhitespaceQuery(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected whitespace-only query to be rejected")
 	}
-	if err.Error() != InvalidWebSearchQueryMessage {
+	if !errors.Is(err, ErrInvalidWebSearchQuery) {
 		t.Fatalf("unexpected validation error: %v", err)
 	}
 }

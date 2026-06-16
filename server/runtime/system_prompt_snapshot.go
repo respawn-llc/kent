@@ -197,6 +197,9 @@ func (e *Engine) lockedReviewerPromptSnapshot() (string, bool) {
 	return e.lockedContractState().ReviewerPromptSnapshot()
 }
 
+// errReadReviewerSystemPromptFile wraps failures to read the configured reviewer.system_prompt_file.
+var errReadReviewerSystemPromptFile = errors.New("read reviewer.system_prompt_file")
+
 func (e *Engine) buildReviewerPromptSnapshot() (string, error) {
 	path := strings.TrimSpace(e.cfg.Reviewer.SystemPromptFile)
 	if path == "" {
@@ -208,7 +211,7 @@ func (e *Engine) buildReviewerPromptSnapshot() (string, error) {
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		return "", fmt.Errorf("read reviewer.system_prompt_file %q: %w", resolved, err)
+		return "", fmt.Errorf("%w %q: %w", errReadReviewerSystemPromptFile, resolved, err)
 	}
 	return strings.TrimSpace(string(data)), nil
 }

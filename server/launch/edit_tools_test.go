@@ -1,7 +1,7 @@
 package launch
 
 import (
-	"strings"
+	"errors"
 	"testing"
 
 	"core/server/auth"
@@ -44,7 +44,7 @@ func TestActiveToolIDsRejectsEffectivePatchAndEdit(t *testing.T) {
 	source.Sources["tools.edit"] = "file"
 
 	_, err := ActiveToolIDsForPlan(settings, source, nil)
-	if err == nil || !strings.Contains(err.Error(), "tools.patch and tools.edit cannot both be enabled") {
+	if err == nil || !errors.Is(err, ErrPatchEditToolsConflict) {
 		t.Fatalf("error = %v, want mutual exclusion failure", err)
 	}
 }

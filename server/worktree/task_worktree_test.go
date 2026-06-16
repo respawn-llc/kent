@@ -120,7 +120,9 @@ func TestEnsureTaskWorktreeHandlesRootCollisionAndReportsBranchCollision(t *test
 
 	otherTask, _ := createTaskWorktreeTestTask(t, env)
 	runGit(t, env.workspaceRoot, "branch", otherTask.ShortID)
-	if _, err := env.service.EnsureTaskWorktree(env.ctx, EnsureTaskWorktreeRequest{TaskID: string(otherTask.ID)}); err == nil || !strings.Contains(err.Error(), otherTask.ShortID) {
+	_, err = env.service.EnsureTaskWorktree(env.ctx, EnsureTaskWorktreeRequest{TaskID: string(otherTask.ID)})
+	var branchCollision *TaskBranchCollisionError
+	if !errors.As(err, &branchCollision) || branchCollision.BranchName != otherTask.ShortID {
 		t.Fatalf("EnsureTaskWorktree branch collision error = %v, want task branch collision", err)
 	}
 }

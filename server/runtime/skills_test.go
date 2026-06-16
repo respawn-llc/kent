@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -226,11 +227,8 @@ func TestSkillsContextMessageFailsOnUnreadableSkillsDirectory(t *testing.T) {
 	})
 
 	_, _, err := skillsContextMessageWithDisabled(workspace, nil)
-	if err == nil {
-		t.Fatal("expected unreadable skills directory to fail discovery")
-	}
-	if !strings.Contains(err.Error(), "read skills directory") {
-		t.Fatalf("expected read skills directory error, got %v", err)
+	if !errors.Is(err, errReadSkillsDirectory) {
+		t.Fatalf("expected errReadSkillsDirectory, got %v", err)
 	}
 }
 

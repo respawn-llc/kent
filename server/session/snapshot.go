@@ -41,7 +41,7 @@ func ReadMetaFromDir(sessionDir string) (Meta, error) {
 func readMetaFile(path string) (Meta, error) {
 	data, err := readRegularSessionFile(path, "session meta")
 	if err != nil {
-		return Meta{}, fmt.Errorf("read session meta: %w", err)
+		return Meta{}, fmt.Errorf("%w: %w", ErrReadSessionMeta, err)
 	}
 	var meta Meta
 	if err := json.Unmarshal(data, &meta); err != nil {

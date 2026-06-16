@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,11 @@ import (
 	"core/server/tools/shell/postprocess"
 	"core/shared/toolspec"
 )
+
+// ErrOutputLogExceedsFullReadLimit is returned when a captured output log is
+// larger than the permitted full-read byte limit. Callers and tests match this
+// with errors.Is rather than comparing rendered message text.
+var ErrOutputLogExceedsFullReadLimit = errors.New("output log exceeds full-read limit")
 
 func (m *Manager) applyPostprocessing(ctx context.Context, entry *processEntry, output string, exitCode *int, backgrounded bool, maxOutputChars int) (postprocess.Result, error) {
 	if m == nil || m.postprocessor == nil {
@@ -47,7 +53,7 @@ func readOutputFileLimited(path string, maxBytes int64) (string, error) {
 		return "", err
 	}
 	if maxBytes > 0 && int64(len(data)) > maxBytes {
-		return "", fmt.Errorf("output log exceeds full-read limit %d", maxBytes)
+		return "", fmt.Errorf("%w %d", ErrOutputLogExceedsFullReadLimit, maxBytes)
 	}
 	return string(data), nil
 }

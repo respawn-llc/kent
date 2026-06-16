@@ -3,12 +3,16 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"core/server/llm"
 )
 
 const legacyHistoryReplacementEngineReviewerRollback = "reviewer_rollback"
+
+// errDecodeHistoryReplacedEvent wraps failures to decode a persisted history_replaced event payload.
+var errDecodeHistoryReplacedEvent = errors.New("decode history_replaced event")
 
 type historyReplacementEnvelope struct {
 	Engine        string          `json:"engine"`

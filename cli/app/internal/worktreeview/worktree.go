@@ -1,6 +1,7 @@
 package worktreeview
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,11 @@ import (
 
 	"core/shared/serverapi"
 )
+
+// ErrMainWorkspaceNotDeletable is returned when deletion targets the current
+// main workspace. Callers and tests match this with errors.Is rather than
+// comparing rendered message text.
+var ErrMainWorkspaceNotDeletable = errors.New("main workspace is not deletable")
 
 func DisplayName(item serverapi.WorktreeView) string {
 	if trimmed := strings.TrimSpace(item.DisplayName); trimmed != "" {
@@ -70,7 +76,7 @@ func ResolveDeletionTarget(entries []serverapi.WorktreeView, token string) (serv
 	for _, item := range entries {
 		if item.IsCurrent {
 			if item.IsMain {
-				return serverapi.WorktreeView{}, fmt.Errorf("main workspace is not deletable; choose another worktree")
+				return serverapi.WorktreeView{}, fmt.Errorf("%w; choose another worktree", ErrMainWorkspaceNotDeletable)
 			}
 			return item, nil
 		}

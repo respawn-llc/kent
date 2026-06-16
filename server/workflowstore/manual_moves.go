@@ -76,13 +76,13 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 	}
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
 	if contextSource.Kind == workflow.ContextSourceSelectedNode {
-		return ManualMoveResult{}, errors.New("manual move with selected context source is not supported")
+		return ManualMoveResult{}, ErrManualMoveSelectedContextSource
 	}
 	if contextSource.Kind == workflow.ContextSourcePreviousTarget {
-		return ManualMoveResult{}, errors.New("manual move with previous target context source is not supported")
+		return ManualMoveResult{}, ErrManualMovePreviousTargetContext
 	}
 	if edge.ContextMode == workflow.ContextModeContinueSession && strings.TrimSpace(sourceSessionID) == "" {
-		return ManualMoveResult{}, errors.New("continue_session requires source session for manual move")
+		return ManualMoveResult{}, ErrManualMoveContinueSessionNeedsSource
 	}
 	groupSnapshot := transitionContractSnapshot{
 		ID:           group.ID,
@@ -101,7 +101,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 		edgeState = "pending"
 	}
 	if transitionState == "pending_approval" && sourceRunID == "" && !req.AllowMissingEdge {
-		return ManualMoveResult{}, errors.New("manual move requiring approval needs a source run")
+		return ManualMoveResult{}, ErrManualMoveApprovalNeedsSourceRun
 	}
 	outputValuesJSON, err := workflowjson.MarshalString(outputValues)
 	if err != nil {
@@ -340,7 +340,7 @@ ORDER BY created_at_unix_ms DESC, rowid DESC`, string(taskID))
 			return "", "", err
 		}
 		if placement.batchID.Valid && strings.TrimSpace(placement.batchID.String) != "" {
-			return "", "", errors.New("manual move during active parallel batch is not supported")
+			return "", "", ErrManualMoveDuringParallelBatch
 		}
 		placements = append(placements, placement)
 	}

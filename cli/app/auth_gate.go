@@ -20,6 +20,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// errEnvAPIKeyUnavailable is returned when the env-API-key auth method is
+// chosen but OPENAI_API_KEY is not present in the environment.
+var errEnvAPIKeyUnavailable = errors.New("OPENAI_API_KEY is not available")
+
+// errUnknownAuthMethod is returned when an unrecognized auth-method choice is
+// produced by the method picker. The offending choice is attached via %w.
+var errUnknownAuthMethod = errors.New("unknown auth method")
+
 type authInteraction = authflowadapter.InteractionRequest
 
 type authInteractor interface {
@@ -135,7 +143,7 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 			return authflowadapter.InteractionOutcome{ProceedWithoutAuth: true}, nil
 		case authMethodChoiceEnvAPIKey:
 			if !req.HasEnvAPIKey {
-				return authflowadapter.InteractionOutcome{}, errors.New("OPENAI_API_KEY is not available")
+				return authflowadapter.InteractionOutcome{}, errEnvAPIKeyUnavailable
 			}
 			_, err = req.Manager.SetEnvAPIKeyPreference(ctx, authflowadapter.EnvAPIKeyPreferencePreferEnv, true)
 			if err != nil {
@@ -152,7 +160,7 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 		case authMethodChoiceDevice:
 			method, err = i.authOAuthRunner(req.Theme).Device(ctx, req.OAuthOptions)
 		default:
-			return authflowadapter.InteractionOutcome{}, fmt.Errorf("unknown auth method %q", choice)
+			return authflowadapter.InteractionOutcome{}, fmt.Errorf("%w %q", errUnknownAuthMethod, choice)
 		}
 		if err != nil {
 			req.FlowErr = err
@@ -197,7 +205,7 @@ func (i *interactiveAuthInteractor) resolveEnvAPIKeyConflict(ctx context.Context
 		return err
 	}
 	if picked.Canceled {
-		return errors.New("auth canceled by user")
+		return ErrAuthCanceledByUser
 	}
 	preference := authflowadapter.EnvAPIKeyPreferencePreferSaved
 	if picked.Choice == authConflictChoiceEnvAPIKey {

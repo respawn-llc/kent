@@ -38,6 +38,15 @@ const (
 
 var errRemoteCompactionMissingCheckpoint = errors.New("remote compaction output missing checkpoint item")
 
+var (
+	// errHandoffDisabledByUser is returned when the user has disabled handoff and the agent requests one.
+	errHandoffDisabledByUser = errors.New(handoffDisabledByUserMessage)
+	// errHandoffTooEarly is returned when the agent requests a handoff before the trigger_handoff tool is enabled.
+	errHandoffTooEarly = errors.New(handoffTooEarlyMessage)
+	// errCompactionDisabledModeNone is returned when manual compaction is requested while compaction_mode=none.
+	errCompactionDisabledModeNone = errors.New("context compaction is disabled (compaction_mode=none)")
+)
+
 type compactionResult struct {
 	engine            string
 	items             []llm.ResponseItem
@@ -85,13 +94,13 @@ func (c *defaultContextCompactor) TriggerHandoff(ctx context.Context, stepID str
 	planningSnapshot := e.compactionPlanningSnapshot()
 	planner := e.compactionPlannerState()
 	if !planningSnapshot.autoCompactionEnabled {
-		return "", false, errors.New(handoffDisabledByUserMessage)
+		return "", false, errHandoffDisabledByUser
 	}
 	if planner.mode(planningSnapshot.compactionMode) == "none" {
 		return "", false, errors.New("User explicitly disabled compaction in configuration.")
 	}
 	if !e.handoffToolEnabled() {
-		return "", false, errors.New(handoffTooEarlyMessage)
+		return "", false, errHandoffTooEarly
 	}
 	e.queueHandoffRequest(summarizerPrompt, futureAgentMessage)
 	summary := "Handoff scheduled to run now."
@@ -509,7 +518,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		if mode == compactionModeAuto {
 			return compactionResult{}, nil
 		}
-		return compactionResult{}, errors.New("context compaction is disabled (compaction_mode=none)")
+		return compactionResult{}, errCompactionDisabledModeNone
 	}
 
 	input := e.snapshotItems()

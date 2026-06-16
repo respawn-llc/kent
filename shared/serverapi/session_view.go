@@ -7,6 +7,9 @@ import (
 	"core/shared/clientui"
 )
 
+// ErrLimitNegative is returned when a request supplies a negative limit.
+var ErrLimitNegative = errors.New("limit must be >= 0")
+
 type SessionMainViewRequest struct {
 	SessionID string
 }
@@ -71,7 +74,7 @@ func (r SessionTranscriptPageRequest) Validate() error {
 		return errors.New("offset must be >= 0")
 	}
 	if r.Limit < 0 {
-		return errors.New("limit must be >= 0")
+		return ErrLimitNegative
 	}
 	if r.Page < 0 {
 		return errors.New("page must be >= 0")
@@ -93,7 +96,7 @@ func (r SessionCommittedTranscriptSuffixRequest) Validate() error {
 		return errors.New("after_entry_count must be >= 0")
 	}
 	if r.Limit < 0 {
-		return errors.New("limit must be >= 0")
+		return ErrLimitNegative
 	}
 	if r.Limit > clientui.MaxCommittedTranscriptSuffixLimit {
 		return errors.New("limit exceeds maximum committed transcript suffix limit")

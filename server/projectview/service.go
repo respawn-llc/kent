@@ -22,6 +22,11 @@ type Service struct {
 	projectID string
 }
 
+// ErrSessionArtifactEscapesRoot is returned when a session artifact path
+// resolves outside its project sessions root. Callers and tests match this with
+// errors.Is rather than comparing rendered message text.
+var ErrSessionArtifactEscapesRoot = errors.New("session artifact path escapes project sessions root")
+
 var projectDeleteLocks = keyedProjectDeleteLocks{locks: map[string]*projectDeleteLock{}}
 
 type keyedProjectDeleteLocks struct {
@@ -405,7 +410,7 @@ func deleteSessionArtifact(persistenceRoot string, projectID string, relpath str
 		return fmt.Errorf("validate session artifact path: %w", err)
 	}
 	if inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("session artifact path %q escapes project sessions root", relpath)
+		return fmt.Errorf("session artifact path %q escapes project sessions root: %w", relpath, ErrSessionArtifactEscapesRoot)
 	}
 	if !remove {
 		return nil

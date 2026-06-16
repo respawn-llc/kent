@@ -2,9 +2,9 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -169,7 +169,7 @@ func TestOpenByIDRejectsResolverRecordWithoutMetadata(t *testing.T) {
 		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{SessionDir: sessionDir}}),
 		WithFilelessMetadataPersistence(),
 	)
-	if err == nil || !strings.Contains(err.Error(), "missing metadata") {
+	if err == nil || !errors.Is(err, errResolverRecordMissingMetadata) {
 		t.Fatalf("expected missing metadata validation error, got %v", err)
 	}
 }
@@ -185,7 +185,7 @@ func TestOpenByIDRejectsResolverRecordWithRelativeSessionDir(t *testing.T) {
 		}}),
 		WithFilelessMetadataPersistence(),
 	)
-	if err == nil || !strings.Contains(err.Error(), "absolute clean path") {
+	if err == nil || !errors.Is(err, errResolverRecordRelativeSessionDir) {
 		t.Fatalf("expected absolute clean path validation error, got %v", err)
 	}
 }
@@ -193,7 +193,7 @@ func TestOpenByIDRejectsResolverRecordWithRelativeSessionDir(t *testing.T) {
 func TestOpenByIDRequiresPersistedSessionResolver(t *testing.T) {
 	root := t.TempDir()
 	_, err := OpenByID(root, "session-1")
-	if err == nil || !strings.Contains(err.Error(), "persisted session resolver is required") {
+	if err == nil || !errors.Is(err, errPersistedSessionResolverRequired) {
 		t.Fatalf("expected resolver-required error, got %v", err)
 	}
 }

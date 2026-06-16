@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/server/metadata"
+	"core/server/requestmemo"
 	askquestion "core/server/tools/askquestion"
 	"core/server/workflow"
 	"core/server/workflowstore"
@@ -150,7 +151,7 @@ func TestServiceCreatesAndUpdatesTaskSourceWorkspaceBeforeStart(t *testing.T) {
 	if startedUpdate.Task.Title != "Started title" || startedUpdate.Task.BodyPreview != "Started details" || startedUpdate.Task.SourceWorkspaceID != binding.WorkspaceID {
 		t.Fatalf("started update = %+v", startedUpdate.Task)
 	}
-	if _, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Too late", SourceWorkspaceID: source.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "source workspace after automation starts") {
+	if _, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Too late", SourceWorkspaceID: source.WorkspaceID}); !errors.Is(err, workflowstore.ErrSourceWorkspaceAfterAutomation) {
 		t.Fatalf("UpdateWorkflowTask source after start error = %v", err)
 	}
 	waitWorkflowProjectActions(t, sub, "task", "created", "updated", "started")
@@ -232,10 +233,10 @@ func TestServiceAnswersTaskQuestionWithoutControllerLease(t *testing.T) {
 		t.Fatalf("AnswerWorkflowTaskQuestion replay: %v", err)
 	}
 	req.FreeformAnswer = "different"
-	if err := service.AnswerWorkflowTaskQuestion(ctx, req); err == nil || !strings.Contains(err.Error(), "reused with different parameters") {
+	if err := service.AnswerWorkflowTaskQuestion(ctx, req); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("AnswerWorkflowTaskQuestion mismatch error = %v", err)
 	}
-	if err := service.AnswerWorkflowTaskQuestion(ctx, serverapi.WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-bad", TaskID: task.Task.ID, AskID: "missing", FreeformAnswer: "nope"}); err == nil || !strings.Contains(err.Error(), "not pending") {
+	if err := service.AnswerWorkflowTaskQuestion(ctx, serverapi.WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-bad", TaskID: task.Task.ID, AskID: "missing", FreeformAnswer: "nope"}); !errors.Is(err, workflowstore.ErrTaskAskNotPending) {
 		t.Fatalf("AnswerWorkflowTaskQuestion missing ask error = %v", err)
 	}
 }
@@ -253,8 +254,13 @@ func TestServiceTaskStartValidatesCurrentGraph(t *testing.T) {
 	if _, err := service.AddWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupAddRequest{WorkflowID: workflowID, GroupID: "group-invalid", SourceNodeID: doneID, TransitionID: "invalid", DisplayName: "Invalid"}); err != nil {
 		t.Fatalf("AddWorkflowTransitionGroup invalid: %v", err)
 	}
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err == nil || !strings.Contains(err.Error(), string(workflow.CodeTerminalHasOutgoingEdge)) {
+	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err == nil {
 		t.Fatalf("expected current graph validation error, got %v", err)
+	} else {
+		var validationErr workflowstore.WorkflowValidationError
+		if !errors.As(err, &validationErr) || !validationErr.HasCode(workflow.CodeTerminalHasOutgoingEdge) {
+			t.Fatalf("expected current graph validation error, got %v", err)
+		}
 	}
 }
 
@@ -290,7 +296,7 @@ func TestServiceAllowsInvalidDefaultBacklogButRejectsUnlinkedWorkflow(t *testing
 	}
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, unlinked.Workflow.ID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err == nil || !strings.Contains(err.Error(), "workflow validation failed") {
+	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); !errors.Is(err, workflowstore.ErrWorkflowValidationFailed) {
 		t.Fatalf("expected invalid default workflow start error, got %v", err)
 	}
 }
@@ -1290,8 +1296,13 @@ func TestServiceWorkflowGraphSaveAllowsEmptyPromptButTaskStartRejects(t *testing
 	}
 
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err == nil || !strings.Contains(err.Error(), string(workflow.CodeTransitionPromptRequired)) {
+	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err == nil {
 		t.Fatalf("StartWorkflowTask empty prompt error = %v, want transition prompt required", err)
+	} else {
+		var validationErr workflowstore.WorkflowValidationError
+		if !errors.As(err, &validationErr) || !validationErr.HasCode(workflow.CodeTransitionPromptRequired) {
+			t.Fatalf("StartWorkflowTask empty prompt error = %v, want transition prompt required", err)
+		}
 	}
 }
 

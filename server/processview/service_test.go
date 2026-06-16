@@ -3,10 +3,12 @@ package processview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"core/server/requestmemo"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/serverapi"
@@ -197,7 +199,7 @@ func TestServiceKillProcessRejectsRequestIDPayloadMismatch(t *testing.T) {
 	if _, err := svc.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "1000"}); err != nil {
 		t.Fatalf("KillProcess first: %v", err)
 	}
-	if _, err := svc.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "2000"}); err == nil || !strings.Contains(err.Error(), "reused with different parameters") {
+	if _, err := svc.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "2000"}); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("KillProcess mismatch error = %v, want reused with different parameters", err)
 	}
 	if source.killCalls != 1 {

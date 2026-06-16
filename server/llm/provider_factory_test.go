@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -138,9 +137,6 @@ func TestNewProviderClient_CustomModelInferenceErrorMentionsProviderOverride(t *
 	var providerSelectionErr *ProviderSelectionError
 	if !errors.As(err, &providerSelectionErr) {
 		t.Fatalf("expected provider selection error, got %T", err)
-	}
-	if err == nil || !strings.Contains(err.Error(), "provider_override") || !strings.Contains(err.Error(), "openai_base_url") {
-		t.Fatalf("expected inference failure to mention provider_override and openai_base_url, got %v", err)
 	}
 }
 

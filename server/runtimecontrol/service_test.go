@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"core/server/llm"
 	"core/server/primaryrun"
+	"core/server/requestmemo"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
@@ -375,15 +375,15 @@ func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
 				Objective:       "agent replacement",
 				Actor:           "agent",
 			})
-			if err == nil ||
-				!strings.Contains(err.Error(), "status: "+string(tt.status)) ||
-				!strings.Contains(err.Error(), "<goal>\nexisting goal\n\n- keep markdown\n</goal>") ||
-				!strings.Contains(err.Error(), "Overwriting an existing goal is not allowed") ||
-				!strings.Contains(err.Error(), "active or paused") {
-				t.Fatalf("agent overwrite error = %v, want denied prompt", err)
+			var denied goalAgentOverwriteDeniedError
+			if !errors.As(err, &denied) {
+				t.Fatalf("agent overwrite error = %v, want goalAgentOverwriteDeniedError", err)
 			}
-			if strings.Contains(err.Error(), "Detected invocation by the agent") {
-				t.Fatalf("agent overwrite used generic agent-denial reason: %v", err)
+			if denied.Objective != "existing goal\n\n- keep markdown" {
+				t.Fatalf("denied objective = %q, want existing goal text", denied.Objective)
+			}
+			if denied.Status != string(tt.status) {
+				t.Fatalf("denied status = %q, want %q", denied.Status, string(tt.status))
 			}
 			if goal := store.Meta().Goal; goal == nil || goal.Objective != "existing goal\n\n- keep markdown" || goal.Status != tt.status {
 				t.Fatalf("goal after rejected overwrite = %+v", goal)
@@ -722,7 +722,7 @@ func TestServiceSubmitUserMessageRejectsClientRequestIDPayloadMismatch(t *testin
 	}
 	second := first
 	second.Text = "different"
-	if _, err := service.SubmitUserMessage(context.Background(), second); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
+	if _, err := service.SubmitUserMessage(context.Background(), second); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("SubmitUserMessage mismatch error = %v, want request id payload mismatch", err)
 	}
 	if client.calls != 1 {
@@ -823,7 +823,7 @@ func TestServiceSubmitUserShellCommandRejectsClientRequestIDPayloadMismatch(t *t
 	}
 	second := first
 	second.Command = "ls"
-	if err := service.SubmitUserShellCommand(context.Background(), second); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
+	if err := service.SubmitUserShellCommand(context.Background(), second); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("SubmitUserShellCommand mismatch error = %v, want request id payload mismatch", err)
 	}
 	if got := countDirectShellCommandMessages(t, store, "pwd"); got != 1 {
@@ -898,7 +898,7 @@ func TestServiceQueueUserMessageRejectsClientRequestIDPayloadMismatch(t *testing
 	}
 	second := first
 	second.Text = "different"
-	if _, err := service.QueueUserMessage(context.Background(), second); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
+	if _, err := service.QueueUserMessage(context.Background(), second); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("QueueUserMessage mismatch error = %v, want request id payload mismatch", err)
 	}
 	if _, err := engine.SubmitQueuedUserMessages(context.Background()); err != nil {

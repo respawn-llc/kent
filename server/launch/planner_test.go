@@ -119,7 +119,7 @@ func TestPlannerInteractiveRequiresExplicitOpenOrCreateIntent(t *testing.T) {
 	}
 
 	_, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive})
-	if err == nil || err.Error() != "selected_session_id or force_new_session is required" {
+	if err == nil || !errors.Is(err, errSessionSelectionRequired) {
 		t.Fatalf("PlanSession error = %v, want explicit intent required", err)
 	}
 }
@@ -1136,7 +1136,7 @@ func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid agent role to fail")
 	}
-	if !strings.Contains(err.Error(), "invalid agent role") {
+	if !errors.Is(err, errInvalidAgentRole) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

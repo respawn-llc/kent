@@ -25,6 +25,9 @@ type Logger interface {
 	Logf(format string, args ...any)
 }
 
+// errWorkspaceRootRequired is returned when a local tool registry binding is created or rebound without a workspace root.
+var errWorkspaceRootRequired = errors.New("workspace root is required")
+
 type LocalToolRuntimeContext struct {
 	WorkspaceRoot                   string
 	OwnerSessionID                  string
@@ -130,7 +133,7 @@ func (b *LocalToolRegistryBinding) Rebind(workspaceRoot string) error {
 	}
 	trimmedRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedRoot == "" {
-		return fmt.Errorf("workspace root is required")
+		return errWorkspaceRootRequired
 	}
 	b.ctx.WorkspaceRoot = trimmedRoot
 	return b.rebuild()
@@ -172,7 +175,7 @@ func (b *LocalToolRegistryBinding) rebuild() error {
 func NewLocalToolRegistryBinding(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger Logger, background *shelltool.Manager, triggerHandoffController func() triggerhandofftool.Controller, questionsEnabledGetter func() bool) (*LocalToolRegistryBinding, *askquestion.Broker, *shelltool.Manager, error) {
 	trimmedRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedRoot == "" {
-		return nil, nil, nil, fmt.Errorf("workspace root is required")
+		return nil, nil, nil, errWorkspaceRootRequired
 	}
 	broker := askquestion.NewBroker()
 	if background == nil {

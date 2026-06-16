@@ -2,8 +2,8 @@ package sessionview
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"core/server/llm"
@@ -89,7 +89,7 @@ func TestGetSessionCommittedTranscriptSuffixRejectsInvalidLimit(t *testing.T) {
 		AfterEntryCount: 0,
 		Limit:           -1,
 	})
-	if err == nil || !strings.Contains(err.Error(), "limit must be >= 0") {
+	if !errors.Is(err, serverapi.ErrLimitNegative) {
 		t.Fatalf("expected invalid limit error, got %v", err)
 	}
 }

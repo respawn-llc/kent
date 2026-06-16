@@ -247,7 +247,7 @@ func prepareWorkflowGraphSaveMetadata(currentName string, currentDescription str
 	}
 	prepared := WorkflowGraphSaveMetadata{Name: strings.TrimSpace(metadata.Name), Description: strings.TrimSpace(metadata.Description)}
 	if prepared.Name == "" {
-		return nil, false, errors.New("workflow name is required")
+		return nil, false, ErrWorkflowNameRequired
 	}
 	changed := prepared.Name != currentName || prepared.Description != currentDescription
 	return &prepared, changed, nil
@@ -275,7 +275,7 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, errors.New("workflow node group key is required")
 		}
 		if group.WorkflowID != workflowID {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("workflow node group %q belongs to workflow %q", group.ID, group.WorkflowID)
+			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("workflow node group %q belongs to workflow %q: %w", group.ID, group.WorkflowID, ErrBelongsToOtherWorkflow)
 		}
 		group.DisplayName = strings.TrimSpace(group.DisplayName)
 		if group.SortOrder == 0 {

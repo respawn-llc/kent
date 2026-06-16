@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -63,7 +64,7 @@ func TestLoadWorkflowConfigValidation(t *testing.T) {
 		"max_invalid_completion_attempts": "[workflow]\nmax_invalid_completion_attempts = 0\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := loadConfigTestFileError(t, payload, LoadOptions{}); err == nil || !strings.Contains(err.Error(), "workflow.") {
+			if err := loadConfigTestFileError(t, payload, LoadOptions{}); !errors.Is(err, errInvalidWorkflowSettings) {
 				t.Fatalf("Load error = %v, want workflow validation error", err)
 			}
 		})
@@ -71,7 +72,7 @@ func TestLoadWorkflowConfigValidation(t *testing.T) {
 }
 
 func TestLoadSubagentRoleWorkflowConfigValidation(t *testing.T) {
-	if err := loadConfigTestFileError(t, "[subagents.fast.workflow]\nconcurrency = 0\n", LoadOptions{}); err == nil || !strings.Contains(err.Error(), "workflow.concurrency") {
+	if err := loadConfigTestFileError(t, "[subagents.fast.workflow]\nconcurrency = 0\n", LoadOptions{}); !errors.Is(err, errWorkflowConcurrency) {
 		t.Fatalf("Load error = %v, want subagent workflow validation error", err)
 	}
 }

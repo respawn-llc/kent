@@ -15,10 +15,7 @@ func TestPromptServiceRejectsEmptyPrompt(t *testing.T) {
 	service := NewPromptService(&stubHeadlessPromptLauncher{})
 
 	_, err := service.RunPrompt(context.Background(), serverapi.RunPromptRequest{ClientRequestID: "req-1", Prompt: " \n\t "}, nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "prompt is required") {
+	if !errors.Is(err, ErrPromptRequired) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -27,10 +24,7 @@ func TestPromptServiceRejectsMissingClientRequestID(t *testing.T) {
 	service := NewPromptService(&stubHeadlessPromptLauncher{})
 
 	_, err := service.RunPrompt(context.Background(), serverapi.RunPromptRequest{Prompt: "hello"}, nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "client_request_id is required") {
+	if !errors.Is(err, ErrClientRequestIDRequired) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

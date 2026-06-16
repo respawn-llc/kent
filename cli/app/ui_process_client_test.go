@@ -267,11 +267,12 @@ func TestUIProcessClientDoesNotBypassSharedControlBoundaryOnError(t *testing.T) 
 		t.Fatal("expected background process")
 	}
 
-	processClient := newUIProcessClientWithReads(nil, client.NewLoopbackProcessControlClient(&stubProcessControlService{err: errors.New("boom")}))
-	if _, _, err := processClient.InlineOutput(context.Background(), res.SessionID, 12_000); err == nil || err.Error() != "boom" {
+	controlErr := errors.New("shared control boundary failure")
+	processClient := newUIProcessClientWithReads(nil, client.NewLoopbackProcessControlClient(&stubProcessControlService{err: controlErr}))
+	if _, _, err := processClient.InlineOutput(context.Background(), res.SessionID, 12_000); !errors.Is(err, controlErr) {
 		t.Fatalf("expected shared control error from InlineOutput, got %v", err)
 	}
-	if err := processClient.KillProcess(context.Background(), res.SessionID); err == nil || err.Error() != "boom" {
+	if err := processClient.KillProcess(context.Background(), res.SessionID); !errors.Is(err, controlErr) {
 		t.Fatalf("expected shared control error from KillProcess, got %v", err)
 	}
 	for _, entry := range manager.List() {

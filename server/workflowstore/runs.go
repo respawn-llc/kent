@@ -102,7 +102,7 @@ func (s *Store) InterruptTaskRun(ctx context.Context, taskID workflow.TaskID, ru
 		return RunRecord{}, errors.New("task has no active workflow run to interrupt")
 	}
 	if trimmedRunID == "" && len(candidates) != 1 {
-		return RunRecord{}, errors.New("task has multiple active workflow runs; run_id is required")
+		return RunRecord{}, fmt.Errorf("task has multiple active workflow runs; %w", ErrRunIDRequired)
 	}
 	selected := candidates[0]
 	interruptReason := strings.TrimSpace(reason)
@@ -149,7 +149,7 @@ func (s *Store) ResumeTaskRunByID(ctx context.Context, taskID workflow.TaskID, r
 		return RunRecord{}, err
 	}
 	if task.CanceledAtUnixMs != 0 {
-		return RunRecord{}, errors.New("task is canceled")
+		return RunRecord{}, ErrTaskCanceled
 	}
 	trimmedRunID := strings.TrimSpace(string(runID))
 	rows, err := s.db.QueryContext(ctx, strings.TrimSuffix(resumeTaskRunCandidatesQuery, "\n"), string(taskID), trimmedRunID, trimmedRunID)
@@ -176,7 +176,7 @@ func (s *Store) ResumeTaskRunByID(ctx context.Context, taskID workflow.TaskID, r
 		return RunRecord{}, errors.New("task has no interrupted workflow run to resume")
 	}
 	if trimmedRunID == "" && len(candidates) != 1 {
-		return RunRecord{}, errors.New("task has multiple interrupted workflow runs; run_id is required")
+		return RunRecord{}, fmt.Errorf("task has multiple interrupted workflow runs; %w", ErrRunIDRequired)
 	}
 	snapshot := runStartSnapshot{}
 	if err := workflowjson.UnmarshalString(candidates[0].snapshotJSON, &snapshot); err != nil {
@@ -207,13 +207,13 @@ func (s *Store) ResumeTaskRunByID(ctx context.Context, taskID workflow.TaskID, r
 func (s *Store) validateRunnableRole(role string) error {
 	trimmed := strings.TrimSpace(role)
 	if trimmed == "" {
-		return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleRequired)
+		return WorkflowValidationError{Codes: []workflow.ValidationErrorCode{workflow.CodeAgentRoleRequired}}
 	}
 	if workflow.IsDefaultAgentRole(trimmed) {
 		return nil
 	}
 	if s.roleResolver != nil && !s.roleResolver.RoleExists(trimmed) {
-		return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleMissing)
+		return WorkflowValidationError{Codes: []workflow.ValidationErrorCode{workflow.CodeAgentRoleMissing}}
 	}
 	return nil
 }
@@ -555,10 +555,10 @@ func (s *Store) ResolveTaskWaitingAsk(ctx context.Context, taskID workflow.TaskI
 		return RunRecord{}, err
 	}
 	if len(matches) == 0 {
-		return RunRecord{}, errors.New("task ask is not pending")
+		return RunRecord{}, ErrTaskAskNotPending
 	}
 	if trimmedRunID == "" && len(matches) != 1 {
-		return RunRecord{}, errors.New("task has multiple matching pending asks; run_id is required")
+		return RunRecord{}, fmt.Errorf("task has multiple matching pending asks; %w", ErrRunIDRequired)
 	}
 	return matches[0], nil
 }

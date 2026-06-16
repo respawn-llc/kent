@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,11 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 )
+
+// ErrViewImageOutputNotMaterialized is returned when a view_image input_file
+// tool output reaches request serialization without first being materialized as
+// provider raw input items. Callers match it via errors.Is.
+var ErrViewImageOutputNotMaterialized = errors.New("view_image input_file outputs must be materialized as provider raw input items before request serialization")
 
 func buildResponsesInput(canonical []ResponseItem) ([]responses.ResponseInputItemUnionParam, error) {
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(canonical))
@@ -561,7 +567,7 @@ func functionCallOutputInputItemFromPreparedOutput(callID string, toolName strin
 	if contentItems, ok := functionCallOutputContentItemsFromRaw(raw); ok {
 		if strings.TrimSpace(toolName) == string(toolspec.ToolViewImage) {
 			if _, promoted := promoteFunctionOutputFilesToInputMessage(contentItems); promoted {
-				return responses.ResponseInputItemUnionParam{}, fmt.Errorf("view_image input_file outputs must be materialized as provider raw input items before request serialization")
+				return responses.ResponseInputItemUnionParam{}, ErrViewImageOutputNotMaterialized
 			}
 		}
 		return responses.ResponseInputItemParamOfFunctionCallOutput(callID, contentItems), nil

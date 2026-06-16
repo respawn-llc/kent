@@ -34,6 +34,18 @@ type ToolRequest struct {
 	RecommendedOptionIndex int      `json:"recommended_option_index,omitempty"`
 }
 
+// Validation sentinels for request/response shape errors. Tests match these
+// via errors.Is rather than asserting message wording.
+var (
+	ErrApprovalRequiresOptions       = errors.New("approval questions require approval_options")
+	ErrApprovalForbidsSuggestions    = errors.New("approval questions must not set suggestions")
+	ErrApprovalForbidsRecommended    = errors.New("approval questions must not set recommended_option_index")
+	ErrApprovalRequiresResponse      = errors.New("approval questions require approval responses")
+	ErrNonApprovalForbidsApproval    = errors.New("non-approval questions must not return approval payloads")
+	ErrNonApprovalRequiresAnswer     = errors.New("non-approval questions require an answer")
+	ErrSelectedOptionRequiresSuggest = errors.New("selected option numbers require suggestions")
+)
+
 type ApprovalDecision string
 
 const (
@@ -199,17 +211,17 @@ func (b *Broker) deliverPendingResponseLocked(p *pending, rr responseResult) err
 func validateRequest(req Request) error {
 	if req.Approval {
 		if req.RecommendedOptionIndex != 0 {
-			return errors.New("approval questions must not set recommended_option_index")
+			return ErrApprovalForbidsRecommended
 		}
 		if len(req.Suggestions) > 0 {
-			return errors.New("approval questions must not set suggestions")
+			return ErrApprovalForbidsSuggestions
 		}
 	}
 	if !req.Approval {
 		return nil
 	}
 	if len(req.ApprovalOptions) == 0 {
-		return errors.New("approval questions require approval_options")
+		return ErrApprovalRequiresOptions
 	}
 	seen := make(map[ApprovalDecision]struct{}, len(req.ApprovalOptions))
 	for _, option := range req.ApprovalOptions {
@@ -258,11 +270,11 @@ func normalizedRecommendedOptionIndex(index int, suggestionCount int) int {
 func validateResponse(req Request, resp Response) error {
 	if !req.Approval {
 		if resp.Approval != nil {
-			return errors.New("non-approval questions must not return approval payloads")
+			return ErrNonApprovalForbidsApproval
 		}
 		if resp.SelectedOptionNumber > 0 {
 			if len(req.Suggestions) == 0 {
-				return errors.New("selected option numbers require suggestions")
+				return ErrSelectedOptionRequiresSuggest
 			}
 			if resp.SelectedOptionNumber > len(req.Suggestions) {
 				return fmt.Errorf("selected option number %d is out of range", resp.SelectedOptionNumber)
@@ -270,12 +282,12 @@ func validateResponse(req Request, resp Response) error {
 			return nil
 		}
 		if normalizedFreeformAnswer(resp) == "" {
-			return errors.New("non-approval questions require an answer")
+			return ErrNonApprovalRequiresAnswer
 		}
 		return nil
 	}
 	if resp.Approval == nil {
-		return errors.New("approval questions require approval responses")
+		return ErrApprovalRequiresResponse
 	}
 	return validateApprovalDecision(resp.Approval.Decision)
 }
@@ -293,7 +305,7 @@ func buildToolOutputSummary(resp Response) (string, error) {
 		return selectedOptionToolOutputSummary(resp.SelectedOptionNumber, freeform), nil
 	}
 	if freeform == "" {
-		return "", errors.New("non-approval questions require an answer")
+		return "", ErrNonApprovalRequiresAnswer
 	}
 	return "User answered: " + freeform, nil
 }

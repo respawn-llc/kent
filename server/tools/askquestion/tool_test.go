@@ -115,7 +115,7 @@ func TestApprovalAskRequiresApprovalOptions(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "approval questions require approval_options" {
+	if !errors.Is(err, ErrApprovalRequiresOptions) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestApprovalAskRejectsSuggestions(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "approval questions must not set suggestions" {
+	if !errors.Is(err, ErrApprovalForbidsSuggestions) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -267,7 +267,7 @@ func TestFreeformAskRejectsEmptyResponse(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "non-approval questions require an answer" {
+	if !errors.Is(err, ErrNonApprovalRequiresAnswer) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -306,7 +306,7 @@ func TestSubmitRejectsPlainStringResponseForApprovalAsk(t *testing.T) {
 
 	if err := b.Submit("approval", Response{Answer: "allow once"}); err == nil {
 		t.Fatal("expected submit error for plain-string approval response")
-	} else if err.Error() != "approval questions require approval responses" {
+	} else if !errors.Is(err, ErrApprovalRequiresResponse) {
 		t.Fatalf("unexpected submit error: %v", err)
 	}
 
@@ -347,7 +347,7 @@ func TestAskHandlerRejectsPlainStringResponseForApprovalAsk(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "approval questions require approval responses" {
+	if !errors.Is(err, ErrApprovalRequiresResponse) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -821,7 +821,7 @@ func TestBuildToolOutputSummaryRejectsEmptyNonApprovalResponse(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "non-approval questions require an answer" {
+	if !errors.Is(err, ErrNonApprovalRequiresAnswer) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

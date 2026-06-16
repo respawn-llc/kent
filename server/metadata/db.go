@@ -35,7 +35,7 @@ func openDatabaseAtPath(persistenceRoot string, databasePath string) (*sql.DB, e
 		return nil, fmt.Errorf("validate metadata db path: %w", err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("metadata db path %q escapes persistence root %q", trimmedDatabasePath, trimmedRoot)
+		return nil, fmt.Errorf("metadata db path %q escapes persistence root %q: %w", trimmedDatabasePath, trimmedRoot, ErrPathEscapesPersistenceRoot)
 	}
 	if err := os.MkdirAll(filepath.Dir(trimmedDatabasePath), 0o755); err != nil {
 		return nil, fmt.Errorf("create metadata db dir: %w", err)

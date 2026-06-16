@@ -209,7 +209,7 @@ func TestServicePlanSessionPropagatesOverrideToolConflict(t *testing.T) {
 		ForceNewSession: true,
 		Overrides:       serverapi.RunPromptOverrides{Tools: "patch,edit"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "tools.patch and tools.edit cannot both be enabled") {
+	if err == nil || !errors.Is(err, launch.ErrPatchEditToolsConflict) {
 		t.Fatalf("error = %v, want tool conflict", err)
 	}
 }

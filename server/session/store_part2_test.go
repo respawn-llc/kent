@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,7 @@ func TestOpenByIDUsesPersistedSessionResolver(t *testing.T) {
 
 func TestOpenByIDRejectsWithoutPersistedSessionResolver(t *testing.T) {
 	root := t.TempDir()
-	if _, err := OpenByID(root, "missing-session"); err == nil || !strings.Contains(err.Error(), "persisted session resolver is required") {
+	if _, err := OpenByID(root, "missing-session"); err == nil || !errors.Is(err, errPersistedSessionResolverRequired) {
 		t.Fatalf("expected missing resolver error, got %v", err)
 	}
 }
@@ -101,7 +102,7 @@ func TestEventLogOnlySessionDirectoryRemainsUndiscoverable(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("expected event-log-only session to stay invisible in picker, got %+v", items)
 	}
-	if _, err := Open(sessionDir); err == nil || !strings.Contains(err.Error(), "read session meta") {
+	if _, err := Open(sessionDir); err == nil || !errors.Is(err, ErrReadSessionMeta) {
 		t.Fatalf("expected direct open to fail on missing session meta, got %v", err)
 	}
 	if _, err := OpenByID(root, "ghost-session"); err == nil {
@@ -174,7 +175,7 @@ func TestOpenRejectsSymlinkedSessionMetadata(t *testing.T) {
 	}
 	writeSessionFixtureEvents(t, sessionDir, nil)
 
-	if _, err := Open(sessionDir); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := Open(sessionDir); err == nil || !errors.Is(err, ErrSessionFileSymlink) {
 		t.Fatalf("expected open to reject symlinked session meta, got %v", err)
 	}
 }
@@ -201,7 +202,7 @@ func TestOpenRejectsSymlinkedEventsFile(t *testing.T) {
 		t.Fatalf("symlink events file: %v", err)
 	}
 
-	if _, err := Open(sessionDir); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := Open(sessionDir); err == nil || !errors.Is(err, ErrSessionFileSymlink) {
 		t.Fatalf("expected open to reject symlinked events file, got %v", err)
 	}
 }

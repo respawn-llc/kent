@@ -2,6 +2,7 @@ package requestmemo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,11 @@ const (
 	defaultTTL        = 15 * time.Minute
 	defaultMaxEntries = 1024
 )
+
+// ErrClientRequestIDReused is returned when a client_request_id is reused with
+// parameters that differ from the original request. Callers should match it
+// with errors.Is rather than comparing message text.
+var ErrClientRequestIDReused = errors.New("client_request_id was reused with different parameters")
 
 type Memo[Req any, Resp any] struct {
 	mu         sync.Mutex
@@ -49,7 +55,7 @@ func (m *Memo[Req, Resp]) Do(ctx context.Context, requestID string, req Req, sam
 		if existing := m.entries[requestID]; existing != nil {
 			if same != nil && !same(existing.req, req) {
 				m.mu.Unlock()
-				return zero, fmt.Errorf("client_request_id %q was reused with different parameters", requestID)
+				return zero, fmt.Errorf("client_request_id %q: %w", requestID, ErrClientRequestIDReused)
 			}
 			done := existing.done
 			m.mu.Unlock()

@@ -3,11 +3,11 @@ package runprompttarget
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 type testRunPromptClient struct {
@@ -87,7 +87,7 @@ func TestValidateRequiresProjectRegistration(t *testing.T) {
 		Config: config.App{WorkspaceRoot: "/repo"},
 		Target: Target{ProjectID: func() string { return " " }},
 	})
-	if err == nil || !strings.Contains(err.Error(), "/repo") {
+	if err == nil || !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("Validate error = %v, want workspace registration error", err)
 	}
 }

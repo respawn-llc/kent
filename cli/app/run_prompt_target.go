@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +100,14 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 
 const nonCallableSubagentRoleMessage = "User has disallowed calling this agent by other agents like you. Do not try to circumvent this, pick another suitable agent or do the work manually and let the user know your desire to use the subagent at the end of the task"
 
+// errNonCallableSubagentRole and errUnrecognizedSubagentRole classify
+// run-prompt agent-role validation failures. Callers and tests match these with
+// errors.Is rather than comparing rendered message text.
+var (
+	errNonCallableSubagentRole  = errors.New(nonCallableSubagentRoleMessage)
+	errUnrecognizedSubagentRole = errors.New("unrecognized subagent role")
+)
+
 func validateRunPromptAgentRole(settings config.Settings, rawRole string, kentSessionCaller bool, contextAgentRole string) error {
 	roleName := config.NormalizeSubagentSelector(rawRole)
 	if roleName == "" {
@@ -114,10 +123,10 @@ func validateRunPromptAgentRole(settings config.Settings, rawRole string, kentSe
 	}
 	role, exists := settings.Subagents[roleName]
 	if !exists && roleName != config.BuiltInSubagentRoleFast {
-		return errors.New("Unrecognized role " + strconv.Quote(roleName) + ". It may have been removed by the user during the session. Available roles: [" + strings.Join(config.AvailableSubagentRoleNames(settings, kentSessionCaller), ", ") + "]")
+		return fmt.Errorf("%w: %s. It may have been removed by the user during the session. Available roles: [%s]", errUnrecognizedSubagentRole, strconv.Quote(roleName), strings.Join(config.AvailableSubagentRoleNames(settings, kentSessionCaller), ", "))
 	}
 	if kentSessionCaller && !config.SubagentRoleCallable(role) {
-		return errors.New(nonCallableSubagentRoleMessage)
+		return errNonCallableSubagentRole
 	}
 	return nil
 }
@@ -129,10 +138,10 @@ func validateContextAgentRoleCallable(settings config.Settings, rawRole string) 
 	}
 	role, exists := settings.Subagents[roleName]
 	if !exists && roleName != config.BuiltInSubagentRoleFast {
-		return errors.New("Unrecognized role " + strconv.Quote(roleName) + ". It may have been removed by the user during the session. Available roles: [" + strings.Join(config.AvailableSubagentRoleNames(settings, true), ", ") + "]")
+		return fmt.Errorf("%w: %s. It may have been removed by the user during the session. Available roles: [%s]", errUnrecognizedSubagentRole, strconv.Quote(roleName), strings.Join(config.AvailableSubagentRoleNames(settings, true), ", "))
 	}
 	if !config.SubagentRoleCallable(role) {
-		return errors.New(nonCallableSubagentRoleMessage)
+		return errNonCallableSubagentRole
 	}
 	return nil
 }

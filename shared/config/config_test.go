@@ -28,7 +28,7 @@ func TestPreparePersistenceRootRefusesProcessStartRootUnderGoTest(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected process-start persistence root to be refused under go test")
 	}
-	if !strings.Contains(err.Error(), "refusing to use protected persistence root") {
+	if !errors.Is(err, errProtectedPersistenceRoot) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -405,7 +405,7 @@ func TestLoadSubagentRoleRejectsReservedNames(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected reserved role to fail")
 			}
-			if !strings.Contains(err.Error(), "invalid subagents key") {
+			if !errors.Is(err, errInvalidSubagentKey) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
@@ -414,13 +414,21 @@ func TestLoadSubagentRoleRejectsReservedNames(t *testing.T) {
 
 func TestLoadSubagentRoleRejectsInvalidMetadata(t *testing.T) {
 	tests := []struct {
-		name    string
-		body    string
-		wantErr string
+		name  string
+		body  string
+		match func(error) bool
 	}{
-		{name: "description type", body: "[subagents.worker]\ndescription = 123\n", wantErr: "expected string"},
-		{name: "agent callable type", body: "[subagents.worker]\nagent_callable = \"no\"\n", wantErr: "expected boolean"},
-		{name: "description length", body: "[subagents.worker]\ndescription = \"" + strings.Repeat("x", MaxSubagentDescriptionChars+1) + "\"\n", wantErr: "description must be <="},
+		{name: "description type", body: "[subagents.worker]\ndescription = 123\n", match: func(err error) bool {
+			var typeErr *SettingsKeyTypeError
+			return errors.As(err, &typeErr) && typeErr.ExpectedType == "string"
+		}},
+		{name: "agent callable type", body: "[subagents.worker]\nagent_callable = \"no\"\n", match: func(err error) bool {
+			var typeErr *SettingsKeyTypeError
+			return errors.As(err, &typeErr) && typeErr.ExpectedType == "boolean"
+		}},
+		{name: "description length", body: "[subagents.worker]\ndescription = \"" + strings.Repeat("x", MaxSubagentDescriptionChars+1) + "\"\n", match: func(err error) bool {
+			return errors.Is(err, errSubagentDescriptionTooLong)
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -428,8 +436,8 @@ func TestLoadSubagentRoleRejectsInvalidMetadata(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected metadata error")
 			}
-			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			if !tt.match(err) {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
@@ -534,7 +542,7 @@ func TestLoadSubagentRoleRejectsNestedSubagentsTable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected nested subagents table to fail")
 	}
-	if !strings.Contains(err.Error(), "unknown settings key(s): subagents.fast.subagents") {
+	if !unknownSettingsKeyReported(err, "subagents.fast.subagents") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -552,7 +560,7 @@ func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unknown subagent key to fail")
 	}
-	if !strings.Contains(err.Error(), "unknown settings key(s): subagents.fast.unknown_toggle") {
+	if !unknownSettingsKeyReported(err, "subagents.fast.unknown_toggle") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -623,7 +631,7 @@ func TestLoadSubagentRoleRejectsInvalidValues(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid subagent role values to fail")
 	}
-	if !strings.Contains(err.Error(), "invalid subagents.fast") {
+	if !errors.Is(err, errSubagentRole) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -672,7 +680,7 @@ func TestLoadSubagentRoleRejectsPersistenceRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected persistence_root in subagent role to fail")
 	}
-	if !strings.Contains(err.Error(), "persistence_root is not supported in subagent roles") {
+	if !errors.Is(err, errSubagentPersistenceRoot) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -725,7 +733,7 @@ func TestWriteSettingsFileForOnboardingDoesNotOverwriteExistingFile(t *testing.T
 	configPath := filepath.Join(home, brand.ConfigDirName, "config.toml")
 	writeConfigTestFile(t, configPath, "model = \"existing\"\n")
 	_, err := WriteSettingsFileForOnboarding(configRegistry.defaultState().Settings)
-	if err == nil || !strings.Contains(err.Error(), "already exists") {
+	if !errors.Is(err, errSettingsFileAlreadyExists) {
 		t.Fatalf("expected existing settings file error, got %v", err)
 	}
 	contents, err := os.ReadFile(configPath)

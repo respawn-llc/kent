@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/cli/app/internal/projectbinding"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
@@ -334,7 +335,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeNoReturnsToPicker(t *testing.T)
 	}
 
 	err := runSessionLifecycle(context.Background(), server, nil, "")
-	if err == nil || err.Error() != "startup canceled by user" {
+	if err == nil || !errors.Is(err, projectbinding.ErrStartupCanceledByUser) {
 		t.Fatalf("runSessionLifecycle error = %v, want startup canceled by user", err)
 	}
 	if pickerCalls != 2 {

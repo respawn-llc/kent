@@ -136,7 +136,7 @@ func TestEnsureInteractivePropagatesCanceledPicker(t *testing.T) {
 			return ProjectPickerResult{Canceled: true}, nil
 		},
 	})
-	if err == nil || err.Error() != "startup canceled by user" {
+	if err == nil || !errors.Is(err, ErrStartupCanceledByUser) {
 		t.Fatalf("expected canceled error, got %v", err)
 	}
 }

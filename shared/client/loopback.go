@@ -3,8 +3,14 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 )
+
+// ErrLoopbackServiceUnavailable is wrapped by every loopback client guard when
+// the backing in-process service is not wired. Callers should match it with
+// errors.Is rather than comparing the per-service message text.
+var ErrLoopbackServiceUnavailable = errors.New("loopback service unavailable")
 
 type loopbackServiceHolder[S any] interface {
 	loopbackService() S
@@ -26,7 +32,7 @@ func callLoopbackClient[C loopbackServiceHolder[S], S any, Req any, Resp any](c 
 	service, ok := requireLoopbackService(c)
 	if !ok {
 		var zero Resp
-		return zero, errors.New(message)
+		return zero, fmt.Errorf("%s: %w", message, ErrLoopbackServiceUnavailable)
 	}
 	return call(service, ctx, req)
 }
@@ -34,7 +40,7 @@ func callLoopbackClient[C loopbackServiceHolder[S], S any, Req any, Resp any](c 
 func callLoopbackClientNoResponse[C loopbackServiceHolder[S], S any, Req any](c C, message string, ctx context.Context, req Req, call func(S, context.Context, Req) error) error {
 	service, ok := requireLoopbackService(c)
 	if !ok {
-		return errors.New(message)
+		return fmt.Errorf("%s: %w", message, ErrLoopbackServiceUnavailable)
 	}
 	return call(service, ctx, req)
 }

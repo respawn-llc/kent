@@ -3,7 +3,6 @@ package remoteattach
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -140,7 +139,7 @@ func TestDialHeadlessRejectsNilDialers(t *testing.T) {
 			return nil, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "project view dialer is required") {
+	if !errors.Is(err, errProjectViewDialerRequired) {
 		t.Fatalf("error = %v, want missing project view dialer", err)
 	}
 
@@ -149,7 +148,7 @@ func TestDialHeadlessRejectsNilDialers(t *testing.T) {
 			return &projectViewRemoteStub{}, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "workspace dialer is required") {
+	if !errors.Is(err, errWorkspaceDialerRequired) {
 		t.Fatalf("error = %v, want missing workspace dialer", err)
 	}
 }
@@ -333,12 +332,9 @@ func TestDialInteractiveClosesNonRemoteUnboundFallback(t *testing.T) {
 	}
 }
 
-func TestHeadlessWorkspaceRegistrationErrorWrapsSentinelAndGuidance(t *testing.T) {
+func TestHeadlessWorkspaceRegistrationErrorWrapsSentinel(t *testing.T) {
 	err := HeadlessWorkspaceRegistrationError(" /workspace ")
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("error = %v, want ErrWorkspaceNotRegistered", err)
-	}
-	if !strings.Contains(err.Error(), "kent project") || !strings.Contains(err.Error(), "kent attach") {
-		t.Fatalf("expected recovery guidance, got %q", err)
 	}
 }

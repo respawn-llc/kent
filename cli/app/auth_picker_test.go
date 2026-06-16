@@ -183,7 +183,7 @@ func TestInteractiveAuthInteractorRejectsEnvAPIKeyChoiceWithoutAvailableKey(t *t
 		Theme:        "dark",
 		HasEnvAPIKey: false,
 	})
-	if err == nil || err.Error() != "OPENAI_API_KEY is not available" {
+	if !errors.Is(err, errEnvAPIKeyUnavailable) {
 		t.Fatalf("expected missing OPENAI_API_KEY error, got %v", err)
 	}
 }
@@ -201,7 +201,7 @@ func TestInteractiveAuthInteractorRejectsUnknownAuthMethodChoice(t *testing.T) {
 		Gate:    auth.StartupGate{Reason: auth.ErrAuthNotConfigured.Error()},
 		Theme:   "dark",
 	})
-	if err == nil || err.Error() != "unknown auth method \"bogus\"" {
+	if !errors.Is(err, errUnknownAuthMethod) {
 		t.Fatalf("expected unknown auth method error, got %v", err)
 	}
 }

@@ -326,7 +326,7 @@ func requiredOutputIssues(group transitionContractSnapshot, values map[string]st
 	for _, edge := range group.Edges {
 		for _, requirement := range edge.OutputRequirements {
 			if strings.TrimSpace(values[requirement.FieldName]) == "" {
-				issues = append(issues, CompletionValidationIssue{Code: "required_output_missing", Field: requirement.FieldName, Message: "required output is missing"})
+				issues = append(issues, CompletionValidationIssue{Code: CompletionCodeRequiredOutputMissing, Field: requirement.FieldName, Message: "required output is missing"})
 			}
 		}
 	}
@@ -350,7 +350,7 @@ func knownOutputIssues(group transitionContractSnapshot, values map[string]strin
 			continue
 		}
 		if !known[field] {
-			issues = append(issues, CompletionValidationIssue{Code: "unknown_output_field", Field: field, Message: "output field is not declared by source node"})
+			issues = append(issues, CompletionValidationIssue{Code: CompletionCodeUnknownOutputField, Field: field, Message: "output field is not declared by source node"})
 		}
 	}
 	return issues

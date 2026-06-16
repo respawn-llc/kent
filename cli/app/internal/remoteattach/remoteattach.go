@@ -13,6 +13,13 @@ import (
 	"core/shared/serverapi"
 )
 
+// errProjectViewDialerRequired and errWorkspaceDialerRequired report that a
+// headless attach request omitted a required dialer dependency.
+var (
+	errProjectViewDialerRequired = errors.New("project view dialer is required")
+	errWorkspaceDialerRequired   = errors.New("workspace dialer is required")
+)
+
 type ProjectViewRemote interface {
 	client.ProjectViewClient
 	Close() error
@@ -46,10 +53,10 @@ type InteractiveRequest struct {
 
 func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, bool, error) {
 	if req.DialProjectView == nil {
-		return nil, false, errors.New("project view dialer is required")
+		return nil, false, errProjectViewDialerRequired
 	}
 	if req.DialWorkspace == nil {
-		return nil, false, errors.New("workspace dialer is required")
+		return nil, false, errWorkspaceDialerRequired
 	}
 	attachCtx, cancel := context.WithTimeout(ctx, req.AttachTimeout)
 	defer cancel()

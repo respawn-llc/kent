@@ -78,8 +78,8 @@ func TestProtocolErrorMapsContextCanceled(t *testing.T) {
 	if code != protocol.ErrCodeRequestCanceled {
 		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeRequestCanceled)
 	}
-	if message != "request canceled by client" {
-		t.Fatalf("protocol error message = %q, want request canceled by client", message)
+	if message != canceledByClientMessage {
+		t.Fatalf("protocol error message = %q, want %q", message, canceledByClientMessage)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
 	if gateway != nil {
 		t.Fatalf("gateway = %+v, want nil", gateway)
 	}
-	if err.Error() != "gateway dependencies are required" {
-		t.Fatalf("error = %q, want gateway dependencies are required", err.Error())
+	if !errors.Is(err, ErrGatewayDependenciesRequired) {
+		t.Fatalf("error = %q, want ErrGatewayDependenciesRequired", err.Error())
 	}
 }
 

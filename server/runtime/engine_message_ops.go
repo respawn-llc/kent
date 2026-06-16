@@ -297,10 +297,13 @@ func environmentContextMessage(workspaceRoot string, model string, now time.Time
 	}, "\n"), nil
 }
 
+// errEnvironmentContextModelRequired is returned when the environment context line is built without a model.
+var errEnvironmentContextModelRequired = errors.New("environment context requires a model")
+
 func environmentModelContextLine(model string) (string, error) {
 	normalized := strings.TrimSpace(model)
 	if normalized == "" {
-		return "", errors.New("environment context requires a model")
+		return "", errEnvironmentContextModelRequired
 	}
 	return fmt.Sprintf("Your model: %s", normalized), nil
 }

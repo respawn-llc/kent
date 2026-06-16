@@ -2,12 +2,10 @@ package startupconfig
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"core/shared/config"
 	"core/shared/sessioncontract"
-	"core/shared/sessionenv"
 )
 
 func TestResolveWorkspaceRootUsesCWDWhenEmpty(t *testing.T) {
@@ -38,8 +36,8 @@ func TestResolveRunPromptConfigWrapsMissingImplicitWorkspaceContextSession(t *te
 	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		t.Fatalf("error = %v, want ErrSessionNotFound", err)
 	}
-	if !strings.Contains(err.Error(), sessionenv.SessionIDEnv+" points to missing Kent session") {
-		t.Fatalf("error = %q, want workspace context guidance", err)
+	if !errors.Is(err, ErrWorkspaceContextSessionMissing) {
+		t.Fatalf("error = %v, want workspace context guidance", err)
 	}
 }
 
@@ -55,8 +53,8 @@ func TestResolveRunPromptConfigKeepsExplicitSessionLookupStrict(t *testing.T) {
 	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		t.Fatalf("error = %v, want ErrSessionNotFound", err)
 	}
-	if strings.Contains(err.Error(), "points to missing Kent session") {
-		t.Fatalf("explicit session error should not be rewritten as workspace context guidance: %q", err)
+	if errors.Is(err, ErrWorkspaceContextSessionMissing) {
+		t.Fatalf("explicit session error should not be rewritten as workspace context guidance: %v", err)
 	}
 }
 

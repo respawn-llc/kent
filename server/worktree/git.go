@@ -12,6 +12,21 @@ import (
 	"core/shared/config"
 )
 
+// ErrBaseRefRequired is returned when a create spec omits a required base ref.
+// Callers match it via errors.Is; the create_branch context is added with %w.
+var ErrBaseRefRequired = errors.New("base ref is required")
+
+// InvalidCreateTargetError reports that a requested create target is neither a
+// valid branch name nor a resolvable ref. It exposes the offending target so
+// callers can inspect it via errors.As instead of parsing message wording.
+type InvalidCreateTargetError struct {
+	Target string
+}
+
+func (e *InvalidCreateTargetError) Error() string {
+	return fmt.Sprintf("target %q is not a valid branch name or resolvable ref", e.Target)
+}
+
 type GitWorktree struct {
 	Root           string
 	HeadOID        string
@@ -130,7 +145,7 @@ func (i *GitInspector) ResolveCreateTarget(ctx context.Context, workspaceRoot st
 	if err != nil {
 		if refExit == 1 {
 			if !validBranchName {
-				return CreateTargetResolution{}, fmt.Errorf("target %q is not a valid branch name or resolvable ref", trimmedTarget)
+				return CreateTargetResolution{}, &InvalidCreateTargetError{Target: trimmedTarget}
 			}
 			return CreateTargetResolution{Input: trimmedTarget, Kind: CreateTargetResolutionKindNewBranch}, nil
 		}
@@ -304,12 +319,12 @@ func normalizeCreateSpec(spec CreateSpec) (CreateSpec, error) {
 			return CreateSpec{}, fmt.Errorf("branch name is required when create_branch=true")
 		}
 		if baseRef == "" {
-			return CreateSpec{}, fmt.Errorf("base ref is required when create_branch=true")
+			return CreateSpec{}, fmt.Errorf("%w when create_branch=true", ErrBaseRefRequired)
 		}
 		return CreateSpec{BaseRef: baseRef, CreateBranch: true, BranchName: branchName}, nil
 	}
 	if baseRef == "" {
-		return CreateSpec{}, fmt.Errorf("base ref is required when create_branch=false")
+		return CreateSpec{}, fmt.Errorf("%w when create_branch=false", ErrBaseRefRequired)
 	}
 	if branchName != "" {
 		return CreateSpec{}, fmt.Errorf("branch name must be empty when create_branch=false")

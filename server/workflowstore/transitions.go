@@ -52,7 +52,7 @@ func (s *Store) ListTransitionEdges(ctx context.Context, transitionID workflow.T
 func (s *Store) TaskIdentityForTransition(ctx context.Context, transitionID workflow.TransitionID) (taskID string, projectID string, workflowID string, err error) {
 	id := strings.TrimSpace(string(transitionID))
 	if id == "" {
-		return "", "", "", errors.New("transition id is required")
+		return "", "", "", ErrTransitionIDRequired
 	}
 	err = s.db.QueryRowContext(ctx, strings.TrimSuffix(taskIdentityForTransitionQuery, "\n"), id).Scan(&taskID, &projectID, &workflowID)
 	return taskID, projectID, workflowID, err
@@ -61,7 +61,7 @@ func (s *Store) TaskIdentityForTransition(ctx context.Context, transitionID work
 func (s *Store) ApproveTransition(ctx context.Context, transitionID workflow.TransitionID) (CompleteRunResult, error) {
 	id := strings.TrimSpace(string(transitionID))
 	if id == "" {
-		return CompleteRunResult{}, errors.New("transition id is required")
+		return CompleteRunResult{}, ErrTransitionIDRequired
 	}
 	var taskID string
 	var sourceRunID sql.NullString

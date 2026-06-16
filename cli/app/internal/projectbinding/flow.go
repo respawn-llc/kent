@@ -14,6 +14,11 @@ import (
 	"core/shared/serverapi"
 )
 
+// ErrStartupCanceledByUser is returned when interactive startup binding flows
+// are canceled by the user. Callers and tests match this with errors.Is rather
+// than comparing rendered message text.
+var ErrStartupCanceledByUser = errors.New("startup canceled by user")
+
 type ProjectPickerResult struct {
 	CreateNew bool
 	Project   *clientui.ProjectSummary
@@ -89,7 +94,7 @@ func ensureLocalPathBinding[T any](ctx context.Context, req Request[T], workspac
 		return zero, err
 	}
 	if picked.Canceled {
-		return zero, errors.New("startup canceled by user")
+		return zero, ErrStartupCanceledByUser
 	}
 	if picked.CreateNew {
 		if req.PromptProjectName == nil {
@@ -137,7 +142,7 @@ func ensureServerBrowsingBinding[T any](ctx context.Context, req Request[T], pro
 		return zero, err
 	}
 	if picked.Canceled {
-		return zero, errors.New("startup canceled by user")
+		return zero, ErrStartupCanceledByUser
 	}
 	if picked.Project == nil {
 		return zero, errors.New("no project selected")
@@ -192,7 +197,7 @@ func SelectWorkspaceForStartup(ctx context.Context, req WorkspaceSelectionReques
 		return clientui.ProjectWorkspaceSummary{}, err
 	}
 	if picked.Canceled {
-		return clientui.ProjectWorkspaceSummary{}, errors.New("startup canceled by user")
+		return clientui.ProjectWorkspaceSummary{}, ErrStartupCanceledByUser
 	}
 	if picked.Workspace == nil {
 		return clientui.ProjectWorkspaceSummary{}, errors.New("no workspace selected")

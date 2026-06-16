@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// ErrClientRequestIDRequired is returned when a lifecycle request omits its
+// client_request_id.
+var ErrClientRequestIDRequired = errors.New("client_request_id is required")
+
 type SessionTransitionAction string
 
 const (
@@ -72,7 +76,7 @@ type SessionResolveTransitionResponse struct {
 
 func (r SessionPersistInputDraftRequest) Validate() error {
 	if strings.TrimSpace(r.ClientRequestID) == "" {
-		return errors.New("client_request_id is required")
+		return ErrClientRequestIDRequired
 	}
 	if err := validateScopedSessionID(r.SessionID); err != nil {
 		return err
@@ -89,7 +93,7 @@ func (r SessionInitialInputRequest) Validate() error {
 
 func (r SessionRetargetWorkspaceRequest) Validate() error {
 	if strings.TrimSpace(r.ClientRequestID) == "" {
-		return errors.New("client_request_id is required")
+		return ErrClientRequestIDRequired
 	}
 	if err := validateScopedSessionID(r.SessionID); err != nil {
 		return err
@@ -102,7 +106,7 @@ func (r SessionRetargetWorkspaceRequest) Validate() error {
 
 func (r SessionResolveTransitionRequest) Validate() error {
 	if strings.TrimSpace(r.ClientRequestID) == "" {
-		return errors.New("client_request_id is required")
+		return ErrClientRequestIDRequired
 	}
 	if strings.TrimSpace(r.SessionID) != "" {
 		if err := validateScopedSessionID(r.SessionID); err != nil {

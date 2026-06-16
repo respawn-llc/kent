@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
@@ -234,11 +236,8 @@ func TestSubmitUserMessageSurfacesInFlightClearFailure(t *testing.T) {
 	if msg.Content != "done" {
 		t.Fatalf("assistant content = %q, want done", msg.Content)
 	}
-	if err == nil {
-		t.Fatal("expected in-flight clear failure")
-	}
-	if !strings.Contains(err.Error(), "mark in-flight false") {
-		t.Fatalf("expected mark in-flight clear error, got %v", err)
+	if !errors.Is(err, errMarkInFlightFalse) {
+		t.Fatalf("expected errMarkInFlightFalse, got %v", err)
 	}
 
 	mu.Lock()
@@ -501,11 +500,8 @@ func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 
 	result, err := eng.SubmitUserShellCommand(context.Background(), "pwd")
-	if err == nil {
-		t.Fatal("expected unknown tool error")
-	}
-	if !strings.Contains(err.Error(), "unknown tool") {
-		t.Fatalf("expected unknown tool error, got %v", err)
+	if !errors.Is(err, errUnknownTool) {
+		t.Fatalf("expected errUnknownTool, got %v", err)
 	}
 	if result.Name != toolspec.ToolExecCommand || !result.IsError {
 		t.Fatalf("expected shell error result, got %+v", result)
@@ -786,11 +782,8 @@ func TestExecuteToolCallsFailsOnToolCompletionPersistence(t *testing.T) {
 			_, err := eng.executeToolCalls(context.Background(), "step", []llm.ToolCall{
 				{ID: "call-1", Name: tc.callName, Input: json.RawMessage(`{}`)},
 			})
-			if err == nil {
-				t.Fatal("expected persistence failure")
-			}
-			if !strings.Contains(err.Error(), "persist tool completion") {
-				t.Fatalf("expected persistence error, got %v", err)
+			if !errors.Is(err, errPersistToolCompletion) {
+				t.Fatalf("expected errPersistToolCompletion, got %v", err)
 			}
 
 			if got := eng.transcriptRuntimeState().ToolCompletionCount(); got != 0 {
