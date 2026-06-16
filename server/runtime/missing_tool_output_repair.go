@@ -255,17 +255,39 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(affectedCallIDs) > 0 || len(removedCallIDs) > 0 {
-		s.items = responseItemsAfterMissingToolOutputRepair(s.items, affectedCallIDs, removedCallIDs)
+		tailStart := 0
+		if s.compact != nil {
+			tailStart = s.compact.CutoffItemCount
+			if tailStart < 0 {
+				tailStart = 0
+			}
+			if tailStart > len(s.items) {
+				tailStart = len(s.items)
+			}
+		}
+		prefixMessageCount := len(llm.MessagesFromItems(s.items[:tailStart]))
+		originalMessageCount := len(llm.MessagesFromItems(s.items))
+		repairedTail := responseItemsAfterMissingToolOutputRepair(s.items[tailStart:], affectedCallIDs, removedCallIDs)
+		s.items = append(llm.CloneResponseItems(s.items[:tailStart]), repairedTail...)
 		repairedMessageCount := len(llm.MessagesFromItems(s.items))
+		removedMessageCount := originalMessageCount - repairedMessageCount
 		if s.compact != nil {
 			if s.compact.CutoffMessageCount > repairedMessageCount {
 				s.compact.CutoffMessageCount = repairedMessageCount
 			}
 		}
 		for idx := range s.local {
-			if s.local[idx].AfterMessageCount > repairedMessageCount {
-				s.local[idx].AfterMessageCount = repairedMessageCount
+			after := s.local[idx].AfterMessageCount
+			if removedMessageCount > 0 && after > prefixMessageCount {
+				after -= removedMessageCount
+				if after < prefixMessageCount {
+					after = prefixMessageCount
+				}
 			}
+			if after > repairedMessageCount {
+				after = repairedMessageCount
+			}
+			s.local[idx].AfterMessageCount = after
 		}
 		s.messageCount = repairedMessageCount
 		s.transcriptEntryCount = s.recomputeTranscriptEntryCountLocked()
@@ -346,6 +368,9 @@ func repairCallKindsFromItems(items []llm.ResponseItem) map[string]repairToolCal
 			callID = strings.TrimSpace(item.ID)
 		}
 		if callID != "" {
+			if _, exists := out[callID]; exists {
+				continue
+			}
 			out[callID] = repairKindForOutputItem(llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall))
 		}
 	}
@@ -576,8 +601,9 @@ func (p missingToolOutputRepairPlan) affectedCalls() int {
 
 func (s *missingToolOutputRepairScan) callCompleted(callID string, callKind repairToolCallKind) bool {
 	if outputs := s.materializedOutputs[callID]; len(outputs) > 0 {
-		_, ok := outputs[callKind]
-		return ok
+		if outputs[callKind] > 0 {
+			return true
+		}
 	}
 	completion, ok := s.toolCompletions[callID]
 	if !ok {

@@ -139,8 +139,8 @@ func TestMissingToolOutputRepairHandlesCustomToolOutputKindAndMaterializedPreced
 			toolOutputs = append(toolOutputs, msg)
 		}
 	}
-	if len(messages[0].ToolCalls) != 1 || messages[0].ToolCalls[0].ID != "custom-ok" {
-		t.Fatalf("expected only matching custom call preserved, got %+v", messages[0].ToolCalls)
+	if len(messages[0].ToolCalls) != 2 || messages[0].ToolCalls[0].ID != "custom-ok" || messages[0].ToolCalls[1].ID != "custom-bad" {
+		t.Fatalf("expected completed custom calls preserved, got %+v", messages[0].ToolCalls)
 	}
 	if len(toolOutputs) != 1 || toolOutputs[0].ToolCallID != "custom-ok" {
 		t.Fatalf("expected mismatched materialized output removed, got %+v", toolOutputs)
