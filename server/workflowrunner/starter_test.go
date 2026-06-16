@@ -151,6 +151,68 @@ func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeMultipleAskQuestionsInOneToolBatchResumeSequentially(t *testing.T) {
+	completeInput := json.RawMessage(`{"commentary":"answered both and finished"}`)
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,
+		workflowtest.ToolBatch("questions",
+			llm.ToolCall{ID: "call-ask-1", Name: "ask_question", Input: json.RawMessage(`{"question":"First direction?","suggestions":["ship","stop"],"recommended_option_index":1}`)},
+			llm.ToolCall{ID: "call-ask-2", Name: "ask_question", Input: json.RawMessage(`{"question":"Second direction?","suggestions":["fast","safe"],"recommended_option_index":2}`)},
+		),
+		workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
+	)
+	role := fixture.cfg.Settings.Subagents["coder"]
+	role.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolAskQuestion: true}
+	role.Sources["tools."+toolspec.ConfigName(toolspec.ToolAskQuestion)] = "test"
+	fixture.cfg.Settings.Subagents["coder"] = role
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	first := fixture.waitForWaitingAsk(t, task.ID, "call-ask-1")
+	if err := fixture.runtimes.SubmitPromptResponse(first.SessionID, askquestion.Response{RequestID: "call-ask-1", Answer: "Ship it"}, nil); err != nil {
+		t.Fatalf("SubmitPromptResponse first: %v", err)
+	}
+	second := fixture.waitForWaitingAsk(t, task.ID, "call-ask-2")
+	if second.SessionID != first.SessionID {
+		t.Fatalf("second ask session = %q, want first session %q", second.SessionID, first.SessionID)
+	}
+	if err := fixture.runtimes.SubmitPromptResponse(second.SessionID, askquestion.Response{RequestID: "call-ask-2", Answer: "Keep it safe"}, nil); err != nil {
+		t.Fatalf("SubmitPromptResponse second: %v", err)
+	}
+	fixture.waitForCompletedRun(t, task.ID)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].SessionID != first.SessionID || runs[0].WaitingAskID != "" {
+		t.Fatalf("run after answers = %+v, want same session and cleared waiting ask", runs)
+	}
+	askResults := workflowRequestAskQuestionToolMessages(fixture.client.Requests())
+	if len(askResults) != 2 {
+		t.Fatalf("ask_question tool results = %+v, want two completed asks", askResults)
+	}
+	seenAskResults := map[string]bool{}
+	for _, msg := range askResults {
+		seenAskResults[msg.ToolCallID] = true
+		trimmed := strings.TrimSpace(msg.Content)
+		if strings.HasPrefix(trimmed, "{") {
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+				t.Fatalf("decode ask_question tool message: %v", err)
+			}
+			if _, ok := payload["error"]; ok {
+				t.Fatalf("ask_question tool result contains error payload: %+v", msg)
+			}
+		}
+	}
+	if !seenAskResults["call-ask-1"] || !seenAskResults["call-ask-2"] {
+		t.Fatalf("ask_question tool result call IDs = %+v, want both asks", askResults)
+	}
+}
+
 func TestWorkflowRuntimeStarterCloseCancelsInFlightRun(t *testing.T) {
 	client := newBlockingClient()
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer("{}"))
@@ -836,6 +898,22 @@ func (f starterFixture) sessionEventsText(t *testing.T, sessionID string) string
 		t.Fatalf("read events.jsonl: %v", err)
 	}
 	return string(data)
+}
+
+func workflowRequestAskQuestionToolMessages(reqs []llm.Request) []llm.Message {
+	messages := []llm.Message{}
+	for _, req := range reqs {
+		for _, msg := range llm.MessagesFromItems(req.Items) {
+			if msg.Role != llm.RoleTool || msg.Name != string(toolspec.ToolAskQuestion) {
+				continue
+			}
+			switch msg.ToolCallID {
+			case "call-ask-1", "call-ask-2":
+				messages = append(messages, msg)
+			}
+		}
+	}
+	return messages
 }
 
 // historyReplacedWorkflowRunID decodes the latest history_replaced event in the
