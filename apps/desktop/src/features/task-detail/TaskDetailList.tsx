@@ -106,6 +106,8 @@ export function TaskDetailList({
       estimateSize={() => 160}
       getItemKey={taskDetailListItemKey}
       hasNextPage={paging.hasNextPage}
+      initialScrollKey={initialFocus === "firstQuestion" ? "inbox" : undefined}
+      initialScrollRequestKey={initialFocus === "firstQuestion" ? detail.id : undefined}
       isFetchingNextPage={paging.isFetchingNextPage}
       items={listItems}
       loadingLabel={t("app.loadingMore")}

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -24,6 +24,7 @@ import { HomePrimaryPane, type HomePrimaryTab } from "./HomePrimaryPane";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
 import {
   useGlobalAttentionPages,
+  useGlobalAttentionEvents,
   useProjectCreation,
   useProjectCreationEvents,
   useProjectPages,
@@ -41,6 +42,7 @@ export function HomeRoute() {
   const creation = useProjectCreation();
   const projects = useProjectPages();
   const attention = useGlobalAttentionPages();
+  useGlobalAttentionEvents();
   const [primaryTab, setPrimaryTab] = useState<HomePrimaryTab>("projects");
   const projectItems = projects.data?.pages.flatMap((page) => page.projects) ?? [];
   const attentionItems = attention.data?.pages.flatMap((page) => page.items) ?? [];
@@ -231,7 +233,7 @@ function AttentionList({ items, query }: AttentionListProps) {
   );
 }
 
-function AttentionRow({
+const AttentionRow = memo(function AttentionRow({
   item,
   navigation,
   openSidebar,
@@ -282,6 +284,35 @@ function AttentionRow({
       <span className="min-w-0 text-sm break-words">{item.message}</span>
       <span className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</span>
     </button>
+  );
+}, attentionRowPropsEqual);
+
+function attentionRowPropsEqual(
+  previous: Readonly<{
+    item: AttentionItem;
+    navigation: ReturnType<typeof useAppNavigation>;
+    openSidebar: ReturnType<typeof useSidebar>["openSidebar"];
+  }>,
+  next: Readonly<{
+    item: AttentionItem;
+    navigation: ReturnType<typeof useAppNavigation>;
+    openSidebar: ReturnType<typeof useSidebar>["openSidebar"];
+  }>,
+): boolean {
+  return previous.openSidebar === next.openSidebar && previous.navigation === next.navigation && attentionItemsEqual(previous.item, next.item);
+}
+
+function attentionItemsEqual(previous: AttentionItem, next: AttentionItem): boolean {
+  return (
+    previous.id === next.id &&
+    previous.kind === next.kind &&
+    previous.projectID === next.projectID &&
+    previous.workflowID === next.workflowID &&
+    previous.taskID === next.taskID &&
+    previous.taskShortID === next.taskShortID &&
+    previous.taskTitle === next.taskTitle &&
+    previous.message === next.message &&
+    previous.occurredAt === next.occurredAt
   );
 }
 

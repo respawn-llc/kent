@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { cx } from "./classes";
 import { Spinner } from "./Spinner";
+import { resolveVirtualizedInitialScroll } from "./virtualizedInfiniteListInitialScroll";
 import { resolveLoadMore } from "./virtualizedInfiniteListLoadMore";
 
 export type VirtualizedInfiniteListProps<TItem> = Readonly<{
@@ -20,6 +21,8 @@ export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   ariaLabel?: string | undefined;
   rowSpacing?: "default" | "compact" | undefined;
   testId?: string | undefined;
+  initialScrollKey?: string | undefined;
+  initialScrollRequestKey?: string | undefined;
   paddingEnd?: number | undefined;
   paddingStart?: number | undefined;
   className?: string | undefined;
@@ -40,11 +43,14 @@ export function VirtualizedInfiniteList<TItem>({
   ariaLabel,
   rowSpacing = "default",
   testId,
+  initialScrollKey,
+  initialScrollRequestKey,
   paddingEnd = 0,
   paddingStart = 0,
   className,
 }: VirtualizedInfiniteListProps<TItem>) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lastInitialScrollKeyRef = useRef("");
   const lastLoadMoreKeyRef = useRef("");
   const wasFetchingNextPageRef = useRef(false);
   const headerCount = header === undefined ? 0 : 1;
@@ -85,6 +91,25 @@ export function VirtualizedInfiniteList<TItem>({
       renderItem,
       virtualIndex,
     });
+
+  useEffect(() => {
+    if (initialScrollKey === undefined || initialScrollKey.length === 0) {
+      return;
+    }
+    const scroll = resolveVirtualizedInitialScroll({
+      getItemKey,
+      headerCount,
+      initialScrollKey,
+      initialScrollRequestKey,
+      items,
+      lastRequestKey: lastInitialScrollKeyRef.current,
+    });
+    if (scroll === null) {
+      return;
+    }
+    lastInitialScrollKeyRef.current = scroll.requestKey;
+    virtualizer.scrollToIndex(scroll.scrollIndex, { align: "start", behavior: "auto" });
+  }, [getItemKey, headerCount, initialScrollKey, initialScrollRequestKey, items, virtualizer]);
 
   useEffect(() => {
     const lastItem = virtualItems.at(-1);

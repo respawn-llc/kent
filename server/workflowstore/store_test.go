@@ -2859,6 +2859,49 @@ func TestSetAndClearRunWaitingAskGenerationGuard(t *testing.T) {
 	}
 }
 
+func TestSetAndClearRunWaitingAskPublishTaskEvents(t *testing.T) {
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	store.now = func() time.Time { return time.UnixMilli(1234).UTC() }
+	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	sessionID := createTestSession(t, ctx, store, binding, cfg)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+	claimed, err := store.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if err := store.AttachRunSession(ctx, started.RunID, claimed.Generation, sessionID); err != nil {
+		t.Fatalf("AttachRunSession: %v", err)
+	}
+	sink := &recordingWorkflowEventPublisher{}
+	store.SetWorkflowEventPublisher(sink)
+
+	if err := store.SetRunWaitingAsk(ctx, started.RunID, claimed.Generation, "ask-1"); err != nil {
+		t.Fatalf("SetRunWaitingAsk: %v", err)
+	}
+	if err := store.ClearRunWaitingAsk(ctx, started.RunID, claimed.Generation, "ask-1"); err != nil {
+		t.Fatalf("ClearRunWaitingAsk: %v", err)
+	}
+
+	if len(sink.records) != 2 {
+		t.Fatalf("published records = %+v, want waiting and cleared events", sink.records)
+	}
+	for _, record := range sink.records {
+		if record.ProjectID != binding.ProjectID || record.WorkflowID != string(task.WorkflowID) || record.Resource != "task" {
+			t.Fatalf("published record identity = %+v", record)
+		}
+		if record.OccurredAtUnixMs != 1234 {
+			t.Fatalf("published record time = %d, want 1234", record.OccurredAtUnixMs)
+		}
+		if len(record.ChangedIDs) != 3 || record.ChangedIDs[0] != string(task.ID) || record.ChangedIDs[1] != string(started.RunID) || record.ChangedIDs[2] != "ask-1" {
+			t.Fatalf("published record changed ids = %+v", record.ChangedIDs)
+		}
+	}
+	if sink.records[0].Action != "question_waiting" || sink.records[1].Action != "question_cleared" {
+		t.Fatalf("published actions = %+v, want question_waiting then question_cleared", []string{sink.records[0].Action, sink.records[1].Action})
+	}
+}
+
 func TestInterruptRunGenerationGuard(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)

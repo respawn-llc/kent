@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
+import { workflowProjectEvent, workflowProjectQuestionTaskID } from "../../app/workflowProjectEvents";
 
 export function useBoard(projectID: string, workflowID: string) {
   const { api } = useAppServices();
@@ -61,6 +62,17 @@ export function useProjectBoardSubscription(
       await queryClient.invalidateQueries({ queryKey: queryKeys.attention("") });
       await queryClient.invalidateQueries({ queryKey: queryKeys.attention(projectID) });
     }
+    async function refreshQuestionTask(params: unknown): Promise<void> {
+      const taskID = workflowProjectQuestionTaskID(params);
+      if (taskID === null) {
+        return;
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID), refetchType: "active" }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID), refetchType: "active" }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks, refetchType: "active" }),
+      ]);
+    }
     const subscription = api.subscribeProject(projectID, {
       onOpen() {
         void refresh().catch(consumeBackgroundError);
@@ -69,10 +81,13 @@ export function useProjectBoardSubscription(
         if (isDeletedTaskEvent(params, selectedTaskID)) {
           onSelectedTaskDeleted?.();
         }
-        void refresh().catch(consumeBackgroundError);
+        void refreshQuestionTask(params).catch(consumeBackgroundError);
+        if (shouldRefreshBoardFromProjectEvent(params, boardQueryWorkflowID, selectedWorkflowID)) {
+          void refresh().catch(consumeBackgroundError);
+        }
       },
       onComplete() {
-        return;
+        void refresh().catch(consumeBackgroundError);
       },
       onError() {
         void refresh().catch(consumeBackgroundError);
@@ -98,35 +113,37 @@ export function useProjectBoardSubscription(
 
 function isDeletedTaskEvent(params: unknown, taskID: string): boolean {
   const trimmedTaskID = taskID.trim();
-  if (trimmedTaskID.length === 0 || !isRecord(params) || !("event" in params)) {
-    return false;
-  }
-  const rawEvent = params.event;
-  if (!isRecord(rawEvent)) {
+  const event = workflowProjectEvent(params);
+  if (trimmedTaskID.length === 0 || event === null) {
     return false;
   }
   return (
-    stringField(rawEvent, "resource") === "task" &&
-    stringField(rawEvent, "action") === "deleted" &&
-    stringArrayField(rawEvent, "changed_ids").includes(trimmedTaskID)
+    event.resource === "task" &&
+    event.action === "deleted" &&
+    event.changedIDs.includes(trimmedTaskID)
   );
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringField(value: Readonly<Record<string, unknown>>, key: string): string {
-  const raw = value[key];
-  return typeof raw === "string" ? raw : "";
-}
-
-function stringArrayField(value: Readonly<Record<string, unknown>>, key: string): readonly string[] {
-  const raw = value[key];
-  if (!Array.isArray(raw)) {
-    return [];
+export function shouldRefreshBoardFromProjectEvent(
+  params: unknown,
+  boardQueryWorkflowID: string,
+  selectedWorkflowID: string,
+): boolean {
+  const event = workflowProjectEvent(params);
+  if (event === null) {
+    return true;
   }
-  return raw.filter((item): item is string => typeof item === "string");
+  if (event.resource === "workflow_link") {
+    return true;
+  }
+  if (event.resource === "workflow" || event.resource === "task") {
+    return (
+      event.workflowID.length === 0 ||
+      event.workflowID === boardQueryWorkflowID ||
+      event.workflowID === selectedWorkflowID
+    );
+  }
+  return false;
 }
 
 export function useBoardTaskActions(

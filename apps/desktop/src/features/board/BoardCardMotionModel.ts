@@ -10,6 +10,11 @@ export type BoardCardMotionParticipants = Readonly<{
   revealCardIDs: ReadonlySet<string>;
 }>;
 
+export type PendingBoardCardMove = Readonly<{
+  targetColumnID: string;
+  taskID: string;
+}>;
+
 export function boardCardViewTransitionName(taskID: string): string {
   const encoded = Array.from(taskID, (char) => {
     const codePoint = char.codePointAt(0);
@@ -101,6 +106,17 @@ export function boardCardColumnCountSnapshot(
 
 export function boardCardColumnIDsWithCards(snapshot: BoardCardColumnsSnapshot): ReadonlySet<string> {
   return new Set(Array.from(snapshot, ([columnID, cards]) => (cards.length > 0 ? columnID : "")).filter(Boolean));
+}
+
+export function pendingBoardCardMoveDestinationMissing(
+  snapshot: BoardCardColumnsSnapshot,
+  pendingMove: PendingBoardCardMove | null,
+): boolean {
+  if (pendingMove === null) {
+    return false;
+  }
+  const targetCards = snapshot.get(pendingMove.targetColumnID) ?? [];
+  return !targetCards.some((card) => card.id === pendingMove.taskID);
 }
 
 export function boardRailLayoutSignature(

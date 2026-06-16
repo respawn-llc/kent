@@ -80,11 +80,15 @@ function InboxItem({
       return;
     }
     scrolledRef.current = true;
+    let cancelAlignedScroll: (() => void) | undefined;
     const cancelScroll = scheduleScroll(() => {
-      focusTargetRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      cancelAlignedScroll = scheduleScroll(() => {
+        focusTargetRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      });
     });
     return () => {
       cancelScroll();
+      cancelAlignedScroll?.();
     };
   }, [focusOnMount]);
 
@@ -129,12 +133,16 @@ function InboxItem({
 
 function scheduleScroll(callback: () => void): () => void {
   if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-    const frame = window.requestAnimationFrame(callback);
+    const frame = window.requestAnimationFrame(() => {
+      callback();
+    });
     return () => {
       window.cancelAnimationFrame(frame);
     };
   }
-  const timeout = setTimeout(callback, 0);
+  const timeout = setTimeout(() => {
+    callback();
+  }, 0);
   return () => {
     clearTimeout(timeout);
   };

@@ -31,6 +31,7 @@ import {
   type PendingDrop,
   type PendingMissingInputDrop,
 } from "./BoardDropActions";
+import type { PendingBoardCardMove } from "./BoardCardMotionModel";
 import { MissingInputsDialog, RollbackStartDialog } from "./BoardDropDialogs";
 import "./board.css";
 import { useBoard, useBoardTaskActions, useProjectBoardSubscription } from "./useBoardData";
@@ -145,6 +146,7 @@ function BoardContent({
   const { t } = useTranslation();
   const [workflowIssuesCollapsed, setWorkflowIssuesCollapsed] = useState(false);
   const [activeDrag, setActiveDrag] = useState<BoardCardDragPayload | null>(null);
+  const [pendingCardMove, setPendingCardMove] = useState<PendingBoardCardMove | null>(null);
   const [expandedEmptyColumns, setExpandedEmptyColumns] = useState<
     Readonly<{ ids: ReadonlySet<string>; scope: string }>
   >(() => ({ ids: new Set(), scope: "" }));
@@ -253,7 +255,14 @@ function BoardContent({
     }
     const dropAction = classifyDrop(column, dragPayload, firstActive?.id);
     if (dropAction.kind === "start") {
-      void actions.start.mutateAsync(dragPayload.taskID).catch(reportStartError);
+      const pendingMove = { taskID: dragPayload.taskID, targetColumnID: column.id };
+      setPendingCardMove(pendingMove);
+      void actions.start
+        .mutateAsync(dragPayload.taskID)
+        .catch(reportStartError)
+        .finally(() => {
+          clearPendingCardMove(pendingMove);
+        });
       return;
     }
     if (dropAction.kind === "move") {
@@ -265,10 +274,15 @@ function BoardContent({
           : { allowMissingEdge: dropAction.allowMissingEdge }),
         ...(dropAction.autoApprove === undefined ? {} : { autoApprove: dropAction.autoApprove }),
       };
+      const pendingMove = { taskID: dragPayload.taskID, targetColumnID: column.id };
+      setPendingCardMove(pendingMove);
       void actions.move
         .mutateAsync(moveInput)
         .then(moveRunFeedback.trackMoveRunIDs)
-        .catch(reportMoveError);
+        .catch(reportMoveError)
+        .finally(() => {
+          clearPendingCardMove(pendingMove);
+        });
       return;
     }
     if (dropAction.kind === "confirmRollback") {
@@ -377,10 +391,15 @@ function BoardContent({
     }
     const drop = rollbackDrop;
     setRollbackDrop(null);
+    const pendingMove = { taskID: drop.taskID, targetColumnID: drop.targetColumn.id };
+    setPendingCardMove(pendingMove);
     void actions.move
       .mutateAsync({ taskID: drop.taskID, targetNodeID: drop.targetColumn.id, autoApprove: true })
       .then(moveRunFeedback.trackMoveRunIDs)
-      .catch(reportMoveError);
+      .catch(reportMoveError)
+      .finally(() => {
+        clearPendingCardMove(pendingMove);
+      });
   }
 
   function submitMissingInputDrop(event: SyntheticEvent<HTMLFormElement>): void {
@@ -390,6 +409,8 @@ function BoardContent({
     }
     const drop = missingInputDrop;
     setMissingInputDrop(null);
+    const pendingMove = { taskID: drop.taskID, targetColumnID: drop.targetColumn.id };
+    setPendingCardMove(pendingMove);
     void actions.move
       .mutateAsync({
         taskID: drop.taskID,
@@ -399,7 +420,16 @@ function BoardContent({
         autoApprove: drop.targetColumn.kind === "agent",
       })
       .then(moveRunFeedback.trackMoveRunIDs)
-      .catch(reportMoveError);
+      .catch(reportMoveError)
+      .finally(() => {
+        clearPendingCardMove(pendingMove);
+      });
+  }
+
+  function clearPendingCardMove(pendingMove: PendingBoardCardMove): void {
+    setPendingCardMove((current) =>
+      current?.taskID === pendingMove.taskID && current.targetColumnID === pendingMove.targetColumnID ? null : current,
+    );
   }
 
   function openTask(taskID: string): void {
@@ -466,6 +496,7 @@ function BoardContent({
           onExpandColumn={expandColumn}
           onInterruptedRunObserved={moveRunFeedback.observeInterruptedRun}
           onInterruptTask={interruptTask}
+          pendingCardMove={pendingCardMove}
           onResumeTask={resumeTask}
           scrollportRef={scrollportRef}
         />

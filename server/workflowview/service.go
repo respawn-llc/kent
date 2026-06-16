@@ -1817,11 +1817,12 @@ func selectWorkflow(picker []serverapi.WorkflowPickerItem, requested string) ser
 }
 
 func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGroup {
+	columnNodes := boardColumnNodes(def)
 	groups := make([]serverapi.WorkflowBoardGroup, 0, len(def.NodeGroups))
 	for _, group := range def.NodeGroups {
 		dto := serverapi.WorkflowBoardGroup{GroupID: group.GroupID, Key: group.GroupKey, DisplayName: group.DisplayName, SortOrder: group.SortOrder}
-		for _, node := range def.Nodes {
-			if node.GroupID == group.GroupID && boardVisibleNodeKind(node.Kind) {
+		for _, node := range columnNodes {
+			if node.GroupID == group.GroupID {
 				dto.NodeIDs = append(dto.NodeIDs, node.ID)
 			}
 		}
@@ -1837,10 +1838,7 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 	columns := make([]serverapi.WorkflowBoardColumn, 0, len(def.Nodes))
 	domainDef := definitionForValidation(def)
 	derived := workflow.DeriveWiring(domainDef)
-	for index, node := range def.Nodes {
-		if !boardVisibleNodeKind(node.Kind) {
-			continue
-		}
+	for index, node := range boardColumnNodes(def) {
 		columns = append(columns, serverapi.WorkflowBoardColumn{
 			Node: serverapi.WorkflowBoardNodeSummary{
 				NodeID:                 node.ID,

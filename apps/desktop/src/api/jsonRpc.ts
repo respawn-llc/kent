@@ -212,14 +212,26 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       { once: true },
     );
     await handshakeSubscription(socket, rpcRequestTimeoutMs);
+    const terminalCompleteRef: { current: Readonly<{ code: number; message: string }> | null } = {
+      current: null,
+    };
     const subscriptionListener = (event: MessageEvent<unknown>) => {
-      handleSubscriptionMessage(event, handler);
+      const result = handleSubscriptionMessage(event, handler);
+      if (result.kind === "complete") {
+        terminalCompleteRef.current = { code: result.code, message: result.message };
+        socket.close();
+      }
     };
     socket.addEventListener("message", subscriptionListener);
     try {
       await sendSocketRequest(socket, method, params, rpcRequestTimeoutMs);
       handler.onOpen?.();
       await waitForSubscriptionEnd(socket, signal);
+    } catch (error) {
+      if (terminalCompleteRef.current?.code === 0) {
+        return;
+      }
+      throw error;
     } finally {
       socket.removeEventListener("message", subscriptionListener);
       socket.close();
