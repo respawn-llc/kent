@@ -180,10 +180,11 @@ function virtualRowClassName({
   if (rowSpacing === "compact") {
     return cx("pb-[var(--space-2)]", index === count - 1 && "pb-0");
   }
+  // Single-direction top gap so the inter-row spacing is exactly one spacing step (between-element level)
+  // rather than the doubled top+bottom padding it would otherwise accumulate. Top/bottom insets are owned
+  // by paddingStart/paddingEnd on the list container.
   return cx(
-    virtualized ? "py-[var(--space-2)]" : "py-[var(--space-2)] first:pt-0 last:pb-0",
-    virtualized && index === 0 && "pt-0",
-    virtualized && index === count - 1 && "pb-0",
+    virtualized ? index !== 0 && "pt-[var(--space-3)]" : "pt-[var(--space-3)] first:pt-0",
   );
 }
 

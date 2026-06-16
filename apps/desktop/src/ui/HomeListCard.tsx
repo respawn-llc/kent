@@ -2,8 +2,9 @@ import { forwardRef, type ComponentPropsWithoutRef, type MouseEvent, type ReactN
 
 import { cx } from "./classes";
 
+// Real elevation-1 island surface (border + shadow + blur) rather than a flat island-1 fill.
 export const homeListCardShellClassName =
-  "relative rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)]";
+  "relative rounded-[var(--radius-l)] island-surface island-surface-1";
 
 export const homeListCardButtonClassName =
   "grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]";

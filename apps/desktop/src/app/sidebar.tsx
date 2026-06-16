@@ -18,6 +18,10 @@ import { cx } from "../ui/classes";
 import { ProjectDeleteButton } from "../features/project-edit/ProjectDeleteButton";
 import { WorkflowDeleteButton } from "../features/workflow-editor/WorkflowDeleteButton";
 import { useAppServices } from "./useAppServices";
+import {
+  SidebarHeaderActionProvider,
+  SidebarHeaderActionSlot,
+} from "./sidebarHeaderAction";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
 import { sidebarSizePreference } from "./sidebarDestinationSizing";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
@@ -192,78 +196,83 @@ export function SidebarHost() {
   const mode = activeDestination.mode ?? "shift";
 
   return (
-    <aside
-      aria-labelledby={titleId}
-      className={cx(
-        "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
-        "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-[var(--radius-xl)]",
-        mode === "shift" &&
-          "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
-        mode === "overlay" &&
-          "app-sidebar-panel-overlay fixed top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
-        phase === "closing" && "app-sidebar-panel-closing",
-      )}
-      data-testid="app-sidebar-host"
-      data-mode={mode}
-      data-state={phase}
-      ref={sidebarRef}
-      role="complementary"
-      style={sidebarStyle}
-    >
-      <div
-        aria-label={t("app.resizeSidebar")}
-        aria-orientation="vertical"
-        aria-valuemax={resizeBounds.maxWidthPx}
-        aria-valuemin={resizeBounds.minWidthPx}
-        aria-valuenow={sidebarWidthPx}
+    <SidebarHeaderActionProvider>
+      <aside
+        aria-labelledby={titleId}
         className={cx(
-          "absolute top-0 bottom-0 left-0 z-20 w-3 cursor-ew-resize touch-none",
-          "after:absolute after:top-[var(--space-4)] after:bottom-[var(--space-4)] after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors",
-          "hover:after:bg-[var(--color-primary)] focus-visible:outline-none focus-visible:after:bg-[var(--color-primary)]",
-          resizing && "after:bg-[var(--color-primary)]",
+          "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
+          "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-[var(--radius-xl)]",
+          mode === "shift" &&
+            "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
+          mode === "overlay" &&
+            "app-sidebar-panel-overlay fixed top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
+          phase === "closing" && "app-sidebar-panel-closing",
         )}
-        data-testid="app-sidebar-resize-handle"
-        onKeyDown={resizeWithKeyboard}
-        onPointerCancel={stopResize}
-        onPointerDown={startResize}
-        onPointerMove={resizeFromPointer}
-        onPointerUp={stopResize}
-        role="separator"
-        tabIndex={0}
-      />
-      <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
-        <Button
-          aria-label={t("app.close")}
-          onClick={() => {
-            closeSidebar("closed");
-          }}
-          size="icon"
-          variant="ghost"
-        >
-          <X aria-hidden="true" size={18} strokeWidth={1.5} />
-        </Button>
-        <h2 className="m-0 min-w-0 truncate text-[1.05rem] font-bold" id={titleId}>
-          {title}
-        </h2>
-        <SidebarHeaderAccessory destination={activeDestination} />
-      </header>
-      <div
-        className={cx(
-          "min-h-0",
-          activeDestination.kind === "workflowEditor"
-            ? "overflow-hidden p-[var(--space-2)]"
-            : activeDestination.kind === "taskDetail"
-              ? "overflow-hidden"
-            : "overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]",
-        )}
+        data-testid="app-sidebar-host"
+        data-mode={mode}
+        data-state={phase}
+        ref={sidebarRef}
+        role="complementary"
+        style={sidebarStyle}
       >
-        <SidebarDestinationView
-          closeSidebar={closeSidebar}
-          destination={activeDestination}
-          resolveSidebar={resolveSidebar}
+        <div
+          aria-label={t("app.resizeSidebar")}
+          aria-orientation="vertical"
+          aria-valuemax={resizeBounds.maxWidthPx}
+          aria-valuemin={resizeBounds.minWidthPx}
+          aria-valuenow={sidebarWidthPx}
+          className={cx(
+            "absolute top-0 bottom-0 left-0 z-20 w-3 cursor-ew-resize touch-none",
+            "after:absolute after:top-[var(--space-4)] after:bottom-[var(--space-4)] after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors",
+            "hover:after:bg-[var(--color-primary)] focus-visible:outline-none focus-visible:after:bg-[var(--color-primary)]",
+            resizing && "after:bg-[var(--color-primary)]",
+          )}
+          data-testid="app-sidebar-resize-handle"
+          onKeyDown={resizeWithKeyboard}
+          onPointerCancel={stopResize}
+          onPointerDown={startResize}
+          onPointerMove={resizeFromPointer}
+          onPointerUp={stopResize}
+          role="separator"
+          tabIndex={0}
         />
-      </div>
-    </aside>
+        <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
+          <Button
+            aria-label={t("app.close")}
+            onClick={() => {
+              closeSidebar("closed");
+            }}
+            size="icon"
+            variant="ghost"
+          >
+            <X aria-hidden="true" size={18} strokeWidth={1.5} />
+          </Button>
+          <h2 className="m-0 min-w-0 truncate text-[1.05rem] font-bold" id={titleId}>
+            {title}
+          </h2>
+          <div className="flex items-center gap-[var(--space-2)] justify-self-end">
+            <SidebarHeaderActionSlot />
+            <SidebarHeaderAccessory destination={activeDestination} />
+          </div>
+        </header>
+        <div
+          className={cx(
+            "min-h-0",
+            activeDestination.kind === "workflowEditor"
+              ? "overflow-hidden p-[var(--space-2)]"
+              : activeDestination.kind === "taskDetail" || activeDestination.kind === "projectEdit"
+                ? "overflow-hidden"
+                : "overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]",
+          )}
+        >
+          <SidebarDestinationView
+            closeSidebar={closeSidebar}
+            destination={activeDestination}
+            resolveSidebar={resolveSidebar}
+          />
+        </div>
+      </aside>
+    </SidebarHeaderActionProvider>
   );
 }
 

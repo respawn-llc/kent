@@ -1,14 +1,21 @@
 import type { NativeBridge } from "@app/native-bridge";
 import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Link2Off, Save, Star, Unlink } from "lucide-react";
+import { Link2Off, Star, Unlink } from "lucide-react";
 
 import type { WorkspaceSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { formatHomeRelativePath } from "../../app/formatters";
 import { useAppServices } from "../../app/useAppServices";
 import { useStatusController } from "../../app/useStatusController";
-import { Button, Dialog, fieldLabelClassName, NativeDialogWindow } from "../../ui";
+import {
+  Button,
+  Dialog,
+  fieldInputClassName,
+  fieldLabelClassName,
+  islandSurfaceClassName,
+  NativeDialogWindow,
+} from "../../ui";
 import { cx } from "../../ui/classes";
 
 export const workspaceUnlinkDialogWidth = 400;
@@ -27,18 +34,14 @@ export type WorkspaceUnlinkTarget = Readonly<{
 
 export function ProjectNameField({
   disabled,
-  nameChanged,
   nameDraft,
   nameErrors,
   onNameChange,
-  onNameSave,
 }: Readonly<{
   disabled: boolean;
-  nameChanged: boolean;
   nameDraft: string;
   nameErrors: readonly string[];
   onNameChange: (value: string) => void;
-  onNameSave: () => void;
 }>) {
   const { t } = useTranslation();
   return (
@@ -46,27 +49,17 @@ export function ProjectNameField({
       <label className={fieldLabelClassName} htmlFor="project-edit-name">
         {t("home.projectName")}
       </label>
-      <div className="grid gap-[var(--space-2)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-        <input
-          aria-describedby="project-edit-name-error"
-          aria-invalid={nameErrors.length > 0 ? true : undefined}
-          className="app-region-no-drag w-full rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[14px] py-3 text-[var(--color-on-island)]"
-          id="project-edit-name"
-          onChange={(event) => {
-            onNameChange(event.target.value);
-          }}
-          value={nameDraft}
-        />
-        <button
-          aria-label={t("projectEdit.saveName")}
-          className="grid aspect-square self-stretch place-items-center rounded-full border border-transparent bg-[var(--color-primary)] text-[var(--color-on-primary)] disabled:cursor-not-allowed disabled:opacity-55"
-          disabled={disabled || !nameChanged || nameErrors.length > 0}
-          onClick={onNameSave}
-          type="button"
-        >
-          <Save aria-hidden="true" size={18} strokeWidth={1.5} />
-        </button>
-      </div>
+      <input
+        aria-describedby="project-edit-name-error"
+        aria-invalid={nameErrors.length > 0 ? true : undefined}
+        className={fieldInputClassName}
+        disabled={disabled}
+        id="project-edit-name"
+        onChange={(event) => {
+          onNameChange(event.target.value);
+        }}
+        value={nameDraft}
+      />
       <span
         aria-live="polite"
         className="grid overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] data-[visible=true]:grid-rows-[1fr] data-[visible=true]:opacity-100 grid-rows-[0fr]"
@@ -108,7 +101,10 @@ export function WorkspaceRow({
   );
   return (
     <article
-      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
+      className={cx(
+        "grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)] rounded-[var(--radius-l)] p-[var(--space-3)]",
+        islandSurfaceClassName(1),
+      )}
       data-testid="workspace-row"
     >
       <span className="min-w-0 truncate font-mono text-sm" title={workspace.rootPath}>

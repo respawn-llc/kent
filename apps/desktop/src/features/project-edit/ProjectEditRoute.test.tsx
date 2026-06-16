@@ -32,25 +32,45 @@ describe("ProjectEditRoute", () => {
     restoreGlobalProperty("localStorage", originalLocalStorageDescriptor);
   });
 
-  it("renders project identity, validates/saves name, and saves default workspace from row star", async () => {
+  it("renders project identity, saves name from the sidebar header, and saves default workspace from row star", async () => {
+    window.history.replaceState(null, "", "/");
     const services = createTestServices([
-      ...startupRoutes,
+      {
+        method: "server.readiness.get",
+        result: startupRoutes[0]?.result,
+      },
+      {
+        method: "project.home.list",
+        result: {
+          projects: [projectSummary],
+          next_page_token: "",
+          generated_at_unix_ms: 1,
+        },
+      },
+      globalAttentionRoute,
       { method: "project.edit.get", result: projectEditResponse },
       { method: "project.update", result: { project: projectSummary } },
       { method: "project.defaultWorkspace.set", result: { project: projectSummary } },
     ]);
 
-    renderProjectEdit(services);
+    render(<App services={services} />);
 
-    await screen.findByRole("heading", { name: "Workspaces" });
-    expect(screen.getByDisplayValue("PROJ")).toBeDisabled();
-    expect(screen.queryByLabelText("Default workspace")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
+    const sidebar = await screen.findByRole("complementary", { name: "Project" });
+    await within(sidebar).findByRole("heading", { name: "Workspaces" });
+    expect(within(sidebar).getByDisplayValue("PROJ")).toHaveAttribute("readonly");
+    expect(within(sidebar).queryByLabelText("Default workspace")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: " Project " } });
-    expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
+    // The header save control only appears once the name draft differs from the saved name.
+    expect(within(sidebar).queryByRole("button", { name: "Save name" })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Renamed Project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    fireEvent.change(within(sidebar).getByLabelText("Project name"), { target: { value: " Project " } });
+    expect(within(sidebar).getByRole("button", { name: "Save name" })).toBeDisabled();
+
+    fireEvent.change(within(sidebar).getByLabelText("Project name"), {
+      target: { value: "Renamed Project" },
+    });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Save name" }));
 
     await waitFor(() => {
       expect(services.transport.calls).toContainEqual({
@@ -59,7 +79,9 @@ describe("ProjectEditRoute", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Make /tmp/project-alt the default workspace" }));
+    fireEvent.click(
+      within(sidebar).getByRole("button", { name: "Make /tmp/project-alt the default workspace" }),
+    );
 
     await waitFor(() => {
       expect(services.transport.calls).toContainEqual({
@@ -67,7 +89,7 @@ describe("ProjectEditRoute", () => {
         params: { project_id: "project-1", workspace_id: "workspace-2" },
       });
     });
-    fireEvent.click(screen.getByRole("button", { name: "Make /tmp/project the default workspace" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Make /tmp/project the default workspace" }));
     expect(
       services.transport.calls.filter((call) => call.method === "project.defaultWorkspace.set"),
     ).toHaveLength(1);

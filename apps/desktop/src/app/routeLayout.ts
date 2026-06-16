@@ -10,6 +10,8 @@ export function routeFramePaddingClassName(pathname: string): string | undefined
   if (routeUsesEdgeToEdgeLayout(pathname)) {
     return undefined;
   }
+  // All island-paned routes share the thin chrome inset; the island pane owns the visible outer
+  // padding. The home dashboard previously double-counted this with its own pane insets.
   return chromeContentPaddingClassName;
 }
 
