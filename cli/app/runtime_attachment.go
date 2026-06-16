@@ -137,6 +137,7 @@ func prepareSharedRuntimeWiring(ctx context.Context, clients runtimeAttachmentCl
 		askViews:              clients.AskViews,
 		sessionActivity:       clients.SessionActivity,
 		sessionViews:          clients.SessionViews,
+		promptHistory:         append([]string(nil), plan.PromptHistory...),
 		hasOtherSessions:      plan.HasOtherSessions,
 		hasOtherSessionsKnown: plan.HasOtherSessionsKnown,
 	}

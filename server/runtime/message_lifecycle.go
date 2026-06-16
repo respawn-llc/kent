@@ -273,10 +273,7 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 	queuedMessages := normalizeQueuedUserMessages(pending)
 	if len(queuedMessages) > 0 {
 		joined := strings.Join(queuedMessages, "\n\n")
-		if err := e.steer(stepID,
-			steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: joined}),
-			steerEventIntent(Event{Kind: EventUserMessageFlushed, UserMessage: joined, UserMessageBatch: queuedMessages, UserMessageBatchQueueItemIDs: queuedUserMessageIDs(pending), CommittedTranscriptChanged: true}),
-		); err != nil {
+		if err := e.appendQueuedUserMessageFlush(stepID, joined, queuedMessages, queuedUserMessageIDs(pending)); err != nil {
 			return flushed, err
 		}
 		flushed++
@@ -295,6 +292,13 @@ func (m *defaultMessageLifecycle) QueueUserMessage(text string) QueuedUserMessag
 		return QueuedUserMessage{}
 	}
 	return m.queue.Queue(text)
+}
+
+func (m *defaultMessageLifecycle) EnsureQueuedUserMessage(item QueuedUserMessage) QueuedUserMessage {
+	if m == nil || m.queue == nil {
+		return QueuedUserMessage{}
+	}
+	return m.queue.EnsurePending(item)
 }
 
 func (m *defaultMessageLifecycle) DiscardQueuedUserMessage(queueItemID string) bool {

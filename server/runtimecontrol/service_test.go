@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/primaryrun"
 	"core/server/requestmemo"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
@@ -24,6 +28,87 @@ type stubRuntimeResolver struct {
 
 func (s stubRuntimeResolver) ResolveRuntime(context.Context, string) (*runtime.Engine, error) {
 	return s.engine, nil
+}
+
+var runtimeControlPromptHistoryStores sync.Map
+
+type runtimeControlPromptHistoryStore struct {
+	mu         sync.Mutex
+	records    []metadata.PromptHistoryRecord
+	consumeErr error
+}
+
+func newRuntimeControlPromptHistoryStore(sessionID string) *runtimeControlPromptHistoryStore {
+	store := &runtimeControlPromptHistoryStore{}
+	runtimeControlPromptHistoryStores.Store(sessionID, store)
+	return store
+}
+
+func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(_ context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, record := range s.records {
+		if record.SessionID == entry.SessionID && record.Source == entry.Source && (record.SourceID == entry.SourceID || record.ClientRequestID == entry.ClientRequestID && entry.ClientRequestID != "") {
+			if record.Text != entry.Text || record.SourceID != entry.SourceID && record.ClientRequestID == entry.ClientRequestID {
+				return metadata.PromptHistoryRecord{}, false, metadata.ErrPromptHistoryConflict
+			}
+			return record, false, nil
+		}
+	}
+	record := metadata.PromptHistoryRecord{
+		Sequence:        int64(len(s.records) + 1),
+		SessionID:       entry.SessionID,
+		Source:          entry.Source,
+		SourceID:        entry.SourceID,
+		ClientRequestID: entry.ClientRequestID,
+		QueueItemID:     entry.QueueItemID,
+		QueueState:      entry.QueueState,
+		Text:            entry.Text,
+		CreatedAt:       entry.CreatedAt,
+	}
+	s.records = append(s.records, record)
+	return record, true, nil
+}
+
+func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueState(_ context.Context, sessionID string, queueItemID string, state metadata.PromptHistoryQueueState) (metadata.PromptHistoryRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, record := range s.records {
+		if record.SessionID == sessionID && record.QueueItemID == queueItemID {
+			s.records[i].QueueState = state
+			return s.records[i], nil
+		}
+	}
+	return metadata.PromptHistoryRecord{}, errors.New("queued prompt history not found")
+}
+
+func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueItemsConsumed(_ context.Context, sessionID string, queueItemIDs []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.consumeErr != nil {
+		return 0, s.consumeErr
+	}
+	ids := map[string]bool{}
+	for _, raw := range queueItemIDs {
+		id := strings.TrimSpace(raw)
+		if id != "" {
+			ids[id] = true
+		}
+	}
+	var updated int64
+	for i, record := range s.records {
+		if record.SessionID == sessionID && ids[record.QueueItemID] && record.QueueState != metadata.PromptHistoryQueueStateDiscarded {
+			s.records[i].QueueState = metadata.PromptHistoryQueueStateConsumed
+			updated++
+		}
+	}
+	return updated, nil
+}
+
+func (s *runtimeControlPromptHistoryStore) SetConsumeError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consumeErr = err
 }
 
 type stubRuntimeLeaseVerifier struct {
@@ -143,7 +228,8 @@ func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tool
 func newRuntimeControlTestService(t *testing.T, client llm.Client, registry *tools.Registry, cfg runtime.Config, opts ...session.StoreOption) (*session.Store, *runtime.Engine, *Service) {
 	t.Helper()
 	store, engine := newRuntimeControlTestEngine(t, client, registry, cfg, opts...)
-	return store, engine, NewService(stubRuntimeResolver{engine: engine}, nil)
+	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
+	return store, engine, NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
 }
 
 func finalResponseRuntimeControlClient() *runtimeControlFakeClient {
@@ -683,6 +769,9 @@ func TestServiceSubmitUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	if client.calls != 1 {
 		t.Fatalf("generate call count = %d, want 1", client.calls)
 	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
 }
 
 func TestServiceSubmitUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
@@ -847,6 +936,12 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	if firstQueue.QueueItemID == "" || secondQueue.QueueItemID != firstQueue.QueueItemID {
 		t.Fatalf("queue ids = (%q, %q), want stable non-empty id", firstQueue.QueueItemID, secondQueue.QueueItemID)
 	}
+	if firstQueue.QueueItemID != "req-1" {
+		t.Fatalf("queue id = %q, want request-id-derived queue id", firstQueue.QueueItemID)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("queued prompt history count = %d, want 1 immediately after queue acceptance", got)
+	}
 	if _, err := engine.SubmitQueuedUserMessages(context.Background()); err != nil {
 		t.Fatalf("SubmitQueuedUserMessages: %v", err)
 	}
@@ -855,6 +950,187 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	}
 	if got := countUserMessagesWithContent(t, store, "hello\n\nhello"); got != 0 {
 		t.Fatalf("duplicate queued flush count = %d, want 0", got)
+	}
+}
+
+func TestServiceQueueUserMessageReplaysPendingPromptAfterColdReopen(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := context.Background()
+	workspace := t.TempDir()
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	meta, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	firstEngine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create first runtime engine: %v", err)
+	}
+	firstService := NewService(stubRuntimeResolver{engine: firstEngine}, nil).WithPromptHistoryStore(meta)
+	req := runtimeControlQueueUserMessageRequest(store, "req-cold", "hello after reopen")
+
+	firstQueue, err := firstService.QueueUserMessage(ctx, req)
+	if err != nil {
+		t.Fatalf("QueueUserMessage first: %v", err)
+	}
+	if err := firstEngine.Close(); err != nil {
+		t.Fatalf("close first runtime engine: %v", err)
+	}
+	reopened, err := session.OpenByID(cfg.PersistenceRoot, store.Meta().SessionID, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.OpenByID: %v", err)
+	}
+	secondClient := finalResponseRuntimeControlClient()
+	secondEngine, err := runtime.New(reopened, secondClient, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create second runtime engine: %v", err)
+	}
+	t.Cleanup(func() { _ = secondEngine.Close() })
+	secondService := NewService(stubRuntimeResolver{engine: secondEngine}, nil).WithPromptHistoryStore(meta)
+
+	secondQueue, err := secondService.QueueUserMessage(ctx, req)
+	if err != nil {
+		t.Fatalf("QueueUserMessage replay after reopen: %v", err)
+	}
+	if firstQueue.QueueItemID != "req-cold" || secondQueue.QueueItemID != firstQueue.QueueItemID {
+		t.Fatalf("queue ids first=%q second=%q, want stable request-derived id", firstQueue.QueueItemID, secondQueue.QueueItemID)
+	}
+	if _, err := secondEngine.SubmitQueuedUserMessages(ctx); err != nil {
+		t.Fatalf("SubmitQueuedUserMessages after reopen: %v", err)
+	}
+	if got := countUserMessagesWithContent(t, reopened, "hello after reopen"); got != 1 {
+		t.Fatalf("queued user message count after reopen = %d, want 1", got)
+	}
+	history, err := meta.ReadPromptHistory(ctx, store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("ReadPromptHistory: %v", err)
+	}
+	if len(history) != 1 || history[0] != "hello after reopen" {
+		t.Fatalf("prompt history after reopen = %+v, want one queued entry", history)
+	}
+}
+
+func TestServiceQueueUserMessageRepairsConsumedPromptAfterColdReopen(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := context.Background()
+	workspace := t.TempDir()
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	meta, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	firstClient := finalResponseRuntimeControlClient()
+	firstEngine, err := runtime.New(store, firstClient, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create first runtime engine: %v", err)
+	}
+	firstService := NewService(stubRuntimeResolver{engine: firstEngine}, nil).WithPromptHistoryStore(meta)
+	req := runtimeControlQueueUserMessageRequest(store, "req-consumed", "hello consumed")
+
+	firstQueue, err := firstService.QueueUserMessage(ctx, req)
+	if err != nil {
+		t.Fatalf("QueueUserMessage first: %v", err)
+	}
+	if _, err := firstEngine.SubmitQueuedUserMessages(ctx); err != nil {
+		t.Fatalf("SubmitQueuedUserMessages first: %v", err)
+	}
+	if err := firstEngine.Close(); err != nil {
+		t.Fatalf("close first runtime engine: %v", err)
+	}
+	reopened, err := session.OpenByID(cfg.PersistenceRoot, store.Meta().SessionID, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.OpenByID: %v", err)
+	}
+	secondEngine, err := runtime.New(reopened, finalResponseRuntimeControlClient(), tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create second runtime engine: %v", err)
+	}
+	t.Cleanup(func() { _ = secondEngine.Close() })
+	secondService := NewService(stubRuntimeResolver{engine: secondEngine}, nil).WithPromptHistoryStore(meta)
+
+	secondQueue, err := secondService.QueueUserMessage(ctx, req)
+	if err != nil {
+		t.Fatalf("QueueUserMessage replay after consumed flush: %v", err)
+	}
+	if secondQueue.QueueItemID != firstQueue.QueueItemID {
+		t.Fatalf("queue ids first=%q second=%q, want stable id", firstQueue.QueueItemID, secondQueue.QueueItemID)
+	}
+	if secondEngine.HasQueuedUserWork() {
+		t.Fatal("did not expect consumed queued prompt to be re-enqueued")
+	}
+	record, err := meta.MarkPromptHistoryQueueState(ctx, store.Meta().SessionID, firstQueue.QueueItemID, metadata.PromptHistoryQueueStatePending)
+	if err != nil {
+		t.Fatalf("read repaired queue state: %v", err)
+	}
+	if record.QueueState != metadata.PromptHistoryQueueStateConsumed {
+		t.Fatalf("queue state = %q, want consumed", record.QueueState)
+	}
+	if _, err := secondEngine.SubmitQueuedUserMessages(ctx); err != nil {
+		t.Fatalf("SubmitQueuedUserMessages after repair: %v", err)
+	}
+	if got := countUserMessagesWithContent(t, reopened, "hello consumed"); got != 1 {
+		t.Fatalf("queued user message count after consumed replay = %d, want 1", got)
+	}
+	history, err := meta.ReadPromptHistory(ctx, store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("ReadPromptHistory: %v", err)
+	}
+	if len(history) != 1 || history[0] != "hello consumed" {
+		t.Fatalf("prompt history after consumed repair = %+v, want one queued entry", history)
+	}
+}
+
+func TestServiceQueueUserMessageDoesNotReenqueueWhenConsumedRepairFails(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, firstService := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := firstService.promptStore.(*runtimeControlPromptHistoryStore)
+	req := serverapi.RuntimeQueueUserMessageRequest{
+		ClientRequestID:   "req-consume-failure",
+		SessionID:         sessionStore.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              "hello once",
+	}
+	if _, err := firstService.QueueUserMessage(ctx, req); err != nil {
+		t.Fatalf("QueueUserMessage first: %v", err)
+	}
+	if _, err := engine.SubmitQueuedUserMessages(ctx); err != nil {
+		t.Fatalf("SubmitQueuedUserMessages: %v", err)
+	}
+	boom := errors.New("consume repair failed")
+	history.SetConsumeError(boom)
+	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
+
+	if _, err := retryService.QueueUserMessage(ctx, req); !errors.Is(err, boom) {
+		t.Fatalf("QueueUserMessage repair error = %v, want %v", err, boom)
+	}
+	if engine.HasQueuedUserWork() {
+		t.Fatal("did not expect consumed prompt to be re-enqueued after repair failure")
 	}
 }
 

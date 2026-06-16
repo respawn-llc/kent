@@ -8,6 +8,7 @@ import (
 
 	"core/server/auth"
 	"core/server/launch"
+	"core/server/metadata"
 	"core/server/primaryrun"
 	"core/server/requestmemo"
 	"core/server/runtime"
@@ -28,6 +29,11 @@ var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions 
 // interactive answer is possible.
 var ErrHeadlessAskUnsupported = errors.New("You can't ask questions in headless/background mode. If the question is critical and materially affects the task, ask it by ending your turn after trying to do as much work as possible beforehand. Otherwise, follow best practice and mention the ambiguity in your final answer.")
 
+type promptHistoryStore interface {
+	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error)
+	MarkPromptHistoryQueueItemsConsumed(ctx context.Context, sessionID string, queueItemIDs []string) (int64, error)
+}
+
 type HeadlessBootstrap struct {
 	SessionLaunch   *sessionlaunch.Service
 	AuthManager     *auth.Manager
@@ -39,6 +45,7 @@ type HeadlessBootstrap struct {
 		PublishRuntimeEvent(sessionID string, evt runtime.Event)
 	}
 	BackgroundRouter runtimewire.BackgroundRouter
+	PromptHistory    promptHistoryStore
 }
 
 func NewLoopbackRunPromptClient(boot HeadlessBootstrap) client.RunPromptClient {
@@ -81,7 +88,7 @@ func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req 
 	if err != nil {
 		return nil, err
 	}
-	return &headlessPromptRuntime{plan: runtimePlan, warnings: result.Warnings}, nil
+	return &headlessPromptRuntime{plan: runtimePlan, warnings: result.Warnings, history: l.boot.PromptHistory}, nil
 }
 
 type headlessRuntimePlan struct {
@@ -127,6 +134,11 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 			if l.boot.RuntimeRegistry != nil {
 				l.boot.RuntimeRegistry.PublishRuntimeEvent(plan.Store.Meta().SessionID, evt)
 			}
+			if l.boot.PromptHistory != nil && evt.Kind == runtime.EventUserMessageFlushed && len(evt.UserMessageBatchQueueItemIDs) > 0 {
+				if err := markHeadlessQueuedPromptHistoryConsumed(context.Background(), l.boot.PromptHistory, plan.Store.Meta().SessionID, evt.UserMessageBatchQueueItemIDs); err != nil {
+					logger.Logf("prompt_history.queue_consumed.mark_failed session_id=%s err=%q", plan.Store.Meta().SessionID, err.Error())
+				}
+			}
 			PublishRunPromptProgress(progress, evt)
 		},
 	})
@@ -158,6 +170,24 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 	}, nil
 }
 
+func markHeadlessQueuedPromptHistoryConsumed(ctx context.Context, store promptHistoryStore, sessionID string, queueItemIDs []string) error {
+	if store == nil || len(queueItemIDs) == 0 {
+		return nil
+	}
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if _, err = store.MarkPromptHistoryQueueItemsConsumed(ctx, sessionID, queueItemIDs); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), err)
+		default:
+		}
+	}
+	return err
+}
+
 func headlessRuntimeWorkdir(plan launch.SessionPlan) string {
 	meta := plan.Store.Meta()
 	if meta.WorktreeReminder != nil {
@@ -176,6 +206,22 @@ func headlessRuntimeWorkdir(plan launch.SessionPlan) string {
 type headlessPromptRuntime struct {
 	plan     *headlessRuntimePlan
 	warnings []string
+	history  promptHistoryStore
+}
+
+func (r *headlessPromptRuntime) RecordPromptHistory(ctx context.Context, clientRequestID string, prompt string) error {
+	if r == nil || r.history == nil || r.plan == nil || r.plan.engine == nil {
+		return nil
+	}
+	requestID := strings.TrimSpace(clientRequestID)
+	_, _, err := r.history.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
+		SessionID:       r.plan.engine.SessionID(),
+		Source:          metadata.PromptHistorySourceRunPrompt,
+		SourceID:        requestID,
+		ClientRequestID: requestID,
+		Text:            prompt,
+	})
+	return err
 }
 
 func (r *headlessPromptRuntime) SubmitUserMessage(ctx context.Context, prompt string) (PromptAssistantMessage, error) {

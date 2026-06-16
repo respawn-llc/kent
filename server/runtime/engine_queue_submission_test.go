@@ -27,7 +27,7 @@ func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {
 		},
 	})
 
-	eng.QueueUserMessage("steer now")
+	queued := eng.QueueUserMessage("steer now")
 
 	msg, err := eng.SubmitQueuedUserMessages(context.Background())
 	if err != nil {
@@ -41,6 +41,13 @@ func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {
 	}
 	if flushed.UserMessage != "steer now" {
 		t.Fatalf("unexpected flushed user message %q", flushed.UserMessage)
+	}
+	consumed, err := eng.HasConsumedQueuedUserMessage(queued.ID)
+	if err != nil {
+		t.Fatalf("query consumed queued user message: %v", err)
+	}
+	if !consumed {
+		t.Fatalf("expected queued item %q to be marked consumed", queued.ID)
 	}
 
 	hasQueuedUser := false

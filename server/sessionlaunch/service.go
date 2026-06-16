@@ -20,11 +20,16 @@ type authStateReader interface {
 	CurrentState(context.Context) (auth.State, error)
 }
 
+type promptHistoryReader interface {
+	ReadPromptHistory(ctx context.Context, sessionID string) ([]string, error)
+}
+
 type Service struct {
-	planner    launch.Planner
-	stores     sessionStoreRegistrar
-	authStates authStateReader
-	plans      *requestmemo.Memo[sessionPlanMemoRequest, PlanResult]
+	planner       launch.Planner
+	stores        sessionStoreRegistrar
+	authStates    authStateReader
+	promptHistory promptHistoryReader
+	plans         *requestmemo.Memo[sessionPlanMemoRequest, PlanResult]
 }
 
 type PlanResult struct {
@@ -49,6 +54,14 @@ func (s *Service) WithAuthStateReader(reader authStateReader) *Service {
 		return nil
 	}
 	s.authStates = reader
+	return s
+}
+
+func (s *Service) WithPromptHistoryReader(reader promptHistoryReader) *Service {
+	if s == nil {
+		return nil
+	}
+	s.promptHistory = reader
 	return s
 }
 
@@ -93,6 +106,13 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req serverapi.SessionPl
 		if err != nil {
 			return PlanResult{}, err
 		}
+		if s.promptHistory != nil {
+			history, err := s.promptHistory.ReadPromptHistory(ctx, plan.Store.Meta().SessionID)
+			if err != nil {
+				return PlanResult{}, err
+			}
+			plan.PromptHistory = history
+		}
 		if s.stores != nil {
 			s.stores.RegisterStore(plan.Store)
 		}
@@ -111,6 +131,7 @@ func sessionPlanResponseFromResult(result PlanResult) serverapi.SessionPlanRespo
 		EnabledToolIDs:      enabledToolIDs,
 		ConfiguredModelName: result.Plan.ConfiguredModelName,
 		SessionName:         result.Plan.SessionName,
+		PromptHistory:       append([]string(nil), result.Plan.PromptHistory...),
 		ModelContractLocked: result.Plan.ModelContractLocked,
 		WorkspaceRoot:       result.Plan.WorkspaceRoot,
 		Source:              result.Plan.Source,

@@ -548,7 +548,7 @@ func TestPromptHistoryBellWritesRawTerminalBell(t *testing.T) {
 	}
 }
 
-func TestInterruptedQueuedPromptDoesNotEnterHistoryBeforeFlush(t *testing.T) {
+func TestInterruptedQueuedPromptDoesNotEnterLocalHistoryBeforeFlush(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.setBusy(true)
 	m.activity = uiActivityRunning
@@ -557,14 +557,14 @@ func TestInterruptedQueuedPromptDoesNotEnterHistoryBeforeFlush(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
 	if len(updated.promptHistory) != 0 {
-		t.Fatalf("expected no prompt history before queued prompt flushes, got %+v", updated.promptHistory)
+		t.Fatalf("expected no local prompt history before queued prompt flushes, got %+v", updated.promptHistory)
 	}
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
 	updated = applyInterruptedRunStateForTest(t, updated)
 	if len(updated.promptHistory) != 0 {
-		t.Fatalf("expected interrupted queued prompt not to enter history, got %+v", updated.promptHistory)
+		t.Fatalf("expected interrupted queued prompt not to enter local history, got %+v", updated.promptHistory)
 	}
 	if updated.input != "queued later" {
 		t.Fatalf("expected queued draft restored after interrupt, got %q", updated.input)

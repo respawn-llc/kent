@@ -88,7 +88,6 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 		}
 		m.transcriptBaseOffset = 0
 		m.transcriptTotalEntries = len(m.transcriptEntries)
-		m.seedPromptHistoryFromTranscriptEntries(m.transcriptEntries)
 		m.refreshRollbackCandidates()
 		startupNativeHistoryCmd = m.syncNativeHistoryFromTranscript()
 	}

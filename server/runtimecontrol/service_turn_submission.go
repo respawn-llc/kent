@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"core/server/metadata"
 	"core/shared/serverapi"
 )
 
@@ -38,7 +39,7 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmi
 				return serverapi.RuntimeSubmitUserTurnResponse{}, err
 			}
 		}
-		if err := engine.RecordPromptHistory(memoReq.Text); err != nil {
+		if _, _, err := s.recordPromptHistory(ctx, metadata.PromptHistorySourceSubmitUserTurn, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), strings.TrimSpace(req.ClientRequestID), memoReq.Text); err != nil {
 			return serverapi.RuntimeSubmitUserTurnResponse{}, err
 		}
 		msg, err := engine.SubmitUserMessage(runCtx, memoReq.Text)

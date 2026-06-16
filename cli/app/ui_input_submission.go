@@ -60,6 +60,7 @@ func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID
 	}
 	_, isUserShell := parseUserShellCommand(text)
 	if m.hasRuntimeClient() && !isUserShell {
+		m.rememberPromptHistoryLocally(text)
 		return c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID)
 	}
 	return sequenceCmds(m.recordPromptHistory(text), c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID))

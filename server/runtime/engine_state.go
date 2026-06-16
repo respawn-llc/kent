@@ -135,15 +135,6 @@ func (e *Engine) appendCommittedEntry(entry storedLocalEntry) error {
 	return e.steer("", steerLocalEntryIntent(entry))
 }
 
-func (e *Engine) RecordPromptHistory(text string) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	_, _, err := e.store.AppendEvent("", "prompt_history", map[string]any{"text": text})
-	return err
-}
-
 func (e *Engine) SetOngoingError(text string) {
 	e.transcriptPersistence().SetOngoingError(text)
 	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})

@@ -54,6 +54,9 @@ type leaseRetryRuntimeControlClient struct {
 	queuedWork      bool
 	queuedWorkCalls int
 	submitLeaseID   []string
+	submitRequestID []string
+	queueRequestID  []string
+	recordRequestID []string
 	goalLeaseID     []string
 	localEntries    []serverapi.RuntimeAppendCommittedEntryRequest
 	showGoalResp    serverapi.RuntimeGoalShowResponse
@@ -67,6 +70,24 @@ func (c *leaseRetryRuntimeControlClient) submitLeaseIDs() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.submitLeaseID...)
+}
+
+func (c *leaseRetryRuntimeControlClient) submitRequestIDs() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.submitRequestID...)
+}
+
+func (c *leaseRetryRuntimeControlClient) queueRequestIDs() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.queueRequestID...)
+}
+
+func (c *leaseRetryRuntimeControlClient) recordRequestIDs() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.recordRequestID...)
 }
 
 func (c *leaseRetryRuntimeControlClient) goalLeaseIDs() []string {
@@ -132,6 +153,7 @@ func (c *leaseRetryRuntimeControlClient) SubmitUserMessage(_ context.Context, re
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.submitLeaseID = append(c.submitLeaseID, req.ControllerLeaseID)
+	c.submitRequestID = append(c.submitRequestID, req.ClientRequestID)
 	switch req.ControllerLeaseID {
 	case "lease-old":
 		if c.firstSubmitErr != nil {
@@ -149,6 +171,7 @@ func (c *leaseRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req s
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.submitLeaseID = append(c.submitLeaseID, req.ControllerLeaseID)
+	c.submitRequestID = append(c.submitRequestID, req.ClientRequestID)
 	switch req.ControllerLeaseID {
 	case "lease-old":
 		if c.firstSubmitErr != nil {
@@ -192,16 +215,36 @@ func (c *leaseRetryRuntimeControlClient) Interrupt(context.Context, serverapi.Ru
 	return nil
 }
 
-func (c *leaseRetryRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
-	return serverapi.RuntimeQueueUserMessageResponse{}, nil
+func (c *leaseRetryRuntimeControlClient) QueueUserMessage(_ context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queueRequestID = append(c.queueRequestID, req.ClientRequestID)
+	switch req.ControllerLeaseID {
+	case "lease-old":
+		return serverapi.RuntimeQueueUserMessageResponse{}, serverapi.ErrInvalidControllerLease
+	case "lease-new":
+		return serverapi.RuntimeQueueUserMessageResponse{QueueItemID: "queue-1", Text: req.Text}, nil
+	default:
+		return serverapi.RuntimeQueueUserMessageResponse{}, errors.New("unexpected controller lease")
+	}
 }
 
 func (c *leaseRetryRuntimeControlClient) DiscardQueuedUserMessage(context.Context, serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
 	return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, nil
 }
 
-func (c *leaseRetryRuntimeControlClient) RecordPromptHistory(context.Context, serverapi.RuntimeRecordPromptHistoryRequest) error {
-	return nil
+func (c *leaseRetryRuntimeControlClient) RecordPromptHistory(_ context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.recordRequestID = append(c.recordRequestID, req.ClientRequestID)
+	switch req.ControllerLeaseID {
+	case "lease-old":
+		return serverapi.ErrInvalidControllerLease
+	case "lease-new":
+		return nil
+	default:
+		return errors.New("unexpected controller lease")
+	}
 }
 
 func (c *leaseRetryRuntimeControlClient) ShowGoal(context.Context, serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
@@ -357,6 +400,43 @@ func TestRuntimeClientSubmitUserMessageRecoversInvalidControllerLease(t *testing
 	}
 	if got := controls.submitLeaseIDs(); !reflect.DeepEqual(got, []string{"lease-old", "lease-new"}) {
 		t.Fatalf("submit lease ids = %+v, want [lease-old lease-new]", got)
+	}
+	if got := controls.submitRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
+		t.Fatalf("submit request ids = %+v, want same non-empty id across retry", got)
+	}
+}
+
+func TestRuntimeClientQueueUserMessageReusesRequestIDAcrossLeaseRecovery(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	leaseManager := newControllerLeaseManager("lease-old")
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) { return "lease-new", nil })
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	item, err := runtimeClient.QueueUserMessage("queued")
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	if item.ID != "queue-1" || item.Text != "queued" {
+		t.Fatalf("queued item = %+v, want server response", item)
+	}
+	if got := controls.queueRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
+		t.Fatalf("queue request ids = %+v, want same non-empty id across retry", got)
+	}
+}
+
+func TestRuntimeClientRecordPromptHistoryReusesRequestIDAcrossLeaseRecovery(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	leaseManager := newControllerLeaseManager("lease-old")
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) { return "lease-new", nil })
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	if err := runtimeClient.RecordPromptHistory("/status"); err != nil {
+		t.Fatalf("RecordPromptHistory: %v", err)
+	}
+	if got := controls.recordRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
+		t.Fatalf("record request ids = %+v, want same non-empty id across retry", got)
 	}
 }
 

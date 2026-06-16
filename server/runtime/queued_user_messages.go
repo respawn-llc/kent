@@ -24,10 +24,35 @@ func newQueuedUserMessageStore() *queuedUserMessageStore {
 
 func (s *queuedUserMessageStore) Queue(text string) QueuedUserMessage {
 	item := QueuedUserMessage{ID: uuid.NewString(), Text: text}
-	intent := steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: text})
+	return s.QueueItem(item)
+}
+
+func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage) QueuedUserMessage {
+	item.ID = strings.TrimSpace(item.ID)
+	if item.ID == "" {
+		item.ID = uuid.NewString()
+	}
+	intent := steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: item.Text})
 	s.mu.Lock()
 	s.pending = append(s.pending, queuedUserSteeringIntent{message: item, intent: intent})
 	s.mu.Unlock()
+	return item
+}
+
+func (s *queuedUserMessageStore) EnsurePending(item QueuedUserMessage) QueuedUserMessage {
+	item.ID = strings.TrimSpace(item.ID)
+	if item.ID == "" || s == nil {
+		return QueuedUserMessage{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, pending := range s.pending {
+		if pending.message.ID == item.ID {
+			return pending.message
+		}
+	}
+	intent := steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: item.Text})
+	s.pending = append(s.pending, queuedUserSteeringIntent{message: item, intent: intent})
 	return item
 }
 

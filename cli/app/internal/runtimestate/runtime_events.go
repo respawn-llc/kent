@@ -101,14 +101,9 @@ const (
 	RuntimePendingInputClearDraft
 )
 
-type RuntimePromptHistoryCommand struct {
-	Text string
-}
-
 type RuntimePendingInputReduction struct {
 	State                PendingInputState
 	DraftCommand         RuntimeDraftInputCommandKind
-	PromptHistoryCommand *RuntimePromptHistoryCommand
 	ConsumedQueueItemIDs []string
 }
 
@@ -253,7 +248,6 @@ func ReduceRuntimePendingInputEvent(input PendingInputState, evt clientui.Event)
 		consumed := consumedQueuedUserMessages(reduction.State.PendingInjected, evt.UserMessageBatchQueueItemIDs)
 		if len(consumed) > 0 {
 			reduction.State.PendingInjected = append([]clientui.QueuedUserMessage(nil), reduction.State.PendingInjected[len(consumed):]...)
-			reduction.PromptHistoryCommand = &RuntimePromptHistoryCommand{Text: evt.UserMessage}
 			reduction.ConsumedQueueItemIDs = append([]string(nil), evt.UserMessageBatchQueueItemIDs[:len(consumed)]...)
 		}
 		if reduction.State.Submission == InputSubmissionLocked && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {

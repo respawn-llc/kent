@@ -25,8 +25,8 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncNone {
 		t.Fatal("did not expect flushed user message to request session sync")
 	}
-	if update.PendingInput.PromptHistoryCommand == nil {
-		t.Fatal("expected consumed injected text to be recorded in prompt history")
+	if len(update.PendingInput.ConsumedQueueItemIDs) != 1 || update.PendingInput.ConsumedQueueItemIDs[0] != "queue-1" {
+		t.Fatalf("consumed queue item ids = %+v, want queue-1", update.PendingInput.ConsumedQueueItemIDs)
 	}
 	if update.PendingInput.DraftCommand != RuntimePendingInputClearDraft {
 		t.Fatal("expected locked injected input to clear the draft input")

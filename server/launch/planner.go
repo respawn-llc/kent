@@ -65,6 +65,7 @@ type SessionPlan struct {
 	EnabledTools        []toolspec.ID
 	ConfiguredModelName string
 	SessionName         string
+	PromptHistory       []string
 	ModelContractLocked bool
 	WorkspaceRoot       string
 	Source              config.SourceReport

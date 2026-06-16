@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/prompts"
+	"core/server/metadata"
 	"core/server/primaryrun"
 	"core/server/requestmemo"
 	"core/server/runtime"
@@ -25,10 +26,17 @@ type ControllerLeaseVerifier interface {
 	RequireControllerLease(ctx context.Context, sessionID string, leaseID string) error
 }
 
+type PromptHistoryStore interface {
+	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error)
+	MarkPromptHistoryQueueState(ctx context.Context, sessionID string, queueItemID string, state metadata.PromptHistoryQueueState) (metadata.PromptHistoryRecord, error)
+	MarkPromptHistoryQueueItemsConsumed(ctx context.Context, sessionID string, queueItemIDs []string) (int64, error)
+}
+
 type Service struct {
 	runtimes       RuntimeResolver
 	gate           primaryrun.Gate
 	control        ControllerLeaseVerifier
+	promptStore    PromptHistoryStore
 	sessionNames   *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	thinkingLevels *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	fastModes      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetFastModeEnabledResponse]
@@ -139,6 +147,14 @@ func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) 
 		return nil
 	}
 	s.control = verifier
+	return s
+}
+
+func (s *Service) WithPromptHistoryStore(store PromptHistoryStore) *Service {
+	if s == nil {
+		return nil
+	}
+	s.promptStore = store
 	return s
 }
 
@@ -368,6 +384,9 @@ func (s *Service) SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSu
 		if ctx != nil {
 			runCtx = context.WithoutCancel(ctx)
 		}
+		if _, _, err := s.recordPromptHistory(ctx, metadata.PromptHistorySourceSubmitUserMessage, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), strings.TrimSpace(req.ClientRequestID), memoReq.Text); err != nil {
+			return serverapi.RuntimeSubmitUserMessageResponse{}, err
+		}
 		msg, err := engine.SubmitUserMessage(runCtx, memoReq.Text)
 		if err != nil {
 			return serverapi.RuntimeSubmitUserMessageResponse{}, err
@@ -520,7 +539,10 @@ func (s *Service) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQue
 		if err != nil {
 			return serverapi.RuntimeQueueUserMessageResponse{}, err
 		}
-		item := engine.QueueUserMessage(memoReq.Text)
+		item, err := s.ensureQueuedPromptHistory(ctx, engine, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
+		if err != nil {
+			return serverapi.RuntimeQueueUserMessageResponse{}, err
+		}
 		return serverapi.RuntimeQueueUserMessageResponse{QueueItemID: item.ID, Text: item.Text}, nil
 	})
 }
@@ -538,7 +560,13 @@ func (s *Service) DiscardQueuedUserMessage(ctx context.Context, req serverapi.Ru
 		if err != nil {
 			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 		}
-		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: engine.DiscardQueuedUserMessage(req.QueueItemID)}, nil
+		discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
+		if discarded && s.promptStore != nil {
+			if _, err := s.promptStore.MarkPromptHistoryQueueState(ctx, memoReq.SessionID, memoReq.QueueItemID, metadata.PromptHistoryQueueStateDiscarded); err != nil {
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
+			}
+		}
+		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded}, nil
 	})
 }
 
@@ -551,13 +579,68 @@ func (s *Service) RecordPromptHistory(ctx context.Context, req serverapi.Runtime
 		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
 			return struct{}{}, err
 		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
+		if _, err := s.resolve(ctx, req.SessionID); err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, engine.RecordPromptHistory(req.Text)
+		_, _, err := s.recordPromptHistory(ctx, metadata.PromptHistorySourceRecordPromptHistory, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), strings.TrimSpace(req.ClientRequestID), memoReq.Text)
+		return struct{}{}, err
 	})
 	return err
+}
+
+func (s *Service) recordPromptHistory(ctx context.Context, source metadata.PromptHistorySource, sessionID string, sourceID string, clientRequestID string, text string) (metadata.PromptHistoryRecord, bool, error) {
+	if s == nil || s.promptStore == nil {
+		return metadata.PromptHistoryRecord{}, false, nil
+	}
+	return s.promptStore.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
+		SessionID:       strings.TrimSpace(sessionID),
+		Source:          source,
+		SourceID:        strings.TrimSpace(sourceID),
+		ClientRequestID: strings.TrimSpace(clientRequestID),
+		Text:            text,
+	})
+}
+
+func (s *Service) ensureQueuedPromptHistory(ctx context.Context, engine *runtime.Engine, sessionID string, clientRequestID string, text string) (runtime.QueuedUserMessage, error) {
+	queueItemID := strings.TrimSpace(clientRequestID)
+	if s == nil || s.promptStore == nil {
+		return engine.QueueUserMessage(text), nil
+	}
+	record, _, err := s.promptStore.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
+		SessionID:       strings.TrimSpace(sessionID),
+		Source:          metadata.PromptHistorySourceQueueUserMessage,
+		SourceID:        queueItemID,
+		ClientRequestID: queueItemID,
+		QueueItemID:     queueItemID,
+		QueueState:      metadata.PromptHistoryQueueStateRecorded,
+		Text:            text,
+	})
+	if err != nil {
+		return runtime.QueuedUserMessage{}, err
+	}
+	item := runtime.QueuedUserMessage{ID: record.QueueItemID, Text: record.Text}
+	switch record.QueueState {
+	case metadata.PromptHistoryQueueStateConsumed, metadata.PromptHistoryQueueStateDiscarded:
+		return item, nil
+	case metadata.PromptHistoryQueueStateRecorded, metadata.PromptHistoryQueueStatePending:
+		consumed, err := engine.HasConsumedQueuedUserMessage(item.ID)
+		if err != nil {
+			return runtime.QueuedUserMessage{}, err
+		}
+		if consumed {
+			if _, err := s.promptStore.MarkPromptHistoryQueueItemsConsumed(ctx, sessionID, []string{item.ID}); err != nil {
+				return runtime.QueuedUserMessage{}, err
+			}
+			return item, nil
+		}
+		item = engine.EnsureQueuedUserMessage(item)
+		if _, err := s.promptStore.MarkPromptHistoryQueueState(ctx, sessionID, item.ID, metadata.PromptHistoryQueueStatePending); err != nil {
+			return runtime.QueuedUserMessage{}, err
+		}
+		return item, nil
+	default:
+		return runtime.QueuedUserMessage{}, fmt.Errorf("invalid queued prompt history state %q", record.QueueState)
+	}
 }
 
 func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {

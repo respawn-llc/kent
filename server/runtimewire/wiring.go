@@ -46,11 +46,6 @@ func NewRuntimeWiring(store *session.Store, active config.Settings, enabledTools
 }
 
 func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, mgr *auth.Manager, logger Logger, background *shelltool.Manager, opts RuntimeWiringOptions) (*RuntimeWiring, error) {
-	promptHistory, err := store.ReadPromptHistory()
-	if err != nil {
-		return nil, err
-	}
-
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(
 		workspaceRoot,
@@ -183,12 +178,11 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		return nil, err
 	}
 	return &RuntimeWiring{
-		Engine:        eng,
-		AskBroker:     askBroker,
-		EventBridge:   eventBridge,
-		Background:    background,
-		LocalTools:    localTools,
-		PromptHistory: append([]string(nil), promptHistory...),
+		Engine:      eng,
+		AskBroker:   askBroker,
+		EventBridge: eventBridge,
+		Background:  background,
+		LocalTools:  localTools,
 	}, nil
 }
 
