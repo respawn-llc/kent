@@ -195,7 +195,7 @@ func TestExactTokenCountHTTP400RepairsBeforeDiagnosticAndRetries(t *testing.T) {
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 
-	count, ok := eng.currentInputTokensPreciselyWithRepair(context.Background())
+	count, ok := eng.currentInputTokensPreciselyTrackedWithRepair(context.Background())
 	if !ok || count != 123 {
 		t.Fatalf("precise count = %d ok=%v, want 123 true", count, ok)
 	}
@@ -262,7 +262,7 @@ func TestIneligibleActiveToolTokenCountHTTP400DoesNotRepairButLaterGenerationCan
 	eng := mustNewTestEngine(t, store, countClient, tools.NewRegistry(), Config{Model: "gpt-5"})
 	eng.rememberPendingToolCallStarts(map[string]int{"active-call": 0})
 
-	if count, ok := eng.currentInputTokensPreciselyWithRepair(context.Background()); ok || count != 0 {
+	if count, ok := eng.currentInputTokensPreciselyTrackedWithRepair(context.Background()); ok || count != 0 {
 		t.Fatalf("active token count = %d ok=%v, want fallback", count, ok)
 	}
 	if !repairItemsContainCall(eng.snapshotItems(), "active-call") {
@@ -292,7 +292,7 @@ func TestCurrentTokenCountWithoutRepairEligibilityDoesNotRepairHTTP400(t *testin
 	client := &repairingTokenCountClient{errors: []error{&llm.APIStatusError{StatusCode: 400, Body: "bad request"}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 
-	if count, ok := eng.currentInputTokensPrecisely(context.Background()); ok || count != 0 {
+	if count, ok := eng.currentInputTokensPreciselyTracked(context.Background()); ok || count != 0 {
 		t.Fatalf("preflight token count = %d ok=%v, want fallback", count, ok)
 	}
 	if !repairItemsContainCall(eng.snapshotItems(), "preflight-call") {

@@ -64,7 +64,7 @@ func TestCriticalExactRecountsAfterToolCompletionBeforeToolMessageAppend(t *test
 	if err := eng.steer("step", steerMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); !ok || precise != 100 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok || precise != 100 {
 		t.Fatalf("initial exact count = (%d, %v), want (100, true)", precise, ok)
 	}
 	if client.countInputTokenCalls != 1 {

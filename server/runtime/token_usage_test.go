@@ -143,13 +143,13 @@ func TestCurrentInputTokensPreciselyRechecksAfterTranscriptMutation(t *testing.T
 		t.Fatalf("append message: %v", err)
 	}
 
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); !ok || precise != 240 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok || precise != 240 {
 		t.Fatalf("first precise count = (%d, %v), want (240, true)", precise, ok)
 	}
 	if client.countCalls != 1 {
 		t.Fatalf("count calls=%d, want 1", client.countCalls)
 	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); !ok || precise != 240 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok || precise != 240 {
 		t.Fatalf("cached precise count = (%d, %v), want (240, true)", precise, ok)
 	}
 	if client.countCalls != 1 {
@@ -160,7 +160,7 @@ func TestCurrentInputTokensPreciselyRechecksAfterTranscriptMutation(t *testing.T
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "world"})); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); !ok || precise != 360 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok || precise != 360 {
 		t.Fatalf("second precise count = (%d, %v), want (360, true)", precise, ok)
 	}
 	if client.countCalls != 2 {
@@ -178,7 +178,7 @@ func TestContextUsagePrefersFreshPreciseCurrentTokens(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	if _, ok := eng.currentInputTokensPrecisely(context.Background()); !ok {
+	if _, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok {
 		t.Fatal("expected exact token count to succeed")
 	}
 	usage := eng.ContextUsage()
@@ -195,7 +195,7 @@ func TestCurrentInputTokensPreciselyRechecksAfterFastModeToggle(t *testing.T) {
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "hello"})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
-	if _, ok := eng.currentInputTokensPrecisely(context.Background()); !ok {
+	if _, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok {
 		t.Fatal("expected first exact token count to succeed")
 	}
 	if client.countCalls != 1 {
@@ -209,7 +209,7 @@ func TestCurrentInputTokensPreciselyRechecksAfterFastModeToggle(t *testing.T) {
 		t.Fatal("expected fast mode toggle to report changed")
 	}
 	client.inputTokenCount = 220
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); !ok || precise != 220 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok || precise != 220 {
 		t.Fatalf("post-toggle precise count = (%d, %v), want (220, true)", precise, ok)
 	}
 	if client.countCalls != 2 {
@@ -242,7 +242,7 @@ func TestCurrentInputTokensPreciselyIfCriticalForcesRefreshAfterSignificantMutat
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "hello"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, ok := eng.currentInputTokensPrecisely(context.Background()); !ok {
+	if _, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok {
 		t.Fatal("expected initial exact token count to succeed")
 	}
 	if client.countCalls != 1 {
@@ -271,10 +271,10 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t 
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "hello"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); ok || precise != 0 {
 		t.Fatalf("currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
 	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); ok || precise != 0 {
 		t.Fatalf("second currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
 	}
 	if client.countCalls != 2 {
@@ -289,7 +289,7 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t 
 	if err != nil {
 		t.Fatalf("reopen engine: %v", err)
 	}
-	if precise, ok := reopened.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+	if precise, ok := reopened.currentInputTokensPreciselyTracked(context.Background()); ok || precise != 0 {
 		t.Fatalf("reopened currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
 	}
 	if client.countCalls != 2 {
@@ -341,7 +341,7 @@ func TestCurrentInputTokensPreciselySkipsUnsupportedCountClient(t *testing.T) {
 		t.Fatalf("append user message: %v", err)
 	}
 
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); ok || precise != 0 {
 		t.Fatalf("currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
 	}
 	if client.countCalls != 0 {
@@ -375,7 +375,7 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnSupportProbeFailure
 		t.Fatalf("append user message: %v", err)
 	}
 
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); ok || precise != 0 {
 		t.Fatalf("currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
 	}
 	if client.countCalls != 0 {

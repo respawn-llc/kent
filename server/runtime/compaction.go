@@ -192,7 +192,7 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	}
 	estimatedCurrentTotal := e.currentTokenUsage() + reservedOutput
 	if preSubmitLimit > 0 && estimatedCurrentTotal >= preSubmitLimit {
-		if preciseInput, ok := e.currentInputTokensPrecisely(ctx); ok {
+		if preciseInput, ok := e.currentInputTokensPreciselyTracked(ctx); ok {
 			return preciseInput+reservedOutput >= preSubmitLimit, nil
 		}
 		return true, nil
@@ -281,19 +281,11 @@ func (e *Engine) usageAtOrAboveLimit(ctx context.Context, limit int) bool {
 	if estimatedTotal < limit && estimatedTotal+margin < limit {
 		return false
 	}
-	preciseInput, ok := e.currentInputTokensPreciselyWithRepair(ctx)
+	preciseInput, ok := e.currentInputTokensPreciselyTrackedWithRepair(ctx)
 	if !ok {
 		return estimatedTotal >= limit
 	}
 	return preciseInput+reservedOutput >= limit
-}
-
-func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
-	return e.currentInputTokensPreciselyTracked(ctx)
-}
-
-func (e *Engine) currentInputTokensPreciselyWithRepair(ctx context.Context) (int, bool) {
-	return e.currentInputTokensPreciselyTrackedWithRepair(ctx)
 }
 
 func (e *Engine) currentInputTokensPreciselyIfDue(ctx context.Context, limit int) (int, bool) {
@@ -650,7 +642,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		windowTokens = e.contextWindowTokens()
 	}
 	inputTokens := estimateItemsTokens(e.snapshotItems())
-	if preciseInput, ok := e.currentInputTokensPreciselyWithRepair(ctx); ok {
+	if preciseInput, ok := e.currentInputTokensPreciselyTrackedWithRepair(ctx); ok {
 		inputTokens = preciseInput
 	}
 	if err := e.recordLastUsage(llm.Usage{
