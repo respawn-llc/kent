@@ -157,7 +157,7 @@ while IFS= read -r comment_json; do
 	comment_body="$(jq -r '.body // ""' <<<"$comment_json")"
 	comment_file="$tmpdir/comment-$comment_index.md"
 	printf '%s\n' "$comment_body" >"$comment_file"
-	"$kent_bin" task comment add --project . "$task_ref" --author user --author-id "$comment_author" --body-file "$comment_file"
+	"$kent_bin" task comment add "$task_ref" --author user --author-id "$comment_author" --body-file "$comment_file"
 done < <(jq -c '.[][]' "$comments_file")
 
 echo "Imported GH #$number into $task_ref with $comment_count comments."
