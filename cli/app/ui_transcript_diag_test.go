@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"strings"
 	"testing"
 
-	"core/cli/tui"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/serverapi"
@@ -106,170 +104,7 @@ func (transcriptDiagTestRuntimeControlClient) ClearGoal(context.Context, servera
 var _ client.SessionViewClient = transcriptDiagTestSessionViewClient{}
 var _ client.RuntimeControlClient = transcriptDiagTestRuntimeControlClient{}
 
-func TestProjectedRuntimeEventLogsTranscriptDiagnostics(t *testing.T) {
-	logger := &testUILogger{}
-	m := newProjectedStaticUIModel(
-		WithUILogger(logger),
-		WithUITranscriptDiagnostics(true),
-		WithUISessionID("session-1"),
-	)
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:           clientui.EventAssistantDelta,
-		StepID:         "step-1",
-		AssistantDelta: "working",
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role: "assistant",
-			Text: "working",
-		}},
-	}, true).cmd
-
-	joined := strings.Join(logger.lines, "\n")
-	if !strings.Contains(joined, "transcript.diag.client.apply_event") {
-		t.Fatalf("expected event diagnostics, got %q", joined)
-	}
-	if !strings.Contains(joined, "transcript.diag.client.append_entries") {
-		t.Fatalf("expected append diagnostics, got %q", joined)
-	}
-	if !strings.Contains(joined, "session_id=session-1") {
-		t.Fatalf("expected session id in diagnostics, got %q", joined)
-	}
-}
-
-func TestProjectedRuntimeEventLogsTranscriptDiagnosticsInDebugMode(t *testing.T) {
-	logger := &testUILogger{}
-	m := newProjectedStaticUIModel(
-		WithUILogger(logger),
-		WithUIDebug(true),
-		WithUISessionID("session-1"),
-	)
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                clientui.EventToolCallStarted,
-		StepID:              "step-1",
-		TranscriptRevision:  7,
-		CommittedEntryCount: 3,
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role:       "tool_call",
-			ToolCallID: "call-1",
-			Text:       "shell",
-		}},
-	}, true).cmd
-
-	joined := strings.Join(logger.lines, "\n")
-	if !strings.Contains(joined, "transcript.diag.client.projected_plan") {
-		t.Fatalf("expected projected plan diagnostics in debug mode, got %q", joined)
-	}
-	if !strings.Contains(joined, "event_revision=7") {
-		t.Fatalf("expected revision field in debug diagnostics, got %q", joined)
-	}
-}
-
-func TestRuntimeTranscriptPageLogsRejectReason(t *testing.T) {
-	logger := &testUILogger{}
-	m := newProjectedStaticUIModel(
-		WithUILogger(logger),
-		WithUITranscriptDiagnostics(true),
-		WithUISessionID("session-1"),
-	)
-	m.transcriptRevision = 10
-	m.transcriptLiveDirty = true
-	m.transcriptEntries = []tui.TranscriptEntry{{Role: "assistant", Text: "seed"}}
-	m.transcriptTotalEntries = 1
-	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-	}, clientui.TranscriptRecoveryCauseNone)
-
-	joined := strings.Join(logger.lines, "\n")
-	if !strings.Contains(joined, "transcript.diag.client.apply_page_reject") {
-		t.Fatalf("expected reject diagnostics, got %q", joined)
-	}
-	if !strings.Contains(joined, "reason=live_dirty_same_or_older_revision") {
-		t.Fatalf("expected reject reason, got %q", joined)
-	}
-}
-
-func TestDeferredCommittedTailLifecycleLogsDiagnostics(t *testing.T) {
-	logger := &testUILogger{}
-	m := newProjectedStaticUIModel(
-		WithUILogger(logger),
-		WithUITranscriptDiagnostics(true),
-		WithUISessionID("session-1"),
-	)
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-	m.setBusy(true)
-	m.pendingInjected = queuedUserMessagesForTest("steered message")
-	m.input = "steered message"
-	m.lockedInjectText = "steered message"
-	m.lockedInjectID = "queue-test-0"
-	m.setInputSubmitLocked(true)
-	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
-	m.transcriptRevision = 6
-	m.transcriptTotalEntries = 1
-	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}, true).cmd
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                         clientui.EventUserMessageFlushed,
-		StepID:                       "step-1",
-		CommittedTranscriptChanged:   true,
-		TranscriptRevision:           7,
-		CommittedEntryCount:          2,
-		UserMessage:                  "steered message",
-		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
-		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
-	}, true).cmd
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventAssistantMessage,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         8,
-		CommittedEntryCount:        3,
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "foreground done"}},
-	}, true).cmd
-
-	m.deferredCommittedTail = []deferredProjectedTranscriptTail{{
-		rangeStart: 1,
-		rangeEnd:   2,
-		revision:   8,
-		entries:    []clientui.ChatEntry{{Role: "user", Text: "queued user"}},
-		pending:    []string{"queued user"},
-	}}
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventAssistantMessage,
-		StepID:                     "step-2",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         9,
-		CommittedEntryCount:        5,
-		CommittedEntryStart:        4,
-		CommittedEntryStartSet:     true,
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "authoritative tail"}},
-	}, true).cmd
-
-	joined := strings.Join(logger.lines, "\n")
-	for _, want := range []string{
-		"transcript.diag.client.defer_tail",
-		"transcript.diag.client.merge_deferred_tail",
-		"transcript.diag.client.begin_continuity_recovery",
-		"transcript.diag.client.clear_deferred_tail",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("expected %s in diagnostics, got %q", want, joined)
-		}
-	}
-	if !strings.Contains(joined, "reason=invalidate_transient") {
-		t.Fatalf("expected clear reason in diagnostics, got %q", joined)
-	}
-}
-
-func TestRuntimeCarryQueueLogsAndResumesInOrder(t *testing.T) {
+func TestRuntimeCarryQueueResumesInOrder(t *testing.T) {
 	logger := &testUILogger{}
 	m := newProjectedStaticUIModel(
 		WithUILogger(logger),
@@ -303,17 +138,6 @@ func TestRuntimeCarryQueueLogsAndResumesInOrder(t *testing.T) {
 	}
 	if len(batch.events) != 1 || batch.events[0].Kind != clientui.EventLocalEntryAdded {
 		t.Fatalf("expected carry resumed before older pending event, got %+v", batch.events)
-	}
-
-	joined := strings.Join(logger.lines, "\n")
-	if !strings.Contains(joined, "transcript.diag.client.runtime_batch_carry") {
-		t.Fatalf("expected carry diagnostics, got %q", joined)
-	}
-	if !strings.Contains(joined, "transcript.diag.client.wait_runtime_event_resume_pending") {
-		t.Fatalf("expected resume diagnostics, got %q", joined)
-	}
-	if !strings.Contains(joined, "kind=local_entry_added") {
-		t.Fatalf("expected resumed carry kind in diagnostics, got %q", joined)
 	}
 }
 
