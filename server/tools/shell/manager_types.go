@@ -275,6 +275,7 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 
 func (p *processEntry) setExited(exitCode int, state string) {
 	p.mu.Lock()
+	p.running = false
 	p.finishedAt = time.Now().UTC()
 	p.lastUpdatedAt = p.finishedAt
 	p.exitCode = &exitCode
@@ -282,9 +283,6 @@ func (p *processEntry) setExited(exitCode int, state string) {
 	stdin, log := p.detachResourcesLocked()
 	p.mu.Unlock()
 	closeDetachedResources(stdin, log)
-	p.mu.Lock()
-	p.running = false
-	p.mu.Unlock()
 	p.signal()
 }
 

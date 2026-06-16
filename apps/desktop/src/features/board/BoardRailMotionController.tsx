@@ -394,7 +394,7 @@ export function BoardRailMotionController({
                   isCollapsed={effectiveColumnIsCollapsed(column)}
                   isFirstActive={column.id === firstActiveID}
                   key={`${board.projectID}:${board.selectedWorkflow.id}:${column.id}`}
-                  latestIsCollapsed={columnIsCollapsed(column)}
+                  latestIsCollapsed={effectiveColumnIsCollapsed(column)}
                   onCardClick={onCardClick}
                   onCardDragEnd={onCardDragEnd}
                   onCardDragStart={onCardDragStart}
@@ -420,7 +420,7 @@ export function BoardRailMotionController({
               isCollapsed={effectiveColumnIsCollapsed(section.column)}
               isFirstActive={section.column.id === firstActiveID}
               key={`${board.projectID}:${board.selectedWorkflow.id}:${section.id}`}
-              latestIsCollapsed={columnIsCollapsed(section.column)}
+              latestIsCollapsed={effectiveColumnIsCollapsed(section.column)}
               onCardClick={onCardClick}
               onCardDragEnd={onCardDragEnd}
               onCardDragStart={onCardDragStart}
