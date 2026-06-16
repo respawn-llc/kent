@@ -73,29 +73,25 @@ func TestNormalGenerationHTTP400RepairsMissingToolOutputRebuildsAndRetries(t *te
 	}
 }
 
-func TestReviewerHTTP400RepairsMissingToolOutputRebuildsAndRetries(t *testing.T) {
+func TestReviewerHTTP400DoesNotRepairMainTranscript(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "missing-review", Name: "exec", Input: json.RawMessage(`{}`)}}})
 	reviewerClient := &fakeClient{
 		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Message: "bad request"}},
-		responses: []llm.Response{{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`},
-			Usage:     llm.Usage{InputTokens: 10, OutputTokens: 2, WindowTokens: 100},
-		}},
 	}
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	if !repairItemsContainCall(eng.snapshotItems(), "missing-review") {
 		t.Fatalf("expected pre-review runtime projection to contain corrupted call")
 	}
 
-	if _, err := eng.runReviewerSuggestions(context.Background(), "review", reviewerClient); err != nil {
-		t.Fatalf("reviewer suggestions: %v", err)
+	if _, err := eng.runReviewerSuggestions(context.Background(), "review", reviewerClient); err == nil {
+		t.Fatal("expected reviewer request error")
 	}
-	if len(reviewerClient.calls) != 2 {
-		t.Fatalf("reviewer calls = %d, want 2", len(reviewerClient.calls))
+	if len(reviewerClient.calls) != 1 {
+		t.Fatalf("reviewer calls = %d, want 1", len(reviewerClient.calls))
 	}
-	if repairItemsContainCall(eng.snapshotItems(), "missing-review") {
-		t.Fatalf("runtime projection still contains corrupted call after reviewer repair")
+	if !repairItemsContainCall(eng.snapshotItems(), "missing-review") {
+		t.Fatalf("reviewer 400 repaired main transcript")
 	}
 }
 

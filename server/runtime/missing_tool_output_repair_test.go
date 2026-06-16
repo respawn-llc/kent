@@ -147,6 +147,34 @@ func TestMissingToolOutputRepairHandlesCustomToolOutputKindAndMaterializedPreced
 	}
 }
 
+func TestMissingToolOutputRepairDropsMismatchedDuplicateMaterializedOutput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "mixed", Name: "exec", Input: json.RawMessage(`{}`)}}})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, ToolCallID: "mixed", Content: `{"ok":true}`})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, MessageType: llm.MessageTypeCustomToolCallOutput, ToolCallID: "mixed", Content: "wrong kind"})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	messages := repairMessagesFromEvents(t, readRepairEvents(t, store))
+	toolOutputs := make([]llm.Message, 0)
+	for _, msg := range messages {
+		if msg.Role == llm.RoleTool {
+			toolOutputs = append(toolOutputs, msg)
+		}
+	}
+	if len(messages[0].ToolCalls) != 1 || messages[0].ToolCalls[0].ID != "mixed" {
+		t.Fatalf("expected matching call preserved, got %+v", messages[0].ToolCalls)
+	}
+	if len(toolOutputs) != 1 || toolOutputs[0].MessageType == llm.MessageTypeCustomToolCallOutput {
+		t.Fatalf("expected only matching materialized output, got %+v", toolOutputs)
+	}
+}
+
 func TestMissingToolOutputRepairTreatsToolCompletedOrderInsensitively(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "tool_completed", storedToolCompletion{CallID: "call-1", Name: "exec", Output: json.RawMessage(`{"ok":true}`)})

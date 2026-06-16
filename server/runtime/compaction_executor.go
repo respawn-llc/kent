@@ -89,7 +89,7 @@ func (e *Engine) compactWithContextRepairRetry(
 				return llm.CompactionResponse{}, nil, repairStats, errors.Join(err, repairErr)
 			}
 			if repair.Changed && repair.RemovedCalls > 0 {
-				currentInput = responseItemsWithoutRepairCalls(currentInput, repair.RemovedIDs)
+				currentInput = responseItemsAfterMissingToolOutputRepair(currentInput, repair.RemovedIDs, repair.RemovedCallIDs)
 				continue
 			}
 		}
@@ -252,7 +252,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 				return "", repairStats, errors.Join(err, repairErr)
 			}
 			if repair.Changed && repair.RemovedCalls > 0 {
-				window = responseItemsWithoutRepairCalls(window, repair.RemovedIDs)
+				window = responseItemsAfterMissingToolOutputRepair(window, repair.RemovedIDs, repair.RemovedCallIDs)
 				continue
 			}
 		}

@@ -78,6 +78,7 @@ type steeringCacheObservation struct {
 type steeringRepairReload struct {
 	rewrite                 session.EventRewriteResult
 	removedCallIDs          []string
+	removedToolCallIDs      []string
 	preRepairCommittedCount int
 }
 
@@ -223,13 +224,15 @@ func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.
 	}
 }
 
-func steerRepairReloadIntent(rewrite session.EventRewriteResult, removedCallIDs []string, preRepairCommittedCount int) steeringIntent {
+func steerRepairReloadIntent(rewrite session.EventRewriteResult, removedCallIDs []string, removedToolCallIDs []string, preRepairCommittedCount int) steeringIntent {
 	copyRemovedCallIDs := append([]string(nil), removedCallIDs...)
+	copyRemovedToolCallIDs := append([]string(nil), removedToolCallIDs...)
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
 		items: []steeringItem{{repairReload: &steeringRepairReload{
 			rewrite:                 rewrite,
 			removedCallIDs:          copyRemovedCallIDs,
+			removedToolCallIDs:      copyRemovedToolCallIDs,
 			preRepairCommittedCount: preRepairCommittedCount,
 		}}},
 	}
