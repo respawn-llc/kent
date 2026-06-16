@@ -236,20 +236,23 @@ func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noti
 }
 
 func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
-	return c.submitUserMessage(ctx, text, false)
-}
-
-func (c *sessionRuntimeClient) SubmitUserMessageWithPromptHistoryRecorded(ctx context.Context, text string) (string, error) {
-	return c.submitUserMessage(ctx, text, true)
-}
-
-func (c *sessionRuntimeClient) submitUserMessage(ctx context.Context, text string, promptHistoryRecorded bool) (string, error) {
 	if err := c.ensureWritable(); err != nil {
 		return "", err
 	}
 	requestID := uuid.NewString()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text, PromptHistoryRecorded: promptHistoryRecorded})
+		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
+	})
+	return resp.Message, err
+}
+
+func (c *sessionRuntimeClient) SubmitUserMessageWithPromptHistoryRecorded(ctx context.Context, text string) (string, error) {
+	if err := c.ensureWritable(); err != nil {
+		return "", err
+	}
+	requestID := uuid.NewString()
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text, PromptHistoryRecorded: true})
 	})
 	return resp.Message, err
 }

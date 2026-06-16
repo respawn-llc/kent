@@ -50,11 +50,9 @@ func TestServicePlanSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
 		t.Fatalf("append legacy prompt history event: %v", err)
 	}
 	if _, _, err := meta.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
-		SessionID:       store.Meta().SessionID,
-		Source:          metadata.PromptHistorySourceSubmitUserMessage,
-		SourceID:        "req-1",
-		ClientRequestID: "req-1",
-		Text:            "db-history",
+		SessionID: store.Meta().SessionID,
+		SourceID:  "req-1",
+		Text:      "db-history",
 	}); err != nil {
 		t.Fatalf("record metadata prompt history: %v", err)
 	}

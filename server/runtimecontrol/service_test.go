@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
@@ -33,14 +30,11 @@ func (s stubRuntimeResolver) ResolveRuntime(context.Context, string) (*runtime.E
 var runtimeControlPromptHistoryStores sync.Map
 
 type runtimeControlPromptHistoryStore struct {
-	mu              sync.Mutex
-	records         []metadata.PromptHistoryRecord
-	recordInserted  []bool
-	recordCtxErr    error
-	queueStateErr   error
-	queueStateCalls int
-	queueStateHook  func()
-	consumeErr      error
+	mu             sync.Mutex
+	records        []metadata.PromptHistoryRecord
+	recordInserted []bool
+	recordErr      error
+	recordCtxErr   error
 }
 
 func newRuntimeControlPromptHistoryStore(sessionID string) *runtimeControlPromptHistoryStore {
@@ -52,12 +46,15 @@ func newRuntimeControlPromptHistoryStore(sessionID string) *runtimeControlPrompt
 func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.recordErr != nil {
+		return metadata.PromptHistoryRecord{}, false, s.recordErr
+	}
 	if s.recordCtxErr != nil && ctx.Err() != nil {
 		return metadata.PromptHistoryRecord{}, false, s.recordCtxErr
 	}
 	for _, record := range s.records {
-		if record.SessionID == entry.SessionID && record.Source == entry.Source && (record.SourceID == entry.SourceID || record.ClientRequestID == entry.ClientRequestID && entry.ClientRequestID != "") {
-			if record.Text != entry.Text || record.SourceID != entry.SourceID && record.ClientRequestID == entry.ClientRequestID {
+		if record.SessionID == entry.SessionID && record.SourceID == entry.SourceID {
+			if record.Text != entry.Text {
 				return metadata.PromptHistoryRecord{}, false, metadata.ErrPromptHistoryConflict
 			}
 			s.recordInserted = append(s.recordInserted, false)
@@ -65,109 +62,27 @@ func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(ctx context.
 		}
 	}
 	record := metadata.PromptHistoryRecord{
-		Sequence:        int64(len(s.records) + 1),
-		SessionID:       entry.SessionID,
-		Source:          entry.Source,
-		SourceID:        entry.SourceID,
-		ClientRequestID: entry.ClientRequestID,
-		QueueItemID:     entry.QueueItemID,
-		QueueState:      entry.QueueState,
-		Text:            entry.Text,
-		CreatedAt:       entry.CreatedAt,
+		Sequence:  int64(len(s.records) + 1),
+		SessionID: entry.SessionID,
+		SourceID:  entry.SourceID,
+		Text:      entry.Text,
+		CreatedAt: entry.CreatedAt,
 	}
 	s.records = append(s.records, record)
 	s.recordInserted = append(s.recordInserted, true)
 	return record, true, nil
 }
 
-func (s *runtimeControlPromptHistoryStore) ReadPromptHistoryQueueItem(_ context.Context, sessionID string, queueItemID string) (metadata.PromptHistoryRecord, error) {
+func (s *runtimeControlPromptHistoryStore) SetRecordError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, record := range s.records {
-		if record.SessionID == sessionID && record.QueueItemID == queueItemID {
-			return record, nil
-		}
-	}
-	return metadata.PromptHistoryRecord{}, errors.New("queued prompt history not found")
-}
-
-func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueState(_ context.Context, sessionID string, queueItemID string, state metadata.PromptHistoryQueueState) (metadata.PromptHistoryRecord, bool, error) {
-	s.mu.Lock()
-	hook := s.queueStateHook
-	s.queueStateHook = nil
-	s.mu.Unlock()
-	if hook != nil {
-		hook()
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.queueStateCalls++
-	if s.queueStateErr != nil {
-		return metadata.PromptHistoryRecord{}, false, s.queueStateErr
-	}
-	for i, record := range s.records {
-		if record.SessionID == sessionID && record.QueueItemID == queueItemID {
-			if record.QueueState == metadata.PromptHistoryQueueStateConsumed || record.QueueState == metadata.PromptHistoryQueueStateDiscarded {
-				return record, false, nil
-			}
-			s.records[i].QueueState = state
-			return s.records[i], true, nil
-		}
-	}
-	return metadata.PromptHistoryRecord{}, false, errors.New("queued prompt history not found")
-}
-
-func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueItemsConsumed(_ context.Context, sessionID string, queueItemIDs []string) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.consumeErr != nil {
-		return 0, s.consumeErr
-	}
-	ids := map[string]bool{}
-	for _, raw := range queueItemIDs {
-		id := strings.TrimSpace(raw)
-		if id != "" {
-			ids[id] = true
-		}
-	}
-	var updated int64
-	for i, record := range s.records {
-		if record.SessionID == sessionID && ids[record.QueueItemID] && record.QueueState != metadata.PromptHistoryQueueStateDiscarded {
-			s.records[i].QueueState = metadata.PromptHistoryQueueStateConsumed
-			updated++
-		}
-	}
-	return updated, nil
-}
-
-func (s *runtimeControlPromptHistoryStore) SetConsumeError(err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.consumeErr = err
-}
-
-func (s *runtimeControlPromptHistoryStore) SetQueueStateError(err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.queueStateErr = err
-}
-
-func (s *runtimeControlPromptHistoryStore) SetQueueStateHook(hook func()) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.queueStateHook = hook
+	s.recordErr = err
 }
 
 func (s *runtimeControlPromptHistoryStore) SetRecordContextError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recordCtxErr = err
-}
-
-func (s *runtimeControlPromptHistoryStore) QueueStateCalls() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.queueStateCalls
 }
 
 type stubRuntimeLeaseVerifier struct {
@@ -1058,12 +973,6 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	if firstQueue.QueueItemID == "" || secondQueue.QueueItemID != firstQueue.QueueItemID {
 		t.Fatalf("queue ids = (%q, %q), want stable non-empty id", firstQueue.QueueItemID, secondQueue.QueueItemID)
 	}
-	if firstQueue.QueueItemID != "req-1" {
-		t.Fatalf("queue id = %q, want request-id-derived queue id", firstQueue.QueueItemID)
-	}
-	if got := service.promptStore.(*runtimeControlPromptHistoryStore).QueueStateCalls(); got != 1 {
-		t.Fatalf("queue state transition calls = %d, want only fresh pending transition before retry", got)
-	}
 	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
 		t.Fatalf("queued prompt history count = %d, want 1 immediately after queue acceptance", got)
 	}
@@ -1078,366 +987,47 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	}
 }
 
-func TestServiceQueueUserMessageDoesNotScanConsumptionMarkersForFreshQueue(t *testing.T) {
-	client := finalResponseRuntimeControlClient()
-	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
-	if _, _, err := store.AppendEvent("old-step", "queued_user_messages_consumed", map[string]any{"queue_item_ids": []string{"req-fresh"}}); err != nil {
-		t.Fatalf("append stale consumed marker: %v", err)
-	}
-
-	queued, err := service.QueueUserMessage(context.Background(), runtimeControlQueueUserMessageRequest(store, "req-fresh", "fresh queue"))
-	if err != nil {
-		t.Fatalf("QueueUserMessage: %v", err)
-	}
-	if queued.QueueItemID != "req-fresh" {
-		t.Fatalf("queue item id = %q, want req-fresh", queued.QueueItemID)
-	}
-	if !engine.HasQueuedUserWork() {
-		t.Fatal("expected fresh queue request to enqueue without scanning stale consumed marker")
-	}
-}
-
-func TestServiceQueueUserMessageReplaysPendingPromptAfterColdReopen(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	ctx := context.Background()
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	meta, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	firstEngine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create first runtime engine: %v", err)
-	}
-	firstService := NewService(stubRuntimeResolver{engine: firstEngine}, nil).WithPromptHistoryStore(meta)
-	req := runtimeControlQueueUserMessageRequest(store, "req-cold", "hello after reopen")
-
-	firstQueue, err := firstService.QueueUserMessage(ctx, req)
-	if err != nil {
-		t.Fatalf("QueueUserMessage first: %v", err)
-	}
-	if err := firstEngine.Close(); err != nil {
-		t.Fatalf("close first runtime engine: %v", err)
-	}
-	reopened, err := session.OpenByID(cfg.PersistenceRoot, store.Meta().SessionID, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.OpenByID: %v", err)
-	}
-	secondClient := finalResponseRuntimeControlClient()
-	secondEngine, err := runtime.New(reopened, secondClient, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create second runtime engine: %v", err)
-	}
-	t.Cleanup(func() { _ = secondEngine.Close() })
-	secondService := NewService(stubRuntimeResolver{engine: secondEngine}, nil).WithPromptHistoryStore(meta)
-
-	secondQueue, err := secondService.QueueUserMessage(ctx, req)
-	if err != nil {
-		t.Fatalf("QueueUserMessage replay after reopen: %v", err)
-	}
-	if firstQueue.QueueItemID != "req-cold" || secondQueue.QueueItemID != firstQueue.QueueItemID {
-		t.Fatalf("queue ids first=%q second=%q, want stable request-derived id", firstQueue.QueueItemID, secondQueue.QueueItemID)
-	}
-	if _, err := secondEngine.SubmitQueuedUserMessages(ctx); err != nil {
-		t.Fatalf("SubmitQueuedUserMessages after reopen: %v", err)
-	}
-	if got := countUserMessagesWithContent(t, reopened, "hello after reopen"); got != 1 {
-		t.Fatalf("queued user message count after reopen = %d, want 1", got)
-	}
-	history, err := meta.ReadPromptHistory(ctx, store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("ReadPromptHistory: %v", err)
-	}
-	if len(history) != 1 || history[0] != "hello after reopen" {
-		t.Fatalf("prompt history after reopen = %+v, want one queued entry", history)
-	}
-}
-
-func TestServiceQueueUserMessageRepairsConsumedPromptAfterColdReopen(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	ctx := context.Background()
-	workspace := t.TempDir()
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	meta, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
-	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	firstClient := finalResponseRuntimeControlClient()
-	firstEngine, err := runtime.New(store, firstClient, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create first runtime engine: %v", err)
-	}
-	firstService := NewService(stubRuntimeResolver{engine: firstEngine}, nil).WithPromptHistoryStore(meta)
-	req := runtimeControlQueueUserMessageRequest(store, "req-consumed", "hello consumed")
-
-	firstQueue, err := firstService.QueueUserMessage(ctx, req)
-	if err != nil {
-		t.Fatalf("QueueUserMessage first: %v", err)
-	}
-	if _, err := firstEngine.SubmitQueuedUserMessages(ctx); err != nil {
-		t.Fatalf("SubmitQueuedUserMessages first: %v", err)
-	}
-	if err := firstEngine.Close(); err != nil {
-		t.Fatalf("close first runtime engine: %v", err)
-	}
-	reopened, err := session.OpenByID(cfg.PersistenceRoot, store.Meta().SessionID, meta.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.OpenByID: %v", err)
-	}
-	secondEngine, err := runtime.New(reopened, finalResponseRuntimeControlClient(), tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create second runtime engine: %v", err)
-	}
-	t.Cleanup(func() { _ = secondEngine.Close() })
-	secondService := NewService(stubRuntimeResolver{engine: secondEngine}, nil).WithPromptHistoryStore(meta)
-
-	secondQueue, err := secondService.QueueUserMessage(ctx, req)
-	if err != nil {
-		t.Fatalf("QueueUserMessage replay after consumed flush: %v", err)
-	}
-	if secondQueue.QueueItemID != firstQueue.QueueItemID {
-		t.Fatalf("queue ids first=%q second=%q, want stable id", firstQueue.QueueItemID, secondQueue.QueueItemID)
-	}
-	if secondEngine.HasQueuedUserWork() {
-		t.Fatal("did not expect consumed queued prompt to be re-enqueued")
-	}
-	record, err := meta.ReadPromptHistoryQueueItem(ctx, store.Meta().SessionID, firstQueue.QueueItemID)
-	if err != nil {
-		t.Fatalf("read repaired queue state: %v", err)
-	}
-	if record.QueueState != metadata.PromptHistoryQueueStateConsumed {
-		t.Fatalf("queue state = %q, want consumed", record.QueueState)
-	}
-	if _, err := secondEngine.SubmitQueuedUserMessages(ctx); err != nil {
-		t.Fatalf("SubmitQueuedUserMessages after repair: %v", err)
-	}
-	if got := countUserMessagesWithContent(t, reopened, "hello consumed"); got != 1 {
-		t.Fatalf("queued user message count after consumed replay = %d, want 1", got)
-	}
-	history, err := meta.ReadPromptHistory(ctx, store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("ReadPromptHistory: %v", err)
-	}
-	if len(history) != 1 || history[0] != "hello consumed" {
-		t.Fatalf("prompt history after consumed repair = %+v, want one queued entry", history)
-	}
-}
-
-func TestServiceQueueUserMessageDoesNotReenqueueWhenConsumedRepairFails(t *testing.T) {
-	ctx := context.Background()
-	sessionStore, engine, firstService := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
-	history := firstService.promptStore.(*runtimeControlPromptHistoryStore)
-	req := serverapi.RuntimeQueueUserMessageRequest{
-		ClientRequestID:   "req-consume-failure",
-		SessionID:         sessionStore.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello once",
-	}
-	if _, err := firstService.QueueUserMessage(ctx, req); err != nil {
-		t.Fatalf("QueueUserMessage first: %v", err)
-	}
-	if _, err := engine.SubmitQueuedUserMessages(ctx); err != nil {
-		t.Fatalf("SubmitQueuedUserMessages: %v", err)
-	}
-	boom := errors.New("consume repair failed")
-	history.SetConsumeError(boom)
-	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
-
-	if _, err := retryService.QueueUserMessage(ctx, req); !errors.Is(err, boom) {
-		t.Fatalf("QueueUserMessage repair error = %v, want %v", err, boom)
-	}
-	if engine.HasQueuedUserWork() {
-		t.Fatal("did not expect consumed prompt to be re-enqueued after repair failure")
-	}
-}
-
-func TestServiceQueueUserMessageDoesNotEnqueueWhenPendingStateFails(t *testing.T) {
+func TestServiceQueueUserMessageDoesNotEnqueueWhenPromptHistoryRecordFails(t *testing.T) {
 	ctx := context.Background()
 	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
 	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	boom := errors.New("pending transition failed")
-	history.SetQueueStateError(boom)
-	req := runtimeControlQueueUserMessageRequest(sessionStore, "req-pending-fail", "hello pending failure")
+	boom := errors.New("prompt history record failed")
+	history.SetRecordError(boom)
+	req := runtimeControlQueueUserMessageRequest(sessionStore, "req-record-fail", "hello record failure")
 
 	if _, err := service.QueueUserMessage(ctx, req); !errors.Is(err, boom) {
 		t.Fatalf("QueueUserMessage error = %v, want %v", err, boom)
 	}
 	if engine.HasQueuedUserWork() {
-		t.Fatal("did not expect runtime queue mutation after metadata pending failure")
-	}
-	history.SetQueueStateError(nil)
-	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
-	if _, err := retryService.QueueUserMessage(ctx, req); err != nil {
-		t.Fatalf("QueueUserMessage retry: %v", err)
-	}
-	if !engine.HasQueuedUserWork() {
-		t.Fatal("expected retry after metadata recovery to enqueue runtime work")
+		t.Fatal("did not expect runtime queue mutation after prompt history record failure")
 	}
 }
 
-func TestServiceDiscardQueuedUserMessageDoesNotMutateRuntimeWhenMetadataFails(t *testing.T) {
+func TestServiceDiscardQueuedUserMessageIsRuntimeOnly(t *testing.T) {
 	ctx := context.Background()
 	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
-	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-fail", "discard me"))
-	if err != nil {
-		t.Fatalf("QueueUserMessage: %v", err)
-	}
-	boom := errors.New("discard transition failed")
-	history.SetQueueStateError(boom)
-	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
-		ClientRequestID:   "req-discard",
-		SessionID:         sessionStore.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		QueueItemID:       queued.QueueItemID,
-	}
-
-	if _, err := service.DiscardQueuedUserMessage(ctx, discardReq); !errors.Is(err, boom) {
-		t.Fatalf("DiscardQueuedUserMessage error = %v, want %v", err, boom)
-	}
-	if !engine.HasQueuedUserWork() {
-		t.Fatal("expected runtime queue item to remain after metadata discard failure")
-	}
-	history.SetQueueStateError(nil)
-	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
-	discarded, err := retryService.DiscardQueuedUserMessage(ctx, discardReq)
-	if err != nil {
-		t.Fatalf("DiscardQueuedUserMessage retry: %v", err)
-	}
-	if !discarded.Discarded {
-		t.Fatal("expected discard retry to succeed")
-	}
-	if engine.HasQueuedUserWork() {
-		t.Fatal("expected runtime queue item removed after metadata discard success")
-	}
-}
-
-func TestServiceDiscardQueuedUserMessageReportsTrueWhenAlreadyDiscardedOnRetry(t *testing.T) {
-	ctx := context.Background()
-	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
-	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-retry", "discard once"))
+	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-runtime", "discard runtime only"))
 	if err != nil {
 		t.Fatalf("QueueUserMessage: %v", err)
 	}
 	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
-		ClientRequestID:   "req-discard-retry",
+		ClientRequestID:   "req-discard-runtime",
 		SessionID:         sessionStore.Meta().SessionID,
 		ControllerLeaseID: "lease-1",
 		QueueItemID:       queued.QueueItemID,
 	}
-	first, err := service.DiscardQueuedUserMessage(ctx, discardReq)
-	if err != nil {
-		t.Fatalf("DiscardQueuedUserMessage first: %v", err)
-	}
-	if !first.Discarded {
-		t.Fatal("expected first discard to succeed")
-	}
-
-	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
-	second, err := retryService.DiscardQueuedUserMessage(ctx, discardReq)
-	if err != nil {
-		t.Fatalf("DiscardQueuedUserMessage retry: %v", err)
-	}
-	if !second.Discarded {
-		t.Fatal("expected already-discarded retry to report discarded")
-	}
-	if engine.HasQueuedUserWork() {
-		t.Fatal("expected runtime queue item to remain absent after discard retry")
-	}
-}
-
-func TestServiceDiscardQueuedUserMessageReportsTrueWhenDiscardedDuringTransition(t *testing.T) {
-	ctx := context.Background()
-	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
-	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-race", "discard race"))
-	if err != nil {
-		t.Fatalf("QueueUserMessage: %v", err)
-	}
-	history.SetQueueStateHook(func() {
-		history.mu.Lock()
-		for i, record := range history.records {
-			if record.QueueItemID == queued.QueueItemID {
-				history.records[i].QueueState = metadata.PromptHistoryQueueStateDiscarded
-			}
-		}
-		history.mu.Unlock()
-		engine.DiscardQueuedUserMessage(queued.QueueItemID)
-	})
-	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
-		ClientRequestID:   "req-discard-race",
-		SessionID:         sessionStore.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		QueueItemID:       queued.QueueItemID,
-	}
-
 	discarded, err := service.DiscardQueuedUserMessage(ctx, discardReq)
 	if err != nil {
 		t.Fatalf("DiscardQueuedUserMessage: %v", err)
 	}
 	if !discarded.Discarded {
-		t.Fatal("expected discard race with already-discarded metadata to report discarded")
+		t.Fatal("expected runtime discard to remove pending queue item")
 	}
-}
-
-func TestServiceDiscardQueuedUserMessageReportsFalseAfterConsumedFlush(t *testing.T) {
-	ctx := context.Background()
-	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
-	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-consumed", "already flushed"))
-	if err != nil {
-		t.Fatalf("QueueUserMessage: %v", err)
+	if engine.HasQueuedUserWork() {
+		t.Fatal("expected runtime queue item removed")
 	}
-	if _, err := engine.SubmitQueuedUserMessages(ctx); err != nil {
-		t.Fatalf("SubmitQueuedUserMessages: %v", err)
-	}
-	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
-		ClientRequestID:   "req-discard-consumed",
-		SessionID:         sessionStore.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		QueueItemID:       queued.QueueItemID,
-	}
-	discarded, err := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history).DiscardQueuedUserMessage(ctx, discardReq)
-	if err != nil {
-		t.Fatalf("DiscardQueuedUserMessage: %v", err)
-	}
-	if discarded.Discarded {
-		t.Fatal("did not expect already-flushed queued prompt to report discarded")
-	}
-	history.mu.Lock()
-	defer history.mu.Unlock()
-	for _, record := range history.records {
-		if record.QueueItemID == queued.QueueItemID && record.QueueState != metadata.PromptHistoryQueueStateConsumed {
-			t.Fatalf("queue state = %q, want consumed", record.QueueState)
-		}
+	if got := countPromptHistoryEvents(t, sessionStore, "discard runtime only"); got != 1 {
+		t.Fatalf("prompt history count after discard = %d, want 1", got)
 	}
 }
 

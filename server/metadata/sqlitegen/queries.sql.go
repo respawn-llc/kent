@@ -987,82 +987,31 @@ func (q *Queries) GetSessionExecutionTargetByID(ctx context.Context, sessionID s
 	return i, err
 }
 
-const getSessionPromptHistoryEntryByClientRequest = `-- name: GetSessionPromptHistoryEntryByClientRequest :one
+const getSessionPromptHistoryEntryBySourceID = `-- name: GetSessionPromptHistoryEntryBySourceID :one
 SELECT
     sequence,
     session_id,
-    source,
     source_id,
-    client_request_id,
-    queue_item_id,
-    queue_state,
     text,
     created_at_unix_ms
 FROM session_prompt_history_entries
 WHERE session_id = ?1
-  AND source = ?2
-  AND client_request_id = ?3
+  AND source_id = ?2
 LIMIT 1
 `
 
-type GetSessionPromptHistoryEntryByClientRequestParams struct {
-	SessionID       string
-	Source          string
-	ClientRequestID string
-}
-
-func (q *Queries) GetSessionPromptHistoryEntryByClientRequest(ctx context.Context, arg GetSessionPromptHistoryEntryByClientRequestParams) (SessionPromptHistoryEntry, error) {
-	row := q.db.QueryRowContext(ctx, getSessionPromptHistoryEntryByClientRequest, arg.SessionID, arg.Source, arg.ClientRequestID)
-	var i SessionPromptHistoryEntry
-	err := row.Scan(
-		&i.Sequence,
-		&i.SessionID,
-		&i.Source,
-		&i.SourceID,
-		&i.ClientRequestID,
-		&i.QueueItemID,
-		&i.QueueState,
-		&i.Text,
-		&i.CreatedAtUnixMs,
-	)
-	return i, err
-}
-
-const getSessionPromptHistoryEntryBySource = `-- name: GetSessionPromptHistoryEntryBySource :one
-SELECT
-    sequence,
-    session_id,
-    source,
-    source_id,
-    client_request_id,
-    queue_item_id,
-    queue_state,
-    text,
-    created_at_unix_ms
-FROM session_prompt_history_entries
-WHERE session_id = ?1
-  AND source = ?2
-  AND source_id = ?3
-LIMIT 1
-`
-
-type GetSessionPromptHistoryEntryBySourceParams struct {
+type GetSessionPromptHistoryEntryBySourceIDParams struct {
 	SessionID string
-	Source    string
 	SourceID  string
 }
 
-func (q *Queries) GetSessionPromptHistoryEntryBySource(ctx context.Context, arg GetSessionPromptHistoryEntryBySourceParams) (SessionPromptHistoryEntry, error) {
-	row := q.db.QueryRowContext(ctx, getSessionPromptHistoryEntryBySource, arg.SessionID, arg.Source, arg.SourceID)
+func (q *Queries) GetSessionPromptHistoryEntryBySourceID(ctx context.Context, arg GetSessionPromptHistoryEntryBySourceIDParams) (SessionPromptHistoryEntry, error) {
+	row := q.db.QueryRowContext(ctx, getSessionPromptHistoryEntryBySourceID, arg.SessionID, arg.SourceID)
 	var i SessionPromptHistoryEntry
 	err := row.Scan(
 		&i.Sequence,
 		&i.SessionID,
-		&i.Source,
 		&i.SourceID,
-		&i.ClientRequestID,
-		&i.QueueItemID,
-		&i.QueueState,
 		&i.Text,
 		&i.CreatedAtUnixMs,
 	)
@@ -1941,33 +1890,21 @@ func (q *Queries) InsertRuntimeLease(ctx context.Context, arg InsertRuntimeLease
 const insertSessionPromptHistoryEntry = `-- name: InsertSessionPromptHistoryEntry :execrows
 INSERT INTO session_prompt_history_entries (
     session_id,
-    source,
     source_id,
-    client_request_id,
-    queue_item_id,
-    queue_state,
     text,
     created_at_unix_ms
 ) VALUES (
     ?1,
     ?2,
     ?3,
-    ?4,
-    ?5,
-    ?6,
-    ?7,
-    ?8
+    ?4
 )
 ON CONFLICT DO NOTHING
 `
 
 type InsertSessionPromptHistoryEntryParams struct {
 	SessionID       string
-	Source          string
 	SourceID        string
-	ClientRequestID string
-	QueueItemID     string
-	QueueState      string
 	Text            string
 	CreatedAtUnixMs int64
 }
@@ -1975,11 +1912,7 @@ type InsertSessionPromptHistoryEntryParams struct {
 func (q *Queries) InsertSessionPromptHistoryEntry(ctx context.Context, arg InsertSessionPromptHistoryEntryParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, insertSessionPromptHistoryEntry,
 		arg.SessionID,
-		arg.Source,
 		arg.SourceID,
-		arg.ClientRequestID,
-		arg.QueueItemID,
-		arg.QueueState,
 		arg.Text,
 		arg.CreatedAtUnixMs,
 	)
@@ -5130,39 +5063,6 @@ func (q *Queries) ListWorktreesByWorkspaceID(ctx context.Context, workspaceID st
 	return items, nil
 }
 
-const markSessionPromptHistoryQueueItemsConsumed = `-- name: MarkSessionPromptHistoryQueueItemsConsumed :execrows
-UPDATE session_prompt_history_entries
-SET queue_state = 'consumed'
-WHERE session_id = ?1
-  AND source = 'queue_user_message'
-  AND source_id IN (/*SLICE:queue_item_ids*/?)
-  AND queue_state != 'discarded'
-`
-
-type MarkSessionPromptHistoryQueueItemsConsumedParams struct {
-	SessionID    string
-	QueueItemIds []string
-}
-
-func (q *Queries) MarkSessionPromptHistoryQueueItemsConsumed(ctx context.Context, arg MarkSessionPromptHistoryQueueItemsConsumedParams) (int64, error) {
-	query := markSessionPromptHistoryQueueItemsConsumed
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.SessionID)
-	if len(arg.QueueItemIds) > 0 {
-		for _, v := range arg.QueueItemIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:queue_item_ids*/?", strings.Repeat(",?", len(arg.QueueItemIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:queue_item_ids*/?", "NULL", 1)
-	}
-	result, err := q.db.ExecContext(ctx, query, queryParams...)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const releaseRuntimeLease = `-- name: ReleaseRuntimeLease :exec
 UPDATE runtime_leases
 SET released_at_unix_ms = ?1
@@ -5274,29 +5174,6 @@ func (q *Queries) UpdateSessionExecutionTargetByID(ctx context.Context, arg Upda
 		arg.UpdatedAtUnixMs,
 		arg.SessionID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateSessionPromptHistoryQueueState = `-- name: UpdateSessionPromptHistoryQueueState :execrows
-UPDATE session_prompt_history_entries
-SET queue_state = ?1
-WHERE session_id = ?2
-  AND source = 'queue_user_message'
-  AND source_id = ?3
-  AND queue_state NOT IN ('consumed', 'discarded')
-`
-
-type UpdateSessionPromptHistoryQueueStateParams struct {
-	QueueState  string
-	SessionID   string
-	QueueItemID string
-}
-
-func (q *Queries) UpdateSessionPromptHistoryQueueState(ctx context.Context, arg UpdateSessionPromptHistoryQueueStateParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateSessionPromptHistoryQueueState, arg.QueueState, arg.SessionID, arg.QueueItemID)
 	if err != nil {
 		return 0, err
 	}

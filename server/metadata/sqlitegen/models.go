@@ -70,11 +70,7 @@ type Session struct {
 type SessionPromptHistoryEntry struct {
 	Sequence        int64
 	SessionID       string
-	Source          string
 	SourceID        string
-	ClientRequestID string
-	QueueItemID     string
-	QueueState      string
 	Text            string
 	CreatedAtUnixMs int64
 }

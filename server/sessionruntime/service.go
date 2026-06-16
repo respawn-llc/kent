@@ -268,9 +268,6 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 		Sources:  req.Source.Sources,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", runprompt.FormatRuntimeEvent(evt))
-			if err := s.markQueuedPromptHistoryConsumed(context.Background(), sessionID, evt); err != nil {
-				logger.Logf("prompt_history.queue_consumed.mark_failed session_id=%s err=%q", sessionID, err.Error())
-			}
 			if transcriptdiag.EnabledForProcess(req.ActiveSettings.Debug) {
 				projected := runtimeview.EventFromRuntime(evt)
 				logger.Logf("%s", runprompt.FormatTranscriptProjectionDiagnostic(sessionID, projected))
@@ -314,34 +311,6 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 	s.cancelScheduledIdleUnload(sessionID)
 	cleanup = nil
 	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID}, nil
-}
-
-func (s *Service) markQueuedPromptHistoryConsumed(ctx context.Context, sessionID string, evt runtime.Event) error {
-	if s == nil || s.metadataStore == nil || evt.Kind != runtime.EventUserMessageFlushed || len(evt.UserMessageBatchQueueItemIDs) == 0 {
-		return nil
-	}
-	return markQueuedPromptHistoryConsumedWithRetry(ctx, func(context.Context) error {
-		_, err := s.metadataStore.MarkPromptHistoryQueueItemsConsumed(ctx, sessionID, evt.UserMessageBatchQueueItemIDs)
-		return err
-	})
-}
-
-func markQueuedPromptHistoryConsumedWithRetry(ctx context.Context, mark func(context.Context) error) error {
-	if mark == nil {
-		return nil
-	}
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if err = mark(ctx); err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return errors.Join(ctx.Err(), err)
-		case <-time.After(time.Duration(attempt+1) * 25 * time.Millisecond):
-		}
-	}
-	return err
 }
 
 func (s *Service) externalSessionRuntimeActive(sessionID string) bool {

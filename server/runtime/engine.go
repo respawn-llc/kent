@@ -391,11 +391,6 @@ func (e *Engine) QueueUserMessage(text string) QueuedUserMessage {
 	return e.messageFlow.QueueUserMessage(text)
 }
 
-func (e *Engine) EnsureQueuedUserMessage(item QueuedUserMessage) QueuedUserMessage {
-	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.EnsureQueuedUserMessage(item)
-}
-
 func (e *Engine) DiscardQueuedUserMessage(queueItemID string) bool {
 	e.ensureOrchestrationCollaborators()
 	return e.messageFlow.DiscardQueuedUserMessage(queueItemID)

@@ -2309,57 +2309,27 @@ WHERE id = sqlc.arg(lease_id)
 -- name: InsertSessionPromptHistoryEntry :execrows
 INSERT INTO session_prompt_history_entries (
     session_id,
-    source,
     source_id,
-    client_request_id,
-    queue_item_id,
-    queue_state,
     text,
     created_at_unix_ms
 ) VALUES (
     sqlc.arg(session_id),
-    sqlc.arg(source),
     sqlc.arg(source_id),
-    sqlc.arg(client_request_id),
-    sqlc.arg(queue_item_id),
-    sqlc.arg(queue_state),
     sqlc.arg(text),
     sqlc.arg(created_at_unix_ms)
 )
 ON CONFLICT DO NOTHING;
 
--- name: GetSessionPromptHistoryEntryBySource :one
+-- name: GetSessionPromptHistoryEntryBySourceID :one
 SELECT
     sequence,
     session_id,
-    source,
     source_id,
-    client_request_id,
-    queue_item_id,
-    queue_state,
     text,
     created_at_unix_ms
 FROM session_prompt_history_entries
 WHERE session_id = sqlc.arg(session_id)
-  AND source = sqlc.arg(source)
   AND source_id = sqlc.arg(source_id)
-LIMIT 1;
-
--- name: GetSessionPromptHistoryEntryByClientRequest :one
-SELECT
-    sequence,
-    session_id,
-    source,
-    source_id,
-    client_request_id,
-    queue_item_id,
-    queue_state,
-    text,
-    created_at_unix_ms
-FROM session_prompt_history_entries
-WHERE session_id = sqlc.arg(session_id)
-  AND source = sqlc.arg(source)
-  AND client_request_id = sqlc.arg(client_request_id)
 LIMIT 1;
 
 -- name: ListSessionPromptHistoryText :many
@@ -2367,19 +2337,3 @@ SELECT text
 FROM session_prompt_history_entries
 WHERE session_id = sqlc.arg(session_id)
 ORDER BY sequence ASC;
-
--- name: UpdateSessionPromptHistoryQueueState :execrows
-UPDATE session_prompt_history_entries
-SET queue_state = sqlc.arg(queue_state)
-WHERE session_id = sqlc.arg(session_id)
-  AND source = 'queue_user_message'
-  AND source_id = sqlc.arg(queue_item_id)
-  AND queue_state NOT IN ('consumed', 'discarded');
-
--- name: MarkSessionPromptHistoryQueueItemsConsumed :execrows
-UPDATE session_prompt_history_entries
-SET queue_state = 'consumed'
-WHERE session_id = sqlc.arg(session_id)
-  AND source = 'queue_user_message'
-  AND source_id IN (sqlc.slice('queue_item_ids'))
-  AND queue_state != 'discarded';

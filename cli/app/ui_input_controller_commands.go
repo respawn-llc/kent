@@ -25,7 +25,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePosition(commandR
 		return m, tea.Quit
 	}
 	if commandResult.SubmitUser {
-		return m, c.startSubmissionWithPreSubmitQueuePositionAndPromptHistoryRecorded(commandResult.User, queuePosition, "", true)
+		return m, c.startSubmissionWithPreSubmitQueuePosition(commandResult.User, queuePosition, "", true)
 	}
 	prefixCmd := tea.Cmd(nil)
 	if commandResult.Text != "" {

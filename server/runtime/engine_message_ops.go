@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"core/server/llm"
-	"core/server/session"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/transcript"
@@ -196,12 +195,6 @@ func (e *Engine) appendMessageRaw(stepID string, msg llm.Message, eventPolicy st
 	return nil
 }
 
-const sessionEventQueuedUserMessagesConsumed = "queued_user_messages_consumed"
-
-type queuedUserMessagesConsumedPayload struct {
-	QueueItemIDs []string `json:"queue_item_ids"`
-}
-
 func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch []string, queueItemIDs []string) error {
 	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleUser, Content: text}, e.transcriptWorkingDir())
 	if strings.TrimSpace(msg.Content) == "" {
@@ -218,10 +211,7 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch 
 		e.markCurrentRequestShapeDirty()
 	}
 	normalizedIDs := normalizedQueueItemIDs(queueItemIDs)
-	if _, err := e.store.AppendTurnAtomic(stepID, []session.EventInput{
-		{Kind: "message", Payload: msg},
-		{Kind: sessionEventQueuedUserMessagesConsumed, Payload: queuedUserMessagesConsumedPayload{QueueItemIDs: normalizedIDs}},
-	}); err != nil {
+	if _, _, err := e.store.AppendEvent(stepID, "message", msg); err != nil {
 		return err
 	}
 	e.transcriptPersistence().AppendMessage(msg)
@@ -248,34 +238,6 @@ func normalizedQueueItemIDs(raw []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
-}
-
-func (e *Engine) HasConsumedQueuedUserMessage(queueItemID string) (bool, error) {
-	if e == nil || e.store == nil {
-		return false, nil
-	}
-	target := strings.TrimSpace(queueItemID)
-	if target == "" {
-		return false, nil
-	}
-	consumed := false
-	err := e.store.WalkEvents(func(evt session.Event) error {
-		if consumed || evt.Kind != sessionEventQueuedUserMessagesConsumed {
-			return nil
-		}
-		var payload queuedUserMessagesConsumedPayload
-		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
-			return fmt.Errorf("decode %s event: %w", sessionEventQueuedUserMessagesConsumed, err)
-		}
-		for _, id := range payload.QueueItemIDs {
-			if strings.TrimSpace(id) == target {
-				consumed = true
-				return nil
-			}
-		}
-		return nil
-	})
-	return consumed, err
 }
 
 func (e *Engine) clearStreamingAssistantStateRaw(stepID string) {

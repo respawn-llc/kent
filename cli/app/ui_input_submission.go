@@ -20,11 +20,7 @@ const (
 	preSubmitQueueFront
 )
 
-func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
-	return c.startSubmissionWithPreSubmitQueuePositionAndPromptHistoryRecorded(text, queuePosition, queuedID, false)
-}
-
-func (c uiInputController) startSubmissionWithPreSubmitQueuePositionAndPromptHistoryRecorded(text string, queuePosition preSubmitQueuePosition, queuedID string, promptHistoryRecorded bool) tea.Cmd {
+func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string, queuePosition preSubmitQueuePosition, queuedID string, promptHistoryRecorded bool) tea.Cmd {
 	m := c.model
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
@@ -65,9 +61,9 @@ func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID
 	_, isUserShell := parseUserShellCommand(text)
 	if m.hasRuntimeClient() && !isUserShell {
 		m.rememberPromptHistoryLocally(text)
-		return c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID)
+		return c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID, false)
 	}
-	return sequenceCmds(m.recordPromptHistory(text), c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID))
+	return sequenceCmds(m.recordPromptHistory(text), c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID, false))
 }
 
 func (c uiInputController) submitCmd(text string, queuedID string, promptHistoryRecorded bool) tea.Cmd {

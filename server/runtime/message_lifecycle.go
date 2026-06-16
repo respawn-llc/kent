@@ -294,13 +294,6 @@ func (m *defaultMessageLifecycle) QueueUserMessage(text string) QueuedUserMessag
 	return m.queue.Queue(text)
 }
 
-func (m *defaultMessageLifecycle) EnsureQueuedUserMessage(item QueuedUserMessage) QueuedUserMessage {
-	if m == nil || m.queue == nil {
-		return QueuedUserMessage{}
-	}
-	return m.queue.EnsurePending(item)
-}
-
 func (m *defaultMessageLifecycle) DiscardQueuedUserMessage(queueItemID string) bool {
 	if m == nil || m.queue == nil {
 		return false

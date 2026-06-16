@@ -68,7 +68,6 @@ type messageLifecycle interface {
 	RestoreMessages() error
 	FlushPendingUserInjections(stepID string) (int, error)
 	QueueUserMessage(text string) QueuedUserMessage
-	EnsureQueuedUserMessage(item QueuedUserMessage) QueuedUserMessage
 	DiscardQueuedUserMessage(queueItemID string) bool
 	HasPendingUserInjections() bool
 }

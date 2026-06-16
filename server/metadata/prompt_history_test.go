@@ -15,12 +15,10 @@ func TestPromptHistoryRecordsAndListsByInsertionSequence(t *testing.T) {
 	now := time.UnixMilli(123).UTC()
 
 	first, inserted, err := store.RecordPromptHistoryEntry(ctx, PromptHistoryEntry{
-		SessionID:       sessionID,
-		Source:          PromptHistorySourceSubmitUserMessage,
-		SourceID:        "req-1",
-		ClientRequestID: "req-1",
-		Text:            "first",
-		CreatedAt:       now,
+		SessionID: sessionID,
+		SourceID:  "req-1",
+		Text:      "first",
+		CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("record first: %v", err)
@@ -29,12 +27,10 @@ func TestPromptHistoryRecordsAndListsByInsertionSequence(t *testing.T) {
 		t.Fatal("expected first insert")
 	}
 	second, inserted, err := store.RecordPromptHistoryEntry(ctx, PromptHistoryEntry{
-		SessionID:       sessionID,
-		Source:          PromptHistorySourceSubmitUserMessage,
-		SourceID:        "req-2",
-		ClientRequestID: "req-2",
-		Text:            "second",
-		CreatedAt:       now,
+		SessionID: sessionID,
+		SourceID:  "req-2",
+		Text:      "second",
+		CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("record second: %v", err)
@@ -60,11 +56,9 @@ func TestPromptHistoryConflictRequiresEquivalentPayload(t *testing.T) {
 	store, cfg, binding := newMetadataTestStore(t)
 	sessionID := createMetadataTestSession(t, store, cfg, binding).Meta().SessionID
 	entry := PromptHistoryEntry{
-		SessionID:       sessionID,
-		Source:          PromptHistorySourceRecordPromptHistory,
-		SourceID:        "req-1",
-		ClientRequestID: "req-1",
-		Text:            "/status",
+		SessionID: sessionID,
+		SourceID:  "req-1",
+		Text:      "/status",
 	}
 
 	if _, _, err := store.RecordPromptHistoryEntry(ctx, entry); err != nil {
@@ -85,55 +79,24 @@ func TestPromptHistoryConflictRequiresEquivalentPayload(t *testing.T) {
 	}
 }
 
-func TestQueuedPromptHistoryStateTransitionsPreserveHistory(t *testing.T) {
+func TestQueuedPromptHistoryRecordsPlainPromptRow(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
 	sessionID := createMetadataTestSession(t, store, cfg, binding).Meta().SessionID
 
 	record, inserted, err := store.RecordPromptHistoryEntry(ctx, PromptHistoryEntry{
-		SessionID:       sessionID,
-		Source:          PromptHistorySourceQueueUserMessage,
-		SourceID:        "queue-1",
-		ClientRequestID: "req-queue-1",
-		QueueItemID:     "queue-1",
-		QueueState:      PromptHistoryQueueStateRecorded,
-		Text:            "queued text",
+		SessionID: sessionID,
+		SourceID:  "req-queue-1",
+		Text:      "queued text",
 	})
 	if err != nil {
 		t.Fatalf("record queued: %v", err)
 	}
-	if !inserted || record.QueueState != PromptHistoryQueueStateRecorded {
-		t.Fatalf("queued record inserted=%t state=%q", inserted, record.QueueState)
+	if !inserted {
+		t.Fatal("expected queued prompt insert")
 	}
-	pending, changed, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStatePending)
-	if err != nil {
-		t.Fatalf("mark pending: %v", err)
-	}
-	if !changed {
-		t.Fatal("expected pending transition to report changed")
-	}
-	if pending.QueueState != PromptHistoryQueueStatePending {
-		t.Fatalf("pending state = %q", pending.QueueState)
-	}
-	discarded, changed, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStateDiscarded)
-	if err != nil {
-		t.Fatalf("mark discarded: %v", err)
-	}
-	if !changed {
-		t.Fatal("expected discard transition to report changed")
-	}
-	if discarded.QueueState != PromptHistoryQueueStateDiscarded {
-		t.Fatalf("discarded state = %q", discarded.QueueState)
-	}
-	alreadyDiscarded, changed, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStateDiscarded)
-	if err != nil {
-		t.Fatalf("mark already discarded: %v", err)
-	}
-	if changed {
-		t.Fatal("expected already-discarded transition to report unchanged")
-	}
-	if alreadyDiscarded.QueueState != PromptHistoryQueueStateDiscarded {
-		t.Fatalf("already-discarded state = %q", alreadyDiscarded.QueueState)
+	if record.SessionID != sessionID || record.SourceID != "req-queue-1" || record.Text != "queued text" {
+		t.Fatalf("queued record = %+v", record)
 	}
 
 	history, err := store.ReadPromptHistory(ctx, sessionID)
@@ -141,6 +104,6 @@ func TestQueuedPromptHistoryStateTransitionsPreserveHistory(t *testing.T) {
 		t.Fatalf("read prompt history: %v", err)
 	}
 	if !reflect.DeepEqual(history, []string{"queued text"}) {
-		t.Fatalf("history after discard = %+v", history)
+		t.Fatalf("history = %+v", history)
 	}
 }
