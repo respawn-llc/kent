@@ -1,5 +1,5 @@
 Usage of kent task:
-  kent task create --title <title> --body <body> [--workflow <workflow>] [--project <project>]
+  kent task create --title <title> (--body <body>|--body-file <path>) [--workflow <workflow>] [--project <project>] [--source-url <url>] [--json]
   kent task start <short-id-or-task-id>
   kent task resume <short-id-or-task-id>
   kent task approve <transition-id>
@@ -7,7 +7,7 @@ Usage of kent task:
   kent task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]
   kent task show <short-id-or-task-id> [--json]
   kent task cancel <short-id-or-task-id> [--reason <text>]
-  kent task comment add <short-id-or-task-id> --body <text>
+  kent task comment add <short-id-or-task-id> (--body <text>|--body-file <path>) [--author <user|agent>] [--author-id <id>]
   kent task comment list <short-id-or-task-id> [--page-size <n>] [--page-token <token>]
   kent task comment replace <comment-id> --body <text>
   kent task comment delete <comment-id>
@@ -15,4 +15,3 @@ Usage of kent task:
 What This Does:
   Manage workflow tasks and comments through the Kent server API.
   Short ids are resolved within the current project by default.
-

@@ -650,9 +650,12 @@ func TestTaskSafeActionsRemainAvailableInsideKentSession(t *testing.T) {
 		t.Fatalf("workflow link exit=%d stderr=%q", code, linkErr)
 	}
 
-	taskOut, taskErr, code := runWorkflowRootCommand("task", "create", "--title", "Safe Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID)
+	taskOut, taskErr, code := runWorkflowRootCommand("task", "create", "--title", "Safe Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID, "--source-url", "https://github.com/respawn-llc/kent/issues/123")
 	if code != 0 {
 		t.Fatalf("task create exit=%d stderr=%q", code, taskErr)
+	}
+	if !strings.Contains(taskOut, "Imported from: https://github.com/respawn-llc/kent/issues/123\n") {
+		t.Fatalf("task create output = %q, want source URL", taskOut)
 	}
 	shortID := taskDetailHeadingShortID(t, taskOut)
 	if _, listErr, code := runWorkflowRootCommand("task", "list", "--project", binding.ProjectID); code != 0 {
@@ -661,13 +664,20 @@ func TestTaskSafeActionsRemainAvailableInsideKentSession(t *testing.T) {
 	if _, showErr, code := runWorkflowRootCommand("task", "show", "--project", binding.ProjectID, shortID); code != 0 {
 		t.Fatalf("task show exit=%d stderr=%q", code, showErr)
 	}
-	commentOut, commentErr, code := runWorkflowRootCommand("task", "comment", "add", "--project", binding.ProjectID, "--body", "note", shortID)
+	commentOut, commentErr, code := runWorkflowRootCommand("task", "comment", "add", "--project", binding.ProjectID, "--author", "user", "--author-id", "octocat", "--body", "note", shortID)
 	if code != 0 {
 		t.Fatalf("task comment add exit=%d stderr=%q", code, commentErr)
 	}
 	commentID := labeledOutputValue(t, commentOut, "comment_id")
 	if commentID == "" {
 		t.Fatalf("task comment add output = %q", commentOut)
+	}
+	commentListOut, commentListErr, code := runWorkflowRootCommand("task", "comment", "list", "--project", binding.ProjectID, shortID)
+	if code != 0 {
+		t.Fatalf("task comment list exit=%d stderr=%q", code, commentListErr)
+	}
+	if !strings.Contains(commentListOut, "octocat at ") {
+		t.Fatalf("task comment list output = %q, want author id", commentListOut)
 	}
 	if _, replaceErr, code := runWorkflowRootCommand("task", "comment", "replace", "--body", "edited", commentID); code != 0 {
 		t.Fatalf("task comment replace exit=%d stderr=%q", code, replaceErr)

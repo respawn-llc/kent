@@ -106,13 +106,21 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	fs := newCommandFlagSet(brand.Command+" task create", stderr, taskCommandUsage)
 	title := fs.String("title", "", "task title")
 	body := fs.String("body", "", "task body")
+	bodyFile := fs.String("body-file", "", "path to task body file")
 	workflowRef := fs.String("workflow", "", "workflow id or exact workflow name")
 	projectRef := fs.String("project", ".", "project id or path")
+	sourceURL := fs.String("source-url", "", "external source URL")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "task create does not accept positional arguments")
+		return 2
+	}
+	taskBody, err := readTaskBodyFlag(*body, *bodyFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
@@ -136,7 +144,7 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: projectID, WorkflowID: workflowID, Title: *title, Body: *body})
+	resp, err := remote.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: projectID, WorkflowID: workflowID, Title: *title, Body: taskBody, SourceURL: *sourceURL})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -145,6 +153,13 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	if err != nil {
 		fmt.Fprintf(stderr, "created task %s but failed to load task detail for output: %v\n", resp.Task.ID, err)
 		return 1
+	}
+	if *jsonOut {
+		if err := json.NewEncoder(stdout).Encode(taskShowOutputFromDetail(task)); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	}
 	writeTaskDetail(stdout, task)
 	return 0
@@ -576,7 +591,9 @@ func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(brand.Command+" task comment add", stderr, taskCommandUsage)
 	body := fs.String("body", "", "comment body")
+	bodyFile := fs.String("body-file", "", "path to comment body file")
 	author := fs.String("author", "", "comment author")
+	authorID := fs.String("author-id", "", "comment author id")
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
@@ -585,6 +602,11 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
 		fmt.Fprintln(stderr, "task comment add requires <short-id-or-task-id>")
+		return 2
+	}
+	commentBody, err := readTaskBodyFlag(*body, *bodyFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
@@ -599,15 +621,32 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	commentAuthor := taskCommentAuthorForAdd(context.Background(), remote, taskID, *author, flagWasProvided(fs, "author"))
+	if trimmedAuthorID := strings.TrimSpace(*authorID); trimmedAuthorID != "" {
+		commentAuthor.ID = trimmedAuthorID
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: taskID, Body: *body, Author: commentAuthor.Kind, AuthorID: commentAuthor.ID})
+	resp, err := remote.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: taskID, Body: commentBody, Author: commentAuthor.Kind, AuthorID: commentAuthor.ID})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "comment_id\t%s\ntask_id\t%s\n", resp.Comment.ID, resp.Comment.TaskID)
 	return 0
+}
+
+func readTaskBodyFlag(body string, bodyFile string) (string, error) {
+	if strings.TrimSpace(bodyFile) == "" {
+		return body, nil
+	}
+	if body != "" {
+		return "", errors.New("--body cannot be combined with --body-file")
+	}
+	content, err := os.ReadFile(bodyFile)
+	if err != nil {
+		return "", fmt.Errorf("read --body-file: %w", err)
+	}
+	return string(content), nil
 }
 
 type taskCommentAuthor struct {
@@ -1264,6 +1303,9 @@ func readableTaskCommentAuthor(comment serverapi.WorkflowTaskComment) string {
 	author := strings.TrimSpace(comment.Author)
 	authorID := strings.TrimSpace(comment.AuthorID)
 	if strings.EqualFold(author, "user") {
+		if authorID != "" {
+			return authorID
+		}
 		return "User"
 	}
 	if authorID != "" {
