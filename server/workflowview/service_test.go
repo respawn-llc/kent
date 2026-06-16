@@ -313,6 +313,30 @@ func TestBoardColumnsOrderAmbiguousSiblingsByNodeKey(t *testing.T) {
 	}
 }
 
+func TestBoardColumnsKeepReachableTerminalAfterAmbiguousSibling(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-start", Key: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog"},
+			{ID: "node-zeta", Key: "zeta", Kind: string(workflow.NodeKindAgent), DisplayName: "Zeta"},
+			{ID: "node-done", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "transition-start", SourceNodeID: "node-start", TransitionID: "start"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-done", TransitionGroupID: "transition-start", Key: "done", TargetNodeID: "node-done"},
+			{ID: "edge-zeta", TransitionGroupID: "transition-start", Key: "zeta", TargetNodeID: "node-zeta"},
+		},
+	}
+
+	keys := workflowViewBoardColumnKeys(boardColumns(def))
+	want := []string{"backlog", "zeta", "done"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("board column keys = %+v, want terminal after ambiguous non-terminal sibling %+v", keys, want)
+	}
+}
+
 func TestBoardColumnsUseExplicitSiblingEdgeBeforeNodeKeyTie(t *testing.T) {
 	def := serverapi.WorkflowDefinition{
 		Workflow: serverapi.WorkflowRecord{ID: "workflow-1"},

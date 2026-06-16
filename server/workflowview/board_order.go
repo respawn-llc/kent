@@ -246,8 +246,22 @@ func (g boardColumnGraph) stronglyConnectedVisibleComponents(nodeIDs []string, p
 
 func (g boardColumnGraph) sortComponentIDsByKey(componentIDs []int, components [][]string) {
 	sort.SliceStable(componentIDs, func(i, j int) bool {
+		leftTerminal := g.componentHasTerminalNode(components[componentIDs[i]])
+		rightTerminal := g.componentHasTerminalNode(components[componentIDs[j]])
+		if leftTerminal != rightTerminal {
+			return !leftTerminal
+		}
 		return workflowNodeKeyLess(g.nodesByID[components[componentIDs[i]][0]], g.nodesByID[components[componentIDs[j]][0]])
 	})
+}
+
+func (g boardColumnGraph) componentHasTerminalNode(component []string) bool {
+	for _, nodeID := range component {
+		if workflow.NodeKind(g.nodesByID[nodeID].Kind) == workflow.NodeKindTerminal {
+			return true
+		}
+	}
+	return false
 }
 
 func (g boardColumnGraph) visibleTargetsFrom(sourceID string) []string {

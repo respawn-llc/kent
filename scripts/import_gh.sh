@@ -22,12 +22,23 @@ require_command() {
 	fi
 }
 
+is_decimal_number() {
+	case "$1" in
+	"" | *[!0123456789]*)
+		return 1
+		;;
+	*)
+		return 0
+		;;
+	esac
+}
+
 parse_issue_ref() {
 	local ref="$1"
 	repo=""
 	number=""
 
-	if [[ "$ref" =~ ^[0-9]+$ ]]; then
+	if is_decimal_number "$ref"; then
 		repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 		number="$ref"
 		return
@@ -54,7 +65,7 @@ parse_issue_ref() {
 		;;
 	esac
 
-	if [[ ! "$number" =~ ^[0-9]+$ ]]; then
+	if ! is_decimal_number "$number"; then
 		fail "Expected a GitHub issue number or URL."
 	fi
 }
