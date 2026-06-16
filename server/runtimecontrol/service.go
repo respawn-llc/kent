@@ -44,7 +44,7 @@ type Service struct {
 	autoCompacts   *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse]
 	questions      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetQuestionsEnabledResponse]
 	submits        *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse]
-	turnSubmits    *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse]
+	turnSubmits    *requestmemo.Memo[turnSubmitMemoRequest, serverapi.RuntimeSubmitUserTurnResponse]
 	queues         *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeQueueUserMessageResponse]
 	shells         *requestmemo.Memo[sessionCommandMemoRequest, struct{}]
 
@@ -73,6 +73,12 @@ type sessionBoolMemoRequest struct {
 type sessionTextMemoRequest struct {
 	SessionID string
 	Text      string
+}
+
+type turnSubmitMemoRequest struct {
+	SessionID             string
+	Text                  string
+	PromptHistoryRecorded bool
 }
 
 type queuedUserMessageMemoRequest struct {
@@ -125,7 +131,7 @@ func NewService(runtimes RuntimeResolver, gate primaryrun.Gate) *Service {
 		autoCompacts:   requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](),
 		questions:      requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetQuestionsEnabledResponse](),
 		submits:        requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse](),
-		turnSubmits:    requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse](),
+		turnSubmits:    requestmemo.New[turnSubmitMemoRequest, serverapi.RuntimeSubmitUserTurnResponse](),
 		queues:         requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeQueueUserMessageResponse](),
 		shells:         requestmemo.New[sessionCommandMemoRequest, struct{}](),
 
@@ -561,12 +567,33 @@ func (s *Service) DiscardQueuedUserMessage(ctx context.Context, req serverapi.Ru
 			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 		}
 		if s.promptStore != nil {
-			record, err := s.promptStore.MarkPromptHistoryQueueState(ctx, memoReq.SessionID, memoReq.QueueItemID, metadata.PromptHistoryQueueStateDiscarded)
+			consumed, err := engine.HasConsumedQueuedUserMessage(memoReq.QueueItemID)
 			if err != nil {
 				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 			}
+			if consumed {
+				if _, err := s.promptStore.MarkPromptHistoryQueueItemsConsumed(ctx, memoReq.SessionID, []string{memoReq.QueueItemID}); err != nil {
+					return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
+				}
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: false}, nil
+			}
+			if _, err := s.promptStore.MarkPromptHistoryQueueState(ctx, memoReq.SessionID, memoReq.QueueItemID, metadata.PromptHistoryQueueStateDiscarded); err != nil {
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
+			}
 			discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
-			return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded || record.QueueState == metadata.PromptHistoryQueueStateDiscarded}, nil
+			if discarded {
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: true}, nil
+			}
+			consumed, err = engine.HasConsumedQueuedUserMessage(memoReq.QueueItemID)
+			if err != nil {
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
+			}
+			if consumed {
+				if _, err := s.promptStore.MarkPromptHistoryQueueItemsConsumed(ctx, memoReq.SessionID, []string{memoReq.QueueItemID}); err != nil {
+					return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
+				}
+			}
+			return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: false}, nil
 		}
 		discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
 		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded}, nil
@@ -609,7 +636,7 @@ func (s *Service) ensureQueuedPromptHistory(ctx context.Context, engine *runtime
 	if s == nil || s.promptStore == nil {
 		return engine.QueueUserMessage(text), nil
 	}
-	record, _, err := s.promptStore.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
+	record, inserted, err := s.promptStore.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
 		SessionID:       strings.TrimSpace(sessionID),
 		Source:          metadata.PromptHistorySourceQueueUserMessage,
 		SourceID:        queueItemID,
@@ -626,15 +653,17 @@ func (s *Service) ensureQueuedPromptHistory(ctx context.Context, engine *runtime
 	case metadata.PromptHistoryQueueStateConsumed, metadata.PromptHistoryQueueStateDiscarded:
 		return item, nil
 	case metadata.PromptHistoryQueueStateRecorded, metadata.PromptHistoryQueueStatePending:
-		consumed, err := engine.HasConsumedQueuedUserMessage(item.ID)
-		if err != nil {
-			return runtime.QueuedUserMessage{}, err
-		}
-		if consumed {
-			if _, err := s.promptStore.MarkPromptHistoryQueueItemsConsumed(ctx, sessionID, []string{item.ID}); err != nil {
+		if !inserted {
+			consumed, err := engine.HasConsumedQueuedUserMessage(item.ID)
+			if err != nil {
 				return runtime.QueuedUserMessage{}, err
 			}
-			return item, nil
+			if consumed {
+				if _, err := s.promptStore.MarkPromptHistoryQueueItemsConsumed(ctx, sessionID, []string{item.ID}); err != nil {
+					return runtime.QueuedUserMessage{}, err
+				}
+				return item, nil
+			}
 		}
 		if _, err := s.promptStore.MarkPromptHistoryQueueState(ctx, sessionID, item.ID, metadata.PromptHistoryQueueStatePending); err != nil {
 			return runtime.QueuedUserMessage{}, err
@@ -829,6 +858,10 @@ func (s *Service) acquirePrimaryRun(sessionID string) (primaryrun.Lease, error) 
 
 func sameSessionTextMemoRequest(a sessionTextMemoRequest, b sessionTextMemoRequest) bool {
 	return a.SessionID == b.SessionID && a.Text == b.Text
+}
+
+func sameTurnSubmitMemoRequest(a turnSubmitMemoRequest, b turnSubmitMemoRequest) bool {
+	return a.SessionID == b.SessionID && a.Text == b.Text && a.PromptHistoryRecorded == b.PromptHistoryRecorded
 }
 
 func sameQueuedUserMessageMemoRequest(a queuedUserMessageMemoRequest, b queuedUserMessageMemoRequest) bool {

@@ -35,6 +35,7 @@ var runtimeControlPromptHistoryStores sync.Map
 type runtimeControlPromptHistoryStore struct {
 	mu              sync.Mutex
 	records         []metadata.PromptHistoryRecord
+	recordInserted  []bool
 	queueStateErr   error
 	queueStateCalls int
 	consumeErr      error
@@ -54,6 +55,7 @@ func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(_ context.Co
 			if record.Text != entry.Text || record.SourceID != entry.SourceID && record.ClientRequestID == entry.ClientRequestID {
 				return metadata.PromptHistoryRecord{}, false, metadata.ErrPromptHistoryConflict
 			}
+			s.recordInserted = append(s.recordInserted, false)
 			return record, false, nil
 		}
 	}
@@ -69,6 +71,7 @@ func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(_ context.Co
 		CreatedAt:       entry.CreatedAt,
 	}
 	s.records = append(s.records, record)
+	s.recordInserted = append(s.recordInserted, true)
 	return record, true, nil
 }
 
@@ -121,6 +124,12 @@ func (s *runtimeControlPromptHistoryStore) SetQueueStateError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queueStateErr = err
+}
+
+func (s *runtimeControlPromptHistoryStore) QueueStateCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.queueStateCalls
 }
 
 type stubRuntimeLeaseVerifier struct {
@@ -871,6 +880,27 @@ func TestServiceSubmitUserTurnSkipsPromptHistoryWhenAlreadyRecorded(t *testing.T
 	}
 }
 
+func TestServiceSubmitUserTurnRejectsPromptHistoryRecordedMismatch(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	first := runtimeControlUserTurnRequest(store, "req-1", "expanded hidden prompt")
+	first.PromptHistoryRecorded = true
+	if _, err := service.SubmitUserTurn(context.Background(), first); err != nil {
+		t.Fatalf("SubmitUserTurn first: %v", err)
+	}
+	second := first
+	second.PromptHistoryRecorded = false
+	if _, err := service.SubmitUserTurn(context.Background(), second); !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
+		t.Fatalf("SubmitUserTurn mismatch error = %v, want request id payload mismatch", err)
+	}
+	if got := countPromptHistoryEvents(t, store, "expanded hidden prompt"); got != 0 {
+		t.Fatalf("hidden expanded prompt history count = %d, want 0", got)
+	}
+	if client.calls != 1 {
+		t.Fatalf("generate call count = %d, want 1", client.calls)
+	}
+}
+
 func TestServiceSubmitUserTurnDedupesSuccessfulRetry(t *testing.T) {
 	client := finalResponseRuntimeControlClient()
 	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
@@ -972,6 +1002,9 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	if firstQueue.QueueItemID != "req-1" {
 		t.Fatalf("queue id = %q, want request-id-derived queue id", firstQueue.QueueItemID)
 	}
+	if got := service.promptStore.(*runtimeControlPromptHistoryStore).QueueStateCalls(); got != 1 {
+		t.Fatalf("queue state transition calls = %d, want only fresh pending transition before retry", got)
+	}
 	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
 		t.Fatalf("queued prompt history count = %d, want 1 immediately after queue acceptance", got)
 	}
@@ -983,6 +1016,25 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	}
 	if got := countUserMessagesWithContent(t, store, "hello\n\nhello"); got != 0 {
 		t.Fatalf("duplicate queued flush count = %d, want 0", got)
+	}
+}
+
+func TestServiceQueueUserMessageDoesNotScanConsumptionMarkersForFreshQueue(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	if _, _, err := store.AppendEvent("old-step", "queued_user_messages_consumed", map[string]any{"queue_item_ids": []string{"req-fresh"}}); err != nil {
+		t.Fatalf("append stale consumed marker: %v", err)
+	}
+
+	queued, err := service.QueueUserMessage(context.Background(), runtimeControlQueueUserMessageRequest(store, "req-fresh", "fresh queue"))
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	if queued.QueueItemID != "req-fresh" {
+		t.Fatalf("queue item id = %q, want req-fresh", queued.QueueItemID)
+	}
+	if !engine.HasQueuedUserWork() {
+		t.Fatal("expected fresh queue request to enqueue without scanning stale consumed marker")
 	}
 }
 
@@ -1225,6 +1277,39 @@ func TestServiceDiscardQueuedUserMessageDoesNotMutateRuntimeWhenMetadataFails(t 
 	}
 	if engine.HasQueuedUserWork() {
 		t.Fatal("expected runtime queue item removed after metadata discard success")
+	}
+}
+
+func TestServiceDiscardQueuedUserMessageReportsFalseAfterConsumedFlush(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-consumed", "already flushed"))
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	if _, err := engine.SubmitQueuedUserMessages(ctx); err != nil {
+		t.Fatalf("SubmitQueuedUserMessages: %v", err)
+	}
+	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
+		ClientRequestID:   "req-discard-consumed",
+		SessionID:         sessionStore.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		QueueItemID:       queued.QueueItemID,
+	}
+	discarded, err := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history).DiscardQueuedUserMessage(ctx, discardReq)
+	if err != nil {
+		t.Fatalf("DiscardQueuedUserMessage: %v", err)
+	}
+	if discarded.Discarded {
+		t.Fatal("did not expect already-flushed queued prompt to report discarded")
+	}
+	history.mu.Lock()
+	defer history.mu.Unlock()
+	for _, record := range history.records {
+		if record.QueueItemID == queued.QueueItemID && record.QueueState != metadata.PromptHistoryQueueStateConsumed {
+			t.Fatalf("queue state = %q, want consumed", record.QueueState)
+		}
 	}
 }
 
