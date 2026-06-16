@@ -33,9 +33,11 @@ func (s stubRuntimeResolver) ResolveRuntime(context.Context, string) (*runtime.E
 var runtimeControlPromptHistoryStores sync.Map
 
 type runtimeControlPromptHistoryStore struct {
-	mu         sync.Mutex
-	records    []metadata.PromptHistoryRecord
-	consumeErr error
+	mu              sync.Mutex
+	records         []metadata.PromptHistoryRecord
+	queueStateErr   error
+	queueStateCalls int
+	consumeErr      error
 }
 
 func newRuntimeControlPromptHistoryStore(sessionID string) *runtimeControlPromptHistoryStore {
@@ -73,6 +75,10 @@ func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(_ context.Co
 func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueState(_ context.Context, sessionID string, queueItemID string, state metadata.PromptHistoryQueueState) (metadata.PromptHistoryRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.queueStateCalls++
+	if s.queueStateErr != nil {
+		return metadata.PromptHistoryRecord{}, s.queueStateErr
+	}
 	for i, record := range s.records {
 		if record.SessionID == sessionID && record.QueueItemID == queueItemID {
 			s.records[i].QueueState = state
@@ -109,6 +115,12 @@ func (s *runtimeControlPromptHistoryStore) SetConsumeError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.consumeErr = err
+}
+
+func (s *runtimeControlPromptHistoryStore) SetQueueStateError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queueStateErr = err
 }
 
 type stubRuntimeLeaseVerifier struct {
@@ -1131,6 +1143,67 @@ func TestServiceQueueUserMessageDoesNotReenqueueWhenConsumedRepairFails(t *testi
 	}
 	if engine.HasQueuedUserWork() {
 		t.Fatal("did not expect consumed prompt to be re-enqueued after repair failure")
+	}
+}
+
+func TestServiceQueueUserMessageDoesNotEnqueueWhenPendingStateFails(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	boom := errors.New("pending transition failed")
+	history.SetQueueStateError(boom)
+	req := runtimeControlQueueUserMessageRequest(sessionStore, "req-pending-fail", "hello pending failure")
+
+	if _, err := service.QueueUserMessage(ctx, req); !errors.Is(err, boom) {
+		t.Fatalf("QueueUserMessage error = %v, want %v", err, boom)
+	}
+	if engine.HasQueuedUserWork() {
+		t.Fatal("did not expect runtime queue mutation after metadata pending failure")
+	}
+	history.SetQueueStateError(nil)
+	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
+	if _, err := retryService.QueueUserMessage(ctx, req); err != nil {
+		t.Fatalf("QueueUserMessage retry: %v", err)
+	}
+	if !engine.HasQueuedUserWork() {
+		t.Fatal("expected retry after metadata recovery to enqueue runtime work")
+	}
+}
+
+func TestServiceDiscardQueuedUserMessageDoesNotMutateRuntimeWhenMetadataFails(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-fail", "discard me"))
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	boom := errors.New("discard transition failed")
+	history.SetQueueStateError(boom)
+	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
+		ClientRequestID:   "req-discard",
+		SessionID:         sessionStore.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		QueueItemID:       queued.QueueItemID,
+	}
+
+	if _, err := service.DiscardQueuedUserMessage(ctx, discardReq); !errors.Is(err, boom) {
+		t.Fatalf("DiscardQueuedUserMessage error = %v, want %v", err, boom)
+	}
+	if !engine.HasQueuedUserWork() {
+		t.Fatal("expected runtime queue item to remain after metadata discard failure")
+	}
+	history.SetQueueStateError(nil)
+	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
+	discarded, err := retryService.DiscardQueuedUserMessage(ctx, discardReq)
+	if err != nil {
+		t.Fatalf("DiscardQueuedUserMessage retry: %v", err)
+	}
+	if !discarded.Discarded {
+		t.Fatal("expected discard retry to succeed")
+	}
+	if engine.HasQueuedUserWork() {
+		t.Fatal("expected runtime queue item removed after metadata discard success")
 	}
 }
 

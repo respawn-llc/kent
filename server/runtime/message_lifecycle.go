@@ -273,7 +273,7 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 	queuedMessages := normalizeQueuedUserMessages(pending)
 	if len(queuedMessages) > 0 {
 		joined := strings.Join(queuedMessages, "\n\n")
-		if err := e.appendQueuedUserMessageFlush(stepID, joined, queuedMessages, queuedUserMessageIDs(pending)); err != nil {
+		if err := e.steer(stepID, steerQueuedUserMessageFlushIntent(joined, queuedMessages, queuedUserMessageIDs(pending))); err != nil {
 			return flushed, err
 		}
 		flushed++

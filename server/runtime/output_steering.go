@@ -31,6 +31,7 @@ type steeringItem struct {
 	localEntry       *steeringLocalEntry
 	historyReplace   *steeringHistoryReplacement
 	toolCompletion   *tools.Result
+	queuedFlush      *steeringQueuedUserMessageFlush
 	event            *Event
 	streaming        *steeringStreamingOutput
 	cacheWarning     *steeringCacheWarning
@@ -70,6 +71,12 @@ type steeringCacheObservation struct {
 	warning    cachewarn.Warning
 	visibility transcript.EntryVisibility
 	emit       bool
+}
+
+type steeringQueuedUserMessageFlush struct {
+	text         string
+	batch        []string
+	queueItemIDs []string
 }
 
 type steeringMessageEventPolicy uint8
@@ -153,6 +160,17 @@ func steerToolCompletionIntent(result tools.Result) steeringIntent {
 	return steeringIntent{
 		priority: steeringPriorityNormal,
 		items:    []steeringItem{{toolCompletion: &copyResult}},
+	}
+}
+
+func steerQueuedUserMessageFlushIntent(text string, batch []string, queueItemIDs []string) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityUser,
+		items: []steeringItem{{queuedFlush: &steeringQueuedUserMessageFlush{
+			text:         text,
+			batch:        append([]string(nil), batch...),
+			queueItemIDs: append([]string(nil), queueItemIDs...),
+		}}},
 	}
 }
 
@@ -261,6 +279,9 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		result := cloneToolResult(*item.toolCompletion)
 		e.emitRaw(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &result, CommittedTranscriptChanged: true})
 		return nil
+	}
+	if item.queuedFlush != nil {
+		return e.appendQueuedUserMessageFlush(stepID, item.queuedFlush.text, item.queuedFlush.batch, item.queuedFlush.queueItemIDs)
 	}
 	if item.event != nil {
 		evt := *item.event

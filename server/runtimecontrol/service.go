@@ -560,12 +560,15 @@ func (s *Service) DiscardQueuedUserMessage(ctx context.Context, req serverapi.Ru
 		if err != nil {
 			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 		}
-		discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
-		if discarded && s.promptStore != nil {
-			if _, err := s.promptStore.MarkPromptHistoryQueueState(ctx, memoReq.SessionID, memoReq.QueueItemID, metadata.PromptHistoryQueueStateDiscarded); err != nil {
+		if s.promptStore != nil {
+			record, err := s.promptStore.MarkPromptHistoryQueueState(ctx, memoReq.SessionID, memoReq.QueueItemID, metadata.PromptHistoryQueueStateDiscarded)
+			if err != nil {
 				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 			}
+			discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
+			return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded || record.QueueState == metadata.PromptHistoryQueueStateDiscarded}, nil
 		}
+		discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
 		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded}, nil
 	})
 }
@@ -633,10 +636,10 @@ func (s *Service) ensureQueuedPromptHistory(ctx context.Context, engine *runtime
 			}
 			return item, nil
 		}
-		item = engine.EnsureQueuedUserMessage(item)
 		if _, err := s.promptStore.MarkPromptHistoryQueueState(ctx, sessionID, item.ID, metadata.PromptHistoryQueueStatePending); err != nil {
 			return runtime.QueuedUserMessage{}, err
 		}
+		item = engine.EnsureQueuedUserMessage(item)
 		return item, nil
 	default:
 		return runtime.QueuedUserMessage{}, fmt.Errorf("invalid queued prompt history state %q", record.QueueState)
