@@ -195,6 +195,51 @@ func (e *Engine) appendMessageRaw(stepID string, msg llm.Message, eventPolicy st
 	return nil
 }
 
+func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch []string, queueItemIDs []string) error {
+	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleUser, Content: text}, e.transcriptWorkingDir())
+	if strings.TrimSpace(msg.Content) == "" {
+		return nil
+	}
+	if e.beforePersistMessage != nil {
+		if err := e.beforePersistMessage(msg); err != nil {
+			return err
+		}
+	}
+	if mutation := tokenUsageMutationForMessage(msg); mutation == tokenUsageMutationSignificant {
+		e.markCurrentRequestShapeDirtyForSignificantMutation()
+	} else {
+		e.markCurrentRequestShapeDirty()
+	}
+	normalizedIDs := normalizedQueueItemIDs(queueItemIDs)
+	if _, _, err := e.store.AppendEvent(stepID, "message", msg); err != nil {
+		return err
+	}
+	e.transcriptPersistence().AppendMessage(msg)
+	e.emitRaw(Event{
+		Kind:                         EventUserMessageFlushed,
+		StepID:                       stepID,
+		UserMessage:                  msg.Content,
+		UserMessageBatch:             append([]string(nil), batch...),
+		UserMessageBatchQueueItemIDs: normalizedIDs,
+		CommittedTranscriptChanged:   true,
+	})
+	return nil
+}
+
+func normalizedQueueItemIDs(raw []string) []string {
+	out := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, id := range raw {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out
+}
+
 func (e *Engine) clearStreamingAssistantStateRaw(stepID string) {
 	e.transcriptPersistence().ClearStreamingAssistantState()
 	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})

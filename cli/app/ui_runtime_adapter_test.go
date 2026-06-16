@@ -303,7 +303,7 @@ func TestRuntimeAdapterRunStartAppliesPendingInputBeforeActivityEffect(t *testin
 	}
 }
 
-func TestRuntimeAdapterUserMessageFlushRecordsHistoryAndClearsDraft(t *testing.T) {
+func TestRuntimeAdapterUserMessageFlushClearsDraft(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.conversationFreshness = clientui.ConversationFreshnessFresh
 	m.input = "steered message"
@@ -330,8 +330,8 @@ func TestRuntimeAdapterUserMessageFlushRecordsHistoryAndClearsDraft(t *testing.T
 	if len(m.pendingInjected) != 1 || m.pendingInjected[0].Text != "follow-up" {
 		t.Fatalf("pending injected = %+v, want follow-up only", m.pendingInjected)
 	}
-	if len(m.promptHistory) != 1 || m.promptHistory[0] != "steered message" {
-		t.Fatalf("prompt history = %+v, want flushed message recorded", m.promptHistory)
+	if len(m.promptHistory) != 0 {
+		t.Fatalf("prompt history = %+v, want no queued flush append", m.promptHistory)
 	}
 	if m.conversationFreshness != clientui.ConversationFreshnessEstablished {
 		t.Fatalf("conversation freshness = %v, want established", m.conversationFreshness)

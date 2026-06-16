@@ -11,8 +11,8 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmi
 	if err := req.Validate(); err != nil {
 		return serverapi.RuntimeSubmitUserTurnResponse{}, err
 	}
-	memoReq := sessionTextMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Text: req.Text}
-	return s.turnSubmits.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionTextMemoRequest, func(ctx context.Context) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	memoReq := turnSubmitMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Text: req.Text, PromptHistoryRecorded: req.PromptHistoryRecorded}
+	return s.turnSubmits.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameTurnSubmitMemoRequest, func(ctx context.Context) (serverapi.RuntimeSubmitUserTurnResponse, error) {
 		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
 			return serverapi.RuntimeSubmitUserTurnResponse{}, err
 		}
@@ -38,8 +38,10 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmi
 				return serverapi.RuntimeSubmitUserTurnResponse{}, err
 			}
 		}
-		if err := engine.RecordPromptHistory(memoReq.Text); err != nil {
-			return serverapi.RuntimeSubmitUserTurnResponse{}, err
+		if !req.PromptHistoryRecorded {
+			if _, _, err := s.recordPromptHistory(runCtx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text); err != nil {
+				return serverapi.RuntimeSubmitUserTurnResponse{}, err
+			}
 		}
 		msg, err := engine.SubmitUserMessage(runCtx, memoReq.Text)
 		if err != nil {

@@ -29,6 +29,7 @@ type SessionPlan struct {
 	EnabledToolIDs      []string            `json:"enabled_tool_ids,omitempty"`
 	ConfiguredModelName string              `json:"configured_model_name,omitempty"`
 	SessionName         string              `json:"session_name,omitempty"`
+	PromptHistory       []string            `json:"prompt_history,omitempty"`
 	ModelContractLocked bool                `json:"model_contract_locked,omitempty"`
 	WorkspaceRoot       string              `json:"workspace_root,omitempty"`
 	Source              config.SourceReport `json:"source"`

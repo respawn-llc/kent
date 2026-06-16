@@ -126,21 +126,23 @@ type uiPresentationFeatureState struct {
 }
 
 type uiConversationFeatureState struct {
-	interaction       uiInteractionState
-	ask               uiAskState
-	initialTranscript []UITranscriptEntry
-	startupSubmit     string
+	interaction                        uiInteractionState
+	ask                                uiAskState
+	initialTranscript                  []UITranscriptEntry
+	startupSubmit                      string
+	startupSubmitPromptHistoryRecorded bool
 }
 
 type uiSessionTransitionFeatureState struct {
-	exitAction               UIAction
-	nextSessionInitialPrompt string
-	nextSessionInitialInput  string
-	nextSessionID            string
-	nextForkRollbackTargetID string
-	nextParentSessionID      string
-	sessionName              string
-	sessionID                string
+	exitAction                              UIAction
+	nextSessionInitialPrompt                string
+	nextSessionInitialPromptHistoryRecorded bool
+	nextSessionInitialInput                 string
+	nextSessionID                           string
+	nextForkRollbackTargetID                string
+	nextParentSessionID                     string
+	sessionName                             string
+	sessionID                               string
 }
 
 type uiStatusFeatureState struct {

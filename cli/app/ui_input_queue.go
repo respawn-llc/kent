@@ -485,6 +485,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		item.State = injectedRuntimeQueueEnqueued
 		m.injectedQueue[index] = item
 		m.replacePendingInjectedID(item.LocalID, clientui.QueuedUserMessage{ID: serverID, Text: serverText})
+		m.rememberPromptHistoryLocally(serverText)
 		if msg.approvalCommentaryAnswer != nil {
 			return m, m.answerQueuedApprovalCommentary(*msg.approvalCommentaryAnswer)
 		}

@@ -57,6 +57,9 @@ func TestPromptServiceRunsPromptThroughPreparedRuntime(t *testing.T) {
 	if launcher.runtime.prompt != "hello world" {
 		t.Fatalf("submitted prompt = %q, want hello world", launcher.runtime.prompt)
 	}
+	if launcher.runtime.historyRequestID != "req-123" || launcher.runtime.historyPrompt != "hello world" {
+		t.Fatalf("recorded history request=%q prompt=%q, want trimmed request and prompt", launcher.runtime.historyRequestID, launcher.runtime.historyPrompt)
+	}
 	if !launcher.runtime.closed {
 		t.Fatal("expected prepared runtime to be closed")
 	}
@@ -139,12 +142,20 @@ func (s *stubHeadlessPromptLauncher) PrepareHeadlessPrompt(_ context.Context, re
 }
 
 type stubPromptSessionRuntime struct {
-	assistant PromptAssistantMessage
-	err       error
-	prompt    string
-	closed    bool
-	logs      []string
-	onSubmit  func(context.Context)
+	assistant        PromptAssistantMessage
+	err              error
+	prompt           string
+	closed           bool
+	logs             []string
+	onSubmit         func(context.Context)
+	historyRequestID string
+	historyPrompt    string
+}
+
+func (s *stubPromptSessionRuntime) RecordPromptHistory(_ context.Context, clientRequestID string, prompt string) error {
+	s.historyRequestID = clientRequestID
+	s.historyPrompt = prompt
+	return nil
 }
 
 func (s *stubPromptSessionRuntime) SubmitUserMessage(ctx context.Context, prompt string) (PromptAssistantMessage, error) {

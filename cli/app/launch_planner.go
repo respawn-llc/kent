@@ -44,6 +44,7 @@ type sessionLaunchPlan struct {
 	EnabledTools                         []toolspec.ID
 	ConfiguredModelName                  string
 	SessionName                          string
+	PromptHistory                        []string
 	ModelContractLocked                  bool
 	StatusConfig                         uiStatusConfig
 	WorkspaceRoot                        string
@@ -170,6 +171,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		EnabledTools:                         enabledTools,
 		ConfiguredModelName:                  resp.Plan.ConfiguredModelName,
 		SessionName:                          resp.Plan.SessionName,
+		PromptHistory:                        append([]string(nil), resp.Plan.PromptHistory...),
 		ModelContractLocked:                  resp.Plan.ModelContractLocked,
 		StatusConfig: uiStatusConfig{
 			WorkspaceRoot:   resp.Plan.WorkspaceRoot,

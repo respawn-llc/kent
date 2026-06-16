@@ -1000,6 +1000,37 @@ func (q *Queries) GetSessionExecutionTargetByID(ctx context.Context, sessionID s
 	return i, err
 }
 
+const getSessionPromptHistoryEntryBySourceID = `-- name: GetSessionPromptHistoryEntryBySourceID :one
+SELECT
+    sequence,
+    session_id,
+    source_id,
+    text,
+    created_at_unix_ms
+FROM session_prompt_history_entries
+WHERE session_id = ?1
+  AND source_id = ?2
+LIMIT 1
+`
+
+type GetSessionPromptHistoryEntryBySourceIDParams struct {
+	SessionID string
+	SourceID  string
+}
+
+func (q *Queries) GetSessionPromptHistoryEntryBySourceID(ctx context.Context, arg GetSessionPromptHistoryEntryBySourceIDParams) (SessionPromptHistoryEntry, error) {
+	row := q.db.QueryRowContext(ctx, getSessionPromptHistoryEntryBySourceID, arg.SessionID, arg.SourceID)
+	var i SessionPromptHistoryEntry
+	err := row.Scan(
+		&i.Sequence,
+		&i.SessionID,
+		&i.SourceID,
+		&i.Text,
+		&i.CreatedAtUnixMs,
+	)
+	return i, err
+}
+
 const getSessionRecordByID = `-- name: GetSessionRecordByID :one
 SELECT
     s.id,
@@ -1867,6 +1898,41 @@ type InsertRuntimeLeaseParams struct {
 func (q *Queries) InsertRuntimeLease(ctx context.Context, arg InsertRuntimeLeaseParams) error {
 	_, err := q.db.ExecContext(ctx, insertRuntimeLease, arg.ID, arg.SessionID, arg.CreatedAtUnixMs)
 	return err
+}
+
+const insertSessionPromptHistoryEntry = `-- name: InsertSessionPromptHistoryEntry :execrows
+INSERT INTO session_prompt_history_entries (
+    session_id,
+    source_id,
+    text,
+    created_at_unix_ms
+) VALUES (
+    ?1,
+    ?2,
+    ?3,
+    ?4
+)
+ON CONFLICT DO NOTHING
+`
+
+type InsertSessionPromptHistoryEntryParams struct {
+	SessionID       string
+	SourceID        string
+	Text            string
+	CreatedAtUnixMs int64
+}
+
+func (q *Queries) InsertSessionPromptHistoryEntry(ctx context.Context, arg InsertSessionPromptHistoryEntryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertSessionPromptHistoryEntry,
+		arg.SessionID,
+		arg.SourceID,
+		arg.Text,
+		arg.CreatedAtUnixMs,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertTask = `-- name: InsertTask :exec
@@ -3776,6 +3842,36 @@ func (q *Queries) ListRunnableWorkflowRuns(ctx context.Context, limit int64) ([]
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionPromptHistoryText = `-- name: ListSessionPromptHistoryText :many
+SELECT text
+FROM session_prompt_history_entries
+WHERE session_id = ?1
+ORDER BY sequence ASC
+`
+
+func (q *Queries) ListSessionPromptHistoryText(ctx context.Context, sessionID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionPromptHistoryText, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			return nil, err
+		}
+		items = append(items, text)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

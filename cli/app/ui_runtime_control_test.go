@@ -39,6 +39,7 @@ type runtimeControlFakeClient struct {
 	shouldCompactCalls     int
 	shouldCompactResult    bool
 	submitText             string
+	submitRecorded         []bool
 	submitResult           string
 	submitShellCommand     string
 	compactArgs            string
@@ -196,6 +197,14 @@ func (f *runtimeControlFakeClient) SubmitUserMessage(_ context.Context, text str
 	}
 	return f.submitResult, f.err
 }
+func (f *runtimeControlFakeClient) SubmitUserMessageWithPromptHistoryRecorded(_ context.Context, text string) (string, error) {
+	f.submitText = text
+	f.submitRecorded = append(f.submitRecorded, true)
+	if f.submitErr != nil {
+		return f.submitResult, f.submitErr
+	}
+	return f.submitResult, f.err
+}
 func (f *runtimeControlFakeClient) SubmitUserShellCommand(_ context.Context, command string) error {
 	f.submitShellCommand = command
 	if f.submitShellErr != nil {
@@ -308,7 +317,7 @@ func TestRuntimeControlHelpersDelegateToRuntimeClient(t *testing.T) {
 		t.Fatalf("clear runtime goal = (%+v, %v), want nil goal", goal, err)
 	}
 	m.appendRuntimeLocalEntryWithNoticeID("system", "hello", "")
-	message, err := m.submitRuntimeUserMessage(context.Background(), "prompt")
+	message, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false)
 	if err != nil || message != "assistant" {
 		t.Fatalf("submit runtime user message = (%q, %v), want (assistant, nil)", message, err)
 	}
@@ -571,7 +580,7 @@ func TestRuntimeControlHelpersFallbackWithoutRuntimeClient(t *testing.T) {
 	if goal, err := m.clearRuntimeGoal(); goal != nil || err != nil {
 		t.Fatalf("clear runtime goal without client = (%+v, %v), want (nil, nil)", goal, err)
 	}
-	if message, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); message != "" || err != nil {
+	if message, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); message != "" || err != nil {
 		t.Fatalf("submit runtime user message without client = (%q, %v), want (empty, nil)", message, err)
 	}
 	if err := m.submitRuntimeUserShellCommand(context.Background(), "echo hi"); err != nil {
@@ -724,7 +733,7 @@ func TestRuntimeControlHelpersPropagateRuntimeErrors(t *testing.T) {
 	if _, _, err := m.setRuntimeReviewerEnabled(true); !errors.Is(err, boom) {
 		t.Fatalf("set runtime reviewer error = %v, want boom", err)
 	}
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, boom) {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); !errors.Is(err, boom) {
 		t.Fatalf("submit runtime user message error = %v, want boom", err)
 	}
 	if err := m.submitRuntimeUserShellCommand(context.Background(), "echo hi"); !errors.Is(err, boom) {
@@ -748,7 +757,7 @@ func TestRuntimeControlMarksDisconnectOnTransportError(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: io.EOF}
 	m := newProjectedTestUIModel(client, nil, nil)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, io.EOF) {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); !errors.Is(err, io.EOF) {
 		t.Fatalf("submit runtime user message err = %v, want EOF", err)
 	}
 	if !m.runtimeDisconnectStatusVisible() {
@@ -761,7 +770,7 @@ func TestRuntimeControlClearsDisconnectOnReachableServerError(t *testing.T) {
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); err == nil {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); err == nil {
 		t.Fatal("expected submit runtime user message error")
 	}
 	if m.runtimeDisconnectStatusVisible() {
@@ -773,7 +782,7 @@ func TestRuntimeControlTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: context.DeadlineExceeded}
 	m := newProjectedTestUIModel(client, nil, nil)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("submit runtime user message err = %v, want deadline exceeded", err)
 	}
 	if m.runtimeDisconnectStatusVisible() {
@@ -786,7 +795,7 @@ func TestRuntimeControlTimeoutDoesNotClearExistingDisconnect(t *testing.T) {
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("submit runtime user message err = %v, want deadline exceeded", err)
 	}
 	if !m.runtimeDisconnectStatusVisible() {
@@ -798,7 +807,7 @@ func TestRuntimeControlURLTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: &url.Error{Op: "Get", URL: "http://example.test", Err: timeoutNetError{}}}
 	m := newProjectedTestUIModel(client, nil, nil)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); err == nil {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); err == nil {
 		t.Fatal("expected submit runtime user message error")
 	}
 	if m.runtimeDisconnectStatusVisible() {
@@ -810,7 +819,7 @@ func TestRuntimeControlOpTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: &net.OpError{Op: "read", Net: "tcp", Err: timeoutNetError{}}}
 	m := newProjectedTestUIModel(client, nil, nil)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); err == nil {
+	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt", false); err == nil {
 		t.Fatal("expected submit runtime user message error")
 	}
 	if m.runtimeDisconnectStatusVisible() {

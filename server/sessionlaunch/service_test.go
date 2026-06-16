@@ -3,11 +3,14 @@ package sessionlaunch
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"core/server/auth"
 	"core/server/launch"
+	"core/server/metadata"
 	"core/server/registry"
 	"core/server/session"
 	"core/shared/config"
@@ -19,6 +22,57 @@ type failingAuthStateReader struct{}
 
 func (failingAuthStateReader) CurrentState(context.Context) (auth.State, error) {
 	return auth.State{}, errors.New("auth unavailable")
+}
+
+func TestServicePlanSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := context.Background()
+	workspace := t.TempDir()
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	meta, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	binding, err := meta.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, meta.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	if _, _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "json-history"}); err != nil {
+		t.Fatalf("append legacy prompt history event: %v", err)
+	}
+	if _, _, err := meta.RecordPromptHistoryEntry(ctx, metadata.PromptHistoryEntry{
+		SessionID: store.Meta().SessionID,
+		SourceID:  "req-1",
+		Text:      "db-history",
+	}); err != nil {
+		t.Fatalf("record metadata prompt history: %v", err)
+	}
+	service := NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+		StoreOptions: meta.AuthoritativeSessionStoreOptions(),
+	}, registry.NewSessionStoreRegistry()).WithPromptHistoryReader(meta)
+
+	resp, err := service.PlanSession(ctx, serverapi.SessionPlanRequest{
+		ClientRequestID:   "plan-1",
+		Mode:              serverapi.SessionLaunchModeInteractive,
+		SelectedSessionID: store.Meta().SessionID,
+	})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if !reflect.DeepEqual(resp.Plan.PromptHistory, []string{"db-history"}) {
+		t.Fatalf("prompt history = %+v, want metadata only", resp.Plan.PromptHistory)
+	}
 }
 
 func TestServicePlanSessionRegistersStoreAndReturnsPlan(t *testing.T) {

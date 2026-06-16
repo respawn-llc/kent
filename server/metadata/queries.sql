@@ -2310,3 +2310,35 @@ SET released_at_unix_ms = sqlc.arg(released_at_unix_ms)
 WHERE id = sqlc.arg(lease_id)
   AND session_id = sqlc.arg(session_id)
   AND released_at_unix_ms = 0;
+
+-- name: InsertSessionPromptHistoryEntry :execrows
+INSERT INTO session_prompt_history_entries (
+    session_id,
+    source_id,
+    text,
+    created_at_unix_ms
+) VALUES (
+    sqlc.arg(session_id),
+    sqlc.arg(source_id),
+    sqlc.arg(text),
+    sqlc.arg(created_at_unix_ms)
+)
+ON CONFLICT DO NOTHING;
+
+-- name: GetSessionPromptHistoryEntryBySourceID :one
+SELECT
+    sequence,
+    session_id,
+    source_id,
+    text,
+    created_at_unix_ms
+FROM session_prompt_history_entries
+WHERE session_id = sqlc.arg(session_id)
+  AND source_id = sqlc.arg(source_id)
+LIMIT 1;
+
+-- name: ListSessionPromptHistoryText :many
+SELECT text
+FROM session_prompt_history_entries
+WHERE session_id = sqlc.arg(session_id)
+ORDER BY sequence ASC;

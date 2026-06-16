@@ -418,7 +418,7 @@ func TestProjectedUserMessageFlushedDoesNotScheduleTranscriptRefresh(t *testing.
 	}
 }
 
-func TestProjectedUserMessageFlushedRecordsPromptHistoryWithoutTranscriptRefresh(t *testing.T) {
+func TestProjectedUserMessageFlushedAdvancesQueuedInputWithoutTranscriptRefresh(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.pendingInjected = queuedUserMessagesForTest("steered message", "follow-up")
@@ -443,8 +443,8 @@ func TestProjectedUserMessageFlushedRecordsPromptHistoryWithoutTranscriptRefresh
 			t.Fatalf("did not expect transcript refresh after flushed injected user message, got %+v", msgs)
 		}
 	}
-	if client.recordedPromptHistory != "steered message" {
-		t.Fatalf("expected prompt history recorded, got %q", client.recordedPromptHistory)
+	if client.recordedPromptHistory != "" {
+		t.Fatalf("did not expect queued flush to persist prompt history again, got %q", client.recordedPromptHistory)
 	}
 	if len(m.pendingInjected) != 1 || m.pendingInjected[0].Text != "follow-up" {
 		t.Fatalf("expected pending injected queue advanced, got %+v", m.pendingInjected)
@@ -962,8 +962,8 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 	if got := m.view.OngoingStreamingText(); got != "" {
 		t.Fatalf("expected committed gap hydration to clear stale live assistant text, got %q", got)
 	}
-	if client.recordedPromptHistory != "steered message" {
-		t.Fatalf("expected prompt history still recorded, got %q", client.recordedPromptHistory)
+	if client.recordedPromptHistory != "" {
+		t.Fatalf("did not expect queued flush to persist prompt history again, got %q", client.recordedPromptHistory)
 	}
 	if len(m.pendingInjected) != 0 {
 		t.Fatalf("expected pending injected queue consumed even while hydrate is pending, got %+v", m.pendingInjected)

@@ -239,8 +239,20 @@ func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text strin
 	if err := c.ensureWritable(); err != nil {
 		return "", err
 	}
+	requestID := uuid.NewString()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
+		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
+	})
+	return resp.Message, err
+}
+
+func (c *sessionRuntimeClient) SubmitUserMessageWithPromptHistoryRecorded(ctx context.Context, text string) (string, error) {
+	if err := c.ensureWritable(); err != nil {
+		return "", err
+	}
+	requestID := uuid.NewString()
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text, PromptHistoryRecorded: true})
 	})
 	return resp.Message, err
 }
@@ -302,8 +314,9 @@ func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUse
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
+	requestID := uuid.NewString()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeQueueUserMessageResponse, error) {
-		return c.controls.QueueUserMessage(ctx, serverapi.RuntimeQueueUserMessageRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
+		return c.controls.QueueUserMessage(ctx, serverapi.RuntimeQueueUserMessageRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
 	if err != nil {
 		c.notifyConnectionState(err)
@@ -333,7 +346,8 @@ func (c *sessionRuntimeClient) RecordPromptHistory(text string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
+	requestID := uuid.NewString()
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
-		return c.controls.RecordPromptHistory(ctx, serverapi.RuntimeRecordPromptHistoryRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
+		return c.controls.RecordPromptHistory(ctx, serverapi.RuntimeRecordPromptHistoryRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
 }

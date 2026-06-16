@@ -263,7 +263,9 @@ func (s *Core) sessionLaunchServiceForProjectContextLocked(projectCtx projectCon
 		ReloadConfig: func() (config.App, error) {
 			return s.configForWorkspace(projectCtx.projectRoot)
 		},
-	}, s.safeBundles().Persistence.sessionStores).WithAuthStateReader(s.safeBundles().Auth.support.AuthManager)
+	}, s.safeBundles().Persistence.sessionStores).
+		WithAuthStateReader(s.safeBundles().Auth.support.AuthManager).
+		WithPromptHistoryReader(s.safeBundles().Persistence.metadataStore)
 	s.safeBundles().Sessions.sessionServices[scopeKey] = service
 	return service
 }
@@ -285,6 +287,7 @@ func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) clien
 		Background:       s.safeBundles().Runtime.background,
 		RuntimeRegistry:  s.safeBundles().Runtime.runtimeRegistry,
 		BackgroundRouter: s.safeBundles().Runtime.backgroundRouter,
+		PromptHistory:    s.safeBundles().Persistence.metadataStore,
 	})
 	s.safeBundles().Sessions.runPromptMap[scopeKey] = client
 	return client

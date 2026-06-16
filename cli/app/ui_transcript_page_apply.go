@@ -214,6 +214,5 @@ func (a uiRuntimeAdapter) applyAuthoritativeOngoingTailPage(page clientui.Transc
 	if !preserveLiveReasoning {
 		m.reasoningLiveDirty = false
 	}
-	m.seedPromptHistoryFromTranscriptEntries(m.transcriptEntries)
 	m.refreshRollbackCandidates()
 }

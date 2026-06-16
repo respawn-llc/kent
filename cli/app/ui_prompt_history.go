@@ -3,28 +3,12 @@ package app
 import (
 	"strings"
 
-	"core/cli/tui"
-
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func (m *uiModel) loadPromptHistory(history []string) {
 	for _, raw := range history {
 		if text := preservePromptHistoryText(raw); text != "" {
-			m.promptHistory = append(m.promptHistory, text)
-		}
-	}
-}
-
-func (m *uiModel) seedPromptHistoryFromTranscriptEntries(entries []tui.TranscriptEntry) {
-	if len(m.promptHistory) > 0 {
-		return
-	}
-	for _, entry := range entries {
-		if entry.Role != tui.TranscriptRoleUser {
-			continue
-		}
-		if text := preservePromptHistoryText(entry.Text); text != "" {
 			m.promptHistory = append(m.promptHistory, text)
 		}
 	}
@@ -195,12 +179,20 @@ func (m *uiModel) applyPromptHistorySelection() {
 	m.replaceMainInput(m.promptHistory[m.promptHistorySelection], -1)
 }
 
-func (m *uiModel) recordPromptHistory(text string) tea.Cmd {
+func (m *uiModel) rememberPromptHistoryLocally(text string) bool {
 	if text = preservePromptHistoryText(text); text == "" {
-		return nil
+		return false
 	}
 	m.promptHistory = append(m.promptHistory, text)
 	m.resetPromptHistoryNavigation()
+	return true
+}
+
+func (m *uiModel) recordPromptHistory(text string) tea.Cmd {
+	if !m.rememberPromptHistoryLocally(text) {
+		return nil
+	}
+	text = preservePromptHistoryText(text)
 	client := m.runtimeClient()
 	if client == nil {
 		return nil
