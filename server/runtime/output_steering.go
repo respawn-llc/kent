@@ -77,6 +77,7 @@ type steeringCacheObservation struct {
 
 type steeringRepairReload struct {
 	rewrite                 session.EventRewriteResult
+	removedCallIDs          []string
 	preRepairCommittedCount int
 }
 
@@ -222,11 +223,13 @@ func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.
 	}
 }
 
-func steerRepairReloadIntent(rewrite session.EventRewriteResult, preRepairCommittedCount int) steeringIntent {
+func steerRepairReloadIntent(rewrite session.EventRewriteResult, removedCallIDs []string, preRepairCommittedCount int) steeringIntent {
+	copyRemovedCallIDs := append([]string(nil), removedCallIDs...)
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
 		items: []steeringItem{{repairReload: &steeringRepairReload{
 			rewrite:                 rewrite,
+			removedCallIDs:          copyRemovedCallIDs,
 			preRepairCommittedCount: preRepairCommittedCount,
 		}}},
 	}
@@ -365,7 +368,7 @@ func (e *Engine) applyRepairReloadRaw(stepID string, repair steeringRepairReload
 			CommittedEntryCount:        repair.preRepairCommittedCount + idx + 1,
 		})
 	}
-	if err := e.reloadProjectionFromPersistedTranscriptAfterRepair(); err != nil {
+	if err := e.applyMissingToolOutputRepairProjection(repair); err != nil {
 		return err
 	}
 	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})

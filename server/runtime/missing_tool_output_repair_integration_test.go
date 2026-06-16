@@ -3,11 +3,15 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestNormalGenerationHTTP400RepairsMissingToolOutputRebuildsAndRetries(t *testing.T) {
@@ -57,7 +61,10 @@ func TestNormalGenerationHTTP400RepairsMissingToolOutputRebuildsAndRetries(t *te
 	}
 	liveWarnings := 0
 	for _, event := range events {
-		if event.Kind == EventLocalEntryAdded && event.LocalEntry != nil && strings.Contains(event.LocalEntry.Text, "Transcript history was rolled back") {
+		if event.Kind == EventLocalEntryAdded &&
+			event.LocalEntry != nil &&
+			event.LocalEntry.Role == string(transcript.EntryRoleDeveloperErrorFeedback) &&
+			strings.TrimSpace(event.LocalEntry.Text) != "" {
 			liveWarnings++
 		}
 	}
@@ -119,6 +126,70 @@ func TestCompactionHTTP400RepairsMissingToolOutputRebuildsAndRetries(t *testing.
 	}
 }
 
+func TestRemoteCompactionHTTP400RepairDoesNotConsumeOverflowBudget(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairOverflowSeed(t, store, "missing-budget")
+	client := &fakeCompactionClient{
+		compactionErrors: []error{
+			repairContextOverflowError(),
+			repairContextOverflowError(),
+			repairContextOverflowError(),
+			&llm.APIStatusError{StatusCode: 400, Body: "bad request"},
+		},
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "summary"}},
+		}},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", ContextWindowTokens: 100_000})
+	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.snapshotItems()}
+
+	if _, _, _, err := eng.compactWithContextRepairRetry(context.Background(), "compact", client, baseRequest); err != nil {
+		t.Fatalf("compact with repair retry: %v", err)
+	}
+	if len(client.compactionCalls) != 5 {
+		t.Fatalf("compaction calls = %d, want 5", len(client.compactionCalls))
+	}
+	finalInput := client.compactionCalls[4].InputItems
+	if repairItemsContainCall(finalInput, "missing-budget") {
+		t.Fatalf("final compaction retry still contains repaired call: %+v", finalInput)
+	}
+	if !repairItemsContainCollapsedShellOutput(finalInput) {
+		t.Fatalf("final compaction retry lost overflow repair: %+v", finalInput)
+	}
+}
+
+func TestLocalCompactionHTTP400RepairDoesNotConsumeOverflowBudget(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairOverflowSeed(t, store, "missing-local-budget")
+	client := &fakeCompactionClient{
+		errors: []error{
+			repairContextOverflowError(),
+			repairContextOverflowError(),
+			repairContextOverflowError(),
+			&llm.APIStatusError{StatusCode: 400, Body: "bad request"},
+			nil,
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "local summary"},
+		}},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", ContextWindowTokens: 100_000})
+
+	if _, _, err := eng.localCompactionSummaryWithRepair(context.Background(), eng.snapshotItems(), "summarize", compactionModeAuto); err != nil {
+		t.Fatalf("local compaction summary: %v", err)
+	}
+	if len(client.calls) != 5 {
+		t.Fatalf("local compaction calls = %d, want 5", len(client.calls))
+	}
+	finalInput := client.calls[4].Items
+	if repairItemsContainCall(finalInput, "missing-local-budget") {
+		t.Fatalf("final local compaction retry still contains repaired call: %+v", finalInput)
+	}
+	if !repairItemsContainCollapsedShellOutput(finalInput) {
+		t.Fatalf("final local compaction retry lost overflow repair: %+v", finalInput)
+	}
+}
+
 func TestExactTokenCountHTTP400RepairsBeforeDiagnosticAndRetries(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "missing-count", Name: "exec", Input: json.RawMessage(`{}`)}}})
@@ -146,6 +217,39 @@ func TestExactTokenCountHTTP400RepairsBeforeDiagnosticAndRetries(t *testing.T) {
 			t.Fatalf("did not expect exact-token diagnostic when repair retry succeeds: %+v", event)
 		}
 	}
+}
+
+func appendRepairOverflowSeed(t *testing.T, store *session.Store, missingCallID string) {
+	t.Helper()
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleUser, Content: "seed"})
+	for idx := 0; idx < 4; idx++ {
+		callID := fmt.Sprintf("shell-budget-%d", idx)
+		appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+			ID:    callID,
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"echo hi"}`),
+		}}})
+		appendRepairEvent(t, store, "message", llm.Message{
+			Role:       llm.RoleTool,
+			ToolCallID: callID,
+			Name:       string(toolspec.ToolExecCommand),
+			Content:    `{"output":"` + strings.Repeat("x", 48_000) + `"}`,
+		})
+	}
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: missingCallID, Name: "exec", Input: json.RawMessage(`{}`)}}})
+}
+
+func repairContextOverflowError() error {
+	return &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 413, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"}
+}
+
+func repairItemsContainCollapsedShellOutput(items []llm.ResponseItem) bool {
+	for _, item := range items {
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && isCollapsedCompactionOverflowShellOutput(item.Output) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestIneligibleActiveToolTokenCountHTTP400DoesNotRepairButLaterGenerationCan(t *testing.T) {
@@ -216,8 +320,8 @@ func TestNormalGenerationNon400AndUnrelated400DoNotRepair(t *testing.T) {
 				t.Fatalf("non-400 repaired corrupted call")
 			}
 			for _, event := range readRepairEvents(t, store) {
-				if event.Kind == "local_entry" && strings.Contains(string(event.Payload), "Transcript history was rolled back") {
-					t.Fatalf("unexpected repair warning for %s", tc.name)
+				if event.Kind == "local_entry" {
+					t.Fatalf("unexpected local repair warning for %s", tc.name)
 				}
 			}
 		})

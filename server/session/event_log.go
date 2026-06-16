@@ -370,7 +370,17 @@ func rewriteEventsFileStreaming(
 	if err != nil {
 		return rewriteEventsFileStats{}, fmt.Errorf("open events file: %w", err)
 	}
-	defer source.Close()
+	sourceClosed := false
+	closeSource := func() error {
+		if sourceClosed {
+			return nil
+		}
+		sourceClosed = true
+		return source.Close()
+	}
+	defer func() {
+		_ = closeSource()
+	}()
 
 	tmp := path + ".tmp"
 	target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -446,6 +456,9 @@ func rewriteEventsFileStreaming(
 	}
 	if !stats.changed {
 		return stats, nil
+	}
+	if err := closeSource(); err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("close events file: %w", err)
 	}
 	if err := target.Close(); err != nil {
 		return rewriteEventsFileStats{}, fmt.Errorf("close events tmp file: %w", err)

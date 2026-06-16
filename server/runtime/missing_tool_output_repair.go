@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"core/server/llm"
@@ -15,6 +16,7 @@ const missingToolOutputRepairWarningTemplate = "Transcript history was rolled ba
 
 type missingToolOutputRepairResult struct {
 	RemovedCalls int
+	RemovedIDs   []string
 	Changed      bool
 	Rewrite      session.EventRewriteResult
 }
@@ -71,8 +73,10 @@ func repairMissingToolOutputsInSessionStore(store *session.Store, stepID string)
 		}}, nil
 	}
 	rewrite, committed, err := store.AnalyzeAndRewriteEvents(stepID, analyze, transform, extra)
+	removedIDs := sortedMissingToolOutputRepairCallIDs(repairable)
 	return missingToolOutputRepairResult{
 		RemovedCalls: len(repairable),
+		RemovedIDs:   removedIDs,
 		Changed:      rewrite.Changed,
 		Rewrite:      rewrite,
 	}, committed, err
@@ -88,95 +92,150 @@ func (e *Engine) repairMissingToolOutputsAfterHTTP400(stepID string) (missingToo
 	preRepairCommittedCount := e.CommittedTranscriptEntryCount()
 	result, committed, err := repairMissingToolOutputsInSessionStore(e.store, stepID)
 	if committed {
-		err = errors.Join(err, e.steer(stepID, steerRepairReloadIntent(result.Rewrite, preRepairCommittedCount)))
+		err = errors.Join(err, e.steer(stepID, steerRepairReloadIntent(result.Rewrite, result.RemovedIDs, preRepairCommittedCount)))
 	}
 	return result, committed, err
 }
 
-func (e *Engine) reloadProjectionFromPersistedTranscriptAfterRepair() error {
+func (e *Engine) applyMissingToolOutputRepairProjection(result steeringRepairReload) error {
 	if e == nil || e.store == nil {
 		return nil
 	}
-	chat := newChatStoreWithCWD(e.transcriptWorkingDir())
-	diagnostics := newDiagnosticDedupeStore()
-	requestCache := newRequestCacheTracker()
-	compactionCount := 0
-	lastWorkflowRunID := ""
-	reminderIssued := e.store.Meta().CompactionSoonReminderIssued
-	if err := e.store.WalkEvents(func(evt session.Event) error {
-		switch strings.TrimSpace(evt.Kind) {
-		case "message":
-			var msg llm.Message
-			if err := json.Unmarshal(evt.Payload, &msg); err != nil {
-				return fmt.Errorf("decode message event: %w", err)
-			}
-			chat.appendMessage(msg)
-			if isCompactionSoonReminderMessage(msg) {
-				reminderIssued = true
-			}
-		case "tool_completed":
-			if err := chat.restoreToolCompletionPayload(evt.Payload); err != nil {
-				return err
-			}
-		case "local_entry":
-			var entry storedLocalEntry
-			if err := json.Unmarshal(evt.Payload, &entry); err != nil {
-				return fmt.Errorf("decode local_entry event: %w", err)
-			}
-			diagnostics.RestoreLocal(entry.DiagnosticKey)
-			chat.appendLocalEntryRecord(*localEntryChatEntry(entry))
-		case sessionEventCacheWarning:
-			if err := applyPersistedCacheWarningToChat(chat, evt.Payload, e.cfg.CacheWarningMode); err != nil {
-				return err
-			}
-		case sessionEventCacheRequestObserved:
-			var request persistedCacheRequestObserved
-			if err := json.Unmarshal(evt.Payload, &request); err != nil {
-				return fmt.Errorf("decode %s event: %w", sessionEventCacheRequestObserved, err)
-			}
-		case sessionEventCacheResponseObserved:
-			var response persistedCacheResponseObserved
-			if err := json.Unmarshal(evt.Payload, &response); err != nil {
-				return fmt.Errorf("decode %s event: %w", sessionEventCacheResponseObserved, err)
-			}
-			requestCache.RecordResponse(response)
-		case "history_replaced":
-			payload, ignoredLegacy, err := decodePersistedHistoryReplacementPayload(evt.Payload)
-			if err != nil {
-				return fmt.Errorf("%w: %w", errDecodeHistoryReplacedEvent, err)
-			}
-			if ignoredLegacy {
-				return nil
-			}
-			diagnostics.Reset()
-			chat.replaceHistory(payload.Items)
-			compactionCount++
-			lastWorkflowRunID = strings.TrimSpace(payload.WorkflowRunID)
-			reminderIssued = false
-		}
+	chat := e.transcriptRuntimeState().chatProjection()
+	if chat == nil {
 		return nil
-	}); err != nil {
-		return err
 	}
-
-	e.transcriptRuntimeState().replaceChatProjection(chat)
-	e.compactionRuntimeState().SetCount(compactionCount)
-	e.setLastCompactionWorkflowRunID(lastWorkflowRunID)
-	e.setCompactionSoonReminderIssued(reminderIssued)
-	e.baseMetaInjected = len(chat.snapshotMessages()) > 0
+	chat.applyMissingToolOutputRepair(result.removedCallIDs, result.rewrite.AppendedEvents)
 	e.mu.Lock()
-	e.diagnostics = diagnostics
 	e.usageState = newUsageTrackingState()
 	e.mu.Unlock()
-	modelState := e.modelRequests()
-	modelState.mu.Lock()
-	modelState.requestCache = requestCache
-	modelState.mu.Unlock()
 	e.resetCurrentPreciseInputTracking()
-	return errors.Join(
-		e.store.SetCompactionSoonReminderIssued(reminderIssued),
-		e.store.SetUsageState(nil),
-	)
+	return e.store.SetUsageState(nil)
+}
+
+func sortedMissingToolOutputRepairCallIDs(ids map[string]struct{}) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func responseItemsWithoutRepairCalls(items []llm.ResponseItem, removedCallIDs []string) []llm.ResponseItem {
+	if len(items) == 0 || len(removedCallIDs) == 0 {
+		return llm.CloneResponseItems(items)
+	}
+	removed := make(map[string]struct{}, len(removedCallIDs))
+	for _, id := range removedCallIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			removed[trimmed] = struct{}{}
+		}
+	}
+	if len(removed) == 0 {
+		return llm.CloneResponseItems(items)
+	}
+	out := make([]llm.ResponseItem, 0, len(items))
+	for _, item := range items {
+		callID := strings.TrimSpace(item.CallID)
+		if callID == "" {
+			callID = strings.TrimSpace(item.ID)
+		}
+		if _, remove := removed[callID]; remove && (isToolCallItem(item.Type) || isToolOutputItem(item.Type)) {
+			continue
+		}
+		out = append(out, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+	}
+	return out
+}
+
+func localEntriesFromRepairAppendedEvents(events []session.Event) []ChatEntry {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]ChatEntry, 0, len(events))
+	for _, evt := range events {
+		if strings.TrimSpace(evt.Kind) != "local_entry" {
+			continue
+		}
+		var entry storedLocalEntry
+		if err := json.Unmarshal(evt.Payload, &entry); err == nil {
+			if chatEntry := localEntryChatEntry(entry); chatEntry != nil {
+				out = append(out, *chatEntry)
+			}
+		}
+	}
+	return out
+}
+
+func (s *chatStore) applyMissingToolOutputRepair(removedCallIDs []string, appendedEvents []session.Event) {
+	if s == nil {
+		return
+	}
+	appendedEntries := localEntriesFromRepairAppendedEvents(appendedEvents)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(removedCallIDs) > 0 {
+		s.items = responseItemsWithoutRepairCalls(s.items, removedCallIDs)
+		repairedMessageCount := len(llm.MessagesFromItems(s.items))
+		if s.compact != nil {
+			if s.compact.CutoffMessageCount > repairedMessageCount {
+				s.compact.CutoffMessageCount = repairedMessageCount
+			}
+		}
+		for idx := range s.local {
+			if s.local[idx].AfterMessageCount > repairedMessageCount {
+				s.local[idx].AfterMessageCount = repairedMessageCount
+			}
+		}
+		s.messageCount = repairedMessageCount
+		for _, id := range removedCallIDs {
+			delete(s.assistantToolCalls, id)
+			delete(s.materializedToolResults, id)
+			delete(s.synthesizedToolResults, id)
+			delete(s.toolCompletions, id)
+			delete(s.toolCompletionProviderItems, id)
+		}
+		s.lastCommittedAssistantFinalAnswer = lastCommittedAssistantFinalAnswerFromItems(s.providerItemsSourceLocked())
+		s.providerTokenEstimateDirty = true
+	}
+	for _, entry := range appendedEntries {
+		if strings.TrimSpace(entry.Text) == "" {
+			continue
+		}
+		entry.Visibility = transcript.NormalizeEntryVisibility(entry.Visibility)
+		entry.OngoingText = strings.TrimSpace(entry.OngoingText)
+		entry.NoticeID = strings.TrimSpace(entry.NoticeID)
+		s.local = append(s.local, localChatEntry{
+			Entry:             entry,
+			AfterMessageCount: s.messageCount,
+		})
+		s.transcriptEntryCount++
+	}
+}
+
+func lastCommittedAssistantFinalAnswerFromItems(items []llm.ResponseItem) string {
+	messages := llm.MessagesFromItems(items)
+	last := ""
+	for _, msg := range messages {
+		if messagePreservesLastCommittedAssistantFinalAnswer(msg) || isNoopFinalAnswer(msg) {
+			continue
+		}
+		if msg.Role == llm.RoleAssistant && msg.Phase == llm.MessagePhaseFinal && strings.TrimSpace(msg.Content) != "" {
+			last = msg.Content
+			continue
+		}
+		last = ""
+	}
+	return last
 }
 
 func formatMissingToolOutputRepairWarning(removedCalls int) string {

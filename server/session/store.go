@@ -779,9 +779,13 @@ func (s *Store) AnalyzeAndRewriteEvents(
 		return EventRewriteResult{}, false, err
 	}
 	result := EventRewriteResult{OldLastSequence: parsed.lastSequence, LastSequence: parsed.lastSequence}
-	inputs, err := buildExtraRewriteEventInputs(extraEvents)
-	if err != nil {
-		return result, false, err
+	var inputs []EventInput
+	if extraEvents != nil {
+		var err error
+		inputs, err = extraEvents()
+		if err != nil {
+			return result, false, err
+		}
 	}
 	now := storeTimestamp(s.options)
 	appended, err := s.buildRewriteExtraEventsLocked(stepID, parsed.lastSequence, inputs, now)
@@ -820,13 +824,6 @@ func (s *Store) AnalyzeAndRewriteEvents(
 		return result, committed, observeErr
 	}
 	return result, committed, nil
-}
-
-func buildExtraRewriteEventInputs(extraEvents func() ([]EventInput, error)) ([]EventInput, error) {
-	if extraEvents == nil {
-		return nil, nil
-	}
-	return extraEvents()
 }
 
 func (s *Store) buildRewriteExtraEventsLocked(stepID string, sequence int64, inputs []EventInput, now time.Time) ([]Event, error) {

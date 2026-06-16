@@ -205,7 +205,7 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	if err != nil {
 		return false, err
 	}
-	if preciseInput, ok := e.requestInputTokensPrecisely(ctx, req); ok {
+	if preciseInput, ok := e.requestInputTokensPreciselyTracked(ctx, req, false); ok {
 		return preciseInput+reservedOutput >= limit, nil
 	}
 	return estimatedCurrentTotal+promptEstimate >= limit, nil
@@ -326,10 +326,6 @@ func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Contex
 		return 0, false
 	}
 	return e.currentInputTokensPreciselyTracked(ctx)
-}
-
-func (e *Engine) requestInputTokensPrecisely(ctx context.Context, req llm.Request) (int, bool) {
-	return e.requestInputTokensPreciselyTracked(ctx, req, false)
 }
 
 func (e *Engine) currentInputTokensPreciselyTracked(ctx context.Context) (int, bool) {

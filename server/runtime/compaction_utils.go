@@ -68,7 +68,7 @@ func (e *Engine) inputTokensForItems(ctx context.Context, model string, instruct
 	if !ok {
 		return 0, false
 	}
-	return e.requestInputTokensPrecisely(ctx, req)
+	return e.requestInputTokensPreciselyTracked(ctx, req, false)
 }
 
 func buildTokenCountRequestForItems(model string, instructions string, items []llm.ResponseItem) (llm.Request, bool) {

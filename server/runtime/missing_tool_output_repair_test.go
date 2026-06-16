@@ -39,7 +39,9 @@ func TestMissingToolOutputRepairRemovesUnfinishedFunctionCallAndAppendsWarning(t
 		t.Fatalf("expected assistant content preserved and calls removed, got %+v", got)
 	}
 	warning := lastRepairWarning(t, events)
-	if warning.Role != string(transcript.EntryRoleDeveloperErrorFeedback) || !strings.Contains(warning.Text, "1 calls") {
+	if warning.Role != string(transcript.EntryRoleDeveloperErrorFeedback) ||
+		warning.Visibility != transcript.EntryVisibilityAll ||
+		strings.TrimSpace(warning.Text) == "" {
 		t.Fatalf("unexpected warning: %+v", warning)
 	}
 
@@ -251,7 +253,7 @@ func TestMissingToolOutputRepairAbortsMalformedHistoryReplacementBeforeCommit(t 
 	}
 }
 
-func TestMissingToolOutputRepairAfterHTTP400ReloadsRuntimeProjectionAndDerivedState(t *testing.T) {
+func TestMissingToolOutputRepairAfterHTTP400UpdatesRuntimeProjectionWithoutReplayingLog(t *testing.T) {
 	store := mustCreateTestSession(t)
 	if err := store.SetUsageState(&session.UsageState{InputTokens: 42, WindowTokens: 100, EstimatedProviderTokens: 42}); err != nil {
 		t.Fatalf("set usage state: %v", err)
@@ -266,14 +268,27 @@ func TestMissingToolOutputRepairAfterHTTP400ReloadsRuntimeProjectionAndDerivedSt
 	if !repairItemsContainCall(eng.snapshotItems(), "missing") {
 		t.Fatalf("expected pre-repair runtime projection to contain missing call")
 	}
-	eng.compactionRuntimeState().SetCount(0)
-	eng.setLastCompactionWorkflowRunID("")
-	eng.resetLocalDiagnostics()
-	eng.setCompactionSoonReminderIssued(false)
-	eng.baseMetaInjected = false
+	if got := eng.compactionCountSnapshot(); got != 1 {
+		t.Fatalf("initial compaction count = %d, want 1", got)
+	}
+	if got := eng.LastCompactionWorkflowRunID(); got != "workflow-1" {
+		t.Fatalf("initial last workflow compaction id = %q, want workflow-1", got)
+	}
+	if !eng.hasPersistedDiagnostic("precise-token-count") {
+		t.Fatal("expected initial local diagnostic dedupe state restored")
+	}
+	if !eng.compactionRuntimeState().SoonReminderIssued() {
+		t.Fatal("expected initial compaction-soon reminder state restored")
+	}
+	if !eng.baseMetaInjected {
+		t.Fatal("expected initial base meta injected signal restored")
+	}
 	eng.modelRequests().mu.Lock()
-	eng.modelRequests().requestCache = newRequestCacheTracker()
+	_, initialCacheLineage := eng.modelRequests().requestCache.lineage["cache-key"]
 	eng.modelRequests().mu.Unlock()
+	if !initialCacheLineage {
+		t.Fatal("expected initial prompt-cache response lineage restored")
+	}
 
 	result, committed, err := eng.repairMissingToolOutputsAfterHTTP400("repair")
 	if err != nil {
@@ -288,7 +303,7 @@ func TestMissingToolOutputRepairAfterHTTP400ReloadsRuntimeProjectionAndDerivedSt
 	if repairSnapshotContainsToolCall(eng.ChatSnapshot(), "missing") {
 		t.Fatalf("chat snapshot still contains missing call after repair: %+v", eng.ChatSnapshot())
 	}
-	if !repairSnapshotContainsText(eng.ChatSnapshot(), "Transcript history was rolled back 1 calls") {
+	if repairSnapshotWarningCount(eng.ChatSnapshot()) != 1 {
 		t.Fatalf("chat snapshot missing repair warning: %+v", eng.ChatSnapshot())
 	}
 	if got := eng.compactionCountSnapshot(); got != 1 {
@@ -348,7 +363,10 @@ func TestMissingToolOutputRepairAfterHTTP400EmitsAppendOnlyWarningEvent(t *testi
 	}
 	warningEvents := make([]Event, 0)
 	for _, evt := range liveEvents {
-		if evt.Kind == EventLocalEntryAdded && evt.LocalEntry != nil && strings.Contains(evt.LocalEntry.Text, "Transcript history was rolled back") {
+		if evt.Kind == EventLocalEntryAdded &&
+			evt.LocalEntry != nil &&
+			evt.LocalEntry.Role == string(transcript.EntryRoleDeveloperErrorFeedback) &&
+			strings.TrimSpace(evt.LocalEntry.Text) != "" {
 			warningEvents = append(warningEvents, evt)
 		}
 	}
@@ -403,13 +421,14 @@ func repairSnapshotContainsToolCall(snapshot ChatSnapshot, callID string) bool {
 	return false
 }
 
-func repairSnapshotContainsText(snapshot ChatSnapshot, text string) bool {
+func repairSnapshotWarningCount(snapshot ChatSnapshot) int {
+	count := 0
 	for _, entry := range snapshot.Entries {
-		if strings.Contains(entry.Text, text) {
-			return true
+		if entry.Role == string(transcript.EntryRoleDeveloperErrorFeedback) && strings.TrimSpace(entry.Text) != "" {
+			count++
 		}
 	}
-	return false
+	return count
 }
 
 func readRepairEvents(t *testing.T, store *session.Store) []session.Event {

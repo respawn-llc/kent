@@ -333,7 +333,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T
 	if err != nil {
 		t.Fatalf("build live request: %v", err)
 	}
-	liveCount, ok := live.requestInputTokensPrecisely(context.Background(), liveReq)
+	liveCount, ok := live.requestInputTokensPreciselyTracked(context.Background(), liveReq, false)
 	if !ok {
 		t.Fatal("expected live precise token count")
 	}
@@ -351,7 +351,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T
 	if err != nil {
 		t.Fatalf("build restored request: %v", err)
 	}
-	restoredCount, ok := restored.requestInputTokensPrecisely(context.Background(), restoredReq)
+	restoredCount, ok := restored.requestInputTokensPreciselyTracked(context.Background(), restoredReq, false)
 	if !ok {
 		t.Fatal("expected restored precise token count")
 	}

@@ -74,7 +74,8 @@ func (e *Engine) compactWithContextRepairRetry(
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
 
-	for attempt := 0; attempt <= len(compactionOverflowRepairTargetPercents); attempt++ {
+	overflowAttempt := 0
+	for {
 		req := request
 		req.InputItems = llm.CloneResponseItems(currentInput)
 
@@ -88,15 +89,15 @@ func (e *Engine) compactWithContextRepairRetry(
 				return llm.CompactionResponse{}, nil, repairStats, errors.Join(err, repairErr)
 			}
 			if repair.Changed && repair.RemovedCalls > 0 {
-				currentInput = e.snapshotItems()
+				currentInput = responseItemsWithoutRepairCalls(currentInput, repair.RemovedIDs)
 				continue
 			}
 		}
-		if !llm.IsContextLengthOverflowError(err) || attempt == len(compactionOverflowRepairTargetPercents) {
+		if !llm.IsContextLengthOverflowError(err) || overflowAttempt == len(compactionOverflowRepairTargetPercents) {
 			return llm.CompactionResponse{}, nil, repairStats, err
 		}
 
-		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, attempt+1)
+		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, overflowAttempt+1)
 		nextInput, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(currentInput, targetSavedTokens, repairStats.EstimatedSavedTokens)
 		if !repaired.Collapsed() {
 			// Only known tool payloads are safe to collapse here. Ordinary
@@ -106,9 +107,8 @@ func (e *Engine) compactWithContextRepairRetry(
 		}
 		currentInput = nextInput
 		repairStats = repairStats.Add(repaired)
+		overflowAttempt++
 	}
-
-	return llm.CompactionResponse{}, nil, repairStats, errors.New("compaction context repair retry exhausted")
 }
 
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client llm.CompactionClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
@@ -240,7 +240,8 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	window := localCompactionWindow(input)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
-	for repairAttempt := 0; repairAttempt <= len(compactionOverflowRepairTargetPercents); repairAttempt++ {
+	overflowAttempt := 0
+	for {
 		summary, err := e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, window, instructions, requestTools, mode)
 		if err == nil {
 			return summary, repairStats, nil
@@ -251,14 +252,14 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 				return "", repairStats, errors.Join(err, repairErr)
 			}
 			if repair.Changed && repair.RemovedCalls > 0 {
-				window = localCompactionWindow(e.snapshotItems())
+				window = responseItemsWithoutRepairCalls(window, repair.RemovedIDs)
 				continue
 			}
 		}
-		if !llm.IsContextLengthOverflowError(err) || repairAttempt == len(compactionOverflowRepairTargetPercents) {
+		if !llm.IsContextLengthOverflowError(err) || overflowAttempt == len(compactionOverflowRepairTargetPercents) {
 			return "", repairStats, err
 		}
-		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, repairAttempt+1)
+		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, overflowAttempt+1)
 		nextWindow, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(window, targetSavedTokens, repairStats.EstimatedSavedTokens)
 		if !repaired.Collapsed() {
 			// Only known tool payloads are safe to collapse here. Ordinary
@@ -268,8 +269,8 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 		}
 		window = nextWindow
 		repairStats = repairStats.Add(repaired)
+		overflowAttempt++
 	}
-	return "", repairStats, errors.New("local compaction context repair retry exhausted")
 }
 
 func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, locked session.LockedContract, systemPrompt string, window []llm.ResponseItem, instructions string, requestTools []llm.Tool, mode compactionMode) (string, error) {
