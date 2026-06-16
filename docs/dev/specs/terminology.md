@@ -210,7 +210,7 @@ Terminal buffer separate from normal scrollback. Kent avoids alternate screen fo
 
 ### Alternate Scroll
 
-Terminal mode `?1007`, which converts wheel input into cursor-key style events in alternate-screen contexts. Ongoing mode never enables alternate scroll. Detail may enable it only while active, then disable it on exit.
+Terminal mode `?1007`, which converts wheel input into cursor-key style events in alternate-screen contexts. Every alternate-screen surface enables alternate scroll while active and disables it on exit, so wheel input scrolls the surface through its cursor-key handlers. The only exceptions are ongoing mode, which never enables it, and the rollback/edit picker, which renders inside alt-screen but ignores mouse and keeps alternate scroll off.
 
 ### Mouse Capture
 
