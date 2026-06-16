@@ -115,7 +115,10 @@ export function pendingBoardCardMoveDestinationMissing(
   if (pendingMove === null) {
     return false;
   }
-  const targetCards = snapshot.get(pendingMove.targetColumnID) ?? [];
+  const targetCards = snapshot.get(pendingMove.targetColumnID);
+  if (targetCards === undefined) {
+    return false;
+  }
   return !targetCards.some((card) => card.id === pendingMove.taskID);
 }
 

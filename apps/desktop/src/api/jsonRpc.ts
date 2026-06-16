@@ -13,6 +13,7 @@ import {
   responseSchema,
   sendSocketRequest,
   socketRequestError,
+  subscriptionCompleteMethod,
   waitForSubscriptionEnd,
 } from "./jsonRpcSocket";
 import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
@@ -215,8 +216,9 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     const terminalCompleteRef: { current: Readonly<{ code: number; message: string }> | null } = {
       current: null,
     };
+    const completeMethod = subscriptionCompleteMethod(method);
     const subscriptionListener = (event: MessageEvent<unknown>) => {
-      const result = handleSubscriptionMessage(event, handler);
+      const result = handleSubscriptionMessage(event, handler, completeMethod);
       if (result.kind === "complete") {
         terminalCompleteRef.current = { code: result.code, message: result.message };
         socket.close();

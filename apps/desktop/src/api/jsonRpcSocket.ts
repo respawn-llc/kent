@@ -198,7 +198,22 @@ export type SubscriptionMessageResult = Readonly<
   | { kind: "complete"; code: number; message: string }
 >;
 
-export function handleSubscriptionMessage(event: MessageEvent<unknown>, handler: RpcEventHandler): SubscriptionMessageResult {
+export function subscriptionCompleteMethod(subscriptionMethod: string): string | null {
+  switch (subscriptionMethod) {
+    case "workflow.subscribe":
+      return "workflow.complete";
+    case "workflow.subscribeProject":
+      return "workflow.project.complete";
+    default:
+      return null;
+  }
+}
+
+export function handleSubscriptionMessage(
+  event: MessageEvent<unknown>,
+  handler: RpcEventHandler,
+  completeMethod: string | null,
+): SubscriptionMessageResult {
   if (typeof event.data !== "string") {
     return { kind: "active" };
   }
@@ -207,7 +222,7 @@ export function handleSubscriptionMessage(event: MessageEvent<unknown>, handler:
   if (!notification.success) {
     return { kind: "active" };
   }
-  if (notification.data.method.endsWith(".complete")) {
+  if (completeMethod !== null && notification.data.method === completeMethod) {
     const complete = z
       .object({ code: z.number().optional(), message: z.string().optional() })
       .safeParse(notification.data.params);

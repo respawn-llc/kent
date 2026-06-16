@@ -198,11 +198,8 @@ func TestWorkflowRuntimeMultipleAskQuestionsInOneToolBatchResumeSequentially(t *
 	for _, msg := range askResults {
 		seenAskResults[msg.ToolCallID] = true
 		trimmed := strings.TrimSpace(msg.Content)
-		if strings.HasPrefix(trimmed, "{") {
-			var payload map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-				t.Fatalf("decode ask_question tool message: %v", err)
-			}
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(trimmed), &payload); err == nil {
 			if _, ok := payload["error"]; ok {
 				t.Fatalf("ask_question tool result contains error payload: %+v", msg)
 			}

@@ -124,6 +124,7 @@ describe("BoardCardMotionModel", () => {
         pendingMove,
       ),
     ).toBe(false);
+    expect(pendingBoardCardMoveDestinationMissing(boardCardSnapshotFromEntries([["backlog", []]]), pendingMove)).toBe(false);
     expect(pendingBoardCardMoveDestinationMissing(boardCardSnapshotFromEntries([]), null)).toBe(false);
   });
 });

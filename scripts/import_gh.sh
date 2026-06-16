@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-exec 2>&1
 
 usage() {
 	cat <<'USAGE'
@@ -13,7 +12,7 @@ USAGE
 }
 
 fail() {
-	echo "$1"
+	echo "$1" >&2
 	exit 1
 }
 

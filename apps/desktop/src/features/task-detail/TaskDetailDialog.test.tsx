@@ -130,13 +130,14 @@ describe("TaskDetailSurface", () => {
 
     render(<App services={services} />);
 
-    const composer = await screen.findByRole("textbox", { name: "Add comment" });
+    const composerFrame = await screen.findByTestId("task-comment-input-frame");
+    const composer = within(composerFrame).getByRole("textbox");
     composer.focus();
     expect(composer).toHaveFocus();
     fireEvent.change(composer, {
       target: { value: "Focused composer comment" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Submit comment" }));
+    fireEvent.click(screen.getByTestId("task-comment-save"));
 
     await waitFor(() => {
       expect(services.transport.calls).toContainEqual({
