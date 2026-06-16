@@ -97,6 +97,7 @@ export function WorkflowEditorCanvas({
     if (draftState === null) {
       return;
     }
+    onPendingGraphMutationChange(null);
     const input = {
       nodeID,
       rehomedIncomingTransitionGroupID: newWorkflowTopologyID("transitionGroup"),

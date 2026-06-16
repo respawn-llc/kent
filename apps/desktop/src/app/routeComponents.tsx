@@ -1,4 +1,4 @@
-import { getRouteApi, Outlet, useLocation } from "@tanstack/react-router";
+import { getRouteApi, Outlet, useMatch } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -60,12 +60,15 @@ export function RootRoute() {
 
 function RoutePersistence() {
   const navigate = rootRouteApi.useNavigate();
-  const location = useLocation();
+  const isHomeRoute = useMatch({ from: "/", shouldThrow: false }) !== undefined;
+  const projectMatch = useMatch({ from: "/projects/$projectId", shouldThrow: false });
+  const projectId = projectMatch?.params.projectId ?? null;
+  const workflowId = projectMatch?.search.workflowId ?? "";
 
   useEffect(() => {
     if (claimRouteRestoreCheck()) {
       const restored = readLastProjectRoute();
-      if (location.pathname === "/" && restored !== null) {
+      if (isHomeRoute && restored !== null) {
         // Session restore is startup state hydration, not a user-initiated destination change, so it
         // intentionally bypasses the animated app navigation API.
         void navigate({
@@ -76,28 +79,12 @@ function RoutePersistence() {
         });
       }
     }
-    const current = projectRouteState(location.pathname, location.searchStr);
-    if (current !== null) {
-      writeLastProjectRoute(current);
+    if (projectId !== null) {
+      writeLastProjectRoute({ projectId, workflowId });
     }
-  }, [location.pathname, location.searchStr, navigate]);
+  }, [isHomeRoute, projectId, workflowId, navigate]);
 
   return null;
-}
-
-function projectRouteState(
-  pathname: string,
-  searchStr: string,
-): Readonly<{ projectId: string; workflowId: string }> | null {
-  const segments = pathname.split("/").filter((segment) => segment.length > 0);
-  if (segments.length !== 2 || segments[0] !== "projects") {
-    return null;
-  }
-  const params = new URLSearchParams(searchStr);
-  return {
-    projectId: decodeURIComponent(segments[1] ?? ""),
-    workflowId: params.get("workflowId") ?? "",
-  };
 }
 
 function claimRouteRestoreCheck(): boolean {
