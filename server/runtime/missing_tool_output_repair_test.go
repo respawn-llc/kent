@@ -573,14 +573,23 @@ func TestMissingToolOutputRepairAfterHTTP400EmitsAppendOnlyWarningEvent(t *testi
 		t.Fatalf("warning event count = %d, want 1: %+v", len(warningEvents), liveEvents)
 	}
 	warning := warningEvents[0]
-	if !warning.CommittedEntryStartSet || warning.CommittedEntryStart != preRepairCount {
-		t.Fatalf("warning start=%d set=%t, want append at %d", warning.CommittedEntryStart, warning.CommittedEntryStartSet, preRepairCount)
+	if !warning.CommittedEntryStartSet || warning.CommittedEntryStart != 0 {
+		t.Fatalf("warning start=%d set=%t, want repaired warning at 0", warning.CommittedEntryStart, warning.CommittedEntryStartSet)
 	}
-	if warning.CommittedEntryCount != preRepairCount+1 {
-		t.Fatalf("warning committed count = %d, want %d", warning.CommittedEntryCount, preRepairCount+1)
+	if warning.CommittedEntryCount != 1 {
+		t.Fatalf("warning committed count = %d, want 1", warning.CommittedEntryCount)
 	}
 	if warning.TranscriptRevision != result.Rewrite.LastSequence {
 		t.Fatalf("warning revision = %d, want %d", warning.TranscriptRevision, result.Rewrite.LastSequence)
+	}
+	committedUpdates := 0
+	for _, evt := range liveEvents {
+		if evt.Kind == EventConversationUpdated && evt.CommittedTranscriptChanged {
+			committedUpdates++
+		}
+	}
+	if committedUpdates != 1 {
+		t.Fatalf("committed conversation_updated count = %d, want 1; events=%+v", committedUpdates, liveEvents)
 	}
 	if got := eng.CommittedTranscriptEntryCount(); got != 1 {
 		t.Fatalf("post-repair committed transcript count = %d, want 1", got)

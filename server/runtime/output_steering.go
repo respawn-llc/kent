@@ -368,7 +368,11 @@ func (e *Engine) applyRepairReloadRaw(stepID string, repair steeringRepairReload
 	if e == nil {
 		return nil
 	}
-	for idx, appended := range repair.rewrite.AppendedEvents {
+	appendedEntries := make([]struct {
+		stepID string
+		entry  *ChatEntry
+	}, 0, len(repair.rewrite.AppendedEvents))
+	for _, appended := range repair.rewrite.AppendedEvents {
 		if strings.TrimSpace(appended.Kind) != "local_entry" {
 			continue
 		}
@@ -381,21 +385,34 @@ func (e *Engine) applyRepairReloadRaw(stepID string, repair steeringRepairReload
 		if eventStepID == "" {
 			eventStepID = stepID
 		}
-		e.emitRepairLocalEntryAddedRaw(Event{
-			Kind:                       EventLocalEntryAdded,
-			StepID:                     eventStepID,
-			LocalEntry:                 chatEntry,
-			CommittedTranscriptChanged: true,
-			TranscriptRevision:         repair.rewrite.LastSequence,
-			CommittedEntryStart:        repair.preRepairCommittedCount + idx,
-			CommittedEntryStartSet:     true,
-			CommittedEntryCount:        repair.preRepairCommittedCount + idx + 1,
+		appendedEntries = append(appendedEntries, struct {
+			stepID string
+			entry  *ChatEntry
+		}{
+			stepID: eventStepID,
+			entry:  chatEntry,
 		})
 	}
 	if err := e.applyMissingToolOutputRepairProjection(repair); err != nil {
 		return err
 	}
-	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})
+	committedBaseCount := e.CommittedTranscriptEntryCount() - len(appendedEntries)
+	if committedBaseCount < 0 {
+		committedBaseCount = 0
+	}
+	for idx, appended := range appendedEntries {
+		e.emitRepairLocalEntryAddedRaw(Event{
+			Kind:                       EventLocalEntryAdded,
+			StepID:                     appended.stepID,
+			LocalEntry:                 appended.entry,
+			CommittedTranscriptChanged: true,
+			TranscriptRevision:         repair.rewrite.LastSequence,
+			CommittedEntryStart:        committedBaseCount + idx,
+			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        committedBaseCount + idx + 1,
+		})
+	}
+	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true})
 	return nil
 }
 
