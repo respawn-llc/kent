@@ -50,6 +50,7 @@ type metaContextBuildOptions struct {
 	IncludeWorkflow           bool
 	WorkflowCompletionMode    workflowruntime.CompletionMode
 	WorkflowRun               *workflowruntime.Config
+	WorkflowTaskCommentCount  int64
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
 }
@@ -205,7 +206,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, opts.WorkflowRun)
+		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, opts.WorkflowRun, opts.WorkflowTaskCommentCount)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
@@ -384,9 +385,9 @@ func headlessModeExitMetaMessage() (llm.Message, bool) {
 	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: content}, true
 }
 
-func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowruntime.Config) (llm.Message, bool, error) {
+func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowruntime.Config, taskCommentCount int64) (llm.Message, bool, error) {
 	if cfg != nil {
-		content, err := workflowTaskInstructionsContent(mode, cfg.Instructions)
+		content, err := workflowTaskInstructionsContent(mode, cfg.Instructions, taskCommentCount)
 		if err != nil {
 			return llm.Message{}, false, err
 		}
@@ -414,7 +415,7 @@ func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowr
 	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, Content: content}, true, nil
 }
 
-func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, instructions workflowruntime.TaskInstructions) (string, error) {
+func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, instructions workflowruntime.TaskInstructions, taskCommentCount int64) (string, error) {
 	completionInstructions := ""
 	var err error
 	switch mode {
@@ -429,20 +430,21 @@ func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, instru
 		return "", err
 	}
 	return prompts.RenderWorkflowTaskInstructions(prompts.WorkflowNodeContextArgs{
-		TaskId:          instructions.TaskID,
-		TaskShortId:     instructions.TaskShortID,
-		TaskTitle:       instructions.TaskTitle,
-		TaskBody:        instructions.TaskBody,
-		WorkflowId:      instructions.WorkflowID,
-		WorkflowShortId: instructions.WorkflowShortID,
-		NodeId:          instructions.NodeID,
-		NodeKey:         instructions.NodeKey,
-		NodeDisplayName: instructions.NodeDisplayName,
-		ContextMode:     instructions.ContextMode,
-		SourceSessionID: instructions.SourceSessionID,
-		CompletionMode:  string(mode),
-		Transitions:     workflowInstructionTransitions(instructions.Transitions),
-		NodePrompt:      instructions.NodePrompt,
+		TaskId:               instructions.TaskID,
+		TaskShortId:          instructions.TaskShortID,
+		TaskTitle:            instructions.TaskTitle,
+		TaskBody:             instructions.TaskBody,
+		WorkflowId:           instructions.WorkflowID,
+		WorkflowShortId:      instructions.WorkflowShortID,
+		NodeId:               instructions.NodeID,
+		NodeKey:              instructions.NodeKey,
+		NodeDisplayName:      instructions.NodeDisplayName,
+		ContextMode:          instructions.ContextMode,
+		SourceSessionID:      instructions.SourceSessionID,
+		CompletionMode:       string(mode),
+		TaskNumberOfComments: taskCommentCount,
+		Transitions:          workflowInstructionTransitions(instructions.Transitions),
+		NodePrompt:           instructions.NodePrompt,
 	}, completionInstructions)
 }
 

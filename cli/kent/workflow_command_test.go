@@ -650,9 +650,12 @@ func TestTaskSafeActionsRemainAvailableInsideKentSession(t *testing.T) {
 		t.Fatalf("workflow link exit=%d stderr=%q", code, linkErr)
 	}
 
-	taskOut, taskErr, code := runWorkflowRootCommand("task", "create", "--title", "Safe Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID)
+	taskOut, taskErr, code := runWorkflowRootCommand("task", "create", "--title", "Safe Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID, "--source-url", "https://github.com/respawn-llc/kent/issues/123")
 	if code != 0 {
 		t.Fatalf("task create exit=%d stderr=%q", code, taskErr)
+	}
+	if !strings.Contains(taskOut, "Imported from: https://github.com/respawn-llc/kent/issues/123\n") {
+		t.Fatalf("task create output = %q, want source URL", taskOut)
 	}
 	shortID := taskDetailHeadingShortID(t, taskOut)
 	if _, listErr, code := runWorkflowRootCommand("task", "list", "--project", binding.ProjectID); code != 0 {
@@ -661,13 +664,20 @@ func TestTaskSafeActionsRemainAvailableInsideKentSession(t *testing.T) {
 	if _, showErr, code := runWorkflowRootCommand("task", "show", "--project", binding.ProjectID, shortID); code != 0 {
 		t.Fatalf("task show exit=%d stderr=%q", code, showErr)
 	}
-	commentOut, commentErr, code := runWorkflowRootCommand("task", "comment", "add", "--project", binding.ProjectID, "--body", "note", shortID)
+	commentOut, commentErr, code := runWorkflowRootCommand("task", "comment", "add", "--project", binding.ProjectID, "--author", "user", "--author-id", "octocat", "--body", "note", shortID)
 	if code != 0 {
 		t.Fatalf("task comment add exit=%d stderr=%q", code, commentErr)
 	}
 	commentID := labeledOutputValue(t, commentOut, "comment_id")
 	if commentID == "" {
 		t.Fatalf("task comment add output = %q", commentOut)
+	}
+	commentListOut, commentListErr, code := runWorkflowRootCommand("task", "comment", "list", "--project", binding.ProjectID, shortID)
+	if code != 0 {
+		t.Fatalf("task comment list exit=%d stderr=%q", code, commentListErr)
+	}
+	if !strings.Contains(commentListOut, "octocat at ") {
+		t.Fatalf("task comment list output = %q, want author id", commentListOut)
 	}
 	if _, replaceErr, code := runWorkflowRootCommand("task", "comment", "replace", "--body", "edited", commentID); code != 0 {
 		t.Fatalf("task comment replace exit=%d stderr=%q", code, replaceErr)
@@ -867,6 +877,12 @@ func TestTaskShowHelpIncludesJSONFlag(t *testing.T) {
 	}
 }
 
+func TestReadTaskBodyFlagRequiresInlineOrFileBody(t *testing.T) {
+	if _, err := readTaskBodyFlag(" \t\n", ""); err == nil {
+		t.Fatal("expected missing body flags to fail")
+	}
+}
+
 func TestTaskCommentAuthorForAddUsesUserWithoutKentSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
 	remote := &commentAuthorRemote{}
@@ -1001,6 +1017,68 @@ func TestTaskCommentListUsesPageToken(t *testing.T) {
 	if len(remote.listRequests) != 1 || remote.listRequests[0].PageSize != 2 || remote.listRequests[0].PageToken != "2" {
 		t.Fatalf("comment list requests = %+v, want second page request", remote.listRequests)
 	}
+}
+
+func TestTaskCommentsPluralListAliasUsesCommentList(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &commentListRemote{
+		taskID: "task-1",
+		comments: []serverapi.WorkflowTaskComment{
+			{ID: "comment-1", TaskID: "task-1", Author: "agent", AuthorID: "reviewer", Body: "note", CreatedAtUnixMs: 1735689600000},
+		},
+	}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "comments", "list", "task-1")
+	if code != 0 {
+		t.Fatalf("task comments list exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "reviewer at 2025-01-01T00:00:00Z UTC:\nnote\n") {
+		t.Fatalf("task comments list output = %q, want comment output", stdout)
+	}
+	if len(remote.listRequests) != 1 || remote.listRequests[0].TaskID != "task-1" {
+		t.Fatalf("comment list requests = %+v, want plural alias to route to list", remote.listRequests)
+	}
+}
+
+func TestTaskCommentsPluralAddAliasUsesCommentAdd(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &commentAddRemote{taskID: "task-1"}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "comments", "add", "task-1", "--body", "note", "--author", "user")
+	if code != 0 {
+		t.Fatalf("task comments add exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "comment_id\tcomment-1\n") {
+		t.Fatalf("task comments add output = %q, want comment id", stdout)
+	}
+	if len(remote.addRequests) != 1 || remote.addRequests[0].TaskID != "task-1" || remote.addRequests[0].Body != "note" {
+		t.Fatalf("comment add requests = %+v, want plural alias to route to add", remote.addRequests)
+	}
+}
+
+type commentAddRemote struct {
+	client.WorkflowClient
+	taskID      string
+	addRequests []serverapi.WorkflowTaskCommentAddRequest
+}
+
+func (r *commentAddRemote) Close() error { return nil }
+
+func (r *commentAddRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *commentAddRemote) GetWorkflowTask(_ context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+	return serverapi.WorkflowTaskGetResponse{Task: serverapi.WorkflowTaskDetail{Summary: serverapi.WorkflowTaskSummary{ID: strings.TrimSpace(req.TaskID)}}}, nil
+}
+
+func (r *commentAddRemote) AddWorkflowTaskComment(_ context.Context, req serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
+	r.addRequests = append(r.addRequests, req)
+	return serverapi.WorkflowTaskCommentAddResponse{Comment: serverapi.WorkflowTaskComment{ID: "comment-1", TaskID: r.taskID, Body: req.Body, Author: req.Author, AuthorID: req.AuthorID}}, nil
 }
 
 func TestResolveWorkflowTaskIDUsesDirectShortIDLookup(t *testing.T) {

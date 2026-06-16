@@ -52,7 +52,12 @@ type Config struct {
 	MaxFinalAnswerViolations     int
 	MaxInvalidCompletionAttempts int
 	Controller                   Controller
+	TaskCommentCounter           TaskCommentCounter
 	Instructions                 TaskInstructions
+}
+
+type TaskCommentCounter interface {
+	CountTaskComments(context.Context, workflow.TaskID) (int64, error)
 }
 
 type TaskInstructions struct {

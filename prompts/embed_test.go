@@ -174,6 +174,54 @@ func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) 
 	}
 }
 
+func TestWorkflowTaskInstructionsCommentReminderTemplateData(t *testing.T) {
+	zero := newWorkflowTaskInstructionsTemplateData(workflowInstructionsTestArgs(0), "complete the workflow")
+	if zero.ShowTaskCommentsReminder {
+		t.Fatalf("zero-comment task set ShowTaskCommentsReminder=true: %+v", zero)
+	}
+
+	one := newWorkflowTaskInstructionsTemplateData(workflowInstructionsTestArgs(1), "complete the workflow")
+	if !one.ShowTaskCommentsReminder {
+		t.Fatalf("one-comment task did not set ShowTaskCommentsReminder: %+v", one)
+	}
+	if one.TaskCommentsLabel != "1 comment" {
+		t.Fatalf("one-comment label = %q, want singular grammar", one.TaskCommentsLabel)
+	}
+	expectedCommand := selfcmd.LaunchCommand() + " task comment list BUI-1"
+	if one.TaskCommentListCommand != expectedCommand {
+		t.Fatalf("task comment list command = %q, want %q", one.TaskCommentListCommand, expectedCommand)
+	}
+
+	many := newWorkflowTaskInstructionsTemplateData(workflowInstructionsTestArgs(3), "complete the workflow")
+	if !many.ShowTaskCommentsReminder {
+		t.Fatalf("multi-comment task did not set ShowTaskCommentsReminder: %+v", many)
+	}
+	if many.TaskCommentsLabel != "3 comments" {
+		t.Fatalf("multi-comment label = %q, want plural grammar", many.TaskCommentsLabel)
+	}
+}
+
+func workflowInstructionsTestArgs(taskNumberOfComments int64) WorkflowNodeContextArgs {
+	return WorkflowNodeContextArgs{
+		TaskId:               "task-1",
+		TaskShortId:          "BUI-1",
+		TaskTitle:            "Smoke test",
+		TaskBody:             "Ask three questions.",
+		WorkflowId:           "workflow-1",
+		WorkflowShortId:      "workflow-1",
+		NodeId:               "node-1",
+		NodeKey:              "triaging",
+		NodeDisplayName:      "Triaging",
+		ContextMode:          "new_session",
+		TaskNumberOfComments: taskNumberOfComments,
+		Transitions: []WorkflowTransition{
+			{ID: "actionable", DisplayName: "Actionable"},
+			{ID: "not_actionable", DisplayName: "Not Actionable"},
+		},
+		NodePrompt: "Triage the ticket.",
+	}
+}
+
 func TestRenderGoalNudgePrompt(t *testing.T) {
 	rendered := RenderGoalNudgePrompt("ship /goal mode", "active")
 	// The objective and the launch command must both be substituted in.

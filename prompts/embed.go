@@ -174,20 +174,21 @@ type systemPromptTemplateData struct {
 }
 
 type WorkflowNodeContextArgs struct {
-	TaskId          string
-	TaskShortId     string
-	TaskTitle       string
-	TaskBody        string
-	WorkflowId      string
-	WorkflowShortId string
-	NodeId          string
-	NodeKey         string
-	NodeDisplayName string
-	ContextMode     string
-	SourceSessionID string
-	CompletionMode  string
-	Transitions     []WorkflowTransition
-	NodePrompt      string
+	TaskId               string
+	TaskShortId          string
+	TaskTitle            string
+	TaskBody             string
+	WorkflowId           string
+	WorkflowShortId      string
+	NodeId               string
+	NodeKey              string
+	NodeDisplayName      string
+	ContextMode          string
+	SourceSessionID      string
+	CompletionMode       string
+	TaskNumberOfComments int64
+	Transitions          []WorkflowTransition
+	NodePrompt           string
 }
 
 type WorkflowOutputField struct {
@@ -204,6 +205,15 @@ type WorkflowTransition struct {
 type WorkflowInputValue struct {
 	Name  string
 	Value string
+}
+
+type workflowTaskInstructionsTemplateData struct {
+	WorkflowNodeContextArgs
+	LaunchCommand              string
+	NodeCompletionInstructions string
+	ShowTaskCommentsReminder   bool
+	TaskCommentsLabel          string
+	TaskCommentListCommand     string
 }
 
 //go:embed *.md system_prompt/*.md goal/*.md workflow/*.md questions/*.md
@@ -398,16 +408,29 @@ func RenderWorktreeModeExitPrompt(branch, cwd, worktreePath, workspaceRoot strin
 }
 
 func RenderWorkflowTaskInstructions(args WorkflowNodeContextArgs, nodeCompletionInstructions string) (string, error) {
-	type workflowTaskInstructionsTemplateData struct {
-		WorkflowNodeContextArgs
-		LaunchCommand              string
-		NodeCompletionInstructions string
-	}
-	return renderNamedTemplate("workflow task instructions", WorkflowTaskInstructionsPrompt, workflowTaskInstructionsTemplateData{
+	return renderNamedTemplate("workflow task instructions", WorkflowTaskInstructionsPrompt, newWorkflowTaskInstructionsTemplateData(args, nodeCompletionInstructions))
+}
+
+func newWorkflowTaskInstructionsTemplateData(args WorkflowNodeContextArgs, nodeCompletionInstructions string) workflowTaskInstructionsTemplateData {
+	return workflowTaskInstructionsTemplateData{
 		WorkflowNodeContextArgs:    args,
 		LaunchCommand:              selfcmd.LaunchCommand(),
 		NodeCompletionInstructions: strings.TrimSpace(nodeCompletionInstructions),
-	})
+		ShowTaskCommentsReminder:   args.TaskNumberOfComments > 0,
+		TaskCommentsLabel:          taskCommentsLabel(args.TaskNumberOfComments),
+		TaskCommentListCommand:     taskCommentListCommand(args.TaskShortId),
+	}
+}
+
+func taskCommentsLabel(numberOfComments int64) string {
+	if numberOfComments == 1 {
+		return "1 comment"
+	}
+	return fmt.Sprintf("%d comments", numberOfComments)
+}
+
+func taskCommentListCommand(taskShortID string) string {
+	return strings.Join([]string{selfcmd.LaunchCommand(), "task", "comment", "list", strings.TrimSpace(taskShortID)}, " ")
 }
 
 func RenderWorkflowToolCompletionInstructions(workflowShortId string) (string, error) {

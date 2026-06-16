@@ -1640,6 +1640,11 @@ WHERE id = sqlc.arg(id);
 DELETE FROM task_comments
 WHERE id = sqlc.arg(id);
 
+-- name: CountTaskComments :one
+SELECT CAST(COUNT(*) AS INTEGER)
+FROM task_comments
+WHERE task_id = sqlc.arg(task_id);
+
 -- name: ListTaskComments :many
 SELECT
     id,
