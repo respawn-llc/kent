@@ -750,6 +750,126 @@ type EventInput struct {
 	Payload any
 }
 
+type EventRewriteDecision struct {
+	Event Event
+	Drop  bool
+}
+
+type EventRewriteResult struct {
+	Changed         bool
+	LastSequence    int64
+	OldLastSequence int64
+	EventCount      int
+	AppendedEvents  []Event
+}
+
+type EventBoundaryMatcher func(Event) (bool, error)
+
+func (s *Store) AnalyzeAndRewriteEvents(
+	stepID string,
+	analyze func(Event) error,
+	transform func(Event) (EventRewriteDecision, error),
+	extraEvents func() ([]EventInput, error),
+) (EventRewriteResult, bool, error) {
+	return s.AnalyzeAndRewriteEventsAfterLatestBoundary(stepID, func(evt Event) (bool, error) {
+		return strings.TrimSpace(evt.Kind) == "history_replaced", nil
+	}, analyze, transform, extraEvents)
+}
+
+func (s *Store) AnalyzeAndRewriteEventsAfterLatestBoundary(
+	stepID string,
+	boundary EventBoundaryMatcher,
+	analyze func(Event) error,
+	transform func(Event) (EventRewriteDecision, error),
+	extraEvents func() ([]EventInput, error),
+) (EventRewriteResult, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return EventRewriteResult{}, false, nil
+	}
+	rewriteOffset, err := latestEventOffset(s.eventsFP, boundary)
+	if err != nil {
+		return EventRewriteResult{}, false, err
+	}
+	parsed, err := walkEventsFileFromOffset(s.eventsFP, rewriteOffset, analyze)
+	if err != nil {
+		return EventRewriteResult{}, false, err
+	}
+	oldLastSequence := parsed.lastSequence
+	if s.meta.LastSequence > oldLastSequence {
+		oldLastSequence = s.meta.LastSequence
+	}
+	result := EventRewriteResult{OldLastSequence: oldLastSequence, LastSequence: oldLastSequence}
+	var inputs []EventInput
+	if extraEvents != nil {
+		var err error
+		inputs, err = extraEvents()
+		if err != nil {
+			return result, false, err
+		}
+	}
+	now := storeTimestamp(s.options)
+	appended, err := s.buildRewriteExtraEventsLocked(stepID, oldLastSequence, inputs, now)
+	if err != nil {
+		return result, false, err
+	}
+	result.AppendedEvents = appended
+	stats, err := rewriteEventsFileStreaming(s.eventsFP, rewriteOffset, transform, appended, s.conversationFreshness, s.maybeSyncEventsFileLocked)
+	if err != nil {
+		return result, false, err
+	}
+	result.Changed = stats.changed
+	result.EventCount = stats.eventCount
+	if stats.lastSequence < oldLastSequence {
+		stats.lastSequence = oldLastSequence
+	}
+	result.LastSequence = stats.lastSequence
+	if !stats.changed {
+		return result, false, nil
+	}
+	s.eventsFileSizeBytes = stats.totalBytes
+	s.pendingFsyncWrites = 0
+	s.writesSinceCompaction = 0
+	s.conversationFreshness = stats.freshness
+	s.meta.LastSequence = stats.lastSequence
+	s.meta.UpdatedAt = now
+	observation, metaErr := s.persistMetaLocked()
+	committed := true
+	if metaErr != nil {
+		return result, committed, metaErr
+	}
+	s.mu.Unlock()
+	observeErr := s.observePersistence(observation)
+	s.mu.Lock()
+	if observeErr != nil {
+		return result, committed, observeErr
+	}
+	return result, committed, nil
+}
+
+func (s *Store) buildRewriteExtraEventsLocked(stepID string, sequence int64, inputs []EventInput, now time.Time) ([]Event, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	out := make([]Event, 0, len(inputs))
+	for _, in := range inputs {
+		body, err := json.Marshal(in.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("marshal event payload: %w", err)
+		}
+		sequence++
+		out = append(out, Event{
+			Seq:       sequence,
+			Timestamp: now,
+			Kind:      in.Kind,
+			StepID:    strings.TrimSpace(stepID),
+			Payload:   body,
+		})
+	}
+	return out, nil
+}
+
 func (s *Store) ReadEvents() ([]Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -776,7 +896,7 @@ func (s *Store) WalkEvents(visit func(Event) error) error {
 	if !s.persisted {
 		return nil
 	}
-	parsed, err := walkEventsFile(s.eventsFP, visit)
+	parsed, err := walkEventsFileFromOffset(s.eventsFP, 0, visit)
 	if err != nil {
 		return err
 	}

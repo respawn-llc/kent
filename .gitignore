@@ -65,4 +65,3 @@ docs/tmp/
 .kent/config.toml
 .kent/plans/
 .kent/proofs/
-.builder/

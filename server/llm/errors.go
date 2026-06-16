@@ -27,6 +27,10 @@ func IsNonRetriableModelError(err error) bool {
 	return llmerrors.IsNonRetriableModelError(err)
 }
 
+func HasHTTPStatus(err error, statusCode int) bool {
+	return llmerrors.HasHTTPStatus(err, statusCode)
+}
+
 func IsContextLengthOverflowError(err error) bool {
 	return llmerrors.IsContextLengthOverflowError(err)
 }

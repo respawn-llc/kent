@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -26,7 +27,7 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 		return nil
 	}
 	freshness := ConversationFreshnessFresh
-	parsed, err := walkEventsFile(s.eventsFP, func(evt Event) error {
+	parsed, err := walkEventsFileFromOffset(s.eventsFP, 0, func(evt Event) error {
 		freshness = advanceConversationFreshness(freshness, evt)
 		return nil
 	})
@@ -102,7 +103,7 @@ func (s *Store) appendEventsLogLocked(events []Event) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open events file for append: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 
 	fileInfo, err := fp.Stat()
 	if err != nil {
@@ -217,13 +218,20 @@ func readEventsFile(path string) (parsedEvents, error) {
 	return parseEventsFromReader(bufio.NewReader(fp))
 }
 
-func walkEventsFile(path string, visit func(Event) error) (parsedEvents, error) {
+func walkEventsFileFromOffset(path string, offset int64, visit func(Event) error) (parsedEvents, error) {
 	fp, err := openRegularSessionFile(path, "events file")
 	if err != nil {
 		return parsedEvents{}, fmt.Errorf("open events file: %w", err)
 	}
 	defer fp.Close()
-	return walkEventsFromReader(bufio.NewReader(fp), visit)
+	if offset > 0 {
+		if _, err := fp.Seek(offset, io.SeekStart); err != nil {
+			return parsedEvents{}, fmt.Errorf("seek events file: %w", err)
+		}
+	}
+	parsed, err := walkEventsFromReader(bufio.NewReader(fp), visit)
+	parsed.totalBytes += offset
+	return parsed, err
 }
 
 func parseEventsFromReader(reader *bufio.Reader) (parsedEvents, error) {
@@ -350,6 +358,224 @@ func writeEventsFile(path string, events []Event) error {
 		return fmt.Errorf("replace events file: %w", err)
 	}
 	return nil
+}
+
+func latestEventOffset(path string, match EventBoundaryMatcher) (int64, error) {
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return 0, fmt.Errorf("open events file: %w", err)
+	}
+	defer fp.Close()
+	info, err := fp.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("stat events file: %w", err)
+	}
+	position := info.Size()
+	var pendingPrefix []byte
+	for position > 0 {
+		readSize := eventLogScanChunkSize
+		if position < readSize {
+			readSize = position
+		}
+		position -= readSize
+		chunk := make([]byte, readSize)
+		if _, err := fp.ReadAt(chunk, position); err != nil {
+			return 0, fmt.Errorf("read events file chunk: %w", err)
+		}
+		data := make([]byte, 0, len(chunk)+len(pendingPrefix))
+		data = append(data, chunk...)
+		data = append(data, pendingPrefix...)
+		end := len(data)
+		for end > 0 {
+			if data[end-1] == '\n' || data[end-1] == '\r' {
+				end--
+				continue
+			}
+			break
+		}
+		for end > 0 {
+			idx := bytes.LastIndexByte(data[:end], '\n')
+			if idx < 0 && position > 0 {
+				pendingPrefix = append([]byte(nil), data[:end]...)
+				break
+			}
+			lineStart := idx + 1
+			line := bytes.TrimSpace(data[lineStart:end])
+			if len(line) > 0 {
+				var evt Event
+				if err := json.Unmarshal(line, &evt); err != nil {
+					return 0, fmt.Errorf("parse event line: %w", err)
+				}
+				matched := true
+				if match != nil {
+					var matchErr error
+					matched, matchErr = match(evt)
+					if matchErr != nil {
+						return 0, matchErr
+					}
+				}
+				if matched {
+					return position + int64(lineStart), nil
+				}
+			}
+			if idx < 0 {
+				pendingPrefix = nil
+				break
+			}
+			end = idx
+		}
+	}
+	return 0, nil
+}
+
+type rewriteEventsFileStats struct {
+	changed      bool
+	totalBytes   int64
+	lastSequence int64
+	eventCount   int
+	freshness    ConversationFreshness
+}
+
+func rewriteEventsFileStreaming(
+	path string,
+	startOffset int64,
+	transform func(Event) (EventRewriteDecision, error),
+	appended []Event,
+	initialFreshness ConversationFreshness,
+	syncBeforeReplace func(*os.File) error,
+) (rewriteEventsFileStats, error) {
+	source, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("open events file: %w", err)
+	}
+	sourceClosed := false
+	closeSource := func() error {
+		if sourceClosed {
+			return nil
+		}
+		sourceClosed = true
+		return source.Close()
+	}
+	defer func() {
+		_ = closeSource()
+	}()
+
+	tmp := path + ".tmp"
+	target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("open events tmp file: %w", err)
+	}
+	replace := false
+	defer func() {
+		_ = target.Close()
+		if !replace {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	stats := rewriteEventsFileStats{totalBytes: startOffset, freshness: initialFreshness}
+	if startOffset > 0 {
+		if _, err := io.CopyN(target, source, startOffset); err != nil {
+			return rewriteEventsFileStats{}, fmt.Errorf("copy events prefix: %w", err)
+		}
+	} else {
+		initialFreshness = ConversationFreshnessFresh
+		stats.freshness = initialFreshness
+	}
+	reader := bufio.NewReader(source)
+	for {
+		line, readErr := reader.ReadString('\n')
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			var original Event
+			if err := json.Unmarshal([]byte(trimmed), &original); err != nil {
+				if errors.Is(readErr, io.EOF) && !strings.HasSuffix(line, "\n") {
+					break
+				}
+				return rewriteEventsFileStats{}, fmt.Errorf("parse event line: %w", err)
+			}
+			decision := EventRewriteDecision{Event: original}
+			if transform != nil {
+				var err error
+				decision, err = transform(original)
+				if err != nil {
+					return rewriteEventsFileStats{}, err
+				}
+			}
+			if decision.Drop {
+				stats.changed = true
+			} else {
+				if !eventsEquivalent(original, decision.Event) {
+					stats.changed = true
+				}
+				written, err := writeEventLine(target, decision.Event)
+				if err != nil {
+					return rewriteEventsFileStats{}, err
+				}
+				stats.totalBytes += int64(written)
+				stats.eventCount++
+				if decision.Event.Seq > stats.lastSequence {
+					stats.lastSequence = decision.Event.Seq
+				}
+				stats.freshness = advanceConversationFreshness(stats.freshness, decision.Event)
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return rewriteEventsFileStats{}, fmt.Errorf("read events line: %w", readErr)
+		}
+	}
+	for _, event := range appended {
+		stats.changed = true
+		written, err := writeEventLine(target, event)
+		if err != nil {
+			return rewriteEventsFileStats{}, err
+		}
+		stats.totalBytes += int64(written)
+		stats.eventCount++
+		if event.Seq > stats.lastSequence {
+			stats.lastSequence = event.Seq
+		}
+		stats.freshness = advanceConversationFreshness(stats.freshness, event)
+	}
+	if !stats.changed {
+		return stats, nil
+	}
+	if err := closeSource(); err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("close events file: %w", err)
+	}
+	if syncBeforeReplace != nil {
+		if err := syncBeforeReplace(target); err != nil {
+			return rewriteEventsFileStats{}, err
+		}
+	}
+	if err := target.Close(); err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("close events tmp file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("replace events file: %w", err)
+	}
+	replace = true
+	return stats, nil
+}
+
+func writeEventLine(fp *os.File, event Event) (int, error) {
+	line, err := json.Marshal(event)
+	if err != nil {
+		return 0, fmt.Errorf("marshal event line: %w", err)
+	}
+	line = append(line, '\n')
+	return writeAll(fp, line)
+}
+
+func eventsEquivalent(left, right Event) bool {
+	return left.Seq == right.Seq &&
+		left.Timestamp.Equal(right.Timestamp) &&
+		left.Kind == right.Kind &&
+		left.StepID == right.StepID &&
+		reflect.DeepEqual(left.Payload, right.Payload)
 }
 
 func computeEventsJSONLSize(events []Event) int64 {

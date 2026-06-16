@@ -170,6 +170,21 @@ func IsNonRetriableModelError(err error) bool {
 	return false
 }
 
+func HasHTTPStatus(err error, statusCode int) bool {
+	if err == nil {
+		return false
+	}
+	var providerErr *ProviderAPIError
+	if errors.As(err, &providerErr) && providerErr.StatusCode == statusCode {
+		return true
+	}
+	var apiErr *APIStatusError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == statusCode {
+		return true
+	}
+	return false
+}
+
 func IsContextLengthOverflowError(err error) bool {
 	if err == nil {
 		return false
