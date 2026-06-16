@@ -193,6 +193,7 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 		}
 	}
 	out := make([]llm.ResponseItem, 0, len(items))
+	seenCalls := make(map[string]struct{})
 	seenOutputs := make(map[string]map[repairToolCallKind]struct{})
 	for _, item := range items {
 		callID := strings.TrimSpace(item.CallID)
@@ -201,6 +202,12 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 		}
 		if _, remove := removed[callID]; remove && (isToolCallItem(item.Type) || isToolOutputItem(item.Type)) {
 			continue
+		}
+		if _, repairCall := affected[callID]; repairCall && isToolCallItem(item.Type) {
+			if _, seen := seenCalls[callID]; seen {
+				continue
+			}
+			seenCalls[callID] = struct{}{}
 		}
 		if _, repairOutput := affected[callID]; repairOutput && isToolOutputItem(item.Type) {
 			callKind := callKinds[callID]
@@ -261,6 +268,7 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 			}
 		}
 		s.messageCount = repairedMessageCount
+		s.transcriptEntryCount = s.recomputeTranscriptEntryCountLocked()
 		callKinds := repairCallKindsFromItems(s.providerItemsSourceLocked())
 		for _, id := range affectedCallIDs {
 			callID := strings.TrimSpace(id)
@@ -299,6 +307,34 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 	}
 }
 
+func (s *chatStore) recomputeTranscriptEntryCountLocked() int {
+	materializedToolResults := collectMaterializedToolCalls(s.items)
+	scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, s.toolCompletions, materializedToolResults)
+	localIndex := 0
+	appendLocalEntries := func(processedMessages int) {
+		for localIndex < len(s.local) {
+			if s.local[localIndex].AfterMessageCount > processedMessages {
+				break
+			}
+			scan.appendEntry(s.local[localIndex].Entry)
+			localIndex++
+		}
+	}
+	appendLocalEntries(0)
+	processedMessages := 0
+	walker := newResponseItemMessageWalker(func(msg llm.Message) {
+		scan.ApplyMessage(msg)
+		processedMessages++
+		appendLocalEntries(processedMessages)
+	})
+	for _, item := range s.items {
+		walker.Apply(item)
+	}
+	walker.Flush()
+	appendLocalEntries(processedMessages)
+	return scan.totalEntries
+}
+
 func repairCallKindsFromItems(items []llm.ResponseItem) map[string]repairToolCallKind {
 	out := make(map[string]repairToolCallKind)
 	for _, item := range items {
@@ -320,12 +356,17 @@ func firstMatchingProviderOutput(items []llm.ResponseItem, callID string, callKi
 	if callKind == 0 {
 		return nil
 	}
+	out := make([]llm.ResponseItem, 0, 2)
 	for _, item := range items {
 		if strings.TrimSpace(item.CallID) == callID && repairKindForOutputItem(item.Type) == callKind {
-			return llm.CloneResponseItems([]llm.ResponseItem{item})
+			out = append(out, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+			continue
+		}
+		if len(out) > 0 && isProviderOutputAttachmentForCall(item, callID) {
+			out = append(out, llm.CloneResponseItems([]llm.ResponseItem{item})...)
 		}
 	}
-	return nil
+	return out
 }
 
 func lastCommittedAssistantFinalAnswerFromItems(items []llm.ResponseItem) string {
@@ -577,7 +618,11 @@ func filteredCompletionProviderItems(completion storedToolCompletion, callKind r
 	hasValid := false
 	for _, item := range completion.ProviderItems {
 		if strings.TrimSpace(item.CallID) != callID || repairKindForOutputItem(item.Type) != callKind {
-			changed = true
+			if hasValid && isProviderOutputAttachmentForCall(item, callID) {
+				filtered = append(filtered, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+			} else {
+				changed = true
+			}
 			continue
 		}
 		if hasValid {
@@ -591,6 +636,16 @@ func filteredCompletionProviderItems(completion storedToolCompletion, callKind r
 		changed = true
 	}
 	return filtered, changed, hasValid
+}
+
+func isProviderOutputAttachmentForCall(item llm.ResponseItem, callID string) bool {
+	if item.Type != llm.ResponseItemTypeOther || item.LinkKind != llm.ResponseItemLinkToolOutputAttachment {
+		return false
+	}
+	if strings.TrimSpace(item.LinkedCallID) == callID {
+		return true
+	}
+	return strings.TrimSpace(item.CallID) == callID
 }
 
 func repairKindForToolCall(call llm.ToolCall) repairToolCallKind {

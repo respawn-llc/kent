@@ -264,6 +264,7 @@ func TestMissingToolOutputRepairFiltersInvalidToolCompletedProviderItems(t *test
 		Name:   "exec",
 		ProviderItems: []llm.ResponseItem{
 			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "provider-call", Name: "exec", Output: json.RawMessage(`{"ok":true}`)},
+			{Type: llm.ResponseItemTypeOther, CallID: "provider-call", LinkedCallID: "provider-call", LinkKind: llm.ResponseItemLinkToolOutputAttachment, Raw: json.RawMessage(`{"type":"input_file"}`)},
 			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "provider-call", Name: "exec", Output: json.RawMessage(`{"dup":true}`)},
 			{Type: llm.ResponseItemTypeCustomToolOutput, CallID: "provider-call", Name: "exec", Output: json.RawMessage(`"wrong"`)},
 			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "other-call", Name: "exec", Output: json.RawMessage(`{"wrong_call":true}`)},
@@ -285,7 +286,11 @@ func TestMissingToolOutputRepairFiltersInvalidToolCompletedProviderItems(t *test
 		if err := json.Unmarshal(event.Payload, &completion); err != nil {
 			t.Fatalf("decode completion: %v", err)
 		}
-		if len(completion.ProviderItems) != 1 || completion.ProviderItems[0].CallID != "provider-call" || completion.ProviderItems[0].Type != llm.ResponseItemTypeFunctionCallOutput {
+		if len(completion.ProviderItems) != 2 ||
+			completion.ProviderItems[0].CallID != "provider-call" ||
+			completion.ProviderItems[0].Type != llm.ResponseItemTypeFunctionCallOutput ||
+			completion.ProviderItems[1].Type != llm.ResponseItemTypeOther ||
+			completion.ProviderItems[1].LinkKind != llm.ResponseItemLinkToolOutputAttachment {
 			t.Fatalf("unexpected provider items after repair: %+v", completion.ProviderItems)
 		}
 		return
@@ -528,6 +533,9 @@ func TestMissingToolOutputRepairAfterHTTP400EmitsAppendOnlyWarningEvent(t *testi
 	}
 	if warning.TranscriptRevision != result.Rewrite.LastSequence {
 		t.Fatalf("warning revision = %d, want %d", warning.TranscriptRevision, result.Rewrite.LastSequence)
+	}
+	if got := eng.CommittedTranscriptEntryCount(); got != 1 {
+		t.Fatalf("post-repair committed transcript count = %d, want 1", got)
 	}
 	localEntries := 0
 	for _, event := range readRepairEvents(t, store) {
