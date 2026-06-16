@@ -75,7 +75,6 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
 	transcriptMutated := false
 	awaitsHydration := false
-	evt = m.suppressLocalEntryEchoesInEvent(evt)
 	if len(evt.TranscriptEntries) > 0 {
 		if shouldDeliverCommittedRuntimeEventFromSuffix(m, evt) {
 			m.observeNativeStreamingAssistantCommitCandidate(evt)

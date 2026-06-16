@@ -544,26 +544,6 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 	}
 }
 
-func TestRestoreSeedsHeadlessActiveFromTranscript(t *testing.T) {
-	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"})); err != nil {
-		t.Fatalf("append headless marker: %v", err)
-	}
-	if err := eng.Close(); err != nil {
-		t.Fatalf("close engine: %v", err)
-	}
-
-	reopenedStore := mustOpenTestSession(t, store.Dir())
-	// Reopening (which runs restore) must seed the persisted headless flag from
-	// the trailing headless marker, even though the prior session never wrote an
-	// explicit headless_active flag (the pre-flag migration case).
-	_ = mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if !reopenedStore.Meta().HeadlessActive {
-		t.Fatal("expected restore to seed HeadlessActive from the trailing headless marker")
-	}
-}
-
 func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{

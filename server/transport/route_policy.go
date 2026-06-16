@@ -270,7 +270,7 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.RuntimeSetQuestionsEnabledRequest:
 		return p.SessionID, true
-	case serverapi.RuntimeAppendLocalEntryRequest:
+	case serverapi.RuntimeAppendCommittedEntryRequest:
 		return p.SessionID, true
 	case serverapi.RuntimeShouldCompactBeforeUserMessageRequest:
 		return p.SessionID, true

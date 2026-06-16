@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"sort"
 
 	"core/server/llm"
@@ -27,6 +28,7 @@ type steeringIntent struct {
 type steeringItem struct {
 	message        *steeringMessage
 	localEntry     *steeringLocalEntry
+	historyReplace *steeringHistoryReplacement
 	toolCompletion *tools.Result
 	event          *Event
 	streaming      *steeringStreamingOutput
@@ -40,8 +42,13 @@ type steeringMessage struct {
 }
 
 type steeringLocalEntry struct {
-	entry   storedLocalEntry
-	persist bool
+	entry storedLocalEntry
+}
+
+type steeringHistoryReplacement struct {
+	payload          historyReplacementPayload
+	projectedEntries []ChatEntry
+	workflowRunID    string
 }
 
 type steeringStreamingOutput struct {
@@ -105,20 +112,29 @@ func steerMessagesWithPersistenceIntent(priority steeringPriority, eventPolicy s
 }
 
 func steerLocalEntryIntent(entry storedLocalEntry) steeringIntent {
-	return steerLocalEntryWithPersistenceIntent(entry, true)
-}
-
-func steerTransientLocalEntryIntent(entry storedLocalEntry) steeringIntent {
-	return steerLocalEntryWithPersistenceIntent(entry, false)
-}
-
-func steerLocalEntryWithPersistenceIntent(entry storedLocalEntry, persist bool) steeringIntent {
 	copyEntry := entry
 	return steeringIntent{
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{localEntry: &steeringLocalEntry{
-			entry:   copyEntry,
-			persist: persist,
+			entry: copyEntry,
+		}}},
+	}
+}
+
+func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, items []llm.ResponseItem) steeringIntent {
+	preparedItems := llm.PrepareOpenAIInputItems(items)
+	payload := historyReplacementPayload{
+		Engine:        normalizeHistoryReplacementEngine(engine),
+		Mode:          string(mode),
+		WorkflowRunID: workflowRunID,
+		Items:         llm.CloneResponseItems(preparedItems),
+	}
+	return steeringIntent{
+		priority: steeringPriorityNormal,
+		items: []steeringItem{{historyReplace: &steeringHistoryReplacement{
+			payload:          payload,
+			projectedEntries: transcriptEntriesFromHistoryReplacement(payload.Items),
+			workflowRunID:    workflowRunID,
 		}}},
 	}
 }
@@ -186,6 +202,11 @@ func (e *Engine) steer(stepID string, intents ...steeringIntent) error {
 		}
 		ordered = append(ordered, intent)
 	}
+	if len(ordered) == 0 {
+		return nil
+	}
+	e.outputMutationMu.Lock()
+	defer e.outputMutationMu.Unlock()
 	sort.SliceStable(ordered, func(i, j int) bool {
 		return ordered[i].priority < ordered[j].priority
 	})
@@ -204,11 +225,10 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		return e.appendMessageRaw(stepID, item.message.message, item.message.eventPolicy, item.message.persist)
 	}
 	if item.localEntry != nil {
-		if item.localEntry.persist {
-			return e.appendPersistedLocalEntryRecordRaw(stepID, item.localEntry.entry)
-		}
-		e.appendTransientLocalEntryRecordRaw(item.localEntry.entry)
-		return nil
+		return e.appendPersistedLocalEntryRecordRaw(stepID, item.localEntry.entry)
+	}
+	if item.historyReplace != nil {
+		return e.replaceHistoryRaw(stepID, *item.historyReplace)
 	}
 	if item.toolCompletion != nil {
 		if err := e.persistToolCompletionRaw(stepID, *item.toolCompletion); err != nil {
@@ -228,7 +248,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.cacheWarning != nil {
 		warning := item.cacheWarning.warning
 		visibility := transcript.NormalizeEntryVisibility(item.cacheWarning.visibility)
-		e.transcriptPersistence().AppendLocalEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), visibility)
+		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), visibility)
 		if item.cacheWarning.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
@@ -252,6 +272,58 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 	}
 	return nil
+}
+
+func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) error {
+	reminderIssued := false
+	projectedStart := e.CommittedTranscriptEntryCount()
+	preparedItems := llm.CloneResponseItems(replacement.payload.Items)
+	// Compaction reinjects base meta into the same replacement payload, so a
+	// non-empty replacement active list is born already carrying it. Mirror the
+	// restore-time length signal here rather than scanning the items.
+	e.baseMetaInjected = len(preparedItems) > 0
+	_, committed, appendErr := e.store.AppendEvent(stepID, "history_replaced", replacement.payload)
+	if appendErr != nil && !committed {
+		return appendErr
+	}
+	// The committed event is the single durable record of this compaction's
+	// provenance; mirror it into runtime state so an in-process gate sees it
+	// without re-reading the transcript, matching what restore reconstructs.
+	e.setLastCompactionWorkflowRunID(replacement.workflowRunID)
+	e.resetCurrentPreciseInputTracking()
+	e.resetLocalDiagnostics()
+	e.transcriptPersistence().ReplaceHistory(preparedItems)
+	e.setCompactionSoonReminderIssued(false)
+	e.emitProjectedHistoryReplacementEntriesRaw(stepID, projectedStart, replacement.projectedEntries)
+	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})
+	return errors.Join(
+		appendErr,
+		e.store.SetCompactionSoonReminderIssued(reminderIssued),
+		e.store.SetUsageState(nil),
+	)
+}
+
+func (e *Engine) emitProjectedHistoryReplacementEntriesRaw(stepID string, start int, entries []ChatEntry) {
+	if e == nil || len(entries) == 0 {
+		return
+	}
+	// Live subscribers must observe the same committed transcript progression that
+	// restart hydration reconstructs from history_replaced. Emit projected
+	// compaction rows before any later local entry.
+	if start < 0 {
+		start = 0
+	}
+	for idx, entry := range entries {
+		copyEntry := clonePersistedChatEntry(entry)
+		e.emitRaw(Event{
+			Kind:                       EventLocalEntryAdded,
+			StepID:                     stepID,
+			LocalEntry:                 &copyEntry,
+			CommittedTranscriptChanged: true,
+			CommittedEntryStart:        start + idx,
+			CommittedEntryStartSet:     true,
+		})
+	}
 }
 
 func cloneToolResult(result tools.Result) tools.Result {

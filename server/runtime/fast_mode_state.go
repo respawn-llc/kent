@@ -1,8 +1,12 @@
 package runtime
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 type FastModeState struct {
+	mu      sync.Mutex
 	enabled atomic.Bool
 }
 
@@ -23,13 +27,26 @@ func (s *FastModeState) SetEnabled(enabled bool) bool {
 	if s == nil {
 		return false
 	}
-	for {
-		current := s.enabled.Load()
-		if current == enabled {
-			return false
-		}
-		if s.enabled.CompareAndSwap(current, enabled) {
-			return true
+	changed, _ := s.SetEnabledWithTransaction(enabled, nil)
+	return changed
+}
+
+// SetEnabledWithTransaction serializes the changed-state decision with a
+// caller-supplied fallible step that must succeed before the shared state flips.
+func (s *FastModeState) SetEnabledWithTransaction(enabled bool, beforeApply func(changed bool) error) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := s.enabled.Load() != enabled
+	if beforeApply != nil {
+		if err := beforeApply(changed); err != nil {
+			return false, err
 		}
 	}
+	if changed {
+		s.enabled.Store(enabled)
+	}
+	return changed, nil
 }

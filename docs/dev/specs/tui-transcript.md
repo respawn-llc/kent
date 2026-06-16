@@ -25,6 +25,7 @@
 - Rollback/fork is navigation or attachment to a different session target, not same-session transcript mutation.
 - Assistant streaming in ongoing mode uses source-backed Markdown promotion. Stable rendered assistant lines may append before commit; mutable tail stays in live viewport.
 - Ongoing scrollback authority is committed transcript plus immutable stable assistant stream promotions. Tool progress and reasoning deltas remain transient live viewport state.
+- Runtime-control feedback rows that appear in the transcript are committed by the runtime. Runtime-backed clients must not emit optimistic or transient transcript echoes for those rows; local transcript fallback is limited to sessions without a runtime client or committed-append failures.
 - Connectivity/subscription continuity loss discards transient live viewport immediately and recovers by hydrating authoritative committed transcript state.
 - Transcript-affecting transport failures must not be swallowed or converted to fake empty/idle state.
 - External continuity-loss recovery may re-issue the ongoing buffer from authoritative committed state.
@@ -198,6 +199,7 @@
 - `/back` reopens parent session when available.
 - `/supervisor` toggles current-session reviewer invocation and does not persist to config.
 - `/autocompaction` toggles runtime auto-compaction for current session and does not persist to config.
+- `/fast`, `/supervisor`, and `/questions` toggle feedback is a committed runtime transcript entry in runtime-backed sessions.
 - `/status` opens a read-only detail overlay and refreshes progressively.
 - Built-in prompt commands use embedded Markdown templates.
 - File-backed prompts come from local/global `.kent/prompts` and `.kent/commands`; scan is non-recursive `.md`, namespace precedence is local over global and prompts over commands.

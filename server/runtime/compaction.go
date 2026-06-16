@@ -389,7 +389,7 @@ func (e *Engine) reportPreciseTokenCountSupportFailure(err error) {
 		"error",
 		entryText,
 	); persistErr != nil {
-		e.AppendLocalEntry("error", fmt.Sprintf("%s Diagnostic persistence failed: %v", entryText, persistErr))
+		e.AppendCommittedEntry("error", fmt.Sprintf("%s Diagnostic persistence failed: %v", entryText, persistErr))
 	}
 }
 
@@ -408,7 +408,7 @@ func (e *Engine) reportPreciseTokenCountFailure(err error) {
 		"error",
 		entryText,
 	); persistErr != nil {
-		e.AppendLocalEntry("error", fmt.Sprintf("%s Diagnostic persistence failed: %v", entryText, persistErr))
+		e.AppendCommittedEntry("error", fmt.Sprintf("%s Diagnostic persistence failed: %v", entryText, persistErr))
 	}
 }
 

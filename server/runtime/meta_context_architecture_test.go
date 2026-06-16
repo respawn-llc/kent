@@ -115,14 +115,14 @@ func TestTranscriptProjectionMutationsStayInsideOutputBoundary(t *testing.T) {
 		"transcript_projector.go":   true,
 	}
 	bannedCalls := map[string]bool{
-		"AppendMessage":                   true,
-		"AppendLocalEntryRecord":          true,
-		"AppendLocalEntryWithOngoingText": true,
-		"AppendLocalEntryWithVisibility":  true,
-		"AppendOngoingDelta":              true,
-		"ClearStreamingAssistantState":    true,
-		"RecordStoredToolCompletion":      true,
-		"ReplaceHistory":                  true,
+		"AppendMessage":                       true,
+		"AppendLocalEntryRecord":              true,
+		"AppendCommittedEntryWithOngoingText": true,
+		"AppendCommittedEntryWithVisibility":  true,
+		"AppendOngoingDelta":                  true,
+		"ClearStreamingAssistantState":        true,
+		"RecordStoredToolCompletion":          true,
+		"ReplaceHistory":                      true,
 	}
 	assertNoBannedRuntimeCalls(t, allowedFiles, bannedCalls)
 }

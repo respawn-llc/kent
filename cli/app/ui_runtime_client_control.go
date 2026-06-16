@@ -220,18 +220,18 @@ func cloneRuntimeGoal(goal *clientui.RuntimeGoal) *clientui.RuntimeGoal {
 	return &cloned
 }
 
-func (c *sessionRuntimeClient) AppendLocalEntry(role, text string) error {
-	return c.AppendLocalEntryWithNoticeID(role, text, "")
+func (c *sessionRuntimeClient) AppendCommittedEntry(role, text string) error {
+	return c.AppendCommittedEntryWithNoticeID(role, text, "")
 }
 
-func (c *sessionRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
+func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noticeID string) error {
 	if err := c.ensureWritable(); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
-		return c.controls.AppendLocalEntry(ctx, serverapi.RuntimeAppendLocalEntryRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Role: role, Text: text, NoticeID: strings.TrimSpace(noticeID)})
+		return c.controls.AppendCommittedEntry(ctx, serverapi.RuntimeAppendCommittedEntryRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Role: role, Text: text, NoticeID: strings.TrimSpace(noticeID)})
 	})
 }
 

@@ -444,7 +444,7 @@ func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing
 		t.Fatalf("expected resumed tail in ongoing mode, got %q", first)
 	}
 
-	eng.AppendLocalEntry("assistant", "post-resume live update")
+	eng.AppendCommittedEntry("assistant", "post-resume live update")
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventLocalEntryAdded, LocalEntry: &runtime.ChatEntry{Role: "assistant", Text: "post-resume live update"}})
 	live := stripANSIAndTrimRight(m.view.OngoingSnapshot())
 	if !strings.Contains(live, "post-resume live update") {
@@ -463,8 +463,8 @@ func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing
 	if !strings.Contains(afterRestart, "a2 tail") {
 		t.Fatalf("expected resumed transcript after harness restart, got %q", afterRestart)
 	}
-	if strings.Contains(afterRestart, "post-resume live update") {
-		t.Fatalf("did not expect non-persisted local update to survive restart, got %q", afterRestart)
+	if !strings.Contains(afterRestart, "post-resume live update") {
+		t.Fatalf("expected committed local update to survive restart, got %q", afterRestart)
 	}
 
 	m2 = updateUIModel(t, m2, tea.KeyMsg{Type: tea.KeyShiftTab})

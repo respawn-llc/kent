@@ -86,19 +86,16 @@ func TestCurrentConversationFreshnessDoesNotDowngradeLocalTurnFromCachedFresh(t 
 	}
 }
 
-func TestRuntimeBackedLocalEntryFallbackIsTransientUntilEcho(t *testing.T) {
+func TestRuntimeBackedLocalEntryAppendWaitsForCommittedServerEcho(t *testing.T) {
 	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
 
 	_ = m.appendLocalEntryWithNoticeID("developer_feedback", "local feedback", "")
-	if len(m.transcriptEntries) != 1 {
-		t.Fatalf("expected optimistic local entry, got %+v", m.transcriptEntries)
-	}
-	if !m.transcriptEntries[0].Transient {
-		t.Fatalf("expected runtime-backed optimistic entry to be transient, got %+v", m.transcriptEntries[0])
+	if len(m.transcriptEntries) != 0 {
+		t.Fatalf("did not expect local transcript entry before committed server echo, got %+v", m.transcriptEntries)
 	}
 	if committed := committedTranscriptEntriesForApp(m.transcriptEntries); len(committed) != 0 {
-		t.Fatalf("optimistic local entry advanced committed transcript entries: %+v", committed)
+		t.Fatalf("runtime-backed append advanced committed transcript entries before server echo: %+v", committed)
 	}
 }
 

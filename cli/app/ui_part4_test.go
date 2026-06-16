@@ -1438,15 +1438,21 @@ func TestCompactDoneSurfacesQueuedRuntimeWorkProbeFailure(t *testing.T) {
 	if updated.activity != uiActivityError {
 		t.Fatalf("expected error activity after queued runtime work probe failure, got %v", updated.activity)
 	}
-	if len(updated.transcriptEntries) != 1 || updated.transcriptEntries[0].Role != tui.TranscriptRoleDeveloperErrorFeedback || !strings.Contains(updated.transcriptEntries[0].Text, "daemon stalled") {
-		t.Fatalf("expected local error entry with probe failure, got %+v", updated.transcriptEntries)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("did not expect immediate local error entry with probe failure, got %+v", updated.transcriptEntries)
 	}
 	if client.appendedRole != "" || client.appendedText != "" {
 		t.Fatalf("did not expect runtime append during Update, got role=%q text=%q", client.appendedRole, client.appendedText)
 	}
-	_ = collectCmdMessages(t, cmd)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || !strings.Contains(client.appendedText, "daemon stalled") {
 		t.Fatalf("expected runtime error entry with probe failure, role=%q text=%q", client.appendedRole, client.appendedText)
+	}
+	if len(updated.transcriptEntries) != 1 || updated.transcriptEntries[0].Role != tui.TranscriptRoleDeveloperErrorFeedback || !strings.Contains(updated.transcriptEntries[0].Text, "daemon stalled") {
+		t.Fatalf("expected local fallback error entry with probe failure, got %+v", updated.transcriptEntries)
 	}
 }
 

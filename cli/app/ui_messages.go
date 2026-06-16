@@ -31,8 +31,10 @@ type promptHistoryPersistErrMsg struct {
 	err error
 }
 
-type localEntryPersistDoneMsg struct {
+type committedEntryPersistDoneMsg struct {
 	noticeID string
+	role     string
+	text     string
 	err      error
 }
 

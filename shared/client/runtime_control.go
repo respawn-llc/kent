@@ -40,8 +40,8 @@ func (c *loopbackRuntimeControlClient) SetQuestionsEnabled(ctx context.Context, 
 	return callLoopbackClient(c, "runtime control service is required", ctx, req, servicecontract.RuntimeControlService.SetQuestionsEnabled)
 }
 
-func (c *loopbackRuntimeControlClient) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
-	return callLoopbackClientNoResponse(c, "runtime control service is required", ctx, req, servicecontract.RuntimeControlService.AppendLocalEntry)
+func (c *loopbackRuntimeControlClient) AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
+	return callLoopbackClientNoResponse(c, "runtime control service is required", ctx, req, servicecontract.RuntimeControlService.AppendCommittedEntry)
 }
 
 func (c *loopbackRuntimeControlClient) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {

@@ -45,7 +45,7 @@ type processSource interface {
 }
 
 type localEntryAppender interface {
-	AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error
+	AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error
 	AppendSessionEntry(ctx context.Context, sessionID string, role string, text string) error
 }
 
@@ -1426,7 +1426,7 @@ func (s *Service) appendLocalNote(ctx context.Context, sessionID string, leaseID
 	if s == nil || s.localNotes == nil || trimmedText == "" {
 		return
 	}
-	_ = s.localNotes.AppendLocalEntry(ctx, serverapi.RuntimeAppendLocalEntryRequest{
+	_ = s.localNotes.AppendCommittedEntry(ctx, serverapi.RuntimeAppendCommittedEntryRequest{
 		ClientRequestID:   uuid.NewString(),
 		SessionID:         strings.TrimSpace(sessionID),
 		ControllerLeaseID: strings.TrimSpace(leaseID),

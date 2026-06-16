@@ -626,7 +626,7 @@ func TestEmbeddedAppServerPrepareRuntimeWiresSessionActivityForSharedClients(t *
 	}
 	defer func() { _ = second.Close() }()
 
-	runtimePlan.Wiring.runtimeClient.AppendLocalEntry("user", "hello from client one")
+	runtimePlan.Wiring.runtimeClient.AppendCommittedEntry("user", "hello from client one")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -646,17 +646,6 @@ func TestEmbeddedAppServerPrepareRuntimeWiresSessionActivityForSharedClients(t *
 	}
 	if len(secondEvt.TranscriptEntries) != 1 || secondEvt.TranscriptEntries[0].Text != "hello from client one" {
 		t.Fatalf("unexpected second local entry event: %+v", secondEvt)
-	}
-	firstUpdate, err := first.Next(ctx)
-	if err != nil {
-		t.Fatalf("first.Next conversation update: %v", err)
-	}
-	secondUpdate, err := second.Next(ctx)
-	if err != nil {
-		t.Fatalf("second.Next conversation update: %v", err)
-	}
-	if firstUpdate.Kind != clientui.EventConversationUpdated || secondUpdate.Kind != clientui.EventConversationUpdated {
-		t.Fatalf("unexpected follow-up activity events: first=%+v second=%+v", firstUpdate, secondUpdate)
 	}
 
 	if _, err := reads.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: plan.SessionID}); err != nil {
@@ -705,7 +694,7 @@ func TestEmbeddedAppServerPrepareRuntimeIsolatesSessionActivityBetweenSessions(t
 	}
 	defer func() { _ = subB.Close() }()
 
-	runtimePlanA.Wiring.runtimeClient.AppendLocalEntry("user", "session-a-only")
+	runtimePlanA.Wiring.runtimeClient.AppendCommittedEntry("user", "session-a-only")
 
 	ctxA, cancelA := context.WithTimeout(context.Background(), time.Second)
 	defer cancelA()
@@ -719,14 +708,6 @@ func TestEmbeddedAppServerPrepareRuntimeIsolatesSessionActivityBetweenSessions(t
 	if len(evtA.TranscriptEntries) != 1 || evtA.TranscriptEntries[0].Text != "session-a-only" {
 		t.Fatalf("unexpected session A local entry payload: %+v", evtA)
 	}
-	evtAUpdate, err := subA.Next(ctxA)
-	if err != nil {
-		t.Fatalf("subA.Next conversation update: %v", err)
-	}
-	if evtAUpdate.Kind != clientui.EventConversationUpdated {
-		t.Fatalf("unexpected session A conversation update: %+v", evtAUpdate)
-	}
-
 	ctxB, cancelB := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancelB()
 	if evtB, err := subB.Next(ctxB); !errors.Is(err, context.DeadlineExceeded) {
@@ -752,7 +733,7 @@ func TestEmbeddedAppServerPrepareRuntimeIsolatesSessionActivityBetweenSessions(t
 		t.Fatalf("session B transcript leaked session A entry: %+v", pageB.Transcript)
 	}
 
-	runtimePlanB.Wiring.runtimeClient.AppendLocalEntry("assistant", "session-b-only")
+	runtimePlanB.Wiring.runtimeClient.AppendCommittedEntry("assistant", "session-b-only")
 
 	ctxB2, cancelB2 := context.WithTimeout(context.Background(), time.Second)
 	defer cancelB2()
@@ -766,14 +747,6 @@ func TestEmbeddedAppServerPrepareRuntimeIsolatesSessionActivityBetweenSessions(t
 	if len(evtB.TranscriptEntries) != 1 || evtB.TranscriptEntries[0].Text != "session-b-only" {
 		t.Fatalf("unexpected session B local entry payload: %+v", evtB)
 	}
-	evtBUpdate, err := subB.Next(ctxB2)
-	if err != nil {
-		t.Fatalf("subB.Next conversation update: %v", err)
-	}
-	if evtBUpdate.Kind != clientui.EventConversationUpdated {
-		t.Fatalf("unexpected session B conversation update: %+v", evtBUpdate)
-	}
-
 	ctxA2, cancelA2 := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancelA2()
 	if evtA2, err := subA.Next(ctxA2); !errors.Is(err, context.DeadlineExceeded) {

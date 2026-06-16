@@ -98,20 +98,20 @@ func (e *Engine) ContextUsage() ContextUsage {
 	}
 }
 
-func (e *Engine) AppendLocalEntry(role, text string) {
-	e.AppendLocalEntryWithOngoingText(role, text, "")
+func (e *Engine) AppendCommittedEntry(role, text string) error {
+	return e.AppendCommittedEntryWithOngoingText(role, text, "")
 }
 
-func (e *Engine) AppendLocalEntryWithVisibility(role, text string, visibility transcript.EntryVisibility) {
-	e.appendLocalEntry(storedLocalEntry{
+func (e *Engine) AppendCommittedEntryWithVisibility(role, text string, visibility transcript.EntryVisibility) error {
+	return e.appendCommittedEntry(storedLocalEntry{
 		Visibility: transcript.NormalizeEntryVisibility(visibility),
 		Role:       strings.TrimSpace(role),
 		Text:       strings.TrimSpace(text),
 	})
 }
 
-func (e *Engine) AppendLocalEntryWithNoticeID(role, text, noticeID string) {
-	e.appendLocalEntry(storedLocalEntry{
+func (e *Engine) AppendCommittedEntryWithNoticeID(role, text, noticeID string) error {
+	return e.appendCommittedEntry(storedLocalEntry{
 		Visibility: transcript.EntryVisibilityAuto,
 		Role:       strings.TrimSpace(role),
 		Text:       strings.TrimSpace(text),
@@ -119,8 +119,8 @@ func (e *Engine) AppendLocalEntryWithNoticeID(role, text, noticeID string) {
 	})
 }
 
-func (e *Engine) AppendLocalEntryWithOngoingText(role, text, ongoingText string) {
-	e.appendLocalEntry(storedLocalEntry{
+func (e *Engine) AppendCommittedEntryWithOngoingText(role, text, ongoingText string) error {
+	return e.appendCommittedEntry(storedLocalEntry{
 		Visibility:  transcript.EntryVisibilityAuto,
 		Role:        strings.TrimSpace(role),
 		Text:        strings.TrimSpace(text),
@@ -128,11 +128,11 @@ func (e *Engine) AppendLocalEntryWithOngoingText(role, text, ongoingText string)
 	})
 }
 
-func (e *Engine) appendLocalEntry(entry storedLocalEntry) {
+func (e *Engine) appendCommittedEntry(entry storedLocalEntry) error {
 	if entry.Role == "" || entry.Text == "" {
-		return
+		return nil
 	}
-	_ = e.steer("", steerTransientLocalEntryIntent(entry))
+	return e.steer("", steerLocalEntryIntent(entry))
 }
 
 func (e *Engine) RecordPromptHistory(text string) error {
@@ -174,23 +174,81 @@ func (e *Engine) SetFastModeEnabled(enabled bool) (bool, error) {
 	if enabled && !e.FastModeAvailable() {
 		return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
 	}
-	e.mu.Lock()
-	if e.cfg.FastModeState != nil {
-		changed := e.cfg.FastModeState.SetEnabled(enabled)
-		e.mu.Unlock()
+	if state := e.fastModeState(); state != nil {
+		changed := state.SetEnabled(enabled)
 		if changed {
 			e.markCurrentRequestShapeDirty()
 		}
 		return changed, nil
 	}
-	if e.cfg.FastModeEnabled == enabled {
-		e.mu.Unlock()
-		return false, nil
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	changed := e.localFastModeEnabledChange(enabled)
+	e.applyFastModeEnabled(enabled)
+	return changed, nil
+}
+
+func (e *Engine) SetFastModeEnabledWithCommittedFeedback(enabled bool, feedback func(changed bool) string) (bool, error) {
+	if feedback == nil {
+		return false, errors.New("committed feedback builder is required")
 	}
-	e.cfg.FastModeEnabled = enabled
+	if enabled && !e.FastModeAvailable() {
+		return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
+	}
+	if state := e.fastModeState(); state != nil {
+		changed, err := state.SetEnabledWithTransaction(enabled, func(changed bool) error {
+			text := strings.TrimSpace(feedback(changed))
+			if text == "" {
+				return errors.New("committed feedback text is required")
+			}
+			return e.AppendCommittedEntry("system", text)
+		})
+		if err != nil {
+			return false, err
+		}
+		if changed {
+			e.markCurrentRequestShapeDirty()
+		}
+		return changed, nil
+	}
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	changed := e.localFastModeEnabledChange(enabled)
+	text := strings.TrimSpace(feedback(changed))
+	if text == "" {
+		return false, errors.New("committed feedback text is required")
+	}
+	if err := e.AppendCommittedEntry("system", text); err != nil {
+		return false, err
+	}
+	e.applyFastModeEnabled(enabled)
+	return changed, nil
+}
+
+func (e *Engine) fastModeState() *FastModeState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.cfg.FastModeState
+}
+
+func (e *Engine) localFastModeEnabledChange(enabled bool) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.cfg.FastModeEnabled != enabled
+}
+
+func (e *Engine) applyFastModeEnabled(enabled bool) bool {
+	e.mu.Lock()
+	changed := false
+	if e.cfg.FastModeEnabled != enabled {
+		e.cfg.FastModeEnabled = enabled
+		changed = true
+	}
 	e.mu.Unlock()
-	e.markCurrentRequestShapeDirty()
-	return true, nil
+	if changed {
+		e.markCurrentRequestShapeDirty()
+	}
+	return changed
 }
 
 func (e *Engine) SetAutoCompactionEnabled(enabled bool) (bool, bool) {
@@ -220,6 +278,51 @@ func (e *Engine) QuestionsEnabled() bool {
 }
 
 func (e *Engine) SetQuestionsEnabled(enabled bool) (bool, bool) {
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	changed, current := e.questionsEnabledChange(enabled)
+	if changed {
+		e.applyQuestionsEnabled(enabled)
+		current = enabled
+	}
+	return changed, current
+}
+
+func (e *Engine) SetQuestionsEnabledWithCommittedFeedback(enabled bool, feedback func(enabled bool, changed bool) string) (bool, bool, error) {
+	if feedback == nil {
+		return false, e.QuestionsEnabled(), errors.New("committed feedback builder is required")
+	}
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	changed, current := e.questionsEnabledChange(enabled)
+	resultEnabled := current
+	if changed {
+		resultEnabled = enabled
+	}
+	text := strings.TrimSpace(feedback(resultEnabled, changed))
+	if text == "" {
+		return false, current, errors.New("committed feedback text is required")
+	}
+	if err := e.AppendCommittedEntry("system", text); err != nil {
+		return false, current, err
+	}
+	if changed {
+		e.applyQuestionsEnabled(enabled)
+	}
+	return changed, resultEnabled, nil
+}
+
+func (e *Engine) questionsEnabledChange(enabled bool) (bool, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	current := true
+	if e.cfg.QuestionsEnabled != nil {
+		current = *e.cfg.QuestionsEnabled
+	}
+	return current != enabled, current
+}
+
+func (e *Engine) applyQuestionsEnabled(enabled bool) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	current := true
@@ -227,16 +330,78 @@ func (e *Engine) SetQuestionsEnabled(enabled bool) (bool, bool) {
 		current = *e.cfg.QuestionsEnabled
 	}
 	if current == enabled {
-		return false, current
+		return false
 	}
 	if e.cfg.QuestionsEnabled == nil {
 		e.cfg.QuestionsEnabled = new(bool)
 	}
 	*e.cfg.QuestionsEnabled = enabled
-	return true, enabled
+	return true
 }
 
 func (e *Engine) SetReviewerEnabled(enabled bool) (bool, string, error) {
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	changed, mode, err := e.reviewerEnabledChange(enabled)
+	if err != nil {
+		return false, mode, err
+	}
+	e.applyReviewerEnabled(enabled, mode)
+	return changed, mode, nil
+}
+
+func (e *Engine) SetReviewerEnabledWithCommittedFeedback(enabled bool, feedback func(enabled bool, mode string, changed bool) string) (bool, string, error) {
+	if feedback == nil {
+		return false, e.ReviewerFrequency(), errors.New("committed feedback builder is required")
+	}
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	changed, mode, err := e.reviewerEnabledChange(enabled)
+	if err != nil {
+		return false, mode, err
+	}
+	text := strings.TrimSpace(feedback(mode != "off", mode, changed))
+	if text == "" {
+		return false, mode, errors.New("committed feedback text is required")
+	}
+	if err := e.AppendCommittedEntry("system", text); err != nil {
+		return false, mode, err
+	}
+	e.applyReviewerEnabled(enabled, mode)
+	return changed, mode, nil
+}
+
+func (e *Engine) reviewerEnabledChange(enabled bool) (bool, string, error) {
+	e.mu.Lock()
+	current, ok := NormalizeReviewerFrequency(e.cfg.Reviewer.Frequency)
+	if !ok {
+		current = "off"
+	}
+	if enabled {
+		if current != "off" {
+			e.mu.Unlock()
+			return false, current, nil
+		}
+		e.mu.Unlock()
+		if err := e.initReviewerClient(); err != nil {
+			return false, current, err
+		}
+		e.mu.Lock()
+		reviewerState := e.reviewerRuntimeStateLocked()
+		target := reviewerState.ResumeFrequency("edits")
+		e.mu.Unlock()
+		return true, target, nil
+	}
+
+	if current == "off" {
+		e.mu.Unlock()
+		return false, current, nil
+	}
+	e.mu.Unlock()
+	return true, "off", nil
+}
+
+func (e *Engine) applyReviewerEnabled(enabled bool, targetMode string) (bool, string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -251,21 +416,21 @@ func (e *Engine) SetReviewerEnabled(enabled bool) (bool, string, error) {
 
 	if enabled {
 		if current != "off" {
-			return false, current, nil
+			return false, current
 		}
-		if err := e.initReviewerClientLocked(); err != nil {
-			return false, current, err
+		target, ok := NormalizeReviewerFrequency(targetMode)
+		if !ok || target == "off" {
+			target = reviewerState.ResumeFrequency("edits")
 		}
-		target := reviewerState.ResumeFrequency("edits")
 		e.cfg.Reviewer.Frequency = target
-		return true, target, nil
+		return true, target
 	}
 
 	if current == "off" {
-		return false, current, nil
+		return false, current
 	}
 	e.cfg.Reviewer.Frequency = "off"
-	return true, "off", nil
+	return true, "off"
 }
 
 func (e *Engine) ThinkingLevel() string {

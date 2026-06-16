@@ -468,8 +468,8 @@ func (c *Remote) SetQuestionsEnabled(ctx context.Context, req serverapi.RuntimeS
 	return callControlRPC[serverapi.RuntimeSetQuestionsEnabledRequest, serverapi.RuntimeSetQuestionsEnabledResponse](c, ctx, protocol.MethodRuntimeSetQuestionsEnabled, req)
 }
 
-func (c *Remote) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeAppendLocalEntry, req, nil)
+func (c *Remote) AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
+	return c.call(ctx, protocol.MethodRuntimeAppendCommittedEntry, req, nil)
 }
 
 func (c *Remote) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {

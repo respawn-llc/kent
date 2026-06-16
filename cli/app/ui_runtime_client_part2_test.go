@@ -55,7 +55,7 @@ type leaseRetryRuntimeControlClient struct {
 	queuedWorkCalls int
 	submitLeaseID   []string
 	goalLeaseID     []string
-	localEntries    []serverapi.RuntimeAppendLocalEntryRequest
+	localEntries    []serverapi.RuntimeAppendCommittedEntryRequest
 	showGoalResp    serverapi.RuntimeGoalShowResponse
 	setGoalResp     serverapi.RuntimeGoalShowResponse
 	pauseGoalResp   serverapi.RuntimeGoalShowResponse
@@ -81,10 +81,10 @@ func (c *leaseRetryRuntimeControlClient) resetGoalLeaseIDs() {
 	c.goalLeaseID = nil
 }
 
-func (c *leaseRetryRuntimeControlClient) appendedLocalEntries() []serverapi.RuntimeAppendLocalEntryRequest {
+func (c *leaseRetryRuntimeControlClient) appendedLocalEntries() []serverapi.RuntimeAppendCommittedEntryRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]serverapi.RuntimeAppendLocalEntryRequest(nil), c.localEntries...)
+	return append([]serverapi.RuntimeAppendCommittedEntryRequest(nil), c.localEntries...)
 }
 
 func (c *leaseRetryRuntimeControlClient) SetSessionName(context.Context, serverapi.RuntimeSetSessionNameRequest) error {
@@ -111,7 +111,7 @@ func (c *leaseRetryRuntimeControlClient) SetQuestionsEnabled(context.Context, se
 	return serverapi.RuntimeSetQuestionsEnabledResponse{}, nil
 }
 
-func (c *leaseRetryRuntimeControlClient) AppendLocalEntry(_ context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
+func (c *leaseRetryRuntimeControlClient) AppendCommittedEntry(_ context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.localEntries = append(c.localEntries, req)

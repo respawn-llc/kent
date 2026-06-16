@@ -872,7 +872,7 @@ func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) 
 	}
 }
 
-func TestCommittedSuffixAppendSuppressesAcknowledgedLocalEntryEcho(t *testing.T) {
+func TestCommittedSuffixAppendIncludesServerCommittedEntryWithoutLocalEcho(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedStaticUIModel()
 	m.engine = client
@@ -884,7 +884,9 @@ func TestCommittedSuffixAppendSuppressesAcknowledgedLocalEntryEcho(t *testing.T)
 	if cmd := m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1"); cmd == nil {
 		t.Fatal("expected local entry persistence command")
 	}
-	m.trackLocalEntryEcho("notice-1", uiLocalEntryEchoAcknowledged)
+	if len(m.transcriptEntries) != 0 {
+		t.Fatalf("did not expect runtime-backed append to create a local echo, got %+v", m.transcriptEntries)
+	}
 
 	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
@@ -899,7 +901,7 @@ func TestCommittedSuffixAppendSuppressesAcknowledgedLocalEntryEcho(t *testing.T)
 
 	loaded := m.view.LoadedTranscriptEntries()
 	if len(loaded) != 1 {
-		t.Fatalf("expected acknowledged local entry exactly once, got %+v", loaded)
+		t.Fatalf("expected committed entry exactly once, got %+v", loaded)
 	}
 	if loaded[0].NoticeID != "notice-1" || loaded[0].Text != "Fast mode enabled" {
 		t.Fatalf("unexpected loaded transcript entry: %+v", loaded[0])
@@ -909,7 +911,7 @@ func TestCommittedSuffixAppendSuppressesAcknowledgedLocalEntryEcho(t *testing.T)
 	}
 }
 
-func TestCommittedSuffixAppendSuppressesLeadingEchoWithoutShiftingLaterEntries(t *testing.T) {
+func TestCommittedSuffixAppendKeepsCommittedPrefixWithLaterEntries(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedStaticUIModel()
 	m.engine = client
@@ -919,6 +921,9 @@ func TestCommittedSuffixAppendSuppressesLeadingEchoWithoutShiftingLaterEntries(t
 	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
 
 	_ = m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1")
+	if len(m.transcriptEntries) != 0 {
+		t.Fatalf("did not expect runtime-backed append to create a local echo, got %+v", m.transcriptEntries)
+	}
 	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
 		CommittedEntryCount: 2,
@@ -935,10 +940,10 @@ func TestCommittedSuffixAppendSuppressesLeadingEchoWithoutShiftingLaterEntries(t
 
 	loaded := m.view.LoadedTranscriptEntries()
 	if len(loaded) != 2 {
-		t.Fatalf("expected local echo and assistant exactly once, got %+v", loaded)
+		t.Fatalf("expected committed prefix and assistant exactly once, got %+v", loaded)
 	}
 	if loaded[0].NoticeID != "notice-1" || loaded[0].Text != "Fast mode enabled" {
-		t.Fatalf("unexpected local echo entry: %+v", loaded[0])
+		t.Fatalf("unexpected committed prefix entry: %+v", loaded[0])
 	}
 	if loaded[1].Role != "assistant" || loaded[1].Text != "authoritative answer" {
 		t.Fatalf("unexpected assistant suffix entry: %+v", loaded[1])

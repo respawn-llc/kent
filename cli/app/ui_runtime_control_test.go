@@ -171,10 +171,10 @@ func (f *runtimeControlFakeClient) ClearGoal() (*clientui.RuntimeGoal, error) {
 	f.goal = nil
 	return nil, f.err
 }
-func (f *runtimeControlFakeClient) AppendLocalEntry(role, text string) error {
-	return f.AppendLocalEntryWithNoticeID(role, text, "")
+func (f *runtimeControlFakeClient) AppendCommittedEntry(role, text string) error {
+	return f.AppendCommittedEntryWithNoticeID(role, text, "")
 }
-func (f *runtimeControlFakeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
+func (f *runtimeControlFakeClient) AppendCommittedEntryWithNoticeID(role, text, noticeID string) error {
 	f.appendedRole = role
 	f.appendedText = text
 	if f.appendErr != nil {
@@ -620,19 +620,18 @@ func TestSubmitErrorWithRuntimeClientAppendsActivePrimaryRunEntry(t *testing.T) 
 	if updated.activity != uiActivityError {
 		t.Fatalf("expected error activity, got %v", updated.activity)
 	}
-	if len(updated.transcriptEntries) != 1 {
-		t.Fatalf("expected one immediate local transcript entry, got %+v", updated.transcriptEntries)
-	}
-	entry := updated.transcriptEntries[0]
-	if entry.Role != tui.TranscriptRoleDeveloperErrorFeedback || entry.Text != primaryrun.ErrActivePrimaryRun.Error() {
-		t.Fatalf("unexpected immediate local transcript entry: %+v", entry)
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("did not expect immediate local transcript entry, got %+v", updated.transcriptEntries)
 	}
 	if client.appendedRole != "" || client.appendedText != "" {
 		t.Fatalf("did not expect runtime append during Update, got role=%q text=%q", client.appendedRole, client.appendedText)
 	}
 	_ = collectCmdMessages(t, cmd)
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || client.appendedText != primaryrun.ErrActivePrimaryRun.Error() {
-		t.Fatalf("unexpected runtime local entry: role=%q text=%q", client.appendedRole, client.appendedText)
+		t.Fatalf("unexpected runtime committed entry: role=%q text=%q", client.appendedRole, client.appendedText)
+	}
+	if len(updated.transcriptEntries) != 0 {
+		t.Fatalf("did not expect local fallback after successful runtime append, got %+v", updated.transcriptEntries)
 	}
 }
 
@@ -651,9 +650,12 @@ func TestActiveSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *
 	if client.appendedRole != "" || client.appendedText != "" {
 		t.Fatalf("did not expect runtime append during Update, got role=%q text=%q", client.appendedRole, client.appendedText)
 	}
-	_ = collectCmdMessages(t, cmd)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || client.appendedText != primaryrun.ErrActivePrimaryRun.Error() {
-		t.Fatalf("unexpected runtime local entry attempt: role=%q text=%q", client.appendedRole, client.appendedText)
+		t.Fatalf("unexpected runtime committed entry attempt: role=%q text=%q", client.appendedRole, client.appendedText)
 	}
 	if len(updated.transcriptEntries) != 1 {
 		t.Fatalf("expected one fallback transcript entry, got %+v", updated.transcriptEntries)
@@ -678,11 +680,15 @@ func TestSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *testin
 	m.setBusy(true)
 	m.activeSubmit = activeSubmitState{token: 1, text: "prompt"}
 
-	next, _ := m.Update(submitDoneMsg{token: 1, submittedText: "prompt", err: errors.New("submit failed")})
+	next, cmd := m.Update(submitDoneMsg{token: 1, submittedText: "prompt", err: errors.New("submit failed")})
 	updated := next.(*uiModel)
 
 	if updated.activity != uiActivityError {
 		t.Fatalf("expected error activity, got %v", updated.activity)
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
 	}
 	if len(updated.transcriptEntries) != 1 {
 		t.Fatalf("expected one fallback transcript entry, got %+v", updated.transcriptEntries)

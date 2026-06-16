@@ -136,7 +136,7 @@ func (c *sessionRuntimeClient) appendLeaseRecoveryWarning(controllerLeaseID stri
 	}
 	warningCtx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
-	if err := c.controls.AppendLocalEntry(warningCtx, serverapi.RuntimeAppendLocalEntryRequest{
+	if err := c.controls.AppendCommittedEntry(warningCtx, serverapi.RuntimeAppendCommittedEntryRequest{
 		ClientRequestID:   uuid.NewString(),
 		SessionID:         c.sessionID,
 		ControllerLeaseID: controllerLeaseID,

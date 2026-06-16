@@ -97,13 +97,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	// it, so a non-empty restore means injection has happened. This is a
 	// deterministic length check, never a scan of which messages are present.
 	e.baseMetaInjected = len(e.snapshotMessages()) > 0
-	// Seed the persisted headless flag from the restored transcript. This keeps
-	// the flag authoritative for per-request transitions and migrates sessions
-	// created before Meta.HeadlessActive existed (whose metadata has no flag but
-	// whose transcript may end in a headless marker).
-	if err := e.store.SetHeadlessActive(headlessModeActive(e.snapshotMessages())); err != nil {
-		return err
-	}
 	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
 		e.queuePendingHandoffFutureMessage(futureMessage)
 	}

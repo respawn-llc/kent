@@ -108,7 +108,7 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.AppendLocalEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityDetailOnly)
+	eng.AppendCommittedEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityDetailOnly)
 
 	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})
 

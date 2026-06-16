@@ -581,7 +581,7 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 			}
 			eng := newAppRuntimeEngineWithStore(t, store, &runtimeAdapterFakeClient{}, runtime.Config{})
 			if tt.localEntry != "" {
-				eng.AppendLocalEntry("reviewer_status", tt.localEntry)
+				eng.AppendCommittedEntry("reviewer_status", tt.localEntry)
 			}
 
 			m := newProjectedEngineUIModel(eng)
@@ -866,7 +866,7 @@ func TestMirroredTransientStatusClearsOnlyForMatchingNoticeID(t *testing.T) {
 
 func TestLocalEntryFallbackForwardsNoticeIDToView(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	_ = m.appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient("system", "Fallback notice", "notice-1", transcript.EntryVisibilityAuto, false)
+	_ = m.appendLocalEntryFallbackWithNoticeIDAndVisibility("system", "Fallback notice", "notice-1", transcript.EntryVisibilityAuto)
 
 	loaded := m.view.LoadedTranscriptEntries()
 	if len(loaded) != 1 {

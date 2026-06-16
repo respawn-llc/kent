@@ -32,13 +32,13 @@ func (p transcriptPersistenceCoordinator) AppendLocalEntryRecord(entry ChatEntry
 	}
 }
 
-func (p transcriptPersistenceCoordinator) AppendLocalEntryWithOngoingText(role, text, ongoingText string) {
+func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithOngoingText(role, text, ongoingText string) {
 	if chat := p.chatProjection(); chat != nil {
 		chat.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: role, Text: text, OngoingText: ongoingText})
 	}
 }
 
-func (p transcriptPersistenceCoordinator) AppendLocalEntryWithVisibility(role, text string, visibility transcript.EntryVisibility) {
+func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithVisibility(role, text string, visibility transcript.EntryVisibility) {
 	if chat := p.chatProjection(); chat != nil {
 		chat.appendLocalEntryRecord(ChatEntry{Visibility: visibility, Role: role, Text: text})
 	}
@@ -108,7 +108,7 @@ func applyPersistedCacheWarningToTranscript(persistence transcriptPersistenceCoo
 	if err := json.Unmarshal(payload, &warning); err != nil {
 		return fmt.Errorf("decode %s event: %w", sessionEventCacheWarning, err)
 	}
-	persistence.AppendLocalEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(mode))
+	persistence.AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(mode))
 	return nil
 }
 

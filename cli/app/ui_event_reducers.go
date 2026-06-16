@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"core/shared/transcript"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -130,13 +132,13 @@ func (r uiInputAsyncFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			return handledUIFeatureUpdate(m, nil)
 		}
 		return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID("prompt history persistence failed: "+msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-	case localEntryPersistDoneMsg:
+	case committedEntryPersistDoneMsg:
 		m.observeRuntimeRequestResult(msg.err)
 		if msg.err == nil {
 			return handledUIFeatureUpdate(m, nil)
 		}
-		m.logf("local_entry.persist_error notice_id=%q err=%q", msg.noticeID, msg.err.Error())
-		return handledUIFeatureUpdate(m, nil)
+		m.logf("committed_entry.persist_error notice_id=%q err=%q", msg.noticeID, msg.err.Error())
+		return handledUIFeatureUpdate(m, m.appendLocalEntryFallbackWithNoticeIDAndVisibility(msg.role, msg.text, msg.noticeID, transcript.EntryVisibilityAuto))
 	case runtimeControlDoneMsg:
 		cmd := m.applyRuntimeControlDone(msg)
 		m.syncViewport()

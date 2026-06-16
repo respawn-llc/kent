@@ -325,7 +325,7 @@ func TestServiceSubmitUserShellCommandReplaysSuccessfulRetryAfterLeaseRotation(t
 	}
 }
 
-func TestServiceAppendLocalEntryDedupesSuccessfulRetry(t *testing.T) {
+func TestServiceAppendCommittedEntryDedupesSuccessfulRetry(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
@@ -335,13 +335,13 @@ func TestServiceAppendLocalEntryDedupesSuccessfulRetry(t *testing.T) {
 		t.Fatalf("create runtime engine: %v", err)
 	}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeAppendLocalEntryRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", Role: "warning", Text: "be careful"}
+	req := serverapi.RuntimeAppendCommittedEntryRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", Role: "warning", Text: "be careful"}
 
-	if err := service.AppendLocalEntry(context.Background(), req); err != nil {
-		t.Fatalf("AppendLocalEntry first: %v", err)
+	if err := service.AppendCommittedEntry(context.Background(), req); err != nil {
+		t.Fatalf("AppendCommittedEntry first: %v", err)
 	}
-	if err := service.AppendLocalEntry(context.Background(), req); err != nil {
-		t.Fatalf("AppendLocalEntry replay: %v", err)
+	if err := service.AppendCommittedEntry(context.Background(), req); err != nil {
+		t.Fatalf("AppendCommittedEntry replay: %v", err)
 	}
 	count := 0
 	for _, entry := range engine.ChatSnapshot().Entries {
@@ -354,7 +354,7 @@ func TestServiceAppendLocalEntryDedupesSuccessfulRetry(t *testing.T) {
 	}
 }
 
-func TestServiceAppendLocalEntryReplaysVisibility(t *testing.T) {
+func TestServiceAppendCommittedEntryReplaysVisibility(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
@@ -364,13 +364,13 @@ func TestServiceAppendLocalEntryReplaysVisibility(t *testing.T) {
 		t.Fatalf("create runtime engine: %v", err)
 	}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeAppendLocalEntryRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", Role: "warning", Text: "visible warning", Visibility: string(transcript.EntryVisibilityAll)}
+	req := serverapi.RuntimeAppendCommittedEntryRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", Role: "warning", Text: "visible warning", Visibility: string(transcript.EntryVisibilityAll)}
 
-	if err := service.AppendLocalEntry(context.Background(), req); err != nil {
-		t.Fatalf("AppendLocalEntry first: %v", err)
+	if err := service.AppendCommittedEntry(context.Background(), req); err != nil {
+		t.Fatalf("AppendCommittedEntry first: %v", err)
 	}
-	if err := service.AppendLocalEntry(context.Background(), req); err != nil {
-		t.Fatalf("AppendLocalEntry replay: %v", err)
+	if err := service.AppendCommittedEntry(context.Background(), req); err != nil {
+		t.Fatalf("AppendCommittedEntry replay: %v", err)
 	}
 	count := 0
 	for _, entry := range engine.ChatSnapshot().Entries {
