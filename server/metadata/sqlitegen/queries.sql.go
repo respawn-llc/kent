@@ -373,6 +373,19 @@ func (q *Queries) CountProjectWorkspaces(ctx context.Context, projectID string) 
 	return workspace_count, err
 }
 
+const countTaskComments = `-- name: CountTaskComments :one
+SELECT CAST(COUNT(*) AS INTEGER)
+FROM task_comments
+WHERE task_id = ?1
+`
+
+func (q *Queries) CountTaskComments(ctx context.Context, taskID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTaskComments, taskID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countTaskEdgeReferences = `-- name: CountTaskEdgeReferences :one
 SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (

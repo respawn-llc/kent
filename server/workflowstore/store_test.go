@@ -478,6 +478,42 @@ func TestListCommentsPageKeysetStaysStableWhenNewerCommentInserted(t *testing.T)
 	}
 }
 
+func TestCountTaskCommentsCountsVisibleCurrentRows(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task := createTask(t, ctx, store, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Comments"})
+	otherTask := createTask(t, ctx, store, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Other"})
+
+	assertCommentCount := func(taskID workflow.TaskID, want int64) {
+		t.Helper()
+		got, err := store.CountTaskComments(ctx, taskID)
+		if err != nil {
+			t.Fatalf("CountTaskComments(%s): %v", taskID, err)
+		}
+		if got != want {
+			t.Fatalf("CountTaskComments(%s) = %d, want %d", taskID, got, want)
+		}
+	}
+	assertCommentCount(task.ID, 0)
+
+	first, err := store.AddComment(ctx, task.ID, "first", "user", "nek")
+	if err != nil {
+		t.Fatalf("AddComment first: %v", err)
+	}
+	if _, err := store.AddComment(ctx, task.ID, "second", "agent", "coder"); err != nil {
+		t.Fatalf("AddComment second: %v", err)
+	}
+	if _, err := store.AddComment(ctx, otherTask.ID, "other", "user", "nek"); err != nil {
+		t.Fatalf("AddComment other: %v", err)
+	}
+	assertCommentCount(task.ID, 2)
+
+	if err := store.DeleteComment(ctx, first.ID); err != nil {
+		t.Fatalf("DeleteComment first: %v", err)
+	}
+	assertCommentCount(task.ID, 1)
+}
+
 func setCommentCreatedAt(t *testing.T, ctx context.Context, store *Store, commentID string, createdAtUnixMs int64) {
 	t.Helper()
 	if _, err := store.db.ExecContext(ctx, `UPDATE task_comments SET created_at_unix_ms = ? WHERE id = ?`, createdAtUnixMs, commentID); err != nil {

@@ -92,7 +92,7 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return taskMoveSubcommand(args[1:], stdout, stderr)
 	case "resume":
 		return taskResumeSubcommand(args[1:], stdout, stderr)
-	case "comment":
+	case "comment", "comments":
 		return taskCommentSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown task command: %s\n\n", args[0])

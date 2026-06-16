@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/server/workflow"
 	"core/shared/transcript"
 )
 
@@ -111,7 +112,11 @@ func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, stepID string) e
 	if err != nil {
 		return err
 	}
-	message, ok, renderErr := workflowModeMetaMessage(mode, e.cfg.WorkflowRun)
+	commentCount, err := e.currentWorkflowTaskCommentCount(ctx)
+	if err != nil {
+		return err
+	}
+	message, ok, renderErr := workflowModeMetaMessage(mode, e.cfg.WorkflowRun, commentCount)
 	if renderErr != nil {
 		return renderErr
 	}
@@ -133,10 +138,26 @@ func (e *Engine) compactionReinjectedMetaMessages(ctx context.Context) ([]llm.Me
 		opts.IncludeWorkflow = true
 		opts.WorkflowCompletionMode = mode
 		opts.WorkflowRun = e.cfg.WorkflowRun
+		commentCount, err := e.currentWorkflowTaskCommentCount(ctx)
+		if err != nil {
+			return nil, err
+		}
+		opts.WorkflowTaskCommentCount = commentCount
 	}
 	metaResult, err := builder.Build(opts)
 	if err != nil {
 		return nil, err
 	}
 	return metaResult.OrderedMetaMessages(), nil
+}
+
+func (e *Engine) currentWorkflowTaskCommentCount(ctx context.Context) (int64, error) {
+	if !e.workflowRunActive() || e.cfg.WorkflowRun.TaskCommentCounter == nil {
+		return 0, nil
+	}
+	taskID := strings.TrimSpace(e.cfg.WorkflowRun.Instructions.TaskID)
+	if taskID == "" {
+		return 0, nil
+	}
+	return e.cfg.WorkflowRun.TaskCommentCounter.CountTaskComments(ctx, workflow.TaskID(taskID))
 }

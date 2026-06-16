@@ -55,6 +55,10 @@ func (s *Store) DeleteComment(ctx context.Context, commentID string) error {
 	return nil
 }
 
+func (s *Store) CountTaskComments(ctx context.Context, taskID workflow.TaskID) (int64, error) {
+	return s.queries.CountTaskComments(ctx, string(taskID))
+}
+
 func (s *Store) TaskIdentityForComment(ctx context.Context, commentID string) (taskID string, projectID string, workflowID string, err error) {
 	row := s.metadata.DB().QueryRowContext(ctx, strings.TrimSuffix(taskIdentityForCommentQuery, "\n"), strings.TrimSpace(commentID))
 	if scanErr := row.Scan(&taskID, &projectID, &workflowID); scanErr != nil {

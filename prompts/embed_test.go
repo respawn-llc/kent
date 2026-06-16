@@ -174,6 +174,70 @@ func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) 
 	}
 }
 
+func TestRenderWorkflowTaskInstructionsOmitsCommentReminderWhenNoCommentsExist(t *testing.T) {
+	rendered, err := RenderWorkflowTaskInstructions(workflowInstructionsTestArgs(0), "complete the workflow")
+	if err != nil {
+		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+	}
+	if strings.Contains(rendered, selfcmd.LaunchCommand()+" task comment list BUI-1") {
+		t.Fatalf("expected no task comment list reminder for zero comments, got %q", rendered)
+	}
+}
+
+func TestRenderWorkflowTaskInstructionsIncludesSingularCommentReminder(t *testing.T) {
+	rendered, err := RenderWorkflowTaskInstructions(workflowInstructionsTestArgs(1), "complete the workflow")
+	if err != nil {
+		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+	}
+	for _, want := range []string{
+		"1 comment",
+		selfcmd.LaunchCommand() + " task comment list BUI-1",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected workflow instructions to include %q, got %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "1 comments") {
+		t.Fatalf("expected singular comment grammar, got %q", rendered)
+	}
+}
+
+func TestRenderWorkflowTaskInstructionsIncludesPluralCommentReminder(t *testing.T) {
+	rendered, err := RenderWorkflowTaskInstructions(workflowInstructionsTestArgs(3), "complete the workflow")
+	if err != nil {
+		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+	}
+	for _, want := range []string{
+		"3 comments",
+		selfcmd.LaunchCommand() + " task comment list BUI-1",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected workflow instructions to include %q, got %q", want, rendered)
+		}
+	}
+}
+
+func workflowInstructionsTestArgs(taskNumberOfComments int64) WorkflowNodeContextArgs {
+	return WorkflowNodeContextArgs{
+		TaskId:               "task-1",
+		TaskShortId:          "BUI-1",
+		TaskTitle:            "Smoke test",
+		TaskBody:             "Ask three questions.",
+		WorkflowId:           "workflow-1",
+		WorkflowShortId:      "workflow-1",
+		NodeId:               "node-1",
+		NodeKey:              "triaging",
+		NodeDisplayName:      "Triaging",
+		ContextMode:          "new_session",
+		TaskNumberOfComments: taskNumberOfComments,
+		Transitions: []WorkflowTransition{
+			{ID: "actionable", DisplayName: "Actionable"},
+			{ID: "not_actionable", DisplayName: "Not Actionable"},
+		},
+		NodePrompt: "Triage the ticket.",
+	}
+}
+
 func TestRenderGoalNudgePrompt(t *testing.T) {
 	rendered := RenderGoalNudgePrompt("ship /goal mode", "active")
 	// The objective and the launch command must both be substituted in.

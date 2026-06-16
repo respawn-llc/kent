@@ -1013,6 +1013,68 @@ func TestTaskCommentListUsesPageToken(t *testing.T) {
 	}
 }
 
+func TestTaskCommentsPluralListAliasUsesCommentList(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &commentListRemote{
+		taskID: "task-1",
+		comments: []serverapi.WorkflowTaskComment{
+			{ID: "comment-1", TaskID: "task-1", Author: "agent", AuthorID: "reviewer", Body: "note", CreatedAtUnixMs: 1735689600000},
+		},
+	}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "comments", "list", "task-1")
+	if code != 0 {
+		t.Fatalf("task comments list exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "reviewer at 2025-01-01T00:00:00Z UTC:\nnote\n") {
+		t.Fatalf("task comments list output = %q, want comment output", stdout)
+	}
+	if len(remote.listRequests) != 1 || remote.listRequests[0].TaskID != "task-1" {
+		t.Fatalf("comment list requests = %+v, want plural alias to route to list", remote.listRequests)
+	}
+}
+
+func TestTaskCommentsPluralAddAliasUsesCommentAdd(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &commentAddRemote{taskID: "task-1"}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "comments", "add", "task-1", "--body", "note", "--author", "user")
+	if code != 0 {
+		t.Fatalf("task comments add exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "comment_id\tcomment-1\n") {
+		t.Fatalf("task comments add output = %q, want comment id", stdout)
+	}
+	if len(remote.addRequests) != 1 || remote.addRequests[0].TaskID != "task-1" || remote.addRequests[0].Body != "note" {
+		t.Fatalf("comment add requests = %+v, want plural alias to route to add", remote.addRequests)
+	}
+}
+
+type commentAddRemote struct {
+	client.WorkflowClient
+	taskID      string
+	addRequests []serverapi.WorkflowTaskCommentAddRequest
+}
+
+func (r *commentAddRemote) Close() error { return nil }
+
+func (r *commentAddRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *commentAddRemote) GetWorkflowTask(_ context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+	return serverapi.WorkflowTaskGetResponse{Task: serverapi.WorkflowTaskDetail{Summary: serverapi.WorkflowTaskSummary{ID: strings.TrimSpace(req.TaskID)}}}, nil
+}
+
+func (r *commentAddRemote) AddWorkflowTaskComment(_ context.Context, req serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
+	r.addRequests = append(r.addRequests, req)
+	return serverapi.WorkflowTaskCommentAddResponse{Comment: serverapi.WorkflowTaskComment{ID: "comment-1", TaskID: r.taskID, Body: req.Body, Author: req.Author, AuthorID: req.AuthorID}}, nil
+}
+
 func TestResolveWorkflowTaskIDUsesDirectShortIDLookup(t *testing.T) {
 	remote := &directTaskResolveRemote{}
 	taskID, err := resolveWorkflowTaskID(context.Background(), config.App{WorkspaceRoot: t.TempDir()}, remote, "project-1", "BLD-123")
