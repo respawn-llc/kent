@@ -42,7 +42,7 @@ func TestDetailModeUpDownScrollTranscript(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	for i := 0; i < 16; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %d", i)})
@@ -73,7 +73,7 @@ func TestDetailModeLineScrollRoundTripsScrollAndSelectionState(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	for idx := 0; idx < 20; idx++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("state entry %02d", idx)})
@@ -104,7 +104,7 @@ func TestDetailModeCompactExpansionRoutesThroughUIModel(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 12
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.forwardToView(tui.AppendTranscriptMsg{
 		Role:       "tool_call",
 		Text:       "cat large.txt",
@@ -133,7 +133,7 @@ func TestDetailModeStatusLineShowsSelectedExpansionAction(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 12
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.forwardToView(tui.AppendTranscriptMsg{
 		Role:       "tool_call",
 		Text:       "cat large.txt",
@@ -159,7 +159,7 @@ func TestDetailModeStatusLineFallsBackWhenSelectionIsNotExpandable(t *testing.T)
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 	errorLines := make([]string, 0, 16)
 	for idx := 0; idx < 16; idx++ {
 		errorLines = append(errorLines, fmt.Sprintf("non expandable error line %02d", idx))
@@ -199,7 +199,7 @@ func TestDetailModeEnterOnShortSelectedMessageDoesNotShowExpansionHintOrMutateSt
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "short user"})
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "short assistant"})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
@@ -222,7 +222,7 @@ func TestDetailModeArrowScrollsDetailByLineAndTracksCenterSelection(t *testing.T
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.forwardToView(tui.AppendTranscriptMsg{
 		Role:       "tool_call",
 		Text:       "first-command",
@@ -300,7 +300,7 @@ func TestDetailModeReviewerSuggestionsCollapseAndExpandThroughUIModel(t *testing
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 12
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.forwardToView(tui.AppendTranscriptMsg{
 		Role:        "reviewer_suggestions",
 		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
@@ -327,7 +327,7 @@ func TestDetailModeEnterRoutesThroughInputControllerWhenInputLocked(t *testing.T
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 12
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.input = "locked draft"
 	m.setInputSubmitLocked(true)
 	m.lockedInjectText = "locked draft"
@@ -360,7 +360,7 @@ func TestDetailModeEnterDoesNotRequestTranscriptPage(t *testing.T) {
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.termWidth = 80
 	m.termHeight = 12
-	m.syncViewport()
+	m.layout().syncViewport()
 	for idx := 0; idx < 4; idx++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d\nhidden", idx)})
 	}
@@ -387,7 +387,7 @@ func TestDetailModeMouseWheelScrollTranscript(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	for i := 0; i < 16; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %d", i)})
@@ -419,7 +419,7 @@ func TestDetailModeUpAfterBottomScrollbackWalksHighlightOneVisualLine(t *testing
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	for idx := 0; idx < 24; idx++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %02d", idx)})
@@ -463,7 +463,7 @@ func TestDetailModeScrollThenEnterExpandsCenterSelectedItem(t *testing.T) {
 			m := newProjectedStaticUIModel()
 			m.termWidth = 80
 			m.termHeight = 8
-			m.syncViewport()
+			m.layout().syncViewport()
 
 			for idx := 0; idx < 8; idx++ {
 				callID := fmt.Sprintf("call_%d", idx)
@@ -501,7 +501,7 @@ func TestRollbackSelectionInDetailUsesPagedDetailWindow(t *testing.T) {
 	}))
 	m.termWidth = 80
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 	detailPage := clientui.TranscriptPage{
 		Offset:       100,
 		TotalEntries: 104,
@@ -575,7 +575,7 @@ func TestRollbackForkSubmissionUsesPagedDetailAbsoluteIndex(t *testing.T) {
 	}))
 	m.termWidth = 80
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 	detailPage := clientui.TranscriptPage{
 		Offset:       40,
 		TotalEntries: 44,
@@ -633,7 +633,7 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.termWidth = 80
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 	tailEntries := make([]clientui.ChatEntry, 60)
 	for idx := range tailEntries {
 		tailEntries[idx] = clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("post-compaction answer %03d", idx)}
@@ -739,7 +739,7 @@ func TestRollbackSelectionPagesToFirstUserAcrossTrimmedDetailWindow(t *testing.T
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.termWidth = 80
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 	tailEntries := make([]clientui.ChatEntry, 252)
 	for idx := range tailEntries {
 		absolute := 1250 + idx
@@ -809,7 +809,7 @@ func TestRollbackTransitionsUseFixedDetailAltScreen(t *testing.T) {
 		)
 		m.termWidth = 80
 		m.termHeight = 10
-		m.syncViewport()
+		m.layout().syncViewport()
 
 		m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -859,7 +859,7 @@ func TestRollbackTransitionsUseFixedDetailAltScreen(t *testing.T) {
 		)
 		m.termWidth = 80
 		m.termHeight = 10
-		m.syncViewport()
+		m.layout().syncViewport()
 		m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 		if m.view.Mode() != tui.ModeDetail || m.altScreenActive != altOnEntry {
 			t.Fatalf("unexpected detail state before picker: mode=%q alt=%t", m.view.Mode(), m.altScreenActive)
@@ -895,7 +895,7 @@ func TestUpDownRouteByTranscriptMode(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIPromptHistory([]string{"hello"}))
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 	for i := 0; i < 20; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %d", i)})
 	}
@@ -995,7 +995,7 @@ func TestMainInputUpDownAtBoundsStayInInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 	for i := 0; i < 20; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %d", i)})
 	}
@@ -1048,7 +1048,7 @@ func TestReviewerRunStillAllowsEditingWithoutTranscriptScroll(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 	for i := 0; i < 20; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %d", i)})
 	}

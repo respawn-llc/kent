@@ -420,13 +420,6 @@ func (b *goalOverlayLineBuilder) goalMarkdownRenderer() *glamour.TermRenderer {
 	return renderer
 }
 
-// appendRendered appends an already-styled, full-width line without re-wrapping
-// or re-styling it. Used for pre-rendered UI-kit primitives (e.g. choice groups)
-// whose ANSI must be preserved verbatim.
-func (b *goalOverlayLineBuilder) appendRendered(line string) {
-	b.lines = append(b.lines, padANSIRight(line, b.width))
-}
-
 func (b *goalOverlayLineBuilder) appendGap() {
 	if len(b.lines) > 0 {
 		b.lines = append(b.lines, padRight("", b.width))
@@ -526,7 +519,7 @@ func (l uiViewLayout) goalConfirmContentLines(width int, titleStyle, boldStyle, 
 	}
 	builder.appendGap()
 	buttons := []uiChoiceOption{{Label: "Cancel"}, {Label: "Confirm"}}
-	builder.appendRendered(renderUIChoiceGroupLine(width, m.theme, uiChoiceGroupKindButton, buttons, m.goal.confirmSelection))
+	builder.lines = append(builder.lines, padANSIRight(renderUIChoiceGroupLine(width, m.theme, uiChoiceGroupKindButton, buttons, m.goal.confirmSelection), builder.width))
 	builder.appendWrapped("Tab/←/→ select. Enter confirms. ↑/↓ scroll. Esc cancels.", subtleStyle)
 	return builder.lines
 }

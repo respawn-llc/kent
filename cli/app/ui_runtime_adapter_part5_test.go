@@ -146,7 +146,7 @@ func TestConversationSnapshotCommitClearsSawAssistantDelta(t *testing.T) {
 
 	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{Role: "assistant", Text: "partial"}}, Ongoing: ""})
 	m.setBusy(false)
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	if m.sawAssistantDelta {
 		t.Fatal("expected sawAssistantDelta cleared after commit snapshot")
@@ -172,7 +172,7 @@ func TestApplyChatSnapshotShowsMixedParallelPendingStatesInLiveView(t *testing.T
 	if cmd != nil {
 		_ = cmd()
 	}
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := stripANSIPreserve(m.View())
 	callA := m.transcriptEntries[1]
@@ -206,7 +206,7 @@ func TestApplyChatSnapshotOffsetsParallelPendingToolSpinners(t *testing.T) {
 	if cmd != nil {
 		_ = cmd()
 	}
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	alphaFrame := pendingToolSpinnerFrameForEntry(0, m.transcriptEntries[0], 0)
 	betaFrame := pendingToolSpinnerFrameForEntry(0, m.transcriptEntries[1], 1)
@@ -507,7 +507,7 @@ func TestProjectedCommittedToolAndFinalEventsDoNotScheduleTranscriptRefresh(t *t
 	m.transcriptTotalEntries = len(m.transcriptEntries)
 	m.transcriptRevision = 10
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: len(m.transcriptEntries), Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	callMeta := transcript.ToolCallMeta{ToolName: "shell", Command: "pwd", CompactText: "pwd", IsShell: true}
 	events := []clientui.Event{
@@ -618,7 +618,7 @@ func TestProjectedConversationUpdatedEntriesAdvanceCommittedTranscriptAndDetailV
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventConversationUpdated,

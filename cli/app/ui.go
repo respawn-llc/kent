@@ -107,7 +107,7 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 	if m.startupUpdateNotice && m.hasRuntimeClient() {
 		m.startupCmds = append(m.startupCmds, m.startupUpdateNoticeCmd(status.Update))
 	}
-	m.syncViewport()
+	m.layout().syncViewport()
 	return m
 }
 
@@ -175,7 +175,7 @@ func (m *uiModel) handleRuntimeEventBatch(events []clientui.Event) (*uiModel, te
 		cmd = sequenceCmds(cmd, m.flushQueuedInputsAfterHydration())
 		cmd = sequenceCmds(cmd, m.inputController().resumeQueuedInputsAfterIdleRuntime())
 	}
-	m.syncViewport()
+	m.layout().syncViewport()
 	if !result.transcriptMutated {
 		cmd = sequenceCmds(cmd, m.syncNativeStreamingScrollback())
 	}
@@ -292,11 +292,11 @@ func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if _, ok := msg.(tea.MouseMsg); ok && m.rollback.isActive() {
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m, nil
 	}
 	m.forwardToView(msg)
-	m.syncViewport()
+	m.layout().syncViewport()
 	return m, m.maybeRequestDetailTranscriptPage()
 }
 
@@ -454,13 +454,13 @@ func (m *uiModel) advanceTransientStatusQueue() tea.Cmd {
 	m.transientStatusKind = uiStatusNoticeNeutral
 	m.transientStatusNoticeID = ""
 	if len(m.transientStatusQueue) == 0 {
-		m.syncViewport()
+		m.layout().syncViewport()
 		return nil
 	}
 	next := m.transientStatusQueue[0]
 	m.transientStatusQueue = append([]uiStatusNotice(nil), m.transientStatusQueue[1:]...)
 	cmd := m.showTransientStatusNotice(next)
-	m.syncViewport()
+	m.layout().syncViewport()
 	return cmd
 }
 

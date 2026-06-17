@@ -17,7 +17,7 @@ func TestAskEventDefersWhileDetailModeActive(t *testing.T) {
 	m.termHeight = 12
 	m.windowSizeKnown = true
 	m.input = "hidden draft"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	for i := 0; i < 16; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: strings.Repeat("line ", i+1)})
@@ -122,7 +122,7 @@ func TestDetailModeIgnoresHiddenMainInputKeys(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "draft"
 	m.inputCursor = -1
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	for i := 0; i < 12; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: strings.Repeat("line ", i+1)})

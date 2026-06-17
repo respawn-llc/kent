@@ -28,7 +28,7 @@ func TestViewDuringActiveWorkKeepsCommittedTranscriptVisible(t *testing.T) {
 	m.windowSizeKnown = true
 	m.setBusy(true)
 	m.sawAssistantDelta = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.forwardToView(tui.SetConversationMsg{
 		Entries: []tui.TranscriptEntry{
 			{Role: "user", Text: "prior user"},

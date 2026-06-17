@@ -125,7 +125,7 @@ func TestSlashAutoCompactionTogglesAndShowsStatus(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.input = "/autocompaction"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})

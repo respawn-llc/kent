@@ -634,7 +634,7 @@ func TestDetailModeHidesInputBox(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 16
 	m.input = "draft input should be hidden"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	updated := next.(*uiModel)
@@ -659,7 +659,7 @@ func TestDetailModeStatusLineOmitsModeLabel(t *testing.T) {
 	m.termHeight = 16
 	m.windowSizeKnown = true
 	m.status.snapshot.Git = uiStatusGitInfo{Visible: true, Branch: "detail-mode-v2"}
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	updated := next.(*uiModel)
@@ -698,7 +698,7 @@ func TestAskQuestionLargeMarkdownPromptPreservesLogicalLines(t *testing.T) {
 	m.termWidth = 72
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: question}, reply: make(chan askReply, 1)})
 
 	wrapped, _ := m.layout().wrappedAskPromptLines(64)
@@ -735,7 +735,7 @@ func TestAskQuestionPickerQuestionLinesWrapInsteadOfEllipsizing(t *testing.T) {
 	m.termWidth = 40
 	m.termHeight = 12
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{
 		Question: "This question is intentionally far too long to fit in the live ask input area on one line.",
 		Suggestions: []string{
@@ -768,7 +768,7 @@ func TestAskQuestionFreeformPromptQuestionLinesWrapInsteadOfEllipsizing(t *testi
 	m.termWidth = 40
 	m.termHeight = 12
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{
 		Question: "This question is intentionally far too long to fit in the live ask input area on one line.",
 	}, reply: make(chan askReply, 1)})
@@ -801,7 +801,7 @@ func TestAskQuestionMarkdownPromptCursorTracksInputAfterExpandedQuestion(t *test
 	m.termWidth = 72
 	m.termHeight = 12
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: question}, reply: make(chan askReply, 1)})
 	m.ask.input = "typed"
 	m.ask.inputCursor = len([]rune(m.ask.input))
@@ -893,7 +893,7 @@ func TestRollbackSelectionHighlightsSelectedMessageFullWidth(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 16
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)

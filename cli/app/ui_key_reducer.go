@@ -24,26 +24,26 @@ func (r uiKeyFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.helpVisible = false
 			if isHelpKey(keyMsg, m) && m.canShowHelp() {
 				m.lastEscAt = time.Time{}
-				m.syncViewport()
+				m.layout().syncViewport()
 				return handledUIFeatureUpdate(m, nil)
 			}
 		}
 		if isHelpKey(keyMsg, m) && m.canShowHelp() {
 			m.lastEscAt = time.Time{}
 			m.helpVisible = !m.helpVisible
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		switch m.inputModeState().Mode {
 		case uiInputModeAsk:
 			next, cmd := m.askController().handleKey(keyMsg)
 			nextModel := next.(*uiModel)
-			nextModel.syncViewport()
+			nextModel.layout().syncViewport()
 			return handledUIFeatureUpdate(nextModel, cmd)
 		default:
 			next, cmd := m.inputController().handleKey(keyMsg)
 			nextModel := next.(*uiModel)
-			nextModel.syncViewport()
+			nextModel.layout().syncViewport()
 			return handledUIFeatureUpdate(nextModel, cmd)
 		}
 	}
@@ -52,7 +52,7 @@ func (r uiKeyFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.helpVisible = false
 		}
 		m.lastEscAt = time.Time{}
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	}
 	return uiFeatureUpdateResult{}

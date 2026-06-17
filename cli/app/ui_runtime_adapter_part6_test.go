@@ -138,7 +138,7 @@ func TestProjectedAssistantMessageReplacesNonTailCommittedRangeWithoutHydration(
 	m.transcriptRevision = 10
 	m.transcriptTotalEntries = len(m.transcriptEntries)
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: len(m.transcriptEntries), Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,

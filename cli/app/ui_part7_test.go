@@ -900,7 +900,7 @@ func TestSlashFastTogglesAndShowsStatus(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.input = "/fast"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -959,7 +959,7 @@ func TestSlashFastStatusNoticeReplacesWithoutWaitingForClear(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.input = "/fast on"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -988,7 +988,7 @@ func TestSlashFastUnavailableShowsError(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.input = "/fast on"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1045,7 +1045,7 @@ func TestSlashSupervisorTogglesReviewerInvocationAndShowsStatus(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	m.input = "/supervisor"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})

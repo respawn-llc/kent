@@ -23,13 +23,13 @@ func TestDetailProjectionViewportKeepsLineCountAcrossScrollUpdates(t *testing.T)
 	}})
 	m = updateModel(t, m, ToggleModeMsg{})
 
-	if len(m.currentDetailViewport().Lines) == 0 {
+	if len(m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Lines) == 0 {
 		t.Fatal("expected detail projection viewport lines on detail entry")
 	}
-	startLen := len(m.currentDetailViewport().Lines)
+	startLen := len(m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Lines)
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if got := len(m.currentDetailViewport().Lines); got != startLen {
+	if got := len(m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Lines); got != startLen {
 		t.Fatalf("expected detail projection viewport length to stay stable across scroll updates, got %d want %d", got, startLen)
 	}
 }

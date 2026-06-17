@@ -28,10 +28,6 @@ func normalizeOngoingDividerRole(role RenderIntent) RenderIntent {
 	return role
 }
 
-func skipInOngoing(entry TranscriptEntry) bool {
-	return !isVisibleInOngoing(entry)
-}
-
 func compactOngoingShellPreviewText(command string) string {
 	normalized := textutil.NormalizeCRLF(command)
 	if !strings.Contains(normalized, "\n") {

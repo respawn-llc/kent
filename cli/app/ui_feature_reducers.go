@@ -57,7 +57,7 @@ func (r uiStatusFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case statusRefreshDoneMsg:
 		if msg.token != m.status.refreshToken {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.status.pendingSections = nil
@@ -65,16 +65,16 @@ func (r uiStatusFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		m.status.loading = false
 		if msg.err != nil {
 			m.status.error = msg.err.Error()
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
 		}
 		m.status.error = ""
 		m.status.snapshot = msg.snapshot
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	case statusBaseRefreshDoneMsg:
 		if msg.token != m.status.refreshToken {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.status.error = ""
@@ -100,11 +100,11 @@ func (r uiStatusFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		}
 		m.status.snapshot = snapshot
 		m.finishStatusSectionRefresh(uiStatusSectionBase, msg.snapshot.CollectorWarning)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	case statusAuthRefreshDoneMsg:
 		if msg.token != m.status.refreshToken {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.status.snapshot.Auth = msg.result.Auth
@@ -113,14 +113,14 @@ func (r uiStatusFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.statusRepository.StoreAuth(msg.cacheKey, msg.result, time.Now())
 		}
 		m.finishStatusSectionRefresh(uiStatusSectionAuth, msg.result.Warning)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	case statusGitRefreshDoneMsg:
 		if msg.background {
 			m.statusGitBackgroundInFlight = false
 		}
 		if msg.token != m.status.refreshToken {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.status.snapshot.Git = msg.result.Git
@@ -128,11 +128,11 @@ func (r uiStatusFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.statusRepository.StoreGit(msg.cacheKey, msg.result, time.Now())
 		}
 		m.finishStatusSectionRefresh(uiStatusSectionGit, "")
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	case statusEnvironmentRefreshDoneMsg:
 		if msg.token != m.status.refreshToken {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.status.snapshot.Skills = msg.result.Skills
@@ -143,7 +143,7 @@ func (r uiStatusFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.statusRepository.StoreEnvironment(msg.cacheKey, msg.result, time.Now())
 		}
 		m.finishStatusSectionRefresh(uiStatusSectionEnvironment, msg.result.CollectorWarning)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	}
 	return uiFeatureUpdateResult{}
