@@ -72,9 +72,9 @@
 - `unstructured_output` mode keeps dynamic completion contracts out of request metadata and requires the assistant final answer to be exactly one raw JSON object.
 - Normal assistant final answers are invalid in tool and shell-command workflow modes. Runtime appends a nudge and continues until valid completion, `ask_question`, interruption, cancellation, protocol cap, or runtime error.
 - Completion payloads expose only optional `transition`, optional `commentary`, and server-derived possible provision fields as top-level properties. They never expose raw `next_node`.
-- Provision fields are flat and string-only. Arrays, nested objects, and mixed scalar types are out of scope for v1.
+- Provision field outputs are flat strings. Completion payload parsers accept any JSON value for a provision field and serialize non-string values into that flat string slot; downstream input bindings never receive structured values.
 - Possible provision fields are optional in generated request metadata where a mode uses request metadata. Selected transition groups impose required provision fields after `transition` is known.
-- Required provision fields must be present as trimmed non-empty strings.
+- Required provision fields must be present as trimmed non-empty strings after parser stringification.
 - Size limits: output field name `<= 64` chars, output field description `<= 1000`, output value `<= 64 KiB`, commentary `<= 64 KiB`, task comment body `<= 256 KiB`.
 - Dynamic request metadata in `structured_output` and `tool` modes can affect prompt-cache continuity when workflow completion contracts change. `shell_command` and `unstructured_output` keep completion contracts in appended prompt text instead of request metadata.
 - Runtime observes durable external completion before each model turn, immediately after a model response returns and before assistant/tool persistence, and after local tool results are persisted.

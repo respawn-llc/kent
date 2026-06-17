@@ -484,7 +484,7 @@ func TestServiceCompleteWorkflowTaskRejectsAgentCrossSessionSelector(t *testing.
 	}
 }
 
-func TestServiceCompleteWorkflowTaskForceCancelsRuntimeAndWakesScheduler(t *testing.T) {
+func TestServiceCompleteWorkflowTaskForceRequestsRuntimeCancelWithoutDirectSchedulerWake(t *testing.T) {
 	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
@@ -492,7 +492,7 @@ func TestServiceCompleteWorkflowTaskForceCancelsRuntimeAndWakesScheduler(t *test
 	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
 	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-human-force")
 	notifier := &recordingSchedulerNotifier{}
-	canceler := &recordingTaskRuntimeCanceler{}
+	canceler := &recordingTaskRuntimeRunCancelRequester{active: true}
 	service.schedulerWake = notifier
 	service.runtimeCancel = canceler
 
@@ -508,8 +508,46 @@ func TestServiceCompleteWorkflowTaskForceCancelsRuntimeAndWakesScheduler(t *test
 	if completed.RunID != started.RunID || completed.State != "applied" {
 		t.Fatalf("force complete response = %+v", completed)
 	}
-	if len(canceler.runIDs) != 1 || canceler.runIDs[0] != workflow.RunID(started.RunID) {
-		t.Fatalf("canceled run IDs = %+v, want %s", canceler.runIDs, started.RunID)
+	if len(canceler.requestedRunIDs) != 1 || canceler.requestedRunIDs[0] != workflow.RunID(started.RunID) {
+		t.Fatalf("requested cancel run IDs = %+v, want %s", canceler.requestedRunIDs, started.RunID)
+	}
+	if len(canceler.runIDs) != 0 {
+		t.Fatalf("blocking cancel run IDs = %+v, want none", canceler.runIDs)
+	}
+	if notifier.count != 0 {
+		t.Fatalf("force completion scheduler notifications = %d, want 0 while runtime will publish RuntimeFinished", notifier.count)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskForceWakesSchedulerWhenNoRuntimeOwnsRun(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-human-force")
+	notifier := &recordingSchedulerNotifier{}
+	canceler := &recordingTaskRuntimeRunCancelRequester{active: false}
+	service.schedulerWake = notifier
+	service.runtimeCancel = canceler
+
+	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind: serverapi.WorkflowTaskCompleteActorUser,
+		Force:     true,
+		ProjectID: binding.ProjectID,
+		RunID:     started.RunID,
+	})
+	if err != nil {
+		t.Fatalf("CompleteWorkflowTask force: %v", err)
+	}
+	if completed.RunID != started.RunID || completed.State != "applied" {
+		t.Fatalf("force complete response = %+v", completed)
+	}
+	if len(canceler.requestedRunIDs) != 1 || canceler.requestedRunIDs[0] != workflow.RunID(started.RunID) {
+		t.Fatalf("requested cancel run IDs = %+v, want %s", canceler.requestedRunIDs, started.RunID)
+	}
+	if len(canceler.runIDs) != 0 {
+		t.Fatalf("blocking cancel run IDs = %+v, want none", canceler.runIDs)
 	}
 	if notifier.count != 1 {
 		t.Fatalf("force completion scheduler notifications = %d, want 1", notifier.count)
@@ -767,6 +805,17 @@ func (c *recordingTaskRuntimeCanceler) CancelTaskRuns(_ context.Context, taskID 
 func (c *recordingTaskRuntimeCanceler) CancelRun(_ context.Context, runID workflow.RunID) error {
 	c.runIDs = append(c.runIDs, runID)
 	return c.err
+}
+
+type recordingTaskRuntimeRunCancelRequester struct {
+	recordingTaskRuntimeCanceler
+	requestedRunIDs []workflow.RunID
+	active          bool
+}
+
+func (c *recordingTaskRuntimeRunCancelRequester) RequestCancelRun(runID workflow.RunID) bool {
+	c.requestedRunIDs = append(c.requestedRunIDs, runID)
+	return c.active
 }
 
 type recordingTaskWorktreeEnsurer struct {

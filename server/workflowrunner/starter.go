@@ -306,6 +306,17 @@ func (s *Starter) CancelRun(ctx context.Context, runID workflow.RunID) error {
 	return nil
 }
 
+func (s *Starter) RequestCancelRun(runID workflow.RunID) bool {
+	s.mu.Lock()
+	cancel := s.cancel[runID]
+	s.mu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
+}
+
 // reusesExistingSession reports whether planSession reuses a pre-existing
 // session (resume of a started run, continue_session, or in-place
 // compact_and_continue_session) rather than creating a disposable one

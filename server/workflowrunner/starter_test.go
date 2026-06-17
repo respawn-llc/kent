@@ -307,6 +307,38 @@ func TestWorkflowRuntimeStarterCancelRunStopsLiveRuntime(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeStarterRequestCancelRunDoesNotWaitForRuntimeStop(t *testing.T) {
+	client := newDrainingBlockingClient()
+	defer client.releaseReturn()
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	client.waitForCall(t)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want one live run", runs)
+	}
+	if !fixture.starter.RequestCancelRun(runs[0].ID) {
+		t.Fatalf("RequestCancelRun returned false for live run %s", runs[0].ID)
+	}
+	client.waitForCancel(t)
+	if client.returned() {
+		t.Fatal("RequestCancelRun waited for live runtime to stop")
+	}
+	client.releaseReturn()
+	client.waitForReturn(t)
+	fixture.waitForInterruptedRun(t, scheduler, task.ID, ReasonRuntimeCanceled)
+}
+
 func TestStarterAutoPersistsShellCommandForContinuationWorkflow(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
@@ -1542,6 +1574,72 @@ func (c *blockingClient) waitForCall(t *testing.T) {
 	case <-c.called:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for fake model call")
+	}
+}
+
+type drainingBlockingClient struct {
+	called      chan struct{}
+	canceled    chan struct{}
+	release     chan struct{}
+	done        chan struct{}
+	callOnce    sync.Once
+	releaseOnce sync.Once
+}
+
+func newDrainingBlockingClient() *drainingBlockingClient {
+	return &drainingBlockingClient{called: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
+}
+
+func (c *drainingBlockingClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	c.callOnce.Do(func() { close(c.called) })
+	defer close(c.done)
+	<-ctx.Done()
+	close(c.canceled)
+	<-c.release
+	return llm.Response{}, ctx.Err()
+}
+
+func (c *drainingBlockingClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}, nil
+}
+
+func (c *drainingBlockingClient) waitForCall(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for fake model call")
+	}
+}
+
+func (c *drainingBlockingClient) waitForCancel(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for fake model cancellation")
+	}
+}
+
+func (c *drainingBlockingClient) waitForReturn(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for fake model return")
+	}
+}
+
+func (c *drainingBlockingClient) releaseReturn() {
+	c.releaseOnce.Do(func() { close(c.release) })
+}
+
+func (c *drainingBlockingClient) returned() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
 	}
 }
 

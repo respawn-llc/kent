@@ -49,6 +49,10 @@ type taskRuntimeRunCanceler interface {
 	CancelRun(ctx context.Context, runID workflow.RunID) error
 }
 
+type taskRuntimeRunCancelRequester interface {
+	RequestCancelRun(runID workflow.RunID) bool
+}
+
 type schedulerNotifier interface {
 	Notify()
 }
@@ -685,12 +689,15 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.Workfl
 		return serverapi.WorkflowTaskCompleteResponse{}, err
 	}
 	if req.ActorKind == serverapi.WorkflowTaskCompleteActorUser {
-		if canceler, ok := s.runtimeCancel.(taskRuntimeRunCanceler); ok {
+		notifyScheduler := true
+		if requester, ok := s.runtimeCancel.(taskRuntimeRunCancelRequester); ok {
+			notifyScheduler = !requester.RequestCancelRun(target.Run.ID)
+		} else if canceler, ok := s.runtimeCancel.(taskRuntimeRunCanceler); ok {
 			if err := canceler.CancelRun(ctx, target.Run.ID); err != nil {
 				slog.Warn("cancel completed workflow run failed", "run_id", string(target.Run.ID), "task_id", taskID, "error", err)
 			}
 		}
-		if s.schedulerWake != nil {
+		if notifyScheduler && s.schedulerWake != nil {
 			s.schedulerWake.Notify()
 		}
 	}
