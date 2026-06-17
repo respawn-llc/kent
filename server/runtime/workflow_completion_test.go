@@ -507,6 +507,60 @@ func TestWorkflowMixedCompleteNodeRunsSideEffects(t *testing.T) {
 	}
 }
 
+func TestWorkflowTerminalCompleteNodePersistsHostedToolResults(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseFinal},
+		ToolCalls: []llm.ToolCall{
+			completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+		},
+		OutputItems: []llm.ResponseItem{{
+			Type: llm.ResponseItemTypeOther,
+			Raw:  json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli"}}`),
+		}},
+		Usage: llm.Usage{WindowTokens: 200000},
+	}}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
+	})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := controller.completed.Load(); got != 1 {
+		t.Fatalf("completions = %d, want 1", got)
+	}
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("ReadEvents: %v", err)
+	}
+	hostedCallPersisted := false
+	hostedResultPersisted := false
+	for _, evt := range events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var persisted llm.Message
+		if err := json.Unmarshal(evt.Payload, &persisted); err != nil {
+			t.Fatalf("decode message event: %v", err)
+		}
+		if persisted.Role == llm.RoleAssistant {
+			for _, call := range persisted.ToolCalls {
+				if call.ID == "ws_1" {
+					hostedCallPersisted = true
+				}
+			}
+		}
+		if persisted.Role == llm.RoleTool && persisted.ToolCallID == "ws_1" {
+			hostedResultPersisted = true
+		}
+	}
+	if !hostedCallPersisted || !hostedResultPersisted {
+		t.Fatalf("hosted call/result persisted = %v/%v, want both", hostedCallPersisted, hostedResultPersisted)
+	}
+}
+
 func TestWorkflowDuplicateCompleteNodePreflightSkipsSideEffects(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}

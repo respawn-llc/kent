@@ -336,6 +336,9 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 		return false, false, err
 	}
 	if terminal {
+		if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
+			return false, false, err
+		}
 		return patchEditsApplied, true, nil
 	}
 	if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {

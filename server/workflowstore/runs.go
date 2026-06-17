@@ -275,10 +275,6 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		return RunStartContext{}, err
 	}
 	workflowRecord := WorkflowRecord{ID: workflow.WorkflowID(workflowRow.ID), Name: workflowRow.Name, Description: workflowRow.Description, Version: workflowRow.Version}
-	hasContinueSessionEdge, err := s.queries.WorkflowHasContinueSessionEdge(ctx, workflowRow.ID)
-	if err != nil {
-		return RunStartContext{}, err
-	}
 	snapshot := runStartSnapshot{}
 	if err := workflow.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return RunStartContext{}, err
@@ -315,7 +311,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 			Workflow:                       workflowRecord,
 			Node:                           nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
 			ContextMode:                    transitionContext.ContextMode,
-			WorkflowHasContinueSessionEdge: hasContinueSessionEdge != 0,
+			WorkflowHasContinueSessionEdge: snapshot.hasContinueSessionEdge(),
 			SourceRunID:                    transitionContext.SourceRunID,
 			SourceSessionID:                transitionContext.SourceSessionID,
 			SourceNode:                     transitionContext.SourceNode,
@@ -344,7 +340,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		Workflow:                       workflowRecord,
 		Node:                           nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
 		ContextMode:                    transitionContext.ContextMode,
-		WorkflowHasContinueSessionEdge: hasContinueSessionEdge != 0,
+		WorkflowHasContinueSessionEdge: snapshot.hasContinueSessionEdge(),
 		SourceRunID:                    transitionContext.SourceRunID,
 		SourceSessionID:                transitionContext.SourceSessionID,
 		SourceNode:                     transitionContext.SourceNode,

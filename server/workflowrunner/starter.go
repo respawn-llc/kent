@@ -288,9 +288,18 @@ func (s *Starter) CancelTaskRuns(ctx context.Context, taskID workflow.TaskID) er
 func (s *Starter) CancelRun(ctx context.Context, runID workflow.RunID) error {
 	s.mu.Lock()
 	cancel := s.cancel[runID]
+	runDone := s.done[runID]
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if runDone == nil {
+		return nil
+	}
+	select {
+	case <-runDone:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	return nil
 }
@@ -399,11 +408,17 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 }
 
 func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, req SchedulerStartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, client llm.Client) (workflowruntime.CompletionMode, llm.Client, error) {
+	shellAvailable := toolIDEnabled(plan.EnabledTools, toolspec.ToolExecCommand)
 	if stored := strings.TrimSpace(input.Run.EffectiveCompletionMode); stored != "" {
 		mode, err := workflowruntime.ParseCompletionMode(stored)
-		return mode, client, err
+		if err != nil {
+			return "", client, err
+		}
+		if mode == workflowruntime.CompletionModeShellCommand && !shellAvailable {
+			return "", client, errors.New("workflow shell_command completion requires shell tool availability for this run")
+		}
+		return mode, client, nil
 	}
-	shellAvailable := toolIDEnabled(plan.EnabledTools, toolspec.ToolExecCommand)
 	if s.cfg.Settings.Workflow.CompletionMode == config.WorkflowCompletionModeShellCommand && !shellAvailable {
 		return "", client, errors.New("workflow shell_command completion requires shell tool availability for this run")
 	}

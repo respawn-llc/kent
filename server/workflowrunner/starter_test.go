@@ -280,6 +280,33 @@ func TestWorkflowRuntimeStarterCancelTaskRunsStopsLiveRuntimeAfterTaskCancel(t *
 	}
 }
 
+func TestWorkflowRuntimeStarterCancelRunStopsLiveRuntime(t *testing.T) {
+	client := newBlockingClient()
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	client.waitForCall(t)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want one live run", runs)
+	}
+	if err := fixture.starter.CancelRun(context.Background(), runs[0].ID); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	if !client.returned() {
+		t.Fatal("CancelRun returned before live runtime stopped")
+	}
+}
+
 func TestStarterAutoPersistsShellCommandForContinuationWorkflow(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
@@ -301,6 +328,44 @@ func TestStarterAutoPersistsShellCommandForContinuationWorkflow(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].EffectiveCompletionMode != string(workflowruntime.CompletionModeShellCommand) {
 		t.Fatalf("stored mode = %+v, want shell_command", runs)
+	}
+}
+
+func TestStarterAutoUsesRunStartSnapshotForContinuationDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		snapshotMode workflow.ContextMode
+		liveMode     workflow.ContextMode
+		wantFlag     bool
+		wantMode     workflowruntime.CompletionMode
+	}{
+		{name: "snapshot keeps continue after live edit removes it", snapshotMode: workflow.ContextModeContinueSession, liveMode: workflow.ContextModeNewSession, wantFlag: true, wantMode: workflowruntime.CompletionModeShellCommand},
+		{name: "snapshot keeps non-continue after live edit adds it", snapshotMode: workflow.ContextModeNewSession, liveMode: workflow.ContextModeContinueSession, wantFlag: false, wantMode: workflowruntime.CompletionModeStructuredOutput},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+			workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, tt.snapshotMode, "coder")
+			if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+				t.Fatalf("LinkWorkflow chained: %v", err)
+			}
+			claimed, _, plan := fixture.claimPlannedRun(t)
+			updateChainedStarterWorkflowNextEdgeContextMode(t, fixture.metadata, workflowID, tt.liveMode)
+			input, err := fixture.store.GetRunStartContext(context.Background(), claimed.ID)
+			if err != nil {
+				t.Fatalf("GetRunStartContext: %v", err)
+			}
+			if input.WorkflowHasContinueSessionEdge != tt.wantFlag {
+				t.Fatalf("snapshot continuation flag = %v, want %v", input.WorkflowHasContinueSessionEdge, tt.wantFlag)
+			}
+			mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+			if err != nil {
+				t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+			}
+			if mode != tt.wantMode {
+				t.Fatalf("mode = %q, want %q", mode, tt.wantMode)
+			}
+		})
 	}
 }
 
@@ -401,6 +466,25 @@ func TestStarterReusesPersistedEffectiveCompletionMode(t *testing.T) {
 	}
 	if mode != workflowruntime.CompletionModeTool {
 		t.Fatalf("mode = %q, want persisted tool", mode)
+	}
+}
+
+func TestStarterRechecksShellAvailabilityForPersistedShellMode(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+	disableCoderShell(t, &fixture)
+	fixture.rebuildStarter(t)
+	claimed, input, plan := fixture.claimPlannedRun(t)
+	if err := fixture.store.SetRunEffectiveCompletionMode(context.Background(), claimed.ID, claimed.Generation, string(workflowruntime.CompletionModeShellCommand)); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode: %v", err)
+	}
+	input, err := fixture.store.GetRunStartContext(context.Background(), claimed.ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext after set mode: %v", err)
+	}
+
+	_, _, err = fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+	if err == nil || !strings.Contains(err.Error(), "shell tool availability") {
+		t.Fatalf("resolveAndPersistWorkflowCompletionMode error = %v, want shell availability failure", err)
 	}
 }
 
@@ -1353,6 +1437,19 @@ func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowst
 		}
 	}
 	return created.ID
+}
+
+func updateChainedStarterWorkflowNextEdgeContextMode(t *testing.T, metadataStore *metadata.Store, workflowID workflow.WorkflowID, contextMode workflow.ContextMode) {
+	t.Helper()
+	result, err := metadataStore.DB().ExecContext(context.Background(), `UPDATE workflow_edges SET context_mode = ? WHERE id = ?`, string(contextMode), "edge-next-"+string(workflowID))
+	if err != nil {
+		t.Fatalf("update live edge context mode: %v", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		t.Fatalf("update live edge rows affected: %v", err)
+	} else if rows != 1 {
+		t.Fatalf("updated live edge rows = %d, want 1", rows)
+	}
 }
 
 func starterNodeByKind(t *testing.T, def workflow.Definition, kind workflow.NodeKind) workflow.Node {
