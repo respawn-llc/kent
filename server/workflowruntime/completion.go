@@ -171,22 +171,18 @@ func SelectCompletionMode(mode config.WorkflowCompletionMode, caps llm.ProviderC
 	case config.WorkflowCompletionModeTool:
 		return CompletionModeTool, nil
 	case config.WorkflowCompletionModeStructuredOutput:
-		if !ProviderSupportsStructuredOutput(caps) {
+		if !caps.SupportsResponsesAPI {
 			return "", ErrStructuredOutputUnsupported
 		}
 		return CompletionModeStructuredOutput, nil
 	case config.WorkflowCompletionModeAuto, "":
-		if ProviderSupportsStructuredOutput(caps) {
+		if caps.SupportsResponsesAPI {
 			return CompletionModeStructuredOutput, nil
 		}
 		return CompletionModeTool, nil
 	default:
 		return "", fmt.Errorf("invalid workflow completion mode %q", mode)
 	}
-}
-
-func ProviderSupportsStructuredOutput(caps llm.ProviderCapabilities) bool {
-	return caps.SupportsResponsesAPI
 }
 
 func StructuredOutput(contract CompletionContract) (*llm.StructuredOutput, error) {

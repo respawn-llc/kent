@@ -609,7 +609,7 @@ func (s *Service) ApproveWorkflowTask(ctx context.Context, req serverapi.Workflo
 	if transitionID == "" {
 		transitionID = strings.TrimSpace(req.TransitionID)
 	}
-	taskID, projectID, workflowID, err := s.taskIdentityForTransition(ctx, transitionID)
+	taskID, projectID, workflowID, err := s.store.TaskIdentityForTransition(ctx, workflow.TransitionID(transitionID))
 	if err != nil {
 		return serverapi.WorkflowTaskApproveResponse{}, err
 	}
@@ -743,10 +743,6 @@ func (s *Service) AnswerWorkflowTaskQuestion(ctx context.Context, req serverapi.
 	return err
 }
 
-func (s *Service) taskIdentityForTransition(ctx context.Context, transitionID string) (taskID string, projectID string, workflowID string, err error) {
-	return s.store.TaskIdentityForTransition(ctx, workflow.TransitionID(transitionID))
-}
-
 func sameTaskQuestionAnswerMemoRequest(a taskQuestionAnswerMemoRequest, b taskQuestionAnswerMemoRequest) bool {
 	return a.TaskID == b.TaskID &&
 		a.RunID == b.RunID &&
@@ -830,7 +826,7 @@ func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.
 	if err := req.Validate(); err != nil {
 		return err
 	}
-	taskID, projectID, workflowID, err := s.taskIdentityForComment(ctx, req.CommentID)
+	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentID))
 	if err != nil {
 		return err
 	}
@@ -845,7 +841,7 @@ func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.W
 	if err := req.Validate(); err != nil {
 		return err
 	}
-	taskID, projectID, workflowID, err := s.taskIdentityForComment(ctx, req.CommentID)
+	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentID))
 	if err != nil {
 		return err
 	}
@@ -885,7 +881,7 @@ func (s *Service) SubscribeWorkflowProject(ctx context.Context, req serverapi.Wo
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	return s.events.Subscribe(strings.TrimSpace(req.ProjectID))
+	return s.events.subscribe(strings.TrimSpace(req.ProjectID), "")
 }
 
 func (s *Service) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
@@ -896,7 +892,7 @@ func (s *Service) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowS
 	if _, err := s.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID}); err != nil {
 		return nil, err
 	}
-	return s.events.SubscribeWorkflow(workflowID)
+	return s.events.subscribe("", workflowID)
 }
 
 func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
@@ -1154,10 +1150,6 @@ func workflowGraphSaveBlockers(blockers []workflowstore.WorkflowGraphSaveBlocker
 
 func commentRecord(row workflowstore.CommentRecord) serverapi.WorkflowTaskComment {
 	return serverapi.WorkflowTaskComment{ID: row.ID, TaskID: string(row.TaskID), Body: row.Body, Author: row.Author, AuthorID: row.AuthorID, CreatedAtUnixMs: row.CreatedAt, UpdatedAt: row.UpdatedAt}
-}
-
-func (s *Service) taskIdentityForComment(ctx context.Context, commentID string) (taskID string, projectID string, workflowID string, err error) {
-	return s.store.TaskIdentityForComment(ctx, strings.TrimSpace(commentID))
 }
 
 func inputFields(in []serverapi.WorkflowInputField) []workflow.InputField {

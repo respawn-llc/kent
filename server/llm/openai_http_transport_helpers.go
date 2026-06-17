@@ -7,17 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	"core/shared/llmerrors"
+
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
 )
-
-func (t *HTTPTransport) newResponseService(mode openAIAuthMode) responses.ResponseService {
-	return responses.NewResponseService(
-		option.WithBaseURL(t.serviceBaseURL(mode)),
-		option.WithHTTPClient(t.Client),
-		option.WithMaxRetries(0),
-	)
-}
 
 func (t *HTTPTransport) serviceBaseURL(mode openAIAuthMode) string {
 	if mode.IsOAuth && !t.BaseURLExplicit {
@@ -72,7 +66,7 @@ func (t *HTTPTransport) providerVariantForMode(mode openAIAuthMode) (ProviderVar
 		if providerID == "" {
 			providerID = "unknown-provider"
 		}
-		return ProviderVariantContract{}, NewProviderContractError(providerID, 0, err)
+		return ProviderVariantContract{}, llmerrors.NewProviderContractError(providerID, 0, err)
 	}
 	return variant, nil
 }

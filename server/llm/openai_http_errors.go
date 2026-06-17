@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"core/shared/llmerrors"
 )
 
 type openAIRequestErrorMapper struct {
@@ -25,7 +27,7 @@ func (m openAIRequestErrorMapper) Map(err error, rawResp *http.Response, prefix 
 				rawResp.Body = nil
 			}
 		}
-		return fmt.Errorf("%s: %w", prefix, NewProviderContractError(m.providerID, statusCode, reducerErr))
+		return fmt.Errorf("%s: %w", prefix, llmerrors.NewProviderContractError(m.providerID, statusCode, reducerErr))
 	}
 	reducedErr, ok := reducer.Reduce(err, rawResp)
 	if ok && reducedErr != nil {

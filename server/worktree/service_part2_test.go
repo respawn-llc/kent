@@ -225,7 +225,7 @@ func TestRetargetSessionsFromMissingWorktreeRollsBackActiveSessionMetadataOnRunt
 	env.runtime.rebindCalls = nil
 	env.runtime.reminderCalls = nil
 
-	err = env.service.retargetSessionsFromMissingWorktree(env.ctx, env.binding.WorkspaceID, env.workspaceRoot, record)
+	err = env.service.retargetSessionsFromWorktree(env.ctx, env.binding.WorkspaceID, env.workspaceRoot, record, worktreeSessionRetargetOptions{reminder: worktreeReminderStateForExitedWorktree})
 	if err == nil || !strings.Contains(err.Error(), "runtime rebind failed") {
 		t.Fatalf("retargetSessionsFromMissingWorktree error = %v, want runtime rebind failed", err)
 	}
