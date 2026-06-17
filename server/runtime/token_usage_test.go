@@ -331,6 +331,53 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t 
 	}
 }
 
+// A dangling-tool-call 400 from the precise token-count probe is repairable by
+// the model request path, so it must not persist a permanent failure diagnostic
+// that would disable exact counting for the rest of the active list. The probe
+// falls back to an estimate transiently and keeps retrying the backend.
+func TestCurrentInputTokensPreciselyDoesNotPersistFailureForRepairable400(t *testing.T) {
+	store := mustCreateTestSession(t)
+
+	client := &preciseCompactionClient{
+		countErr:      &llm.APIStatusError{StatusCode: 400, Body: "tool call without output"},
+		contextWindow: 400000,
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
+	if err := eng.steer("", steerMessageIntent(llm.Message{
+		Role:      llm.RoleAssistant,
+		ToolCalls: []llm.ToolCall{{ID: "missing", Name: "exec", Input: json.RawMessage(`{}`)}},
+	})); err != nil {
+		t.Fatalf("append dangling tool call: %v", err)
+	}
+
+	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+		t.Fatalf("currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
+	}
+	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
+		t.Fatalf("second currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
+	}
+	if client.countCalls != 2 {
+		t.Fatalf("count calls=%d, want 2 repeated backend attempts (no permanent failure marker)", client.countCalls)
+	}
+
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	for _, evt := range events {
+		if evt.Kind != "local_entry" {
+			continue
+		}
+		var entry storedLocalEntry
+		if err := json.Unmarshal(evt.Payload, &entry); err != nil {
+			t.Fatalf("decode local_entry: %v", err)
+		}
+		if entry.DiagnosticKey == preciseTokenCountFailureDiagnostic {
+			t.Fatalf("did not expect a persisted precise-token failure diagnostic for a repairable 400: %+v", entry)
+		}
+	}
+}
+
 func TestCurrentInputTokensPreciselySkipsUnsupportedCountClient(t *testing.T) {
 	store := mustCreateTestSession(t)
 
