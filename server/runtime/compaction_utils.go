@@ -63,6 +63,14 @@ func ordinal(v int) string {
 	}
 }
 
+func (e *Engine) inputTokensForItems(ctx context.Context, model string, instructions string, items []llm.ResponseItem) (int, bool) {
+	req, ok := buildTokenCountRequestForItems(model, instructions, items)
+	if !ok {
+		return 0, false
+	}
+	return e.requestInputTokensPrecisely(ctx, req)
+}
+
 func buildTokenCountRequestForItems(model string, instructions string, items []llm.ResponseItem) (llm.Request, bool) {
 	trimmedModel := strings.TrimSpace(model)
 	if trimmedModel == "" {

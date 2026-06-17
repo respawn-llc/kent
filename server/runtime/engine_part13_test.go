@@ -98,11 +98,10 @@ func TestRunStepLoopDoesNotDuplicateCompactionSoonReminderAfterAutoCompactionIsD
 	}
 }
 
-func countCompactionSoonReminderWarnings(eng *Engine, snapshot ChatSnapshot) int {
-	expected := prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff())
+func countCompactionSoonReminderWarnings(_ *Engine, snapshot ChatSnapshot) int {
 	count := 0
 	for _, entry := range snapshot.Entries {
-		if entry.Role == "warning" && entry.Text == expected {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			count++
 		}
 	}
@@ -125,10 +124,9 @@ func TestCompactionSoonReminderIncludesTriggerHandoffAdditionWhenConfigured(t *t
 		t.Fatalf("append reminder: %v", err)
 	}
 
-	reminderText := prompts.RenderCompactionSoonReminderPrompt(true, eng.estimatedToolCallsUntilForcedHandoff())
 	reminders := 0
 	for _, entry := range eng.ChatSnapshot().Entries {
-		if entry.Role == "warning" && entry.Text == reminderText {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			reminders++
 		}
 	}
@@ -173,10 +171,9 @@ func TestCompactionSoonReminderRechecksPreciselyAfterTranscriptMutation(t *testi
 	if !eng.handoffToolEnabled() {
 		t.Fatal("expected reminder to enable trigger_handoff after exact recount")
 	}
-	reminderText := prompts.RenderCompactionSoonReminderPrompt(true, eng.estimatedToolCallsUntilForcedHandoff())
 	reminders := 0
 	for _, entry := range eng.ChatSnapshot().Entries {
-		if entry.Role == "warning" && entry.Text == reminderText {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			reminders++
 		}
 	}

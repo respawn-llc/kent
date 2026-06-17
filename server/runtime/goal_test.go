@@ -73,8 +73,8 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 		t.Fatalf("SetGoal: %v", err)
 	}
 
-	if len(events) != 1 {
-		t.Fatalf("events len = %d, want 1: %+v", len(events), events)
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want 2: %+v", len(events), events)
 	}
 	evt := events[0]
 	if evt.Kind != EventConversationUpdated || !evt.CommittedTranscriptChanged {
@@ -90,6 +90,160 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 	}
 	if !evt.CommittedEntryStartSet || evt.CommittedEntryStart != 0 || evt.CommittedEntryCount != 1 {
 		t.Fatalf("event committed range start=%d set=%t count=%d, want start 0 count 1", evt.CommittedEntryStart, evt.CommittedEntryStartSet, evt.CommittedEntryCount)
+	}
+	statusEvt := events[1]
+	if statusEvt.Kind != EventGoalStatusUpdated || statusEvt.GoalStatus == nil {
+		t.Fatalf("status event = %+v, want goal status update", statusEvt)
+	}
+	if statusEvt.GoalStatus.Cleared || statusEvt.GoalStatus.State.Objective != "ship goal mode" || statusEvt.GoalStatus.State.Status != session.GoalStatusActive {
+		t.Fatalf("status payload = %+v, want active goal", statusEvt.GoalStatus)
+	}
+}
+
+func TestGoalMutationsEmitGoalStatusEventsAfterFeedback(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	events := make([]Event, 0, 10)
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		OnEvent: func(evt Event) {
+			events = append(events, evt)
+		},
+	})
+
+	set, err := engine.SetGoal("ship goal mode", session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	assertGoalFeedbackThenStatusEvent(t, events, 0, set, false)
+
+	paused, err := engine.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("pause goal: %v", err)
+	}
+	assertGoalFeedbackThenStatusEvent(t, events, 2, paused, false)
+
+	active, err := engine.SetGoalStatus(session.GoalStatusActive, session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("resume goal: %v", err)
+	}
+	assertGoalFeedbackThenStatusEvent(t, events, 4, active, false)
+
+	complete, err := engine.SetGoalStatus(session.GoalStatusComplete, session.GoalActorAgent)
+	if err != nil {
+		t.Fatalf("complete goal: %v", err)
+	}
+	assertGoalFeedbackThenStatusEvent(t, events, 6, complete, false)
+
+	cleared, err := engine.ClearGoal(session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("clear goal: %v", err)
+	}
+	assertGoalFeedbackThenStatusEvent(t, events, 8, cleared, true)
+}
+
+func TestConcurrentGoalMutationsDoNotInterleaveBetweenMetadataAndStatusEvent(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	events := make([]Event, 0, 4)
+	var eventsMu sync.Mutex
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		OnEvent: func(evt Event) {
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
+			events = append(events, evt)
+		},
+	})
+
+	engine.outputMutationMu.Lock()
+	outputLocked := true
+	defer func() {
+		if outputLocked {
+			engine.outputMutationMu.Unlock()
+		}
+	}()
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := engine.SetGoal("first goal", session.GoalActorUser)
+		firstDone <- err
+	}()
+	waitForGoalObjective(t, store, "first goal")
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := engine.SetGoal("second goal", session.GoalActorUser)
+		secondDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if goal := store.Meta().Goal; goal == nil || goal.Objective != "first goal" {
+		t.Fatalf("second mutation interleaved before first status event completed: %+v", goal)
+	}
+	eventsMu.Lock()
+	if len(events) != 0 {
+		t.Fatalf("events emitted while output boundary was blocked: %+v", events)
+	}
+	eventsMu.Unlock()
+
+	engine.outputMutationMu.Unlock()
+	outputLocked = false
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first SetGoal: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second SetGoal: %v", err)
+	}
+
+	eventsMu.Lock()
+	gotEvents := append([]Event(nil), events...)
+	eventsMu.Unlock()
+	if len(gotEvents) != 4 {
+		t.Fatalf("events len = %d, want 4: %+v", len(gotEvents), gotEvents)
+	}
+	assertGoalStatusEventObjective(t, gotEvents, 0, "first goal")
+	assertGoalStatusEventObjective(t, gotEvents, 2, "second goal")
+}
+
+func waitForGoalObjective(t *testing.T, store *session.Store, objective string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if goal := store.Meta().Goal; goal != nil && goal.Objective == objective {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for goal objective %q, got %+v", objective, store.Meta().Goal)
+}
+
+func assertGoalStatusEventObjective(t *testing.T, events []Event, start int, objective string) {
+	t.Helper()
+	if events[start].Kind != EventConversationUpdated || !events[start].CommittedTranscriptChanged {
+		t.Fatalf("event[%d] = %+v, want committed feedback", start, events[start])
+	}
+	status := events[start+1]
+	if status.Kind != EventGoalStatusUpdated || status.GoalStatus == nil || status.GoalStatus.State.Objective != objective {
+		t.Fatalf("event[%d] = %+v, want goal status objective %q", start+1, status, objective)
+	}
+}
+
+func assertGoalFeedbackThenStatusEvent(t *testing.T, events []Event, start int, goal session.GoalState, cleared bool) {
+	t.Helper()
+	if len(events) < start+2 {
+		t.Fatalf("events len = %d, want at least %d: %+v", len(events), start+2, events)
+	}
+	feedback := events[start]
+	if feedback.Kind != EventConversationUpdated || !feedback.CommittedTranscriptChanged {
+		t.Fatalf("event[%d] = %+v, want committed goal feedback", start, feedback)
+	}
+	status := events[start+1]
+	if status.Kind != EventGoalStatusUpdated || status.GoalStatus == nil {
+		t.Fatalf("event[%d] = %+v, want goal status event", start+1, status)
+	}
+	if status.GoalStatus.Cleared != cleared {
+		t.Fatalf("cleared = %t, want %t", status.GoalStatus.Cleared, cleared)
+	}
+	if cleared {
+		return
+	}
+	if status.GoalStatus.State.ID != goal.ID || status.GoalStatus.State.Objective != goal.Objective || status.GoalStatus.State.Status != goal.Status {
+		t.Fatalf("goal status state = %+v, want %+v", status.GoalStatus.State, goal)
 	}
 }
 

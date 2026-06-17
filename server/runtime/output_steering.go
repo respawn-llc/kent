@@ -3,9 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
-	"strings"
 
 	"core/server/llm"
 	"core/server/session"
@@ -29,16 +27,15 @@ type steeringIntent struct {
 }
 
 type steeringItem struct {
-	message            *steeringMessage
-	localEntry         *steeringLocalEntry
-	historyReplace     *steeringHistoryReplacement
-	toolCompletion     *tools.Result
-	queuedFlush        *steeringQueuedUserMessageFlush
-	event              *Event
-	streaming          *steeringStreamingOutput
-	cacheWarning       *steeringCacheWarning
-	cacheObservation   *steeringCacheObservation
-	repairInvalidation *steeringRepairInvalidation
+	message          *steeringMessage
+	localEntry       *steeringLocalEntry
+	historyReplace   *steeringHistoryReplacement
+	toolCompletion   *tools.Result
+	queuedFlush      *steeringQueuedUserMessageFlush
+	event            *Event
+	streaming        *steeringStreamingOutput
+	cacheWarning     *steeringCacheWarning
+	cacheObservation *steeringCacheObservation
 }
 
 type steeringMessage struct {
@@ -74,12 +71,6 @@ type steeringCacheObservation struct {
 	warning    cachewarn.Warning
 	visibility transcript.EntryVisibility
 	emit       bool
-}
-
-type steeringRepairInvalidation struct {
-	rewrite            session.EventRewriteResult
-	removedCallIDs     []string
-	removedToolCallIDs []string
 }
 
 type steeringQueuedUserMessageFlush struct {
@@ -241,19 +232,6 @@ func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.
 	}
 }
 
-func steerRepairInvalidationIntent(rewrite session.EventRewriteResult, removedCallIDs []string, removedToolCallIDs []string) steeringIntent {
-	copyRemovedCallIDs := append([]string(nil), removedCallIDs...)
-	copyRemovedToolCallIDs := append([]string(nil), removedToolCallIDs...)
-	return steeringIntent{
-		priority: steeringPriorityRuntimeEvent,
-		items: []steeringItem{{repairInvalidation: &steeringRepairInvalidation{
-			rewrite:            rewrite,
-			removedCallIDs:     copyRemovedCallIDs,
-			removedToolCallIDs: copyRemovedToolCallIDs,
-		}}},
-	}
-}
-
 func (e *Engine) steerEvent(stepID string, evt Event) error {
 	return e.steer(stepID, steerEventIntent(evt))
 }
@@ -339,9 +317,6 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 		return nil
 	}
-	if item.repairInvalidation != nil {
-		return e.applyRepairInvalidationRaw(stepID, *item.repairInvalidation)
-	}
 	if item.streaming != nil {
 		if item.streaming.assistantDelta != nil {
 			delta := *item.streaming.assistantDelta
@@ -360,68 +335,6 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 	}
 	return nil
-}
-
-func (e *Engine) applyRepairInvalidationRaw(stepID string, repair steeringRepairInvalidation) error {
-	if e == nil {
-		return nil
-	}
-	appendedEntries := make([]struct {
-		stepID string
-		entry  *ChatEntry
-	}, 0, len(repair.rewrite.AppendedEvents))
-	for _, appended := range repair.rewrite.AppendedEvents {
-		if strings.TrimSpace(appended.Kind) != "local_entry" {
-			continue
-		}
-		var entry storedLocalEntry
-		if err := json.Unmarshal(appended.Payload, &entry); err != nil {
-			return fmt.Errorf("decode repair warning event: %w", err)
-		}
-		chatEntry := localEntryChatEntry(entry)
-		eventStepID := strings.TrimSpace(appended.StepID)
-		if eventStepID == "" {
-			eventStepID = stepID
-		}
-		appendedEntries = append(appendedEntries, struct {
-			stepID string
-			entry  *ChatEntry
-		}{
-			stepID: eventStepID,
-			entry:  chatEntry,
-		})
-	}
-	if err := e.applyMissingToolOutputRepairProjection(repair); err != nil {
-		return err
-	}
-	committedBaseCount := e.CommittedTranscriptEntryCount() - len(appendedEntries)
-	if committedBaseCount < 0 {
-		committedBaseCount = 0
-	}
-	for idx, appended := range appendedEntries {
-		e.emitRepairLocalEntryAddedRaw(Event{
-			Kind:                       EventLocalEntryAdded,
-			StepID:                     appended.stepID,
-			LocalEntry:                 appended.entry,
-			CommittedTranscriptChanged: true,
-			TranscriptRevision:         repair.rewrite.LastSequence,
-			CommittedEntryStart:        committedBaseCount + idx,
-			CommittedEntryStartSet:     true,
-			CommittedEntryCount:        committedBaseCount + idx + 1,
-		})
-	}
-	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true})
-	return nil
-}
-
-func (e *Engine) emitRepairLocalEntryAddedRaw(evt Event) {
-	if evt.ContextUsage == nil && eventShouldCarryContextUsage(evt) {
-		usage := e.ContextUsage()
-		evt.ContextUsage = &usage
-	}
-	if e.cfg.OnEvent != nil {
-		e.cfg.OnEvent(evt)
-	}
 }
 
 func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) error {

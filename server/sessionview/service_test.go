@@ -152,6 +152,9 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	if err := store.SetParentSessionID("parent-1"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
+	if _, err := store.SetGoal("ship dormant goal", session.GoalActorUser); err != nil {
+		t.Fatalf("set goal: %v", err)
+	}
 	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -176,6 +179,9 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	}
 	if resp.MainView.Status.ParentSessionID != "parent-1" || resp.MainView.Status.LastCommittedAssistantFinalAnswer != "final answer" {
 		t.Fatalf("unexpected dormant status: %+v", resp.MainView.Status)
+	}
+	if resp.MainView.Status.Goal == nil || resp.MainView.Status.Goal.Status != clientui.RuntimeGoalStatusActive || resp.MainView.Status.Goal.Objective != "ship dormant goal" {
+		t.Fatalf("unexpected dormant goal status: %+v", resp.MainView.Status.Goal)
 	}
 	if resp.MainView.ActiveRun == nil || resp.MainView.ActiveRun.RunID != "run-1" || resp.MainView.ActiveRun.Status != "running" {
 		t.Fatalf("expected durable running active run, got %+v", resp.MainView.ActiveRun)
