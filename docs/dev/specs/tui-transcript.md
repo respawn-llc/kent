@@ -116,7 +116,7 @@
 - No timestamps are shown in UI.
 - Streaming paint cadence is 16ms with token coalescing per flush tick.
 - Main status line is compact and fixed: activity indicator, optional git branch, model label, process/server metadata, transient warning, and right-aligned context meter.
-- Goal mode does not add persistent goal text; only an active goal turn changes the progress word to primary-blue `goal`.
+- Goal mode does not add persistent goal text. The primary-blue `goal` progress word is visible when the runtime goal SSOT reports an active goal, including at startup, between goal-loop turns, or while runtime-local suspended. Paused, completed, and cleared goals do not show the indicator. Reviewer and compaction indicators keep precedence over goal because they describe immediate blocking activity.
 - Context meter is a 10-char bar plus `% ctx window`, green/yellow/red at `<50%`, `50-<80%`, `>=80%`.
 
 ## Input And Queueing

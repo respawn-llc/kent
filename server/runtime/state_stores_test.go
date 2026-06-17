@@ -183,11 +183,12 @@ func TestCompactionPlannerDerivesLimitsFromSnapshot(t *testing.T) {
 	if got := planner.soonReminderLimit(snapshot); got != 765_000 {
 		t.Fatalf("soonReminderLimit()=%d, want 765000", got)
 	}
-	// Current usage sits at the soon-reminder threshold (765000), leaving 135000 tokens before the
-	// forced limit; 135000 / 1400 rounds to 96 estimated tool calls.
+	// Current usage sits at the soon-reminder threshold (765000). The forced gate reserves 8000 output
+	// tokens, so the runway is 900000 - 8000 - 765000 = 127000 tokens; 127000 / 1400 rounds to 91
+	// estimated tool calls.
 	snapshot.currentUsedTokens = 765_000
-	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 96 {
-		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 96", got)
+	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 91 {
+		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 91", got)
 	}
 	if got := planner.reservedOutputTokens(snapshot); got != 8_000 {
 		t.Fatalf("reservedOutputTokens()=%d, want locked max output", got)
@@ -204,6 +205,38 @@ func TestEstimatedToolCallsUsesRemainingBudgetNearForcedLimit(t *testing.T) {
 	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 14 {
 		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 14", got)
 	}
+}
+
+func TestEstimatedToolCallsSubtractsReservedOutputFromRunway(t *testing.T) {
+	planner := newCompactionPlanner()
+	snapshot := compactionPlanningSnapshot{
+		autoCompactTokenLimit: 900_000,
+		lockedMaxOutputTokens: 8_000,
+		currentUsedTokens:     891_000,
+	}
+	// The forced gate compares input + reservedOutput (891000 + 8000 = 899000) against 900000, so only
+	// ~1000 input tokens remain; subtracting the reservation yields 1 tool call instead of the ~6 a raw
+	// 900000 - 891000 = 9000 runway would overstate.
+	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 1 {
+		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 1", got)
+	}
+}
+
+func TestEstimatedToolCallsPanicsWhenReservedOutputReachesForcedLimit(t *testing.T) {
+	planner := newCompactionPlanner()
+	snapshot := compactionPlanningSnapshot{
+		autoCompactTokenLimit: 900_000,
+		lockedMaxOutputTokens: 8_000,
+		// 895000 input alone is below the forced limit, but the forced gate adds the 8000 reserved output
+		// (903000 >= 900000) and would already have compacted, so reaching the estimate is unreachable.
+		currentUsedTokens: 895_000,
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic when consumed tokens plus reserved output reach the forced limit")
+		}
+	}()
+	planner.estimatedToolCallsUntilForcedHandoff(snapshot)
 }
 
 func TestEstimatedToolCallsPanicsWhenUsageReachesForcedLimit(t *testing.T) {

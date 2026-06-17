@@ -332,8 +332,10 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 	}()
 	var plan launch.SessionPlan
 	var err error
+	overrides := workflowRunPromptOverrides(input.Node.SubagentRole)
+	skipPersistedRoleValidation := overrides.HasAny()
 	if strings.TrimSpace(input.Run.SessionID) != "" {
-		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.Run.SessionID})
+		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.Run.SessionID, SkipContinuationAgentRoleValidation: skipPersistedRoleValidation})
 		if err != nil {
 			return launch.SessionPlan{}, nil, err
 		}
@@ -343,12 +345,12 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 	} else {
 		switch input.ContextMode {
 		case "", workflow.ContextModeNewSession:
-			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true})
+			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true, SkipContinuationAgentRoleValidation: skipPersistedRoleValidation})
 		case workflow.ContextModeContinueSession:
 			if strings.TrimSpace(input.SourceSessionID) == "" {
 				return launch.SessionPlan{}, nil, errors.New("continue_session requires a source session")
 			}
-			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.SourceSessionID})
+			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.SourceSessionID, SkipContinuationAgentRoleValidation: skipPersistedRoleValidation})
 		case workflow.ContextModeCompactAndContinueSession:
 			if strings.TrimSpace(input.SourceSessionID) == "" {
 				return launch.SessionPlan{}, nil, errors.New("compact_and_continue_session requires a source session")
@@ -365,7 +367,7 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 				}
 				disposableCloneID = continuationSessionID
 			}
-			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: continuationSessionID})
+			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: continuationSessionID, SkipContinuationAgentRoleValidation: skipPersistedRoleValidation})
 		default:
 			return launch.SessionPlan{}, nil, fmt.Errorf("unsupported workflow context mode %q", input.ContextMode)
 		}
@@ -377,7 +379,7 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 		}
 	}
 	warnings := []string{}
-	plan, warnings, err = launch.ApplyRunPromptOverrides(plan, workflowRunPromptOverrides(input.Node.SubagentRole), auth.EmptyState())
+	plan, warnings, err = launch.ApplyRunPromptOverrides(plan, overrides, auth.EmptyState())
 	if err != nil {
 		return launch.SessionPlan{}, nil, err
 	}

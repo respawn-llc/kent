@@ -30,16 +30,6 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 		return clientui.RuntimeStatus{}
 	}
 	usage := engine.ContextUsage()
-	goal := engine.Goal()
-	var goalView *clientui.RuntimeGoal
-	if goal != nil {
-		goalView = &clientui.RuntimeGoal{
-			ID:        strings.TrimSpace(goal.ID),
-			Objective: goal.Objective,
-			Status:    clientui.RuntimeGoalStatus(strings.TrimSpace(string(goal.Status))),
-			Suspended: engine.GoalLoopSuspended(),
-		}
-	}
 	return clientui.RuntimeStatus{
 		ReviewerFrequency:                 engine.ReviewerFrequency(),
 		ReviewerEnabled:                   engine.ReviewerEnabled(),
@@ -59,7 +49,19 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 			HasCacheHitPercentage: usage.HasCacheHitPercentage,
 		},
 		CompactionCount: engine.CompactionCount(),
-		Goal:            goalView,
+		Goal:            GoalFromSessionState(engine.Goal(), engine.GoalLoopSuspended()),
+	}
+}
+
+func GoalFromSessionState(goal *session.GoalState, suspended bool) *clientui.RuntimeGoal {
+	if goal == nil {
+		return nil
+	}
+	return &clientui.RuntimeGoal{
+		ID:        strings.TrimSpace(goal.ID),
+		Objective: goal.Objective,
+		Status:    clientui.RuntimeGoalStatus(strings.TrimSpace(string(goal.Status))),
+		Suspended: suspended,
 	}
 }
 
@@ -139,6 +141,9 @@ func EventFromRuntime(evt runtime.Event) clientui.Event {
 			HasCacheHitPercentage: evt.ContextUsage.HasCacheHitPercentage,
 		}
 	}
+	if evt.GoalStatus != nil {
+		view.GoalStatus = goalStatusUpdateFromRuntime(evt.GoalStatus)
+	}
 	if evt.Background != nil {
 		view.Background = &clientui.BackgroundShellEvent{
 			Type:              evt.Background.Type,
@@ -160,6 +165,20 @@ func EventFromRuntime(evt runtime.Event) clientui.Event {
 		}
 	}
 	return view
+}
+
+func goalStatusUpdateFromRuntime(update *runtime.GoalStatusUpdate) *clientui.RuntimeGoalStatusUpdate {
+	if update == nil {
+		return nil
+	}
+	if update.Cleared {
+		return &clientui.RuntimeGoalStatusUpdate{Cleared: true}
+	}
+	return &clientui.RuntimeGoalStatusUpdate{
+		ID:        strings.TrimSpace(update.State.ID),
+		Objective: update.State.Objective,
+		Status:    clientui.RuntimeGoalStatus(strings.TrimSpace(string(update.State.Status))),
+	}
 }
 
 func copyCacheWarningView(in *transcript.CacheWarning) *transcript.CacheWarning {

@@ -31,16 +31,16 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			return stepLoopResult{}, err
 		}
 
-		requestPlan, err := e.buildRequestPlan(ctx, stepID, true)
-		if err != nil {
-			return stepLoopResult{}, err
-		}
-		req := requestPlan.Request
-
-		resp, err := e.generateWithRetry(
+		resp, err := e.generateWithMissingToolOutputRepair(
 			ctx,
 			stepID,
-			req,
+			func() (llm.Request, error) {
+				requestPlan, buildErr := e.buildRequestPlan(ctx, stepID, true)
+				if buildErr != nil {
+					return llm.Request{}, buildErr
+				}
+				return requestPlan.Request, nil
+			},
 			func(delta string) {
 				_ = e.steer(stepID, steerAssistantDeltaIntent(delta))
 			},

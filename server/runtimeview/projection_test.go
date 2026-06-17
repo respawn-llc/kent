@@ -129,6 +129,71 @@ func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 	}
 }
 
+func TestEventFromRuntimeProjectsGoalStatusUpdated(t *testing.T) {
+	testCases := []struct {
+		name string
+		evt  runtime.Event
+		want *clientui.RuntimeGoalStatusUpdate
+	}{
+		{
+			name: "active",
+			evt: runtime.Event{
+				Kind: runtime.EventGoalStatusUpdated,
+				GoalStatus: &runtime.GoalStatusUpdate{State: session.GoalState{
+					ID:        " goal-1 ",
+					Objective: "ship feature",
+					Status:    session.GoalStatusActive,
+				}},
+			},
+			want: &clientui.RuntimeGoalStatusUpdate{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+		},
+		{
+			name: "paused",
+			evt: runtime.Event{
+				Kind: runtime.EventGoalStatusUpdated,
+				GoalStatus: &runtime.GoalStatusUpdate{State: session.GoalState{
+					ID:        "goal-1",
+					Objective: "ship feature",
+					Status:    session.GoalStatusPaused,
+				}},
+			},
+			want: &clientui.RuntimeGoalStatusUpdate{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused},
+		},
+		{
+			name: "complete",
+			evt: runtime.Event{
+				Kind: runtime.EventGoalStatusUpdated,
+				GoalStatus: &runtime.GoalStatusUpdate{State: session.GoalState{
+					ID:        "goal-1",
+					Objective: "ship feature",
+					Status:    session.GoalStatusComplete,
+				}},
+			},
+			want: &clientui.RuntimeGoalStatusUpdate{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+		},
+		{
+			name: "clear",
+			evt:  runtime.Event{Kind: runtime.EventGoalStatusUpdated, GoalStatus: &runtime.GoalStatusUpdate{Cleared: true}},
+			want: &clientui.RuntimeGoalStatusUpdate{Cleared: true},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := EventFromRuntime(tc.evt)
+			if view.Kind != clientui.EventGoalStatusUpdated {
+				t.Fatalf("kind = %q, want %q", view.Kind, clientui.EventGoalStatusUpdated)
+			}
+			if view.GoalStatus == nil {
+				t.Fatal("expected projected goal status payload")
+			}
+			if *view.GoalStatus != *tc.want {
+				t.Fatalf("goal status = %+v, want %+v", view.GoalStatus, tc.want)
+			}
+		})
+	}
+}
+
 func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
 	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), projectionFastClient{})
 	if _, err := engine.SetGoal("ship feature", session.GoalActorUser); err != nil {

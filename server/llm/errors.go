@@ -31,6 +31,10 @@ func IsContextLengthOverflowError(err error) bool {
 	return llmerrors.IsContextLengthOverflowError(err)
 }
 
+func HasHTTPStatus(err error, statusCode int) bool {
+	return llmerrors.HasHTTPStatus(err, statusCode)
+}
+
 func UserFacingError(err error) string {
 	return llmerrors.UserFacingError(err)
 }

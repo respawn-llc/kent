@@ -51,10 +51,11 @@ type Planner struct {
 }
 
 type SessionRequest struct {
-	Mode              Mode
-	SelectedSessionID string
-	ForceNewSession   bool
-	ParentSessionID   string
+	Mode                                Mode
+	SelectedSessionID                   string
+	ForceNewSession                     bool
+	ParentSessionID                     string
+	SkipContinuationAgentRoleValidation bool
 }
 
 type SessionPlan struct {
@@ -99,7 +100,10 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	}
 	active, source := baseActive, baseSource
 	if meta.Continuation != nil {
-		active, source = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil)
+		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation)
+		if err != nil {
+			return SessionPlan{}, err
+		}
 		if shouldApplyPersistedContinuationBaseURL(baseActive, continuationAgentRole) && continuationBaseURL != "" {
 			active.OpenAIBaseURL = continuationBaseURL
 		}
@@ -133,25 +137,22 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	}, nil
 }
 
-func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName string, allowModelOverride bool) (config.Settings, config.SourceReport) {
+func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {
-		return base, source
+		return base, source, nil
 	}
 	role, hasRole := base.Subagents[normalizedRole]
 	if !hasRole && normalizedRole != config.BuiltInSubagentRoleFast {
-		return base, source
+		return base, source, nil
 	}
-	resolved := cloneSettings(base)
 	providerSettings := cloneSettings(base)
 	applySubagentProviderOverrides(&providerSettings, role)
-	_ = applyBuiltInRoleHeuristics(&resolved, normalizedRole, persistedRoleProviderID(providerSettings), allowModelOverride)
-	applySubagentRoleOverrides(&resolved, role, allowModelOverride)
-	effectiveSource := sourceReportWithSubagentRoleSources(source, base, normalizedRole, allowModelOverride)
-	effectiveSources := cloneStringMap(effectiveSource.Sources)
-	applyReviewerInheritance(&resolved, effectiveSources)
-	effectiveSource.Sources = effectiveSources
-	return resolved, effectiveSource
+	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, normalizedRole, persistedRoleProviderID(providerSettings), allowModelOverride, validate)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, err
+	}
+	return resolved, effectiveSource, nil
 }
 
 func shouldApplyPersistedContinuationBaseURL(base config.Settings, roleName string) bool {
@@ -188,6 +189,12 @@ func persistedRoleProviderID(settings config.Settings) string {
 }
 
 func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOverrides, authState auth.State) (SessionPlan, []string, error) {
+	return applyRunPromptOverridesWithBudgetApplier(plan, overrides, authState, applyDerivedModelContextBudgetOverrides)
+}
+
+type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool)
+
+func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides serverapi.RunPromptOverrides, authState auth.State, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
 	if !overrides.HasAny() {
 		return plan, nil, nil
 	}
@@ -240,7 +247,7 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 		if value := strings.TrimSpace(overrides.OpenAIBaseURL); value != "" {
 			providerBase.OpenAIBaseURL = value
 		}
-		resolved, warning, err := resolveSubagentSettings(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked)
+		resolved, warning, err := resolveSubagentSettingsWithValidation(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked, !overrides.HasConfigOverrides())
 		if err != nil {
 			return SessionPlan{}, nil, err
 		}
@@ -291,7 +298,7 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 			explicitSources[key] = source
 		}
 		next.ActiveSettings.Model = loaded.Settings.Model
-		applyDerivedModelContextBudgetOverrides(&next.ActiveSettings, explicitSources, originalModel, true)
+		applyBudget(&next.ActiveSettings, explicitSources, originalModel, true)
 		next.ConfiguredModelName = loaded.Settings.Model
 	}
 	if strings.TrimSpace(overrides.ProviderOverride) != "" {
@@ -306,6 +313,16 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 	if overrides.ModelTimeoutSeconds > 0 {
 		next.ActiveSettings.Timeouts.ModelRequestSeconds = loaded.Settings.Timeouts.ModelRequestSeconds
 	}
+	if strings.TrimSpace(overrides.OpenAIBaseURL) != "" {
+		shouldPersistContinuation = true
+		next.ActiveSettings.OpenAIBaseURL = loaded.Settings.OpenAIBaseURL
+	}
+	next.Source = mergedSource
+	validated, err := validateRunPromptOverrideSettings(next.ActiveSettings, next.Source)
+	if err != nil {
+		return SessionPlan{}, nil, err
+	}
+	next.ActiveSettings = validated
 	if locked == nil {
 		if strings.TrimSpace(overrides.Tools) != "" {
 			next.ActiveSettings.EnabledTools = cloneEnabledToolSet(loaded.Settings.EnabledTools)
@@ -318,17 +335,22 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 			next.EnabledTools = enabledTools
 		}
 	}
-	if strings.TrimSpace(overrides.OpenAIBaseURL) != "" {
-		shouldPersistContinuation = true
-		next.ActiveSettings.OpenAIBaseURL = loaded.Settings.OpenAIBaseURL
-	}
-	next.Source = mergedSource
 	if shouldPersistContinuation {
 		if err := persistContinuation(); err != nil {
 			return SessionPlan{}, nil, err
 		}
 	}
 	return next, warnings, nil
+}
+
+func validateRunPromptOverrideSettings(settings config.Settings, source config.SourceReport) (config.Settings, error) {
+	validated := cloneSettings(settings)
+	sources := cloneStringMap(source.Sources)
+	applyReviewerInheritance(&validated, sources)
+	if err := config.ValidateSettingsWithSources(validated, sources); err != nil {
+		return config.Settings{}, err
+	}
+	return validated, nil
 }
 
 func mergeOverrideSources(base config.SourceReport, override config.SourceReport) config.SourceReport {
@@ -359,6 +381,9 @@ func sourceReportWithSubagentRoleSources(base config.SourceReport, settings conf
 	}
 	next := base
 	next.Sources = cloneStringMap(base.Sources)
+	if !allowModelOverride && strings.TrimSpace(next.Sources["model"]) == "default" {
+		next.Sources["model"] = "session"
+	}
 	for key := range role.Sources {
 		if key == "model" && !allowModelOverride {
 			continue

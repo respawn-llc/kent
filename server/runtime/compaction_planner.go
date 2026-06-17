@@ -132,18 +132,23 @@ func (p *compactionPlanner) soonReminderLimit(snapshot compactionPlanningSnapsho
 //
 // It measures currentUsedTokens (currentTokenUsage), the same source the
 // auto-compaction gates check, so "the forced gate let us through" and "the
-// estimate is below the forced limit" are the same measurement.
+// estimate is below the forced limit" are the same measurement. The forced gate
+// (usageAtOrAboveLimit) compares input + reservedOutput against the limit, so
+// the reserved output budget is subtracted here too; otherwise the runway would
+// promise tool calls whose tokens are already reserved for the model response.
 func (p *compactionPlanner) estimatedToolCallsUntilForcedHandoff(snapshot compactionPlanningSnapshot) int {
 	forcedLimit := p.autoCompactTokenLimit(snapshot)
-	remaining := forcedLimit - snapshot.currentUsedTokens
+	reservedOutput := p.reservedOutputTokens(snapshot)
+	remaining := forcedLimit - reservedOutput - snapshot.currentUsedTokens
 	if remaining <= 0 {
 		// The soon-reminder is gated behind the same usage-vs-forced-limit check that triggers forced
-		// compaction, so by the time this estimate is computed consumed tokens are always strictly
-		// below the forced limit. Reaching here means forced compaction failed to precede the reminder:
-		// an unreachable-state invariant violation, not a value to clamp away.
+		// compaction, which already accounts for reservedOutput, so by the time this estimate is computed
+		// consumed tokens plus the reservation are always strictly below the forced limit. Reaching here
+		// means forced compaction failed to precede the reminder: an unreachable-state invariant
+		// violation, not a value to clamp away.
 		panic(fmt.Sprintf(
-			"compaction soon reminder estimate computed with consumed tokens %d at or above forced compaction limit %d; forced compaction must precede the reminder",
-			snapshot.currentUsedTokens, forcedLimit,
+			"compaction soon reminder estimate computed with consumed tokens %d plus reserved output %d at or above forced compaction limit %d; forced compaction must precede the reminder",
+			snapshot.currentUsedTokens, reservedOutput, forcedLimit,
 		))
 	}
 	return compaction.EstimatedToolCallsForTokenBudget(remaining)

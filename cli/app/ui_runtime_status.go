@@ -7,6 +7,15 @@ import (
 	"core/shared/clientui"
 )
 
+type statusLineIndicator uint8
+
+const (
+	statusLineIndicatorActivity statusLineIndicator = iota
+	statusLineIndicatorReviewer
+	statusLineIndicatorCompaction
+	statusLineIndicatorGoal
+)
+
 func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {
 	if m == nil {
 		return
@@ -92,6 +101,22 @@ func (m *uiModel) cachedRuntimeStatus() clientui.RuntimeStatus {
 	return status
 }
 
+func (m *uiModel) statusLineIndicator() statusLineIndicator {
+	if m == nil {
+		return statusLineIndicatorActivity
+	}
+	if m.isReviewerRunning() {
+		return statusLineIndicatorReviewer
+	}
+	if m.isCompacting() {
+		return statusLineIndicatorCompaction
+	}
+	if goalIsActive(m.cachedRuntimeStatus().Goal) {
+		return statusLineIndicatorGoal
+	}
+	return statusLineIndicatorActivity
+}
+
 func (m *uiModel) refreshRuntimeStatus() clientui.RuntimeStatus {
 	m.checkTUIBlockingOperation("runtime status refresh", "RefreshMainView")
 	view := m.refreshRuntimeMainView()
@@ -103,10 +128,12 @@ func (m *uiModel) refreshRuntimeStatus() clientui.RuntimeStatus {
 }
 
 func (m *uiModel) applyRuntimeEventStatus(evt clientui.Event) {
-	if m == nil || evt.ContextUsage == nil {
+	if m == nil || (evt.ContextUsage == nil && evt.GoalStatus == nil) {
 		return
 	}
-	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), *evt.ContextUsage)
+	if evt.ContextUsage != nil {
+		m.setRuntimeContextUsage(m.currentRuntimeSessionID(), *evt.ContextUsage)
+	}
 	if observer, ok := m.runtimeClient().(interface{ observeRuntimeEventStatus(clientui.Event) }); ok {
 		observer.observeRuntimeEventStatus(evt)
 	}

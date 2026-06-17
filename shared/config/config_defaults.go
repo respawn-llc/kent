@@ -14,6 +14,7 @@ const (
 	defaultModelVerbosity                = ModelVerbosityMedium
 	defaultTheme                         = theme.Auto
 	defaultModelContextWindow            = 272_000
+	minimumModelContextWindow            = 40_000
 	defaultModelTimeoutSeconds           = 400
 	defaultMinimumExecToBgSec            = 15
 	defaultShellOutputMaxChars           = 16_000

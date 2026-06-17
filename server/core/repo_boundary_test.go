@@ -94,6 +94,7 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"RuntimeConnectionLifecycle":       {},
 		"RuntimeContextUsage":              {},
 		"RuntimeGoal":                      {},
+		"RuntimeGoalStatusUpdate":          {},
 		"RuntimeGoalStatus":                {},
 		"RuntimeMainView":                  {},
 		"RuntimeSessionView":               {},

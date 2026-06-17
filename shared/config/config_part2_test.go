@@ -121,7 +121,7 @@ supports_prompt_cache_key = true
 	}
 
 	t.Setenv("KENT_REVIEWER_MODEL_VERBOSITY", "medium")
-	t.Setenv("KENT_REVIEWER_MODEL_CONTEXT_WINDOW", "32000")
+	t.Setenv("KENT_REVIEWER_MODEL_CONTEXT_WINDOW", "48000")
 	t.Setenv("KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT", "false")
 	t.Setenv("KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS", "false")
 	t.Setenv("KENT_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID", "env-reviewer")
@@ -131,8 +131,8 @@ supports_prompt_cache_key = true
 	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityMedium {
 		t.Fatalf("expected env reviewer.model_verbosity=medium, got %q", cfg.Settings.Reviewer.ModelVerbosity)
 	}
-	if cfg.Settings.Reviewer.ModelContextWindow != 32000 {
-		t.Fatalf("expected env reviewer.model_context_window=32000, got %d", cfg.Settings.Reviewer.ModelContextWindow)
+	if cfg.Settings.Reviewer.ModelContextWindow != 48000 {
+		t.Fatalf("expected env reviewer.model_context_window=48000, got %d", cfg.Settings.Reviewer.ModelContextWindow)
 	}
 	if cfg.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort || cfg.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
 		t.Fatalf("expected env reviewer model capability overrides to disable file values, got %+v", cfg.Settings.Reviewer.ModelCapabilities)
@@ -214,6 +214,30 @@ model_context_window = -1
 	}
 	if !errors.Is(err, errReviewerContextWindowNegative) {
 		t.Fatalf("expected reviewer.model_context_window validation error, got %v", err)
+	}
+}
+
+func TestLoadReviewerModelContextWindowRejectsBelowMinimum(t *testing.T) {
+	err := loadConfigTestFileError(t, `[reviewer]
+model_context_window = 39999
+`, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected reviewer.model_context_window below minimum to fail")
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
+func TestLoadReviewerModelContextWindowRejectsExplicitZero(t *testing.T) {
+	err := loadConfigTestFileError(t, `[reviewer]
+model_context_window = 0
+`, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected explicit reviewer.model_context_window=0 to fail")
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
 	}
 }
 
@@ -352,6 +376,7 @@ func TestNormalizeSettingsForPersistencePreservesReviewerCapabilityFalseWithoutS
 func TestValidateSettingsWithSourcesAllowsSubagentReviewerAnthropicOverride(t *testing.T) {
 	settings := configRegistry.defaultState().Settings
 	settings.Reviewer.Model = settings.Model
+	settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
 	settings.Reviewer.ProviderOverride = "anthropic"
 
 	sources := configRegistry.defaultSourceMap()

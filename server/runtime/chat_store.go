@@ -333,6 +333,43 @@ func (s *chatStore) snapshotProviderItemsLocked() []llm.ResponseItem {
 	return out
 }
 
+// danglingToolCalls reports tool calls in the current provider-bound item
+// sequence that have no accompanying output (neither a materialized tool message
+// nor a recorded completion). These are exactly the calls a provider rejects
+// with HTTP 400 because every tool call must be followed by its output.
+func (s *chatStore) danglingToolCalls() []danglingToolCall {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := s.providerItemsSourceLocked()
+	materialized := collectMaterializedToolCalls(items)
+	seen := make(map[string]struct{})
+	out := make([]danglingToolCall, 0)
+	for _, item := range items {
+		if !isToolCallItem(item.Type) {
+			continue
+		}
+		callID := strings.TrimSpace(item.CallID)
+		if callID == "" {
+			callID = strings.TrimSpace(item.ID)
+		}
+		if callID == "" {
+			continue
+		}
+		if _, ok := seen[callID]; ok {
+			continue
+		}
+		if _, ok := materialized[callID]; ok {
+			continue
+		}
+		if _, ok := s.toolCompletions[callID]; ok {
+			continue
+		}
+		seen[callID] = struct{}{}
+		out = append(out, danglingToolCall{callID: callID, name: strings.TrimSpace(item.Name)})
+	}
+	return out
+}
+
 func isToolCallItem(itemType llm.ResponseItemType) bool {
 	return itemType == llm.ResponseItemTypeFunctionCall || itemType == llm.ResponseItemTypeCustomToolCall
 }

@@ -34,6 +34,7 @@ const (
 	EventRunStateChanged     EventKind = "run_state_changed"
 	EventBackgroundUpdated   EventKind = "background_updated"
 	EventSleepGuardFailed    EventKind = "sleep_guard_failed"
+	EventGoalStatusUpdated   EventKind = "goal_status_updated"
 
 	TranscriptRecoveryCauseNone         TranscriptRecoveryCause = ""
 	TranscriptRecoveryCauseStreamGap    TranscriptRecoveryCause = "stream_gap"
@@ -63,6 +64,14 @@ type Event struct {
 	RunState                     *RunState
 	ContextUsage                 *RuntimeContextUsage
 	Background                   *BackgroundShellEvent
+	GoalStatus                   *RuntimeGoalStatusUpdate
+}
+
+type RuntimeGoalStatusUpdate struct {
+	ID        string
+	Objective string
+	Status    RuntimeGoalStatus
+	Cleared   bool
 }
 
 type CompactionStatus struct {
