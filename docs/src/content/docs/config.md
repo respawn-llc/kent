@@ -132,7 +132,7 @@ verbose_output = false # show in ongoing transcript
 | `openai_base_url` | string | `""` | `KENT_OPENAI_BASE_URL` | `kent run --openai-base-url` | OpenAI-compatible base URL. Must be used with `provider_override=openai` or with no explicit provider override. Cannot be changed mid-session. |
 | `store` | bool | `false` | `KENT_STORE` |  | Sets OpenAI Responses `store=true` for main model requests. |
 | `allow_non_cwd_edits` | bool | `false` | `KENT_ALLOW_NON_CWD_EDITS` |  | Lets first-class file edit tools edit files outside the workspace root. This is not sandboxing - model can still bypass this easily. |
-| `model_context_window` | int | `272000` | `KENT_MODEL_CONTEXT_WINDOW` |  | Explicit context-window size used for compaction and token accounting. Must be `> 0`. |
+| `model_context_window` | int | `272000` | `KENT_MODEL_CONTEXT_WINDOW` |  | Explicit context-window size used for compaction and token accounting. Must be at least `40000`. |
 | `context_compaction_threshold_tokens` | int | `258400` | `KENT_CONTEXT_COMPACTION_THRESHOLD_TOKENS` |  | Auto-compaction threshold. Must be `> 0`, `< model_context_window`, and at least `50%` of `model_context_window`. The default is derived from the default context window. |
 | `pre_submit_compaction_lead_tokens` | int | `35000` | `KENT_PRE_SUBMIT_COMPACTION_LEAD_TOKENS` |  | Fixed pre-submit runway reserve before auto-compaction. Kent compacts before sending the next user prompt once (`context_compaction_threshold_tokens` - this threshold) is reached. |
 | `minimum_exec_to_bg_seconds` | int | `15` | `KENT_MINIMUM_EXEC_TO_BG_SECONDS` |  | Default floor for `exec_command` yield time before it moves to background and lets Kent manage it asynchronously. Must be `> 0`. Use if model frequently expects your commands to complete fast, they background, and force model to poll for them. |
@@ -164,7 +164,7 @@ Configure the supervisor agent that oversees model changes.
 | `reviewer.provider_override` | string | inherits `provider_override` | `KENT_REVIEWER_PROVIDER_OVERRIDE` | Forces provider family for the reviewer model. Allowed: `openai`, `anthropic`. |
 | `reviewer.openai_base_url` | string | inherits `openai_base_url` for OpenAI-family reviewer providers | `KENT_REVIEWER_OPENAI_BASE_URL` | OpenAI-compatible base URL for the reviewer model. Non-OpenAI endpoints can run without Kent auth when the server accepts anonymous requests. |
 | `reviewer.auth` | string | `inherit` | `KENT_REVIEWER_AUTH` | Reviewer auth policy. `inherit` uses Kent's configured auth. `none` sends no `Authorization` header; providers that require auth return their normal runtime error. |
-| `reviewer.model_context_window` | int | inherits `model_context_window` | `KENT_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. |
+| `reviewer.model_context_window` | int | inherits `model_context_window` | `KENT_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. The effective value must be at least `40000`. |
 | `reviewer.system_prompt_file` | string | `""` |  | Path to a custom supervisor system prompt file. Relative paths resolve from the config file directory. Workspace config overrides global config; no CLI or environment override is provided. |
 | `reviewer.timeout_seconds` | int | `60` | `KENT_REVIEWER_TIMEOUT_SECONDS` | Reviewer HTTP timeout. Must be `> 0`. |
 | `reviewer.verbose_output` | bool | `false` | `KENT_REVIEWER_VERBOSE_OUTPUT` | Controls whether reviewer suggestion text is shown at all. When `false`, Kent only shows the concise reviewer result/status line. When `true`, Kent shows the full suggestion list at the moment the reviewer issues it, and the later reviewer status stays concise after the follow-up is applied or ignored. |
@@ -240,6 +240,7 @@ Notes:
 `[subagents.<role>]` is a file-only table for named headless subagent roles. Fast is always-present, but you can add custom agents here.
 
 Subagent roles inherit the main config and then override only the keys set in that role table.
+Any effective main or reviewer context window used by a subagent role must be at least `40000`.
 Set `system_prompt_file` inside a subagent role to use a role-specific main system prompt for `kent run --agent <role>`.
 Set `description` to describe a behaviorally distinct role to other agents. Set `agent_callable = false` for roles that humans may run explicitly but agents should not call from Kent sessions.
 
