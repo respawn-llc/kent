@@ -2,10 +2,9 @@ package app
 
 import (
 	"context"
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
 	"core/server/auth"
-	"core/server/authbootstrap"
-	serverembedded "core/server/embedded"
+	"core/server/authservice"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/projectview"
@@ -13,12 +12,13 @@ import (
 	"core/server/runtime"
 	"core/server/runtimecontrol"
 	"core/server/sessionlaunch"
-	"core/server/sessionlifecycle"
+	"core/server/sessionservice"
+	serverstartup "core/server/startup"
 	shelltool "core/server/tools/shell"
+	rpccontract "core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/rpccontract"
 	"core/shared/serverapi"
 	"errors"
 	"io"
@@ -37,7 +37,7 @@ type testEmbeddedServer struct {
 	authManager          *auth.Manager
 	fastModeState        *runtime.FastModeState
 	background           *shelltool.Manager
-	backgroundRouter     serverembedded.BackgroundRouter
+	backgroundRouter     serverstartup.BackgroundRouter
 	runPromptClient      client.RunPromptClient
 	projectID            string
 	boundWorkspaceID     string
@@ -265,8 +265,8 @@ func (s *testEmbeddedServer) OAuthOptions() auth.OpenAIOAuthOptions { return s.o
 
 func (s *testEmbeddedServer) AuthManager() *auth.Manager { return s.authManager }
 
-func (s *testEmbeddedServer) AuthStateResolver() statuscollect.AuthStateResolver {
-	return statuscollect.NormalizeAuthStateResolver(s.authManager)
+func (s *testEmbeddedServer) AuthStateResolver() status.AuthStateResolver {
+	return status.NormalizeAuthStateResolver(s.authManager)
 }
 
 func (s *testEmbeddedServer) AuthStatePath() string {
@@ -284,7 +284,7 @@ func (s *testEmbeddedServer) FastModeState() *runtime.FastModeState { return s.f
 
 func (s *testEmbeddedServer) Background() *shelltool.Manager { return s.background }
 
-func (s *testEmbeddedServer) BackgroundRouter() serverembedded.BackgroundRouter {
+func (s *testEmbeddedServer) BackgroundRouter() serverstartup.BackgroundRouter {
 	return s.backgroundRouter
 }
 
@@ -342,7 +342,7 @@ func (s *testEmbeddedServer) SessionLifecycleClient() client.SessionLifecycleCli
 		return s.sessionLifecycle
 	}
 	if metadataStore, binding, ok := s.metadataBinding(); ok {
-		service := sessionlifecycle.NewService(
+		service := sessionservice.NewSessionLifecycleService(
 			config.ProjectSessionsRoot(s.cfg, binding.ProjectID),
 			s.sessionStoreRegistry(),
 			s.authManager,
@@ -358,7 +358,7 @@ func (s *testEmbeddedServer) SessionLifecycleClient() client.SessionLifecycleCli
 		}
 		containerDir = config.ProjectSessionsRoot(s.cfg, projectID)
 	}
-	service := sessionlifecycle.NewService(containerDir, s.sessionStoreRegistry(), s.authManager).WithPersistenceRoot(s.cfg.PersistenceRoot).WithControllerLeaseVerifier(noopEmbeddedSessionLifecycleLeaseVerifier{})
+	service := sessionservice.NewSessionLifecycleService(containerDir, s.sessionStoreRegistry(), s.authManager).WithPersistenceRoot(s.cfg.PersistenceRoot).WithControllerLeaseVerifier(noopEmbeddedSessionLifecycleLeaseVerifier{})
 	return client.NewLoopbackSessionLifecycleClient(service)
 }
 
@@ -402,7 +402,7 @@ func (s *testEmbeddedServer) Reauthenticate(ctx context.Context, interactor auth
 	if s.reauthenticate != nil {
 		return s.reauthenticate(ctx, interactor)
 	}
-	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
+	service := authservice.NewBootstrapService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
 	remote := client.NewLoopbackAuthBootstrapClient(service)
 	status, err := remote.GetAuthBootstrapStatus(ctx, serverapi.AuthGetBootstrapStatusRequest{})
 	if err != nil {
@@ -415,7 +415,7 @@ func (s *testEmbeddedServer) Reauthenticate(ctx context.Context, interactor auth
 }
 
 func (s *testEmbeddedServer) EnsureAuthReady(ctx context.Context, interactor authInteractor, interactiveAuth bool) error {
-	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
+	service := authservice.NewBootstrapService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
 	return ensureRemoteAuthReady(ctx, client.NewLoopbackAuthBootstrapClient(service), s.cfg.Settings, interactor, interactiveAuth)
 }
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"core/server/tools/shell/shellenv"
+	"core/server/tools"
 	"core/shared/toolspec"
 )
 
@@ -72,7 +72,7 @@ func (p userHookProcessor) Process(ctx context.Context, envelope Envelope) (Deci
 	defer cancel()
 
 	cmd := exec.CommandContext(timeoutCtx, hookPath)
-	cmd.Env = shellenv.EnrichForSession(os.Environ(), req.OwnerSessionID)
+	cmd.Env = tools.EnrichShellEnvForSession(os.Environ(), req.OwnerSessionID)
 	cmd.Stdin = bytes.NewReader(payload)
 	stdout := newLimitedBuffer(maxHookOutputBytes)
 	stderr := newLimitedBuffer(maxHookOutputBytes)

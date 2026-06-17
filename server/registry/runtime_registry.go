@@ -10,7 +10,7 @@ import (
 	"core/server/primaryrun"
 	"core/server/runtime"
 	"core/server/runtimeview"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/shared/serverapi"
 )
 
@@ -172,7 +172,7 @@ func (r *RuntimeRegistry) SubscribePromptActivityFrom(_ context.Context, req ser
 	}}, nil
 }
 
-func (r *RuntimeRegistry) BeginPendingPrompt(sessionID string, req askquestion.Request) {
+func (r *RuntimeRegistry) BeginPendingPrompt(sessionID string, req askquestion.AskQuestionRequest) {
 	if r == nil {
 		return
 	}
@@ -214,21 +214,21 @@ func (r *RuntimeRegistry) ListPendingPrompts(sessionID string) []PendingPromptSn
 	return entry.pendingPrompts.List()
 }
 
-func (r *RuntimeRegistry) AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.Request) (askquestion.Response, error) {
+func (r *RuntimeRegistry) AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 	if r == nil {
-		return askquestion.Response{}, fmt.Errorf("runtime registry is required")
+		return askquestion.AskQuestionResponse{}, fmt.Errorf("runtime registry is required")
 	}
 	id := strings.TrimSpace(sessionID)
 	entry := r.directory.Entry(id)
 	if entry == nil {
-		return askquestion.Response{}, fmt.Errorf("runtime %q is unavailable", id)
+		return askquestion.AskQuestionResponse{}, fmt.Errorf("runtime %q is unavailable", id)
 	}
 	return entry.pendingPrompts.Await(ctx, req, func(snapshot PendingPromptSnapshot, eventType pendingPromptEventType) {
 		entry.PublishPendingPrompt(id, snapshot, eventType)
 	})
 }
 
-func (r *RuntimeRegistry) SubmitPromptResponse(sessionID string, resp askquestion.Response, err error) error {
+func (r *RuntimeRegistry) SubmitPromptResponse(sessionID string, resp askquestion.AskQuestionResponse, err error) error {
 	if r == nil {
 		return fmt.Errorf("runtime registry is required")
 	}

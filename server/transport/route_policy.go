@@ -11,9 +11,9 @@ import (
 
 	"core/server/auth"
 	"core/server/session"
+	rpccontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protocol"
-	"core/shared/rpccontract"
 	"core/shared/serverapi"
 )
 

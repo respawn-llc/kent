@@ -18,7 +18,7 @@ type ProcessSource interface {
 	InlineOutput(id string, maxChars int) (string, string, error)
 }
 
-type Service struct {
+type ProcessViewService struct {
 	processes ProcessSource
 	kills     *requestmemo.Memo[killRequestMemoRequest, serverapi.ProcessKillResponse]
 }
@@ -27,11 +27,11 @@ type killRequestMemoRequest struct {
 	ProcessID string
 }
 
-func NewService(processes ProcessSource) *Service {
-	return &Service{processes: processes, kills: requestmemo.New[killRequestMemoRequest, serverapi.ProcessKillResponse]()}
+func NewProcessViewService(processes ProcessSource) *ProcessViewService {
+	return &ProcessViewService{processes: processes, kills: requestmemo.New[killRequestMemoRequest, serverapi.ProcessKillResponse]()}
 }
 
-func (s *Service) ListProcesses(_ context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
+func (s *ProcessViewService) ListProcesses(_ context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
 	if s == nil || s.processes == nil {
 		return serverapi.ProcessListResponse{}, fmt.Errorf("process source is required")
 	}
@@ -51,7 +51,7 @@ func (s *Service) ListProcesses(_ context.Context, req serverapi.ProcessListRequ
 	return serverapi.ProcessListResponse{Processes: processes}, nil
 }
 
-func (s *Service) GetProcess(_ context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
+func (s *ProcessViewService) GetProcess(_ context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.ProcessGetResponse{}, err
 	}
@@ -66,7 +66,7 @@ func (s *Service) GetProcess(_ context.Context, req serverapi.ProcessGetRequest)
 	return serverapi.ProcessGetResponse{Process: &process}, nil
 }
 
-func (s *Service) KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
+func (s *ProcessViewService) KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.ProcessKillResponse{}, err
 	}
@@ -82,7 +82,7 @@ func (s *Service) KillProcess(ctx context.Context, req serverapi.ProcessKillRequ
 	})
 }
 
-func (s *Service) GetInlineOutput(_ context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
+func (s *ProcessViewService) GetInlineOutput(_ context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.ProcessInlineOutputResponse{}, err
 	}

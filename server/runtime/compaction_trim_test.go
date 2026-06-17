@@ -11,8 +11,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *testing.T) {
@@ -79,7 +79,7 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 	if got, want := request.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
-	if got, want := request.PromptCacheScope, cachewarn.ScopeConversation; got != want {
+	if got, want := request.PromptCacheScope, transcript.CacheWarningScopeConversation; got != want {
 		t.Fatalf("PromptCacheScope = %q, want %q", got, want)
 	}
 }
@@ -219,7 +219,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t
 	if len(warnings) != 1 {
 		t.Fatalf("expected one cache warning for repaired overflow retry, got %+v", warnings)
 	}
-	if got, want := warnings[0].Reason, cachewarn.ReasonNonPostfix; got != want {
+	if got, want := warnings[0].Reason, transcript.CacheWarningReasonNonPostfix; got != want {
 		t.Fatalf("warning reason = %q, want %q", got, want)
 	}
 	if got, want := warnings[0].CacheKey, conversationPromptCacheKey(store.Meta().SessionID, 0); got != want {

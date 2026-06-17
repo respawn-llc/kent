@@ -4,8 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/app/internal/worktreecreateform"
-	"core/cli/app/internal/worktreecreateresolve"
+	"core/cli/app/internal/worktreeui"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,7 +36,7 @@ func (d *uiWorktreeCreateDialogState) moveFocus(delta int) {
 	if d == nil {
 		return
 	}
-	d.focus = worktreecreateform.MoveField(d.focus, d.resolution.Kind, delta)
+	d.focus = worktreeui.MoveField(d.focus, d.resolution.Kind, delta)
 	if d.focus == uiWorktreeCreateFieldBranchTarget {
 		d.branchTarget.SetCursor(len(d.branchTarget.Text()))
 	}
@@ -50,11 +49,11 @@ func (d *uiWorktreeCreateDialogState) moveAction(delta int) {
 	if d == nil {
 		return
 	}
-	d.action = worktreecreateform.MoveAction(d.action, delta)
+	d.action = worktreeui.MoveCreateFormAction(d.action, delta)
 }
 
-func (d uiWorktreeCreateDialogState) resolveState() worktreecreateresolve.State {
-	return worktreecreateresolve.State{
+func (d uiWorktreeCreateDialogState) resolveState() worktreeui.State {
+	return worktreeui.State{
 		ErrorText:     d.errorText,
 		Resolving:     d.resolving,
 		SubmitPending: d.submitPending,
@@ -63,7 +62,7 @@ func (d uiWorktreeCreateDialogState) resolveState() worktreecreateresolve.State 
 	}
 }
 
-func (d *uiWorktreeCreateDialogState) applyResolveState(state worktreecreateresolve.State) {
+func (d *uiWorktreeCreateDialogState) applyResolveState(state worktreeui.State) {
 	if d == nil {
 		return
 	}
@@ -75,11 +74,11 @@ func (d *uiWorktreeCreateDialogState) applyResolveState(state worktreecreatereso
 	d.syncFocus()
 }
 
-func (d *uiWorktreeCreateDialogState) beginResolveSubmit(query string) (worktreecreateresolve.BeginSubmitOutcome, bool) {
+func (d *uiWorktreeCreateDialogState) beginResolveSubmit(query string) (worktreeui.BeginSubmitOutcome, bool) {
 	if d == nil {
-		return worktreecreateresolve.BeginSubmitOutcome{}, false
+		return worktreeui.BeginSubmitOutcome{}, false
 	}
-	state, outcome, err := worktreecreateresolve.BeginSubmit(d.resolveState(), query)
+	state, outcome, err := worktreeui.BeginSubmit(d.resolveState(), query)
 	d.applyResolveState(state)
 	return outcome, err == nil
 }
@@ -90,7 +89,7 @@ func (m *uiModel) scheduleWorktreeCreateTargetResolution() tea.Cmd {
 	}
 	dialog := &m.worktrees.create
 	query := strings.TrimSpace(dialog.branchTarget.Text())
-	state, outcome := worktreecreateresolve.Schedule(dialog.resolveState(), query)
+	state, outcome := worktreeui.Schedule(dialog.resolveState(), query)
 	dialog.applyResolveState(state)
 	if !outcome.Debounce {
 		return nil

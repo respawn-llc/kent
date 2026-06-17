@@ -1,6 +1,9 @@
 package tools
 
 import (
+	"core/shared/toolspec"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -10,11 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"core/server/tools/shellcmd"
-	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
 )
 
 var sedPrintRangePattern = regexp.MustCompile(`^\d+(?:,\d+)?p$`)
@@ -481,12 +479,12 @@ func parseEditToolCallPath(raw json.RawMessage) string {
 
 func detectShellRenderHint(ctx ToolCallContext, toolID toolspec.ID, raw json.RawMessage, command string) *transcript.ToolRenderHint {
 	defaultHint := &transcript.ToolRenderHint{Kind: transcript.ToolRenderKindShell, ShellDialect: detectToolShellDialect(ctx, toolID, raw)}
-	args, ok := shellcmd.ParseSimpleCommand(command)
+	args, ok := ParseSimpleShellCommand(command)
 	if !ok || len(args) == 0 {
 		return defaultHint
 	}
 
-	name := shellcmd.NormalizeCommandName(args[0])
+	name := NormalizeShellCommandName(args[0])
 	switch name {
 	case "cat":
 		filePath, ok := parseCatFileArg(args)

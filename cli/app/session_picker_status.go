@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -21,7 +21,7 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 	if !sessionPickerStatusRequestUseful(req, header.AuthManager) {
 		return nil
 	}
-	authManager := statuscollect.NormalizeAuthStateResolver(header.AuthManager)
+	authManager := status.NormalizeAuthStateResolver(header.AuthManager)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()
@@ -29,7 +29,7 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 		collector := defaultUIStatusCollector{authManager: authManager}.adapter()
 		base := collector.CollectBase(req)
 		gitResult := collector.CollectGit(ctx, req, base)
-		authInfo := statuscollect.FastAuthInfo(ctx, authManager, req.Settings)
+		authInfo := status.FastAuthInfo(ctx, authManager, req.Settings)
 		if authManager == nil && req.AuthStatus != nil {
 			authInfo = collector.CollectAuth(ctx, req, base).Auth
 		}
@@ -44,13 +44,13 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 		return sessionPickerStatusMsg{
 			cwd:    statusDisplayPath(base.Workdir, ""),
 			branch: branch,
-			auth:   statuscollect.AuthDisplayLabel(authInfo),
+			auth:   status.AuthDisplayLabel(authInfo),
 			model:  strings.TrimSpace(base.Model.Summary),
 		}
 	}
 }
 
-func sessionPickerStatusRequestUseful(req uiStatusRequest, authManager statuscollect.AuthStateResolver) bool {
+func sessionPickerStatusRequestUseful(req uiStatusRequest, authManager status.AuthStateResolver) bool {
 	if strings.TrimSpace(req.WorkspaceRoot) != "" {
 		return true
 	}
@@ -63,5 +63,5 @@ func sessionPickerStatusRequestUseful(req uiStatusRequest, authManager statuscol
 	if req.AuthStatus != nil {
 		return true
 	}
-	return statuscollect.NormalizeAuthStateResolver(authManager) != nil
+	return status.NormalizeAuthStateResolver(authManager) != nil
 }

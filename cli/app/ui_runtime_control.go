@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"core/cli/app/internal/submissionerror"
+	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -381,7 +381,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		m.clearRuntimeControlPending(msg.operation)
-		errText := submissionerror.Format(msg.err)
+		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
 			m.appendLocalEntryWithNoticeID("error", errText, ""),
 			m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),

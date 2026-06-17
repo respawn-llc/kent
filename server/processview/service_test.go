@@ -66,7 +66,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 type processViewFixture struct {
 	manager *shelltool.Manager
 	tool    tools.Handler
-	service *Service
+	service *ProcessViewService
 }
 
 func newProcessViewFixture(t *testing.T) processViewFixture {
@@ -79,7 +79,7 @@ func newProcessViewFixture(t *testing.T) processViewFixture {
 
 	workspace := t.TempDir()
 	tool := shelltool.NewExecCommandTool(workspace, 16_000, manager, "session-1")
-	return processViewFixture{manager: manager, tool: tool, service: NewService(manager)}
+	return processViewFixture{manager: manager, tool: tool, service: NewProcessViewService(manager)}
 }
 
 func (f processViewFixture) startCommand(t *testing.T, id string, command string, runID string, stepID string) tools.Result {
@@ -164,7 +164,7 @@ func TestServiceKillProcessRequiresClientRequestID(t *testing.T) {
 
 func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
 	source := &stubKillProcessSource{}
-	svc := NewService(source)
+	svc := NewProcessViewService(source)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := svc.KillProcess(ctx, serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "1000"}); err != context.Canceled {
@@ -177,7 +177,7 @@ func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
 
 func TestServiceKillProcessDedupesSuccessfulRetry(t *testing.T) {
 	source := &stubKillProcessSource{}
-	svc := NewService(source)
+	svc := NewProcessViewService(source)
 	req := serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "1000"}
 
 	if _, err := svc.KillProcess(context.Background(), req); err != nil {
@@ -194,7 +194,7 @@ func TestServiceKillProcessDedupesSuccessfulRetry(t *testing.T) {
 
 func TestServiceKillProcessRejectsRequestIDPayloadMismatch(t *testing.T) {
 	source := &stubKillProcessSource{}
-	svc := NewService(source)
+	svc := NewProcessViewService(source)
 
 	if _, err := svc.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "1000"}); err != nil {
 		t.Fatalf("KillProcess first: %v", err)

@@ -3,8 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/worktreeselection"
-	"core/cli/app/internal/worktreeviewport"
+	"core/cli/app/internal/worktreeui"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,25 +13,25 @@ func (m *uiModel) worktreeRowCount() int {
 	if m == nil {
 		return 1
 	}
-	return worktreeselection.RowCount(m.worktrees.entries)
+	return worktreeui.RowCount(m.worktrees.entries)
 }
 
 func (m *uiModel) clampWorktreeSelection() {
 	if m == nil {
 		return
 	}
-	m.worktrees.selection = worktreeselection.Clamp(m.worktrees.selection, m.worktrees.entries)
+	m.worktrees.selection = worktreeui.Clamp(m.worktrees.selection, m.worktrees.entries)
 }
 
 func (m *uiModel) moveWorktreeSelection(delta int) {
 	if m == nil {
 		return
 	}
-	m.worktrees.selection = worktreeselection.Clamp(m.worktrees.selection+delta, m.worktrees.entries)
+	m.worktrees.selection = worktreeui.Clamp(m.worktrees.selection+delta, m.worktrees.entries)
 }
 
 func (m *uiModel) moveWorktreeSelectionPage(deltaPages int) {
-	rows := worktreeviewport.RowsPerPage(m.termHeight, worktreeOverlayHeaderLines, worktreeOverlayFooterLines, worktreeOverlayRowLines)
+	rows := worktreeui.RowsPerPage(m.termHeight, worktreeOverlayHeaderLines, worktreeOverlayFooterLines, worktreeOverlayRowLines)
 	m.moveWorktreeSelection(rows * deltaPages)
 }
 
@@ -54,14 +53,14 @@ func (m *uiModel) selectedWorktreeRow() (serverapi.WorktreeView, bool) {
 	if m == nil {
 		return serverapi.WorktreeView{}, false
 	}
-	return worktreeselection.SelectedWorktree(m.worktrees.entries, m.worktrees.selection)
+	return worktreeui.SelectedWorktree(m.worktrees.entries, m.worktrees.selection)
 }
 
 func (m *uiModel) selectedWorktreeID() string {
 	if m == nil {
 		return worktreeCreateRowID
 	}
-	return worktreeselection.SelectedID(m.worktrees.entries, m.worktrees.selection)
+	return worktreeui.SelectedID(m.worktrees.entries, m.worktrees.selection)
 }
 
 func (m *uiModel) recordWorktreeSelection() {
@@ -75,7 +74,7 @@ func (m *uiModel) restoreWorktreeSelection() {
 	if m == nil {
 		return
 	}
-	m.worktrees.selection = worktreeselection.Restore(m.worktrees.entries, m.worktrees.selection, m.worktrees.selectedID)
+	m.worktrees.selection = worktreeui.Restore(m.worktrees.entries, m.worktrees.selection, m.worktrees.selectedID)
 }
 
 func (c uiInputController) startWorktreeOverlayCmd(intent uiWorktreeOpenIntent) tea.Cmd {

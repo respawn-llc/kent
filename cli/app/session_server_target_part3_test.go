@@ -2,9 +2,8 @@ package app
 
 import (
 	"context"
-	"core/server/serve"
 	serverstartup "core/server/startup"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -25,7 +24,7 @@ import (
 func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersistence(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -75,7 +74,7 @@ func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersisten
 func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -104,16 +103,16 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 
 	askDone := make(chan error, 1)
 	go func() {
-		_, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{ID: "ask-remote-1", Question: "Ask?"})
+		_, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{ID: "ask-remote-1", Question: "Ask?"})
 		askDone <- err
 	}()
 	approvalDone := make(chan error, 1)
 	go func() {
-		_, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{
+		_, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{
 			ID:              "approval-remote-1",
 			Question:        "Approve?",
 			Approval:        true,
-			ApprovalOptions: []askquestion.ApprovalOption{{Decision: askquestion.ApprovalDecisionAllowOnce, Label: "Allow once"}},
+			ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}},
 		})
 		approvalDone <- err
 	}()
@@ -159,7 +158,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -262,7 +261,7 @@ func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 		fakeResponses, _ := newFakeResponsesServer(t, []string{"parity reply"})
 		defer fakeResponses.Close()
 
-		srv, err := serve.Start(context.Background(), serverstartup.Request{
+		srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 			WorkspaceRoot:         workspace,
 			WorkspaceRootExplicit: true,
 			Model:                 "gpt-5",

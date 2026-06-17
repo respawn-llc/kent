@@ -9,13 +9,9 @@ import (
 	"os"
 	"time"
 
-	"core/cli/app/internal/authflowadapter"
-	"core/cli/app/internal/authinteraction"
-	"core/cli/app/internal/authoauth"
-	"core/cli/app/internal/authview"
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 	serverauth "core/server/auth"
-	serverauthflow "core/server/authflow"
+	"core/server/authservice"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -28,12 +24,12 @@ var errEnvAPIKeyUnavailable = errors.New("OPENAI_API_KEY is not available")
 // produced by the method picker. The offending choice is attached via %w.
 var errUnknownAuthMethod = errors.New("unknown auth method")
 
-type authInteraction = authflowadapter.InteractionRequest
+type authInteraction = authui.AuthInteractionRequest
 
 type authInteractor interface {
-	WrapStore(base authflowadapter.Store) authflowadapter.Store
+	WrapStore(base authui.AuthStore) authui.AuthStore
 	NeedsInteraction(req authInteraction) bool
-	Interact(ctx context.Context, req authInteraction) (authflowadapter.InteractionOutcome, error)
+	Interact(ctx context.Context, req authInteraction) (authui.AuthInteractionOutcome, error)
 	LookupEnv(key string) string
 }
 
@@ -43,7 +39,7 @@ type headlessAuthInteractor struct {
 
 type oauthCallbackListener interface {
 	RedirectURI() string
-	Wait(ctx context.Context, timeoutSeconds time.Duration) (oauthadapter.BrowserCallback, error)
+	Wait(ctx context.Context, timeoutSeconds time.Duration) (authui.OAuthBrowserCallback, error)
 	Close() error
 }
 
@@ -53,8 +49,8 @@ type interactiveAuthInteractor struct {
 	lookupEnv             func(string) string
 	openBrowser           func(string) error
 	startCallbackListener func() (oauthCallbackListener, error)
-	runDeviceFlow         func(context.Context, oauthadapter.OpenAIOAuthOptions, func(oauthadapter.DeviceCode)) (authflowadapter.Method, error)
-	runCallbackPage       func(context.Context, authCallbackPageData, func(context.Context) (oauthadapter.BrowserCallback, error), func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error)
+	runDeviceFlow         func(context.Context, authui.OAuthOptions, func(authui.OAuthDeviceCode)) (authui.AuthMethod, error)
+	runCallbackPage       func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error)
 	pickMethod            func(authInteraction) (authMethodPickerResult, error)
 	pickConflict          func(authInteraction) (authConflictPickerResult, error)
 	showSuccess           func(authSuccessScreenData) error
@@ -79,12 +75,12 @@ func newHeadlessAuthInteractor() authInteractor {
 	return &headlessAuthInteractor{lookupEnv: os.Getenv}
 }
 
-func (i *interactiveAuthInteractor) WrapStore(base authflowadapter.Store) authflowadapter.Store {
-	return serverauthflow.WrapStoreWithEnvAPIKeyOverride(base, i.lookupEnv)
+func (i *interactiveAuthInteractor) WrapStore(base authui.AuthStore) authui.AuthStore {
+	return authservice.WrapStoreWithEnvAPIKeyOverride(base, i.lookupEnv)
 }
 
-func (i *headlessAuthInteractor) WrapStore(base authflowadapter.Store) authflowadapter.Store {
-	return serverauthflow.WrapStoreWithEnvAPIKeyOverride(base, i.lookupEnv)
+func (i *headlessAuthInteractor) WrapStore(base authui.AuthStore) authui.AuthStore {
+	return authservice.WrapStoreWithEnvAPIKeyOverride(base, i.lookupEnv)
 }
 
 func (i *interactiveAuthInteractor) LookupEnv(key string) string {
@@ -107,52 +103,52 @@ func (i *headlessAuthInteractor) NeedsInteraction(req authInteraction) bool {
 
 func (i *interactiveAuthInteractor) NeedsInteraction(req authInteraction) bool {
 	if !req.AuthRequired && !req.PromptOptional {
-		return authinteraction.NeedsEnvConflictResolution(req)
+		return authui.NeedsAuthEnvConflictResolution(req)
 	}
 	if req.Gate.Ready {
-		return authinteraction.NeedsEnvConflictResolution(req)
+		return authui.NeedsAuthEnvConflictResolution(req)
 	}
-	return req.AuthRequired || !req.State.IsNoAuthSelected() || authinteraction.NeedsEnvConflictResolution(req)
+	return req.AuthRequired || !req.State.IsNoAuthSelected() || authui.NeedsAuthEnvConflictResolution(req)
 }
 
-func (i *headlessAuthInteractor) Interact(ctx context.Context, req authInteraction) (authflowadapter.InteractionOutcome, error) {
+func (i *headlessAuthInteractor) Interact(ctx context.Context, req authInteraction) (authui.AuthInteractionOutcome, error) {
 	if req.StartupErr != nil {
-		return authflowadapter.InteractionOutcome{}, req.StartupErr
+		return authui.AuthInteractionOutcome{}, req.StartupErr
 	}
-	return authflowadapter.InteractionOutcome{}, serverauth.EnsureStartupReady(serverauth.EmptyState())
+	return authui.AuthInteractionOutcome{}, serverauth.EnsureStartupReady(serverauth.EmptyState())
 }
 
-func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authInteraction) (authflowadapter.InteractionOutcome, error) {
-	if authinteraction.NeedsEnvConflictResolution(req) {
-		return authflowadapter.InteractionOutcome{}, i.resolveEnvAPIKeyConflict(ctx, req)
+func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authInteraction) (authui.AuthInteractionOutcome, error) {
+	if authui.NeedsAuthEnvConflictResolution(req) {
+		return authui.AuthInteractionOutcome{}, i.resolveEnvAPIKeyConflict(ctx, req)
 	}
 
 	for {
 		choice, err := i.chooseMethod(req)
 		if err != nil {
-			return authflowadapter.InteractionOutcome{}, err
+			return authui.AuthInteractionOutcome{}, err
 		}
 		req.FlowErr = nil
 
-		var method authflowadapter.Method
+		var method authui.AuthMethod
 		switch choice {
 		case authMethodChoiceSkip:
 			if err := persistSkipAuthSelection(ctx, req); err != nil {
-				return authflowadapter.InteractionOutcome{}, err
+				return authui.AuthInteractionOutcome{}, err
 			}
-			return authflowadapter.InteractionOutcome{ProceedWithoutAuth: true}, nil
+			return authui.AuthInteractionOutcome{ProceedWithoutAuth: true}, nil
 		case authMethodChoiceEnvAPIKey:
 			if !req.HasEnvAPIKey {
-				return authflowadapter.InteractionOutcome{}, errEnvAPIKeyUnavailable
+				return authui.AuthInteractionOutcome{}, errEnvAPIKeyUnavailable
 			}
-			_, err = req.Manager.SetEnvAPIKeyPreference(ctx, authflowadapter.EnvAPIKeyPreferencePreferEnv, true)
+			_, err = req.Manager.SetEnvAPIKeyPreference(ctx, authui.EnvAPIKeyPreferencePreferEnv, true)
 			if err != nil {
-				return authflowadapter.InteractionOutcome{}, fmt.Errorf("save env api key preference: %w", err)
+				return authui.AuthInteractionOutcome{}, fmt.Errorf("save env api key preference: %w", err)
 			}
 			if err := i.showAuthSuccess(ctx, req); err != nil {
-				return authflowadapter.InteractionOutcome{}, err
+				return authui.AuthInteractionOutcome{}, err
 			}
-			return authflowadapter.InteractionOutcome{}, nil
+			return authui.AuthInteractionOutcome{}, nil
 		case authMethodChoiceBrowserAuto:
 			method, err = i.authOAuthRunner(req.Theme).BrowserAuto(ctx, req.OAuthOptions)
 		case authMethodChoiceBrowserPaste:
@@ -160,7 +156,7 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 		case authMethodChoiceDevice:
 			method, err = i.authOAuthRunner(req.Theme).Device(ctx, req.OAuthOptions)
 		default:
-			return authflowadapter.InteractionOutcome{}, fmt.Errorf("%w %q", errUnknownAuthMethod, choice)
+			return authui.AuthInteractionOutcome{}, fmt.Errorf("%w %q", errUnknownAuthMethod, choice)
 		}
 		if err != nil {
 			req.FlowErr = err
@@ -168,25 +164,25 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 		}
 		preference := req.State.EnvAPIKeyPreference
 		setPreference := false
-		if req.HasEnvAPIKey && preference == authflowadapter.EnvAPIKeyPreferenceUnspecified {
-			preference = authflowadapter.EnvAPIKeyPreferencePreferSaved
+		if req.HasEnvAPIKey && preference == authui.EnvAPIKeyPreferenceUnspecified {
+			preference = authui.EnvAPIKeyPreferencePreferSaved
 			setPreference = true
 		}
 		if _, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(ctx, method, preference, setPreference, true); err != nil {
-			return authflowadapter.InteractionOutcome{}, fmt.Errorf("save auth method: %w", err)
+			return authui.AuthInteractionOutcome{}, fmt.Errorf("save auth method: %w", err)
 		}
 		if err := i.showAuthSuccess(ctx, req); err != nil {
-			return authflowadapter.InteractionOutcome{}, err
+			return authui.AuthInteractionOutcome{}, err
 		}
-		return authflowadapter.InteractionOutcome{}, nil
+		return authui.AuthInteractionOutcome{}, nil
 	}
 }
 
 func persistSkipAuthSelection(ctx context.Context, req authInteraction) error {
 	if _, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(
 		ctx,
-		authflowadapter.Method{Type: authflowadapter.MethodNone},
-		authflowadapter.EnvAPIKeyPreferencePreferSaved,
+		authui.AuthMethod{Type: authui.AuthMethodNone},
+		authui.EnvAPIKeyPreferencePreferSaved,
 		true,
 		true,
 	); err != nil {
@@ -207,9 +203,9 @@ func (i *interactiveAuthInteractor) resolveEnvAPIKeyConflict(ctx context.Context
 	if picked.Canceled {
 		return ErrAuthCanceledByUser
 	}
-	preference := authflowadapter.EnvAPIKeyPreferencePreferSaved
+	preference := authui.EnvAPIKeyPreferencePreferSaved
 	if picked.Choice == authConflictChoiceEnvAPIKey {
-		preference = authflowadapter.EnvAPIKeyPreferencePreferEnv
+		preference = authui.EnvAPIKeyPreferencePreferEnv
 	}
 	if _, err := req.Manager.SetEnvAPIKeyPreference(ctx, preference, true); err != nil {
 		return fmt.Errorf("save env api key preference: %w", err)
@@ -228,7 +224,7 @@ func (i *interactiveAuthInteractor) showAuthSuccess(ctx context.Context, req aut
 	}
 	return run(authSuccessScreenData{
 		Theme: req.Theme,
-		Title: authview.SuccessTitle(state.Method),
+		Title: authui.AuthSuccessTitle(state.Method),
 	})
 }
 
@@ -247,7 +243,7 @@ func (i *interactiveAuthInteractor) chooseMethod(req authInteraction) (authMetho
 	return picked.Choice, nil
 }
 
-func (i *interactiveAuthInteractor) authOAuthRunner(theme string) authoauth.Runner {
+func (i *interactiveAuthInteractor) authOAuthRunner(theme string) authui.OAuthRunner {
 	runDeviceFlow := i.runDeviceFlow
 	if runDeviceFlow == nil {
 		runDeviceFlow = serverauth.RunOpenAIDeviceCodeFlow
@@ -262,21 +258,21 @@ func (i *interactiveAuthInteractor) authOAuthRunner(theme string) authoauth.Runn
 			return serverauth.StartOAuthCallbackListener()
 		}
 	}
-	runner := authoauth.Runner{
+	runner := authui.OAuthRunner{
 		OpenBrowser: openBrowser,
-		StartCallbackListener: func() (authoauth.CallbackListener, error) {
+		StartCallbackListener: func() (authui.OAuthCallbackListener, error) {
 			return startListener()
 		},
-		RunDeviceFlow: func(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, onCode func(oauthadapter.DeviceCode)) (oauthadapter.Method, error) {
+		RunDeviceFlow: func(ctx context.Context, opts authui.OAuthOptions, onCode func(authui.OAuthDeviceCode)) (authui.AuthMethod, error) {
 			return runDeviceFlow(ctx, opts, onCode)
 		},
 		Prompt: func(label string) (string, error) {
 			return i.prompt(lipgloss.NewStyle().Foreground(uiPalette(theme).primary).Bold(true).Render(label))
 		},
-		Presenter: interactiveAuthOAuthPresenter{interactor: i, theme: theme},
+		OAuthPresenter: interactiveAuthOAuthPresenter{interactor: i, theme: theme},
 	}
 	if i.runCallbackPage != nil {
-		runner.BrowserCallbackPage = func(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, session oauthadapter.BrowserAuthSession, openErr error, listener authoauth.CallbackListener, complete authoauth.CompleteBrowserFlowFunc) (oauthadapter.Method, error) {
+		runner.BrowserCallbackPage = func(ctx context.Context, opts authui.OAuthOptions, session authui.OAuthBrowserSession, openErr error, listener authui.OAuthCallbackListener, complete authui.OAuthCompleteBrowserFlowFunc) (authui.AuthMethod, error) {
 			return i.runAuthBrowserHybridPage(ctx, theme, opts, session, openErr, listener, complete)
 		}
 	}

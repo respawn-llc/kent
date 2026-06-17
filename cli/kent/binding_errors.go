@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"core/shared/brand"
 	"core/shared/clientui"
+	brand "core/shared/config"
 	"core/shared/serverapi"
 )
 

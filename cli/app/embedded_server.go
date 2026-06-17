@@ -5,9 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"core/cli/app/internal/embeddedbinding"
-	"core/cli/app/internal/embeddedstartup"
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/embeddedattach"
+	"core/cli/app/internal/status"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -20,12 +19,12 @@ type appServerCore interface {
 }
 
 type embeddedAppServer struct {
-	inner              *embeddedstartup.Server
+	inner              *embeddedattach.Server
 	boundProjectID     string
 	boundSessionLaunch client.SessionLaunchClient
 }
 
-func newEmbeddedAppServer(inner *embeddedstartup.Server) *embeddedAppServer {
+func newEmbeddedAppServer(inner *embeddedattach.Server) *embeddedAppServer {
 	if inner == nil {
 		return nil
 	}
@@ -52,10 +51,10 @@ func (s *embeddedAppServer) Config() config.App {
 
 func (s *embeddedAppServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error) {
 	if s == nil {
-		_, err := embeddedbinding.BindProjectWorkspace(ctx, embeddedbinding.Request{ProjectID: projectID, WorkspaceID: workspaceID})
+		_, err := embeddedattach.BindProjectWorkspace(ctx, embeddedattach.WorkspaceBindingRequest{ProjectID: projectID, WorkspaceID: workspaceID})
 		return nil, err
 	}
-	bound, err := embeddedbinding.BindProjectWorkspace(ctx, embeddedbinding.Request{
+	bound, err := embeddedattach.BindProjectWorkspace(ctx, embeddedattach.WorkspaceBindingRequest{
 		Server:      s.inner,
 		ProjectID:   projectID,
 		WorkspaceID: workspaceID,
@@ -70,11 +69,11 @@ func (s *embeddedAppServer) BindProjectWorkspace(ctx context.Context, projectID 
 	}, nil
 }
 
-func (s *embeddedAppServer) AuthStateResolver() statuscollect.AuthStateResolver {
+func (s *embeddedAppServer) AuthStateResolver() status.AuthStateResolver {
 	if s == nil || s.inner == nil {
 		return nil
 	}
-	return statuscollect.NormalizeAuthStateResolver(s.inner.AuthManager())
+	return status.NormalizeAuthStateResolver(s.inner.AuthManager())
 }
 
 func (s *embeddedAppServer) AuthStatePath() string {

@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/shared/serverapi"
 )
 
 type PendingPromptSnapshot struct {
-	Request   askquestion.Request
+	Request   askquestion.AskQuestionRequest
 	CreatedAt time.Time
 }
 
@@ -24,7 +24,7 @@ type pendingPromptEntry struct {
 }
 
 type promptResponseResult struct {
-	response askquestion.Response
+	response askquestion.AskQuestionResponse
 	err      error
 }
 
@@ -37,7 +37,7 @@ func newPendingPromptStore() *pendingPromptStore {
 	return &pendingPromptStore{pending: make(map[string]*pendingPromptEntry)}
 }
 
-func (s *pendingPromptStore) Begin(req askquestion.Request) (PendingPromptSnapshot, bool) {
+func (s *pendingPromptStore) Begin(req askquestion.AskQuestionRequest) (PendingPromptSnapshot, bool) {
 	if s == nil {
 		return PendingPromptSnapshot{}, false
 	}
@@ -81,13 +81,13 @@ func (s *pendingPromptStore) List() []PendingPromptSnapshot {
 	return items
 }
 
-func (s *pendingPromptStore) Await(ctx context.Context, req askquestion.Request, publish func(PendingPromptSnapshot, pendingPromptEventType)) (askquestion.Response, error) {
+func (s *pendingPromptStore) Await(ctx context.Context, req askquestion.AskQuestionRequest, publish func(PendingPromptSnapshot, pendingPromptEventType)) (askquestion.AskQuestionResponse, error) {
 	if s == nil {
-		return askquestion.Response{}, fmt.Errorf("pending prompt store is required")
+		return askquestion.AskQuestionResponse{}, fmt.Errorf("pending prompt store is required")
 	}
 	requestID := strings.TrimSpace(req.ID)
 	if requestID == "" {
-		return askquestion.Response{}, fmt.Errorf("session id and request id are required")
+		return askquestion.AskQuestionResponse{}, fmt.Errorf("session id and request id are required")
 	}
 	pending := &pendingPromptEntry{
 		PendingPromptSnapshot: PendingPromptSnapshot{Request: req, CreatedAt: time.Now()},
@@ -96,7 +96,7 @@ func (s *pendingPromptStore) Await(ctx context.Context, req askquestion.Request,
 	s.mu.Lock()
 	if _, exists := s.pending[requestID]; exists {
 		s.mu.Unlock()
-		return askquestion.Response{}, fmt.Errorf("prompt %q is already pending", requestID)
+		return askquestion.AskQuestionResponse{}, fmt.Errorf("prompt %q is already pending", requestID)
 	}
 	s.pending[requestID] = pending
 	s.mu.Unlock()
@@ -117,13 +117,13 @@ func (s *pendingPromptStore) Await(ctx context.Context, req askquestion.Request,
 	}()
 	select {
 	case <-ctx.Done():
-		return askquestion.Response{}, ctx.Err()
+		return askquestion.AskQuestionResponse{}, ctx.Err()
 	case result := <-pending.response:
 		return result.response, result.err
 	}
 }
 
-func (s *pendingPromptStore) Submit(resp askquestion.Response, err error, publish func(PendingPromptSnapshot, pendingPromptEventType)) error {
+func (s *pendingPromptStore) Submit(resp askquestion.AskQuestionResponse, err error, publish func(PendingPromptSnapshot, pendingPromptEventType)) error {
 	if s == nil {
 		return fmt.Errorf("pending prompt store is required")
 	}

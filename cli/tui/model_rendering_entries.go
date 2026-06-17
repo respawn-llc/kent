@@ -3,7 +3,6 @@ package tui
 import (
 	"core/shared/theme"
 	"core/shared/transcript"
-	"core/shared/uiglyphs"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -55,7 +54,7 @@ func (m Model) detailExpansionSymbolStyle(role RenderIntent) roleSymbolColorStyl
 func (m Model) entryRenderWidth(role RenderIntent, symbolOverride string) int {
 	railWidth := 0
 	if m.compactDetail && m.mode == ModeDetail {
-		railWidth = max(lipgloss.Width(uiglyphs.SelectionRailBlank), lipgloss.Width(uiglyphs.SelectionRailGlyph))
+		railWidth = max(lipgloss.Width(theme.SelectionRailBlank), lipgloss.Width(theme.SelectionRailGlyph))
 	}
 	renderWidth := m.viewportWidth - lipgloss.Width(m.entryPrefix(role, symbolOverride)) - railWidth
 	if renderWidth < 1 {
@@ -545,9 +544,9 @@ func (m Model) renderDetailViewportLine(line string, selected bool) string {
 		return line
 	}
 	originalWidth := lipgloss.Width(line)
-	rail := uiglyphs.SelectionRailBlank
+	rail := theme.SelectionRailBlank
 	if selected {
-		rail = renderRoleSymbol(uiglyphs.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
+		rail = renderRoleSymbol(theme.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
 	}
 	line = rail + line
 	if originalWidth <= m.viewportWidth {
@@ -571,7 +570,7 @@ func (m Model) renderDetailSelectionSpacerLine() string {
 	if !m.compactDetail {
 		return m.renderSelectedTranscriptLine("")
 	}
-	line := renderRoleSymbol(uiglyphs.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
+	line := renderRoleSymbol(theme.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
 	background := rgbColorFromHex(theme.ResolvePalette(m.theme).App.ModeBg.TrueColor)
 	return applyANSIStyleTransform(padRenderedLineToWidth(line, m.viewportWidth), ansiStyleTransform{DefaultBackground: &background, PreserveBackground: true})
 }

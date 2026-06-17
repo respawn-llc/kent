@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"core/server/tools/shellcmd"
+	"core/server/tools"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
@@ -201,12 +201,12 @@ func normalizeRequest(req Request) Request {
 	req.CommandText = strings.TrimSpace(req.CommandText)
 	req.Workdir = strings.TrimSpace(req.Workdir)
 	if len(req.ParsedArgs) == 0 && req.CommandText != "" {
-		if parsed, ok := shellcmd.ParseSimpleCommand(req.CommandText); ok {
+		if parsed, ok := tools.ParseSimpleShellCommand(req.CommandText); ok {
 			req.ParsedArgs = parsed
 		}
 	}
 	if req.CommandName == "" && len(req.ParsedArgs) > 0 {
-		req.CommandName = shellcmd.NormalizeCommandName(req.ParsedArgs[0])
+		req.CommandName = tools.NormalizeShellCommandName(req.ParsedArgs[0])
 	}
 	return req
 }

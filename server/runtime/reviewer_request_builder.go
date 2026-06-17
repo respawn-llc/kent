@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"core/server/llm"
-	"core/shared/cachewarn"
+	"core/shared/transcript"
 )
 
 func reviewerSuggestionsStructuredOutput() *llm.StructuredOutput {
@@ -53,7 +53,7 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient llm.Cl
 	if supportsPromptCacheKeyForClient(ctx, reviewerClient) {
 		if cacheKey := conversationPromptCacheKey(reviewerSessionID(e.store.Meta().SessionID), e.compactionCountSnapshot()); cacheKey != "" {
 			req.PromptCacheKey = cacheKey
-			req.PromptCacheScope = cachewarn.ScopeReviewer
+			req.PromptCacheScope = transcript.CacheWarningScopeReviewer
 		}
 	}
 	if err := req.Validate(); err != nil {

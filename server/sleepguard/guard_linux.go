@@ -9,7 +9,7 @@ import (
 	"sync"
 	"syscall"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 var (

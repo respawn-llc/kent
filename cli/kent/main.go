@@ -14,9 +14,7 @@ import (
 	"time"
 
 	"core/cli/app"
-	"core/cli/selfcmd"
-	"core/shared/brand"
-	"core/shared/buildinfo"
+	"core/prompts"
 	"core/shared/config"
 	"core/shared/sessionenv"
 	"golang.org/x/term"
@@ -118,7 +116,7 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 		return taskSubcommand(args[1:], stdout, stderr)
 	}
 
-	rootFS := newCommandFlagSet(brand.Command, stderr, rootUsage)
+	rootFS := newCommandFlagSet(config.Command, stderr, rootUsage)
 	showVersion := rootFS.Bool("version", false, "print version and exit")
 	forceInteractive := rootFS.Bool("force-interactive", false, "run interactive UI even when stdin/stdout are not terminals")
 	flags := registerSessionFlags(rootFS)
@@ -126,7 +124,7 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 		return exitCode
 	}
 	if *showVersion {
-		_, _ = fmt.Fprintln(stdout, buildinfo.Version)
+		_, _ = fmt.Fprintln(stdout, config.Version)
 		return 0
 	}
 	if remaining := rootFS.Args(); len(remaining) > 0 {
@@ -168,7 +166,7 @@ func requireInteractiveTerminal(stdin io.Reader, stdout io.Writer, force bool) e
 		return nil
 	}
 	if !isTerminalReader(stdin) || !isTerminalWriter(stdout) {
-		return errors.New("interactive mode requires a terminal on stdin and stdout; use `" + brand.Command + " run ...` for headless usage or pass --force-interactive to bypass this check")
+		return errors.New("interactive mode requires a terminal on stdin and stdout; use `" + config.Command + " run ...` for headless usage or pass --force-interactive to bypass this check")
 	}
 	return nil
 }
@@ -190,7 +188,7 @@ func isTerminalWriter(w io.Writer) bool {
 }
 
 func runSubcommand(args []string) int {
-	runFS := flag.NewFlagSet(brand.Command+" run", flag.ContinueOnError)
+	runFS := flag.NewFlagSet(config.Command+" run", flag.ContinueOnError)
 	runFS.SetOutput(os.Stderr)
 	runFS.Usage = func() { runUsage.write(runFS) }
 	flags := registerCommonFlags(runFS, true)
@@ -279,7 +277,7 @@ func runSubcommand(args []string) int {
 	}
 	result, runErr := runPromptApp(ctx, opts, prompt, timeout, progress)
 	continueID := strings.TrimSpace(result.SessionID)
-	continueCmd := selfcmd.ContinueRunCommand(continueID)
+	continueCmd := prompts.ContinueRunCommand(continueID)
 	continueHint := buildRunContinueHint(continueID)
 	if runErr != nil {
 		code := runErrorCode(runErr)
@@ -370,7 +368,7 @@ func effectiveSessionID(flags commonFlags) (string, error) {
 }
 
 func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	sessionFS := newCommandFlagSet(brand.Command+" session-id", stderr, sessionIDUsage)
+	sessionFS := newCommandFlagSet(config.Command+" session-id", stderr, sessionIDUsage)
 	if ok, exitCode := parseCommandFlags(sessionFS, args); !ok {
 		return exitCode
 	}
@@ -381,7 +379,7 @@ func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 	}
 	sessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok {
-		fmt.Fprintf(stderr, "%s is not set; this command only works inside "+brand.Product+" shell commands\n", sessionenv.SessionIDEnv)
+		fmt.Fprintf(stderr, "%s is not set; this command only works inside "+config.Product+" shell commands\n", sessionenv.SessionIDEnv)
 		return 1
 	}
 	_, _ = fmt.Fprintln(stdout, sessionID)
@@ -531,7 +529,7 @@ func effectiveRunAgentRole(raw string, fast bool) (string, error) {
 }
 
 func buildRunContinueHint(sessionID string) string {
-	command := selfcmd.ContinueRunCommand(sessionID)
+	command := prompts.ContinueRunCommand(sessionID)
 	if command == "" {
 		return ""
 	}

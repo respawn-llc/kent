@@ -3,33 +3,25 @@ package core
 import (
 	"sync"
 
-	"core/server/approvalview"
-	"core/server/askview"
-	"core/server/authbootstrap"
-	"core/server/authpolicy"
-	"core/server/authstatus"
+	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/metadata"
-	"core/server/processoutput"
+
 	"core/server/processview"
-	"core/server/promptactivity"
 	"core/server/promptcontrol"
 	"core/server/registry"
-	"core/server/rootlock"
 	"core/server/runtime"
 	"core/server/runtimecontrol"
 	"core/server/runtimewire"
 	"core/server/serverstatus"
-	"core/server/sessionactivity"
 	"core/server/sessionlaunch"
-	"core/server/sessionlifecycle"
 	"core/server/sessionruntime"
+	"core/server/sessionservice"
 	"core/server/sessionview"
 	"core/server/sleepguard"
 	shelltool "core/server/tools/shell"
-	"core/server/updatestatus"
+
 	"core/server/workflowrunner"
-	"core/server/workflowscheduler"
 	"core/server/workflowsvc"
 	"core/server/worktree"
 	"core/shared/client"
@@ -59,7 +51,7 @@ type AuthBundle struct {
 }
 
 type PersistenceBundle struct {
-	rootLock      *rootlock.Lease
+	rootLock      *RootLockLease
 	metadataStore *metadata.Store
 	sessionStores *registry.SessionStoreRegistry
 }
@@ -107,7 +99,7 @@ type SessionBundle struct {
 }
 
 type UpdateBundle struct {
-	updateStatus *updatestatus.Service
+	updateStatus *serverstatus.UpdateStatusService
 }
 
 type WorktreeBundle struct {
@@ -116,7 +108,7 @@ type WorktreeBundle struct {
 
 type WorkflowBundle struct {
 	workflows client.WorkflowClient
-	scheduler *workflowscheduler.Service
+	scheduler *workflowrunner.SchedulerService
 }
 
 func (s *Core) safeBundles() *Bundles {
@@ -181,28 +173,28 @@ type bundleCompositionInput struct {
 	containerDir            string
 	authSupport             serverbootstrap.AuthSupport
 	runtimeSupport          serverbootstrap.RuntimeSupport
-	rootLease               *rootlock.Lease
+	rootLease               *RootLockLease
 	metadataStore           *metadata.Store
 	sessionStoreRegistry    *registry.SessionStoreRegistry
 	runtimeRegistry         *registry.RuntimeRegistry
 	projectViews            client.ProjectViewClient
-	authBootstrapService    *authbootstrap.Service
-	authStatusService       *authstatus.Service
-	askService              *askview.Service
-	approvalService         *approvalview.Service
-	processService          *processview.Service
-	processOutputService    *processoutput.Service
-	promptControlService    *promptcontrol.Service
-	promptActivityService   *promptactivity.Service
+	authBootstrapService    *authservice.BootstrapService
+	authStatusService       *authservice.StatusService
+	askService              *promptcontrol.AskViewService
+	approvalService         *promptcontrol.ApprovalViewService
+	processService          *processview.ProcessViewService
+	processOutputService    *processview.ProcessOutputService
+	promptControlService    *promptcontrol.PromptControlService
+	promptActivityService   *promptcontrol.PromptActivityService
 	runtimeControlService   *runtimecontrol.Service
-	serverStatusService     *serverstatus.Service
+	serverStatusService     *serverstatus.ServerStatusService
 	sessionRuntimeService   *sessionruntime.Service
 	sessionViewService      *sessionview.Service
-	sessionLifecycleService *sessionlifecycle.Service
-	sessionActivityService  *sessionactivity.Service
-	updateStatusService     *updatestatus.Service
+	sessionLifecycleService *sessionservice.SessionLifecycleService
+	sessionActivityService  *sessionservice.SessionActivityService
+	updateStatusService     *serverstatus.UpdateStatusService
 	workflowService         *workflowsvc.Service
-	workflowScheduler       *workflowscheduler.Service
+	workflowScheduler       *workflowrunner.SchedulerService
 	workflowRuntimeStarter  *workflowrunner.Starter
 	worktreeService         *worktree.Service
 	sleepManager            *sleepguard.Manager
@@ -210,7 +202,7 @@ type bundleCompositionInput struct {
 
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
-		Auth: newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authpolicy.RequiresStartupAuth(in.cfg.Settings)),
+		Auth: newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authservice.StartupAuthRequired(in.cfg.Settings)),
 		cleanup: []lifecycleResource{
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
@@ -246,7 +238,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 	}
 }
 
-func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authbootstrap.Service, statusService *authstatus.Service, serverStatusService *serverstatus.Service, authRequired bool) *AuthBundle {
+func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService, authRequired bool) *AuthBundle {
 	return &AuthBundle{
 		support:       authSupport,
 		authBootstrap: client.NewLoopbackAuthBootstrapClient(bootstrapService),
@@ -256,7 +248,7 @@ func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *au
 	}
 }
 
-func newPersistenceBundle(rootLease *rootlock.Lease, metadataStore *metadata.Store, sessionStoreRegistry *registry.SessionStoreRegistry) *PersistenceBundle {
+func newPersistenceBundle(rootLease *RootLockLease, metadataStore *metadata.Store, sessionStoreRegistry *registry.SessionStoreRegistry) *PersistenceBundle {
 	return &PersistenceBundle{
 		rootLock:      rootLease,
 		metadataStore: metadataStore,
@@ -264,7 +256,7 @@ func newPersistenceBundle(rootLease *rootlock.Lease, metadataStore *metadata.Sto
 	}
 }
 
-func newProcessBundle(processService *processview.Service, processOutputService *processoutput.Service) *ProcessBundle {
+func newProcessBundle(processService *processview.ProcessViewService, processOutputService *processview.ProcessOutputService) *ProcessBundle {
 	return &ProcessBundle{
 		processControls: client.NewLoopbackProcessControlClient(processService),
 		processOutput:   client.NewLoopbackProcessOutputClient(processOutputService),
@@ -280,7 +272,7 @@ func newProjectBundle(cfg config.App, containerDir string, projectViews client.P
 	}
 }
 
-func newPromptBundle(askService *askview.Service, approvalService *approvalview.Service, promptControlService *promptcontrol.Service, promptActivityService *promptactivity.Service) *PromptBundle {
+func newPromptBundle(askService *promptcontrol.AskViewService, approvalService *promptcontrol.ApprovalViewService, promptControlService *promptcontrol.PromptControlService, promptActivityService *promptcontrol.PromptActivityService) *PromptBundle {
 	return &PromptBundle{
 		askViews:       client.NewLoopbackAskViewClient(askService),
 		approvalViews:  client.NewLoopbackApprovalViewClient(approvalService),
@@ -289,7 +281,7 @@ func newPromptBundle(askService *askview.Service, approvalService *approvalview.
 	}
 }
 
-func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegistry *registry.RuntimeRegistry, runtimeControlService *runtimecontrol.Service, sessionRuntimeService *sessionruntime.Service, sessionActivityService *sessionactivity.Service) *RuntimeBundle {
+func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegistry *registry.RuntimeRegistry, runtimeControlService *runtimecontrol.Service, sessionRuntimeService *sessionruntime.Service, sessionActivityService *sessionservice.SessionActivityService) *RuntimeBundle {
 	return &RuntimeBundle{
 		fastModeState:    runtimeSupport.FastModeState,
 		background:       runtimeSupport.Background,
@@ -301,11 +293,11 @@ func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegi
 	}
 }
 
-func newWorkflowBundle(workflowService *workflowsvc.Service, scheduler *workflowscheduler.Service) *WorkflowBundle {
+func newWorkflowBundle(workflowService *workflowsvc.Service, scheduler *workflowrunner.SchedulerService) *WorkflowBundle {
 	return &WorkflowBundle{workflows: client.NewLoopbackWorkflowClient(workflowService), scheduler: scheduler}
 }
 
-func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionlifecycle.Service) *SessionBundle {
+func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService) *SessionBundle {
 	return &SessionBundle{
 		sessionLaunchMap: make(map[string]client.SessionLaunchClient),
 		sessionServices:  make(map[string]*sessionlaunch.Service),

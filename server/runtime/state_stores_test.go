@@ -5,7 +5,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
-	"core/shared/compaction"
+	compaction "core/shared/config"
 )
 
 func TestQueuedUserMessageStoreQueuesDiscardsAndDrainsByID(t *testing.T) {

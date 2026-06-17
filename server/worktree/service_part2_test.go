@@ -8,7 +8,6 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/testgit"
 	"encoding/json"
 	"errors"
 	"os"
@@ -351,7 +350,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = testgit.AppendCommitIdentityEnv(testgit.SanitizeEnv(os.Environ()))
+	cmd.Env = appendTestGitCommitIdentityEnv(sanitizeTestGitEnv(os.Environ()))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))

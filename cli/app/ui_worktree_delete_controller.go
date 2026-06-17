@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/worktreedelete"
+	"core/cli/app/internal/worktreeui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -12,28 +12,28 @@ func (d *uiWorktreeDeleteDialogState) clampSelection() {
 	if d == nil {
 		return
 	}
-	d.selectedAction = worktreedelete.ClampAction(d.target, d.selectedAction, d.preferDeleteBranch)
+	d.selectedAction = worktreeui.ClampDeleteAction(d.target, d.selectedAction, d.preferDeleteBranch)
 }
 
 func (d *uiWorktreeDeleteDialogState) moveSelection(delta int) {
 	if d == nil {
 		return
 	}
-	d.selectedAction = worktreedelete.MoveAction(d.target, d.selectedAction, delta)
+	d.selectedAction = worktreeui.MoveDeleteAction(d.target, d.selectedAction, delta)
 }
 
-type worktreeDeletePreviewLineKind = worktreedelete.PreviewLineKind
+type worktreeDeletePreviewLineKind = worktreeui.PreviewLineKind
 
 const (
-	worktreeDeletePreviewLineKindHeader  = worktreedelete.PreviewLineKindHeader
-	worktreeDeletePreviewLineKindBullet  = worktreedelete.PreviewLineKindBullet
-	worktreeDeletePreviewLineKindWarning = worktreedelete.PreviewLineKindWarning
+	worktreeDeletePreviewLineKindHeader  = worktreeui.PreviewLineKindHeader
+	worktreeDeletePreviewLineKindBullet  = worktreeui.PreviewLineKindBullet
+	worktreeDeletePreviewLineKindWarning = worktreeui.PreviewLineKindWarning
 )
 
-type worktreeDeletePreviewLine = worktreedelete.PreviewLine
+type worktreeDeletePreviewLine = worktreeui.PreviewLine
 
 func renderWorktreeDeleteButtons(width int, theme string, dialog uiWorktreeDeleteDialogState) string {
-	actions := worktreedelete.Actions(dialog.target)
+	actions := worktreeui.DeleteActions(dialog.target)
 	options := make([]uiChoiceOption, 0, len(actions))
 	selectedIndex := 0
 	for _, action := range actions {

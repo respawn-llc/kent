@@ -3,7 +3,6 @@ package runtime
 import (
 	"core/server/llm"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/transcript"
 	"time"
 )
@@ -55,7 +54,7 @@ type Event struct {
 	ToolResult                   *tools.Result
 	Reviewer                     *ReviewerStatus
 	Compaction                   *CompactionStatus
-	CacheWarning                 *cachewarn.Warning
+	CacheWarning                 *transcript.CacheWarning
 	CacheWarningVisibility       transcript.EntryVisibility
 	LocalEntry                   *ChatEntry
 	RunState                     *RunState

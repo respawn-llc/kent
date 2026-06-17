@@ -9,15 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/prompts"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/generated"
 	"core/server/metadata"
-	"core/server/rootlock"
-	"core/shared/brand"
 	"core/shared/clientui"
+	brand "core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/testopenai"
 )
 
 func TestNewBuildsReusableServerCore(t *testing.T) {
@@ -121,9 +119,9 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	generatedCalls := 0
-	restoreGeneratedSync := serverbootstrap.SetGeneratedSyncForTest(func(ctx context.Context, opts generated.SyncOptions) (generated.SyncResult, error) {
+	restoreGeneratedSync := serverbootstrap.SetGeneratedSyncForTest(func(ctx context.Context, opts prompts.GeneratedSyncOptions) (prompts.GeneratedSyncResult, error) {
 		generatedCalls++
-		return generated.Sync(ctx, opts)
+		return prompts.GeneratedSync(ctx, opts)
 	})
 	defer restoreGeneratedSync()
 
@@ -161,7 +159,7 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 	t.Cleanup(func() { _ = runtimeSupportB.Background.Close() })
 
 	_, err = New(resolved.Config, authSupportB, runtimeSupportB)
-	if !errors.Is(err, rootlock.ErrPersistenceRootBusy) {
+	if !errors.Is(err, ErrPersistenceRootBusy) {
 		t.Fatalf("New second error = %v, want ErrPersistenceRootBusy", err)
 	}
 	if generatedCalls != 1 {
@@ -366,7 +364,7 @@ func TestRunPromptClientForProjectWorkspaceReplaysHeadlessRunAcrossClientInstanc
 	t.Setenv("HOME", home)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if testopenai.HandleInputTokenCount(w, r, 1) {
+		if handleTestOpenAIInputTokenCount(w, r, 1) {
 			return
 		}
 		if r.URL.Path != "/responses" {
@@ -375,7 +373,7 @@ func TestRunPromptClientForProjectWorkspaceReplaysHeadlessRunAcrossClientInstanc
 		if got := r.Header.Get("Authorization"); got == "" {
 			t.Fatal("expected authorization header")
 		}
-		testopenai.WriteCompletedResponseStream(w, "ok", 1, 1)
+		writeTestOpenAICompletedResponseStream(w, "ok", 1, 1)
 	}))
 	defer server.Close()
 

@@ -6,7 +6,6 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -523,7 +522,7 @@ func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.
 func TestAutoCompactionRemoteDropsPreCompactionDeveloperContext(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	globalDir := filepath.Join(home, brand.ConfigDirName)
+	globalDir := filepath.Join(home, config.ConfigDirName)
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatalf("create global dir: %v", err)
 	}
@@ -936,7 +935,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 	if err := os.WriteFile(workspacePath, []byte("workspace instructions"), 0o644); err != nil {
 		t.Fatalf("write workspace AGENTS.md: %v", err)
 	}
-	writeTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "workspace-skill"), "workspace-skill", "from workspace")
+	writeTestSkill(t, filepath.Join(workspace, config.ConfigDirName, "skills", "workspace-skill"), "workspace-skill", "from workspace")
 
 	store := mustCreateNamedTestSession(t, "ws", workspace)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{

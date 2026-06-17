@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"core/server/requestmemo"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 )
@@ -14,12 +14,12 @@ import (
 type stubPromptResponder struct {
 	calls     int
 	sessionID string
-	response  askquestion.Response
+	response  askquestion.AskQuestionResponse
 	err       error
 	submitErr error
 }
 
-func (s *stubPromptResponder) SubmitPromptResponse(sessionID string, resp askquestion.Response, err error) error {
+func (s *stubPromptResponder) SubmitPromptResponse(sessionID string, resp askquestion.AskQuestionResponse, err error) error {
 	s.calls++
 	s.sessionID = sessionID
 	s.response = resp
@@ -39,7 +39,7 @@ func (s *stubLeaseVerifier) RequireControllerLease(context.Context, string, stri
 
 func TestServiceAnswerAskSubmitsResponse(t *testing.T) {
 	responder := &stubPromptResponder{}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	req := serverapi.AskAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -62,7 +62,7 @@ func TestServiceAnswerAskSubmitsResponse(t *testing.T) {
 func TestServiceAnswerAskRequiresControllerLease(t *testing.T) {
 	responder := &stubPromptResponder{}
 	verifier := &stubLeaseVerifier{err: serverapi.ErrInvalidControllerLease}
-	service := NewService(responder).WithControllerLeaseVerifier(verifier)
+	service := NewPromptControlService(responder).WithControllerLeaseVerifier(verifier)
 	req := serverapi.AskAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -85,7 +85,7 @@ func TestServiceAnswerAskRequiresControllerLease(t *testing.T) {
 
 func TestServiceAnswerAskDedupesSuccessfulRetry(t *testing.T) {
 	responder := &stubPromptResponder{}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	req := serverapi.AskAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -109,7 +109,7 @@ func TestServiceAnswerAskDedupesSuccessfulRetry(t *testing.T) {
 func TestServiceAnswerAskReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
 	responder := &stubPromptResponder{}
 	verifier := &stubLeaseVerifier{}
-	service := NewService(responder).WithControllerLeaseVerifier(verifier)
+	service := NewPromptControlService(responder).WithControllerLeaseVerifier(verifier)
 	req := serverapi.AskAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -135,7 +135,7 @@ func TestServiceAnswerAskReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing
 
 func TestServiceAnswerAskReplaysSuccessfulRetryAfterLeaseRotation(t *testing.T) {
 	responder := &stubPromptResponder{}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	first := serverapi.AskAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -159,7 +159,7 @@ func TestServiceAnswerAskReplaysSuccessfulRetryAfterLeaseRotation(t *testing.T) 
 
 func TestServiceAnswerAskRejectsClientRequestIDPayloadMismatch(t *testing.T) {
 	responder := &stubPromptResponder{}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	if err := service.AnswerAsk(context.Background(), serverapi.AskAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -186,7 +186,7 @@ func TestServiceAnswerAskRejectsClientRequestIDPayloadMismatch(t *testing.T) {
 
 func TestServiceAnswerApprovalSubmitsPromptError(t *testing.T) {
 	responder := &stubPromptResponder{submitErr: serverapi.ErrPromptAlreadyResolved}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	req := serverapi.ApprovalAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -217,7 +217,7 @@ func TestServiceAnswerApprovalSubmitsPromptError(t *testing.T) {
 
 func TestServiceAnswerApprovalDedupesSuccessfulRetry(t *testing.T) {
 	responder := &stubPromptResponder{}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	req := serverapi.ApprovalAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -242,7 +242,7 @@ func TestServiceAnswerApprovalDedupesSuccessfulRetry(t *testing.T) {
 func TestServiceAnswerApprovalReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
 	responder := &stubPromptResponder{}
 	verifier := &stubLeaseVerifier{}
-	service := NewService(responder).WithControllerLeaseVerifier(verifier)
+	service := NewPromptControlService(responder).WithControllerLeaseVerifier(verifier)
 	req := serverapi.ApprovalAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",
@@ -269,7 +269,7 @@ func TestServiceAnswerApprovalReplaysSuccessfulRetryAfterLeaseInvalidation(t *te
 
 func TestServiceAnswerApprovalReplaysSuccessfulRetryAfterLeaseRotation(t *testing.T) {
 	responder := &stubPromptResponder{}
-	service := NewService(responder)
+	service := NewPromptControlService(responder)
 	first := serverapi.ApprovalAnswerRequest{
 		ClientRequestID:   "req-1",
 		SessionID:         "session-1",

@@ -19,8 +19,6 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowapi"
-	"core/server/workflowjson"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -177,7 +175,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 			Version:              def.Workflow.Version,
 			IsProjectDefault:     link.ID != "" && link.IsDefault != 0,
 			ValidForTaskCreation: validation.Valid() && link.ID != "",
-			ValidationErrors:     workflowapi.ValidationErrors(def.Workflow.ID, validation.Errors),
+			ValidationErrors:     ValidationErrors(def.Workflow.ID, validation.Errors),
 		})
 	}
 	sort.SliceStable(picker, func(i, j int) bool {
@@ -853,15 +851,15 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 	nodeKinds := map[string]workflow.NodeKind{}
 	for _, node := range nodes {
 		inputFields := []serverapi.WorkflowInputField{}
-		if err := workflowjson.UnmarshalString(node.InputFieldsJson, &inputFields); err != nil {
+		if err := workflow.UnmarshalString(node.InputFieldsJson, &inputFields); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
 		joinProviders := []serverapi.WorkflowJoinInputProvider{}
-		if err := workflowjson.UnmarshalString(node.JoinInputProvidersJson, &joinProviders); err != nil {
+		if err := workflow.UnmarshalString(node.JoinInputProvidersJson, &joinProviders); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
 		fields := []serverapi.WorkflowOutputField{}
-		if err := workflowjson.UnmarshalString(node.OutputFieldsJson, &fields); err != nil {
+		if err := workflow.UnmarshalString(node.OutputFieldsJson, &fields); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
 		groupID := strings.TrimSpace(node.GroupID.String)
@@ -879,18 +877,18 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 		inputs := []serverapi.WorkflowInputBinding{}
 		parameters := []serverapi.WorkflowParameter{}
 		requirements := []serverapi.WorkflowOutputRequirement{}
-		if err := workflowjson.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
+		if err := workflow.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
-		if err := workflowjson.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
+		if err := workflow.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
-		if err := workflowjson.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
+		if err := workflow.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
 		def.Edges = append(def.Edges, serverapi.WorkflowEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.EdgeKey, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval != 0, ContextMode: edge.ContextMode, ContextSource: apiContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), PromptTemplate: edge.PromptTemplate, Parameters: parameters, InputBindings: inputs, OutputRequirements: requirements})
 	}
-	def.DerivedWiring = workflowapi.DerivedWiring(definitionForValidation(def))
+	def.DerivedWiring = DerivedWiring(definitionForValidation(def))
 	return def, nodeKinds, nil
 }
 
@@ -938,7 +936,7 @@ func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.Project
 	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, Version: def.Workflow.Version, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
 	if validation != nil {
 		item.ValidForTaskCreation = link.ID != "" && validation.Valid()
-		item.ValidationErrors = workflowapi.ValidationErrors(def.Workflow.ID, validation.Errors)
+		item.ValidationErrors = ValidationErrors(def.Workflow.ID, validation.Errors)
 	}
 	return item
 }
@@ -1090,7 +1088,7 @@ func runStatus(run sqlitegen.TaskRunRecord) string {
 
 func transitionDTO(transition sqlitegen.TaskTransitionRecord, edges []sqlitegen.TaskTransitionEdgeRecord) (serverapi.WorkflowTaskTransition, error) {
 	outputs := map[string]string{}
-	if err := workflowjson.UnmarshalString(transition.OutputValuesJson, &outputs); err != nil {
+	if err := workflow.UnmarshalString(transition.OutputValuesJson, &outputs); err != nil {
 		return serverapi.WorkflowTaskTransition{}, err
 	}
 	dto := serverapi.WorkflowTaskTransition{
@@ -1114,11 +1112,11 @@ func transitionDTO(transition sqlitegen.TaskTransitionRecord, edges []sqlitegen.
 	}
 	for _, edge := range edges {
 		inputs := []serverapi.WorkflowInputBinding{}
-		if err := workflowjson.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
+		if err := workflow.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
 			return serverapi.WorkflowTaskTransition{}, err
 		}
 		requirements := []serverapi.WorkflowOutputRequirement{}
-		if err := workflowjson.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
+		if err := workflow.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
 			return serverapi.WorkflowTaskTransition{}, err
 		}
 		dto.Edges = append(dto.Edges, serverapi.WorkflowTransitionEdge{
@@ -1721,7 +1719,7 @@ func sourceWorkspaceForTask(task sqlitegen.TaskRecord, workspacesByID map[string
 			RootPath    string `json:"root_path"`
 		} `json:"source_workspace_snapshot"`
 	}{}
-	if err := workflowjson.UnmarshalString(task.MetadataJson, &snapshot); err == nil {
+	if err := workflow.UnmarshalString(task.MetadataJson, &snapshot); err == nil {
 		if strings.TrimSpace(snapshot.SourceWorkspaceSnapshot.RootPath) != "" {
 			return serverapi.ProjectWorkspaceSummary{
 				WorkspaceID:  strings.TrimSpace(snapshot.SourceWorkspaceSnapshot.WorkspaceID),
@@ -1847,8 +1845,8 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 				DisplayName:            node.DisplayName,
 				AssigneeRole:           node.SubagentRole,
 				SortOrder:              index,
-				OutputFields:           workflowapi.OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.ID))),
-				TransitionOutputFields: workflowapi.OutputFields(workflow.TransitionOutputFieldsForTargetNode(domainDef, derived, workflow.NodeID(node.ID))),
+				OutputFields:           OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.ID))),
+				TransitionOutputFields: OutputFields(workflow.TransitionOutputFieldsForTargetNode(domainDef, derived, workflow.NodeID(node.ID))),
 			},
 			GroupID:   node.GroupID,
 			SortOrder: index,

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
+	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type ActivityRequest struct {

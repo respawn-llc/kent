@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"core/prompts"
 	"core/server/auth"
-	"core/server/generated"
-	"core/shared/brand"
 	"core/shared/config"
 )
 
@@ -71,7 +70,7 @@ func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildGeneratedSupport: %v", err)
 	}
-	wantSkillsRoot := filepath.Join(home, brand.ConfigDirName, ".generated", "skills")
+	wantSkillsRoot := filepath.Join(home, config.ConfigDirName, ".generated", "skills")
 	if result.GeneratedSkillsRoot != wantSkillsRoot {
 		t.Fatalf("generated skills root = %q, want %q", result.GeneratedSkillsRoot, wantSkillsRoot)
 	}
@@ -83,7 +82,7 @@ func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
 	if result.RecoveredWarning != "" {
 		t.Fatalf("did not expect recovered warning on clean seed, got %+v", result)
 	}
-	if generated.RecoveredWarning() == "" {
+	if prompts.RecoveredWarning() == "" {
 		t.Fatal("expected generated warning text to be available")
 	}
 }

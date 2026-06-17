@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"core/prompts"
-	"core/shared/brand"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -41,7 +40,7 @@ func goalSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := newCommandFlagSet(brand.Command+" goal", stderr, goalUsage)
+		fs := newCommandFlagSet(config.Command+" goal", stderr, goalUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -64,14 +63,14 @@ func goalSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return goalClearSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown goal command: %s\n\n", action)
-		fs := newCommandFlagSet(brand.Command+" goal", stderr, goalUsage)
+		fs := newCommandFlagSet(config.Command+" goal", stderr, goalUsage)
 		goalUsage.write(fs)
 		return 2
 	}
 }
 
 func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" goal show", stderr, goalCommandUsage)
+	fs := newCommandFlagSet(config.Command+" goal show", stderr, goalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
@@ -111,7 +110,7 @@ func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" goal set", stderr, goalCommandUsage)
+	fs := newCommandFlagSet(config.Command+" goal set", stderr, goalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -148,7 +147,7 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" goal "+action, stderr, goalCommandUsage)
+	fs := newCommandFlagSet(config.Command+" goal "+action, stderr, goalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -190,7 +189,7 @@ func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr
 }
 
 func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" goal complete", stderr, goalCommandUsage)
+	fs := newCommandFlagSet(config.Command+" goal complete", stderr, goalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	confirmed := fs.Bool("confirm", false, "confirm goal completion")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
@@ -250,7 +249,7 @@ func goalAlreadyComplete(goal *serverapi.RuntimeGoal) bool {
 }
 
 func goalClearSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" goal clear", stderr, goalCommandUsage)
+	fs := newCommandFlagSet(config.Command+" goal clear", stderr, goalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -290,7 +289,7 @@ func resolveGoalCommandSession(sessionFlag string) (sessionID string, agent bool
 	}
 	trimmed := strings.TrimSpace(sessionFlag)
 	if trimmed == "" {
-		return "", false, errors.New("goal command requires --session outside " + brand.Product + " shell commands")
+		return "", false, errors.New("goal command requires --session outside " + config.Product + " shell commands")
 	}
 	return trimmed, false, nil
 }

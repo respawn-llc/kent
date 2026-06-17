@@ -8,9 +8,9 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
+	triggerhandofftool "core/server/tools"
 	shelltool "core/server/tools/shell"
-	triggerhandofftool "core/server/tools/triggerhandoff"
 	"core/server/workflowruntime"
 	"core/shared/config"
 	"core/shared/toolspec"
@@ -18,7 +18,7 @@ import (
 
 type RuntimeWiring struct {
 	Engine        *runtime.Engine
-	AskBroker     *askquestion.Broker
+	AskBroker     *askquestion.AskQuestionBroker
 	EventBridge   *EventBridge
 	Background    *shelltool.Manager
 	LocalTools    *LocalToolRegistryBinding
@@ -57,7 +57,7 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		llm.LockedContractSupportsVisionInputs(store.Meta().Locked, active.Model),
 		logger,
 		background,
-		func() triggerhandofftool.Controller { return eng },
+		func() triggerhandofftool.TriggerHandoffController { return eng },
 		func() bool {
 			if eng == nil {
 				return true

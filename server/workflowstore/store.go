@@ -14,7 +14,6 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 	"github.com/google/uuid"
 )
 
@@ -505,15 +504,15 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 	if strings.TrimSpace(string(node.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
 	}
-	inputFields, err := workflowjson.MarshalString(node.InputFields)
+	inputFields, err := workflow.MarshalString(node.InputFields)
 	if err != nil {
 		return 0, err
 	}
-	joinProviders, err := workflowjson.MarshalString(node.JoinInputProviders)
+	joinProviders, err := workflow.MarshalString(node.JoinInputProviders)
 	if err != nil {
 		return 0, err
 	}
-	outputFields, err := workflowjson.MarshalString(node.OutputFields)
+	outputFields, err := workflow.MarshalString(node.OutputFields)
 	if err != nil {
 		return 0, err
 	}
@@ -570,15 +569,15 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 	if strings.TrimSpace(string(node.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
 	}
-	inputFields, err := workflowjson.MarshalString(node.InputFields)
+	inputFields, err := workflow.MarshalString(node.InputFields)
 	if err != nil {
 		return 0, err
 	}
-	joinProviders, err := workflowjson.MarshalString(node.JoinInputProviders)
+	joinProviders, err := workflow.MarshalString(node.JoinInputProviders)
 	if err != nil {
 		return 0, err
 	}
-	outputFields, err := workflowjson.MarshalString(node.OutputFields)
+	outputFields, err := workflow.MarshalString(node.OutputFields)
 	if err != nil {
 		return 0, err
 	}
@@ -813,11 +812,11 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	inputs, err := workflowjson.MarshalString(edge.InputBindings)
+	inputs, err := workflow.MarshalString(edge.InputBindings)
 	if err != nil {
 		return 0, err
 	}
-	requirements, err := workflowjson.MarshalString(edge.OutputRequirements)
+	requirements, err := workflow.MarshalString(edge.OutputRequirements)
 	if err != nil {
 		return 0, err
 	}
@@ -856,11 +855,11 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 	if err != nil {
 		return 0, err
 	}
-	inputs, err := workflowjson.MarshalString(edge.InputBindings)
+	inputs, err := workflow.MarshalString(edge.InputBindings)
 	if err != nil {
 		return 0, err
 	}
-	requirements, err := workflowjson.MarshalString(edge.OutputRequirements)
+	requirements, err := workflow.MarshalString(edge.OutputRequirements)
 	if err != nil {
 		return 0, err
 	}
@@ -1016,13 +1015,13 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		inputFields := []workflow.InputField{}
 		joinProviders := []workflow.JoinInputProvider{}
 		outputFields := []workflow.OutputField{}
-		if err := workflowjson.UnmarshalString(node.InputFieldsJson, &inputFields); err != nil {
+		if err := workflow.UnmarshalString(node.InputFieldsJson, &inputFields); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		if err := workflowjson.UnmarshalString(node.JoinInputProvidersJson, &joinProviders); err != nil {
+		if err := workflow.UnmarshalString(node.JoinInputProvidersJson, &joinProviders); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		if err := workflowjson.UnmarshalString(node.OutputFieldsJson, &outputFields); err != nil {
+		if err := workflow.UnmarshalString(node.OutputFieldsJson, &outputFields); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
 		groupID := ""
@@ -1042,13 +1041,13 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		inputs := []workflow.InputBinding{}
 		parameters := []workflow.Parameter{}
 		requirements := []workflow.OutputRequirement{}
-		if err := workflowjson.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
+		if err := workflow.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		if err := workflowjson.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
+		if err := workflow.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		if err := workflowjson.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
+		if err := workflow.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
 		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.EdgeKey), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval != 0, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), PromptTemplate: edge.PromptTemplate, Parameters: parameters, InputBindings: inputs, OutputRequirements: requirements})
@@ -1176,5 +1175,5 @@ func marshalJSONArray[T any](value []T) (string, error) {
 	if value == nil {
 		value = []T{}
 	}
-	return workflowjson.MarshalString(value)
+	return workflow.MarshalString(value)
 }

@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"context"
 	"core/server/auth"
-	"core/server/authflow"
+	"core/server/authservice"
 	"core/server/metadata"
-	"core/server/serve"
 	"core/server/session"
 	serverstartup "core/server/startup"
 	"core/shared/client"
@@ -121,12 +120,12 @@ func (h bindingCommandMemoryAuthHandler) WrapStore(auth.Store) auth.Store {
 	return auth.NewMemoryStore(h.state)
 }
 
-func (bindingCommandMemoryAuthHandler) NeedsInteraction(req authflow.InteractionRequest) bool {
+func (bindingCommandMemoryAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
 	return !req.Gate.Ready
 }
 
-func (bindingCommandMemoryAuthHandler) Interact(context.Context, authflow.InteractionRequest) (authflow.InteractionOutcome, error) {
-	return authflow.InteractionOutcome{}, auth.ErrAuthNotConfigured
+func (bindingCommandMemoryAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
+	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
 }
 
 func (bindingCommandMemoryAuthHandler) LookupEnv(string) string {
@@ -231,8 +230,8 @@ func startBindingCommandServer(t *testing.T, workspace string) func() {
 	if err != nil {
 		t.Fatalf("config.Load server workspace: %v", err)
 	}
-	serve.ReleaseTestListenReservation(config.ServerListenAddress(cfg))
-	srv, err := serve.Start(context.Background(), serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-5"}, bindingCommandMemoryAuthHandler{state: auth.State{
+	serverstartup.ReleaseTestListenReservation(config.ServerListenAddress(cfg))
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-5"}, bindingCommandMemoryAuthHandler{state: auth.State{
 		Scope:     auth.ScopeGlobal,
 		Method:    auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 		UpdatedAt: time.Now().UTC(),

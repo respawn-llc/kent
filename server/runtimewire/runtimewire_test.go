@@ -19,7 +19,7 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
-	"core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	patchtool "core/server/tools/patch"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
@@ -55,11 +55,11 @@ func TestBuildToolRegistryViewImageApprovedOutsidePathIsLogged(t *testing.T) {
 		logger,
 		toolspec.ToolViewImage,
 	)
-	broker.SetAskHandler(func(req askquestion.Request) (askquestion.Response, error) {
+	broker.SetAskHandler(func(req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 		if !strings.Contains(req.Question, "Allow reading") {
 			t.Fatalf("expected read-focused approval question, got %q", req.Question)
 		}
-		return askquestion.Response{Approval: &askquestion.ApprovalPayload{Decision: askquestion.ApprovalDecisionAllowOnce}}, nil
+		return askquestion.AskQuestionResponse{Approval: &askquestion.AskQuestionApprovalPayload{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}}, nil
 	})
 
 	viewImageHandler, ok := registry.Get(toolspec.ToolViewImage)
@@ -578,12 +578,12 @@ func newRuntimeWireSession(t *testing.T, root string, name string) *session.Stor
 	return store
 }
 
-func newRuntimeWireToolRegistry(t *testing.T, workspace string, enabled ...toolspec.ID) (*tools.Registry, *askquestion.Broker) {
+func newRuntimeWireToolRegistry(t *testing.T, workspace string, enabled ...toolspec.ID) (*tools.Registry, *askquestion.AskQuestionBroker) {
 	t.Helper()
 	return newRuntimeWireLoggedToolRegistry(t, workspace, nil, enabled...)
 }
 
-func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Logger, enabled ...toolspec.ID) (*tools.Registry, *askquestion.Broker) {
+func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Logger, enabled ...toolspec.ID) (*tools.Registry, *askquestion.AskQuestionBroker) {
 	t.Helper()
 	registry, broker, _, err := BuildToolRegistry(workspace, "", enabled, 15*time.Second, 16_000, false, true, logger, nil, nil, nil)
 	if err != nil {

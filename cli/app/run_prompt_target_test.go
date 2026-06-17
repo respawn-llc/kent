@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"core/server/session"
-	"core/shared/brand"
 	"core/shared/config"
 )
 
@@ -56,7 +55,7 @@ func TestValidateRunPromptAgentRoleUnknownRoleListsCallableRolesForKentSession(t
 func TestStartRunPromptClientUnknownRoleKentSessionErrorUsesCallableAvailableRoles(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	configPath := filepath.Join(home, brand.ConfigDirName, "config.toml")
+	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -89,7 +88,7 @@ func TestStartRunPromptClientUnknownRoleKentSessionErrorUsesCallableAvailableRol
 func TestStartRunPromptClientDefaultAliasBlocksNonCallableContextRole(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	configPath := filepath.Join(home, brand.ConfigDirName, "config.toml")
+	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

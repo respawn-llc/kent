@@ -11,7 +11,7 @@ import (
 
 	"core/server/primaryrun"
 	"core/server/runtime"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 )
@@ -537,8 +537,8 @@ func TestRuntimeRegistryTracksPendingPromptsPerSession(t *testing.T) {
 	registry.Register("session-1", engine)
 	t.Cleanup(func() { registry.Unregister("session-1", engine) })
 
-	registry.BeginPendingPrompt("session-1", askquestion.Request{ID: "ask-1", Question: "one?"})
-	registry.BeginPendingPrompt("session-1", askquestion.Request{ID: "approval-1", Question: "allow?", Approval: true})
+	registry.BeginPendingPrompt("session-1", askquestion.AskQuestionRequest{ID: "ask-1", Question: "one?"})
+	registry.BeginPendingPrompt("session-1", askquestion.AskQuestionRequest{ID: "approval-1", Question: "allow?", Approval: true})
 
 	items := registry.ListPendingPrompts("session-1")
 	if len(items) != 2 {
@@ -567,7 +567,7 @@ func TestRuntimeRegistrySubscribePromptActivityReplaysAllPendingPromptsBeyondBuf
 	t.Cleanup(func() { registry.Unregister("session-1", engine) })
 
 	for i := 0; i < promptActivityBufferSize+5; i++ {
-		registry.BeginPendingPrompt("session-1", askquestion.Request{ID: fmt.Sprintf("ask-%03d", i), Question: "pending"})
+		registry.BeginPendingPrompt("session-1", askquestion.AskQuestionRequest{ID: fmt.Sprintf("ask-%03d", i), Question: "pending"})
 	}
 
 	sub, err := registry.SubscribePromptActivity(context.Background(), "session-1")
@@ -616,7 +616,7 @@ func TestRuntimeRegistrySubscribePromptActivityDeliversPromptStartedDuringInitia
 	sub, err := entry.SubscribePromptActivityInitial("session-1", func() {
 		go func() {
 			close(promptStarted)
-			registry.BeginPendingPrompt("session-1", askquestion.Request{ID: "ask-during-subscribe", Question: "Proceed?"})
+			registry.BeginPendingPrompt("session-1", askquestion.AskQuestionRequest{ID: "ask-during-subscribe", Question: "Proceed?"})
 			close(promptDone)
 		}()
 		<-promptStarted
@@ -677,7 +677,7 @@ func TestRuntimeRegistrySubmitPromptResponseRemovesPendingPromptBeforeWaiterRetu
 
 	responseDone := make(chan error, 1)
 	go func() {
-		_, err := registry.AwaitPromptResponse(context.Background(), "session-1", askquestion.Request{ID: "ask-1", Question: "Proceed?"})
+		_, err := registry.AwaitPromptResponse(context.Background(), "session-1", askquestion.AskQuestionRequest{ID: "ask-1", Question: "Proceed?"})
 		responseDone <- err
 	}()
 
@@ -693,7 +693,7 @@ func TestRuntimeRegistrySubmitPromptResponseRemovesPendingPromptBeforeWaiterRetu
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if err := registry.SubmitPromptResponse("session-1", askquestion.Response{RequestID: "ask-1", Answer: "yes"}, nil); err != nil {
+	if err := registry.SubmitPromptResponse("session-1", askquestion.AskQuestionResponse{RequestID: "ask-1", Answer: "yes"}, nil); err != nil {
 		t.Fatalf("SubmitPromptResponse: %v", err)
 	}
 	if items := registry.ListPendingPrompts("session-1"); len(items) != 0 {
@@ -749,14 +749,14 @@ func TestRuntimeRegistryAwaitPromptResponseContextCanceledRemovesPendingPrompt(t
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = registry.AwaitPromptResponse(ctx, "session-1", askquestion.Request{ID: "ask-1", Question: "Proceed?"})
+	_, err = registry.AwaitPromptResponse(ctx, "session-1", askquestion.AskQuestionRequest{ID: "ask-1", Question: "Proceed?"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("AwaitPromptResponse error=%v, want context.Canceled", err)
 	}
 	if items := registry.ListPendingPrompts("session-1"); len(items) != 0 {
 		t.Fatalf("expected canceled prompt removed, got %+v", items)
 	}
-	if err := registry.SubmitPromptResponse("session-1", askquestion.Response{RequestID: "ask-1", Answer: "late"}, nil); !errors.Is(err, serverapi.ErrPromptNotFound) {
+	if err := registry.SubmitPromptResponse("session-1", askquestion.AskQuestionResponse{RequestID: "ask-1", Answer: "late"}, nil); !errors.Is(err, serverapi.ErrPromptNotFound) {
 		t.Fatalf("late SubmitPromptResponse error=%v, want ErrPromptNotFound", err)
 	}
 	pending, err := sub.Next(context.Background())
@@ -839,10 +839,10 @@ func TestRuntimeRegistryClearsPrimaryRunLeaseWhenRuntimeIsRemoved(t *testing.T) 
 func TestPendingPromptStoreCloseDoesNotBlockWhenResponseAlreadyBuffered(t *testing.T) {
 	store := newPendingPromptStore()
 	pending := &pendingPromptEntry{
-		PendingPromptSnapshot: PendingPromptSnapshot{Request: askquestion.Request{ID: "ask-1"}},
+		PendingPromptSnapshot: PendingPromptSnapshot{Request: askquestion.AskQuestionRequest{ID: "ask-1"}},
 		response:              make(chan promptResponseResult, 1),
 	}
-	pending.response <- promptResponseResult{response: askquestion.Response{RequestID: "ask-1"}}
+	pending.response <- promptResponseResult{response: askquestion.AskQuestionResponse{RequestID: "ask-1"}}
 	store.pending["ask-1"] = pending
 
 	done := make(chan struct{})

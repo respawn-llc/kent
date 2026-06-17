@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/cli/app/internal/onboardingimportchoice"
+	"core/cli/app/internal/onboarding"
 	"core/server/llm"
 	"core/shared/config"
 	"core/shared/theme"
@@ -56,14 +56,14 @@ const (
 	onboardingPendingActionRestart       onboardingPendingAction = "restart"
 )
 
-type onboardingImportMode = onboardingimportchoice.Mode
+type onboardingImportMode = onboarding.Mode
 
 const (
-	onboardingImportModeNone          = onboardingimportchoice.ModeNone
-	onboardingImportModeSymlinkSource = onboardingimportchoice.ModeSymlinkSource
+	onboardingImportModeNone          = onboarding.ModeNone
+	onboardingImportModeSymlinkSource = onboarding.ModeSymlinkSource
 )
 
-type onboardingImportSelection = onboardingimportchoice.Selection
+type onboardingImportSelection = onboarding.Selection
 
 type onboardingFlowState struct {
 	settings                    config.Settings

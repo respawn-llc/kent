@@ -9,7 +9,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 func (s *Store) ListRunnableRuns(ctx context.Context, limit int64) ([]RunnableRunRecord, error) {
@@ -179,7 +178,7 @@ func (s *Store) ResumeTaskRunByID(ctx context.Context, taskID workflow.TaskID, r
 		return RunRecord{}, fmt.Errorf("task has multiple interrupted workflow runs; %w", ErrRunIDRequired)
 	}
 	snapshot := runStartSnapshot{}
-	if err := workflowjson.UnmarshalString(candidates[0].snapshotJSON, &snapshot); err != nil {
+	if err := workflow.UnmarshalString(candidates[0].snapshotJSON, &snapshot); err != nil {
 		return RunRecord{}, err
 	}
 	if err := s.validateRunnableRole(snapshot.Node.SubagentRole); err != nil {
@@ -233,7 +232,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	}
 	workflowRecord := WorkflowRecord{ID: workflow.WorkflowID(workflowRow.ID), Name: workflowRow.Name, Description: workflowRow.Description, Version: workflowRow.Version}
 	snapshot := runStartSnapshot{}
-	if err := workflowjson.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
+	if err := workflow.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return RunStartContext{}, err
 	}
 	inputValues, err := s.resolveRunInputValues(ctx, run.PlacementID, taskRecordFromTask(task))
@@ -250,7 +249,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	}
 	runMetadata := workflowRunMetadata{}
 	if strings.TrimSpace(run.MetadataJson) != "" {
-		if err := workflowjson.UnmarshalString(run.MetadataJson, &runMetadata); err != nil {
+		if err := workflow.UnmarshalString(run.MetadataJson, &runMetadata); err != nil {
 			return RunStartContext{}, fmt.Errorf("resolve workflow run metadata: %w", err)
 		}
 	}
@@ -358,7 +357,7 @@ func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID str
 	}
 	runMetadata := workflowRunMetadata{}
 	if strings.TrimSpace(runMetadataJSON) != "" {
-		if err := workflowjson.UnmarshalString(runMetadataJSON, &runMetadata); err != nil {
+		if err := workflow.UnmarshalString(runMetadataJSON, &runMetadata); err != nil {
 			return runTransitionContext{}, fmt.Errorf("resolve workflow run metadata: %w", err)
 		}
 		if strings.TrimSpace(runMetadata.ContextMode) != "" {
@@ -376,7 +375,7 @@ func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID str
 		return runTransitionContext{}, err
 	}
 	sourceSnapshot := runStartSnapshot{}
-	if err := workflowjson.UnmarshalString(sourceRun.RunStartSnapshotJson, &sourceSnapshot); err != nil {
+	if err := workflow.UnmarshalString(sourceRun.RunStartSnapshotJson, &sourceSnapshot); err != nil {
 		return runTransitionContext{}, err
 	}
 	resolved.SourceRunID = workflow.RunID(sourceRun.ID)
@@ -405,11 +404,11 @@ func (s *Store) resolveRunInputValues(ctx context.Context, placementID string, t
 		return nil, err
 	}
 	outputValues := map[string]string{}
-	if err := workflowjson.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
+	if err := workflow.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
 		return nil, err
 	}
 	bindings := []workflow.InputBinding{}
-	if err := workflowjson.UnmarshalString(inputBindingsJSON, &bindings); err != nil {
+	if err := workflow.UnmarshalString(inputBindingsJSON, &bindings); err != nil {
 		return nil, err
 	}
 	return resolveInputBindingValues(task, commentary, outputValues, bindings)

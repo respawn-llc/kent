@@ -11,7 +11,6 @@ import (
 	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
-	"core/shared/transcript/toolcodec"
 	"encoding/json"
 	"os"
 	"strings"
@@ -324,7 +323,7 @@ func TestReopenCarriesInterruptedAskQuestionToolAttemptIntoNextModelRequest(t *t
 		ID:    "call_ask",
 		Name:  string(toolspec.ToolAskQuestion),
 		Input: json.RawMessage(`{"question":"Choose scope?","suggestions":["full","fast"],"recommended_option_index":1}`),
-		Presentation: toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
+		Presentation: transcript.EncodeToolCallMeta(transcript.ToolCallMeta{
 			ToolName:               string(toolspec.ToolAskQuestion),
 			Presentation:           transcript.ToolPresentationAskQuestion,
 			RenderBehavior:         transcript.ToolCallRenderBehaviorAskQuestion,
@@ -341,7 +340,7 @@ func TestReopenCarriesInterruptedShellToolAttemptIntoNextModelRequest(t *testing
 		ID:    "call_shell",
 		Name:  string(toolspec.ToolExecCommand),
 		Input: json.RawMessage(`{"command":"pwd"}`),
-		Presentation: toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
+		Presentation: transcript.EncodeToolCallMeta(transcript.ToolCallMeta{
 			ToolName:       string(toolspec.ToolExecCommand),
 			Presentation:   transcript.ToolPresentationShell,
 			RenderBehavior: transcript.ToolCallRenderBehaviorShell,

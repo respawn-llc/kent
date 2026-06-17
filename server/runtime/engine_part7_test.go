@@ -5,7 +5,7 @@ import (
 	"core/server/llm"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/shared/brand"
+	brand "core/shared/config"
 	"core/shared/toolspec"
 	"encoding/json"
 	"os"

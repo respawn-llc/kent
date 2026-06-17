@@ -15,7 +15,6 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
-	"core/server/sessionpath"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -386,7 +385,7 @@ func (p Planner) openStore(ctx context.Context, req SessionRequest) (*session.St
 }
 
 func (p Planner) openScopedSession(sessionID string) (*session.Store, error) {
-	realSessionDir, err := sessionpath.ResolveScopedSessionDir(p.ContainerDir, sessionID)
+	realSessionDir, err := session.ResolveScopedSessionDir(p.ContainerDir, sessionID)
 	if err != nil {
 		return nil, err
 	}

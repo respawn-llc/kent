@@ -14,7 +14,6 @@ import (
 
 	"core/cli/app"
 	serverstartup "core/server/startup"
-	"core/shared/buildinfo"
 	"core/shared/config"
 	"core/shared/sessionenv"
 )
@@ -29,10 +28,10 @@ func (s *stubServeServer) Serve(context.Context) error {
 }
 
 func TestRootCommandPrintsVersion(t *testing.T) {
-	original := buildinfo.Version
-	buildinfo.Version = "1.2.3"
+	original := config.Version
+	config.Version = "1.2.3"
 	t.Cleanup(func() {
-		buildinfo.Version = original
+		config.Version = original
 	})
 
 	var stdout bytes.Buffer

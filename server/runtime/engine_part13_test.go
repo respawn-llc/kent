@@ -6,7 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	triggerhandofftool "core/server/tools/triggerhandoff"
+	triggerhandofftool "core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"encoding/json"
@@ -823,7 +823,7 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	resultOutput := mustJSON(triggerhandofftool.ResultPayload{
+	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
 		Summary:                 "Handoff scheduled. Context will be compacted before the next model turn and future-agent guidance was saved.",
 		FutureAgentMessageAdded: true,
 	})
@@ -923,7 +923,7 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 	var eng *Engine
 	registry := tools.NewRegistry(
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
-		tools.HandlerRegistration{ID: toolspec.ToolTriggerHandoff, Handler: triggerhandofftool.New(func() triggerhandofftool.Controller { return eng })},
+		tools.HandlerRegistration{ID: toolspec.ToolTriggerHandoff, Handler: triggerhandofftool.NewTriggerHandoffTool(func() triggerhandofftool.TriggerHandoffController { return eng })},
 	)
 	eng = mustNewTestEngine(t, store, client, registry, Config{
 		CompactionMode: "local",
@@ -1001,7 +1001,7 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFol
 	var eng *Engine
 	registry := tools.NewRegistry(
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
-		tools.HandlerRegistration{ID: toolspec.ToolTriggerHandoff, Handler: triggerhandofftool.New(func() triggerhandofftool.Controller { return eng })},
+		tools.HandlerRegistration{ID: toolspec.ToolTriggerHandoff, Handler: triggerhandofftool.NewTriggerHandoffTool(func() triggerhandofftool.TriggerHandoffController { return eng })},
 	)
 	eng = mustNewTestEngine(t, store, client, registry, Config{
 		CompactionMode:        "local",
@@ -1089,7 +1089,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 	var eng *Engine
 	registry := tools.NewRegistry(
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
-		tools.HandlerRegistration{ID: toolspec.ToolTriggerHandoff, Handler: triggerhandofftool.New(func() triggerhandofftool.Controller { return eng })},
+		tools.HandlerRegistration{ID: toolspec.ToolTriggerHandoff, Handler: triggerhandofftool.NewTriggerHandoffTool(func() triggerhandofftool.TriggerHandoffController { return eng })},
 	)
 	eng = mustNewTestEngine(t, store, firstClient, registry, Config{
 		CompactionMode: "local",

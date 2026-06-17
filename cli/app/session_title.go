@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 const defaultSessionTitle = brand.Command

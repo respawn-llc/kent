@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"core/cli/app/internal/projectbinding"
-	"core/cli/app/internal/projectpicker"
 	"core/cli/tui"
 	"core/shared/clientui"
 
@@ -96,7 +95,7 @@ func (m *projectBindingPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.options.AllowCreate {
 			itemCount++
 		}
-		m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, projectpicker.VisibleRowsRequest{
+		m.offset = projectbinding.EnsureCursorVisible(m.cursor, m.offset, projectbinding.VisibleRowsRequest{
 			ItemCount:  itemCount,
 			LineBudget: m.visibleLineBudget(),
 			HasPreview: m.hasPreview,
@@ -159,7 +158,7 @@ func (m *projectBindingPickerModel) View() string {
 	if m.options.AllowCreate {
 		itemCount++
 	}
-	visible := projectpicker.VisibleRows(projectpicker.VisibleRowsRequest{
+	visible := projectbinding.VisibleRows(projectbinding.VisibleRowsRequest{
 		Offset:     m.offset,
 		ItemCount:  itemCount,
 		LineBudget: m.visibleLineBudget(),
@@ -195,8 +194,8 @@ func (m *projectBindingPickerModel) moveCursor(delta int) {
 	if m.options.AllowCreate {
 		itemCount++
 	}
-	m.cursor = projectpicker.MoveCursor(m.cursor, delta, itemCount)
-	m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, projectpicker.VisibleRowsRequest{
+	m.cursor = projectbinding.MoveCursor(m.cursor, delta, itemCount)
+	m.offset = projectbinding.EnsureCursorVisible(m.cursor, m.offset, projectbinding.VisibleRowsRequest{
 		ItemCount:  itemCount,
 		LineBudget: m.visibleLineBudget(),
 		HasPreview: m.hasPreview,
@@ -216,9 +215,9 @@ func (m *projectBindingPickerModel) renderHeader() string {
 
 func (m *projectBindingPickerModel) renderRow(index int, showPreview bool) string {
 	selected := index == m.cursor
-	row := projectpicker.RowText{Title: projectBindingCreateLabel}
+	row := projectbinding.RowText{Title: projectBindingCreateLabel}
 	if project, ok := m.projectForRow(index); ok {
-		row = projectpicker.ProjectRowText(project.DisplayName, project.ProjectID, project.RootPath, humanTime(project.UpdatedAt), projectBindingHomeDir())
+		row = projectbinding.ProjectRowText(project.DisplayName, project.ProjectID, project.RootPath, humanTime(project.UpdatedAt), projectBindingHomeDir())
 	}
 	markerStyle := m.styles.marker
 	rowStyle := m.styles.row
@@ -269,7 +268,7 @@ func (m *projectBindingPickerModel) isCreateRow(index int) bool {
 }
 
 func (m *projectBindingPickerModel) projectForRow(index int) (clientui.ProjectSummary, bool) {
-	projectIndex, ok := projectpicker.ProjectIndexForRow(index, len(m.projects), m.options.AllowCreate)
+	projectIndex, ok := projectbinding.ProjectIndexForRow(index, len(m.projects), m.options.AllowCreate)
 	if !ok {
 		return clientui.ProjectSummary{}, false
 	}
@@ -349,7 +348,7 @@ func (m *projectWorkspacePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Height > 0 {
 			m.height = key.Height
 		}
-		m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, projectpicker.VisibleRowsRequest{
+		m.offset = projectbinding.EnsureCursorVisible(m.cursor, m.offset, projectbinding.VisibleRowsRequest{
 			ItemCount:  len(m.workspaces),
 			LineBudget: m.visibleLineBudget(),
 			HasPreview: m.hasPreview,
@@ -403,7 +402,7 @@ func (m *projectWorkspacePickerModel) View() string {
 	out.WriteString("\n\n")
 	out.WriteString(tui.ApplyThemeStyleIntents(truncateQueuedMessageLine(projectWorkspacePickerNoticeText, m.width), m.theme, tui.ThemeForeground))
 	out.WriteString("\n\n")
-	for idx, row := range projectpicker.VisibleRows(projectpicker.VisibleRowsRequest{
+	for idx, row := range projectbinding.VisibleRows(projectbinding.VisibleRowsRequest{
 		Offset:     m.offset,
 		ItemCount:  len(m.workspaces),
 		LineBudget: m.visibleLineBudget(),
@@ -426,8 +425,8 @@ func (m *projectWorkspacePickerModel) visibleLineBudget() int {
 }
 
 func (m *projectWorkspacePickerModel) moveCursor(delta int) {
-	m.cursor = projectpicker.MoveCursor(m.cursor, delta, len(m.workspaces))
-	m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, projectpicker.VisibleRowsRequest{
+	m.cursor = projectbinding.MoveCursor(m.cursor, delta, len(m.workspaces))
+	m.offset = projectbinding.EnsureCursorVisible(m.cursor, m.offset, projectbinding.VisibleRowsRequest{
 		ItemCount:  len(m.workspaces),
 		LineBudget: m.visibleLineBudget(),
 		HasPreview: m.hasPreview,
@@ -447,7 +446,7 @@ func (m *projectWorkspacePickerModel) renderHeader() string {
 func (m *projectWorkspacePickerModel) renderRow(index int, showPreview bool) string {
 	selected := index == m.cursor
 	workspace := m.workspaces[index]
-	row := projectpicker.WorkspaceRowText(workspace.DisplayName, workspace.RootPath, humanTime(workspace.UpdatedAt), projectBindingHomeDir())
+	row := projectbinding.WorkspaceRowText(workspace.DisplayName, workspace.RootPath, humanTime(workspace.UpdatedAt), projectBindingHomeDir())
 	markerStyle := m.styles.marker
 	rowStyle := m.styles.row
 	marker := "◈"

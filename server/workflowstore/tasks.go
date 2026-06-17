@@ -10,7 +10,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 type CreateTaskRequest struct {
@@ -333,14 +332,14 @@ func resolveTaskSourceWorkspaceWithQueries(ctx context.Context, q *sqlitegen.Que
 func taskMetadataWithSourceWorkspaceSnapshot(ctx context.Context, q *sqlitegen.Queries, currentMetadata string, sourceWorkspaceID string) (string, error) {
 	payload := map[string]any{}
 	if strings.TrimSpace(currentMetadata) != "" {
-		if err := workflowjson.UnmarshalString(currentMetadata, &payload); err != nil {
+		if err := workflow.UnmarshalString(currentMetadata, &payload); err != nil {
 			return "", fmt.Errorf("decode task metadata json: %w", err)
 		}
 	}
 	trimmedWorkspaceID := strings.TrimSpace(sourceWorkspaceID)
 	if trimmedWorkspaceID == "" {
 		delete(payload, "source_workspace_snapshot")
-		return workflowjson.MarshalString(payload)
+		return workflow.MarshalString(payload)
 	}
 	workspace, err := q.GetWorkspaceByID(ctx, trimmedWorkspaceID)
 	if err != nil {
@@ -351,7 +350,7 @@ func taskMetadataWithSourceWorkspaceSnapshot(ctx context.Context, q *sqlitegen.Q
 		"display_name": workspaceSnapshotDisplayName(workspace.CanonicalRootPath),
 		"root_path":    workspace.CanonicalRootPath,
 	}
-	return workflowjson.MarshalString(payload)
+	return workflow.MarshalString(payload)
 }
 
 func workspaceSnapshotDisplayName(rootPath string) string {
@@ -407,11 +406,11 @@ func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTas
 	if err := insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, startEdgeSnapshot, targetPlacementID, "applied", workflowRunMetadata{}); err != nil {
 		return StartTaskResult{}, err
 	}
-	runSnapshotJSON, err := workflowjson.MarshalString(runSnapshot)
+	runSnapshotJSON, err := workflow.MarshalString(runSnapshot)
 	if err != nil {
 		return StartTaskResult{}, err
 	}
-	runMetadataJSON, err := workflowjson.MarshalString(workflowRunMetadata{
+	runMetadataJSON, err := workflow.MarshalString(workflowRunMetadata{
 		ContextMode:    string(startEdgeSnapshot.ContextMode),
 		ContextSource:  workflow.CanonicalContextSource(startEdgeSnapshot.ContextSource),
 		PromptTemplate: strings.TrimSpace(startEdgeSnapshot.PromptTemplate),
@@ -520,7 +519,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		return CompleteRunResult{}, fmt.Errorf("%w: got %d want %d", ErrStaleRunGeneration, req.ExpectedGeneration, run.RunGeneration)
 	}
 	snapshot := runStartSnapshot{}
-	if err := workflowjson.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
+	if err := workflow.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return CompleteRunResult{}, err
 	}
 	selectedTransitionID := strings.TrimSpace(req.TransitionID)
@@ -550,7 +549,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		}
 		return CompleteRunResult{}, CompletionValidationError{Issues: issues}
 	}
-	outputValuesJSON, err := workflowjson.MarshalString(req.OutputValues)
+	outputValuesJSON, err := workflow.MarshalString(req.OutputValues)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
@@ -660,7 +659,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		if !foundSnapshot {
 			return CompleteRunResult{}, fmt.Errorf("target node %q missing from run-start snapshot", edge.TargetNode.ID)
 		}
-		targetSnapshotJSON, err := workflowjson.MarshalString(targetSnapshot)
+		targetSnapshotJSON, err := workflow.MarshalString(targetSnapshot)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -672,7 +671,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := workflowjson.MarshalString(workflowRunMetadata{
+		targetMetadataJSON, err := workflow.MarshalString(workflowRunMetadata{
 			ContextMode:          string(edge.ContextMode),
 			ContextSource:        workflow.CanonicalContextSource(edge.ContextSource),
 			SourceRunID:          source.runID,

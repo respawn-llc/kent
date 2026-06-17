@@ -23,7 +23,7 @@ import (
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
-	"core/shared/transcript/toolcodec"
+	"core/shared/transcript"
 )
 
 type sessionRuntimeTestLLMClient struct {
@@ -1744,7 +1744,7 @@ func TestSyncExecutionTargetUpdatesActiveRuntimePatchTranscriptWorkdir(t *testin
 			if evt.Kind != runtimepkg.EventToolCallStarted || evt.ToolCall == nil {
 				return
 			}
-			meta, ok := toolcodec.DecodeToolCallMeta(evt.ToolCall.Presentation)
+			meta, ok := transcript.DecodeToolCallMeta(evt.ToolCall.Presentation)
 			if ok {
 				detail.Set(meta.PatchDetail)
 			}
@@ -1835,7 +1835,7 @@ func TestRuntimeRebindDoesNotAdvanceTranscriptWorkdirWhenLocalRebindFails(t *tes
 			if evt.Kind != runtimepkg.EventToolCallStarted || evt.ToolCall == nil {
 				return
 			}
-			meta, ok := toolcodec.DecodeToolCallMeta(evt.ToolCall.Presentation)
+			meta, ok := transcript.DecodeToolCallMeta(evt.ToolCall.Presentation)
 			if ok {
 				detail.Set(meta.PatchDetail)
 			}

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
 	"core/server/auth"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -279,7 +279,7 @@ func TestSessionPickerAuthLabelExamples(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := statuscollect.AuthDisplayLabel(tt.info); got != tt.want {
+			if got := status.AuthDisplayLabel(tt.info); got != tt.want {
 				t.Fatalf("auth label = %q, want %q", got, tt.want)
 			}
 		})

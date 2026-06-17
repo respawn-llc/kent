@@ -5,10 +5,8 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
-	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/testopenai"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +22,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	saveReadyAppAuthState(t, workspace)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if testopenai.HandleInputTokenCount(w, r, 11) {
+		if handleTestOpenAIInputTokenCount(w, r, 11) {
 			return
 		}
 		if r.URL.Path != "/responses" {
@@ -33,7 +31,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		if got := strings.TrimSpace(r.Header.Get("Authorization")); got == "" {
 			t.Fatal("expected authorization header")
 		}
-		testopenai.WriteCompletedResponseStream(w, "hello from fake", 11, 7)
+		writeTestOpenAICompletedResponseStream(w, "hello from fake", 11, 7)
 	}))
 	defer server.Close()
 
@@ -109,7 +107,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	ctx := context.Background()
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	worktree := filepath.Join(home, brand.ConfigDirName, "worktrees", "project", "feature")
+	worktree := filepath.Join(home, config.ConfigDirName, "worktrees", "project", "feature")
 	worktreeSubdir := filepath.Join(worktree, "pkg")
 	if err := os.MkdirAll(worktreeSubdir, 0o755); err != nil {
 		t.Fatalf("mkdir worktree subdir: %v", err)
@@ -191,7 +189,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	home, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
-	configPath := filepath.Join(home, brand.ConfigDirName, "config.toml")
+	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -204,7 +202,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 
 	requestBodies := make(chan map[string]any, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if testopenai.HandleInputTokenCount(w, r, 11) {
+		if handleTestOpenAIInputTokenCount(w, r, 11) {
 			return
 		}
 		if r.URL.Path != "/responses" {
@@ -219,7 +217,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 			t.Fatalf("decode payload: %v", err)
 		}
 		requestBodies <- payload
-		testopenai.WriteCompletedResponseStream(w, "fast via role provider", 11, 7)
+		writeTestOpenAICompletedResponseStream(w, "fast via role provider", 11, 7)
 	}))
 	defer server.Close()
 
@@ -368,7 +366,7 @@ func newFakeResponsesServer(t *testing.T, assistantReplies []string) (*httptest.
 	t.Helper()
 	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if testopenai.HandleInputTokenCount(w, r, 11) {
+		if handleTestOpenAIInputTokenCount(w, r, 11) {
 			return
 		}
 		if r.URL.Path != "/responses" {
@@ -381,7 +379,7 @@ func newFakeResponsesServer(t *testing.T, assistantReplies []string) (*httptest.
 		if index >= len(assistantReplies) {
 			t.Fatalf("unexpected response request index %d", index)
 		}
-		testopenai.WriteCompletedResponseStream(w, assistantReplies[index], 11, 7)
+		writeTestOpenAICompletedResponseStream(w, assistantReplies[index], 11, 7)
 	}))
 	return server, &hits
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"core/cli/app/internal/submissionerror"
+	"core/cli/app/internal/runtimeattach"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/shared/clientui"
@@ -135,7 +135,7 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 		t.Fatal("expected resumed steering submission to set busy=true")
 	}
 
-	next, interruptCmd := updated.Update(submitDoneMsg{err: submissionerror.ErrInterrupted})
+	next, interruptCmd := updated.Update(submitDoneMsg{err: runtimeattach.ErrSubmissionInterrupted})
 	updated = next.(*uiModel)
 	if interruptCmd == nil {
 		t.Fatal("expected queued runtime cleanup command after interrupted resumed steering")

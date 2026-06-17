@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	serverstartup "core/server/startup"
+	brand "core/shared/config"
 	"errors"
 	"fmt"
 	"io"
@@ -9,17 +11,12 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-
-	"core/cli/kent/internal/serverbridge"
-	"core/server/serve"
-	serverstartup "core/server/startup"
-	"core/shared/brand"
 )
 
-type serveCommandServer = serverbridge.ServeServer
+type serveCommandServer = ServeServer
 
 var startServeServer = func(ctx context.Context, req serverstartup.Request, authHandler serverstartup.AuthHandler, onboardingHandler serverstartup.OnboardingHandler) (serveCommandServer, error) {
-	return serve.Start(ctx, req, authHandler, onboardingHandler)
+	return serverstartup.StartServeServer(ctx, req, authHandler, onboardingHandler)
 }
 var newServeStartupHandlers = func() (serverstartup.AuthHandler, serverstartup.OnboardingHandler) {
 	return serverstartup.NewHeadlessHandlers(nil)

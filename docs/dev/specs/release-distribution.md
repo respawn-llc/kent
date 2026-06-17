@@ -5,7 +5,7 @@
 - Root `VERSION` is the source of truth for release version and tag normalization.
 - Release/build scripts sync Tauri and package metadata from `VERSION`.
 - Official release binaries are built through `scripts/build.sh`.
-- The release profile is `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags "-s -w -X core/shared/buildinfo.Version=..."`.
+- The release profile is `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags "-s -w -X core/shared/config.Version=..."`.
 - Release archive packaging and verification live in `scripts/release-artifacts.sh`; workflow YAML should stay orchestration-focused.
 
 ## Targets

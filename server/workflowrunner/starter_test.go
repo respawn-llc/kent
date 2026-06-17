@@ -15,11 +15,8 @@ import (
 	"core/server/metadata"
 	"core/server/registry"
 	"core/server/session"
-	"core/server/sessionpath"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/server/workflow"
-	"core/server/workflowruntime/workflowtest"
-	"core/server/workflowscheduler"
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/shared/config"
@@ -28,7 +25,7 @@ import (
 )
 
 func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer(`{"commentary":"finished structured"}`))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"finished structured"}`))
 
 	task := fixture.createStartedTask(t)
 	scheduler := fixture.scheduler(t)
@@ -76,7 +73,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 
 func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 	input := json.RawMessage(`{"commentary":"finished tool"}`)
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, ScriptedToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
 
 	task := fixture.createStartedTask(t)
 	scheduler := fixture.scheduler(t)
@@ -101,7 +98,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 
 func TestSchedulerWorkflowPromptIncludesStoreBackedTaskCommentCount(t *testing.T) {
 	input := json.RawMessage(`{"commentary":"finished tool"}`)
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, ScriptedToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
 	task := fixture.createStartedTask(t)
 	if _, err := fixture.store.AddComment(context.Background(), task.ID, "first durable note", "user", "nek"); err != nil {
 		t.Fatalf("AddComment first: %v", err)
@@ -131,8 +128,8 @@ func TestSchedulerWorkflowPromptIncludesStoreBackedTaskCommentCount(t *testing.T
 func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 	completeInput := json.RawMessage(`{"commentary":"answered and finished"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,
-		workflowtest.AskQuestion("call-ask", []byte(`{"question":"Need direction?","suggestions":["ship","stop"],"recommended_option_index":1}`)),
-		workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
+		ScriptedAskQuestion("call-ask", []byte(`{"question":"Need direction?","suggestions":["ship","stop"],"recommended_option_index":1}`)),
+		ScriptedToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
 	)
 	role := fixture.cfg.Settings.Subagents["coder"]
 	role.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolAskQuestion: true}
@@ -150,7 +147,7 @@ func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 	if len(pending) != 1 || pending[0].Request.ID != "call-ask" || pending[0].Request.Question != "Need direction?" {
 		t.Fatalf("pending prompts = %+v", pending)
 	}
-	if err := fixture.runtimes.SubmitPromptResponse(waiting.SessionID, askquestion.Response{RequestID: "call-ask", Answer: "Ship it"}, nil); err != nil {
+	if err := fixture.runtimes.SubmitPromptResponse(waiting.SessionID, askquestion.AskQuestionResponse{RequestID: "call-ask", Answer: "Ship it"}, nil); err != nil {
 		t.Fatalf("SubmitPromptResponse: %v", err)
 	}
 	fixture.waitForCompletedRun(t, task.ID)
@@ -183,11 +180,11 @@ func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 func TestWorkflowRuntimeMultipleAskQuestionsInOneToolBatchResumeSequentially(t *testing.T) {
 	completeInput := json.RawMessage(`{"commentary":"answered both and finished"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,
-		workflowtest.ToolBatch("questions",
+		ScriptedToolBatch("questions",
 			llm.ToolCall{ID: "call-ask-1", Name: "ask_question", Input: json.RawMessage(`{"question":"First direction?","suggestions":["ship","stop"],"recommended_option_index":1}`)},
 			llm.ToolCall{ID: "call-ask-2", Name: "ask_question", Input: json.RawMessage(`{"question":"Second direction?","suggestions":["fast","safe"],"recommended_option_index":2}`)},
 		),
-		workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
+		ScriptedToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
 	)
 	role := fixture.cfg.Settings.Subagents["coder"]
 	role.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolAskQuestion: true}
@@ -201,14 +198,14 @@ func TestWorkflowRuntimeMultipleAskQuestionsInOneToolBatchResumeSequentially(t *
 		t.Fatalf("Process: %v", err)
 	}
 	first := fixture.waitForWaitingAsk(t, task.ID, "call-ask-1")
-	if err := fixture.runtimes.SubmitPromptResponse(first.SessionID, askquestion.Response{RequestID: "call-ask-1", Answer: "Ship it"}, nil); err != nil {
+	if err := fixture.runtimes.SubmitPromptResponse(first.SessionID, askquestion.AskQuestionResponse{RequestID: "call-ask-1", Answer: "Ship it"}, nil); err != nil {
 		t.Fatalf("SubmitPromptResponse first: %v", err)
 	}
 	second := fixture.waitForWaitingAsk(t, task.ID, "call-ask-2")
 	if second.SessionID != first.SessionID {
 		t.Fatalf("second ask session = %q, want first session %q", second.SessionID, first.SessionID)
 	}
-	if err := fixture.runtimes.SubmitPromptResponse(second.SessionID, askquestion.Response{RequestID: "call-ask-2", Answer: "Keep it safe"}, nil); err != nil {
+	if err := fixture.runtimes.SubmitPromptResponse(second.SessionID, askquestion.AskQuestionResponse{RequestID: "call-ask-2", Answer: "Keep it safe"}, nil); err != nil {
 		t.Fatalf("SubmitPromptResponse second: %v", err)
 	}
 	fixture.waitForCompletedRun(t, task.ID)
@@ -241,8 +238,8 @@ func TestWorkflowRuntimeMultipleAskQuestionsInOneToolBatchResumeSequentially(t *
 
 func TestWorkflowRuntimeStarterCloseCancelsInFlightRun(t *testing.T) {
 	client := newBlockingClient()
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer("{}"))
-	fixture.clientFactory = func(workflowscheduler.StartRunRequest) llm.Client { return client }
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
 	fixture.rebuildStarter(t)
 	task := fixture.createStartedTask(t)
 	scheduler := fixture.scheduler(t)
@@ -259,8 +256,8 @@ func TestWorkflowRuntimeStarterCloseCancelsInFlightRun(t *testing.T) {
 
 func TestWorkflowRuntimeStarterCancelTaskRunsStopsLiveRuntimeAfterTaskCancel(t *testing.T) {
 	client := newBlockingClient()
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer("{}"))
-	fixture.clientFactory = func(workflowscheduler.StartRunRequest) llm.Client { return client }
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
 	fixture.rebuildStarter(t)
 	task := fixture.createStartedTask(t)
 	scheduler := fixture.scheduler(t)
@@ -437,9 +434,9 @@ func TestReusesExistingSession(t *testing.T) {
 
 func TestWorkflowRuntimeCompactAndContinueReusesSourceSessionWithRealCompaction(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer("compacted prior work summary"),
-		workflowtest.FinalAnswer(`{"commentary":"second done"}`),
+		ScriptedFinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
+		ScriptedFinalAnswer("compacted prior work summary"),
+		ScriptedFinalAnswer(`{"commentary":"second done"}`),
 	)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "coder")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
@@ -488,9 +485,9 @@ func TestWorkflowRuntimeCompactAndContinueReusesSourceSessionWithRealCompaction(
 
 func TestWorkflowRuntimeCompactAndContinueAllowsCrossRole(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"commentary":"compaction summary"}`),
-		workflowtest.FinalAnswer(`{"commentary":"second done"}`),
+		ScriptedFinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
+		ScriptedFinalAnswer(`{"commentary":"compaction summary"}`),
+		ScriptedFinalAnswer(`{"commentary":"second done"}`),
 	)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "reviewer")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
@@ -515,7 +512,7 @@ func TestWorkflowRuntimeCompactAndContinueAllowsCrossRole(t *testing.T) {
 		t.Fatalf("runs = %+v, want cross-role compact_and_continue to complete in source session", runs)
 	}
 	containerDir := config.ProjectSessionsRoot(fixture.cfg, fixture.projectID)
-	sourceDir, err := sessionpath.ResolveScopedSessionDir(containerDir, runs[1].SessionID)
+	sourceDir, err := session.ResolveScopedSessionDir(containerDir, runs[1].SessionID)
 	if err != nil {
 		t.Fatalf("ResolveScopedSessionDir: %v", err)
 	}
@@ -529,7 +526,7 @@ func TestWorkflowRuntimeCompactAndContinueAllowsCrossRole(t *testing.T) {
 }
 
 func TestWorkflowRuntimeStartFailsWhenRoleDisappearedAfterTaskStart(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer("{}"))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
 	delete(fixture.cfg.Settings.Subagents, "coder")
 	fixture.rebuildStarter(t)
 	task := fixture.createStartedTask(t)
@@ -542,7 +539,7 @@ func TestWorkflowRuntimeStartFailsWhenRoleDisappearedAfterTaskStart(t *testing.T
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 1 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != workflowscheduler.ReasonRuntimeStartFailed {
+	if len(runs) != 1 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != ReasonSchedulerRuntimeStartFailed {
 		t.Fatalf("run after missing role = %+v", runs)
 	}
 	var detail string
@@ -612,7 +609,7 @@ func TestWorkflowRuntimeResumeInterruptedRunUsesSameSession(t *testing.T) {
 }
 
 func TestRemoveFanoutCloneDeletesOrphanedClone(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer(`{"commentary":"done"}`))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"done"}`))
 	task := fixture.createStartedTask(t)
 	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
 		t.Fatalf("Process: %v", err)
@@ -628,7 +625,7 @@ func TestRemoveFanoutCloneDeletesOrphanedClone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cloneSourceSessionForFanout: %v", err)
 	}
-	cloneDir, err := sessionpath.ResolveScopedSessionDir(containerDir, cloneID)
+	cloneDir, err := session.ResolveScopedSessionDir(containerDir, cloneID)
 	if err != nil {
 		t.Fatalf("ResolveScopedSessionDir: %v", err)
 	}
@@ -650,15 +647,15 @@ type starterFixture struct {
 		GetTask(context.Context, string) (serverapi.WorkflowTaskDetail, error)
 	}
 	worktrees     *metadataTaskWorktrees
-	client        *workflowtest.ScriptedClient
-	clientFactory func(workflowscheduler.StartRunRequest) llm.Client
+	client        *ScriptedClient
+	clientFactory func(SchedulerStartRunRequest) llm.Client
 	runtimes      *registry.RuntimeRegistry
 	starter       *Starter
 	workflowID    workflow.WorkflowID
 	projectID     string
 }
 
-func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps ...workflowtest.Step) starterFixture {
+func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps ...ScriptedRuntimeStep) starterFixture {
 	t.Helper()
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -692,8 +689,8 @@ func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps .
 		t.Fatalf("workflowview.New: %v", err)
 	}
 	worktrees := &metadataTaskWorktrees{t: t, metadata: metadataStore, workspaceID: binding.WorkspaceID, root: filepath.Join(home, "task-worktrees")}
-	client := workflowtest.NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: mode == config.WorkflowCompletionModeStructuredOutput}, steps...)
-	clientFactory := func(workflowscheduler.StartRunRequest) llm.Client { return client }
+	client := NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: mode == config.WorkflowCompletionModeStructuredOutput}, steps...)
+	clientFactory := func(SchedulerStartRunRequest) llm.Client { return client }
 	runtimes := registry.NewRuntimeRegistry()
 	starter, err := NewStarter(cfg, metadataStore, store, nil, nil, nil, runtimes, StarterOptions{
 		ClientFactory: clientFactory,
@@ -713,8 +710,8 @@ func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps .
 func newChainedStarterFixture(t *testing.T) starterFixture {
 	t.Helper()
 	return newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"commentary":"second done"}`),
+		ScriptedFinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
+		ScriptedFinalAnswer(`{"commentary":"second done"}`),
 	)
 }
 
@@ -737,9 +734,9 @@ func (f *starterFixture) rebuildStarter(t *testing.T) {
 	t.Cleanup(func() { _ = starter.Close() })
 }
 
-func (f starterFixture) scheduler(t *testing.T) *workflowscheduler.Service {
+func (f starterFixture) scheduler(t *testing.T) *SchedulerService {
 	t.Helper()
-	scheduler, err := workflowscheduler.New(f.store, f.starter, workflowscheduler.Config{Concurrency: 1})
+	scheduler, err := NewSchedulerService(f.store, f.starter, SchedulerConfig{Concurrency: 1})
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)
 	}
@@ -872,7 +869,7 @@ func (f starterFixture) waitForAllRunsCompleted(t *testing.T, taskID workflow.Ta
 	t.Fatalf("timed out waiting for %d completed workflow runs", count)
 }
 
-func (f starterFixture) waitForInterruptedRun(t *testing.T, scheduler *workflowscheduler.Service, taskID workflow.TaskID, reason string) {
+func (f starterFixture) waitForInterruptedRun(t *testing.T, scheduler *SchedulerService, taskID workflow.TaskID, reason string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

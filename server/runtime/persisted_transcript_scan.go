@@ -9,7 +9,6 @@ import (
 	"core/server/tools"
 	"core/shared/config"
 	"core/shared/transcript"
-	"core/shared/transcript/toolcodec"
 )
 
 type PersistedTranscriptScanRequest struct {
@@ -167,7 +166,7 @@ func formatPersistedToolCall(call llm.ToolCall) ChatEntry {
 }
 
 func persistedTranscriptToolCallMeta(call llm.ToolCall) *transcript.ToolCallMeta {
-	if meta, ok := toolcodec.DecodeToolCallMeta(call.Presentation); ok {
+	if meta, ok := transcript.DecodeToolCallMeta(call.Presentation); ok {
 		return meta
 	}
 	input := call.Input

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	appstatus "core/cli/app/internal/status"
+	"core/cli/app/internal/status"
 	"core/cli/tui"
 	"core/shared/clientui"
 
@@ -77,7 +77,7 @@ func (a uiRuntimeAdapter) applyProjectedExecutionTarget(target clientui.SessionE
 		return nil
 	}
 	if workdirChanged {
-		m.statusRepository = appstatus.NewMemoryRepository()
+		m.statusRepository = status.NewMemoryRepository()
 		m.clearPathReferenceState()
 	}
 	if workdirChanged && m.pathReferenceSearch != nil {

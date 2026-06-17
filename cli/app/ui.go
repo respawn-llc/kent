@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/app/internal/worktreeview"
+	"core/cli/app/internal/worktreeui"
 	"core/cli/tui"
 	"core/shared/clientui"
 	"core/shared/serverapi"
@@ -401,7 +401,7 @@ func (m *uiModel) inputController() uiInputController {
 }
 
 func worktreeDeleteSuccessStatus(resp serverapi.WorktreeDeleteResponse) string {
-	status := "Deleted worktree " + worktreeview.DisplayName(resp.Worktree)
+	status := "Deleted worktree " + worktreeui.DisplayName(resp.Worktree)
 	if cleanup := strings.TrimSpace(resp.BranchCleanupMessage); cleanup != "" {
 		status += ". " + cleanup
 	}

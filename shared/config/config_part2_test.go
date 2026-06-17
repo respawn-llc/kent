@@ -1,7 +1,6 @@
 package config
 
 import (
-	"core/shared/brand"
 	"core/shared/toolspec"
 	"errors"
 	"os"
@@ -592,7 +591,7 @@ verbose_output = true
 	if !cfg.Settings.Reviewer.VerboseOutput {
 		t.Fatalf("expected file reviewer.verbose_output=true")
 	}
-	if want := filepath.Join(home, brand.ConfigDirName, "reviewer-global.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
+	if want := filepath.Join(home, ConfigDirName, "reviewer-global.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
 		t.Fatalf("expected file reviewer.system_prompt_file=%q, got %q", want, cfg.Settings.Reviewer.SystemPromptFile)
 	}
 	if got := cfg.Source.Sources["reviewer.verbose_output"]; got != "file" {
@@ -620,7 +619,7 @@ verbose_output = true
 		t.Fatalf("expected reviewer.auth source file, got %q", got)
 	}
 
-	workspaceConfigPath := filepath.Join(workspace, brand.ConfigDirName, "config.toml")
+	workspaceConfigPath := filepath.Join(workspace, ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(workspaceConfigPath), 0o755); err != nil {
 		t.Fatalf("mkdir workspace config dir: %v", err)
 	}
@@ -628,7 +627,7 @@ verbose_output = true
 		t.Fatalf("write workspace config: %v", err)
 	}
 	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
-	if want := filepath.Join(workspace, brand.ConfigDirName, "workspace-reviewer.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
+	if want := filepath.Join(workspace, ConfigDirName, "workspace-reviewer.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
 		t.Fatalf("expected workspace reviewer.system_prompt_file=%q, got %q", want, cfg.Settings.Reviewer.SystemPromptFile)
 	}
 
@@ -870,7 +869,7 @@ func TestLoadRejectsRemovedTUIAlternateScreenSetting(t *testing.T) {
 func TestLoadPrecedenceCLIOverEnvOverFile(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
 
-	configPath := filepath.Join(home, brand.ConfigDirName, "config.toml")
+	configPath := filepath.Join(home, ConfigDirName, "config.toml")
 	writeConfigTestFile(t, configPath, `model = "gpt-file"
 thinking_level = "low"
 theme = "light"

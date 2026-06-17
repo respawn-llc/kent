@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"core/server/tools"
-	"core/server/tools/fsguard"
 	"core/shared/toolspec"
 )
 
@@ -241,9 +240,9 @@ func TestOutsideWorkspaceAncestorAliasUsesSingleCallApproval(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	prompts := 0
-	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, tools.FSGuardRequest) (tools.FSGuardApproval, error) {
 		prompts++
-		return fsguard.Approval{Decision: fsguard.DecisionAllowOnce}, nil
+		return tools.FSGuardApproval{Decision: tools.FSGuardDecisionAllowOnce}, nil
 	}))
 
 	result := callEdit(t, tool, map[string]any{"path": filepath.Join(alias, "target.txt"), "old_string": "old", "new_string": "new"})
@@ -274,9 +273,9 @@ func TestOutsideWorkspaceMissingAncestorAliasUsesSingleCallApproval(t *testing.T
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	prompts := 0
-	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, tools.FSGuardRequest) (tools.FSGuardApproval, error) {
 		prompts++
-		return fsguard.Approval{Decision: fsguard.DecisionAllowOnce}, nil
+		return tools.FSGuardApproval{Decision: tools.FSGuardDecisionAllowOnce}, nil
 	}))
 
 	result := callEdit(t, tool, map[string]any{"path": filepath.Join(alias, "new.txt"), "old_string": "", "new_string": "new\n"})
@@ -307,9 +306,9 @@ func TestOutsideWorkspaceFinalSymlinkRequiresRealPathApproval(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	prompts := 0
-	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, tools.FSGuardRequest) (tools.FSGuardApproval, error) {
 		prompts++
-		return fsguard.Approval{Decision: fsguard.DecisionAllowOnce}, nil
+		return tools.FSGuardApproval{Decision: tools.FSGuardDecisionAllowOnce}, nil
 	}))
 
 	result := callEdit(t, tool, map[string]any{"path": link, "old_string": "old", "new_string": "new"})

@@ -6,7 +6,7 @@ import (
 	"unicode"
 
 	"core/cli/app/commands"
-	"core/cli/app/internal/authcommand"
+	"core/cli/app/internal/authui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -193,7 +193,7 @@ func (m *uiModel) requestAuthSlashCommandRefresh() tea.Cmd {
 	loader := m.statusConfig.AuthManager
 	m.authSlashLoading = true
 	return func() tea.Msg {
-		name, err := authcommand.SlashCommandName(context.Background(), loader)
+		name, err := authui.AuthSlashCommandName(context.Background(), loader)
 		return authSlashCommandRefreshedMsg{token: token, generation: generation, name: name, err: err}
 	}
 }

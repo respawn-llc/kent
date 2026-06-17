@@ -8,7 +8,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 type joinArrival struct {
@@ -78,7 +77,7 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 	if !ready {
 		return CompleteRunResult{}, nil
 	}
-	joinOutputValuesJSON, err := workflowjson.MarshalString(joinOutputValues)
+	joinOutputValuesJSON, err := workflow.MarshalString(joinOutputValues)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
@@ -109,7 +108,7 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		if !foundSnapshot {
 			return CompleteRunResult{}, fmt.Errorf("join target node %q missing from run snapshot", outEdge.TargetNode.ID)
 		}
-		targetSnapshotJSON, err := workflowjson.MarshalString(targetSnapshot)
+		targetSnapshotJSON, err := workflow.MarshalString(targetSnapshot)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -121,7 +120,7 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := workflowjson.MarshalString(workflowRunMetadata{
+		targetMetadataJSON, err := workflow.MarshalString(workflowRunMetadata{
 			ContextMode:          string(outEdge.ContextMode),
 			ContextSource:        workflow.CanonicalContextSource(outEdge.ContextSource),
 			SourceRunID:          source.runID,
@@ -188,7 +187,7 @@ func joinArrivals(ctx context.Context, tx *sql.Tx, batchID string, joinNodeID wo
 			continue
 		}
 		outputs := map[string]string{}
-		if err := workflowjson.UnmarshalString(outputValuesJSON, &outputs); err != nil {
+		if err := workflow.UnmarshalString(outputValuesJSON, &outputs); err != nil {
 			return nil, err
 		}
 		arrivals = append(arrivals, joinArrival{PlacementID: placementID, BranchEdgeID: key, JoinEdgeID: incomingJoinEdgeID, SourceNodeKey: sourceNodeKey, OutputValues: outputs})

@@ -5,7 +5,6 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -36,7 +35,7 @@ func TestCacheWarningSteeringUsesCacheWarningModeVisibility(t *testing.T) {
 					events = append(events, evt)
 				},
 			})
-			if err := eng.steer("cache-step", steerCacheWarningIntent(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonReuseDropped}, cacheWarningEntryVisibility(tt.mode), true)); err != nil {
+			if err := eng.steer("cache-step", steerCacheWarningIntent(transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonReuseDropped}, cacheWarningEntryVisibility(tt.mode), true)); err != nil {
 				t.Fatalf("steer cache warning: %v", err)
 			}
 			snapshot := eng.ChatSnapshot()
@@ -86,8 +85,8 @@ func TestGenerateWithRetryClient_PersistsExactNonPostfixCacheWarningInDefaultMod
 	if len(warnings) != 1 {
 		t.Fatalf("warning count = %d, want 1", len(warnings))
 	}
-	if warnings[0].Reason != cachewarn.ReasonNonPostfix {
-		t.Fatalf("warning reason = %q, want %q", warnings[0].Reason, cachewarn.ReasonNonPostfix)
+	if warnings[0].Reason != transcript.CacheWarningReasonNonPostfix {
+		t.Fatalf("warning reason = %q, want %q", warnings[0].Reason, transcript.CacheWarningReasonNonPostfix)
 	}
 	if warnings[0].LostInputTokens != 7 {
 		t.Fatalf("warning lost input tokens = %d, want 7", warnings[0].LostInputTokens)
@@ -195,8 +194,8 @@ func TestGenerateWithRetryClient_PersistsVerboseReuseDropWarning(t *testing.T) {
 	if len(warnings) != 1 {
 		t.Fatalf("warning count = %d, want 1", len(warnings))
 	}
-	if warnings[0].Reason != cachewarn.ReasonReuseDropped {
-		t.Fatalf("warning reason = %q, want %q", warnings[0].Reason, cachewarn.ReasonReuseDropped)
+	if warnings[0].Reason != transcript.CacheWarningReasonReuseDropped {
+		t.Fatalf("warning reason = %q, want %q", warnings[0].Reason, transcript.CacheWarningReasonReuseDropped)
 	}
 	if warnings[0].LostInputTokens != 4 {
 		t.Fatalf("warning lost input tokens = %d, want 4", warnings[0].LostInputTokens)
@@ -250,8 +249,8 @@ func TestBuildRequest_UsesBasePromptCacheKeyBeforeFirstCompactionWhenProviderSup
 	if got, want := req.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
-	if req.PromptCacheScope != cachewarn.ScopeConversation {
-		t.Fatalf("PromptCacheScope = %q, want %q", req.PromptCacheScope, cachewarn.ScopeConversation)
+	if req.PromptCacheScope != transcript.CacheWarningScopeConversation {
+		t.Fatalf("PromptCacheScope = %q, want %q", req.PromptCacheScope, transcript.CacheWarningScopeConversation)
 	}
 }
 
@@ -326,7 +325,7 @@ func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *
 	if got, want := req.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
-	if got, want := req.PromptCacheScope, cachewarn.ScopeConversation; got != want {
+	if got, want := req.PromptCacheScope, transcript.CacheWarningScopeConversation; got != want {
 		t.Fatalf("PromptCacheScope = %q, want %q", got, want)
 	}
 	want, err := eng.systemPrompt(locked)
@@ -594,8 +593,8 @@ func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.
 	if got, want := reviewerClient.calls[0].PromptCacheKey, conversationPromptCacheKey(reviewerSessionID(store.Meta().SessionID), eng.compactionCountSnapshot()); got != want {
 		t.Fatalf("reviewer PromptCacheKey = %q, want %q", got, want)
 	}
-	if reviewerClient.calls[0].PromptCacheScope != cachewarn.ScopeReviewer {
-		t.Fatalf("reviewer PromptCacheScope = %q, want %q", reviewerClient.calls[0].PromptCacheScope, cachewarn.ScopeReviewer)
+	if reviewerClient.calls[0].PromptCacheScope != transcript.CacheWarningScopeReviewer {
+		t.Fatalf("reviewer PromptCacheScope = %q, want %q", reviewerClient.calls[0].PromptCacheScope, transcript.CacheWarningScopeReviewer)
 	}
 }
 
@@ -659,11 +658,11 @@ func TestGenerateWithRetryClient_KeepsReviewerLineageIndependent(t *testing.T) {
 	if len(warnings) != 1 {
 		t.Fatalf("warning count = %d, want 1", len(warnings))
 	}
-	if warnings[0].Reason != cachewarn.ReasonNonPostfix {
-		t.Fatalf("warning reason = %q, want %q", warnings[0].Reason, cachewarn.ReasonNonPostfix)
+	if warnings[0].Reason != transcript.CacheWarningReasonNonPostfix {
+		t.Fatalf("warning reason = %q, want %q", warnings[0].Reason, transcript.CacheWarningReasonNonPostfix)
 	}
-	if warnings[0].Scope != cachewarn.ScopeReviewer {
-		t.Fatalf("warning scope = %q, want %q", warnings[0].Scope, cachewarn.ScopeReviewer)
+	if warnings[0].Scope != transcript.CacheWarningScopeReviewer {
+		t.Fatalf("warning scope = %q, want %q", warnings[0].Scope, transcript.CacheWarningScopeReviewer)
 	}
 }
 
@@ -695,7 +694,7 @@ func TestGenerateWithRetryClient_RestoreIgnoresRequestObservationWithoutResponse
 	if _, _, err := store.AppendEvent("legacy-request", sessionEventCacheRequestObserved, persistedCacheRequestObserved{
 		DigestVersion: requestCacheDigestVersion,
 		CacheKey:      "cache-key-1",
-		Scope:         cachewarn.ScopeConversation,
+		Scope:         transcript.CacheWarningScopeConversation,
 		ChunkCount:    1,
 		TerminalHash:  "failed-only-hash",
 	}); err != nil {

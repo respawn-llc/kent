@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"core/cli/app/commands"
-	appstatus "core/cli/app/internal/status"
+	"core/cli/app/internal/status"
 	"core/cli/tui"
 	"core/shared/clientui"
 	"core/shared/theme"
@@ -70,7 +70,7 @@ func newUISessionTransitionFeatureState() uiSessionTransitionFeatureState {
 func newUIStatusFeatureState() uiStatusFeatureState {
 	debug := envFlagEnabled("KENT_DEBUG")
 	return uiStatusFeatureState{
-		statusRepository:      appstatus.NewMemoryRepository(),
+		statusRepository:      status.NewMemoryRepository(),
 		clipboardImagePaster:  newSystemClipboardImagePaster(),
 		clipboardTextCopier:   newSystemClipboardTextCopier(),
 		debugKeys:             envFlagEnabled("KENT_DEBUG_KEYS"),

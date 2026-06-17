@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	appstatus "core/cli/app/internal/status"
+	"core/cli/app/internal/status"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 
@@ -151,7 +151,7 @@ func (c *strictCountingStatusCollector) Collect(context.Context, uiStatusRequest
 
 func (c *strictCountingStatusCollector) CollectBase(req uiStatusRequest) uiStatusSnapshot {
 	c.baseCalls++
-	return appstatus.Snapshot{CollectedAt: req.CurrentTime}
+	return status.Snapshot{CollectedAt: req.CurrentTime}
 }
 
 func (c *strictCountingStatusCollector) CollectAuth(context.Context, uiStatusRequest, uiStatusSnapshot) uiStatusAuthStageResult {
@@ -168,7 +168,7 @@ func (c *strictCountingStatusCollector) CollectEnvironment(context.Context, uiSt
 
 func TestTUIStrictIOStatusOpenDefersCollectorBaseToCommand(t *testing.T) {
 	collector := &strictCountingStatusCollector{}
-	repository := appstatus.NewMemoryRepository()
+	repository := status.NewMemoryRepository()
 	request := populateStatusRequestCacheKeys(uiStatusRequest{WorkspaceRoot: t.TempDir(), CurrentTime: time.Now()})
 	repository.StoreGit(request.CacheKeys.Git, uiStatusGitStageResult{Git: uiStatusGitInfo{Visible: true, Branch: "cached"}}, time.Now())
 	m := newProjectedStaticUIModel(

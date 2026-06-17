@@ -8,7 +8,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
-	"core/shared/cachewarn"
+	"core/shared/transcript"
 )
 
 var (
@@ -177,7 +177,7 @@ func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request 
 	req.FastMode = e.FastModeEnabled()
 	req.SessionID = e.conversationSessionID()
 	req.PromptCacheKey = cacheKey
-	req.PromptCacheScope = cachewarn.ScopeConversation
+	req.PromptCacheScope = transcript.CacheWarningScopeConversation
 	return req, true, nil
 }
 
@@ -269,7 +269,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, locked se
 		if e.supportsPromptCacheKey(ctx) {
 			if cacheKey := e.conversationPromptCacheKey(); cacheKey != "" {
 				req.PromptCacheKey = cacheKey
-				req.PromptCacheScope = cachewarn.ScopeConversation
+				req.PromptCacheScope = transcript.CacheWarningScopeConversation
 			}
 		}
 

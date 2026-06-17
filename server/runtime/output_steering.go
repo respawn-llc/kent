@@ -8,7 +8,6 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/transcript"
 )
 
@@ -61,14 +60,14 @@ type steeringStreamingOutput struct {
 }
 
 type steeringCacheWarning struct {
-	warning    cachewarn.Warning
+	warning    transcript.CacheWarning
 	visibility transcript.EntryVisibility
 	emit       bool
 }
 
 type steeringCacheObservation struct {
 	events     []session.EventInput
-	warning    cachewarn.Warning
+	warning    transcript.CacheWarning
 	visibility transcript.EntryVisibility
 	emit       bool
 }
@@ -205,7 +204,7 @@ func steerClearStreamingStateIntent() steeringIntent {
 	}
 }
 
-func steerCacheWarningIntent(warning cachewarn.Warning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
+func steerCacheWarningIntent(warning transcript.CacheWarning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
 	copyWarning := warning
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
@@ -217,7 +216,7 @@ func steerCacheWarningIntent(warning cachewarn.Warning, visibility transcript.En
 	}
 }
 
-func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.Warning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
+func steerCacheObservationIntent(events []session.EventInput, warning transcript.CacheWarning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
 	copyEvents := make([]session.EventInput, len(events))
 	copy(copyEvents, events)
 	copyWarning := warning
@@ -293,7 +292,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.cacheWarning != nil {
 		warning := item.cacheWarning.warning
 		visibility := transcript.NormalizeEntryVisibility(item.cacheWarning.visibility)
-		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), visibility)
+		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
 		if item.cacheWarning.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
@@ -311,7 +310,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 		warning := observation.warning
 		visibility := transcript.NormalizeEntryVisibility(observation.visibility)
-		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), visibility)
+		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
 		if observation.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}

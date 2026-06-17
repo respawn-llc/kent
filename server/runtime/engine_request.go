@@ -10,9 +10,9 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/server/workflowruntime"
-	"core/shared/cachewarn"
-	compactionutil "core/shared/compaction"
+	compactionutil "core/shared/config"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type requestBuildPlan struct {
@@ -78,7 +78,7 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 	if e.supportsPromptCacheKey(ctx) {
 		if cacheKey := e.conversationPromptCacheKey(); cacheKey != "" {
 			req.PromptCacheKey = cacheKey
-			req.PromptCacheScope = cachewarn.ScopeConversation
+			req.PromptCacheScope = transcript.CacheWarningScopeConversation
 		}
 	}
 	if allowTools {

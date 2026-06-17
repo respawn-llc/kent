@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"core/cli/app/internal/worktreeview"
+	"core/cli/app/internal/worktreeui"
 	"core/cli/tui"
 	sharedclient "core/shared/client"
 	"core/shared/clientui"
@@ -357,7 +357,7 @@ func TestResolveWorktreeTokenFromEntriesUsesMatcherPrecedence(t *testing.T) {
 		{WorktreeID: "wt-1", DisplayName: "feature", CanonicalRoot: "/wt/feature-display"},
 		{WorktreeID: "wt-2", DisplayName: "other", BranchName: "feature", CanonicalRoot: "/wt/feature-branch"},
 	}
-	resolved, err := worktreeview.ResolveToken(entries, "feature")
+	resolved, err := worktreeui.ResolveToken(entries, "feature")
 	if err != nil {
 		t.Fatalf("resolve worktree token: %v", err)
 	}

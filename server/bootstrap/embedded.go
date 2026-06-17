@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"core/prompts"
 	"core/server/auth"
-	"core/server/generated"
 	"core/server/launch"
 	"core/server/runtime"
 	"core/server/runtimewire"
@@ -47,15 +47,15 @@ type RuntimeSupport struct {
 	FastModeState    *runtime.FastModeState
 	Background       *shelltool.Manager
 	BackgroundRouter *runtimewire.BackgroundEventRouter
-	Generated        generated.SyncResult
+	Generated        prompts.GeneratedSyncResult
 }
 
-var syncGenerated = generated.Sync
+var syncGenerated = prompts.GeneratedSync
 
-func SetGeneratedSyncForTest(fn func(context.Context, generated.SyncOptions) (generated.SyncResult, error)) func() {
+func SetGeneratedSyncForTest(fn func(context.Context, prompts.GeneratedSyncOptions) (prompts.GeneratedSyncResult, error)) func() {
 	previous := syncGenerated
 	if fn == nil {
-		syncGenerated = generated.Sync
+		syncGenerated = prompts.GeneratedSync
 	} else {
 		syncGenerated = fn
 	}
@@ -137,11 +137,11 @@ func BuildRuntimeSupport(cfg config.App) (RuntimeSupport, error) {
 	}, nil
 }
 
-func BuildGeneratedSupport(ctx context.Context) (generated.SyncResult, error) {
+func BuildGeneratedSupport(ctx context.Context) (prompts.GeneratedSyncResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return syncGenerated(ctx, generated.SyncOptions{})
+	return syncGenerated(ctx, prompts.GeneratedSyncOptions{})
 }
 
 func loadConfig(loadOpts config.LoadOptions, workspaceRoot, openAIBaseURL string, useOpenAIBaseURL bool) (config.App, error) {

@@ -8,14 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"core/prompts"
 	"core/server/auth"
-	"core/server/authflow"
+	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/embedded"
-	"core/server/generated"
+	corepkg "core/server/core"
 	"core/server/metadata"
-	"core/server/rootlock"
-	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/serverapi"
 )
@@ -33,26 +31,26 @@ func registerStartupWorkspace(t *testing.T, workspace string) {
 
 type stubAuthHandler struct {
 	lookupEnv func(string) string
-	needs     func(authflow.InteractionRequest) bool
-	interact  func(context.Context, authflow.InteractionRequest) error
+	needs     func(authservice.FlowInteractionRequest) bool
+	interact  func(context.Context, authservice.FlowInteractionRequest) error
 }
 
 func (h stubAuthHandler) WrapStore(base auth.Store) auth.Store {
 	return base
 }
 
-func (h stubAuthHandler) NeedsInteraction(req authflow.InteractionRequest) bool {
+func (h stubAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
 	if h.needs == nil {
 		return false
 	}
 	return h.needs(req)
 }
 
-func (h stubAuthHandler) Interact(ctx context.Context, req authflow.InteractionRequest) (authflow.InteractionOutcome, error) {
+func (h stubAuthHandler) Interact(ctx context.Context, req authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
 	if h.interact == nil {
-		return authflow.InteractionOutcome{}, nil
+		return authservice.FlowInteractionOutcome{}, nil
 	}
-	return authflow.InteractionOutcome{}, h.interact(ctx, req)
+	return authservice.FlowInteractionOutcome{}, h.interact(ctx, req)
 }
 
 func (h stubAuthHandler) LookupEnv(key string) string {
@@ -88,7 +86,7 @@ func TestEnsureReadyUsesAuthHandlerLookupEnv(t *testing.T) {
 			}
 			return ""
 		},
-		needs: func(req authflow.InteractionRequest) bool {
+		needs: func(req authservice.FlowInteractionRequest) bool {
 			sawInteraction = true
 			if !req.HasEnvAPIKey {
 				t.Fatal("expected lookup env api key to be reflected in interaction request")
@@ -98,7 +96,7 @@ func TestEnsureReadyUsesAuthHandlerLookupEnv(t *testing.T) {
 			}
 			return true
 		},
-		interact: func(context.Context, authflow.InteractionRequest) error {
+		interact: func(context.Context, authservice.FlowInteractionRequest) error {
 			return auth.ErrAuthNotConfigured
 		},
 	})
@@ -120,10 +118,10 @@ func TestEnsureReadyPromptsDuringExplicitReauthWhenStartupAuthIsOptional(t *test
 		}},
 		mgr: mgr,
 	}, stubAuthHandler{
-		needs: func(req authflow.InteractionRequest) bool {
+		needs: func(req authservice.FlowInteractionRequest) bool {
 			return !called && req.PromptOptional && !req.Gate.Ready
 		},
-		interact: func(context.Context, authflow.InteractionRequest) error {
+		interact: func(context.Context, authservice.FlowInteractionRequest) error {
 			called = true
 			return nil
 		},
@@ -200,15 +198,15 @@ func TestLookupEnvFallsBackToProcessEnvWhenHandlerMissing(t *testing.T) {
 type startupEnvAuthHandler struct{}
 
 func (startupEnvAuthHandler) WrapStore(base auth.Store) auth.Store {
-	return authflow.WrapStoreWithEnvAPIKeyOverride(base, startupTestAuthLookupEnv)
+	return authservice.WrapStoreWithEnvAPIKeyOverride(base, startupTestAuthLookupEnv)
 }
 
-func (startupEnvAuthHandler) NeedsInteraction(req authflow.InteractionRequest) bool {
+func (startupEnvAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
 	return req.AuthRequired && !req.Gate.Ready
 }
 
-func (startupEnvAuthHandler) Interact(context.Context, authflow.InteractionRequest) (authflow.InteractionOutcome, error) {
-	return authflow.InteractionOutcome{}, auth.ErrAuthNotConfigured
+func (startupEnvAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
+	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
 }
 
 func (startupEnvAuthHandler) LookupEnv(key string) string {
@@ -247,9 +245,9 @@ func TestStartWrapsCoreWithSameClientAssembly(t *testing.T) {
 	onboarding := startupNoopOnboarding
 	registerStartupWorkspace(t, workspace)
 	generatedCalls := 0
-	restoreGeneratedSync := serverbootstrap.SetGeneratedSyncForTest(func(ctx context.Context, opts generated.SyncOptions) (generated.SyncResult, error) {
+	restoreGeneratedSync := serverbootstrap.SetGeneratedSyncForTest(func(ctx context.Context, opts prompts.GeneratedSyncOptions) (prompts.GeneratedSyncResult, error) {
 		generatedCalls++
-		return generated.Sync(ctx, opts)
+		return prompts.GeneratedSync(ctx, opts)
 	})
 	defer restoreGeneratedSync()
 
@@ -260,14 +258,14 @@ func TestStartWrapsCoreWithSameClientAssembly(t *testing.T) {
 	if generatedCalls != 1 {
 		t.Fatalf("generated sync calls = %d, want 1", generatedCalls)
 	}
-	generatedSkillsRoot := filepath.Join(home, brand.ConfigDirName, ".generated", "skills")
+	generatedSkillsRoot := filepath.Join(home, config.ConfigDirName, ".generated", "skills")
 	if entries, err := os.ReadDir(generatedSkillsRoot); err != nil {
 		t.Fatalf("expected StartCore to seed generated skills through bootstrap: %v", err)
 	} else if len(entries) == 0 {
 		t.Fatal("expected StartCore to seed at least one generated skill")
 	}
 
-	wrapped := &embedded.Server{Core: appCore}
+	wrapped := &EmbeddedServer{Core: appCore}
 	if wrapped.ProjectViewClient() != appCore.ProjectViewClient() {
 		t.Fatal("expected embedded wrapper to expose core project client")
 	}
@@ -356,7 +354,7 @@ func TestStartCoreRejectsSecondOwnerForSamePersistenceRoot(t *testing.T) {
 	defer func() { _ = first.Close() }()
 
 	_, err = StartCore(context.Background(), Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, authHandler, onboardingHandler)
-	if !errors.Is(err, rootlock.ErrPersistenceRootBusy) {
+	if !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
 		t.Fatalf("StartCore second error = %v, want ErrPersistenceRootBusy", err)
 	}
 }

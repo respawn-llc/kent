@@ -12,9 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/server/workflowruntime"
-	"core/shared/brand"
 	"core/shared/clientui"
-	"core/shared/compaction"
 	"core/shared/config"
 	"core/shared/toolspec"
 
@@ -24,7 +22,7 @@ import (
 const (
 	interruptMessage                  = "User interrupted you"
 	agentsFileName                    = "AGENTS.md"
-	agentsGlobalDirName               = brand.ConfigDirName
+	agentsGlobalDirName               = config.ConfigDirName
 	systemPromptFileName              = "SYSTEM.md"
 	agentsInjectedHeader              = "# Project context and authoritative instructions from the ./AGENTS.md file:"
 	agentsInjectedFenceLabel          = "md"
@@ -220,7 +218,7 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 		cfg.EffectiveContextWindowPercent = 95
 	}
 	if cfg.PreSubmitCompactionLeadTokens <= 0 {
-		cfg.PreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
+		cfg.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
 	}
 	if cfg.LocalCompactionCarryoverLimit <= 0 {
 		cfg.LocalCompactionCarryoverLimit = 20_000

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	patchtool "core/server/tools/patch"
 )
 
@@ -18,13 +18,13 @@ const (
 )
 
 type OutsideWorkspaceApprover struct {
-	broker         *askquestion.Broker
+	broker         *askquestion.AskQuestionBroker
 	actionVerb     string
 	mu             sync.Mutex
 	sessionAllowed bool
 }
 
-func NewOutsideWorkspaceApprover(broker *askquestion.Broker, actionVerb string) *OutsideWorkspaceApprover {
+func NewOutsideWorkspaceApprover(broker *askquestion.AskQuestionBroker, actionVerb string) *OutsideWorkspaceApprover {
 	verb := strings.TrimSpace(actionVerb)
 	if verb == "" {
 		verb = "accessing"
@@ -40,13 +40,13 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req patchtool.Ou
 	}
 	a.mu.Unlock()
 
-	resp, err := a.broker.Ask(ctx, askquestion.Request{
+	resp, err := a.broker.Ask(ctx, askquestion.AskQuestionRequest{
 		Question: fmt.Sprintf("Allow %s %s (outside workspace dir)?", a.actionVerb, req.ResolvedPath),
 		Approval: true,
-		ApprovalOptions: []askquestion.ApprovalOption{
-			{Decision: askquestion.ApprovalDecisionAllowOnce, Label: OutsideWorkspaceAllowOnceSuggestion},
-			{Decision: askquestion.ApprovalDecisionAllowSession, Label: OutsideWorkspaceAllowSessionSuggestion},
-			{Decision: askquestion.ApprovalDecisionDeny, Label: OutsideWorkspaceDenySuggestion},
+		ApprovalOptions: []askquestion.AskQuestionApprovalOption{
+			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: OutsideWorkspaceAllowOnceSuggestion},
+			{Decision: askquestion.AskQuestionApprovalDecisionAllowSession, Label: OutsideWorkspaceAllowSessionSuggestion},
+			{Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: OutsideWorkspaceDenySuggestion},
 		},
 	})
 	if err != nil {
@@ -65,18 +65,18 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req patchtool.Ou
 	return approval, nil
 }
 
-func OutsideWorkspaceApprovalFromResponse(resp askquestion.Response) (patchtool.OutsideWorkspaceApproval, error) {
+func OutsideWorkspaceApprovalFromResponse(resp askquestion.AskQuestionResponse) (patchtool.OutsideWorkspaceApproval, error) {
 	payload := resp.Approval
 	if payload == nil {
 		return patchtool.OutsideWorkspaceApproval{}, errors.New("missing approval payload")
 	}
 	approval := patchtool.OutsideWorkspaceApproval{Commentary: strings.TrimSpace(payload.Commentary)}
 	switch payload.Decision {
-	case askquestion.ApprovalDecisionAllowOnce:
+	case askquestion.AskQuestionApprovalDecisionAllowOnce:
 		approval.Decision = patchtool.OutsideWorkspaceDecisionAllowOnce
-	case askquestion.ApprovalDecisionAllowSession:
+	case askquestion.AskQuestionApprovalDecisionAllowSession:
 		approval.Decision = patchtool.OutsideWorkspaceDecisionAllowSession
-	case askquestion.ApprovalDecisionDeny:
+	case askquestion.AskQuestionApprovalDecisionDeny:
 		approval.Decision = patchtool.OutsideWorkspaceDecisionDeny
 	default:
 		return patchtool.OutsideWorkspaceApproval{}, fmt.Errorf("unsupported approval decision %q", payload.Decision)

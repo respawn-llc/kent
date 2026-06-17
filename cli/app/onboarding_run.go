@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 
-	"core/cli/app/internal/onboardingready"
+	"core/cli/app/internal/onboarding"
 	"core/server/llm"
 	"core/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func runOnboardingFlow(cfg config.App, authState onboardingready.AuthState) (onboardingResult, error) {
+func runOnboardingFlow(cfg config.App, authState onboarding.AuthState) (onboardingResult, error) {
 	providerCaps, err := llm.ProviderCapabilitiesForSettings(authState, cfg.Settings)
 	if err != nil {
 		return onboardingResult{}, err

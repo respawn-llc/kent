@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"core/prompts"
-	generatedassets "core/server/generated"
+	generatedassets "core/prompts"
 
 	"gopkg.in/yaml.v3"
 )

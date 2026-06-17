@@ -9,14 +9,13 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	remoteclient "core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/serverapi"
-	"core/shared/testgit"
 	"core/shared/toolspec"
 	"encoding/json"
 	"net/http/httptest"
@@ -390,7 +389,7 @@ func runGatewayGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = testgit.AppendCommitIdentityEnv(testgit.SanitizeEnv(os.Environ()))
+	cmd.Env = appendTestGitCommitIdentityEnv(sanitizeTestGitEnv(os.Environ()))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
@@ -670,7 +669,7 @@ func TestGatewayPromptActivitySubscriptionStreamsPendingResolvedAndCompletion(t 
 	engine := &runtime.Engine{}
 	appCore.RegisterRuntime(store.Meta().SessionID, engine)
 	defer appCore.UnregisterRuntime(store.Meta().SessionID, engine)
-	appCore.BeginPendingPrompt(store.Meta().SessionID, askquestion.Request{ID: "ask-1", Question: "Proceed?", Suggestions: []string{"Yes", "No"}})
+	appCore.BeginPendingPrompt(store.Meta().SessionID, askquestion.AskQuestionRequest{ID: "ask-1", Question: "Proceed?", Suggestions: []string{"Yes", "No"}})
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()

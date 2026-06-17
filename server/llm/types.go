@@ -3,9 +3,9 @@ package llm
 import (
 	"context"
 	"core/server/session"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/modelcontract"
+	"core/shared/transcript"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -410,20 +410,20 @@ type StructuredOutput struct {
 }
 
 type Request struct {
-	Model                   string            `json:"model"`
-	Temperature             float64           `json:"temperature"`
-	MaxTokens               int               `json:"max_tokens"`
-	ReasoningEffort         string            `json:"reasoning_effort,omitempty"`
-	SupportsReasoningEffort bool              `json:"supports_reasoning_effort,omitempty"`
-	FastMode                bool              `json:"fast_mode,omitempty"`
-	EnableNativeWebSearch   bool              `json:"enable_native_web_search,omitempty"`
-	SystemPrompt            string            `json:"system_prompt"`
-	PromptCacheKey          string            `json:"prompt_cache_key,omitempty"`
-	PromptCacheScope        cachewarn.Scope   `json:"prompt_cache_scope,omitempty"`
-	SessionID               string            `json:"session_id,omitempty"`
-	Items                   []ResponseItem    `json:"items,omitempty"`
-	Tools                   []Tool            `json:"tools,omitempty"`
-	StructuredOutput        *StructuredOutput `json:"structured_output,omitempty"`
+	Model                   string                       `json:"model"`
+	Temperature             float64                      `json:"temperature"`
+	MaxTokens               int                          `json:"max_tokens"`
+	ReasoningEffort         string                       `json:"reasoning_effort,omitempty"`
+	SupportsReasoningEffort bool                         `json:"supports_reasoning_effort,omitempty"`
+	FastMode                bool                         `json:"fast_mode,omitempty"`
+	EnableNativeWebSearch   bool                         `json:"enable_native_web_search,omitempty"`
+	SystemPrompt            string                       `json:"system_prompt"`
+	PromptCacheKey          string                       `json:"prompt_cache_key,omitempty"`
+	PromptCacheScope        transcript.CacheWarningScope `json:"prompt_cache_scope,omitempty"`
+	SessionID               string                       `json:"session_id,omitempty"`
+	Items                   []ResponseItem               `json:"items,omitempty"`
+	Tools                   []Tool                       `json:"tools,omitempty"`
+	StructuredOutput        *StructuredOutput            `json:"structured_output,omitempty"`
 }
 
 func (r Request) Validate() error {

@@ -16,7 +16,7 @@ import (
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionlaunch"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -547,7 +547,7 @@ func (s *Core) PublishRuntimeEvent(sessionID string, evt runtime.Event) {
 	s.safeBundles().Runtime.runtimeRegistry.PublishRuntimeEvent(sessionID, evt)
 }
 
-func (s *Core) BeginPendingPrompt(sessionID string, req askquestion.Request) {
+func (s *Core) BeginPendingPrompt(sessionID string, req askquestion.AskQuestionRequest) {
 	if s == nil || s.safeBundles().Runtime.runtimeRegistry == nil {
 		return
 	}
@@ -561,9 +561,9 @@ func (s *Core) CompletePendingPrompt(sessionID string, requestID string) {
 	s.safeBundles().Runtime.runtimeRegistry.CompletePendingPrompt(sessionID, requestID)
 }
 
-func (s *Core) AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.Request) (askquestion.Response, error) {
+func (s *Core) AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 	if s == nil || s.safeBundles().Runtime.runtimeRegistry == nil {
-		return askquestion.Response{}, fmt.Errorf("runtime registry is required")
+		return askquestion.AskQuestionResponse{}, fmt.Errorf("runtime registry is required")
 	}
 	return s.safeBundles().Runtime.runtimeRegistry.AwaitPromptResponse(ctx, sessionID, req)
 }

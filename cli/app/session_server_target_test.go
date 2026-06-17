@@ -5,10 +5,8 @@ import (
 	"core/cli/app/internal/startupconfig"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/serve"
 	serverstartup "core/server/startup"
-	askquestion "core/server/tools/askquestion"
-	"core/shared/brand"
+	askquestion "core/server/tools"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -36,7 +34,7 @@ func TestStartSessionServerHelperDaemonProcess(t *testing.T) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -56,7 +54,7 @@ func TestStartSessionServerUsesConfiguredDaemonForInteractiveFlow(t *testing.T) 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -109,16 +107,16 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
-	if err := os.MkdirAll(filepath.Join(home, brand.ConfigDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, config.ConfigDirName), 0o755); err != nil {
 		t.Fatalf("create home config dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, brand.ConfigDirName, "config.toml"), []byte("model = \"home-model\"\nthinking_level = \"low\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, config.ConfigDirName, "config.toml"), []byte("model = \"home-model\"\nthinking_level = \"low\"\n"), 0o644); err != nil {
 		t.Fatalf("write home config: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(workspace, brand.ConfigDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
 		t.Fatalf("create workspace config dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, brand.ConfigDirName, "config.toml"), []byte("model = \"workspace-model\"\nthinking_level = \"high\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("model = \"workspace-model\"\nthinking_level = \"high\"\n"), 0o644); err != nil {
 		t.Fatalf("write workspace config: %v", err)
 	}
 	glob, err := config.LoadGlobal(config.LoadOptions{})
@@ -129,7 +127,7 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 		t.Fatalf("RegisterBinding: %v", err)
 	}
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{AllowUnauthenticated: true}, readyMemoryAuthHandler(), autoOnboarding)
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{AllowUnauthenticated: true}, readyMemoryAuthHandler(), autoOnboarding)
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -166,7 +164,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -322,16 +320,16 @@ func TestRemoteInteractiveRuntimeAskAnswersRequireControllerLeaseAcrossWorkspace
 	fixture := startRemoteMultiClientRuntimeFixture(t, "")
 
 	askDone := make(chan struct {
-		resp askquestion.Response
+		resp askquestion.AskQuestionResponse
 		err  error
 	}, 1)
 	go func() {
-		resp, err := fixture.daemon.AwaitPromptResponse(context.Background(), fixture.planA.SessionID, askquestion.Request{
+		resp, err := fixture.daemon.AwaitPromptResponse(context.Background(), fixture.planA.SessionID, askquestion.AskQuestionRequest{
 			ID:       "ask-race-1",
 			Question: "Who answers first?",
 		})
 		askDone <- struct {
-			resp askquestion.Response
+			resp askquestion.AskQuestionResponse
 			err  error
 		}{resp: resp, err: err}
 	}()
@@ -382,18 +380,18 @@ func TestRemoteInteractiveRuntimeApprovalAnswersRequireControllerLeaseAcrossWork
 	fixture := startRemoteMultiClientRuntimeFixture(t, "")
 
 	approvalDone := make(chan struct {
-		resp askquestion.Response
+		resp askquestion.AskQuestionResponse
 		err  error
 	}, 1)
 	go func() {
-		resp, err := fixture.daemon.AwaitPromptResponse(context.Background(), fixture.planA.SessionID, askquestion.Request{
+		resp, err := fixture.daemon.AwaitPromptResponse(context.Background(), fixture.planA.SessionID, askquestion.AskQuestionRequest{
 			ID:              "approval-race-1",
 			Question:        "Allow the command?",
 			Approval:        true,
-			ApprovalOptions: []askquestion.ApprovalOption{{Decision: askquestion.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.ApprovalDecisionDeny, Label: "Deny"}},
+			ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"}},
 		})
 		approvalDone <- struct {
-			resp askquestion.Response
+			resp askquestion.AskQuestionResponse
 			err  error
 		}{resp: resp, err: err}
 	}()
@@ -435,7 +433,7 @@ func TestRemoteInteractiveRuntimeApprovalAnswersRequireControllerLeaseAcrossWork
 		if result.resp.RequestID != "approval-race-1" || result.resp.Approval == nil {
 			t.Fatalf("unexpected approval response: %+v", result.resp)
 		}
-		if result.resp.Approval.Decision != askquestion.ApprovalDecisionAllowOnce || result.resp.Approval.Commentary != "approved by client A" {
+		if result.resp.Approval.Decision != askquestion.AskQuestionApprovalDecisionAllowOnce || result.resp.Approval.Commentary != "approved by client A" {
 			t.Fatalf("unexpected approval response: %+v", result.resp)
 		}
 	case <-time.After(5 * time.Second):
@@ -520,7 +518,7 @@ func TestRemoteSessionActivityLaggingSubscriberHydratesAndResubscribesAcrossWork
 }
 
 type remoteMultiClientRuntimeFixture struct {
-	daemon       *serve.Server
+	daemon       *serverstartup.ServeServer
 	workspaceA   string
 	workspaceB   string
 	serverA      remoteMultiClientServer
@@ -562,7 +560,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		req.OpenAIBaseURLExplicit = true
 	}
 
-	srv, err := serve.Start(context.Background(), req, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
+	srv, err := serverstartup.StartServeServer(context.Background(), req, apiKeyMemoryAuthHandler("test-key"), autoOnboarding)
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

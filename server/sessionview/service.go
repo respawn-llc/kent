@@ -10,10 +10,10 @@ import (
 	"core/server/runtime"
 	"core/server/runtimeview"
 	"core/server/session"
+	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type SessionStoreResolver interface {

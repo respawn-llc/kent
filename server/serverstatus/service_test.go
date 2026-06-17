@@ -11,7 +11,7 @@ import (
 )
 
 func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {
-	service := NewService(nil, config.App{
+	service := NewServerStatusService(nil, config.App{
 		Settings: config.Settings{
 			Model: "base",
 			Subagents: map[string]config.SubagentRole{
@@ -50,7 +50,7 @@ func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {
 }
 
 func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
-	service := NewService(nil, config.App{
+	service := NewServerStatusService(nil, config.App{
 		Settings: config.Settings{ProviderOverride: "anthropic"},
 	})
 
@@ -71,7 +71,7 @@ func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
 }
 
 func TestGetServerReadinessBlockedWhenStartupAuthRequiredButMissing(t *testing.T) {
-	service := NewService(nil, config.App{
+	service := NewServerStatusService(nil, config.App{
 		Settings: config.Settings{ProviderOverride: "openai"},
 	})
 
@@ -101,7 +101,7 @@ func (failingAuthStore) Save(context.Context, auth.State) error { return nil }
 
 func TestGetServerReadinessIgnoresAuthStoreWhenStartupAuthNotRequired(t *testing.T) {
 	manager := auth.NewManager(failingAuthStore{}, nil, nil)
-	service := NewService(manager, config.App{Settings: config.Settings{ProviderOverride: "anthropic"}})
+	service := NewServerStatusService(manager, config.App{Settings: config.Settings{ProviderOverride: "anthropic"}})
 
 	readiness, err := service.GetServerReadiness(context.Background(), serverapi.ServerReadinessRequest{})
 	if err != nil {
@@ -117,7 +117,7 @@ func TestGetServerReadinessIgnoresAuthStoreWhenStartupAuthNotRequired(t *testing
 
 func TestGetServerReadinessSurfacesAuthStoreErrorWhenStartupAuthRequired(t *testing.T) {
 	manager := auth.NewManager(failingAuthStore{}, nil, nil)
-	service := NewService(manager, config.App{Settings: config.Settings{ProviderOverride: "openai"}})
+	service := NewServerStatusService(manager, config.App{Settings: config.Settings{ProviderOverride: "openai"}})
 
 	if _, err := service.GetServerReadiness(context.Background(), serverapi.ServerReadinessRequest{}); err == nil {
 		t.Fatal("expected auth store error to surface when startup auth is required")

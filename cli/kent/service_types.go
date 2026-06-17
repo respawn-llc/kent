@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"core/shared/config"
+	"core/shared/protocol"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,17 +14,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"core/shared/brand"
-	"core/shared/config"
-	"core/shared/protocol"
 )
 
 const (
-	serviceDisplayName     = brand.ServiceDisplayName
-	serviceLaunchdLabel    = brand.ServiceLaunchdLabel
-	serviceSystemdUnitName = brand.ServiceSystemdUnitName
-	serviceWindowsTaskName = brand.ServiceWindowsTaskName
+	serviceDisplayName     = config.ServiceDisplayName
+	serviceLaunchdLabel    = config.ServiceLaunchdLabel
+	serviceSystemdUnitName = config.ServiceSystemdUnitName
+	serviceWindowsTaskName = config.ServiceWindowsTaskName
 	serviceLogDirName      = "logs"
 	serviceStdoutLogName   = "server.log"
 	serviceStderrLogName   = "server.err.log"

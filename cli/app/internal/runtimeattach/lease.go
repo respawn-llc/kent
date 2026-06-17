@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	servicecontract "core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 	"core/shared/toolspec"
 
 	"github.com/google/uuid"

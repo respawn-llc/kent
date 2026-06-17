@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/runtimeconn"
+	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 )
 
@@ -17,11 +17,11 @@ func (m *uiModel) observeRuntimeRequestResult(err error) {
 		m.setRuntimeDisconnected(false)
 		return
 	}
-	if runtimeconn.IsConnectionError(err) {
+	if runtimeattach.IsRuntimeConnectionError(err) {
 		m.setRuntimeDisconnected(true)
 		return
 	}
-	if runtimeconn.ConfirmsReachability(err) {
+	if runtimeattach.ConfirmsRuntimeReachability(err) {
 		m.setRuntimeDisconnected(false)
 	}
 }

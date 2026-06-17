@@ -6,7 +6,6 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
@@ -163,7 +162,7 @@ func EventFromRuntime(evt runtime.Event) clientui.Event {
 	return view
 }
 
-func copyCacheWarningView(in *cachewarn.Warning) *cachewarn.Warning {
+func copyCacheWarningView(in *transcript.CacheWarning) *transcript.CacheWarning {
 	if in == nil {
 		return nil
 	}

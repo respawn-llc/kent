@@ -1,14 +1,11 @@
 package config
 
 import (
+	"core/shared/theme"
+	"core/shared/toolspec"
 	"sort"
 	"strconv"
 	"strings"
-
-	"core/shared/brand"
-	"core/shared/compaction"
-	"core/shared/theme"
-	"core/shared/toolspec"
 )
 
 const (
@@ -28,7 +25,7 @@ const (
 	defaultWorkflowFinalAnswerCap        = 3
 	defaultWorkflowInvalidCompletionCap  = 5
 	defaultCompactionThreshold           = defaultModelContextWindow * 95 / 100
-	defaultPreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
+	defaultPreSubmitCompactionLeadTokens = DefaultPreSubmitRunwayTokens
 	defaultReviewerFrequency             = "edits"
 	defaultReviewerTimeoutSec            = 60
 	defaultCompactionMode                = "local"
@@ -76,7 +73,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 
 	var out strings.Builder
 	out.WriteString("# Edit and restart to apply changes.\n")
-	out.WriteString("# Config reference: " + brand.DocsURL + "/config/\n\n")
+	out.WriteString("# Config reference: " + DocsURL + "/config/\n\n")
 	writeRootConfigLines(&out, rootLines)
 	modelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "model_capabilities"), filterDefaultLines(defaultLines, "model_capabilities"))
 	if len(modelCapabilityLines) > 0 {

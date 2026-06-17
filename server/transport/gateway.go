@@ -13,9 +13,9 @@ import (
 
 	"core/server/auth"
 	"core/server/metadata"
+	rpccontract "core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/protocol"
-	"core/shared/rpccontract"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
 

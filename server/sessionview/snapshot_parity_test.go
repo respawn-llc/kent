@@ -12,11 +12,11 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestSessionSnapshotSourcesParityForMainView(t *testing.T) {
@@ -132,7 +132,7 @@ func newSessionSnapshotParityFixture(t *testing.T, cacheWarningMode config.Cache
 	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append a1: %v", err)
 	}
-	if _, _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "cache_warning", transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}); err != nil {
 		t.Fatalf("append cache warning: %v", err)
 	}
 	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_summary", "text": "manual compacted summary"}); err != nil {

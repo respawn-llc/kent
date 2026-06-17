@@ -6,11 +6,9 @@ import (
 	"os"
 
 	"core/server/auth"
-	"core/server/authflow"
-	"core/server/authpolicy"
+	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
-	"core/server/embedded"
 	"core/shared/config"
 )
 
@@ -32,8 +30,8 @@ type Request struct {
 
 type AuthHandler interface {
 	WrapStore(base auth.Store) auth.Store
-	NeedsInteraction(req authflow.InteractionRequest) bool
-	Interact(ctx context.Context, req authflow.InteractionRequest) (authflow.InteractionOutcome, error)
+	NeedsInteraction(req authservice.FlowInteractionRequest) bool
+	Interact(ctx context.Context, req authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error)
 	LookupEnv(key string) string
 }
 
@@ -51,12 +49,12 @@ type OnboardingRequest struct {
 	ReloadConfig func() (config.App, error)
 }
 
-func Start(ctx context.Context, req Request, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*embedded.Server, error) {
+func Start(ctx context.Context, req Request, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*EmbeddedServer, error) {
 	appCore, err := StartCore(ctx, req, authHandler, onboardingHandler)
 	if err != nil {
 		return nil, err
 	}
-	return &embedded.Server{Core: appCore}, nil
+	return &EmbeddedServer{Core: appCore}, nil
 }
 
 func StartCore(ctx context.Context, req Request, authHandler AuthHandler, onboardingHandler OnboardingHandler) (*core.Core, error) {
@@ -75,7 +73,7 @@ func StartCore(ctx context.Context, req Request, authHandler AuthHandler, onboar
 		return nil, err
 	}
 	if !req.AllowUnauthenticated {
-		if err := authflow.EnsureReady(ctx, authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings.Theme, bootstrapReq.LookupEnv, authpolicy.RequiresStartupAuth(cfg.Settings), false, authHandler); err != nil {
+		if err := authservice.EnsureFlowReady(ctx, authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings.Theme, bootstrapReq.LookupEnv, authservice.StartupAuthRequired(cfg.Settings), false, authHandler); err != nil {
 			return nil, err
 		}
 	}
@@ -118,13 +116,13 @@ func EnsureReady(ctx context.Context, state AuthState, authHandler AuthHandler) 
 		return errors.New("auth handler is required")
 	}
 	cfg := state.Config()
-	return authflow.EnsureReady(
+	return authservice.EnsureFlowReady(
 		ctx,
 		state.AuthManager(),
 		state.OAuthOptions(),
 		cfg.Settings.Theme,
 		authHandler.LookupEnv,
-		authpolicy.RequiresStartupAuth(cfg.Settings),
+		authservice.StartupAuthRequired(cfg.Settings),
 		true,
 		authHandler,
 	)

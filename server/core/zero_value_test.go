@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"core/server/runtime"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 )
 
 func TestCoreZeroValueMethodsDoNotPanic(t *testing.T) {
@@ -61,9 +61,11 @@ func TestCoreZeroValueMethodsDoNotPanic(t *testing.T) {
 		{name: "RegisterRuntime", run: func(c *Core) { c.RegisterRuntime("session", nil) }},
 		{name: "UnregisterRuntime", run: func(c *Core) { c.UnregisterRuntime("session", nil) }},
 		{name: "PublishRuntimeEvent", run: func(c *Core) { c.PublishRuntimeEvent("session", runtime.Event{}) }},
-		{name: "BeginPendingPrompt", run: func(c *Core) { c.BeginPendingPrompt("session", askquestion.Request{}) }},
+		{name: "BeginPendingPrompt", run: func(c *Core) { c.BeginPendingPrompt("session", askquestion.AskQuestionRequest{}) }},
 		{name: "CompletePendingPrompt", run: func(c *Core) { c.CompletePendingPrompt("session", "request") }},
-		{name: "AwaitPromptResponse", run: func(c *Core) { _, _ = c.AwaitPromptResponse(context.Background(), "session", askquestion.Request{}) }},
+		{name: "AwaitPromptResponse", run: func(c *Core) {
+			_, _ = c.AwaitPromptResponse(context.Background(), "session", askquestion.AskQuestionRequest{})
+		}},
 		{name: "AcquirePrimaryRun", run: func(c *Core) { _, _ = c.AcquirePrimaryRun("session") }},
 		{name: "RunPromptClient", run: func(c *Core) { _ = c.RunPromptClient() }},
 	}

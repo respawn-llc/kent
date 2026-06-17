@@ -4,15 +4,13 @@ package main
 
 import (
 	"context"
+	"core/shared/config"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-
-	"core/shared/brand"
-	"core/shared/config"
 )
 
 func TestWindowsInstallWithoutForceRejectsExistingDifferentScript(t *testing.T) {
@@ -214,12 +212,12 @@ func windowsServiceTestSpec(t *testing.T) serviceSpec {
 	temp := t.TempDir()
 	t.Setenv("APPDATA", filepath.Join(temp, "AppData", "Roaming"))
 	return serviceSpec{
-		Config:        config.App{PersistenceRoot: filepath.Join(temp, brand.ConfigDirName)},
+		Config:        config.App{PersistenceRoot: filepath.Join(temp, config.ConfigDirName)},
 		Executable:    filepath.Join(temp, "kent.exe"),
 		Arguments:     []string{"serve"},
-		LogDir:        filepath.Join(temp, brand.ConfigDirName, "logs"),
-		StdoutLogPath: filepath.Join(temp, brand.ConfigDirName, "logs", "server.log"),
-		StderrLogPath: filepath.Join(temp, brand.ConfigDirName, "logs", "server.err.log"),
+		LogDir:        filepath.Join(temp, config.ConfigDirName, "logs"),
+		StdoutLogPath: filepath.Join(temp, config.ConfigDirName, "logs", "server.log"),
+		StderrLogPath: filepath.Join(temp, config.ConfigDirName, "logs", "server.err.log"),
 		Endpoint:      "http://127.0.0.1:53082",
 	}
 }

@@ -3,8 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/worktreemutation"
-	"core/cli/app/internal/worktreeview"
+	"core/cli/app/internal/worktreeui"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 
@@ -81,7 +80,7 @@ func (m *uiModel) worktreeSwitchCommandForTarget(targetToken, worktreeID string)
 			if err != nil {
 				return worktreeSwitchDoneMsg{token: switchToken, err: err}
 			}
-			resolved, err := worktreeview.ResolveToken(list.Worktrees, targetToken)
+			resolved, err := worktreeui.ResolveToken(list.Worktrees, targetToken)
 			if err != nil {
 				return worktreeSwitchDoneMsg{token: switchToken, err: err}
 			}
@@ -94,7 +93,7 @@ func (m *uiModel) worktreeSwitchCommandForTarget(targetToken, worktreeID string)
 
 func (m *uiModel) listWorktreesForCurrentSession(includeDirtyCount bool) (serverapi.WorktreeListResponse, error) {
 	if m == nil {
-		return serverapi.WorktreeListResponse{}, worktreemutation.ErrClientUnavailable
+		return serverapi.WorktreeListResponse{}, worktreeui.ErrClientUnavailable
 	}
 	m.checkTUIBlockingOperation("worktree service read", "list worktrees")
 	return m.worktreeMutationService().List(includeDirtyCount)
@@ -102,14 +101,14 @@ func (m *uiModel) listWorktreesForCurrentSession(includeDirtyCount bool) (server
 
 func (m *uiModel) resolveWorktreeToken(token string) (serverapi.WorktreeView, error) {
 	if m == nil {
-		return serverapi.WorktreeView{}, worktreemutation.ErrClientUnavailable
+		return serverapi.WorktreeView{}, worktreeui.ErrClientUnavailable
 	}
 	m.checkTUIBlockingOperation("worktree service read", "resolve worktree")
 	list, err := m.worktreeMutationService().List(false)
 	if err != nil {
 		return serverapi.WorktreeView{}, err
 	}
-	return worktreeview.ResolveToken(list.Worktrees, token)
+	return worktreeui.ResolveToken(list.Worktrees, token)
 }
 
 func (m *uiModel) suggestedWorktreeSessionName() string {

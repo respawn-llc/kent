@@ -6,11 +6,11 @@ import (
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/tools"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
+	triggerhandofftool "core/server/tools"
 	patchtool "core/server/tools/patch"
 	readimagetool "core/server/tools/readimage"
 	shelltool "core/server/tools/shell"
-	triggerhandofftool "core/server/tools/triggerhandoff"
 	"core/shared/toolspec"
 )
 
@@ -64,9 +64,9 @@ type localToolRuntimeContext struct {
 	shellOutputMaxChars             int
 	allowNonCwdEdits                bool
 	supportsVision                  bool
-	askQuestionBroker               *askquestion.Broker
+	askQuestionBroker               *askquestion.AskQuestionBroker
 	backgroundShellManager          *shelltool.Manager
-	triggerHandoffController        func() triggerhandofftool.Controller
+	triggerHandoffController        func() triggerhandofftool.TriggerHandoffController
 	outsideWorkspaceEditApprover    patchtool.OutsideWorkspaceApprover
 	outsideWorkspaceReadApprover    patchtool.OutsideWorkspaceApprover
 	viewImageOutsideWorkspaceLogger readimagetool.OutsideWorkspaceAuditLogger
@@ -88,7 +88,7 @@ func buildLocalRuntimeHandler(def tools.Definition, ctx localToolRuntimeContext)
 	})
 }
 
-func buildToolRegistry(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger *runLogger, background *shelltool.Manager) (*tools.Registry, *askquestion.Broker, *shelltool.Manager, error) {
+func buildToolRegistry(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger *runLogger, background *shelltool.Manager) (*tools.Registry, *askquestion.AskQuestionBroker, *shelltool.Manager, error) {
 	return runtimewire.BuildToolRegistry(
 		workspaceRoot,
 		ownerSessionID,

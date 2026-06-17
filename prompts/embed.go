@@ -8,8 +8,6 @@ import (
 	"strings"
 	"text/template"
 	"text/template/parse"
-
-	"core/cli/selfcmd"
 )
 
 // UnknownTemplatePlaceholderError reports that a custom prompt template
@@ -315,10 +313,6 @@ func BaseSystemPrompt(args SystemPromptTemplateArgs) string {
 	return rendered
 }
 
-func LaunchCommand() string {
-	return selfcmd.LaunchCommand()
-}
-
 type compactionSoonReminderTemplateData struct {
 	EstimatedToolCallsTillForcedHandoff int
 }
@@ -414,7 +408,7 @@ func RenderWorkflowTaskInstructions(args WorkflowNodeContextArgs, nodeCompletion
 func newWorkflowTaskInstructionsTemplateData(args WorkflowNodeContextArgs, nodeCompletionInstructions string) workflowTaskInstructionsTemplateData {
 	return workflowTaskInstructionsTemplateData{
 		WorkflowNodeContextArgs:    args,
-		LaunchCommand:              selfcmd.LaunchCommand(),
+		LaunchCommand:              LaunchCommand(),
 		NodeCompletionInstructions: strings.TrimSpace(nodeCompletionInstructions),
 		ShowTaskCommentsReminder:   args.TaskNumberOfComments > 0,
 		TaskCommentsLabel:          taskCommentsLabel(args.TaskNumberOfComments),
@@ -430,7 +424,7 @@ func taskCommentsLabel(numberOfComments int64) string {
 }
 
 func taskCommentListCommand(taskShortID string) string {
-	return strings.Join([]string{selfcmd.LaunchCommand(), "task", "comment", "list", strings.TrimSpace(taskShortID)}, " ")
+	return strings.Join([]string{LaunchCommand(), "task", "comment", "list", strings.TrimSpace(taskShortID)}, " ")
 }
 
 func RenderWorkflowToolCompletionInstructions(workflowShortId string) (string, error) {
@@ -438,7 +432,7 @@ func RenderWorkflowToolCompletionInstructions(workflowShortId string) (string, e
 		LaunchCommand   string
 		WorkflowShortId string
 	}{
-		LaunchCommand:   selfcmd.LaunchCommand(),
+		LaunchCommand:   LaunchCommand(),
 		WorkflowShortId: strings.TrimSpace(workflowShortId),
 	})
 }
@@ -448,7 +442,7 @@ func RenderWorkflowStructuredCompletionInstructions(workflowShortId string) (str
 		LaunchCommand   string
 		WorkflowShortId string
 	}{
-		LaunchCommand:   selfcmd.LaunchCommand(),
+		LaunchCommand:   LaunchCommand(),
 		WorkflowShortId: strings.TrimSpace(workflowShortId),
 	})
 }
@@ -482,7 +476,7 @@ type systemPromptSections struct {
 
 func renderSystemPromptSections(args SystemPromptTemplateArgs) (systemPromptSections, error) {
 	runtimeTemplateData := systemPromptRuntimeTemplateData{
-		LaunchCommand:                selfcmd.LaunchCommand(),
+		LaunchCommand:                LaunchCommand(),
 		EstimatedToolCallsForContext: args.EstimatedToolCallsForContext,
 		EditingToolName:              strings.TrimSpace(args.EditingToolName),
 	}
@@ -521,8 +515,8 @@ func renderDefaultSystemPromptTemplateWithSections(text string, args SystemPromp
 		return "", nil
 	}
 	data := defaultSystemPromptTemplateData{
-		LaunchCommand:                                selfcmd.LaunchCommand(),
-		BuilderCommand:                               selfcmd.LaunchCommand(),
+		LaunchCommand:                                LaunchCommand(),
+		BuilderCommand:                               LaunchCommand(),
 		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
 		EditingToolName:                              strings.TrimSpace(args.EditingToolName),
 		DefaultSystemPromptPersonality:               strings.TrimSpace(sections.personality),
@@ -543,8 +537,8 @@ func renderSystemPromptTemplateWithSections(text string, args SystemPromptTempla
 		return "", nil
 	}
 	data := systemPromptTemplateData{
-		LaunchCommand:                                selfcmd.LaunchCommand(),
-		BuilderCommand:                               selfcmd.LaunchCommand(),
+		LaunchCommand:                                LaunchCommand(),
+		BuilderCommand:                               LaunchCommand(),
 		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
 		EditingToolName:                              strings.TrimSpace(args.EditingToolName),
 		DefaultSystemPrompt:                          strings.TrimSpace(defaultSystemPrompt),

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/app/internal/submissionerror"
+	"core/cli/app/internal/runtimeattach"
 	"core/cli/tui"
 	"core/shared/clientui"
 
@@ -77,7 +77,7 @@ func (c uiInputController) submitCmd(text string, queuedID string, promptHistory
 		message, err := m.submitRuntimeUserMessage(context.Background(), text, promptHistoryRecorded)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				return newSubmitDoneMsg(token, "", text, submissionerror.ErrInterrupted)
+				return newSubmitDoneMsg(token, "", text, runtimeattach.ErrSubmissionInterrupted)
 			}
 			return newSubmitDoneMsg(token, "", text, err)
 		}
@@ -96,7 +96,7 @@ func (c uiInputController) submitUserShellCmd(originalText, command string) tea.
 		err := client.SubmitUserShellCommand(context.Background(), command)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				return newSubmitDoneMsg(token, "", originalText, submissionerror.ErrInterrupted)
+				return newSubmitDoneMsg(token, "", originalText, runtimeattach.ErrSubmissionInterrupted)
 			}
 			return newSubmitDoneMsg(token, "", originalText, err)
 		}
@@ -243,13 +243,13 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 			c.restoreSubmittedTextIntoInput(msg.submittedText)
 		}
 		c.restoreQueuedMessagesIntoInput()
-		if errors.Is(msg.err, submissionerror.ErrInterrupted) || errors.Is(msg.err, context.Canceled) {
+		if errors.Is(msg.err, runtimeattach.ErrSubmissionInterrupted) || errors.Is(msg.err, context.Canceled) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
 			m.syncViewport()
 			return m, batchCmds(unlockCmd, restoreInjectedCmd)
 		}
-		detailErr := submissionerror.Format(msg.err)
+		detailErr := runtimeattach.FormatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 		m.logf("step.error err=%q", detailErr)
@@ -348,13 +348,13 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 	if msg.err != nil {
 		restoreInjectedCmd := c.restorePendingInjectedIntoInput()
 		c.restoreQueuedMessagesIntoInput()
-		if errors.Is(msg.err, submissionerror.ErrInterrupted) || errors.Is(msg.err, context.Canceled) {
+		if errors.Is(msg.err, runtimeattach.ErrSubmissionInterrupted) || errors.Is(msg.err, context.Canceled) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
 			m.syncViewport()
 			return m, tea.Batch(releaseCmd, restoreInjectedCmd)
 		}
-		detailErr := submissionerror.Format(msg.err)
+		detailErr := runtimeattach.FormatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 		m.logf("compaction.error err=%q", detailErr)

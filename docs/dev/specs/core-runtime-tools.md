@@ -17,7 +17,7 @@
 - `shared/clientui` is a DTO/read-model boundary only. Runtime-event state transitions, pending-input policy, reasoning-stream presentation, activity transitions, transcript-sync commands, background notices, and prompt-history commands are owned by CLI packages.
 - `shared/serverapi` is a wire-contract package only: serializable request/response DTOs, validation helpers, typed wire errors, stream/progress DTOs, and route-facing value contracts.
 - Server-owned service interfaces, concrete service implementations, runtime handles, headless launchers, logging/timeout policy, lifecycle orchestration, and close/drop semantics must not live in `shared/serverapi`.
-- In-process route service interfaces live in `shared/servicecontract`. That package is the narrow loopback boundary for shared clients/server adapters and contains route-shaped interfaces with no execution policy.
+- In-process route service interfaces live in `shared/apicontract`. That package is the narrow loopback boundary for shared clients/server adapters and contains route-shaped interfaces with no execution policy.
 - CLI production packages must not import `server/*` directly except documented composition bridge packages.
 - User-visible lifecycle side effects trigger at one client-facing accepted-event boundary, not inside only one transport/runtime path.
 - Incomplete migration paths should be removed instead of preserved as compatibility shims. Breaking API/protocol changes are acceptable when documented and surfaced clearly.

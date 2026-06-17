@@ -6,7 +6,6 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
-	"core/shared/brand"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -1320,7 +1319,7 @@ func TestApplyRunPromptOverridesSubagentReviewerSystemPromptFile(t *testing.T) {
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: "worker"}, auth.EmptyState())
-	if want := filepath.Join(home, brand.ConfigDirName, "worker-reviewer.md"); updated.ActiveSettings.Reviewer.SystemPromptFile != want {
+	if want := filepath.Join(home, config.ConfigDirName, "worker-reviewer.md"); updated.ActiveSettings.Reviewer.SystemPromptFile != want {
 		t.Fatalf("reviewer system prompt file = %q, want %q", updated.ActiveSettings.Reviewer.SystemPromptFile, want)
 	}
 }

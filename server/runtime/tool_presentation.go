@@ -4,7 +4,6 @@ import (
 	"core/server/llm"
 	"core/server/tools"
 	"core/shared/transcript"
-	"core/shared/transcript/toolcodec"
 	"os"
 	goruntime "runtime"
 	"strings"
@@ -36,7 +35,7 @@ func normalizeToolCallForTranscript(call llm.ToolCall, workingDir string) llm.To
 	if meta == nil {
 		return normalized
 	}
-	normalized.Presentation = toolcodec.EncodeToolCallMeta(*meta)
+	normalized.Presentation = transcript.EncodeToolCallMeta(*meta)
 	return normalized
 }
 
@@ -64,7 +63,7 @@ func currentTranscriptDefaultShellPath() string {
 }
 
 func decodeToolCallMeta(call llm.ToolCall) *transcript.ToolCallMeta {
-	meta, ok := toolcodec.DecodeToolCallMeta(call.Presentation)
+	meta, ok := transcript.DecodeToolCallMeta(call.Presentation)
 	if !ok {
 		return nil
 	}

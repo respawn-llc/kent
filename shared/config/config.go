@@ -1,18 +1,16 @@
 package config
 
 import (
+	"core/shared/protocol"
+	"core/shared/toolspec"
 	"net"
 	"path/filepath"
 	"strconv"
-
-	"core/shared/brand"
-	"core/shared/protocol"
-	"core/shared/toolspec"
 )
 
 const (
-	DefaultAppName       = brand.Command
-	DefaultPersistence   = brand.PersistenceRoot
+	DefaultAppName       = Command
+	DefaultPersistence   = PersistenceRoot
 	databaseDirName      = "db"
 	globalAuthConfigName = "auth.json"
 )

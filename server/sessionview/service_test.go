@@ -16,11 +16,11 @@ import (
 	"core/server/runtimeview"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type serviceFakeLLM struct {
@@ -307,7 +307,7 @@ func TestServiceGetSessionTranscriptPageUsesConfiguredCacheWarningModeForDormant
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "cache_warning", transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}); err != nil {
 		t.Fatalf("append cache warning: %v", err)
 	}
 
@@ -342,7 +342,7 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "cache_warning", transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}); err != nil {
 		t.Fatalf("append cache warning: %v", err)
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)

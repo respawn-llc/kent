@@ -9,7 +9,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (ManualMoveResult, error) {
@@ -103,7 +102,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 	if transitionState == "pending_approval" && sourceRunID == "" && !req.AllowMissingEdge {
 		return ManualMoveResult{}, ErrManualMoveApprovalNeedsSourceRun
 	}
-	outputValuesJSON, err := workflowjson.MarshalString(outputValues)
+	outputValuesJSON, err := workflow.MarshalString(outputValues)
 	if err != nil {
 		return ManualMoveResult{}, err
 	}
@@ -285,20 +284,20 @@ func (s *Store) backwardManualMoveEdge(ctx context.Context, sourcePlacement work
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	outputValues := map[string]string{}
-	if err := workflowjson.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
+	if err := workflow.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	inputs := []workflow.InputBinding{}
-	if err := workflowjson.UnmarshalString(inputBindingsJSON, &inputs); err != nil {
+	if err := workflow.UnmarshalString(inputBindingsJSON, &inputs); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	requirements := []workflow.OutputRequirement{}
-	if err := workflowjson.UnmarshalString(outputRequirementsJSON, &requirements); err != nil {
+	if err := workflow.UnmarshalString(outputRequirementsJSON, &requirements); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	metadata := workflowRunMetadata{}
 	if strings.TrimSpace(metadataJSON) != "" {
-		if err := workflowjson.UnmarshalString(metadataJSON, &metadata); err != nil {
+		if err := workflow.UnmarshalString(metadataJSON, &metadata); err != nil {
 			return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 		}
 	}

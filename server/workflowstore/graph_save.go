@@ -10,7 +10,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 type WorkflowGraphSaveRequest struct {
@@ -614,15 +613,15 @@ func upsertWorkflowNodeGroup(ctx context.Context, tx *sql.Tx, group NodeGroupRec
 }
 
 func upsertWorkflowNode(ctx context.Context, tx *sql.Tx, node NodeRecord, sortOrder int64) error {
-	inputFields, err := workflowjson.MarshalString(node.InputFields)
+	inputFields, err := workflow.MarshalString(node.InputFields)
 	if err != nil {
 		return err
 	}
-	joinProviders, err := workflowjson.MarshalString(node.JoinInputProviders)
+	joinProviders, err := workflow.MarshalString(node.JoinInputProviders)
 	if err != nil {
 		return err
 	}
-	outputFields, err := workflowjson.MarshalString(node.OutputFields)
+	outputFields, err := workflow.MarshalString(node.OutputFields)
 	if err != nil {
 		return err
 	}
@@ -662,11 +661,11 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 	if err != nil {
 		return err
 	}
-	inputs, err := workflowjson.MarshalString(edge.InputBindings)
+	inputs, err := workflow.MarshalString(edge.InputBindings)
 	if err != nil {
 		return err
 	}
-	requirements, err := workflowjson.MarshalString(edge.OutputRequirements)
+	requirements, err := workflow.MarshalString(edge.OutputRequirements)
 	if err != nil {
 		return err
 	}
