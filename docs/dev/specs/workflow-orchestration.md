@@ -100,6 +100,8 @@
 - Pending approvals store resolved transition group, edge set, workflow version, source node snapshot, transition display snapshot, target node snapshots, and effective edge config snapshots.
 - Later graph edits do not change what a user approves.
 - Every applied transition stores transition-edge snapshot rows, not only pending approvals.
+- A task awaiting approval has no active placement; its live position is the pending transition's source node, surfaced as a synthesized `waiting_approval` placement.
+- Manually moving a task that is awaiting approval overrides the proposed transition: the pending approval is marked `rejected` (auditable, not deleted) and the task moves from the approval's source node to the chosen target. This is the operator path to reject a proposed transition (e.g. sending an awaiting-approval plan back to Backlog).
 
 ## Context Preservation And Bindings
 
