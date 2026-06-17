@@ -528,6 +528,54 @@ func TestWorkflowRuntimeCompactAndContinueAllowsCrossRole(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeDefaultRoleClearsInvalidPersistedRoleBeforeValidation(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer("{}"))
+	roleSettings := fixture.cfg.Settings
+	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.ContextCompactionThresholdTokens = 200_000
+	roleSettings.Subagents = nil
+	fixture.cfg.Settings.Subagents["worker"] = config.SubagentRole{
+		Settings: roleSettings,
+		Sources:  map[string]string{"model": "test", "context_compaction_threshold_tokens": "test"},
+	}
+	fixture.rebuildStarter(t)
+	containerDir := config.ProjectSessionsRoot(fixture.cfg, fixture.projectID)
+	source, err := session.Create(containerDir, filepath.Base(containerDir), fixture.cfg.WorkspaceRoot, fixture.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("create source session: %v", err)
+	}
+	if err := source.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+
+	plan, _, err := fixture.starter.planSession(context.Background(), workflowstore.RunStartContext{
+		ContextMode:     workflow.ContextModeContinueSession,
+		SourceSessionID: source.Meta().SessionID,
+		Task: workflowstore.TaskRecord{
+			ID:        "task-1",
+			ProjectID: fixture.projectID,
+			ShortID:   "RUN-1",
+			Title:     "Task title",
+		},
+		Workflow:       workflowstore.WorkflowRecord{ID: "workflow-1"},
+		Node:           workflowstore.NodeRecord{ID: "node-1", Key: "default", SubagentRole: workflow.DefaultAgentRole},
+		PromptTemplate: "Continue.",
+	})
+	if err != nil {
+		t.Fatalf("planSession: %v", err)
+	}
+	if plan.ActiveSettings.Model != fixture.cfg.Settings.Model {
+		t.Fatalf("model = %q, want base model %q", plan.ActiveSettings.Model, fixture.cfg.Settings.Model)
+	}
+	reopened, err := session.Open(source.Dir(), fixture.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("open source session: %v", err)
+	}
+	if got := reopened.Meta().Continuation; got != nil && got.AgentRole != "" {
+		t.Fatalf("continuation = %+v, want cleared role", got)
+	}
+}
+
 func TestWorkflowRuntimeStartFailsWhenRoleDisappearedAfterTaskStart(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer("{}"))
 	delete(fixture.cfg.Settings.Subagents, "coder")

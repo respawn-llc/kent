@@ -386,15 +386,14 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
 
-	cfg := config.App{
-		WorkspaceRoot:   "/tmp/workspace-a",
-		PersistenceRoot: root,
-		Settings: config.Settings{
-			Model:         "base-model",
-			OpenAIBaseURL: server.URL,
-			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolPatch: true},
-		},
+	cfg, err := config.Load("/tmp/workspace-a", config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
 	}
+	cfg.PersistenceRoot = root
+	cfg.Settings.Model = "base-model"
+	cfg.Settings.OpenAIBaseURL = server.URL
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
 	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: newTestHeadlessSessionLaunch(cfg, containerDir, authManager),
 		AuthManager:   authManager,

@@ -153,20 +153,14 @@ func TestServicePlanSessionAppliesLaunchOverrides(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	containerDir := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	cfg.Settings.Model = "gpt-5.4"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	cfg.Source.Sources["model"] = "file"
+	cfg.Source.Sources["tools.shell"] = "file"
+	cfg.Source.Sources["tools.patch"] = "default"
 	service := NewService(launch.Planner{
-		Config: config.App{
-			WorkspaceRoot:   workspace,
-			PersistenceRoot: persistenceRoot,
-			Settings: config.Settings{
-				Model:        "gpt-5.4",
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			},
-			Source: config.SourceReport{Sources: map[string]string{
-				"model":       "file",
-				"tools.shell": "file",
-				"tools.patch": "default",
-			}},
-		},
+		Config:       cfg,
 		ContainerDir: containerDir,
 	}, registry.NewSessionStoreRegistry())
 
@@ -209,15 +203,11 @@ func TestServicePlanSessionRespectsLockedContractWhenApplyingOverrides(t *testin
 	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-model", EnabledTools: []string{"shell"}}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	cfg.Settings.Model = "base-model"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
 	service := NewService(launch.Planner{
-		Config: config.App{
-			WorkspaceRoot:   workspace,
-			PersistenceRoot: persistenceRoot,
-			Settings: config.Settings{
-				Model:        "base-model",
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			},
-		},
+		Config:       cfg,
 		ContainerDir: containerDir,
 	}, registry.NewSessionStoreRegistry())
 
@@ -244,16 +234,13 @@ func TestServicePlanSessionRespectsLockedContractWhenApplyingOverrides(t *testin
 func TestServicePlanSessionPropagatesOverrideToolConflict(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
+	cfg.Settings.Model = "claude-sonnet-4.5"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	cfg.Source.Sources["tools.patch"] = "default"
+	cfg.Source.Sources["tools.edit"] = "default"
 	service := NewService(launch.Planner{
-		Config: config.App{
-			WorkspaceRoot:   workspace,
-			PersistenceRoot: t.TempDir(),
-			Settings: config.Settings{
-				Model:        "claude-sonnet-4.5",
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			},
-			Source: config.SourceReport{Sources: map[string]string{"tools.patch": "default", "tools.edit": "default"}},
-		},
+		Config:       cfg,
 		ContainerDir: t.TempDir(),
 	}, registry.NewSessionStoreRegistry())
 
@@ -266,6 +253,16 @@ func TestServicePlanSessionPropagatesOverrideToolConflict(t *testing.T) {
 	if err == nil || !errors.Is(err, launch.ErrPatchEditToolsConflict) {
 		t.Fatalf("error = %v, want tool conflict", err)
 	}
+}
+
+func loadSessionLaunchTestConfig(t *testing.T, workspace string, persistenceRoot string) config.App {
+	t.Helper()
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.PersistenceRoot = persistenceRoot
+	return cfg
 }
 
 func TestServicePlanSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T) {
@@ -287,5 +284,53 @@ func TestServicePlanSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T)
 		Overrides:       serverapi.RunPromptOverrides{AgentRoleSet: true},
 	}); err != nil {
 		t.Fatalf("PlanSession with default role clear should not read auth state: %v", err)
+	}
+}
+
+func TestServicePlanSessionCanClearInvalidPersistedRoleBeforeValidation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	persistenceRoot := t.TempDir()
+	containerDir := t.TempDir()
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	roleSettings := cfg.Settings
+	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.ContextCompactionThresholdTokens = 200_000
+	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+		},
+	}
+	service := NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+	}, registry.NewSessionStoreRegistry())
+
+	resp, err := service.PlanSession(context.Background(), serverapi.SessionPlanRequest{
+		ClientRequestID:   "req-1",
+		Mode:              serverapi.SessionLaunchModeInteractive,
+		SelectedSessionID: store.Meta().SessionID,
+		Overrides:         serverapi.RunPromptOverrides{AgentRoleSet: true},
+	})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if resp.Plan.ActiveSettings.Model != cfg.Settings.Model {
+		t.Fatalf("model = %q, want base model %q", resp.Plan.ActiveSettings.Model, cfg.Settings.Model)
+	}
+	reopened, err := session.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("reopen session: %v", err)
+	}
+	if got := reopened.Meta().Continuation; got != nil && got.AgentRole != "" {
+		t.Fatalf("continuation = %+v, want cleared agent role", got)
 	}
 }

@@ -41,6 +41,22 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 	}
 }
 
+func TestApplyRunPromptOverridesRejectsDerivedContextWindowBelowMinimum(t *testing.T) {
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace)
+	plan := newLoadedConfigPlan(t, workspace, loaded)
+	applier := func(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool) {
+		settings.ModelContextWindow = 39_999
+		settings.ContextCompactionThresholdTokens = 38_000
+		settings.PreSubmitCompactionLeadTokens = 1_000
+	}
+
+	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, auth.EmptyState(), applier)
+	if err == nil {
+		t.Fatal("expected derived context window below minimum to fail")
+	}
+}
+
 func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testing.T) {
 	root := t.TempDir()
 	containerA := filepath.Join(root, "projects", "project-a", "sessions")

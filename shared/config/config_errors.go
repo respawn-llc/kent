@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -71,6 +72,10 @@ func newConfigError(msg string) *configError {
 
 func (e *configError) Error() string {
 	return e.msg
+}
+
+func IsModelContextWindowBelowMinimum(err error) bool {
+	return errors.Is(err, errModelContextWindowBelowMinimum)
 }
 
 // UnknownSettingsKeysError reports settings keys that are not recognized. The
