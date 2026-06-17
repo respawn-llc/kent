@@ -1297,6 +1297,43 @@ func TestApplyRunPromptOverridesFastRoleAppliesBuiltInHeuristics(t *testing.T) {
 	}
 }
 
+func TestApplyRunPromptOverridesLockedDefaultModelTreatsSessionModelAsExplicitForRoleProvider(t *testing.T) {
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace,
+		"[subagents.worker]",
+		"model = \"local-worker\"",
+		"provider_override = \"openai\"",
+		"openai_base_url = \"https://local.example/v1\"",
+	)
+	baseSettings := EffectiveSettings(loaded.Settings, &session.LockedContract{Model: "locked-session-model"})
+	store := createTestSession(t, workspace)
+	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-session-model", EnabledTools: []string{"shell"}}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked: %v", err)
+	}
+	plan := SessionPlan{
+		Store:               store,
+		ActiveSettings:      baseSettings,
+		BaseSettings:        baseSettings,
+		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
+		ConfiguredModelName: loaded.Settings.Model,
+		WorkspaceRoot:       workspace,
+		Source:              loaded.Source,
+		BaseSource:          loaded.Source,
+		ModelContractLocked: true,
+	}
+
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: "worker"}, auth.EmptyState())
+	if updated.ActiveSettings.Model != "locked-session-model" {
+		t.Fatalf("model = %q, want locked-session-model", updated.ActiveSettings.Model)
+	}
+	if updated.ActiveSettings.ProviderOverride != "openai" {
+		t.Fatalf("provider override = %q, want openai", updated.ActiveSettings.ProviderOverride)
+	}
+	if updated.Source.Sources["model"] != "session" {
+		t.Fatalf("model source = %q, want session", updated.Source.Sources["model"])
+	}
+}
+
 func TestApplyRunPromptOverridesFastRoleWarnsWhenExplicitRoleMatchesBase(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
@@ -1497,6 +1534,48 @@ func TestPlannerResumeFastRoleUsesProviderOverrideForHeuristic(t *testing.T) {
 	}
 	if !plan.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected fast heuristic priority mode")
+	}
+}
+
+func TestPlannerResumeLockedDefaultModelTreatsSessionModelAsExplicitForRoleProvider(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace,
+		"[subagents.worker]",
+		"model = \"local-worker\"",
+		"provider_override = \"openai\"",
+		"openai_base_url = \"https://local.example/v1\"",
+	)
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
+	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-session-model", EnabledTools: []string{"shell"}}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        loaded.Settings,
+			Source:          loaded.Source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.Model != "locked-session-model" {
+		t.Fatalf("model = %q, want locked-session-model", plan.ActiveSettings.Model)
+	}
+	if plan.ActiveSettings.ProviderOverride != "openai" {
+		t.Fatalf("provider override = %q, want openai", plan.ActiveSettings.ProviderOverride)
+	}
+	if plan.Source.Sources["model"] != "session" {
+		t.Fatalf("model source = %q, want session", plan.Source.Sources["model"])
 	}
 }
 

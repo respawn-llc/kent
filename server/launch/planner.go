@@ -382,6 +382,9 @@ func sourceReportWithSubagentRoleSources(base config.SourceReport, settings conf
 	}
 	next := base
 	next.Sources = cloneStringMap(base.Sources)
+	if !allowModelOverride && strings.TrimSpace(next.Sources["model"]) == "default" {
+		next.Sources["model"] = "session"
+	}
 	for key := range role.Sources {
 		if key == "model" && !allowModelOverride {
 			continue
