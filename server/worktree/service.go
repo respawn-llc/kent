@@ -890,15 +890,6 @@ func (s *Service) beginMutationRuntimeAccess(ctx context.Context, sessionID stri
 	return nil, errors.New("collaborative runtime guard is unavailable")
 }
 
-func (s *Service) authorizeMutationRuntime(ctx context.Context, sessionID string, leaseID string) error {
-	release, err := s.beginMutationRuntimeAccess(ctx, sessionID, leaseID)
-	if err != nil {
-		return err
-	}
-	release.Release()
-	return nil
-}
-
 func (s *Service) acquireWorkspaceMutationLock(workspaceID string) primaryrun.Lease {
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
 	if s == nil || trimmedWorkspaceID == "" {

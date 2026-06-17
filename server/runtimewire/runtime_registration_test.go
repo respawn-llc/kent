@@ -11,6 +11,7 @@ import (
 type recordingRuntimeRegistry struct {
 	registered   []string
 	unregistered []string
+	onUnregister func(string)
 }
 
 func (r *recordingRuntimeRegistry) Register(sessionID string, _ *runtime.Engine) {
@@ -19,13 +20,18 @@ func (r *recordingRuntimeRegistry) Register(sessionID string, _ *runtime.Engine)
 
 func (r *recordingRuntimeRegistry) Unregister(sessionID string, _ *runtime.Engine) {
 	r.unregistered = append(r.unregistered, sessionID)
+	if r.onUnregister != nil {
+		r.onUnregister(sessionID)
+	}
 }
 
 func TestRuntimeRegistrationCloseWithDrainRunsDrainBeforeUnregister(t *testing.T) {
-	registry := &recordingRuntimeRegistry{}
+	var order []string
+	registry := &recordingRuntimeRegistry{onUnregister: func(string) {
+		order = append(order, "unregister")
+	}}
 	engine := &runtime.Engine{}
 	registration := RegisterSessionRuntime("session-1", engine, registry, nil)
-	var order []string
 	err := registration.CloseWithDrain(context.Background(), func(context.Context) error {
 		order = append(order, "drain")
 		return nil
@@ -33,12 +39,12 @@ func TestRuntimeRegistrationCloseWithDrainRunsDrainBeforeUnregister(t *testing.T
 	if err != nil {
 		t.Fatalf("CloseWithDrain: %v", err)
 	}
-	order = append(order, "closed")
 	if len(registry.unregistered) != 1 || registry.unregistered[0] != "session-1" {
 		t.Fatalf("unregistered = %#v, want session-1 once", registry.unregistered)
 	}
-	if len(order) != 2 || order[0] != "drain" || order[1] != "closed" {
-		t.Fatalf("order = %#v, want drain before close", order)
+	order = append(order, "closed")
+	if len(order) != 3 || order[0] != "drain" || order[1] != "unregister" || order[2] != "closed" {
+		t.Fatalf("order = %#v, want drain before unregister before close", order)
 	}
 	registration.Close()
 	if len(registry.unregistered) != 1 {

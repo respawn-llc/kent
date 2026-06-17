@@ -30,7 +30,6 @@ type RuntimeRegistration struct {
 	once    sync.Once
 	cleanup func()
 	drain   func(context.Context, func(context.Context) error) error
-	drainMu sync.Mutex
 }
 
 type RuntimeRegistrationOption func(*runtimeRegistrationOptions)

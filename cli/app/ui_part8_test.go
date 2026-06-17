@@ -284,7 +284,7 @@ func TestWorkflowSessionAutoCompactionOffBlockedBeforeRuntimeCall(t *testing.T) 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 
-	if client.setAutoCompactArg {
+	if client.setAutoCompactCalls != 0 {
 		t.Fatal("did not expect runtime auto-compaction disable call")
 	}
 	if !strings.Contains(updated.transientStatus, "Auto-compaction cannot be disabled") {

@@ -139,12 +139,32 @@ func (r *RuntimeRegistry) IsSessionRuntimeActive(sessionID string) bool {
 }
 
 func (r *RuntimeRegistry) ExternalRuntimeStatus(sessionID string) clientui.ExternalRuntimeStatus {
-	if r == nil || !r.directory.Active(sessionID) {
+	if r == nil {
 		return clientui.ExternalRuntimeStatus{}
 	}
-	if r.directory.Closing(sessionID) {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	entry := r.directory.Entry(id)
+	if entry == nil {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	return r.externalRuntimeStatusForEntry(id, entry)
+}
+
+func (r *RuntimeRegistry) externalRuntimeStatusForEntry(sessionID string, entry *runtimeEntry) clientui.ExternalRuntimeStatus {
+	if r == nil || entry == nil {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	closing, draining := entry.closeState()
+	if closing {
+		state := clientui.ExternalRuntimeStateClosing
+		if draining {
+			state = clientui.ExternalRuntimeStateDraining
+		}
 		return clientui.ExternalRuntimeStatus{
-			State:          clientui.ExternalRuntimeStateDraining,
+			State:          state,
 			QueueAccepting: false,
 		}
 	}
@@ -428,7 +448,7 @@ func (r *RuntimeRegistry) publishExternalRuntimeStatus(sessionID string) {
 	if entry == nil {
 		return
 	}
-	publishExternalRuntimeStatusToEntry(entry, r.ExternalRuntimeStatus(id))
+	publishExternalRuntimeStatusToEntry(entry, r.externalRuntimeStatusForEntry(id, entry))
 }
 
 func publishExternalRuntimeStatusToEntry(entry *runtimeEntry, status clientui.ExternalRuntimeStatus) {

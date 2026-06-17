@@ -438,24 +438,6 @@ func containsQueuedUserMessageID(messages []clientui.QueuedUserMessage, id strin
 	return false
 }
 
-func removePendingQueuedUserMessageByID(messages *[]clientui.QueuedUserMessage, id string) bool {
-	id = strings.TrimSpace(id)
-	if id == "" || messages == nil || len(*messages) == 0 {
-		return false
-	}
-	removed := false
-	filtered := (*messages)[:0]
-	for _, message := range *messages {
-		if queuedUserMessageIDMatches(message.ID, id) {
-			removed = true
-			continue
-		}
-		filtered = append(filtered, message)
-	}
-	*messages = filtered
-	return removed
-}
-
 func removePendingQueuedUserMessageByStatus(messages *[]clientui.QueuedUserMessage, status *clientui.QueuedUserMessageStatusEvent) (clientui.QueuedUserMessage, bool) {
 	if status == nil || messages == nil || len(*messages) == 0 {
 		return clientui.QueuedUserMessage{}, false

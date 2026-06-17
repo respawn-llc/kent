@@ -214,10 +214,7 @@ func (s liveRuntimeSessionSnapshot) MainView(ctx context.Context) (clientui.Runt
 	}
 	if s.sessions != nil && view.Status.WorkflowSession == nil {
 		store, err := s.sessions.ResolveSessionStore(ctx, s.engine.SessionID())
-		if err != nil {
-			return clientui.RuntimeMainView{}, err
-		}
-		if store != nil {
+		if err == nil && store != nil {
 			if workflowSession := store.Meta().WorkflowSession; workflowSession != nil {
 				view.Status.WorkflowSession = &clientui.WorkflowSessionStatus{
 					RunID:      strings.TrimSpace(workflowSession.RunID),

@@ -18,6 +18,7 @@ import (
 
 const uiRuntimeControlTimeout = 3 * time.Second
 const uiRuntimeHydrationReadTimeout = 10 * time.Second
+const collaborativeFallbackRefreshCooldown = 750 * time.Millisecond
 const runtimeLeaseRecoveryWarningText = "Lost connection to the session runtime; reconnected."
 
 var uiRuntimeReadTimeout = 300 * time.Millisecond
@@ -41,6 +42,7 @@ type sessionRuntimeClient struct {
 	mainView             clientui.RuntimeMainView
 	hasMainView          bool
 	mainViewFallback     bool
+	mainViewRetryAfter   time.Time
 	suffixRPCUnsupported bool
 }
 
@@ -74,10 +76,12 @@ func (c *sessionRuntimeClient) SetAccessMode(mode serverapi.SessionRuntimeAttach
 		c.controllerLease = nil
 		if c.applyCollaborativeMainViewFallbackLocked(&c.mainView) {
 			c.mainViewFallback = true
+			c.mainViewRetryAfter = time.Time{}
 		}
 		c.hasMainView = true
 	} else {
 		c.mainViewFallback = false
+		c.mainViewRetryAfter = time.Time{}
 	}
 	c.mu.Unlock()
 }
@@ -320,7 +324,7 @@ func (c *sessionRuntimeClient) SetLeaseRecoveryWarningObserver(observer func(str
 
 func (c *sessionRuntimeClient) MainView() clientui.RuntimeMainView {
 	view, hasView, fallback := c.cachedMainViewState()
-	if !hasView || fallback {
+	if !hasView || (fallback && c.claimMainViewFallbackRefresh()) {
 		refreshed, err := c.refreshMainViewSync(uiRuntimeReadTimeout)
 		if err == nil {
 			return refreshed
@@ -384,6 +388,23 @@ func (c *sessionRuntimeClient) cachedMainViewState() (clientui.RuntimeMainView, 
 	return view, true, c.mainViewFallback
 }
 
+func (c *sessionRuntimeClient) claimMainViewFallbackRefresh() bool {
+	if c == nil {
+		return false
+	}
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.mainViewFallback {
+		return false
+	}
+	if !c.mainViewRetryAfter.IsZero() && now.Before(c.mainViewRetryAfter) {
+		return false
+	}
+	c.mainViewRetryAfter = now.Add(collaborativeFallbackRefreshCooldown)
+	return true
+}
+
 func (c *sessionRuntimeClient) CachedMainView() (clientui.RuntimeMainView, bool) {
 	if c == nil {
 		return clientui.RuntimeMainView{}, false
@@ -399,6 +420,7 @@ func (c *sessionRuntimeClient) storeMainView(view clientui.RuntimeMainView) clie
 	c.mainView = view
 	c.hasMainView = true
 	c.mainViewFallback = false
+	c.mainViewRetryAfter = time.Time{}
 	c.mu.Unlock()
 	return view
 }
@@ -460,6 +482,7 @@ func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (clien
 		}
 		if c.applyCollaborativeMainViewFallbackLocked(&view) {
 			c.mainViewFallback = true
+			c.mainViewRetryAfter = time.Now().Add(collaborativeFallbackRefreshCooldown)
 		}
 		c.mainView = view
 		c.hasMainView = true

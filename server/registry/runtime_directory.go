@@ -234,25 +234,6 @@ func (d *runtimeDirectory) BeginGuard(ctx context.Context, sessionID string) (*r
 	return guard, err
 }
 
-func (d *runtimeDirectory) Closing(sessionID string) bool {
-	if d == nil {
-		return false
-	}
-	id := strings.TrimSpace(sessionID)
-	if id == "" {
-		return false
-	}
-	d.mu.RLock()
-	entry := d.entries[id]
-	if entry == nil {
-		d.mu.RUnlock()
-		return false
-	}
-	closing := entry.isClosing()
-	d.mu.RUnlock()
-	return closing
-}
-
 func (e *runtimeEntry) beginGuard(ctx context.Context, sessionID string) (*runtimeGuard, error) {
 	if e == nil {
 		return nil, fmt.Errorf("runtime entry is unavailable")
@@ -296,14 +277,15 @@ func (e *runtimeEntry) beginReplacement() (*runtimeReplacementRef, bool) {
 	return &runtimeReplacementRef{entry: e}, true
 }
 
-func (e *runtimeEntry) isClosing() bool {
+func (e *runtimeEntry) closeState() (bool, bool) {
 	if e == nil {
-		return false
+		return false, false
 	}
 	e.mu.Lock()
 	closing := e.closing
+	draining := e.closeDraining
 	e.mu.Unlock()
-	return closing
+	return closing, draining
 }
 
 func (e *runtimeEntry) markClosing() {

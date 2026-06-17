@@ -41,6 +41,11 @@ type WorkflowSessionResolver interface {
 	ResolveSessionStore(ctx context.Context, sessionID string) (*session.Store, error)
 }
 
+var (
+	errWorkflowTaskSessionGoalControl           = errors.New("goal control is unavailable for workflow task sessions")
+	errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
+)
+
 type Service struct {
 	runtimes       RuntimeResolver
 	collaborative  CollaborativeRuntimeResolver
@@ -192,6 +197,9 @@ func (s *Service) WithWorkflowSessionResolver(resolver WorkflowSessionResolver) 
 }
 
 func (s *Service) requireControllerLease(ctx context.Context, sessionID string, leaseID string) error {
+	if strings.TrimSpace(leaseID) == "" {
+		return serverapi.ErrInvalidControllerLease
+	}
 	if s == nil || s.control == nil {
 		return nil
 	}
@@ -814,7 +822,7 @@ func (s *Service) rejectWorkflowGoalControl(ctx context.Context, sessionID strin
 		return err
 	}
 	if workflowSession {
-		return errors.New("goal control is unavailable for workflow task sessions")
+		return errWorkflowTaskSessionGoalControl
 	}
 	return nil
 }
@@ -825,7 +833,7 @@ func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessi
 		return err
 	}
 	if workflowSession {
-		return errors.New("auto-compaction cannot be disabled for workflow task sessions")
+		return errWorkflowTaskSessionAutoCompactionDisable
 	}
 	return nil
 }

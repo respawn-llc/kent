@@ -568,7 +568,11 @@ func (s *Store) SetWorkflowSessionState(state *WorkflowSessionState) error {
 			normalized.RunID = strings.TrimSpace(normalized.RunID)
 			normalized.TaskID = strings.TrimSpace(normalized.TaskID)
 			normalized.WorkflowID = strings.TrimSpace(normalized.WorkflowID)
-			s.meta.WorkflowSession = &normalized
+			if normalized.RunID == "" && normalized.TaskID == "" && normalized.WorkflowID == "" {
+				s.meta.WorkflowSession = nil
+			} else {
+				s.meta.WorkflowSession = &normalized
+			}
 		}
 		s.meta.UpdatedAt = time.Now().UTC()
 		return nil

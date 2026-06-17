@@ -203,10 +203,13 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunReq
 		s.releaseRegisteredRun(req.RunID)
 		return errors.Join(err, cleanupSession())
 	}
-	if err := s.store.AttachRunSession(ctx, req.RunID, req.Generation, plan.Store.Meta().SessionID); err != nil {
-		cancel()
-		s.releaseRegisteredRun(req.RunID)
-		return errors.Join(err, cleanupSession())
+	var previousWorkflowSession *session.WorkflowSessionState
+	if workflowSession := plan.Store.Meta().WorkflowSession; workflowSession != nil {
+		snap := *workflowSession
+		previousWorkflowSession = &snap
+	}
+	restoreWorkflowSession := func() error {
+		return plan.Store.SetWorkflowSessionState(previousWorkflowSession)
 	}
 	if err := plan.Store.SetWorkflowSessionState(&session.WorkflowSessionState{
 		RunID:      string(req.RunID),
@@ -216,6 +219,11 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunReq
 		cancel()
 		s.releaseRegisteredRun(req.RunID)
 		return errors.Join(err, cleanupSession())
+	}
+	if err := s.store.AttachRunSession(ctx, req.RunID, req.Generation, plan.Store.Meta().SessionID); err != nil {
+		cancel()
+		s.releaseRegisteredRun(req.RunID)
+		return errors.Join(err, restoreWorkflowSession(), cleanupSession())
 	}
 	go s.run(runCtx, req, input, plan, warnings, client, effectiveMode)
 	return nil

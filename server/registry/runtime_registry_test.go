@@ -1174,12 +1174,34 @@ func TestRuntimeRegistryExternalRuntimeStatusReflectsPrimaryRunAndCloseBarrier(t
 		t.Fatalf("running external status = %+v, want owner running accepting", status)
 	}
 	lease.Release()
+	guard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard: %v", err)
+	}
+	unregistered := make(chan struct{})
+	go func() {
+		registry.Unregister("session-1", engine)
+		close(unregistered)
+	}()
+	waitForExternalRuntimeStatus(t, registry, "session-1", clientui.ExternalRuntimeStateClosing, false)
+	guard.Release()
+	select {
+	case <-unregistered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for unregister")
+	}
+	if status := registry.ExternalRuntimeStatus("session-1"); status.State != "" || status.QueueAccepting {
+		t.Fatalf("removed external status after unregister = %+v, want zero", status)
+	}
+
+	drainEngine := &runtime.Engine{}
+	registry.Register("session-1", drainEngine)
 
 	started := make(chan struct{})
 	releaseDrain := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- registry.CloseRuntimeWithDrain(context.Background(), "session-1", engine, func(context.Context) error {
+		done <- registry.CloseRuntimeWithDrain(context.Background(), "session-1", drainEngine, func(context.Context) error {
 			close(started)
 			<-releaseDrain
 			return nil
@@ -1200,6 +1222,22 @@ func TestRuntimeRegistryExternalRuntimeStatusReflectsPrimaryRunAndCloseBarrier(t
 	}
 	if status := registry.ExternalRuntimeStatus("session-1"); status.State != "" || status.QueueAccepting {
 		t.Fatalf("removed external status = %+v, want zero", status)
+	}
+}
+
+func waitForExternalRuntimeStatus(t *testing.T, registry *RuntimeRegistry, sessionID string, state clientui.ExternalRuntimeState, queueAccepting bool) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		status := registry.ExternalRuntimeStatus(sessionID)
+		if status.State == state && status.QueueAccepting == queueAccepting {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("external runtime status = %+v, want state=%q queue=%t", status, state, queueAccepting)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 

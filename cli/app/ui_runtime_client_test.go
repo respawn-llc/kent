@@ -1787,6 +1787,22 @@ func TestRuntimeClientCollaborativeMainViewSeedsBusyFallbackBeforeHydration(t *t
 	}
 }
 
+func TestRuntimeClientCollaborativeMainViewThrottlesFallbackHydrationRetry(t *testing.T) {
+	withUIRuntimeReadTimeout(t, time.Millisecond)
+
+	reads := &blockingCountingSessionViewClient{}
+	runtimeClient := newRuntimeClientReadTest(reads).(*sessionRuntimeClient)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationQueueUserMessage,
+	})
+
+	_ = runtimeClient.MainView()
+	_ = runtimeClient.MainView()
+	if got := reads.count.Load(); got != 1 {
+		t.Fatalf("main view read count before fallback retry cooldown = %d, want 1", got)
+	}
+}
+
 func TestRuntimeClientCollaborativeRefreshMainViewKeepsBusyFallbackOnReadError(t *testing.T) {
 	runtimeClient := newRuntimeClientReadTest(&blockingCountingSessionViewClient{}).(*sessionRuntimeClient)
 	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, nil)

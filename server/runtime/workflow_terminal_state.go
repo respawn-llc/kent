@@ -39,10 +39,14 @@ func (e *Engine) WorkflowSessionState() WorkflowSessionState {
 			WorkflowID: strings.TrimSpace(e.cfg.WorkflowRun.Instructions.WorkflowID),
 		}
 	}
-	if e.store == nil || e.store.Meta().WorkflowSession == nil {
+	if e.store == nil {
 		return WorkflowSessionState{}
 	}
-	workflowSession := e.store.Meta().WorkflowSession
+	meta := e.store.Meta()
+	workflowSession := meta.WorkflowSession
+	if workflowSession == nil {
+		return WorkflowSessionState{}
+	}
 	return WorkflowSessionState{
 		RunID:      strings.TrimSpace(workflowSession.RunID),
 		TaskID:     strings.TrimSpace(workflowSession.TaskID),

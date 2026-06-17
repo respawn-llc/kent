@@ -678,12 +678,7 @@ func TestActivateSessionRuntimeAttachesCollaborativelyToExternalActiveRuntime(t 
 	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
 		t.Fatalf("response = %+v, want collaborative without lease/read-only", resp)
 	}
-	assertOperationPresent(t, resp.AllowedOperations, serverapi.SessionRuntimeOperationSubmitUserTurn)
-	assertOperationPresent(t, resp.AllowedOperations, serverapi.SessionRuntimeOperationQueueUserMessage)
-	assertOperationPresent(t, resp.AllowedOperations, serverapi.SessionRuntimeOperationGoalManage)
-	if len(resp.AllowedOperations) != len(serverapi.CollaborativeSessionRuntimeOperations(false)) {
-		t.Fatalf("allowed operations = %#v, want exact non-workflow collaborative allowlist", resp.AllowedOperations)
-	}
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(false))
 	if len(fixture.service.handles) != 0 {
 		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
 	}
@@ -783,11 +778,7 @@ func TestActivateSessionRuntimeCollaborativeWorkflowRuntimeOmitsGoalManage(t *te
 	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
 		t.Fatalf("response = %+v, want collaborative without lease/read-only", resp)
 	}
-	assertOperationPresent(t, resp.AllowedOperations, serverapi.SessionRuntimeOperationSubmitUserTurn)
-	assertOperationAbsent(t, resp.AllowedOperations, serverapi.SessionRuntimeOperationGoalManage)
-	if len(resp.AllowedOperations) != len(serverapi.CollaborativeSessionRuntimeOperations(true)) {
-		t.Fatalf("allowed operations = %#v, want exact workflow collaborative allowlist", resp.AllowedOperations)
-	}
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
 	if len(fixture.service.handles) != 0 {
 		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
 	}
@@ -819,10 +810,7 @@ func TestActivateSessionRuntimeCollaborativeDurableWorkflowSessionOmitsGoalManag
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	assertOperationAbsent(t, resp.AllowedOperations, serverapi.SessionRuntimeOperationGoalManage)
-	if len(resp.AllowedOperations) != len(serverapi.CollaborativeSessionRuntimeOperations(true)) {
-		t.Fatalf("allowed operations = %#v, want exact durable workflow collaborative allowlist", resp.AllowedOperations)
-	}
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
 	err = fixture.service.WithCollaborativeRuntime(context.Background(), fixture.store.Meta().SessionID, serverapi.SessionRuntimeOperationGoalManage, func(CollaborativeRuntimeGuard) error {
 		t.Fatal("goal.manage callback should not run for durable workflow sessions")
 		return nil
@@ -2111,22 +2099,23 @@ func TestReleaseSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
 	}
 }
 
-func assertOperationPresent(t *testing.T, operations []serverapi.SessionRuntimeOperation, want serverapi.SessionRuntimeOperation) {
+func assertOperationsEqual(t *testing.T, got, want []serverapi.SessionRuntimeOperation) {
 	t.Helper()
-	for _, op := range operations {
-		if op == want {
-			return
-		}
+	if len(got) != len(want) {
+		t.Fatalf("allowed operations = %#v, want %#v", got, want)
 	}
-	t.Fatalf("operation %q missing from %#v", want, operations)
-}
-
-func assertOperationAbsent(t *testing.T, operations []serverapi.SessionRuntimeOperation, want serverapi.SessionRuntimeOperation) {
-	t.Helper()
-	for _, op := range operations {
-		if op == want {
-			t.Fatalf("operation %q unexpectedly present in %#v", want, operations)
+	remaining := make(map[serverapi.SessionRuntimeOperation]int, len(got))
+	for _, op := range got {
+		remaining[op]++
+	}
+	for _, op := range want {
+		if remaining[op] != 1 {
+			t.Fatalf("allowed operations = %#v, want %#v", got, want)
 		}
+		delete(remaining, op)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("allowed operations = %#v, want %#v", got, want)
 	}
 }
 

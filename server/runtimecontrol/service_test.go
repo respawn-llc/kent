@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -484,7 +483,7 @@ func TestServiceWorkflowRuntimeRejectsGoalControl(t *testing.T) {
 		Objective:       "competing goal",
 		Actor:           "user",
 	})
-	if err == nil || !strings.Contains(err.Error(), "workflow task sessions") {
+	if !errors.Is(err, errWorkflowTaskSessionGoalControl) {
 		t.Fatalf("SetGoal error = %v, want workflow goal rejection", err)
 	}
 }
@@ -495,7 +494,7 @@ func TestServiceDurableWorkflowSessionRejectsGoalControl(t *testing.T) {
 		t.Fatalf("SetWorkflowSessionState: %v", err)
 	}
 	service = service.WithWorkflowSessionResolver(staticRuntimeControlSessionResolver{store: store})
-	if _, err := service.ShowGoal(context.Background(), serverapi.RuntimeGoalShowRequest{SessionID: store.Meta().SessionID}); err == nil || !strings.Contains(err.Error(), "workflow task sessions") {
+	if _, err := service.ShowGoal(context.Background(), serverapi.RuntimeGoalShowRequest{SessionID: store.Meta().SessionID}); !errors.Is(err, errWorkflowTaskSessionGoalControl) {
 		t.Fatalf("ShowGoal error = %v, want workflow goal rejection", err)
 	}
 	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
@@ -504,7 +503,7 @@ func TestServiceDurableWorkflowSessionRejectsGoalControl(t *testing.T) {
 		Objective:       "competing goal",
 		Actor:           "user",
 	})
-	if err == nil || !strings.Contains(err.Error(), "workflow task sessions") {
+	if !errors.Is(err, errWorkflowTaskSessionGoalControl) {
 		t.Fatalf("SetGoal error = %v, want workflow goal rejection", err)
 	}
 }
@@ -522,7 +521,7 @@ func TestServiceDurableWorkflowSessionRejectsAutoCompactionDisable(t *testing.T)
 		ControllerLeaseID: "lease-1",
 		Enabled:           false,
 	})
-	if err == nil || !strings.Contains(err.Error(), "workflow task sessions") {
+	if !errors.Is(err, errWorkflowTaskSessionAutoCompactionDisable) {
 		t.Fatalf("SetAutoCompactionEnabled error = %v, want workflow auto-compaction rejection", err)
 	}
 	if !engine.AutoCompactionEnabled() {

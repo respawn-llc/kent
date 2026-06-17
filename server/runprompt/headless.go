@@ -82,15 +82,18 @@ func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req 
 		return nil, err
 	}
 	plan := result.Plan
-	if plan.Store.Meta().Goal != nil {
-		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
-	}
 	var primaryLease primaryrun.Lease
 	if l.boot.RuntimeRegistry != nil {
 		primaryLease, err = l.boot.RuntimeRegistry.AcquirePrimaryRun(plan.Store.Meta().SessionID)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if plan.Store.Meta().Goal != nil {
+		if primaryLease != nil {
+			primaryLease.Release()
+		}
+		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
 	}
 	runtimePlan, err := l.prepareRuntime(plan, progress, primaryLease)
 	if err != nil {

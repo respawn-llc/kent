@@ -29,6 +29,7 @@ type runtimeControlFakeClient struct {
 	setFastModeCalls       int
 	setReviewerArg         bool
 	setAutoCompactArg      bool
+	setAutoCompactCalls    int
 	goal                   *clientui.RuntimeGoal
 	showGoalCalls          int
 	setGoalArg             string
@@ -142,6 +143,7 @@ func (f *runtimeControlFakeClient) SetReviewerEnabled(enabled bool) (bool, strin
 }
 func (f *runtimeControlFakeClient) SetAutoCompactionEnabled(enabled bool) (bool, bool, error) {
 	f.setAutoCompactArg = enabled
+	f.setAutoCompactCalls++
 	return true, enabled, f.err
 }
 func (f *runtimeControlFakeClient) SetQuestionsEnabled(enabled bool) (bool, error) {
