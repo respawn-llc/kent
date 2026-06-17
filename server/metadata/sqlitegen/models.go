@@ -303,6 +303,7 @@ type WorkflowNode struct {
 	SortOrder              int64
 	InputFieldsJson        string
 	JoinInputProvidersJson string
+	CompletionMode         string
 }
 
 type WorkflowNodeGroup struct {

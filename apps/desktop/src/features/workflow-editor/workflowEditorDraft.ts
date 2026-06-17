@@ -43,8 +43,9 @@ export type DraftWorkflowParameter = WorkflowParameter &
     rowID?: string;
   }>;
 
-export type DraftWorkflowNode = Omit<WorkflowNode, "inputFields"> &
+export type DraftWorkflowNode = Omit<WorkflowNode, "completionMode" | "inputFields"> &
   Readonly<{
+    completionMode: string;
     inputFields: readonly DraftInputField[];
   }>;
 
@@ -89,7 +90,7 @@ export type WorkflowEditorDraftAction =
   | Readonly<{
       type: "editAgentNode";
       nodeID: string;
-      patch: Partial<Pick<WorkflowNode, "key" | "name" | "subagentRole" | "promptTemplate">>;
+      patch: Partial<Pick<WorkflowNode, "key" | "name" | "subagentRole" | "promptTemplate" | "completionMode">>;
     }>
   | Readonly<{ type: "addInputField"; nodeID: string }>
   | Readonly<{
@@ -292,7 +293,7 @@ function reduceNodeFieldAction(
         if (node.kind !== "agent") {
           return node;
         }
-        return { ...node, ...action.patch };
+        return { ...node, ...action.patch, completionMode: action.patch.completionMode ?? node.completionMode };
       });
     case "addInputField":
       return editDraftNode(state, action.nodeID, false, (node) => ({
@@ -413,6 +414,7 @@ export function draftDefinitionFromSource(source: WorkflowDefinition): DraftWork
     edges: source.edges.map(draftEdgeWithParameterRowIDs),
     nodes: source.nodes.map((node) => ({
       ...node,
+      completionMode: node.completionMode ?? "",
       inputFields: node.inputFields.map((field, index) => ({
         ...field,
         rowID: [node.id, "input", index.toString()].join(":"),
@@ -466,6 +468,7 @@ export function workflowEditorDraftGraph(state: WorkflowEditorDraftState): Workf
       key: node.key,
       kind: node.kind,
       name: node.name,
+      completionMode: node.completionMode,
       inputFields: node.inputFields,
       joinInputProviders: node.joinInputProviders,
       promptTemplate: node.promptTemplate,

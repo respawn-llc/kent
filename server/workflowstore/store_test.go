@@ -2906,6 +2906,43 @@ func TestSetRunEffectiveCompletionModePersistsAndRefusesDrift(t *testing.T) {
 	}
 }
 
+func TestWorkflowNodeCompletionModePersistsThroughGraphAndRunSnapshot(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	def, record, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	agent := nodeByKey(t, def, "agent")
+	if _, err := store.UpdateNode(ctx, NodeRecord{ID: agent.ID, WorkflowID: workflowID, Key: agent.Key, Kind: agent.Kind, DisplayName: agent.DisplayName, SubagentRole: agent.SubagentRole, PromptTemplate: agent.PromptTemplate, CompletionMode: "tool", OutputFields: agent.OutputFields}); err != nil {
+		t.Fatalf("UpdateNode completion mode: %v", err)
+	}
+	updated, updatedRecord, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition updated: %v", err)
+	}
+	updatedAgent := nodeByKey(t, updated, "agent")
+	if updatedAgent.CompletionMode != "tool" || updatedRecord.Version != record.Version+1 {
+		t.Fatalf("updated agent mode=%q version=%d, want tool version %d", updatedAgent.CompletionMode, updatedRecord.Version, record.Version+1)
+	}
+	if _, err := store.UpdateNode(ctx, NodeRecord{ID: "node-terminal-invalid", WorkflowID: workflowID, Key: "invalid", Kind: workflow.NodeKindTerminal, DisplayName: "Invalid", CompletionMode: "tool"}); err == nil {
+		t.Fatal("UpdateNode accepted completion mode override on terminal node")
+	}
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+	claimed, err := store.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	input, err := store.GetRunStartContext(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	if input.Node.CompletionMode != "tool" {
+		t.Fatalf("run start node completion mode = %q, want tool", input.Node.CompletionMode)
+	}
+}
+
 func TestCompleteRunRejectsStaleGeneration(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
@@ -4375,7 +4412,7 @@ func workflowGraphSaveRequestFromDefinition(workflowID workflow.WorkflowID, revi
 		req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: workflowID, Key: group.Key, DisplayName: group.DisplayName})
 	}
 	for _, node := range def.Nodes {
-		req.Nodes = append(req.Nodes, NodeRecord{ID: node.ID, WorkflowID: workflowID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields})
+		req.Nodes = append(req.Nodes, NodeRecord{ID: node.ID, WorkflowID: workflowID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, CompletionMode: node.CompletionMode, InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields})
 	}
 	for _, group := range def.TransitionGroups {
 		req.TransitionGroups = append(req.TransitionGroups, TransitionGroupRecord{ID: group.ID, WorkflowID: workflowID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName})

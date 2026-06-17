@@ -21,20 +21,28 @@ function nodeGroupsEqual(left: readonly WorkflowNodeGroup[], right: readonly Wor
 }
 
 function nodesEqual(left: readonly WorkflowNode[], right: readonly WorkflowNode[]): boolean {
-  return sameLengthAndEvery(
-    left,
-    right,
-    (a, b) =>
-      a.id === b.id &&
-      a.key === b.key &&
-      a.kind === b.kind &&
-      a.name === b.name &&
-      a.groupID === b.groupID &&
-      a.groupKey === b.groupKey &&
-      a.subagentRole === b.subagentRole &&
-      a.promptTemplate === b.promptTemplate &&
-      inputFieldsEqual(a.inputFields, b.inputFields) &&
-      joinInputProvidersEqual(a.joinInputProviders, b.joinInputProviders),
+  return sameLengthAndEvery(left, right, workflowNodesEqual);
+}
+
+function workflowNodesEqual(a: WorkflowNode, b: WorkflowNode): boolean {
+  return (
+    workflowNodeMetadataEqual(a, b) &&
+    inputFieldsEqual(a.inputFields, b.inputFields) &&
+    joinInputProvidersEqual(a.joinInputProviders, b.joinInputProviders)
+  );
+}
+
+function workflowNodeMetadataEqual(a: WorkflowNode, b: WorkflowNode): boolean {
+  return (
+    a.id === b.id &&
+    a.key === b.key &&
+    a.kind === b.kind &&
+    a.name === b.name &&
+    a.groupID === b.groupID &&
+    a.groupKey === b.groupKey &&
+    a.subagentRole === b.subagentRole &&
+    a.promptTemplate === b.promptTemplate &&
+    (a.completionMode ?? "") === (b.completionMode ?? "")
   );
 }
 

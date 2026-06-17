@@ -1560,6 +1560,7 @@ SELECT
     display_name,
     subagent_role,
     prompt_template,
+    completion_mode,
     input_fields_json,
     join_input_providers_json,
     output_fields_json,
@@ -1578,6 +1579,7 @@ type GetWorkflowNodeRow struct {
 	DisplayName            string
 	SubagentRole           string
 	PromptTemplate         string
+	CompletionMode         string
 	InputFieldsJson        string
 	JoinInputProvidersJson string
 	OutputFieldsJson       string
@@ -1596,6 +1598,7 @@ func (q *Queries) GetWorkflowNode(ctx context.Context, id string) (GetWorkflowNo
 		&i.DisplayName,
 		&i.SubagentRole,
 		&i.PromptTemplate,
+		&i.CompletionMode,
 		&i.InputFieldsJson,
 		&i.JoinInputProvidersJson,
 		&i.OutputFieldsJson,
@@ -2483,6 +2486,7 @@ INSERT INTO workflow_nodes (
     display_name,
     subagent_role,
     prompt_template,
+    completion_mode,
     input_fields_json,
     join_input_providers_json,
     output_fields_json,
@@ -2500,7 +2504,8 @@ INSERT INTO workflow_nodes (
     ?9,
     ?10,
     ?11,
-    ?12
+    ?12,
+    ?13
 )
 `
 
@@ -2512,6 +2517,7 @@ type InsertWorkflowNodeParams struct {
 	DisplayName            string
 	SubagentRole           string
 	PromptTemplate         string
+	CompletionMode         string
 	InputFieldsJson        string
 	JoinInputProvidersJson string
 	OutputFieldsJson       string
@@ -2528,6 +2534,7 @@ func (q *Queries) InsertWorkflowNode(ctx context.Context, arg InsertWorkflowNode
 		arg.DisplayName,
 		arg.SubagentRole,
 		arg.PromptTemplate,
+		arg.CompletionMode,
 		arg.InputFieldsJson,
 		arg.JoinInputProvidersJson,
 		arg.OutputFieldsJson,
@@ -4794,6 +4801,7 @@ SELECT
     display_name,
     subagent_role,
     prompt_template,
+    completion_mode,
     input_fields_json,
     join_input_providers_json,
     output_fields_json,
@@ -4812,6 +4820,7 @@ type ListWorkflowNodesRow struct {
 	DisplayName            string
 	SubagentRole           string
 	PromptTemplate         string
+	CompletionMode         string
 	InputFieldsJson        string
 	JoinInputProvidersJson string
 	OutputFieldsJson       string
@@ -4836,6 +4845,7 @@ func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID string) ([]L
 			&i.DisplayName,
 			&i.SubagentRole,
 			&i.PromptTemplate,
+			&i.CompletionMode,
 			&i.InputFieldsJson,
 			&i.JoinInputProvidersJson,
 			&i.OutputFieldsJson,

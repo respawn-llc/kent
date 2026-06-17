@@ -23,6 +23,7 @@ type nodeContractSnapshot struct {
 	Kind               workflow.NodeKind            `json:"kind"`
 	SubagentRole       string                       `json:"subagent_role,omitempty"`
 	PromptTemplate     string                       `json:"prompt_template,omitempty"`
+	CompletionMode     string                       `json:"completion_mode,omitempty"`
 	InputFields        []workflow.InputField        `json:"input_fields,omitempty"`
 	JoinInputProviders []workflow.JoinInputProvider `json:"join_input_providers,omitempty"`
 	OutputFields       []workflow.OutputField       `json:"output_fields,omitempty"`
@@ -59,6 +60,7 @@ func nodeRecordFromSnapshot(node nodeContractSnapshot, workflowID workflow.Workf
 		DisplayName:        node.DisplayName,
 		SubagentRole:       node.SubagentRole,
 		PromptTemplate:     node.PromptTemplate,
+		CompletionMode:     node.CompletionMode,
 		InputFields:        append([]workflow.InputField(nil), node.InputFields...),
 		JoinInputProviders: append([]workflow.JoinInputProvider(nil), node.JoinInputProviders...),
 		OutputFields:       append([]workflow.OutputField(nil), node.OutputFields...),
@@ -180,6 +182,7 @@ func nodeSnapshot(node workflow.Node) nodeContractSnapshot {
 		Kind:               node.Kind,
 		SubagentRole:       node.SubagentRole,
 		PromptTemplate:     node.PromptTemplate,
+		CompletionMode:     node.CompletionMode,
 		InputFields:        node.InputFields,
 		JoinInputProviders: node.JoinInputProviders,
 		OutputFields:       node.OutputFields,

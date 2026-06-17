@@ -223,6 +223,7 @@ function workflowNode(id: string, key: string, kind: string, name: string) {
     key,
     kind,
     name,
+    completionMode: "",
     outputFields: [],
     promptTemplate: kind === "agent" ? "Do work." : "",
     subagentRole: kind === "agent" ? "coder" : "",

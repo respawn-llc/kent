@@ -33,6 +33,17 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 	if err := invalidNode.Validate(); !isWorkflowFieldError(err, "display_name", WorkflowRequestErrorRequired) {
 		t.Fatalf("invalid display name error = %#v, want required on display_name", err)
 	}
+	invalidNode = validNode
+	invalidNode.CompletionMode = "tool"
+	invalidNode.Kind = "terminal"
+	if err := invalidNode.Validate(); !isWorkflowFieldError(err, "completion_mode", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("terminal completion mode error = %#v, want invalid_value on completion_mode", err)
+	}
+	invalidNode = validNode
+	invalidNode.CompletionMode = "invalid"
+	if err := invalidNode.Validate(); !isWorkflowFieldError(err, "completion_mode", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("invalid completion mode error = %#v, want invalid_value on completion_mode", err)
+	}
 
 	validEdge := WorkflowEdgeAddRequest{WorkflowID: "workflow-1", TransitionGroupID: "group-1", Key: "done", TargetNodeID: "node-2", ContextMode: "new_session", PromptTemplate: "Do the next step.", Parameters: []WorkflowParameter{{Key: "summary", Description: "Summary"}}}
 	if err := validEdge.Validate(); err != nil {
@@ -276,6 +287,14 @@ func TestWorkflowGraphDraftRequestValidation(t *testing.T) {
 	}
 	if err := oversized.Validate(); !isWorkflowFieldError(err, "graph.nodes", WorkflowRequestErrorTooLong) {
 		t.Fatalf("oversized graph draft error = %#v, want too_long on graph.nodes", err)
+	}
+	invalidMode := WorkflowGraphValidateDraftRequest{
+		WorkflowID: "workflow-1",
+		Modes:      []WorkflowValidationMode{WorkflowValidationModeDraft},
+		Graph:      WorkflowGraphDraft{Nodes: []WorkflowGraphDraftNode{{ID: "node-1", Kind: "agent", CompletionMode: "invalid"}}},
+	}
+	if err := invalidMode.Validate(); !isWorkflowFieldError(err, "graph.nodes.completion_mode", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("invalid graph node completion mode error = %#v, want invalid_value on graph.nodes.completion_mode", err)
 	}
 	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); !isWorkflowFieldError(err, "expected_version", WorkflowRequestErrorInvalidValue) {
 		t.Fatalf("negative preview revision error = %#v, want invalid_value on expected_version", err)
