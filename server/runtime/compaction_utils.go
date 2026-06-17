@@ -40,10 +40,6 @@ func (e *Engine) currentProviderCapabilities(ctx context.Context) (llm.ProviderC
 	return providerCaps, nil
 }
 
-func CompactionNoticeText(count int) string {
-	return fmt.Sprintf("context compacted for the %s time", ordinal(count))
-}
-
 func ordinal(v int) string {
 	if v <= 0 {
 		return "0th"
@@ -68,7 +64,7 @@ func (e *Engine) inputTokensForItems(ctx context.Context, model string, instruct
 	if !ok {
 		return 0, false
 	}
-	return e.requestInputTokensPrecisely(ctx, req)
+	return e.requestInputTokensPreciselyTracked(ctx, req, false)
 }
 
 func buildTokenCountRequestForItems(model string, instructions string, items []llm.ResponseItem) (llm.Request, bool) {

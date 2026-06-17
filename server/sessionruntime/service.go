@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -268,7 +269,7 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 		Sources:  req.Source.Sources,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", runprompt.FormatRuntimeEvent(evt))
-			if transcriptdiag.EnabledForProcess(req.ActiveSettings.Debug) {
+			if transcriptdiag.Enabled(req.ActiveSettings.Debug, os.Getenv) {
 				projected := runtimeview.EventFromRuntime(evt)
 				logger.Logf("%s", runprompt.FormatTranscriptProjectionDiagnostic(sessionID, projected))
 				logger.Logf("%s", runprompt.FormatTranscriptPublishDiagnostic(sessionID, projected))

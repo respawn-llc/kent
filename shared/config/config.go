@@ -216,34 +216,18 @@ func EnabledToolIDs(v Settings) []toolspec.ID {
 	return ids
 }
 
-func ProjectsRoot(cfg App) string {
-	return filepath.Join(cfg.PersistenceRoot, "projects")
-}
-
-func ProjectRoot(cfg App, projectID string) string {
-	return filepath.Join(ProjectsRoot(cfg), projectID)
-}
-
-func ProjectSessionsRoot(cfg App, projectID string) string {
-	return filepath.Join(ProjectRoot(cfg, projectID), "sessions")
-}
-
 func ProjectSessionDir(cfg App, projectID string, sessionID string) string {
-	return filepath.Join(ProjectSessionsRoot(cfg, projectID), sessionID)
+	return filepath.Join(filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), projectID, "sessions"), sessionID)
 }
 
 func GlobalAuthConfigPath(cfg App) string {
 	return filepath.Join(cfg.PersistenceRoot, globalAuthConfigName)
 }
 
-func ServerListenAddress(cfg App) string {
-	return net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort))
-}
-
 func ServerRPCURL(cfg App) string {
-	return "ws://" + ServerListenAddress(cfg) + protocol.RPCPath
+	return "ws://" + net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)) + protocol.RPCPath
 }
 
 func ServerHTTPBaseURL(cfg App) string {
-	return "http://" + ServerListenAddress(cfg)
+	return "http://" + net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort))
 }

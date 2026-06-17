@@ -314,7 +314,7 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 	store, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
@@ -459,7 +459,7 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 	store, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

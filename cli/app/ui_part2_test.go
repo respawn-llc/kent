@@ -27,7 +27,7 @@ func TestRollbackSelectionUsesAbsoluteTranscriptEntryIndexWhenPaged(t *testing.T
 	m.transcriptBaseOffset = 200
 	m.transcriptTotalEntries = 203
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: m.transcriptBaseOffset, TotalEntries: m.transcriptTotalEntries, Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -93,7 +93,7 @@ func TestRollbackSelectionRecentersTranscript(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -135,7 +135,7 @@ func TestRollbackSelectionEdgeArrowRecentersWhenNoPageAvailable(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -182,7 +182,7 @@ func TestRollbackSelectionCancelRestoresPriorOngoingScroll(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	updated := next.(*uiModel)
@@ -223,7 +223,7 @@ func TestRollbackTransitionsUseDetailOverlayInNativeMode(t *testing.T) {
 	)
 	m.termWidth = 100
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -322,7 +322,7 @@ func TestNativeRollbackOverlayFullSelectionFlowPreservesHistory(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected native startup replay command")
 	}
-	committedBefore := stripANSIAndTrimRight(updated.view.OngoingCommittedSnapshot())
+	committedBefore := stripANSIAndTrimRight(updated.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 
 	assertSelectionCentered := func(model *uiModel) {
 		t.Helper()
@@ -384,7 +384,7 @@ func TestNativeRollbackOverlayFullSelectionFlowPreservesHistory(t *testing.T) {
 		t.Fatalf("expected final esc to cancel rollback overlay back to ongoing, mode=%q rollback=%t", updated.view.Mode(), testRollbackSelecting(updated))
 	}
 
-	committedAfter := stripANSIAndTrimRight(updated.view.OngoingCommittedSnapshot())
+	committedAfter := stripANSIAndTrimRight(updated.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if committedAfter != committedBefore {
 		t.Fatal("expected committed history unchanged after rollback overlay cancel chain")
 	}
@@ -408,7 +408,7 @@ func TestNativeRollbackEditCancelPreservesCommittedHistory(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
-	originalCommitted := stripANSIAndTrimRight(updated.view.OngoingCommittedSnapshot())
+	originalCommitted := stripANSIAndTrimRight(updated.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated = next.(*uiModel)
@@ -440,7 +440,7 @@ func TestNativeRollbackEditCancelPreservesCommittedHistory(t *testing.T) {
 		t.Fatalf("expected ongoing mode after cancel chain, got %q", updated.view.Mode())
 	}
 
-	afterCommitted := stripANSIAndTrimRight(updated.view.OngoingCommittedSnapshot())
+	afterCommitted := stripANSIAndTrimRight(updated.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if afterCommitted != originalCommitted {
 		t.Fatalf("expected committed history preserved after rollback cancel chain")
 	}
@@ -458,7 +458,7 @@ func TestRollbackEditCancelChainRestoresPriorOngoingScroll(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	updated := next.(*uiModel)

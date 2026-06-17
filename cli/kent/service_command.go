@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -272,10 +273,10 @@ func ensureNoUnmanagedServerConflictForAction(ctx context.Context, backend servi
 			return nil
 		}
 		dialer := net.Dialer{Timeout: 500 * time.Millisecond}
-		conn, err := dialer.DialContext(ctx, "tcp", config.ServerListenAddress(spec.Config))
+		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(spec.Config.Settings.ServerHost, strconv.Itoa(spec.Config.Settings.ServerPort)))
 		if err == nil {
 			_ = conn.Close()
-			return fmt.Errorf("server port %s is already in use, but it is not responding as "+config.Product+". Stop the process using that port before installing the background service", config.ServerListenAddress(spec.Config))
+			return fmt.Errorf("server port %s is already in use, but it is not responding as "+config.Product+". Stop the process using that port before installing the background service", net.JoinHostPort(spec.Config.Settings.ServerHost, strconv.Itoa(spec.Config.Settings.ServerPort)))
 		}
 	}
 	return nil

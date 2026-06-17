@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"core/shared/textutil"
 )
 
 func Parse(src string) (Document, error) {
@@ -133,7 +131,7 @@ func (s *scanner) consumeMarker(v string) bool {
 }
 
 func splitRawLines(in string) []string {
-	in = textutil.NormalizeCRLF(in)
+	in = strings.ReplaceAll(in, "\r\n", "\n")
 	reader := bufio.NewScanner(bytes.NewBufferString(in))
 	out := []string{}
 	for reader.Scan() {

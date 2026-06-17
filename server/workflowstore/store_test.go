@@ -4539,7 +4539,7 @@ func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App)
 
 func createTestSession(t *testing.T, ctx context.Context, store *Store, binding metadata.Binding, cfg config.App) string {
 	t.Helper()
-	sessionRoot := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	sessionRoot := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sessionStore, err := session.Create(sessionRoot, filepath.Base(cfg.WorkspaceRoot), cfg.WorkspaceRoot, store.metadata.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

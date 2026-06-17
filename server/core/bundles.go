@@ -113,14 +113,14 @@ type WorkflowBundle struct {
 
 func (s *Core) safeBundles() *Bundles {
 	if s == nil {
-		return emptyBundles()
+		return (&Bundles{}).withDefaults()
 	}
 	return s.bundles.withDefaults()
 }
 
 func (b *Bundles) withDefaults() *Bundles {
 	if b == nil {
-		return emptyBundles()
+		return (&Bundles{}).withDefaults()
 	}
 	withDefaults := *b
 	if withDefaults.Auth == nil {
@@ -154,10 +154,6 @@ func (b *Bundles) withDefaults() *Bundles {
 		withDefaults.Worktrees = &WorktreeBundle{}
 	}
 	return &withDefaults
-}
-
-func emptyBundles() *Bundles {
-	return (&Bundles{}).withDefaults()
 }
 
 func emptySessionBundle() *SessionBundle {

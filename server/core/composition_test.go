@@ -15,7 +15,6 @@ import (
 	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
@@ -169,7 +168,7 @@ func TestComposedWorkflowTaskDetailResolvesPendingQuestionFromSessionTranscript(
 	if err != nil {
 		t.Fatalf("ClaimRun: %v", err)
 	}
-	sessionsDir := config.ProjectSessionsRoot(resolved.Config, binding.ProjectID)
+	sessionsDir := filepath.Join(filepath.Join(resolved.Config.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sessionStore, err := session.Create(sessionsDir, filepath.Base(sessionsDir), resolved.Config.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

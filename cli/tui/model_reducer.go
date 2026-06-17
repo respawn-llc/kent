@@ -47,7 +47,7 @@ func (m *Model) reduce(msg tea.Msg) {
 	case FocusTranscriptEntryMsg:
 		m.reduceFocusTranscriptEntryMsg(msg)
 	case SetOngoingScrollMsg:
-		m.reduceSetOngoingScrollMsg(msg)
+		m.ongoingScroll = clamp(msg.Scroll, 0, m.maxOngoingScroll())
 	case StreamAssistantMsg:
 		m.reduceStreamAssistantMsg(msg, &result)
 	case ClearOngoingAssistantMsg:
@@ -393,7 +393,7 @@ func (m *Model) detailViewportAnchor() (int, int, bool) {
 	if m == nil || m.mode != ModeDetail || m.detailBottomAnchor {
 		return 0, 0, false
 	}
-	for _, entryIndex := range m.currentDetailViewport().Owners {
+	for _, entryIndex := range m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners {
 		if entryIndex < 0 {
 			continue
 		}
@@ -431,10 +431,6 @@ func (m *Model) reduceFocusTranscriptEntryMsg(msg FocusTranscriptEntryMsg) {
 			m.refreshDetailViewport()
 		}
 	}
-}
-
-func (m *Model) reduceSetOngoingScrollMsg(msg SetOngoingScrollMsg) {
-	m.ongoingScroll = clamp(msg.Scroll, 0, m.maxOngoingScroll())
 }
 
 func (m *Model) reduceStreamAssistantMsg(msg StreamAssistantMsg, result *modelUpdateResult) {
@@ -573,7 +569,7 @@ func (m *Model) applyUpdateResult(result modelUpdateResult, wasAtOngoingBottom b
 		}
 		m.refreshDetailViewport()
 		if result.viewportChanged && m.compactDetail && m.detailBottomAnchor {
-			m.focusVisibleDetailEntry(len(m.currentDetailViewport().Owners) - 1)
+			m.focusVisibleDetailEntry(len(m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners) - 1)
 		}
 	}
 }

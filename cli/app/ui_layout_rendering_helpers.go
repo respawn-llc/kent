@@ -11,10 +11,6 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-func (m *uiModel) syncViewport() {
-	m.layout().syncViewport()
-}
-
 type uiEditableInputRenderSpec struct {
 	Prefix       string
 	Text         string

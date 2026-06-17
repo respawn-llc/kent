@@ -401,7 +401,7 @@ func TestNativeStreamingResizeInvalidatesPromotionAtNewWidth(t *testing.T) {
 	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	firstCmd := m.syncNativeHistoryFromTranscript()
 	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
@@ -419,7 +419,7 @@ func TestNativeStreamingResizeInvalidatesPromotionAtNewWidth(t *testing.T) {
 	resizedCount := lineCount + 1
 	resizedStream := makeStreamingLines(resizedCount)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: resizedStream})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	secondCmd := m.syncNativeHistoryFromTranscript()
 	secondFlush := collectNativeHistoryFlushText(collectCmdMessages(t, secondCmd))
@@ -448,7 +448,7 @@ func TestNativeStreamingLinesRenderAssistantMarkdown(t *testing.T) {
 	m.setBusy(true)
 	m.sawAssistantDelta = true
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "**hello**\n`world`"})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	raw := m.View()
 	plain := stripANSIPreserve(raw)
@@ -568,7 +568,7 @@ func TestNativeStreamingDividerPersistsInTightViewport(t *testing.T) {
 	m.setBusy(true)
 	m.sawAssistantDelta = true
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "line1\nline2\nline3"})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	plain := stripANSIPreserve(m.View())
 	if !strings.Contains(plain, strings.Repeat("─", m.termWidth)) {

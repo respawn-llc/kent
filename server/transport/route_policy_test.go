@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -14,7 +15,6 @@ import (
 	shelltool "core/server/tools/shell"
 	rpccontract "core/shared/apicontract"
 	"core/shared/clientui"
-	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 )
@@ -424,7 +424,7 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	ownStore := createGatewayAuthoritativeSession(t, appCore)
 	appCore.RegisterSessionStore(ownStore)
 	foreignStore, err := session.Create(
-		config.ProjectSessionsRoot(resolvedB.Config, bindingB.ProjectID),
+		filepath.Join(filepath.Join(resolvedB.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
 		resolvedB.Config.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

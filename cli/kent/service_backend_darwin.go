@@ -119,7 +119,7 @@ func (launchdServiceBackend) Start(ctx context.Context, spec serviceSpec) error 
 	if loaded, _ := launchdLoaded(ctx); !loaded {
 		return bootstrapLaunchdService(ctx, spec, path)
 	}
-	_, err = runServiceCommand(ctx, "launchctl", "kickstart", "-k", launchdDomain()+"/"+serviceLaunchdLabel)
+	_, err = runServiceCommand(ctx, "launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d", os.Getuid())+"/"+serviceLaunchdLabel)
 	return err
 }
 
@@ -127,7 +127,7 @@ func (launchdServiceBackend) Stop(ctx context.Context, spec serviceSpec) error {
 	if loaded, _ := launchdLoaded(ctx); !loaded {
 		return nil
 	}
-	_, err := runServiceCommand(ctx, "launchctl", "bootout", launchdDomain()+"/"+serviceLaunchdLabel)
+	_, err := runServiceCommand(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d", os.Getuid())+"/"+serviceLaunchdLabel)
 	return err
 }
 
@@ -181,7 +181,7 @@ func (launchdServiceBackend) Status(ctx context.Context, spec serviceSpec) (serv
 func reloadLaunchdService(ctx context.Context, spec serviceSpec, path string) error {
 	verifyStartup := false
 	if loaded, _ := launchdLoaded(ctx); loaded {
-		if _, err := runServiceCommand(ctx, "launchctl", "bootout", launchdDomain()+"/"+serviceLaunchdLabel); err != nil {
+		if _, err := runServiceCommand(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d", os.Getuid())+"/"+serviceLaunchdLabel); err != nil {
 			return err
 		}
 		if err := waitForLaunchdServiceShutdown(ctx, spec); err != nil {
@@ -330,7 +330,7 @@ func waitForLaunchdServiceShutdown(ctx context.Context, spec serviceSpec) error 
 }
 
 func bootstrapLaunchdService(ctx context.Context, spec serviceSpec, path string) error {
-	if _, err := runServiceCommand(ctx, "launchctl", "bootstrap", launchdDomain(), path); err != nil {
+	if _, err := runServiceCommand(ctx, "launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), path); err != nil {
 		if !isTransientLaunchdBootstrapError(err) {
 			return err
 		}
@@ -348,14 +348,14 @@ func isTransientLaunchdBootstrapError(err error) bool {
 }
 
 func replaceStaleLaunchdService(ctx context.Context, spec serviceSpec, path string, cause error) error {
-	target := launchdDomain() + "/" + serviceLaunchdLabel
+	target := fmt.Sprintf("gui/%d", os.Getuid()) + "/" + serviceLaunchdLabel
 	if _, err := runServiceCommand(ctx, "launchctl", "bootout", target); err != nil {
 		return errors.Join(cause, err)
 	}
 	if err := waitForLaunchdServiceShutdown(ctx, spec); err != nil {
 		return errors.Join(cause, err)
 	}
-	if _, err := runServiceCommand(ctx, "launchctl", "bootstrap", launchdDomain(), path); err != nil {
+	if _, err := runServiceCommand(ctx, "launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), path); err != nil {
 		return errors.Join(cause, err)
 	}
 	return nil
@@ -428,12 +428,8 @@ func launchdPlistPath() (string, error) {
 	return filepath.Join(home, "Library", "LaunchAgents", serviceLaunchdLabel+".plist"), nil
 }
 
-func launchdDomain() string {
-	return fmt.Sprintf("gui/%d", os.Getuid())
-}
-
 func launchdLoaded(ctx context.Context) (bool, string) {
-	result, err := runServiceCommand(ctx, "launchctl", "print", launchdDomain()+"/"+serviceLaunchdLabel)
+	result, err := runServiceCommand(ctx, "launchctl", "print", fmt.Sprintf("gui/%d", os.Getuid())+"/"+serviceLaunchdLabel)
 	if err != nil {
 		return false, strings.TrimSpace(strings.Join([]string{result.Stdout, result.Stderr}, "\n"))
 	}

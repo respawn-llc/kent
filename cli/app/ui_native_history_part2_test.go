@@ -81,7 +81,7 @@ func TestNativePendingToolCallStaysLiveUntilResultThenAppendsFinalBlock(t *testi
 	}
 	m.transcriptEntries = append(m.transcriptEntries, call)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 	if cmd := m.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatalf("expected pending tool call to stay out of committed scrollback, got %T", cmd())
 	}
@@ -92,7 +92,7 @@ func TestNativePendingToolCallStaysLiveUntilResultThenAppendsFinalBlock(t *testi
 	result := tui.TranscriptEntry{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call_1"}
 	m.transcriptEntries = append(m.transcriptEntries, result)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 	cmd := m.syncNativeHistoryFromTranscript()
 	if cmd == nil {
 		t.Fatal("expected finalized tool block to append to native scrollback")
@@ -133,14 +133,14 @@ func TestNativeParallelToolCompletionWaitsForStablePrefixBeforeAppend(t *testing
 	}
 	m.transcriptEntries = entries
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 	if cmd := m.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatalf("expected no committed flush before first pending call resolves, got %T", cmd())
 	}
 
 	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "tool_result_ok", Text: "out-a", ToolCallID: "call_a"})
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 	cmd := m.syncNativeHistoryFromTranscript()
 	if cmd == nil {
 		t.Fatal("expected append once the stable prefix advances")
@@ -300,14 +300,14 @@ func TestNativeOngoingShrinksLiveRegionAfterInputShrinkWhenNotStreaming(t *testi
 	m.termHeight = 20
 	m.windowSizeKnown = true
 	m.input = "line 1\nline 2\nline 3"
-	m.syncViewport()
+	m.layout().syncViewport()
 	firstPad := m.nativeLiveRegionPad
 	first := strings.Split(m.View(), "\n")
 	if len(first) != 20 {
 		t.Fatalf("expected fresh conversation to fill terminal height before shrink, got %d lines", len(first))
 	}
 	m.input = ""
-	m.syncViewport()
+	m.layout().syncViewport()
 	secondPad := m.nativeLiveRegionPad
 	second := strings.Split(m.View(), "\n")
 	if len(second) != 20 {
@@ -333,12 +333,12 @@ func TestNativeOngoingClearsLiveRegionPadWhenStreamingEnds(t *testing.T) {
 	m.termHeight = 12
 	m.windowSizeKnown = true
 	m.forwardToView(tui.SetConversationMsg{Ongoing: "line1\nline2"})
-	m.syncViewport()
+	m.layout().syncViewport()
 	if !m.nativeStreamingActive {
 		t.Fatal("expected streaming active after ongoing stream snapshot")
 	}
 	m.forwardToView(tui.SetConversationMsg{Ongoing: ""})
-	m.syncViewport()
+	m.layout().syncViewport()
 	if m.nativeLiveRegionPad <= 0 {
 		t.Fatalf("expected fresh conversation to restore top padding after streaming ends, got %d", m.nativeLiveRegionPad)
 	}

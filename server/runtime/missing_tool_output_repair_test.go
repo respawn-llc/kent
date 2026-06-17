@@ -96,11 +96,11 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 	if !repairItemsContainOutput(client.calls[1].Items, "missing") {
 		t.Fatalf("retry request should include the synthetic output, got %+v", client.calls[1].Items)
 	}
-	if !repairItemsContainCall(eng.snapshotItems(), "missing") {
-		t.Fatalf("projection must keep the call (not remove it), got %+v", eng.snapshotItems())
+	if !repairItemsContainCall(eng.transcriptRuntimeState().SnapshotItems(), "missing") {
+		t.Fatalf("projection must keep the call (not remove it), got %+v", eng.transcriptRuntimeState().SnapshotItems())
 	}
-	if !repairItemsContainOutput(eng.snapshotItems(), "missing") {
-		t.Fatalf("projection must include the synthetic output, got %+v", eng.snapshotItems())
+	if !repairItemsContainOutput(eng.transcriptRuntimeState().SnapshotItems(), "missing") {
+		t.Fatalf("projection must include the synthetic output, got %+v", eng.transcriptRuntimeState().SnapshotItems())
 	}
 	if got := countPersistedLocalEntries(readRepairEvents(t, store)); got != 1 {
 		t.Fatalf("persisted operator warnings = %d, want 1", got)
@@ -219,7 +219,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.snapshotItems()}
+	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.transcriptRuntimeState().SnapshotItems()}
 
 	if _, _, _, err := eng.compactWithContextRepairRetry(context.Background(), "compact", client, baseRequest); err != nil {
 		t.Fatalf("compact with repair retry: %v", err)
@@ -251,7 +251,7 @@ func TestCompactionMissingToolOutputRepairRunsSinglePass(t *testing.T) {
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.snapshotItems()}
+	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.transcriptRuntimeState().SnapshotItems()}
 
 	_, _, _, err := eng.compactWithContextRepairRetry(context.Background(), "compact", client, baseRequest)
 	if !llm.HasHTTPStatus(err, 400) {
@@ -280,23 +280,23 @@ func TestCompactionMissingOutputRepairDoesNotConsumeOverflowAttempt(t *testing.T
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID: "call-shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"go test ./..."}`),
-	}}})); err != nil {
+	}}}})); err != nil {
 		t.Fatalf("append shell call: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role: llm.RoleTool, ToolCallID: "call-shell", Name: string(toolspec.ToolExecCommand),
 		Content: `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
-	})); err != nil {
+	}})); err != nil {
 		t.Fatalf("append shell output: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID: "call-missing", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
-	}}})); err != nil {
+	}}}})); err != nil {
 		t.Fatalf("append dangling call: %v", err)
 	}
 
@@ -335,23 +335,23 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID: "call-shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"go test ./..."}`),
-	}}})); err != nil {
+	}}}})); err != nil {
 		t.Fatalf("append shell call: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role: llm.RoleTool, ToolCallID: "call-shell", Name: string(toolspec.ToolExecCommand),
 		Content: `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
-	})); err != nil {
+	}})); err != nil {
 		t.Fatalf("append shell output: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID: "call-missing", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
-	}}})); err != nil {
+	}}}})); err != nil {
 		t.Fatalf("append dangling call: %v", err)
 	}
-	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.snapshotItems()}
+	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.transcriptRuntimeState().SnapshotItems()}
 
 	defer func() {
 		if recover() == nil {

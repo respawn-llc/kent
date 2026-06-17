@@ -34,14 +34,6 @@ func newWorkflowProjectEventBroker() *workflowProjectEventBroker {
 	return &workflowProjectEventBroker{subscribers: make(map[uint64]*workflowProjectSubscription)}
 }
 
-func (b *workflowProjectEventBroker) Subscribe(projectID string) (*workflowProjectSubscription, error) {
-	return b.subscribe(projectID, "")
-}
-
-func (b *workflowProjectEventBroker) SubscribeWorkflow(workflowID string) (*workflowProjectSubscription, error) {
-	return b.subscribe("", workflowID)
-}
-
 func (b *workflowProjectEventBroker) subscribe(projectID string, workflowID string) (*workflowProjectSubscription, error) {
 	sub := &workflowProjectSubscription{
 		projectID:  projectID,

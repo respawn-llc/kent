@@ -349,7 +349,7 @@ func TestExclusiveStepLifecycleInterruptAppendsMessageAndClearsInFlight(t *testi
 		t.Fatal("expected in-flight step to remain cleared after interrupted run exits")
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) == 0 {
 		t.Fatal("expected interruption message")
 	}
@@ -421,8 +421,8 @@ func TestExclusiveStepLifecycleInterruptSkipsStaleRunCleanup(t *testing.T) {
 	if !store.Meta().InFlightStep {
 		t.Fatal("expected stale interrupt to leave new run in-flight marker intact")
 	}
-	if len(eng.snapshotMessages()) != 0 {
-		t.Fatalf("expected stale interrupt to avoid appending interruption message, got %+v", eng.snapshotMessages())
+	if len(eng.transcriptRuntimeState().SnapshotMessages()) != 0 {
+		t.Fatalf("expected stale interrupt to avoid appending interruption message, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 }
 
@@ -533,7 +533,7 @@ func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 

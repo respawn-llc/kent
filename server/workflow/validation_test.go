@@ -18,7 +18,7 @@ func TestValidateDefaultWorkflowPasses(t *testing.T) {
 	if result.HasErrors() {
 		t.Fatalf("expected valid workflow, got errors: %+v", result.Errors)
 	}
-	if !result.Valid() {
+	if result.HasBlockingErrors() {
 		t.Fatalf("expected result.Valid()")
 	}
 }

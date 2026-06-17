@@ -22,6 +22,7 @@ import (
 	"core/shared/serverapi"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -324,7 +325,7 @@ func (s *testEmbeddedServer) SessionLaunchClient() client.SessionLaunchClient {
 	if metadataStore, binding, ok := s.metadataBinding(); ok {
 		service := sessionlaunch.NewService(launch.Planner{
 			Config:       s.cfg,
-			ContainerDir: config.ProjectSessionsRoot(s.cfg, binding.ProjectID),
+			ContainerDir: filepath.Join(filepath.Join(s.cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 			StoreOptions: metadataStore.AuthoritativeSessionStoreOptions(),
 		}, s.sessionStoreRegistry())
 		return client.NewLoopbackSessionLaunchClient(service)
@@ -343,7 +344,7 @@ func (s *testEmbeddedServer) SessionLifecycleClient() client.SessionLifecycleCli
 	}
 	if metadataStore, binding, ok := s.metadataBinding(); ok {
 		service := sessionservice.NewSessionLifecycleService(
-			config.ProjectSessionsRoot(s.cfg, binding.ProjectID),
+			filepath.Join(filepath.Join(s.cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 			s.sessionStoreRegistry(),
 			s.authManager,
 			metadataStore.AuthoritativeSessionStoreOptions()...,
@@ -356,7 +357,7 @@ func (s *testEmbeddedServer) SessionLifecycleClient() client.SessionLifecycleCli
 		if projectID == "" {
 			projectID = "test-project"
 		}
-		containerDir = config.ProjectSessionsRoot(s.cfg, projectID)
+		containerDir = filepath.Join(filepath.Join(s.cfg.PersistenceRoot, "projects"), projectID, "sessions")
 	}
 	service := sessionservice.NewSessionLifecycleService(containerDir, s.sessionStoreRegistry(), s.authManager).WithPersistenceRoot(s.cfg.PersistenceRoot).WithControllerLeaseVerifier(noopEmbeddedSessionLifecycleLeaseVerifier{})
 	return client.NewLoopbackSessionLifecycleClient(service)

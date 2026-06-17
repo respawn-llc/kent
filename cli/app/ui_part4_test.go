@@ -22,7 +22,7 @@ func TestMainInputViewportTracksCursorLine(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "first\nsecond\nthird\nfourth"
 	m.inputCursor = 1
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	plain := stripANSIAndTrimRight(strings.Join(m.layout().renderInputLines(20, uiThemeStyles("dark")), "\n"))
 	if !strings.Contains(plain, "› first") || !strings.Contains(plain, "second") {
@@ -1143,7 +1143,7 @@ func TestInterruptedSubmitDoneDoesNotRestoreFlushedSubmittedText(t *testing.T) {
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
 		StepID:   "step-1",
-		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
+		RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
 	}})
 	updated := next.(*uiModel)
 
@@ -1220,7 +1220,7 @@ func TestVerboseReviewerSuggestionsStaySingleAfterInterruptAndNextSubmit(t *test
 	m.activeSubmit = activeSubmitState{token: 21, text: suggestions}
 
 	events := []clientui.Event{
-		{Kind: clientui.EventRunStateChanged, StepID: "step-1", RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}},
+		{Kind: clientui.EventRunStateChanged, StepID: "step-1", RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}},
 		{
 			Kind:                       clientui.EventUserMessageFlushed,
 			StepID:                     "step-1",
@@ -1265,7 +1265,7 @@ func TestVerboseReviewerSuggestionsStaySingleAfterInterruptAndNextSubmit(t *test
 	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
 		StepID:   "step-2",
-		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
+		RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
 	}})
 	updated = next.(*uiModel)
 	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{

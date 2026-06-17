@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"text/template"
@@ -310,7 +312,7 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 	if projectID == "" {
 		return launch.SessionPlan{}, nil, errors.New("workflow task project id is required")
 	}
-	containerDir := config.ProjectSessionsRoot(cfg, projectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), projectID, "sessions")
 	planner := launch.Planner{
 		Config:       cfg,
 		ContainerDir: containerDir,
@@ -481,7 +483,7 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 		},
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", runprompt.FormatRuntimeEvent(evt))
-			if transcriptdiag.EnabledForProcess(plan.ActiveSettings.Debug) {
+			if transcriptdiag.Enabled(plan.ActiveSettings.Debug, os.Getenv) {
 				projected := runtimeview.EventFromRuntime(evt)
 				logger.Logf("%s", runprompt.FormatTranscriptProjectionDiagnostic(plan.Store.Meta().SessionID, projected))
 				logger.Logf("%s", runprompt.FormatTranscriptPublishDiagnostic(plan.Store.Meta().SessionID, projected))

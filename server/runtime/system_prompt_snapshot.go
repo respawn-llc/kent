@@ -18,10 +18,6 @@ type systemPromptSnapshotOptions struct {
 	SystemPromptFiles []config.SystemPromptFile
 }
 
-func (e *Engine) buildSystemPromptSnapshot(locked session.LockedContract) (string, error) {
-	return e.buildSystemPromptSnapshotForRoot(locked, e.systemPromptWorkspaceRoot())
-}
-
 func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract, workspaceRoot string) (string, error) {
 	includeToolPreambles := true
 	if locked.ToolPreambles != nil {
@@ -45,7 +41,7 @@ func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract,
 		}
 		return rendered, nil
 	}
-	return prompts.MainSystemPrompt(includeToolPreambles, args), nil
+	return prompts.WithToolPreambles(prompts.BaseSystemPrompt(args), includeToolPreambles), nil
 }
 
 func editingToolName(enabled []toolspec.ID) string {

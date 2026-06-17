@@ -10,11 +10,3 @@ func FirstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
-func NormalizeCRLF(input string) string {
-	return strings.ReplaceAll(input, "\r\n", "\n")
-}
-
-func SplitLinesCRLF(input string) []string {
-	return strings.Split(NormalizeCRLF(input), "\n")
-}

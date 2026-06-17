@@ -30,10 +30,6 @@ func (c *frameAnimationClock) Stop() {
 	c.anchor = time.Time{}
 }
 
-func (c frameAnimationClock) Running() bool {
-	return !c.anchor.IsZero()
-}
-
 func (c frameAnimationClock) Frame(now time.Time, frameCount int, frameDuration time.Duration) int {
 	if frameCount <= 1 || frameDuration <= 0 {
 		return 0
@@ -58,7 +54,7 @@ func (c frameAnimationClock) NextDelay(now time.Time, frameDuration time.Duratio
 }
 
 func (c frameAnimationClock) Elapsed(now time.Time) time.Duration {
-	if !c.Running() {
+	if c.anchor.IsZero() {
 		return 0
 	}
 	if now.IsZero() {

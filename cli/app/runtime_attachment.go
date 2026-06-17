@@ -99,7 +99,7 @@ func prepareSharedRuntimeWiring(ctx context.Context, clients runtimeAttachmentCl
 	} else {
 		runtimeClient.SetReadOnly(true)
 	}
-	runtimeClient.SetTranscriptDiagnosticsEnabled(transcriptdiag.EnabledForProcess(plan.ActiveSettings.Debug))
+	runtimeClient.SetTranscriptDiagnosticsEnabled(transcriptdiag.Enabled(plan.ActiveSettings.Debug, os.Getenv))
 	runtimeEvents, stopRuntimeEvents := startSessionActivityEvents(ctx, activities.Session, func(ctx context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
 		return clients.SessionActivity.SubscribeSessionActivity(ctx, serverapi.SessionActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
 	}, runtimeClient.transcriptDiagnosticsEnabled, func(line string) {

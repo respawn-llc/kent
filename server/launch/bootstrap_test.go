@@ -119,7 +119,7 @@ func TestResolveBootstrapPlanUsesReboundWorkspaceRootFromMetadataAuthority(t *te
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store := createTestSessionInContainer(t, projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err := store.SetName("hello"); err != nil {
 		t.Fatalf("SetName: %v", err)

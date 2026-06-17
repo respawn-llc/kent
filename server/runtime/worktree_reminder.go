@@ -12,7 +12,7 @@ func (e *Engine) materializePendingWorktreeReminder(stepID string) error {
 }
 
 func (e *Engine) materializePendingWorktreeReminderAfterCompaction(stepID string, previousCompactionCount int) error {
-	if e.compactionCountSnapshot() == previousCompactionCount {
+	if e.compactionRuntimeState().Count() == previousCompactionCount {
 		return nil
 	}
 	return e.materializePendingWorktreeReminderWithOptions(stepID, worktreeReminderMaterializationOptions{ignoreChatEntryDedupe: true})
@@ -24,7 +24,7 @@ type worktreeReminderMaterializationOptions struct {
 
 func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, opts worktreeReminderMaterializationOptions) error {
 	state := cloneRuntimeWorktreeReminderState(e.store.Meta().WorktreeReminder)
-	compactionCount := e.compactionCountSnapshot()
+	compactionCount := e.compactionRuntimeState().Count()
 	if !shouldInjectWorktreeReminder(state, compactionCount) {
 		return nil
 	}
@@ -32,16 +32,16 @@ func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, op
 	if !ok {
 		return nil
 	}
-	if latestMaterializedWorktreeReminderMatches(e.snapshotItems(), message) || (!opts.ignoreChatEntryDedupe && latestMaterializedWorktreeReminderEntryMatches(e.ChatSnapshot().Entries, message)) {
+	if latestMaterializedWorktreeReminderMatches(e.transcriptRuntimeState().SnapshotItems(), message) || (!opts.ignoreChatEntryDedupe && latestMaterializedWorktreeReminderEntryMatches(e.ChatSnapshot().Entries, message)) {
 		state.HasIssuedInGeneration = true
 		state.IssuedCompactionCount = compactionCount
 		return e.store.SetWorktreeReminderState(state)
 	}
-	if err := e.steer(stepID, steerMessageIntent(message)); err != nil {
+	if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message})); err != nil {
 		return err
 	}
 	state.HasIssuedInGeneration = true
-	state.IssuedCompactionCount = e.compactionCountSnapshot()
+	state.IssuedCompactionCount = e.compactionRuntimeState().Count()
 	return e.store.SetWorktreeReminderState(state)
 }
 

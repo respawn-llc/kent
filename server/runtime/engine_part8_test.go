@@ -56,18 +56,18 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone-a",
-	})
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	}, true)
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1001",
 		State:      "completed",
 		NoticeText: "Background shell 1001 completed.\nExit code: 0\nOutput:\ndone-b",
-	})
+	}, true)
 
 	close(release)
 	result := <-submitDone
@@ -185,7 +185,7 @@ func TestWriteStdinCompletionDoesNotQueueDuplicateBackgroundNotice(t *testing.T)
 	if callCount != 3 {
 		t.Fatalf("model call count = %d, want 3", callCount)
 	}
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeBackgroundNotice {
 			t.Fatalf("did not expect background notice after write_stdin harvested completion: %+v", msg)
 		}
@@ -301,7 +301,7 @@ func TestNewNormalizesPersistedInFlightStepOnReopen(t *testing.T) {
 	if reopenedStore.Meta().InFlightStep {
 		t.Fatal("expected reopen path to clear persisted in-flight flag")
 	}
-	messages := restored.snapshotMessages()
+	messages := restored.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) != 2 {
 		t.Fatalf("expected original user message plus interruption marker, got %+v", messages)
 	}
@@ -446,7 +446,7 @@ func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.
 		t.Fatalf("unexpected tool result name: %+v", result)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) == 0 {
 		t.Fatal("expected persisted messages")
 	}
@@ -516,7 +516,7 @@ func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *
 		t.Fatalf("expected unknown tool output payload, got %v", payload)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	foundToolOutput := false
 	for _, msg := range messages {
 		if msg.Role != llm.RoleTool {

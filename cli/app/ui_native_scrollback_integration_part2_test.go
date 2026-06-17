@@ -568,7 +568,7 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeComm
 	_ = model.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
 		StepID:   "step-1",
-		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
+		RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
 	}, true).cmd
 	_ = model.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:           clientui.EventAssistantDelta,

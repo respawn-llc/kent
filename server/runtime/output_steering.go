@@ -85,34 +85,6 @@ const (
 	steeringMessageEventNone
 )
 
-func steerMessageIntent(msg llm.Message) steeringIntent {
-	return steerMessagesIntent(steeringPriorityNormal, steeringMessageEventDefault, []llm.Message{msg})
-}
-
-func steerMessageWithoutDerivedEventIntent(msg llm.Message) steeringIntent {
-	return steerMessagesIntent(steeringPriorityNormal, steeringMessageEventNone, []llm.Message{msg})
-}
-
-func steerRuntimeContextMessagesIntent(messages []llm.Message) steeringIntent {
-	return steerMessagesIntent(steeringPriorityRuntimeContext, steeringMessageEventDefault, messages)
-}
-
-func steerUserMessageIntent(msg llm.Message) steeringIntent {
-	return steerMessagesIntent(steeringPriorityUser, steeringMessageEventDefault, []llm.Message{msg})
-}
-
-func steerUserMessageWithoutDerivedEventIntent(msg llm.Message) steeringIntent {
-	return steerMessagesIntent(steeringPriorityUser, steeringMessageEventNone, []llm.Message{msg})
-}
-
-func steerMessagesIntent(priority steeringPriority, eventPolicy steeringMessageEventPolicy, messages []llm.Message) steeringIntent {
-	return steerMessagesWithPersistenceIntent(priority, eventPolicy, true, messages)
-}
-
-func steerStoredMessageProjectionIntent(msg llm.Message) steeringIntent {
-	return steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, false, []llm.Message{msg})
-}
-
 func steerMessagesWithPersistenceIntent(priority steeringPriority, eventPolicy steeringMessageEventPolicy, persist bool, messages []llm.Message) steeringIntent {
 	items := make([]steeringItem, 0, len(messages))
 	for _, message := range messages {
@@ -231,10 +203,6 @@ func steerCacheObservationIntent(events []session.EventInput, warning transcript
 	}
 }
 
-func (e *Engine) steerEvent(stepID string, evt Event) error {
-	return e.steer(stepID, steerEventIntent(evt))
-}
-
 func (e *Engine) steer(stepID string, intents ...steeringIntent) error {
 	ordered := make([]steeringIntent, 0, len(intents))
 	for _, intent := range intents {
@@ -292,7 +260,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.cacheWarning != nil {
 		warning := item.cacheWarning.warning
 		visibility := transcript.NormalizeEntryVisibility(item.cacheWarning.visibility)
-		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
+		newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
 		if item.cacheWarning.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
@@ -310,7 +278,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 		warning := observation.warning
 		visibility := transcript.NormalizeEntryVisibility(observation.visibility)
-		e.transcriptPersistence().AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
+		newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
 		if observation.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
@@ -319,7 +287,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.streaming != nil {
 		if item.streaming.assistantDelta != nil {
 			delta := *item.streaming.assistantDelta
-			e.transcriptPersistence().AppendOngoingDelta(delta)
+			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendOngoingDelta(delta)
 			e.emitRaw(Event{Kind: EventAssistantDelta, StepID: stepID, AssistantDelta: delta})
 			return nil
 		}
@@ -351,11 +319,11 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 	// The committed event is the single durable record of this compaction's
 	// provenance; mirror it into runtime state so an in-process gate sees it
 	// without re-reading the transcript, matching what restore reconstructs.
-	e.setLastCompactionWorkflowRunID(replacement.workflowRunID)
+	e.compactionRuntimeState().SetLastWorkflowRunID(replacement.workflowRunID)
 	e.resetCurrentPreciseInputTracking()
 	e.resetLocalDiagnostics()
-	e.transcriptPersistence().ReplaceHistory(preparedItems)
-	e.setCompactionSoonReminderIssued(false)
+	newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).ReplaceHistory(preparedItems)
+	e.compactionRuntimeState().SetSoonReminderIssued(false)
 	e.emitProjectedHistoryReplacementEntriesRaw(stepID, projectedStart, replacement.projectedEntries)
 	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})
 	return errors.Join(

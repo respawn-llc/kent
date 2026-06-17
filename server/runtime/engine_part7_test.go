@@ -272,7 +272,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	registry := tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandTool(dir, 16_000, manager, "")})
 	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-5"})
 	manager.SetEventHandler(func(evt shelltool.Event) {
-		eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+		eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 			Type:    string(evt.Type),
 			ID:      evt.Snapshot.ID,
 			State:   evt.Snapshot.State,
@@ -288,7 +288,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 				out := *evt.Snapshot.ExitCode
 				return &out
 			}(),
-		})
+		}, true)
 	})
 
 	assistant, err := eng.SubmitUserMessage(context.Background(), "run fast command")
@@ -305,7 +305,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	if callCount != 2 {
 		t.Fatalf("model call count = %d, want 2", callCount)
 	}
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeBackgroundNotice {
 			t.Fatalf("did not expect background notice for foreground exec_command completion: %+v", msg)
 		}
@@ -361,12 +361,12 @@ func TestBackgroundShellNoticeFlushesOnFirstAvailableSlot(t *testing.T) {
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-	})
+	}, true)
 
 	client.mu.Lock()
 	callCountWhileBusy := len(client.calls)
@@ -487,12 +487,12 @@ func TestDeferredFinalWithBackgroundNoticeStillRunsReviewerAndEmitsAssistantEven
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-	})
+	}, true)
 
 	close(release)
 	result := <-submitDone
@@ -743,12 +743,12 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-	})
+	}, true)
 
 	close(release)
 	result := <-submitDone
@@ -789,7 +789,7 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 	finalAssistantContents := make([]string, 0)
 	foundBackgroundNotice := false
 	noopFinalCount := 0
-	for _, persisted := range eng.snapshotMessages() {
+	for _, persisted := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if persisted.Role == llm.RoleAssistant && persisted.Phase == llm.MessagePhaseFinal {
 			finalAssistantContents = append(finalAssistantContents, persisted.Content)
 		}
@@ -801,10 +801,10 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 		}
 	}
 	if !foundBackgroundNotice {
-		t.Fatalf("expected persisted background notice, got %+v", eng.snapshotMessages())
+		t.Fatalf("expected persisted background notice, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 	if noopFinalCount != 1 {
-		t.Fatalf("noop final count = %d, want 1; messages=%+v", noopFinalCount, eng.snapshotMessages())
+		t.Fatalf("noop final count = %d, want 1; messages=%+v", noopFinalCount, eng.transcriptRuntimeState().SnapshotMessages())
 	}
 	if len(finalAssistantContents) != 1 || finalAssistantContents[0] != reviewerNoopToken {
 		t.Fatalf("expected hidden persisted noop final assistant message, got %q", finalAssistantContents)

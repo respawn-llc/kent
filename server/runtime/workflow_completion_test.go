@@ -246,9 +246,9 @@ func TestWorkflowModePromptCommentCountErrorFailsBeforeWorkflowPromptAppend(t *t
 		t.Fatalf("SubmitWorkflowTurn error = %v, want %v", err, countErr)
 	}
 	assertModelCallCount(t, client, 0)
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
-			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.snapshotMessages())
+			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 		}
 	}
 }
@@ -382,13 +382,13 @@ func TestCompleteNodeOutsideWorkflowReturnsToolError(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	found := false
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleTool && msg.Name == string(toolspec.ToolCompleteNode) && strings.Contains(msg.Content, "only available during a workflow run") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("complete_node error output missing from messages: %+v", eng.snapshotMessages())
+		t.Fatalf("complete_node error output missing from messages: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 }
 
@@ -626,7 +626,7 @@ func assertSchemaRequiredFields(t *testing.T, schema json.RawMessage, expected [
 
 func assertDeveloperErrorFeedbackAfterAssistantFinal(t *testing.T, eng *Engine, assistantContent string, feedbackContent string) {
 	t.Helper()
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	for index, message := range messages {
 		if message.Role != llm.RoleAssistant || message.Phase != llm.MessagePhaseFinal || message.Content != assistantContent {
 			continue

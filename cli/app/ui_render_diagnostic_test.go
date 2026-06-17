@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"core/cli/tui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type testUILogger struct {
@@ -60,9 +62,11 @@ func TestApplyRunLoggerDiagnosticSetsErrorTransientStatus(t *testing.T) {
 	logger := &testUILogger{}
 	m := newProjectedStaticUIModel(WithUILogger(logger))
 
-	m.handleRunLoggerDiagnostic(runLoggerDiagnostic{
-		Kind:    "write_failed",
-		Message: "run log write failed; observability degraded: disk full",
+	m.startupCmds = append(m.startupCmds, func() tea.Msg {
+		return runLoggerDiagnosticMsg{diagnostic: runLoggerDiagnostic{
+			Kind:    "write_failed",
+			Message: "run log write failed; observability degraded: disk full",
+		}}
 	})
 	runLogMsg, ok := startupCmdMessage[runLoggerDiagnosticMsg](m.startupCmds)
 	if !ok {

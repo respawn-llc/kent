@@ -131,7 +131,7 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	storeB, err := session.Create(
-		config.ProjectSessionsRoot(resolvedA.Config, bindingB.ProjectID),
+		filepath.Join(filepath.Join(resolvedA.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
 		resolvedB.Config.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
@@ -187,7 +187,7 @@ func TestGatewayScopesProcessAPIsToAttachedProject(t *testing.T) {
 	storeA := createGatewayAuthoritativeSession(t, appCore)
 	appCore.RegisterSessionStore(storeA)
 	storeB, err := session.Create(
-		config.ProjectSessionsRoot(resolvedB.Config, bindingB.ProjectID),
+		filepath.Join(filepath.Join(resolvedB.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
 		resolvedB.Config.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

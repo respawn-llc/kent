@@ -1238,7 +1238,7 @@ func writeTaskDetail(stdout io.Writer, task serverapi.WorkflowTaskDetail) {
 	fmt.Fprintf(stdout, "Status: %s\n", taskDetailStatus(task))
 	fmt.Fprintf(stdout, "Project: %q (%s)\n", task.Project.DisplayName, task.Project.ProjectID)
 	fmt.Fprintf(stdout, "Workflow: %q (%s)\n", task.Workflow.DisplayName, task.Workflow.WorkflowID)
-	fmt.Fprintf(stdout, "Created at %s UTC\n", utcISO(task.Summary.CreatedAtUnixMs))
+	fmt.Fprintf(stdout, "Created at %s UTC\n", time.UnixMilli(task.Summary.CreatedAtUnixMs).UTC().Format(time.RFC3339))
 	if len(task.Runs) > 0 {
 		fmt.Fprintf(stdout, "Total agent runs: %d\n", len(task.Runs))
 	}
@@ -1298,7 +1298,7 @@ func writeTaskCommentBlocks(stdout io.Writer, sortedComments []serverapi.Workflo
 		if i > 0 {
 			fmt.Fprintln(stdout, "---")
 		}
-		fmt.Fprintf(stdout, "%s at %s UTC:\n%s\n", readableTaskCommentAuthor(comment), utcISO(comment.CreatedAtUnixMs), comment.Body)
+		fmt.Fprintf(stdout, "%s at %s UTC:\n%s\n", readableTaskCommentAuthor(comment), time.UnixMilli(comment.CreatedAtUnixMs).UTC().Format(time.RFC3339), comment.Body)
 	}
 }
 
@@ -1318,8 +1318,4 @@ func readableTaskCommentAuthor(comment serverapi.WorkflowTaskComment) string {
 		return "Unknown"
 	}
 	return strings.ToUpper(author[:1]) + author[1:]
-}
-
-func utcISO(unixMs int64) string {
-	return time.UnixMilli(unixMs).UTC().Format(time.RFC3339)
 }

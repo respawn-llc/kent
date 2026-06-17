@@ -41,7 +41,7 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if e.baseMetaInjected {
 		return nil
 	}
-	builder := e.newActiveBaseMetaContextBuilder(e.cfg.Model, time.Now())
+	builder := newActiveMetaContextBuilder(e.store.Meta(), e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now()).withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
 	metaResult, err := builder.Build(baseMetaContextBuildOptions(true))
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 			Text:       combined,
 		}))
 	}
-	intents = append(intents, steerRuntimeContextMessagesIntent(metaResult.OrderedInjectionMessages()))
+	intents = append(intents, steerMessagesWithPersistenceIntent(steeringPriorityRuntimeContext, steeringMessageEventDefault, true, metaResult.OrderedBaseMessages()))
 	if err := e.steer(stepID, intents...); err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func (e *Engine) steerHeadlessModeTransitionIfNeeded(stepID string) error {
 		if err != nil {
 			return err
 		}
-		if err := e.steer(stepID, steerRuntimeContextMessagesIntent(metaResult.Headless)); err != nil {
+		if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityRuntimeContext, steeringMessageEventDefault, true, metaResult.Headless)); err != nil {
 			return err
 		}
 		return e.store.SetHeadlessActive(true)
@@ -92,7 +92,7 @@ func (e *Engine) steerHeadlessModeTransitionIfNeeded(stepID string) error {
 	if err != nil {
 		return err
 	}
-	if err := e.steer(stepID, steerRuntimeContextMessagesIntent(metaResult.HeadlessExit)); err != nil {
+	if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityRuntimeContext, steeringMessageEventDefault, true, metaResult.HeadlessExit)); err != nil {
 		return err
 	}
 	return e.store.SetHeadlessActive(false)
@@ -103,7 +103,7 @@ func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, stepID string) e
 		return nil
 	}
 	runID := strings.TrimSpace(string(e.cfg.WorkflowRun.Contract.RunID))
-	for _, msg := range e.snapshotMessages() {
+	for _, msg := range e.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode && strings.TrimSpace(msg.SourcePath) == runID {
 			return nil
 		}
@@ -124,11 +124,11 @@ func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, stepID string) e
 		return nil
 	}
 	message.SourcePath = runID
-	return e.steer(stepID, steerRuntimeContextMessagesIntent([]llm.Message{message}))
+	return e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityRuntimeContext, steeringMessageEventDefault, true, []llm.Message{message}))
 }
 
 func (e *Engine) compactionReinjectedMetaMessages(ctx context.Context) ([]llm.Message, error) {
-	builder := e.newActiveBaseMetaContextBuilder(e.currentModel(), time.Now())
+	builder := newActiveMetaContextBuilder(e.store.Meta(), e.currentModel(), e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now()).withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
 	opts := baseMetaContextBuildOptions(false)
 	if e.workflowRunActive() {
 		mode, err := e.workflowCompletionMode(ctx)
