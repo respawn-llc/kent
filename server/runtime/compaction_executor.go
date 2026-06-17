@@ -257,7 +257,6 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	window := localCompactionWindow(input)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
-
 	// summarize mirrors the remote send closure: it repairs a missing-tool-output
 	// HTTP 400 (append + re-snapshot + retry) only on the first, uncollapsed
 	// window. After a collapse, output items are preserved, so a missing-output

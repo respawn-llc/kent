@@ -152,7 +152,7 @@ func validLaunchSettings(model string) config.Settings {
 		WebSearch:                        "native",
 		ServerHost:                       "127.0.0.1",
 		ServerPort:                       53082,
-		Reviewer:                         config.ReviewerSettings{Frequency: "edits", Model: model, ThinkingLevel: "medium", TimeoutSeconds: 60},
+		Reviewer:                         config.ReviewerSettings{Frequency: "edits", Model: model, ThinkingLevel: "medium", ModelContextWindow: 272000, TimeoutSeconds: 60},
 		Timeouts:                         config.Timeouts{ModelRequestSeconds: 400},
 		ShellOutputMaxChars:              16000,
 		MinimumExecToBgSeconds:           15,

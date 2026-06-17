@@ -102,7 +102,7 @@ func (s *Store) appendEventsLogLocked(events []Event) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open events file for append: %w", err)
 	}
-	defer func() { _ = fp.Close() }()
+	defer fp.Close()
 
 	fileInfo, err := fp.Stat()
 	if err != nil {

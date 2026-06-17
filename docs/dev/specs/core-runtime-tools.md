@@ -178,7 +178,8 @@
 - `theme=light` and `theme=dark` select fixed Kent palettes. `theme=auto` or omitted theme uses terminal background detection.
 - Global debug mode is configured by `debug = true` or `KENT_DEBUG=1` and enables developer-oriented strictness.
 - Thinking level applies only to OpenAI model families and passes configured values through unchanged.
-- Context window setting is `model_context_window`, default `272000`.
+- Context window setting is `model_context_window`, default `272000`, minimum `40000`.
+- Effective reviewer and subagent context windows must be at least `40000`.
 - `context_compaction_threshold_tokens < model_context_window` is required.
 - Responses API `store` is configurable with default `false`.
 - `tools.web_search` is enabled by default; `web_search` selects provider-native search (`native`) or disabled (`off`).
@@ -191,7 +192,7 @@
 - Runtime context needed after compaction, including workflow prompts and reminders, is steered into the new active list after replacement.
 - Kent may compact before submitting a queued user prompt when current context usage is within the runway reserve.
 - Pre-submit compaction uses `context_compaction_threshold_tokens - pre_submit_compaction_lead_tokens`, with default lead `35000`.
-- Startup rejects compaction settings that begin normal or pre-submit compaction below 50% of `model_context_window`.
+- Startup rejects compaction settings that begin normal or pre-submit compaction below 50% of `model_context_window`; this is separate from the `40000` minimum context window.
 - Auto-compaction failure aborts the current turn.
 - `compaction_mode=none` disables manual and automatic compaction.
 - Manual `/compact` is available while idle; arguments are appended as guidance.
@@ -218,6 +219,7 @@
 - Kent CLI is the authoritative control surface for goals.
 - Models may use normal shell commands `kent goal show`, `kent goal complete`, and first-time `kent goal set <objective>` for the current session.
 - Agent `goal set` is allowed only when no active or paused goal exists. Completed goals do not block the next agent-set goal.
+- Successful goal mutations emit typed runtime status updates carrying the projected goal status state so frontends can update from goal SSOT instead of inferring status from transcript feedback or run lifecycle. Set, pause, resume, complete, and clear emit updates; show/read-only operations do not.
 - `/goal <objective>` immediately sets/replaces the session goal and starts a model turn. It is rejected while a model turn is running.
 - `/goal resume` on a completed goal reopens it as active.
 - Goal completion is explicit CLI state mutation, not natural-language inference.
@@ -234,6 +236,7 @@
 - `kent run "prompt"` is the supported headless/subagent interface.
 - Headless roles use `kent run --agent <role> "prompt"`; `--fast` selects the built-in fast role.
 - Subagent roles are file-only `[subagents.<role>]` config tables and inherit main config unless overridden.
+- Subagent role `model_context_window` and `reviewer.model_context_window` overrides must resolve to at least `40000`.
 - Subagent roles may set `agent_callable=false`; such roles are hidden from agent-facing role context and rejected for Kent-session subagent calls, while humans may still run them from ordinary shells.
 - Future frontend/status surfaces should mark non-callable roles distinctly when relevant instead of erasing the distinction.
 - The built-in `fast` role exists without config and may switch to a smaller/faster profile on exact OpenAI first-party setups.

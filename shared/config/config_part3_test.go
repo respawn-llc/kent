@@ -190,6 +190,32 @@ func TestNormalizeSettingsForPersistence_AllowsProviderOverrideWithExplicitPersi
 	}
 }
 
+func TestNormalizeSettingsForPersistenceRejectsModelContextWindowBelowMinimum(t *testing.T) {
+	settings := configRegistry.defaultState().Settings
+	settings.ModelContextWindow = 39999
+	settings.ContextCompactionThresholdTokens = 30000
+
+	if _, err := NormalizeSettingsForPersistence(settings); err == nil {
+		t.Fatal("expected model_context_window below minimum validation error")
+	} else if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
+func TestNormalizeSettingsForPersistenceWithSourcesRejectsModelContextWindowBelowMinimum(t *testing.T) {
+	settings := configRegistry.defaultState().Settings
+	settings.ModelContextWindow = 39999
+	settings.ContextCompactionThresholdTokens = 30000
+	sources := configRegistry.defaultSourceMap()
+	sources["model_context_window"] = "file"
+
+	if _, err := NormalizeSettingsForPersistenceWithSources(settings, sources); err == nil {
+		t.Fatal("expected model_context_window below minimum validation error")
+	} else if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
 func TestLoadCanonicalTimeoutEnvAndSourceKeys(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	t.Setenv("KENT_TIMEOUTS_MODEL_REQUEST_SECONDS", "123")
@@ -395,6 +421,33 @@ func TestLoadModelContextWindowPrecedence(t *testing.T) {
 	}
 	if got := cfg.Source.Sources["model_context_window"]; got != "env" {
 		t.Fatalf("expected model_context_window source env, got %q", got)
+	}
+}
+
+func TestLoadRejectsModelContextWindowBelowMinimum(t *testing.T) {
+	err := loadConfigTestFileError(t, "model_context_window = 39999\ncontext_compaction_threshold_tokens = 30000\n", LoadOptions{})
+	if err == nil {
+		t.Fatal("expected model_context_window below minimum validation error")
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
+func TestLoadRejectsModelContextWindowZeroWithMinimumError(t *testing.T) {
+	err := loadConfigTestFileError(t, "model_context_window = 0\n", LoadOptions{})
+	if err == nil {
+		t.Fatal("expected model_context_window zero validation error")
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
+func TestLoadAcceptsModelContextWindowMinimum(t *testing.T) {
+	_, _, cfg := loadConfigTestFileApp(t, "model_context_window = 40000\ncontext_compaction_threshold_tokens = 25000\npre_submit_compaction_lead_tokens = 1000\n", LoadOptions{})
+	if cfg.Settings.ModelContextWindow != 40000 {
+		t.Fatalf("expected model_context_window=40000, got %d", cfg.Settings.ModelContextWindow)
 	}
 }
 
