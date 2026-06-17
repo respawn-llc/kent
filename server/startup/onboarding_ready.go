@@ -11,6 +11,13 @@ import (
 
 var ErrOnboardingCanceled = errors.New("first-time setup canceled")
 
+func writeHeadlessDefaultSettings(settingsPath string) (string, bool, error) {
+	if settingsPath != "" {
+		return config.WriteDefaultSettingsFileAt(settingsPath)
+	}
+	return config.WriteDefaultSettingsFile()
+}
+
 // ErrAuthManagerRequired and ErrInteractiveRunnerRequired guard interactive
 // onboarding readiness. Callers and tests match these with errors.Is rather
 // than comparing rendered message text.
@@ -35,7 +42,11 @@ func EnsureOnboardingReady(ctx context.Context, cfg config.App, mgr *auth.Manage
 		return cfg, false, errors.New("reload config is required")
 	}
 	if !interactive {
-		path, created, err := config.WriteDefaultSettingsFile()
+		// Write first-run defaults into the resolved config+data root so
+		// --persistence-root / KENT_PERSISTENCE_ROOT instances seed their own
+		// root. Fall back to the default location when no root was resolved.
+		settingsPath := strings.TrimSpace(cfg.Source.HomeSettingsPath)
+		path, created, err := writeHeadlessDefaultSettings(settingsPath)
 		if err != nil {
 			return cfg, false, err
 		}

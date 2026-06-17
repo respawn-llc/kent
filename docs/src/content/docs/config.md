@@ -41,7 +41,7 @@ Kent creates `~/.kent/rg.conf` when missing and exports it to shell tools via `R
 
 The config+data root defaults to `~/.kent`. Set a different root with the `--persistence-root` flag (accepted by `kent`, `kent run`, and `kent serve`) or the `KENT_PERSISTENCE_ROOT` environment variable; the flag wins over the env var. This relocates **both** `config.toml` discovery and all persisted state (database, auth, sessions, worktrees) to that one directory — config and data are not configurable separately, and `persistence_root` is no longer a `config.toml` setting (a config file cannot relocate the directory it is read from). Workspace config is still read from `<workspace-root>/.kent/config.toml`.
 
-Migration: if an existing `config.toml` still contains `persistence_root`, Kent fails to load with a clear error; remove the key and pass `--persistence-root`/`KENT_PERSISTENCE_ROOT` instead.
+Migration: if an existing `config.toml` still contains `persistence_root`, Kent fails to load with a clear error. Remove the key and pass `--persistence-root`/`KENT_PERSISTENCE_ROOT` instead. Because the root now also determines where `config.toml` is read from, if you previously pointed `persistence_root` at a non-default directory you must also **move** `~/.kent/config.toml` into that directory — otherwise its model/server/tool settings stop loading. If you only ever used the default `~/.kent`, just deleting the key is enough.
 
 
 ## Example

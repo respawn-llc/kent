@@ -162,10 +162,17 @@ struct Settings {
 fn load_settings() -> Result<Settings, String> {
     let mut server_host = DEFAULT_SERVER_HOST.to_string();
     let mut server_port = DEFAULT_SERVER_PORT;
-    let mut persistence_root = resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?;
     let mut theme = DEFAULT_THEME.to_string();
 
-    if let Some(config) = read_home_config()? {
+    // The config+data root is set by KENT_PERSISTENCE_ROOT (matching the Go
+    // CLI/server), defaulting to ~/.kent. config.toml is read from that root;
+    // persistence_root is no longer a config.toml key.
+    let persistence_root = match env::var("KENT_PERSISTENCE_ROOT") {
+        Ok(value) if !value.trim().is_empty() => resolve_configured_path(value.trim())?,
+        _ => resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?,
+    };
+
+    if let Some(config) = read_config_at(&persistence_root)? {
         if let Some(value) = config.get("server_host").and_then(toml::Value::as_str) {
             if !value.trim().is_empty() {
                 server_host = value.trim().to_string();
@@ -173,11 +180,6 @@ fn load_settings() -> Result<Settings, String> {
         }
         if let Some(value) = config.get("server_port").and_then(toml::Value::as_integer) {
             server_port = parse_server_port(value)?;
-        }
-        if let Some(value) = config.get("persistence_root").and_then(toml::Value::as_str) {
-            if !value.trim().is_empty() {
-                persistence_root = resolve_configured_path(value)?;
-            }
         }
         if let Some(value) = config.get("theme").and_then(toml::Value::as_str) {
             if !value.trim().is_empty() {
@@ -193,11 +195,6 @@ fn load_settings() -> Result<Settings, String> {
     }
     if let Ok(value) = env::var("KENT_SERVER_PORT") {
         server_port = parse_server_port_string(&value)?;
-    }
-    if let Ok(value) = env::var("KENT_PERSISTENCE_ROOT") {
-        if !value.trim().is_empty() {
-            persistence_root = resolve_configured_path(value.trim())?;
-        }
     }
     if let Ok(value) = env::var("KENT_THEME") {
         if !value.trim().is_empty() {
@@ -216,8 +213,8 @@ fn load_settings() -> Result<Settings, String> {
     })
 }
 
-fn read_home_config() -> Result<Option<toml::Value>, String> {
-    let path = home_dir()?.join(".kent").join(CONFIG_FILE_NAME);
+fn read_config_at(root: &Path) -> Result<Option<toml::Value>, String> {
+    let path = root.join(CONFIG_FILE_NAME);
     let content = match fs::read_to_string(&path) {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

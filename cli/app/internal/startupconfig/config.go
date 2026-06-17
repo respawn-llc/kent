@@ -64,6 +64,7 @@ func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
 		SessionID:             sessionID,
 		OpenAIBaseURL:         req.OpenAIBaseURL,
 		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
+		LoadOptions:           req.LoadOptions,
 	})
 	if err != nil {
 		if sessionID != "" && sessionID == contextSessionID {
