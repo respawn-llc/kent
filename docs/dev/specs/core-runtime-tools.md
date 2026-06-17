@@ -217,6 +217,7 @@
 - Kent CLI is the authoritative control surface for goals.
 - Models may use normal shell commands `kent goal show`, `kent goal complete`, and first-time `kent goal set <objective>` for the current session.
 - Agent `goal set` is allowed only when no active or paused goal exists. Completed goals do not block the next agent-set goal.
+- Successful goal mutations emit typed runtime status updates carrying the projected goal status state so frontends can update from goal SSOT instead of inferring status from transcript feedback or run lifecycle. Set, pause, resume, complete, and clear emit updates; show/read-only operations do not.
 - `/goal <objective>` immediately sets/replaces the session goal and starts a model turn. It is rejected while a model turn is running.
 - `/goal resume` on a completed goal reopens it as active.
 - Goal completion is explicit CLI state mutation, not natural-language inference.

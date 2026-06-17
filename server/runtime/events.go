@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/cachewarn"
 	"core/shared/transcript"
@@ -33,6 +34,7 @@ const (
 	EventRunStateChanged     EventKind = "run_state_changed"
 	EventBackgroundUpdated   EventKind = "background_updated"
 	EventSleepGuardFailed    EventKind = "sleep_guard_failed"
+	EventGoalStatusUpdated   EventKind = "goal_status_updated"
 )
 
 type Event struct {
@@ -61,6 +63,12 @@ type Event struct {
 	RunState                     *RunState
 	ContextUsage                 *ContextUsage
 	Background                   *BackgroundShellEvent
+	GoalStatus                   *GoalStatusUpdate
+}
+
+type GoalStatusUpdate struct {
+	State   session.GoalState
+	Cleared bool
 }
 
 type RunState struct {

@@ -20,11 +20,12 @@ const (
 func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 	m := l.model
 	spin := renderStatusDot(m.theme, m.activity, m.spinnerFrame)
-	if m.isReviewerRunning() {
+	switch m.statusLineIndicator() {
+	case statusLineIndicatorReviewer:
 		spin = renderReviewerStatus(m.spinnerFrame)
-	} else if m.isCompacting() {
+	case statusLineIndicatorCompaction:
 		spin = renderCompactionStatus(m.spinnerFrame)
-	} else if m.isGoalRun() && m.activity == uiActivityRunning {
+	case statusLineIndicatorGoal:
 		spin = renderGoalStatus(m.theme, m.spinnerFrame)
 	}
 	segments := make([]string, 0, 5)

@@ -39,11 +39,15 @@ func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.Goa
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
 	}
 	msg := e.goalDeveloperMessage(prompts.RenderGoalSetPrompt(strings.TrimSpace(objective)), goalSetCompactText(objective))
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
 	goal, err := e.store.SetGoalWithEvents(objective, actor, []session.EventInput{{Kind: "message", Payload: msg}})
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.steer("", steerStoredMessageProjectionIntent(msg))
+	if err := e.steer("", steerStoredMessageProjectionIntent(msg), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
+		return session.GoalState{}, err
+	}
 	return goal, nil
 }
 
@@ -53,6 +57,8 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 	}
 	transcriptWorkingDir := e.transcriptWorkingDir()
 	var msg llm.Message
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
 	goal, err := e.store.SetGoalStatusWithEventBuilder(status, actor, func(goal session.GoalState) ([]session.EventInput, error) {
 		msg = normalizeMessageForTranscript(llm.Message{
 			Role:           llm.RoleDeveloper,
@@ -65,7 +71,9 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.steer("", steerStoredMessageProjectionIntent(msg))
+	if err := e.steer("", steerStoredMessageProjectionIntent(msg), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
+		return session.GoalState{}, err
+	}
 	return goal, nil
 }
 
@@ -74,12 +82,28 @@ func (e *Engine) ClearGoal(actor session.GoalActor) (session.GoalState, error) {
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
 	}
 	msg := e.goalDeveloperMessage(prompts.GoalClearPrompt, "Goal cleared")
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
 	goal, err := e.store.ClearGoalWithEvents(actor, []session.EventInput{{Kind: "message", Payload: msg}})
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.steer("", steerStoredMessageProjectionIntent(msg))
+	if err := e.steer("", steerStoredMessageProjectionIntent(msg), steerGoalStatusUpdateIntent(goalStatusClearUpdate())); err != nil {
+		return session.GoalState{}, err
+	}
 	return goal, nil
+}
+
+func goalStatusUpdateFromState(goal session.GoalState) GoalStatusUpdate {
+	return GoalStatusUpdate{State: goal}
+}
+
+func goalStatusClearUpdate() GoalStatusUpdate {
+	return GoalStatusUpdate{Cleared: true}
+}
+
+func steerGoalStatusUpdateIntent(update GoalStatusUpdate) steeringIntent {
+	return steerEventIntent(Event{Kind: EventGoalStatusUpdated, GoalStatus: &update})
 }
 
 func (e *Engine) StartGoalLoop() error {

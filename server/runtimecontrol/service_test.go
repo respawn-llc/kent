@@ -13,6 +13,7 @@ import (
 	"core/server/primaryrun"
 	"core/server/requestmemo"
 	"core/server/runtime"
+	"core/server/runtimeview"
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/serverapi"
@@ -529,6 +530,134 @@ func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Fatalf("events persisted after failed preflight: %+v", events)
+	}
+}
+
+func TestServiceActiveGoalUpdatesEmitExactlyOneGoalStatusEventBeforeGoalLoopEvents(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, *runtime.Engine, func())
+		call    func(context.Context, *Service, string) error
+	}{
+		{
+			name: "set",
+			call: func(ctx context.Context, service *Service, sessionID string) error {
+				_, err := service.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{
+					ClientRequestID: "goal-status-set",
+					SessionID:       sessionID,
+					Objective:       "ship goal mode",
+					Actor:           "user",
+				})
+				return err
+			},
+		},
+		{
+			name: "resume",
+			prepare: func(t *testing.T, engine *runtime.Engine, resetEvents func()) {
+				t.Helper()
+				if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+					t.Fatalf("SetGoal: %v", err)
+				}
+				if _, err := engine.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser); err != nil {
+					t.Fatalf("pause goal: %v", err)
+				}
+				resetEvents()
+			},
+			call: func(ctx context.Context, service *Service, sessionID string) error {
+				_, err := service.ResumeGoal(ctx, serverapi.RuntimeGoalStatusRequest{
+					ClientRequestID: "goal-status-resume",
+					SessionID:       sessionID,
+					Actor:           "user",
+				})
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var eventsMu sync.Mutex
+			events := make([]runtime.Event, 0, 8)
+			resetEvents := func() {
+				eventsMu.Lock()
+				defer eventsMu.Unlock()
+				events = nil
+			}
+			store, engine := newRuntimeControlTestEngine(t, &blockingRuntimeControlClient{}, nil, runtime.Config{
+				EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+				OnEvent: func(evt runtime.Event) {
+					eventsMu.Lock()
+					defer eventsMu.Unlock()
+					events = append(events, evt)
+				},
+			})
+			if tt.prepare != nil {
+				tt.prepare(t, engine, resetEvents)
+			}
+			service := NewService(stubRuntimeResolver{engine: engine}, nil)
+
+			if err := tt.call(context.Background(), service, store.Meta().SessionID); err != nil {
+				t.Fatalf("active goal update: %v", err)
+			}
+
+			eventsMu.Lock()
+			gotEvents := append([]runtime.Event(nil), events...)
+			eventsMu.Unlock()
+			statusIndexes := make([]int, 0, 1)
+			for idx, evt := range gotEvents {
+				if evt.Kind == runtime.EventGoalStatusUpdated {
+					statusIndexes = append(statusIndexes, idx)
+				}
+			}
+			if len(statusIndexes) != 1 {
+				t.Fatalf("goal status event count = %d, want 1 events=%+v", len(statusIndexes), gotEvents)
+			}
+			statusIndex := statusIndexes[0]
+			if statusIndex == 0 || gotEvents[statusIndex-1].Kind != runtime.EventConversationUpdated || !gotEvents[statusIndex-1].CommittedTranscriptChanged {
+				t.Fatalf("goal status event not immediately after committed feedback: events=%+v", gotEvents)
+			}
+			for idx, evt := range gotEvents[:statusIndex] {
+				if evt.Kind == runtime.EventRunStateChanged || evt.Kind == runtime.EventAssistantMessage || evt.Kind == runtime.EventToolCallStarted || evt.Kind == runtime.EventToolCallCompleted {
+					t.Fatalf("event[%d]=%+v preceded goal feedback/status", idx, evt)
+				}
+			}
+			finalGoal := runtimeview.StatusFromRuntime(engine).Goal
+			status := gotEvents[statusIndex].GoalStatus
+			if finalGoal == nil || status == nil || status.Cleared || status.State.ID != finalGoal.ID || status.State.Objective != finalGoal.Objective || string(status.State.Status) != string(finalGoal.Status) {
+				t.Fatalf("goal status payload = %+v, final goal = %+v", status, finalGoal)
+			}
+		})
+	}
+}
+
+func TestServiceResumeGoalPreflightFailureDoesNotMutateOrEmit(t *testing.T) {
+	var events []runtime.Event
+	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{
+		OnEvent: func(evt runtime.Event) {
+			events = append(events, evt)
+		},
+	})
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := engine.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser); err != nil {
+		t.Fatalf("pause goal: %v", err)
+	}
+	events = nil
+
+	_, err := service.ResumeGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{
+		ClientRequestID: "goal-resume-ask-disabled",
+		SessionID:       store.Meta().SessionID,
+		Actor:           "user",
+	})
+	if !errors.Is(err, runtime.ErrGoalRequiresAskQuestion) {
+		t.Fatalf("ResumeGoal error = %v, want ErrGoalRequiresAskQuestion", err)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.Status != session.GoalStatusPaused {
+		t.Fatalf("goal after failed resume preflight = %+v, want paused", goal)
+	}
+	if len(events) != 0 {
+		t.Fatalf("live events emitted after failed resume preflight: %+v", events)
 	}
 }
 
