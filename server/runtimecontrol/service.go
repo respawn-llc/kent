@@ -21,6 +21,14 @@ type RuntimeResolver interface {
 	ResolveRuntime(ctx context.Context, sessionID string) (*runtime.Engine, error)
 }
 
+type CollaborativeRuntimeGuard interface {
+	Engine() *runtime.Engine
+}
+
+type CollaborativeRuntimeResolver interface {
+	WithCollaborativeRuntimeEngine(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(*runtime.Engine) error) error
+}
+
 type ControllerLeaseVerifier interface {
 	RequireControllerLease(ctx context.Context, sessionID string, leaseID string) error
 }
@@ -29,11 +37,17 @@ type PromptHistoryStore interface {
 	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error)
 }
 
+type WorkflowSessionResolver interface {
+	ResolveSessionStore(ctx context.Context, sessionID string) (*session.Store, error)
+}
+
 type Service struct {
 	runtimes       RuntimeResolver
+	collaborative  CollaborativeRuntimeResolver
 	gate           primaryrun.Gate
 	control        ControllerLeaseVerifier
 	promptStore    PromptHistoryStore
+	workflowStates WorkflowSessionResolver
 	sessionNames   *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	thinkingLevels *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	fastModes      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetFastModeEnabledResponse]
@@ -153,6 +167,14 @@ func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) 
 	return s
 }
 
+func (s *Service) WithCollaborativeRuntimeResolver(resolver CollaborativeRuntimeResolver) *Service {
+	if s == nil {
+		return nil
+	}
+	s.collaborative = resolver
+	return s
+}
+
 func (s *Service) WithPromptHistoryStore(store PromptHistoryStore) *Service {
 	if s == nil {
 		return nil
@@ -161,11 +183,36 @@ func (s *Service) WithPromptHistoryStore(store PromptHistoryStore) *Service {
 	return s
 }
 
+func (s *Service) WithWorkflowSessionResolver(resolver WorkflowSessionResolver) *Service {
+	if s == nil {
+		return nil
+	}
+	s.workflowStates = resolver
+	return s
+}
+
 func (s *Service) requireControllerLease(ctx context.Context, sessionID string, leaseID string) error {
 	if s == nil || s.control == nil {
 		return nil
 	}
 	return s.control.RequireControllerLease(ctx, sessionID, leaseID)
+}
+
+func (s *Service) withRuntimeAccess(ctx context.Context, sessionID string, leaseID string, op serverapi.SessionRuntimeOperation, fn func(*runtime.Engine) error) error {
+	if strings.TrimSpace(leaseID) != "" {
+		if err := s.requireControllerLease(ctx, sessionID, leaseID); err != nil {
+			return err
+		}
+		engine, err := s.resolve(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		return fn(engine)
+	}
+	if s == nil || s.collaborative == nil {
+		return serverapi.ErrInvalidControllerLease
+	}
+	return s.collaborative.WithCollaborativeRuntimeEngine(ctx, sessionID, op, fn)
 }
 
 func (s *Service) resolve(ctx context.Context, sessionID string) (*runtime.Engine, error) {
@@ -188,14 +235,9 @@ func (s *Service) SetSessionName(ctx context.Context, req serverapi.RuntimeSetSe
 	}
 	memoReq := sessionStringMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Value: req.Name}
 	_, err := s.sessionNames.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionStringMemoRequest, func(ctx context.Context) (struct{}, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return struct{}{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, engine.SetSessionName(req.Name)
+		return struct{}{}, s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationSettingsSessionName, func(engine *runtime.Engine) error {
+			return engine.SetSessionName(req.Name)
+		})
 	})
 	return err
 }
@@ -206,14 +248,9 @@ func (s *Service) SetThinkingLevel(ctx context.Context, req serverapi.RuntimeSet
 	}
 	memoReq := sessionStringMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Value: req.Level}
 	_, err := s.thinkingLevels.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionStringMemoRequest, func(ctx context.Context) (struct{}, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return struct{}{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, engine.SetThinkingLevel(req.Level)
+		return struct{}{}, s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationSettingsThinkingLevel, func(engine *runtime.Engine) error {
+			return engine.SetThinkingLevel(req.Level)
+		})
 	})
 	return err
 }
@@ -224,20 +261,15 @@ func (s *Service) SetFastModeEnabled(ctx context.Context, req serverapi.RuntimeS
 	}
 	memoReq := sessionBoolMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Enabled: req.Enabled}
 	return s.fastModes.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionBoolMemoRequest, func(ctx context.Context) (serverapi.RuntimeSetFastModeEnabledResponse, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
-		}
-		changed, err := engine.SetFastModeEnabledWithCommittedFeedback(req.Enabled, func(changed bool) string {
-			return serverapi.FastModeToggleStatusMessage(req.Enabled, changed)
+		var resp serverapi.RuntimeSetFastModeEnabledResponse
+		err := s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationSettingsFastMode, func(engine *runtime.Engine) error {
+			changed, err := engine.SetFastModeEnabledWithCommittedFeedback(req.Enabled, func(changed bool) string {
+				return serverapi.FastModeToggleStatusMessage(req.Enabled, changed)
+			})
+			resp = serverapi.RuntimeSetFastModeEnabledResponse{Changed: changed}
+			return err
 		})
-		if err != nil {
-			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
-		}
-		return serverapi.RuntimeSetFastModeEnabledResponse{Changed: changed}, nil
+		return resp, err
 	})
 }
 
@@ -270,15 +302,18 @@ func (s *Service) SetAutoCompactionEnabled(ctx context.Context, req serverapi.Ru
 	}
 	memoReq := sessionBoolMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Enabled: req.Enabled}
 	return s.autoCompacts.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionBoolMemoRequest, func(ctx context.Context) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeSetAutoCompactionEnabledResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeSetAutoCompactionEnabledResponse{}, err
-		}
-		changed, enabled := engine.SetAutoCompactionEnabled(req.Enabled)
-		return serverapi.RuntimeSetAutoCompactionEnabledResponse{Changed: changed, Enabled: enabled}, nil
+		var resp serverapi.RuntimeSetAutoCompactionEnabledResponse
+		err := s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationSettingsAutoCompaction, func(engine *runtime.Engine) error {
+			if !req.Enabled {
+				if err := s.rejectWorkflowAutoCompactionDisable(ctx, req.SessionID, engine); err != nil {
+					return err
+				}
+			}
+			changed, enabled := engine.SetAutoCompactionEnabled(req.Enabled)
+			resp = serverapi.RuntimeSetAutoCompactionEnabledResponse{Changed: changed, Enabled: enabled}
+			return nil
+		})
+		return resp, err
 	})
 }
 
@@ -288,20 +323,15 @@ func (s *Service) SetQuestionsEnabled(ctx context.Context, req serverapi.Runtime
 	}
 	memoReq := sessionBoolMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Enabled: req.Enabled}
 	return s.questions.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionBoolMemoRequest, func(ctx context.Context) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err
-		}
-		changed, enabled, err := engine.SetQuestionsEnabledWithCommittedFeedback(req.Enabled, func(enabled bool, changed bool) string {
-			return serverapi.QuestionsToggleStatusMessage(enabled, changed)
+		var resp serverapi.RuntimeSetQuestionsEnabledResponse
+		err := s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationSettingsQuestions, func(engine *runtime.Engine) error {
+			changed, enabled, err := engine.SetQuestionsEnabledWithCommittedFeedback(req.Enabled, func(enabled bool, changed bool) string {
+				return serverapi.QuestionsToggleStatusMessage(enabled, changed)
+			})
+			resp = serverapi.RuntimeSetQuestionsEnabledResponse{Changed: changed, Enabled: enabled}
+			return err
 		})
-		if err != nil {
-			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err
-		}
-		return serverapi.RuntimeSetQuestionsEnabledResponse{Changed: changed, Enabled: enabled}, nil
+		return resp, err
 	})
 }
 
@@ -432,18 +462,20 @@ func (s *Service) CompactContext(ctx context.Context, req serverapi.RuntimeCompa
 	}
 	memoReq := sessionStringMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Value: req.Args}
 	_, err := s.compactions.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionStringMemoRequest, func(ctx context.Context) (struct{}, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return struct{}{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return struct{}{}, err
-		}
 		runCtx := context.Background()
 		if ctx != nil {
 			runCtx = context.WithoutCancel(ctx)
 		}
-		return struct{}{}, engine.CompactContext(runCtx, req.Args)
+		if strings.TrimSpace(req.ControllerLeaseID) == "" {
+			lease, err := s.acquirePrimaryRun(memoReq.SessionID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer lease.Release()
+		}
+		return struct{}{}, s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationCompactManual, func(engine *runtime.Engine) error {
+			return engine.CompactContext(runCtx, req.Args)
+		})
 	})
 	return err
 }
@@ -454,18 +486,20 @@ func (s *Service) CompactContextForPreSubmit(ctx context.Context, req serverapi.
 	}
 	memoReq := sessionOnlyMemoRequest{SessionID: strings.TrimSpace(req.SessionID)}
 	_, err := s.preSubmitCompactions.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, func(a sessionOnlyMemoRequest, b sessionOnlyMemoRequest) bool { return a.SessionID == b.SessionID }, func(ctx context.Context) (struct{}, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return struct{}{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return struct{}{}, err
-		}
 		runCtx := context.Background()
 		if ctx != nil {
 			runCtx = context.WithoutCancel(ctx)
 		}
-		return struct{}{}, engine.CompactContextForPreSubmit(runCtx)
+		if strings.TrimSpace(req.ControllerLeaseID) == "" {
+			lease, err := s.acquirePrimaryRun(memoReq.SessionID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer lease.Release()
+		}
+		return struct{}{}, s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationCompactPreSubmit, func(engine *runtime.Engine) error {
+			return engine.CompactContextForPreSubmit(runCtx)
+		})
 	})
 	return err
 }
@@ -487,27 +521,22 @@ func (s *Service) SubmitQueuedUserMessages(ctx context.Context, req serverapi.Ru
 	}
 	memoReq := sessionOnlyMemoRequest{SessionID: strings.TrimSpace(req.SessionID)}
 	return s.queuedSubmits.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, func(a sessionOnlyMemoRequest, b sessionOnlyMemoRequest) bool { return a.SessionID == b.SessionID }, func(ctx context.Context) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
-		}
 		lease, err := s.acquirePrimaryRun(req.SessionID)
 		if err != nil {
 			return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
 		}
 		defer lease.Release()
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
-		}
 		runCtx := context.Background()
 		if ctx != nil {
 			runCtx = context.WithoutCancel(ctx)
 		}
-		msg, err := engine.SubmitQueuedUserMessages(runCtx)
-		if err != nil {
-			return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
-		}
-		return serverapi.RuntimeSubmitQueuedUserMessagesResponse{Message: msg.Content}, nil
+		var resp serverapi.RuntimeSubmitQueuedUserMessagesResponse
+		err = s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationSubmitQueuedUserMessages, func(engine *runtime.Engine) error {
+			msg, err := engine.SubmitQueuedUserMessages(runCtx)
+			resp = serverapi.RuntimeSubmitQueuedUserMessagesResponse{Message: msg.Content}
+			return err
+		})
+		return resp, err
 	})
 }
 
@@ -535,23 +564,21 @@ func (s *Service) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQue
 	}
 	memoReq := sessionTextMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Text: req.Text}
 	return s.queues.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionTextMemoRequest, func(ctx context.Context) (serverapi.RuntimeQueueUserMessageResponse, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeQueueUserMessageResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeQueueUserMessageResponse{}, err
-		}
-		text := memoReq.Text
-		if s != nil && s.promptStore != nil {
-			record, _, err := s.recordPromptHistory(ctx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
-			if err != nil {
-				return serverapi.RuntimeQueueUserMessageResponse{}, err
+		var resp serverapi.RuntimeQueueUserMessageResponse
+		err := s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationQueueUserMessage, func(engine *runtime.Engine) error {
+			text := memoReq.Text
+			if s != nil && s.promptStore != nil {
+				record, _, err := s.recordPromptHistory(ctx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
+				if err != nil {
+					return err
+				}
+				text = record.Text
 			}
-			text = record.Text
-		}
-		item := engine.QueueUserMessage(text)
-		return serverapi.RuntimeQueueUserMessageResponse{QueueItemID: item.ID, Text: item.Text}, nil
+			item := engine.QueueUserMessageWithClientRequestID(text, strings.TrimSpace(req.ClientRequestID))
+			resp = serverapi.RuntimeQueueUserMessageResponse{QueueItemID: item.ID, Text: item.Text, ClientRequestID: item.ClientRequestID}
+			return nil
+		})
+		return resp, err
 	})
 }
 
@@ -561,15 +588,12 @@ func (s *Service) DiscardQueuedUserMessage(ctx context.Context, req serverapi.Ru
 	}
 	memoReq := queuedUserMessageMemoRequest{SessionID: strings.TrimSpace(req.SessionID), QueueItemID: strings.TrimSpace(req.QueueItemID)}
 	return s.queuedDiscards.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameQueuedUserMessageMemoRequest, func(ctx context.Context) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
-		}
-		discarded := engine.DiscardQueuedUserMessage(req.QueueItemID)
-		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: discarded}, nil
+		var resp serverapi.RuntimeDiscardQueuedUserMessageResponse
+		err := s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationDiscardQueuedUserMessage, func(engine *runtime.Engine) error {
+			resp = serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: engine.DiscardQueuedUserMessage(req.QueueItemID)}
+			return nil
+		})
+		return resp, err
 	})
 }
 
@@ -579,14 +603,10 @@ func (s *Service) RecordPromptHistory(ctx context.Context, req serverapi.Runtime
 	}
 	memoReq := sessionTextMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Text: req.Text}
 	_, err := s.promptHistory.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionTextMemoRequest, func(ctx context.Context) (struct{}, error) {
-		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return struct{}{}, err
-		}
-		if _, err := s.resolve(ctx, req.SessionID); err != nil {
-			return struct{}{}, err
-		}
-		_, _, err := s.recordPromptHistory(ctx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
-		return struct{}{}, err
+		return struct{}{}, s.withRuntimeAccess(ctx, req.SessionID, req.ControllerLeaseID, serverapi.SessionRuntimeOperationRecordPromptHistory, func(*runtime.Engine) error {
+			_, _, err := s.recordPromptHistory(ctx, memoReq.SessionID, strings.TrimSpace(req.ClientRequestID), memoReq.Text)
+			return err
+		})
 	})
 	return err
 }
@@ -610,6 +630,9 @@ func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowReq
 	if err != nil {
 		return serverapi.RuntimeGoalShowResponse{}, err
 	}
+	if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
+		return serverapi.RuntimeGoalShowResponse{}, err
+	}
 	goal := engine.Goal()
 	if goal == nil {
 		return serverapi.RuntimeGoalShowResponse{}, nil
@@ -631,41 +654,42 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 	trimmedObjective := strings.TrimSpace(req.Objective)
 	memoReq := goalSetMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Objective: trimmedObjective, Actor: strings.TrimSpace(req.Actor)}
 	return s.goals.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalSetMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
-		if err := s.requireOptionalControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
-			currentGoal := engine.Goal()
-			if goalBlocksAgentSet(currentGoal) {
-				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
+		var response serverapi.RuntimeGoalShowResponse
+		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
+			if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
+				return err
 			}
-		}
-		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		goal, err := engine.SetGoal(trimmedObjective, session.GoalActor(req.Actor))
-		if err != nil {
-			var blocked session.GoalAgentOverwriteBlockedError
-			if errors.As(err, &blocked) {
-				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: blocked.Goal.Objective, Status: string(blocked.Goal.Status)}
+			if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
+				currentGoal := engine.Goal()
+				if goalBlocksAgentSet(currentGoal) {
+					return goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
+				}
 			}
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		if err := engine.StartGoalLoop(); err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-			ID:        strings.TrimSpace(goal.ID),
-			Objective: goal.Objective,
-			Status:    strings.TrimSpace(string(goal.Status)),
-			Suspended: false,
-			CreatedAt: goal.CreatedAt,
-			UpdatedAt: goal.UpdatedAt,
-		}}, nil
+			if err := engine.RequireGoalLoopStartAllowed(); err != nil {
+				return err
+			}
+			goal, err := engine.SetGoal(trimmedObjective, session.GoalActor(req.Actor))
+			if err != nil {
+				var blocked session.GoalAgentOverwriteBlockedError
+				if errors.As(err, &blocked) {
+					return goalAgentOverwriteDeniedError{Objective: blocked.Goal.Objective, Status: string(blocked.Goal.Status)}
+				}
+				return err
+			}
+			if err := engine.StartGoalLoop(); err != nil {
+				return err
+			}
+			response = serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+				ID:        strings.TrimSpace(goal.ID),
+				Objective: goal.Objective,
+				Status:    strings.TrimSpace(string(goal.Status)),
+				Suspended: false,
+				CreatedAt: goal.CreatedAt,
+				UpdatedAt: goal.UpdatedAt,
+			}}
+			return nil
+		})
+		return response, err
 	})
 }
 
@@ -704,48 +728,50 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 	}
 	memoReq := goalStatusMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Status: strings.TrimSpace(string(status)), Actor: strings.TrimSpace(req.Actor)}
 	return s.goalStatuses.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalStatusMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
-		if err := s.requireOptionalControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		if status == session.GoalStatusComplete {
-			current := engine.Goal()
-			if current != nil && current.Status == session.GoalStatusComplete {
-				return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-					ID:        strings.TrimSpace(current.ID),
-					Objective: current.Objective,
-					Status:    strings.TrimSpace(string(current.Status)),
-					Suspended: false,
-					CreatedAt: current.CreatedAt,
-					UpdatedAt: current.UpdatedAt,
-				}}, nil
+		var response serverapi.RuntimeGoalShowResponse
+		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
+			if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
+				return err
 			}
-		}
-		if status == session.GoalStatusActive {
-			if err := engine.RequireGoalLoopStartAllowed(); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
+			if status == session.GoalStatusComplete {
+				current := engine.Goal()
+				if current != nil && current.Status == session.GoalStatusComplete {
+					response = serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+						ID:        strings.TrimSpace(current.ID),
+						Objective: current.Objective,
+						Status:    strings.TrimSpace(string(current.Status)),
+						Suspended: false,
+						CreatedAt: current.CreatedAt,
+						UpdatedAt: current.UpdatedAt,
+					}}
+					return nil
+				}
 			}
-		}
-		goal, err := engine.SetGoalStatus(status, session.GoalActor(req.Actor))
-		if err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		if status == session.GoalStatusActive {
-			if err := engine.StartGoalLoop(); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
+			if status == session.GoalStatusActive {
+				if err := engine.RequireGoalLoopStartAllowed(); err != nil {
+					return err
+				}
 			}
-		}
-		return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-			ID:        strings.TrimSpace(goal.ID),
-			Objective: goal.Objective,
-			Status:    strings.TrimSpace(string(goal.Status)),
-			Suspended: false,
-			CreatedAt: goal.CreatedAt,
-			UpdatedAt: goal.UpdatedAt,
-		}}, nil
+			goal, err := engine.SetGoalStatus(status, session.GoalActor(req.Actor))
+			if err != nil {
+				return err
+			}
+			if status == session.GoalStatusActive {
+				if err := engine.StartGoalLoop(); err != nil {
+					return err
+				}
+			}
+			response = serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+				ID:        strings.TrimSpace(goal.ID),
+				Objective: goal.Objective,
+				Status:    strings.TrimSpace(string(goal.Status)),
+				Suspended: false,
+				CreatedAt: goal.CreatedAt,
+				UpdatedAt: goal.UpdatedAt,
+			}}
+			return nil
+		})
+		return response, err
 	})
 }
 
@@ -755,25 +781,69 @@ func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearR
 	}
 	memoReq := goalClearMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Actor: strings.TrimSpace(req.Actor)}
 	return s.goalClears.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalClearMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
-		if err := s.requireOptionalControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		if _, err := engine.ClearGoal(session.GoalActor(req.Actor)); err != nil {
-			return serverapi.RuntimeGoalShowResponse{}, err
-		}
-		return serverapi.RuntimeGoalShowResponse{}, nil
+		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
+			if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
+				return err
+			}
+			_, err := engine.ClearGoal(session.GoalActor(req.Actor))
+			return err
+		})
+		return serverapi.RuntimeGoalShowResponse{}, err
 	})
 }
 
-func (s *Service) requireOptionalControllerLease(ctx context.Context, sessionID string, leaseID string) error {
+func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, leaseID string, fn func(*runtime.Engine) error) error {
+	var lease primaryrun.Lease
 	if strings.TrimSpace(leaseID) == "" {
-		return nil
+		if _, err := s.resolve(ctx, sessionID); err != nil {
+			return err
+		}
+		var err error
+		lease, err = s.acquirePrimaryRun(sessionID)
+		if err != nil {
+			return err
+		}
+		defer lease.Release()
 	}
-	return s.requireControllerLease(ctx, sessionID, leaseID)
+	return s.withRuntimeAccess(ctx, sessionID, leaseID, serverapi.SessionRuntimeOperationGoalManage, fn)
+}
+
+func (s *Service) rejectWorkflowGoalControl(ctx context.Context, sessionID string, engine *runtime.Engine) error {
+	workflowSession, err := s.workflowTaskSession(ctx, sessionID, engine)
+	if err != nil {
+		return err
+	}
+	if workflowSession {
+		return errors.New("goal control is unavailable for workflow task sessions")
+	}
+	return nil
+}
+
+func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {
+	workflowSession, err := s.workflowTaskSession(ctx, sessionID, engine)
+	if err != nil {
+		return err
+	}
+	if workflowSession {
+		return errors.New("auto-compaction cannot be disabled for workflow task sessions")
+	}
+	return nil
+}
+
+func (s *Service) workflowTaskSession(ctx context.Context, sessionID string, engine *runtime.Engine) (bool, error) {
+	if engine != nil && engine.WorkflowSessionState().RunID != "" {
+		return true, nil
+	}
+	if s != nil && s.workflowStates != nil {
+		store, err := s.workflowStates.ResolveSessionStore(ctx, sessionID)
+		if err != nil {
+			return false, err
+		}
+		if store != nil && store.Meta().WorkflowSession != nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) acquirePrimaryRun(sessionID string) (primaryrun.Lease, error) {

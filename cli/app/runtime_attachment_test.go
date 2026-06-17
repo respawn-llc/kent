@@ -146,8 +146,9 @@ func TestRuntimeAttachmentCloseReleasesRuntime(t *testing.T) {
 	}
 }
 
-func TestRuntimeAttachmentReadOnlyCloseDoesNotReleaseRuntime(t *testing.T) {
+func TestRuntimeAttachmentLegacyReadOnlyActivationIsNoControl(t *testing.T) {
 	releaseCount := 0
+	controls := &leaseRetryRuntimeControlClient{allowEmptySubmit: true}
 	server := runtimeAttachmentTestServer{
 		runtime: &recordingSessionRuntimeClient{
 			activate: func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
@@ -165,27 +166,86 @@ func TestRuntimeAttachmentReadOnlyCloseDoesNotReleaseRuntime(t *testing.T) {
 		},
 		promptEvents: &recordingPromptActivityClient{
 			subscribe: func(context.Context, serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
-				t.Fatal("read-only attach should not subscribe to prompt control stream")
 				return nil, nil
 			},
 		},
 		sessionViews:   &countingSessionViewClient{},
-		runtimeControl: &leaseRetryRuntimeControlClient{},
+		runtimeControl: controls,
 	}
 
 	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-readonly"}, io.Discard, "test")
 	if err != nil {
 		t.Fatalf("prepareSharedRuntime: %v", err)
 	}
-	if !plan.ReadOnly {
-		t.Fatal("expected read-only runtime plan")
+	if !plan.ReadOnly || plan.AccessMode != serverapi.SessionRuntimeAttachModeNoControl {
+		t.Fatalf("plan readOnly=%v mode=%q, want read-only no-control", plan.ReadOnly, plan.AccessMode)
 	}
-	if _, err := plan.Wiring.runtimeClient.SubmitUserMessage(context.Background(), "hello"); !errors.Is(err, errReadOnlyRuntime) {
-		t.Fatalf("SubmitUserMessage error = %v, want read-only runtime", err)
+	if _, err := plan.Wiring.runtimeClient.SubmitUserMessage(context.Background(), "hello"); err != nil {
+		if !errors.Is(err, errReadOnlyRuntime) {
+			t.Fatalf("SubmitUserMessage error = %v, want read-only runtime", err)
+		}
+	} else {
+		t.Fatal("SubmitUserMessage unexpectedly succeeded for read-only no-control attach")
 	}
 	plan.Close()
 	if releaseCount != 0 {
 		t.Fatalf("release count = %d, want none for read-only attach", releaseCount)
+	}
+}
+
+func TestRuntimeAttachmentCollaborativeSubmitUsesLiveRuntimeWithoutLeaseOrRelease(t *testing.T) {
+	releaseCount := 0
+	controls := &leaseRetryRuntimeControlClient{allowEmptySubmit: true}
+	server := runtimeAttachmentTestServer{
+		runtime: &recordingSessionRuntimeClient{
+			activate: func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+				return serverapi.SessionRuntimeActivateResponse{
+					Mode: serverapi.SessionRuntimeAttachModeCollaborative,
+					AllowedOperations: []serverapi.SessionRuntimeOperation{
+						serverapi.SessionRuntimeOperationSubmitUserTurn,
+						serverapi.SessionRuntimeOperationQueueUserMessage,
+					},
+				}, nil
+			},
+			release: func(context.Context, serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+				releaseCount++
+				return serverapi.SessionRuntimeReleaseResponse{}, nil
+			},
+		},
+		sessionEvents: &recordingSessionActivityClient{
+			subscribe: func(context.Context, serverapi.SessionActivitySubscribeRequest) (serverapi.SessionActivitySubscription, error) {
+				return noOpSessionActivitySubscription{}, nil
+			},
+		},
+		promptEvents: &recordingPromptActivityClient{
+			subscribe: func(context.Context, serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
+				return nil, nil
+			},
+		},
+		sessionViews:   &countingSessionViewClient{},
+		runtimeControl: controls,
+	}
+
+	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-collab"}, io.Discard, "test")
+	if err != nil {
+		t.Fatalf("prepareSharedRuntime: %v", err)
+	}
+	if plan.ReadOnly || plan.HasControllerLease() {
+		t.Fatalf("plan readOnly=%v lease=%q, want collaborative without controller lease", plan.ReadOnly, plan.CurrentControllerLeaseID())
+	}
+	message, err := plan.Wiring.runtimeClient.SubmitUserMessage(context.Background(), "steer live runtime")
+	if err != nil {
+		t.Fatalf("SubmitUserMessage: %v", err)
+	}
+	if message != "collaborative" {
+		t.Fatalf("message = %q, want collaborative", message)
+	}
+	if got := controls.submitLeaseIDs(); len(got) != 1 || got[0] != "" {
+		t.Fatalf("submit lease ids = %+v, want one empty lease", got)
+	}
+	plan.Close()
+	if releaseCount != 0 {
+		t.Fatalf("release count = %d, want no release for collaborative attach", releaseCount)
 	}
 }
 

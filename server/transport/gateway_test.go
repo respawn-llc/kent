@@ -459,7 +459,7 @@ func TestGatewayFailedActivationDoesNotRecordOwnedRuntimeLease(t *testing.T) {
 	}
 }
 
-func TestGatewayReadOnlyRuntimeActivationDoesNotRecordOwnedLease(t *testing.T) {
+func TestGatewayCollaborativeRuntimeActivationDoesNotRecordOwnedLease(t *testing.T) {
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
@@ -473,8 +473,8 @@ func TestGatewayReadOnlyRuntimeActivationDoesNotRecordOwnedLease(t *testing.T) {
 	handshakeGateway(t, conn)
 	var activation serverapi.SessionRuntimeActivateResponse
 	callGateway(t, conn, "activate-runtime", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID, "activate-runtime"), &activation)
-	if !activation.ReadOnly || strings.TrimSpace(activation.LeaseID) != "" {
-		t.Fatalf("activation response = %+v, want read-only without lease", activation)
+	if activation.ReadOnly || activation.Mode != serverapi.SessionRuntimeAttachModeCollaborative || strings.TrimSpace(activation.LeaseID) != "" || len(activation.AllowedOperations) == 0 {
+		t.Fatalf("activation response = %+v, want collaborative without lease and with allowed operations", activation)
 	}
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close gateway connection: %v", err)
@@ -484,8 +484,8 @@ func TestGatewayReadOnlyRuntimeActivationDoesNotRecordOwnedLease(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
 	callGateway(t, conn, "activate-runtime-again", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID, "activate-runtime-again"), &activation)
-	if !activation.ReadOnly || strings.TrimSpace(activation.LeaseID) != "" {
-		t.Fatalf("activation after read-only disconnect = %+v, want read-only without lease", activation)
+	if activation.ReadOnly || activation.Mode != serverapi.SessionRuntimeAttachModeCollaborative || strings.TrimSpace(activation.LeaseID) != "" || len(activation.AllowedOperations) == 0 {
+		t.Fatalf("activation after collaborative disconnect = %+v, want collaborative without lease and with allowed operations", activation)
 	}
 }
 

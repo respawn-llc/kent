@@ -68,6 +68,8 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"EntryVisibility":                  {},
 		"Event":                            {},
 		"EventKind":                        {},
+		"ExternalRuntimeState":             {},
+		"ExternalRuntimeStatus":            {},
 		"MessagePhase":                     {},
 		"MessageType":                      {},
 		"PendingApproval":                  {},
@@ -82,6 +84,9 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"ProjectWorkspaceSummary":          {},
 		"PromptAnswer":                     {},
 		"QueuedUserMessage":                {},
+		"QueuedUserMessageFailureReason":   {},
+		"QueuedUserMessageStatus":          {},
+		"QueuedUserMessageStatusEvent":     {},
 		"ReasoningDelta":                   {},
 		"ReviewerLifecycle":                {},
 		"RunLifecycle":                     {},
@@ -113,6 +118,7 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"TranscriptRecoveryCause":          {},
 		"TranscriptWindow":                 {},
 		"UpdateStatus":                     {},
+		"WorkflowSessionStatus":            {},
 	}
 	allowedFuncs := map[string]struct{}{
 		"CompactionLifecycle.IsRunning":             {},

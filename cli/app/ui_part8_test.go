@@ -6,6 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/tools"
+	"core/shared/clientui"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"errors"
@@ -266,6 +267,31 @@ func TestSlashAutoCompactionShowsCompactionModeNoneNote(t *testing.T) {
 	}
 	if !strings.Contains(updated.transientStatus, "compaction_mode=none") {
 		t.Fatalf("expected compaction_mode=none note in status, got %q", updated.transientStatus)
+	}
+}
+
+func TestWorkflowSessionAutoCompactionOffBlockedBeforeRuntimeCall(t *testing.T) {
+	client := &runtimeControlFakeClient{
+		status: clientui.RuntimeStatus{
+			AutoCompactionEnabled: true,
+			WorkflowSession:       &clientui.WorkflowSessionStatus{RunID: "run-1"},
+		},
+	}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.input = "/autocompaction off"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+
+	if client.setAutoCompactArg {
+		t.Fatal("did not expect runtime auto-compaction disable call")
+	}
+	if !strings.Contains(updated.transientStatus, "Auto-compaction cannot be disabled") {
+		t.Fatalf("transient status = %q, want workflow auto-compaction block", updated.transientStatus)
+	}
+	if cmd == nil {
+		t.Fatal("expected transient status clear command")
 	}
 }
 

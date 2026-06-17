@@ -168,7 +168,11 @@ func (s *resolvedSessionSnapshotSource) ResolveSessionSnapshot(ctx context.Conte
 			return nil, err
 		}
 		if engine != nil {
-			return liveRuntimeSessionSnapshot{engine: engine, sessions: s.sessions}, nil
+			var external clientui.ExternalRuntimeStatus
+			if resolver, ok := s.runtimes.(ExternalRuntimeStatusResolver); ok {
+				external = resolver.ExternalRuntimeStatus(sessionID)
+			}
+			return liveRuntimeSessionSnapshot{engine: engine, sessions: s.sessions, external: external}, nil
 		}
 	}
 	if s.sessions == nil {
@@ -193,14 +197,37 @@ func (s *resolvedSessionSnapshotSource) ClearCaches() {
 type liveRuntimeSessionSnapshot struct {
 	engine   *runtime.Engine
 	sessions SessionStoreResolver
+	external clientui.ExternalRuntimeStatus
 }
 
 func (s liveRuntimeSessionSnapshot) Capabilities() SessionSnapshotCapabilities {
 	return coreSessionSnapshotCapabilities()
 }
 
-func (s liveRuntimeSessionSnapshot) MainView(context.Context) (clientui.RuntimeMainView, error) {
-	return runtimeview.MainViewFromRuntime(s.engine), nil
+func (s liveRuntimeSessionSnapshot) MainView(ctx context.Context) (clientui.RuntimeMainView, error) {
+	view := runtimeview.MainViewFromRuntime(s.engine)
+	if s.external.State != "" {
+		view.ExternalRuntime = &clientui.ExternalRuntimeStatus{
+			State:          s.external.State,
+			QueueAccepting: s.external.QueueAccepting,
+		}
+	}
+	if s.sessions != nil && view.Status.WorkflowSession == nil {
+		store, err := s.sessions.ResolveSessionStore(ctx, s.engine.SessionID())
+		if err != nil {
+			return clientui.RuntimeMainView{}, err
+		}
+		if store != nil {
+			if workflowSession := store.Meta().WorkflowSession; workflowSession != nil {
+				view.Status.WorkflowSession = &clientui.WorkflowSessionStatus{
+					RunID:      strings.TrimSpace(workflowSession.RunID),
+					TaskID:     strings.TrimSpace(workflowSession.TaskID),
+					WorkflowID: strings.TrimSpace(workflowSession.WorkflowID),
+				}
+			}
+		}
+	}
+	return view, nil
 }
 
 func (s liveRuntimeSessionSnapshot) TranscriptPage(_ context.Context, req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {

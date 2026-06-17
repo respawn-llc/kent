@@ -9,12 +9,38 @@ import (
 	"testing"
 	"time"
 
+	"core/server/llm"
 	"core/server/primaryrun"
 	"core/server/runtime"
+	"core/server/session"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 )
+
+type registryRuntimeFakeClient struct{}
+
+func (registryRuntimeFakeClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{}, nil
+}
+
+func (registryRuntimeFakeClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}, nil
+}
+
+func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.Engine {
+	t.Helper()
+	store, err := session.Create(t.TempDir(), "workspace", t.TempDir())
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	engine, err := runtime.New(store, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-5", OnEvent: onEvent})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	return engine
+}
 
 func TestRuntimeRegistryBroadcastsSessionActivityToMultipleSubscribers(t *testing.T) {
 	registry := NewRuntimeRegistry()
@@ -278,6 +304,192 @@ func TestRuntimeRegistrySleepObserverUnregisterLastRunningSessionReportsIdle(t *
 	}
 }
 
+func TestRuntimeRegistryScopedGuardRejectsReplacementAndClosingEntries(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	first := &runtime.Engine{}
+	second := &runtime.Engine{}
+	registry.Register("session-1", first)
+	firstGuard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard first: %v", err)
+	}
+	if firstGuard.Engine() != first {
+		t.Fatal("expected first guard to reference first engine")
+	}
+
+	replaced := make(chan struct{})
+	go func() {
+		registry.Register("session-1", second)
+		close(replaced)
+	}()
+	assertNoClose(t, replaced)
+	firstGuard.Release()
+	waitClosed(t, replaced)
+
+	replacementGuard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard replacement: %v", err)
+	}
+	replacementGuard.Release()
+	registry.Unregister("session-1", second)
+	if _, err := registry.BeginRuntimeGuard(context.Background(), "session-1"); err == nil {
+		t.Fatal("expected guard for unregistered runtime to fail")
+	}
+}
+
+func TestRuntimeRegistryReplacementDoesNotHoldDirectoryLockWhileWaitingForGuard(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	first := &runtime.Engine{}
+	second := &runtime.Engine{}
+	other := &runtime.Engine{}
+	registry.Register("session-1", first)
+	guard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard: %v", err)
+	}
+
+	replaced := make(chan struct{})
+	go func() {
+		registry.Register("session-1", second)
+		close(replaced)
+	}()
+	assertNoClose(t, replaced)
+
+	registeredOther := make(chan struct{})
+	go func() {
+		registry.Register("session-2", other)
+		close(registeredOther)
+	}()
+	waitClosed(t, registeredOther)
+
+	guard.Release()
+	waitClosed(t, replaced)
+	registry.Unregister("session-1", second)
+	registry.Unregister("session-2", other)
+}
+
+func TestRuntimeRegistryReplacementWaitsForCloseDrainOwnership(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	first := &runtime.Engine{}
+	second := &runtime.Engine{}
+	registry.Register("session-1", first)
+
+	drainStarted := make(chan struct{})
+	releaseDrain := make(chan struct{})
+	drainDone := make(chan struct{})
+	go func() {
+		err := registry.CloseRuntimeWithDrain(context.Background(), "session-1", first, func(context.Context) error {
+			close(drainStarted)
+			<-releaseDrain
+			return nil
+		})
+		if err != nil {
+			t.Errorf("CloseRuntimeWithDrain: %v", err)
+		}
+		close(drainDone)
+	}()
+	waitClosed(t, drainStarted)
+
+	replaced := make(chan struct{})
+	go func() {
+		registry.Register("session-1", second)
+		close(replaced)
+	}()
+	assertNoClose(t, replaced)
+
+	close(releaseDrain)
+	waitClosed(t, drainDone)
+	waitClosed(t, replaced)
+	if registry.directory.Resolve("session-1") != second {
+		t.Fatal("expected replacement runtime after drain completes")
+	}
+	registry.Unregister("session-1", second)
+}
+
+func TestRuntimeRegistryCloseDrainDoesNotClearOwnerPrimaryRunLease(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	ownerLease, err := registry.AcquirePrimaryRun("session-1")
+	if err != nil {
+		t.Fatalf("AcquirePrimaryRun owner: %v", err)
+	}
+
+	if err := registry.CloseRuntimeWithDrain(context.Background(), "session-1", engine, nil); err != nil {
+		t.Fatalf("CloseRuntimeWithDrain: %v", err)
+	}
+	if _, err := registry.AcquirePrimaryRun("session-1"); !errors.Is(err, primaryrun.ErrActivePrimaryRun) {
+		t.Fatalf("AcquirePrimaryRun before owner release error = %v, want active primary run", err)
+	}
+	ownerLease.Release()
+	if lease, err := registry.AcquirePrimaryRun("session-1"); err != nil {
+		t.Fatalf("AcquirePrimaryRun after owner release: %v", err)
+	} else {
+		lease.Release()
+	}
+}
+
+func TestRuntimeRegistryUnregisterWaitsForCloseDrainOwnership(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+
+	drainStarted := make(chan struct{})
+	releaseDrain := make(chan struct{})
+	drainDone := make(chan struct{})
+	go func() {
+		err := registry.CloseRuntimeWithDrain(context.Background(), "session-1", engine, func(context.Context) error {
+			close(drainStarted)
+			<-releaseDrain
+			return nil
+		})
+		if err != nil {
+			t.Errorf("CloseRuntimeWithDrain: %v", err)
+		}
+		close(drainDone)
+	}()
+	waitClosed(t, drainStarted)
+
+	unregistered := make(chan struct{})
+	go func() {
+		registry.Unregister("session-1", engine)
+		close(unregistered)
+	}()
+	assertNoClose(t, unregistered)
+
+	close(releaseDrain)
+	waitClosed(t, drainDone)
+	waitClosed(t, unregistered)
+	if registry.IsSessionRuntimeActive("session-1") {
+		t.Fatal("expected runtime to be inactive after drain and unregister complete")
+	}
+}
+
+func TestRuntimeRegistryUnregisterWaitsForInFlightGuard(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	guard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard: %v", err)
+	}
+
+	unregistered := make(chan struct{})
+	go func() {
+		registry.Unregister("session-1", engine)
+		close(unregistered)
+	}()
+	assertNoClose(t, unregistered)
+	if _, err := registry.BeginRuntimeGuard(context.Background(), "session-1"); err == nil {
+		t.Fatal("expected closing runtime to reject new guarded mutation")
+	}
+	guard.Release()
+	waitClosed(t, unregistered)
+	if registry.IsSessionRuntimeActive("session-1") {
+		t.Fatal("expected runtime to unregister after guard release")
+	}
+}
+
 func TestRuntimeRegistrySleepObserverReplacingRunningSessionReportsIdleOnce(t *testing.T) {
 	registry := NewRuntimeRegistry()
 	first := &runtime.Engine{}
@@ -427,6 +639,24 @@ func assertNoSleepObserverState(t *testing.T, notifications <-chan bool) {
 	case active := <-notifications:
 		t.Fatalf("unexpected sleep observer notification: %v", active)
 	default:
+	}
+}
+
+func assertNoClose(t *testing.T, ch <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatal("channel closed before release")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func waitClosed(t *testing.T, ch <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for channel close")
 	}
 }
 
@@ -817,6 +1047,203 @@ func TestRuntimeRegistryPreservesPrimaryRunLeaseWhenRuntimeIsReplaced(t *testing
 	secondLease.Release()
 }
 
+func TestRuntimeRegistryBeginRuntimeGuardUsesCurrentEntryAfterReplacement(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	older := &runtime.Engine{}
+	newer := &runtime.Engine{}
+	registry.Register("session-1", older)
+	registry.Register("session-1", newer)
+	t.Cleanup(func() { registry.Unregister("session-1", newer) })
+
+	guard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard: %v", err)
+	}
+	defer guard.Release()
+	if guard.Engine() != newer {
+		t.Fatalf("guard engine = %p, want current replacement %p", guard.Engine(), newer)
+	}
+}
+
+func TestRuntimeRegistryRegisterFailsPreviousQueuedMessagesOnReplacement(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	sessionID := "session-1"
+	older := newRegistryTestRuntime(t, func(evt runtime.Event) {
+		registry.PublishRuntimeEvent(sessionID, evt)
+	})
+	newer := newRegistryTestRuntime(t, func(evt runtime.Event) {
+		registry.PublishRuntimeEvent(sessionID, evt)
+	})
+	registry.Register(sessionID, older)
+	oldSub, err := registry.SubscribeSessionActivity(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("SubscribeSessionActivity old: %v", err)
+	}
+	defer func() { _ = oldSub.Close() }()
+	queued := older.QueueUserMessageWithClientRequestID("restore me", "req-replace")
+
+	registry.Register(sessionID, newer)
+	t.Cleanup(func() { registry.Unregister(sessionID, newer) })
+
+	if older.HasQueuedUserWork() {
+		t.Fatal("previous runtime kept queued work after replacement")
+	}
+	statuses := make([]clientui.QueuedUserMessageStatusEvent, 0, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for {
+		evt, err := oldSub.Next(ctx)
+		if err != nil {
+			t.Fatalf("old subscription closed before replacement queued failure: %v; statuses=%+v", err, statuses)
+		}
+		if evt.QueuedUserMessageStatus == nil {
+			continue
+		}
+		statuses = append(statuses, *evt.QueuedUserMessageStatus)
+		if evt.QueuedUserMessageStatus.Status == clientui.QueuedUserMessageFailed {
+			break
+		}
+	}
+	if len(statuses) != 2 || statuses[0].Status != clientui.QueuedUserMessageAccepted || statuses[1].Status != clientui.QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	}
+	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-replace" || statuses[1].RestoreText != "restore me" || statuses[1].FailureReason != clientui.QueuedUserMessageFailureClosing {
+		t.Fatalf("failed status = %+v, want replacement close restore", statuses[1])
+	}
+	currentEntry := registry.directory.Entry(sessionID)
+	if currentEntry == nil || currentEntry.sessionActivity == nil {
+		t.Fatal("replacement session activity entry is unavailable")
+	}
+	for _, evt := range currentEntry.sessionActivity.history {
+		if evt.QueuedUserMessageStatus != nil && evt.QueuedUserMessageStatus.QueueItemID == queued.ID {
+			t.Fatalf("replacement broker received stale previous queued status: %+v", evt.QueuedUserMessageStatus)
+		}
+	}
+}
+
+func TestRuntimeRegistryRegisterWaitsForOldGuardsBeforePublishingReplacement(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	older := &runtime.Engine{}
+	newer := &runtime.Engine{}
+	registry.Register("session-1", older)
+	guard, err := registry.BeginRuntimeGuard(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("BeginRuntimeGuard: %v", err)
+	}
+	registered := make(chan struct{})
+	go func() {
+		registry.Register("session-1", newer)
+		close(registered)
+	}()
+	select {
+	case <-registered:
+		t.Fatal("replacement registered before old guard was released")
+	case <-time.After(50 * time.Millisecond):
+	}
+	guard.Release()
+	select {
+	case <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for replacement registration")
+	}
+	resolved, err := registry.ResolveRuntime(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("ResolveRuntime after replacement: %v", err)
+	}
+	if resolved != newer {
+		t.Fatalf("runtime after replacement = %p, want newer %p", resolved, newer)
+	}
+	t.Cleanup(func() { registry.Unregister("session-1", newer) })
+}
+
+func TestRuntimeRegistryExternalRuntimeStatusReflectsPrimaryRunAndCloseBarrier(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+
+	status := registry.ExternalRuntimeStatus("session-1")
+	if status.State != clientui.ExternalRuntimeStateRegisteredIdle || !status.QueueAccepting {
+		t.Fatalf("idle external status = %+v, want registered idle accepting", status)
+	}
+	lease, err := registry.AcquirePrimaryRun("session-1")
+	if err != nil {
+		t.Fatalf("AcquirePrimaryRun: %v", err)
+	}
+	status = registry.ExternalRuntimeStatus("session-1")
+	if status.State != clientui.ExternalRuntimeStateOwnerRunning || !status.QueueAccepting {
+		t.Fatalf("running external status = %+v, want owner running accepting", status)
+	}
+	lease.Release()
+
+	started := make(chan struct{})
+	releaseDrain := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- registry.CloseRuntimeWithDrain(context.Background(), "session-1", engine, func(context.Context) error {
+			close(started)
+			<-releaseDrain
+			return nil
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for close drain")
+	}
+	status = registry.ExternalRuntimeStatus("session-1")
+	if status.State != clientui.ExternalRuntimeStateDraining || status.QueueAccepting {
+		t.Fatalf("draining external status = %+v, want draining not accepting", status)
+	}
+	close(releaseDrain)
+	if err := <-done; err != nil {
+		t.Fatalf("CloseRuntimeWithDrain: %v", err)
+	}
+	if status := registry.ExternalRuntimeStatus("session-1"); status.State != "" || status.QueueAccepting {
+		t.Fatalf("removed external status = %+v, want zero", status)
+	}
+}
+
+func TestRuntimeRegistryPublishesExternalRuntimeStatusEvents(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	sub, err := registry.SubscribeSessionActivity(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("SubscribeSessionActivity: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+
+	lease, err := registry.AcquirePrimaryRun("session-1")
+	if err != nil {
+		t.Fatalf("AcquirePrimaryRun: %v", err)
+	}
+	assertNextExternalRuntimeStatus(t, sub, clientui.ExternalRuntimeStateOwnerRunning, true)
+	lease.Release()
+	assertNextExternalRuntimeStatus(t, sub, clientui.ExternalRuntimeStateRegisteredIdle, true)
+
+	started := make(chan struct{})
+	releaseDrain := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- registry.CloseRuntimeWithDrain(context.Background(), "session-1", engine, func(context.Context) error {
+			close(started)
+			<-releaseDrain
+			return nil
+		})
+	}()
+	assertNextExternalRuntimeStatus(t, sub, clientui.ExternalRuntimeStateDraining, false)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for close drain")
+	}
+	close(releaseDrain)
+	assertNextExternalRuntimeStatus(t, sub, "", false)
+	if err := <-done; err != nil {
+		t.Fatalf("CloseRuntimeWithDrain: %v", err)
+	}
+}
+
 func TestRuntimeRegistryClearsPrimaryRunLeaseWhenRuntimeIsRemoved(t *testing.T) {
 	registry := NewRuntimeRegistry()
 	engine := &runtime.Engine{}
@@ -834,6 +1261,22 @@ func TestRuntimeRegistryClearsPrimaryRunLeaseWhenRuntimeIsRemoved(t *testing.T) 
 		t.Fatalf("AcquirePrimaryRun after unregister: %v", err)
 	}
 	thirdLease.Release()
+}
+
+func assertNextExternalRuntimeStatus(t *testing.T, sub serverapi.SessionActivitySubscription, state clientui.ExternalRuntimeState, queueAccepting bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	evt, err := sub.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next external runtime status: %v", err)
+	}
+	if evt.Kind != clientui.EventExternalRuntimeStatus || evt.ExternalRuntimeStatus == nil {
+		t.Fatalf("event = %+v, want external runtime status", evt)
+	}
+	if evt.ExternalRuntimeStatus.State != state || evt.ExternalRuntimeStatus.QueueAccepting != queueAccepting {
+		t.Fatalf("external runtime status = %+v, want state=%q queue=%t", evt.ExternalRuntimeStatus, state, queueAccepting)
+	}
 }
 
 func TestPendingPromptStoreCloseDoesNotBlockWhenResponseAlreadyBuffered(t *testing.T) {

@@ -33,7 +33,7 @@ type EmbeddedStartHooks struct {
 
 type BackgroundRouter interface {
 	SetActiveSession(sessionID string, engine *runtime.Engine)
-	ClearActiveSession(sessionID string)
+	ClearActiveSession(sessionID string, engine *runtime.Engine)
 }
 
 type EmbeddedServer struct {

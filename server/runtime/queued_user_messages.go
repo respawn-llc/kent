@@ -22,8 +22,12 @@ func newQueuedUserMessageStore() *queuedUserMessageStore {
 	return &queuedUserMessageStore{}
 }
 
-func (s *queuedUserMessageStore) Queue(text string) QueuedUserMessage {
-	item := QueuedUserMessage{ID: uuid.NewString(), Text: text}
+func (s *queuedUserMessageStore) Queue(text string, clientRequestID ...string) QueuedUserMessage {
+	requestID := ""
+	if len(clientRequestID) > 0 {
+		requestID = clientRequestID[0]
+	}
+	item := QueuedUserMessage{ID: uuid.NewString(), Text: text, ClientRequestID: strings.TrimSpace(requestID)}
 	intent := steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: item.Text}})
 	s.mu.Lock()
 	s.pending = append(s.pending, queuedUserSteeringIntent{message: item, intent: intent})
@@ -32,23 +36,30 @@ func (s *queuedUserMessageStore) Queue(text string) QueuedUserMessage {
 }
 
 func (s *queuedUserMessageStore) Discard(queueItemID string) bool {
+	_, removed := s.DiscardItem(queueItemID)
+	return removed
+}
+
+func (s *queuedUserMessageStore) DiscardItem(queueItemID string) (QueuedUserMessage, bool) {
 	id := strings.TrimSpace(queueItemID)
 	if id == "" || s == nil {
-		return false
+		return QueuedUserMessage{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	filtered := s.pending[:0]
 	removed := false
+	var item QueuedUserMessage
 	for _, pending := range s.pending {
 		if pending.message.ID == id {
 			removed = true
+			item = pending.message
 			continue
 		}
 		filtered = append(filtered, pending)
 	}
 	s.pending = filtered
-	return removed
+	return item, removed
 }
 
 func (s *queuedUserMessageStore) Drain() []queuedUserSteeringIntent {
@@ -60,6 +71,16 @@ func (s *queuedUserMessageStore) Drain() []queuedUserSteeringIntent {
 	s.pending = nil
 	s.mu.Unlock()
 	return pending
+}
+
+func (s *queuedUserMessageStore) RestoreFront(items []queuedUserSteeringIntent) {
+	if s == nil || len(items) == 0 {
+		return
+	}
+	restored := append([]queuedUserSteeringIntent(nil), items...)
+	s.mu.Lock()
+	s.pending = append(restored, s.pending...)
+	s.mu.Unlock()
 }
 
 func (s *queuedUserMessageStore) HasPending() bool {

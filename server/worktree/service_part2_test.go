@@ -70,7 +70,7 @@ func TestBeginMutationSerializesMutationsByWorkspace(t *testing.T) {
 	env := newServiceTestEnv(t)
 	otherSession := createServiceTestSession(t, env.store, env.cfg, env.binding)
 
-	firstRelease, _, err := env.service.beginMutation(env.ctx, env.session.Meta().SessionID, env.leaseID)
+	firstRelease, _, _, err := env.service.beginMutation(env.ctx, env.session.Meta().SessionID, env.leaseID)
 	if err != nil {
 		t.Fatalf("beginMutation first: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestBeginMutationSerializesMutationsByWorkspace(t *testing.T) {
 	}
 	resultCh := make(chan mutationResult, 1)
 	go func() {
-		release, _, err := env.service.beginMutation(env.ctx, otherSession.Meta().SessionID, "lease-2")
+		release, _, _, err := env.service.beginMutation(env.ctx, otherSession.Meta().SessionID, "lease-2")
 		resultCh <- mutationResult{release: release, err: err}
 	}()
 
@@ -115,6 +115,31 @@ func TestBeginMutationSerializesMutationsByWorkspace(t *testing.T) {
 		t.Fatal("expected second mutation lease")
 	}
 	result.release.Release()
+}
+
+func TestBeginMutationCollaborativeRuntimeGuardHeldUntilRelease(t *testing.T) {
+	env := newServiceTestEnv(t)
+	env.runtime.activeSessions[env.session.Meta().SessionID] = true
+
+	release, _, _, err := env.service.beginMutation(env.ctx, env.session.Meta().SessionID, "")
+	if err != nil {
+		t.Fatalf("beginMutation collaborative: %v", err)
+	}
+	env.runtime.mu.Lock()
+	activeGuards := env.runtime.activeGuards
+	releasedGuards := env.runtime.releasedGuards
+	env.runtime.mu.Unlock()
+	if activeGuards != 1 || releasedGuards != 0 {
+		t.Fatalf("guard counts before release active=%d released=%d, want active=1 released=0", activeGuards, releasedGuards)
+	}
+	release.Release()
+	env.runtime.mu.Lock()
+	activeGuards = env.runtime.activeGuards
+	releasedGuards = env.runtime.releasedGuards
+	env.runtime.mu.Unlock()
+	if activeGuards != 0 || releasedGuards != 1 {
+		t.Fatalf("guard counts after release active=%d released=%d, want active=0 released=1", activeGuards, releasedGuards)
+	}
 }
 
 func TestBeginMutationReacquiresWorkspaceLockWhenSessionWorkspaceChanges(t *testing.T) {
@@ -146,7 +171,7 @@ func TestBeginMutationReacquiresWorkspaceLockWhenSessionWorkspaceChanges(t *test
 	}
 	firstCh := make(chan mutationResult, 1)
 	go func() {
-		release, workspaceCtx, err := env.service.beginMutation(env.ctx, env.session.Meta().SessionID, env.leaseID)
+		release, workspaceCtx, _, err := env.service.beginMutation(env.ctx, env.session.Meta().SessionID, env.leaseID)
 		firstCh <- mutationResult{release: release, workspaceCtx: workspaceCtx, err: err}
 	}()
 
@@ -173,7 +198,7 @@ func TestBeginMutationReacquiresWorkspaceLockWhenSessionWorkspaceChanges(t *test
 
 	secondCh := make(chan mutationResult, 1)
 	go func() {
-		release, workspaceCtx, err := env.service.beginMutation(env.ctx, secondSession.Meta().SessionID, "lease-2")
+		release, workspaceCtx, _, err := env.service.beginMutation(env.ctx, secondSession.Meta().SessionID, "lease-2")
 		secondCh <- mutationResult{release: release, workspaceCtx: workspaceCtx, err: err}
 	}()
 	select {

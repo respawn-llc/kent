@@ -46,9 +46,9 @@ func (r *backgroundEventRouter) SetActiveSession(sessionID string, engine *runti
 	}
 }
 
-func (r *backgroundEventRouter) ClearActiveSession(sessionID string) {
+func (r *backgroundEventRouter) ClearActiveSession(sessionID string, engine *runtime.Engine) {
 	if inner := r.ensureInner(); inner != nil {
-		inner.ClearActiveSession(sessionID)
+		inner.ClearActiveSession(sessionID, engine)
 	}
 }
 

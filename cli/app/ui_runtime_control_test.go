@@ -12,6 +12,7 @@ import (
 	"core/server/llm"
 	"core/server/primaryrun"
 	"core/shared/clientui"
+	"core/shared/serverapi"
 	"core/shared/transcript"
 )
 
@@ -29,6 +30,7 @@ type runtimeControlFakeClient struct {
 	setReviewerArg         bool
 	setAutoCompactArg      bool
 	goal                   *clientui.RuntimeGoal
+	showGoalCalls          int
 	setGoalArg             string
 	pauseGoalCalls         int
 	resumeGoalCalls        int
@@ -49,6 +51,7 @@ type runtimeControlFakeClient struct {
 	submitQueuedCalls      int
 	interruptCalls         int
 	queuedText             string
+	queuedClientRequestID  string
 	queueUserMessageCalls  int
 	queueUserMessageErr    error
 	queueUserMessageID     string
@@ -70,6 +73,7 @@ type runtimeControlFakeClient struct {
 	submitQueuedErr        error
 	interruptErr           error
 	recordPromptHistoryErr error
+	collaborative          bool
 }
 
 type timeoutNetError struct{}
@@ -79,11 +83,12 @@ func (timeoutNetError) Timeout() bool   { return true }
 func (timeoutNetError) Temporary() bool { return false }
 
 func (f *runtimeControlFakeClient) MainView() clientui.RuntimeMainView {
-	if f.mainView.Session.SessionID != "" || f.mainView.Status.ThinkingLevel != "" || f.mainView.ActiveRun != nil {
+	if f.mainView.Session.SessionID != "" || f.mainView.Status.ThinkingLevel != "" || f.mainView.ActiveRun != nil || f.mainView.ExternalRuntime != nil || f.mainView.Status.WorkflowSession != nil || f.mainView.Status.WorkflowActive {
 		return f.mainView
 	}
 	return clientui.RuntimeMainView{Status: f.status, Session: f.sessionView}
 }
+func (f *runtimeControlFakeClient) IsCollaborativeRuntime() bool { return f.collaborative }
 func (f *runtimeControlFakeClient) CachedMainView() (clientui.RuntimeMainView, bool) {
 	if f.hasCachedMainView {
 		return f.cachedMainView, true
@@ -143,6 +148,7 @@ func (f *runtimeControlFakeClient) SetQuestionsEnabled(enabled bool) (bool, erro
 	return true, f.err
 }
 func (f *runtimeControlFakeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
+	f.showGoalCalls++
 	return cloneRuntimeGoal(f.goal), f.err
 }
 func (f *runtimeControlFakeClient) SetGoal(objective string) (*clientui.RuntimeGoal, error) {
@@ -248,8 +254,13 @@ func (f *runtimeControlFakeClient) Interrupt() error {
 	return f.err
 }
 func (f *runtimeControlFakeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	return f.QueueUserMessageWithClientRequestID(text, "")
+}
+
+func (f *runtimeControlFakeClient) QueueUserMessageWithClientRequestID(text string, clientRequestID string) (clientui.QueuedUserMessage, error) {
 	f.queueUserMessageCalls++
 	f.queuedText = text
+	f.queuedClientRequestID = strings.TrimSpace(clientRequestID)
 	if f.queueUserMessageErr != nil {
 		return clientui.QueuedUserMessage{}, f.queueUserMessageErr
 	}
@@ -257,7 +268,7 @@ func (f *runtimeControlFakeClient) QueueUserMessage(text string) (clientui.Queue
 	if id == "" {
 		id = "queue-1"
 	}
-	return clientui.QueuedUserMessage{ID: id, Text: text}, nil
+	return clientui.QueuedUserMessage{ID: id, Text: text, ClientRequestID: f.queuedClientRequestID}, nil
 }
 func (f *runtimeControlFakeClient) DiscardQueuedUserMessage(queueItemID string) bool {
 	f.discardQueuedCalls++
@@ -643,6 +654,58 @@ func TestSubmitErrorWithRuntimeClientAppendsActivePrimaryRunEntry(t *testing.T) 
 	}
 }
 
+func TestCollaborativeSubmitActiveOwnerRaceQueuesSubmittedText(t *testing.T) {
+	client := &runtimeControlFakeClient{collaborative: true}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.setBusy(true)
+
+	next, cmd := m.Update(submitDoneMsg{err: serverapi.ErrActivePrimaryRun, submittedText: "race text"})
+	updated := next.(*uiModel)
+	if updated.activity != uiActivityRunning {
+		t.Fatalf("activity = %v, want running while queue create is pending", updated.activity)
+	}
+	if updated.input != "" {
+		t.Fatalf("input = %q, want submitted text kept out of input while queued", updated.input)
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
+	if client.queueUserMessageCalls != 1 || client.queuedText != "race text" {
+		t.Fatalf("queue calls=%d text=%q, want one queue of submitted text", client.queueUserMessageCalls, client.queuedText)
+	}
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "race text" {
+		t.Fatalf("pending injected = %+v, want queued submitted text", updated.pendingInjected)
+	}
+	if updated.input != "" {
+		t.Fatalf("input = %q, want no restored text after successful queue", updated.input)
+	}
+}
+
+func TestCollaborativeSubmitActiveOwnerRaceQueueFailureRestoresSubmittedText(t *testing.T) {
+	client := &runtimeControlFakeClient{collaborative: true, queueUserMessageErr: errors.New("queue closed")}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.setBusy(true)
+
+	next, cmd := m.Update(submitDoneMsg{err: serverapi.ErrActivePrimaryRun, submittedText: "race text"})
+	updated := next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
+	if client.queueUserMessageCalls != 1 {
+		t.Fatalf("queue calls=%d, want one queue attempt", client.queueUserMessageCalls)
+	}
+	if len(updated.pendingInjected) != 0 {
+		t.Fatalf("pending injected = %+v, want restored after queue failure", updated.pendingInjected)
+	}
+	if strings.TrimSpace(updated.input) != "race text" {
+		t.Fatalf("input = %q, want restored submitted text", updated.input)
+	}
+}
+
 func TestActiveSubmitErrorShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	m := newProjectedStaticUIModel()
@@ -824,5 +887,83 @@ func TestRuntimeControlOpTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	}
 	if m.runtimeDisconnectStatusVisible() {
 		t.Fatal("did not expect op timeout to mark disconnect")
+	}
+}
+
+func TestCollaborativeRuntimeLocalFeedbackDoesNotAppendCommittedEntry(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationSubmitUserTurn,
+	})
+	m := newProjectedStaticUIModel()
+	m.engine = runtimeClient
+
+	cmd := m.appendLocalEntryWithNoticeID("error", "blocked command", "notice-1")
+
+	if cmd == nil {
+		t.Fatal("expected transient status clear command")
+	}
+	if m.transientStatus != "blocked command" || m.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("transient status = %q kind=%d, want local error feedback", m.transientStatus, m.transientStatusKind)
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect collaborative local feedback to append committed entries, got %+v", entries)
+	}
+}
+
+func TestRuntimeMainViewExternalOwnerStateDrivesBusyFallback(t *testing.T) {
+	tests := []struct {
+		name string
+		view clientui.RuntimeMainView
+		busy bool
+	}{
+		{
+			name: "owner running",
+			view: clientui.RuntimeMainView{ExternalRuntime: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateOwnerRunning, QueueAccepting: true}},
+			busy: true,
+		},
+		{
+			name: "closing",
+			view: clientui.RuntimeMainView{ExternalRuntime: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateClosing}},
+			busy: true,
+		},
+		{
+			name: "draining",
+			view: clientui.RuntimeMainView{ExternalRuntime: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateDraining}},
+			busy: true,
+		},
+		{
+			name: "registered idle",
+			view: clientui.RuntimeMainView{ExternalRuntime: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateRegisteredIdle, QueueAccepting: true}},
+			busy: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newProjectedStaticUIModel()
+			m.applyRuntimeMainViewState(tt.view)
+			if m.isBusy() != tt.busy {
+				t.Fatalf("busy = %v, want %v", m.isBusy(), tt.busy)
+			}
+		})
+	}
+}
+
+func TestExternalOwnerStatusEventKeepsIdleRunStateBusy(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	adapter := uiRuntimeAdapter{model: m}
+	adapter.applyProjectedRuntimeEvent(clientui.Event{
+		Kind:                  clientui.EventExternalRuntimeStatus,
+		ExternalRuntimeStatus: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateDraining},
+	}, false)
+
+	adapter.applyProjectedRuntimeEvent(clientui.Event{
+		Kind:     clientui.EventRunStateChanged,
+		RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()},
+	}, false)
+
+	if !m.isBusy() || m.activity != uiActivityRunning {
+		t.Fatalf("busy=%t activity=%v, want busy running while external owner drains", m.isBusy(), m.activity)
 	}
 }

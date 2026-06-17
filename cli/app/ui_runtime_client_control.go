@@ -11,7 +11,7 @@ import (
 )
 
 func (c *sessionRuntimeClient) SetSessionName(name string) error {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSettingsSessionName); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -28,7 +28,7 @@ func (c *sessionRuntimeClient) SetSessionName(name string) error {
 }
 
 func (c *sessionRuntimeClient) SetThinkingLevel(level string) error {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSettingsThinkingLevel); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -45,7 +45,7 @@ func (c *sessionRuntimeClient) SetThinkingLevel(level string) error {
 }
 
 func (c *sessionRuntimeClient) SetFastModeEnabled(enabled bool) (bool, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSettingsFastMode); err != nil {
 		return false, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -62,8 +62,8 @@ func (c *sessionRuntimeClient) SetFastModeEnabled(enabled bool) (bool, error) {
 }
 
 func (c *sessionRuntimeClient) SetReviewerEnabled(enabled bool) (bool, string, error) {
-	if err := c.ensureWritable(); err != nil {
-		return false, "", err
+	if c.isReadOnly() || c.isCollaborative() {
+		return false, "", errCollaborativeOperationBlocked
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
@@ -80,7 +80,7 @@ func (c *sessionRuntimeClient) SetReviewerEnabled(enabled bool) (bool, string, e
 }
 
 func (c *sessionRuntimeClient) SetAutoCompactionEnabled(enabled bool) (bool, bool, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSettingsAutoCompaction); err != nil {
 		return false, false, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -98,7 +98,7 @@ func (c *sessionRuntimeClient) SetAutoCompactionEnabled(enabled bool) (bool, boo
 }
 
 func (c *sessionRuntimeClient) SetQuestionsEnabled(enabled bool) (bool, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSettingsQuestions); err != nil {
 		return false, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -132,7 +132,7 @@ func (c *sessionRuntimeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (c *sessionRuntimeClient) SetGoal(objective string) (*clientui.RuntimeGoal, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationGoalManage); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -163,7 +163,7 @@ func (c *sessionRuntimeClient) ResumeGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (c *sessionRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationGoalManage); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -182,7 +182,7 @@ func (c *sessionRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (c *sessionRuntimeClient) setGoalStatus(call func(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error)) (*clientui.RuntimeGoal, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationGoalManage); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -225,8 +225,8 @@ func (c *sessionRuntimeClient) AppendCommittedEntry(role, text string) error {
 }
 
 func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noticeID string) error {
-	if err := c.ensureWritable(); err != nil {
-		return err
+	if c.isReadOnly() || c.isCollaborative() {
+		return errCollaborativeOperationBlocked
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
@@ -236,7 +236,7 @@ func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noti
 }
 
 func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSubmitUserTurn); err != nil {
 		return "", err
 	}
 	requestID := uuid.NewString()
@@ -247,7 +247,7 @@ func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text strin
 }
 
 func (c *sessionRuntimeClient) SubmitUserMessageWithPromptHistoryRecorded(ctx context.Context, text string) (string, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSubmitUserTurn); err != nil {
 		return "", err
 	}
 	requestID := uuid.NewString()
@@ -258,8 +258,8 @@ func (c *sessionRuntimeClient) SubmitUserMessageWithPromptHistoryRecorded(ctx co
 }
 
 func (c *sessionRuntimeClient) SubmitUserShellCommand(ctx context.Context, command string) error {
-	if err := c.ensureWritable(); err != nil {
-		return err
+	if c.isReadOnly() || c.isCollaborative() {
+		return errCollaborativeOperationBlocked
 	}
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
 		return c.controls.SubmitUserShellCommand(ctx, serverapi.RuntimeSubmitUserShellCommandRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Command: command})
@@ -267,7 +267,7 @@ func (c *sessionRuntimeClient) SubmitUserShellCommand(ctx context.Context, comma
 }
 
 func (c *sessionRuntimeClient) CompactContext(ctx context.Context, args string) error {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationCompactManual); err != nil {
 		return err
 	}
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
@@ -288,7 +288,7 @@ func (c *sessionRuntimeClient) HasQueuedUserWork() (bool, error) {
 }
 
 func (c *sessionRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (string, error) {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationSubmitQueuedUserMessages); err != nil {
 		return "", err
 	}
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
@@ -298,8 +298,8 @@ func (c *sessionRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (st
 }
 
 func (c *sessionRuntimeClient) Interrupt() error {
-	if err := c.ensureWritable(); err != nil {
-		return err
+	if c.isReadOnly() || c.isCollaborative() {
+		return errCollaborativeOperationBlocked
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
@@ -309,12 +309,19 @@ func (c *sessionRuntimeClient) Interrupt() error {
 }
 
 func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
-	if err := c.ensureWritable(); err != nil {
+	return c.QueueUserMessageWithClientRequestID(text, uuid.NewString())
+}
+
+func (c *sessionRuntimeClient) QueueUserMessageWithClientRequestID(text string, clientRequestID string) (clientui.QueuedUserMessage, error) {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationQueueUserMessage); err != nil {
 		return clientui.QueuedUserMessage{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
-	requestID := uuid.NewString()
+	requestID := strings.TrimSpace(clientRequestID)
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeQueueUserMessageResponse, error) {
 		return c.controls.QueueUserMessage(ctx, serverapi.RuntimeQueueUserMessageRequest{ClientRequestID: requestID, SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
@@ -322,11 +329,15 @@ func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUse
 		c.notifyConnectionState(err)
 		return clientui.QueuedUserMessage{}, err
 	}
-	return clientui.QueuedUserMessage{ID: resp.QueueItemID, Text: resp.Text}, nil
+	responseClientRequestID := strings.TrimSpace(resp.ClientRequestID)
+	if responseClientRequestID == "" {
+		responseClientRequestID = requestID
+	}
+	return clientui.QueuedUserMessage{ID: resp.QueueItemID, Text: resp.Text, ClientRequestID: responseClientRequestID}, nil
 }
 
 func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationDiscardQueuedUserMessage); err != nil {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
@@ -341,7 +352,7 @@ func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool
 }
 
 func (c *sessionRuntimeClient) RecordPromptHistory(text string) error {
-	if err := c.ensureWritable(); err != nil {
+	if err := c.ensureOperation(serverapi.SessionRuntimeOperationRecordPromptHistory); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)

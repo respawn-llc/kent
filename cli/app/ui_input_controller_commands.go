@@ -245,7 +245,6 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 		errText := "invalid supervisor mode " + strconv.Quote(requested) + " (expected on|off)"
 		return m, c.model.appendLocalEntryWithNoticeID("error", errText, "")
 	}
-
 	changed := false
 	nextMode := currentMode
 	if m.hasRuntimeClient() {
@@ -313,6 +312,10 @@ func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Mo
 	default:
 		errText := "invalid autocompaction mode " + strconv.Quote(requested) + " (expected on|off)"
 		return m, c.model.appendLocalEntryWithNoticeID("error", errText, "")
+	}
+	if m.workflowSessionActive() && !targetEnabled {
+		errText := "Auto-compaction cannot be disabled for workflow task sessions"
+		return m, c.model.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 
 	changed := false

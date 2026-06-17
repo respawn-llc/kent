@@ -43,28 +43,29 @@ func TestRuntimeClientMainViewDoesNotRefreshCachedSnapshotBehindUIBack(t *testin
 }
 
 type leaseRetryRuntimeControlClient struct {
-	mu              sync.Mutex
-	firstSubmitErr  error
-	appendErr       error
-	compactErr      error
-	compactCalls    int
-	showGoalErr     error
-	showGoalCalls   int
-	queuedWorkErr   error
-	queuedWork      bool
-	queuedWorkCalls int
-	submitLeaseID   []string
-	submitRequestID []string
-	submitRecorded  []bool
-	queueRequestID  []string
-	recordRequestID []string
-	goalLeaseID     []string
-	localEntries    []serverapi.RuntimeAppendCommittedEntryRequest
-	showGoalResp    serverapi.RuntimeGoalShowResponse
-	setGoalResp     serverapi.RuntimeGoalShowResponse
-	pauseGoalResp   serverapi.RuntimeGoalShowResponse
-	resumeGoalResp  serverapi.RuntimeGoalShowResponse
-	clearGoalResp   serverapi.RuntimeGoalShowResponse
+	mu               sync.Mutex
+	firstSubmitErr   error
+	allowEmptySubmit bool
+	appendErr        error
+	compactErr       error
+	compactCalls     int
+	showGoalErr      error
+	showGoalCalls    int
+	queuedWorkErr    error
+	queuedWork       bool
+	queuedWorkCalls  int
+	submitLeaseID    []string
+	submitRequestID  []string
+	submitRecorded   []bool
+	queueRequestID   []string
+	recordRequestID  []string
+	goalLeaseID      []string
+	localEntries     []serverapi.RuntimeAppendCommittedEntryRequest
+	showGoalResp     serverapi.RuntimeGoalShowResponse
+	setGoalResp      serverapi.RuntimeGoalShowResponse
+	pauseGoalResp    serverapi.RuntimeGoalShowResponse
+	resumeGoalResp   serverapi.RuntimeGoalShowResponse
+	clearGoalResp    serverapi.RuntimeGoalShowResponse
 }
 
 func (c *leaseRetryRuntimeControlClient) submitLeaseIDs() []string {
@@ -180,6 +181,9 @@ func (c *leaseRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req s
 	c.submitLeaseID = append(c.submitLeaseID, req.ControllerLeaseID)
 	c.submitRequestID = append(c.submitRequestID, req.ClientRequestID)
 	c.submitRecorded = append(c.submitRecorded, req.PromptHistoryRecorded)
+	if c.allowEmptySubmit && req.ControllerLeaseID == "" {
+		return serverapi.RuntimeSubmitUserTurnResponse{Message: "collaborative"}, nil
+	}
 	switch req.ControllerLeaseID {
 	case "lease-old":
 		if c.firstSubmitErr != nil {
@@ -508,6 +512,36 @@ func TestRuntimeClientSubmitUserMessageRecoversInvalidControllerLease(t *testing
 	}
 }
 
+func TestRuntimeClientCollaborativeSubmitDoesNotRecoverControllerLease(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationSubmitUserTurn,
+	})
+
+	_, err := runtimeClient.SubmitUserMessage(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "unexpected controller lease") {
+		t.Fatalf("SubmitUserMessage error = %v, want original server error", err)
+	}
+	if got := controls.submitLeaseIDs(); !reflect.DeepEqual(got, []string{""}) {
+		t.Fatalf("submit lease ids = %+v, want one empty collaborative lease", got)
+	}
+}
+
+func TestRuntimeClientCollaborativeEmptyOperationsStillAllowsSteering(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, nil)
+
+	_, err := runtimeClient.SubmitUserMessage(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "unexpected controller lease") {
+		t.Fatalf("SubmitUserMessage error = %v, want original server error after allowed collaborative submit", err)
+	}
+	if got := controls.submitLeaseIDs(); !reflect.DeepEqual(got, []string{""}) {
+		t.Fatalf("submit lease ids = %+v, want one empty collaborative lease", got)
+	}
+}
+
 func TestRuntimeClientSubmitUserMessageCanSkipPromptHistoryAcrossLeaseRecovery(t *testing.T) {
 	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
 	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
@@ -546,6 +580,8 @@ func TestRuntimeClientQueueUserMessageReusesRequestIDAcrossLeaseRecovery(t *test
 	}
 	if got := controls.queueRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
 		t.Fatalf("queue request ids = %+v, want same non-empty id across retry", got)
+	} else if item.ClientRequestID != got[0] {
+		t.Fatalf("queued item client request id = %q, want %q", item.ClientRequestID, got[0])
 	}
 }
 

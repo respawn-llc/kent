@@ -29,14 +29,47 @@ func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {
 	m.fastModeEnabled = status.FastModeEnabled
 	m.conversationFreshness = status.ConversationFreshness
 	m.setRuntimeContextUsage(view.Session.SessionID, status.ContextUsage)
-	active := view.ActiveRun != nil && view.ActiveRun.Status == clientui.RunStatusRunning
+	m.setExternalRuntimeStatus(view.ExternalRuntime)
+	activeRun := view.ActiveRun != nil && view.ActiveRun.Status == clientui.RunStatusRunning
+	active := activeRun || m.externalRuntimeBusy()
 	m.setBusy(active)
-	m.setGoalRun(active && view.ActiveRun.Lifecycle.IsGoalLoopRunning())
+	m.setGoalRun(activeRun && view.ActiveRun.Lifecycle.IsGoalLoopRunning())
 	if active {
 		m.activity = uiActivityRunning
 		return
 	}
 	m.activity = uiActivityIdle
+}
+
+func externalRuntimeBusy(status *clientui.ExternalRuntimeStatus) bool {
+	if status == nil {
+		return false
+	}
+	switch status.State {
+	case clientui.ExternalRuntimeStateOwnerRunning, clientui.ExternalRuntimeStateDraining, clientui.ExternalRuntimeStateClosing:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *uiModel) setExternalRuntimeStatus(status *clientui.ExternalRuntimeStatus) {
+	if m == nil {
+		return
+	}
+	if status == nil || status.State == "" {
+		m.externalRuntimeStatus = nil
+		return
+	}
+	next := *status
+	m.externalRuntimeStatus = &next
+}
+
+func (m *uiModel) externalRuntimeBusy() bool {
+	if m == nil {
+		return false
+	}
+	return externalRuntimeBusy(m.externalRuntimeStatus)
 }
 
 func (m *uiModel) runtimeMainView() clientui.RuntimeMainView {

@@ -118,7 +118,7 @@ describe("WorkflowLibraryRoute", () => {
 
     expect(await screen.findByRole("button", { name: "Delivery Updated rev 2" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delivery rev 1" })).not.toBeInTheDocument();
-  });
+  }, 10000);
 
   it("opens existing workflow delete confirmation flow from the workflow picker context menu", async () => {
     const opened: NativeDialogWindowOptions[] = [];

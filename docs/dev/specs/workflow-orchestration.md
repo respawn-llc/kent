@@ -90,6 +90,8 @@
 - Workflow runtime builds on reusable headless/session infrastructure for session launch, runtime wiring, logging, progress, subagent role handling, and mode prompts.
 - `RunPromptService.RunPrompt` final text is not workflow completion authority.
 - Existing user goal state is not reused as workflow autonomy state.
+- Workflow task sessions reject `/goal`; the workflow node/run is the task objective driver.
+- If terminal workflow completion commits before accepted limited-control steering is drained, the queued steering resolves with a visible failure and is not applied to the completed run.
 - Task comment bodies are not automatically injected into agent context. When a task has visible comments, workflow-mode instructions include the visible comment count and a `kent task comment list <task>` pull command. Kent re-queries the visible comment count each time the workflow instructions are appended without mutating previously persisted model-visible prompt items.
 
 ## Questions And Approvals
@@ -97,6 +99,7 @@
 - User questions use existing `ask_question` tool-call/session infrastructure.
 - A model does not report `needs_user_input` as a completion status; it calls `ask_question`.
 - The run pauses until answered.
+- TUI and GUI prompt/approval state is derived from shared server prompt state. A client marks a question or approval resolved only after server acknowledgement.
 - V1 must not introduce a shadow task-question table. If existing ask persistence cannot support workflow asks, upgrade ask persistence as source of truth.
 - Ask rehydration must be proven before scheduler recovery depends on it.
 - Scheduler uses a boundary such as `PendingAskResolver.CanRehydrate(sessionID, runID, askID)`.

@@ -20,6 +20,7 @@ import (
 	"core/server/requestmemo"
 	"core/server/session"
 	"core/server/sessionlaunch"
+	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -335,6 +336,10 @@ func TestLoopbackRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T) 
 	}
 	if !runtimes.IsSessionRuntimeActive(store.Meta().SessionID) {
 		t.Fatalf("expected run prompt runtime active while request is in flight")
+	}
+	status := runtimes.ExternalRuntimeStatus(store.Meta().SessionID)
+	if status.State != clientui.ExternalRuntimeStateOwnerRunning || !status.QueueAccepting {
+		t.Fatalf("external runtime status while headless request is in flight = %+v, want owner_running queue-accepting", status)
 	}
 	releaseOnce.Do(func() { close(release) })
 	select {

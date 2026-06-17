@@ -52,6 +52,20 @@ func (s *primaryRunLeaseStore) Clear(sessionID string) {
 	s.mu.Unlock()
 }
 
+func (s *primaryRunLeaseStore) Active(sessionID string) bool {
+	if s == nil {
+		return false
+	}
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return false
+	}
+	s.mu.Lock()
+	_, active := s.leases[id]
+	s.mu.Unlock()
+	return active
+}
+
 func (s *primaryRunLeaseStore) release(sessionID string, leaseID uint64) {
 	if s == nil {
 		return

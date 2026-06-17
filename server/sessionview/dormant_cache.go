@@ -149,13 +149,21 @@ func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store)
 }
 
 func (e dormantTranscriptCacheEntry) mainView(meta session.Meta, freshness clientui.ConversationFreshness) clientui.RuntimeMainView {
+	status := clientui.RuntimeStatus{
+		ConversationFreshness:             freshness,
+		ParentSessionID:                   meta.ParentSessionID,
+		LastCommittedAssistantFinalAnswer: e.lastCommittedAssistantAnswer,
+		Goal:                              runtimeview.GoalFromSessionState(meta.Goal, false),
+	}
+	if meta.WorkflowSession != nil {
+		status.WorkflowSession = &clientui.WorkflowSessionStatus{
+			RunID:      strings.TrimSpace(meta.WorkflowSession.RunID),
+			TaskID:     strings.TrimSpace(meta.WorkflowSession.TaskID),
+			WorkflowID: strings.TrimSpace(meta.WorkflowSession.WorkflowID),
+		}
+	}
 	return clientui.RuntimeMainView{
-		Status: clientui.RuntimeStatus{
-			ConversationFreshness:             freshness,
-			ParentSessionID:                   meta.ParentSessionID,
-			LastCommittedAssistantFinalAnswer: e.lastCommittedAssistantAnswer,
-			Goal:                              runtimeview.GoalFromSessionState(meta.Goal, false),
-		},
+		Status: status,
 		Session: clientui.RuntimeSessionView{
 			SessionID:             meta.SessionID,
 			SessionName:           meta.Name,

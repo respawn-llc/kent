@@ -164,8 +164,9 @@ type RuntimeQueueUserMessageRequest struct {
 }
 
 type RuntimeQueueUserMessageResponse struct {
-	QueueItemID string `json:"queue_item_id"`
-	Text        string `json:"text"`
+	QueueItemID     string `json:"queue_item_id"`
+	Text            string `json:"text"`
+	ClientRequestID string `json:"client_request_id"`
 }
 
 type RuntimeDiscardQueuedUserMessageRequest struct {
@@ -258,6 +259,19 @@ func validateRuntimeControllerRequest(clientRequestID string, sessionID string, 
 	return validateControllerLeaseID(controllerLeaseID)
 }
 
+func validateRuntimeControlRequest(clientRequestID string, sessionID string, controllerLeaseID string) error {
+	if err := validateClientRequestID(clientRequestID); err != nil {
+		return err
+	}
+	if err := validateRequiredSessionID(sessionID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(controllerLeaseID) != "" {
+		return validateControllerLeaseID(controllerLeaseID)
+	}
+	return nil
+}
+
 func validateRuntimeGoalActionRequest(clientRequestID string, sessionID string, actor string) error {
 	if err := validateClientRequestID(clientRequestID); err != nil {
 		return err
@@ -269,22 +283,22 @@ func validateRuntimeGoalActionRequest(clientRequestID string, sessionID string, 
 }
 
 func (r RuntimeSetSessionNameRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetThinkingLevelRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetFastModeEnabledRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetReviewerEnabledRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetAutoCompactionEnabledRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetQuestionsEnabledRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeAppendCommittedEntryRequest) Validate() error {
 	if err := validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
@@ -302,31 +316,31 @@ func (r RuntimeSubmitUserMessageRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSubmitUserTurnRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSubmitUserShellCommandRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeCompactContextRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeCompactContextForPreSubmitRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeHasQueuedUserWorkRequest) Validate() error {
 	return validateRequiredSessionID(r.SessionID)
 }
 func (r RuntimeSubmitQueuedUserMessagesRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeInterruptRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeQueueUserMessageRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeDiscardQueuedUserMessageRequest) Validate() error {
-	if err := validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
+	if err := validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
 		return err
 	}
 	if strings.TrimSpace(r.QueueItemID) == "" {
@@ -335,16 +349,13 @@ func (r RuntimeDiscardQueuedUserMessageRequest) Validate() error {
 	return nil
 }
 func (r RuntimeRecordPromptHistoryRequest) Validate() error {
-	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+	return validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeGoalShowRequest) Validate() error {
 	return validateRequiredSessionID(r.SessionID)
 }
 func (r RuntimeGoalSetRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRequiredSessionID(r.SessionID); err != nil {
+	if err := validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
 		return err
 	}
 	if strings.TrimSpace(r.Objective) == "" {
@@ -353,8 +364,14 @@ func (r RuntimeGoalSetRequest) Validate() error {
 	return validateGoalActor(r.Actor)
 }
 func (r RuntimeGoalStatusRequest) Validate() error {
-	return validateRuntimeGoalActionRequest(r.ClientRequestID, r.SessionID, r.Actor)
+	if err := validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
+		return err
+	}
+	return validateGoalActor(r.Actor)
 }
 func (r RuntimeGoalClearRequest) Validate() error {
-	return validateRuntimeGoalActionRequest(r.ClientRequestID, r.SessionID, r.Actor)
+	if err := validateRuntimeControlRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
+		return err
+	}
+	return validateGoalActor(r.Actor)
 }

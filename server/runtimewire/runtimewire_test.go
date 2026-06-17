@@ -259,7 +259,7 @@ func TestBackgroundEventRouterClearActiveSessionDropsOnlyThatOwner(t *testing.T)
 	router := &BackgroundEventRouter{}
 	router.SetActiveSession(storeA.Meta().SessionID, engA)
 	router.SetActiveSession(storeB.Meta().SessionID, engB)
-	router.ClearActiveSession(storeA.Meta().SessionID)
+	router.ClearActiveSession(storeA.Meta().SessionID, engA)
 	router.Handle(shelltool.Event{Snapshot: shelltool.Snapshot{ID: "1003", OwnerSessionID: storeA.Meta().SessionID, State: "completed", Command: "kent run", Workdir: root, LogPath: filepath.Join(root, "1003.log")}, Type: shelltool.EventCompleted, Preview: "done"})
 	time.Sleep(150 * time.Millisecond)
 	if got := clientA.CallCount(); got != 0 {
@@ -276,6 +276,32 @@ func TestBackgroundEventRouterClearActiveSessionDropsOnlyThatOwner(t *testing.T)
 	}
 	if got := clientB.CallCount(); got == 0 {
 		t.Fatal("expected other active sessions to keep receiving their own completions after clearing a different owner")
+	}
+}
+
+func TestBackgroundEventRouterStaleClearKeepsReplacementForSameSession(t *testing.T) {
+	root := t.TempDir()
+	store := newRuntimeWireSession(t, root, "ws")
+	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
+	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
+	engA := newRuntimeWireEngine(t, store, clientA)
+	engB := newRuntimeWireEngine(t, store, clientB)
+
+	router := &BackgroundEventRouter{}
+	router.SetActiveSession(store.Meta().SessionID, engA)
+	router.SetActiveSession(store.Meta().SessionID, engB)
+	router.ClearActiveSession(store.Meta().SessionID, engA)
+	router.Handle(shelltool.Event{Snapshot: shelltool.Snapshot{ID: "1005", OwnerSessionID: store.Meta().SessionID, State: "completed", Command: "kent run", Workdir: root, LogPath: filepath.Join(root, "1005.log")}, Type: shelltool.EventCompleted, Preview: "done"})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for clientB.CallCount() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := clientB.CallCount(); got == 0 {
+		t.Fatal("expected replacement active session to receive completion after stale clear")
+	}
+	if got := clientA.CallCount(); got != 0 {
+		t.Fatalf("did not expect stale active session to receive completion, got %d", got)
 	}
 }
 

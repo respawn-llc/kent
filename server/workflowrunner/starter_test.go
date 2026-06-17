@@ -15,7 +15,9 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
+	"core/server/primaryrun"
 	"core/server/registry"
+	"core/server/runtime"
 	"core/server/session"
 	askquestion "core/server/tools"
 	"core/server/workflow"
@@ -71,6 +73,27 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 	fixture.assertRunSessionUsesTaskWorktree(t, runs[0].SessionID)
 	if scheduler.ActiveCount() != 0 {
 		t.Fatalf("scheduler active count = %d, want 0 after runtime finish", scheduler.ActiveCount())
+	}
+}
+
+func TestStarterHoldsPrimaryRunLeaseThroughWorkflowRuntimeCloseDrain(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"finished structured"}`))
+	trackingRuntimes := &primaryRunAcquireTrackingRegistry{RuntimeRegistry: registry.NewRuntimeRegistry()}
+	fixture.runtimes = trackingRuntimes
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	fixture.waitForCompletedRun(t, task.ID)
+
+	if got := trackingRuntimes.AcquireCount(); got != 1 {
+		t.Fatalf("primary-run acquisitions = %d, want only workflow owner acquisition before close drain", got)
+	}
+	if !trackingRuntimes.RegisterObservedOwnerLeaseBlock() {
+		t.Fatal("runtime registration did not observe workflow owner primary-run lease already held")
 	}
 }
 
@@ -1015,10 +1038,58 @@ type starterFixture struct {
 	worktrees     *metadataTaskWorktrees
 	client        *ScriptedClient
 	clientFactory func(SchedulerStartRunRequest) llm.Client
-	runtimes      *registry.RuntimeRegistry
+	runtimes      starterRuntimeRegistry
 	starter       *Starter
 	workflowID    workflow.WorkflowID
 	projectID     string
+}
+
+type primaryRunAcquireTrackingRegistry struct {
+	*registry.RuntimeRegistry
+	mu                              sync.Mutex
+	acquireCount                    int
+	registerObservedOwnerLeaseBlock bool
+}
+
+type starterRuntimeRegistry interface {
+	RuntimeEventRegistry
+	ListPendingPrompts(sessionID string) []registry.PendingPromptSnapshot
+	SubmitPromptResponse(sessionID string, resp askquestion.AskQuestionResponse, err error) error
+}
+
+func (r *primaryRunAcquireTrackingRegistry) AcquirePrimaryRun(sessionID string) (primaryrun.Lease, error) {
+	lease, err := r.RuntimeRegistry.AcquirePrimaryRun(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.acquireCount++
+	r.mu.Unlock()
+	return lease, nil
+}
+
+func (r *primaryRunAcquireTrackingRegistry) RegisterRuntimeHooks(sessionID string, engine *runtime.Engine, rebind func(string) error) {
+	lease, err := r.RuntimeRegistry.AcquirePrimaryRun(sessionID)
+	ownerLeaseHeld := errors.Is(err, primaryrun.ErrActivePrimaryRun)
+	if err == nil && lease != nil {
+		lease.Release()
+	}
+	r.mu.Lock()
+	r.registerObservedOwnerLeaseBlock = ownerLeaseHeld
+	r.mu.Unlock()
+	r.RuntimeRegistry.RegisterRuntimeHooks(sessionID, engine, rebind)
+}
+
+func (r *primaryRunAcquireTrackingRegistry) AcquireCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.acquireCount
+}
+
+func (r *primaryRunAcquireTrackingRegistry) RegisterObservedOwnerLeaseBlock() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.registerObservedOwnerLeaseBlock
 }
 
 func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps ...ScriptedRuntimeStep) starterFixture {

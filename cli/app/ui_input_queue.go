@@ -35,12 +35,13 @@ const (
 )
 
 type injectedRuntimeQueueItem struct {
-	LocalID      string
-	ServerID     string
-	Text         string
-	State        injectedRuntimeQueueState
-	CreateToken  uint64
-	DiscardToken uint64
+	LocalID         string
+	ServerID        string
+	Text            string
+	ClientRequestID string
+	State           injectedRuntimeQueueState
+	CreateToken     uint64
+	DiscardToken    uint64
 }
 
 func (m *uiModel) queueInput(text string) {
@@ -65,18 +66,31 @@ func (m *uiModel) enqueueInjectedInputWithApprovalAnswer(text string, answer *cl
 		return nil
 	}
 	token := m.nextInjectedQueueToken()
-	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: localID, Text: trimmed})
+	clientRequestID := uuid.NewString()
+	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: localID, Text: trimmed, ClientRequestID: clientRequestID})
 	m.injectedQueue = append(m.injectedQueue, injectedRuntimeQueueItem{
-		LocalID:     localID,
-		Text:        trimmed,
-		State:       injectedRuntimeQueuePendingCreate,
-		CreateToken: token,
+		LocalID:         localID,
+		Text:            trimmed,
+		ClientRequestID: clientRequestID,
+		State:           injectedRuntimeQueuePendingCreate,
+		CreateToken:     token,
 	})
 	client := m.runtimeClient()
 	return func() tea.Msg {
-		item, err := client.QueueUserMessage(trimmed)
+		item, err := queueRuntimeUserMessage(client, trimmed, clientRequestID)
 		return injectedQueueCreateDoneMsg{token: token, localID: localID, item: item, approvalCommentaryAnswer: answer, err: err}
 	}
+}
+
+type runtimeQueueUserMessageWithClientRequestID interface {
+	QueueUserMessageWithClientRequestID(text string, clientRequestID string) (clientui.QueuedUserMessage, error)
+}
+
+func queueRuntimeUserMessage(client clientui.RuntimeClient, text string, clientRequestID string) (clientui.QueuedUserMessage, error) {
+	if queueClient, ok := client.(runtimeQueueUserMessageWithClientRequestID); ok {
+		return queueClient.QueueUserMessageWithClientRequestID(text, clientRequestID)
+	}
+	return client.QueueUserMessage(text)
 }
 
 func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
@@ -480,11 +494,12 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	}
 	item.ServerID = serverID
 	item.Text = serverText
+	item.ClientRequestID = strings.TrimSpace(msg.item.ClientRequestID)
 	switch item.State {
 	case injectedRuntimeQueuePendingCreate:
 		item.State = injectedRuntimeQueueEnqueued
 		m.injectedQueue[index] = item
-		m.replacePendingInjectedID(item.LocalID, clientui.QueuedUserMessage{ID: serverID, Text: serverText})
+		m.replacePendingInjectedID(item.LocalID, clientui.QueuedUserMessage{ID: serverID, Text: serverText, ClientRequestID: item.ClientRequestID})
 		m.rememberPromptHistoryLocally(serverText)
 		if msg.approvalCommentaryAnswer != nil {
 			return m, m.answerQueuedApprovalCommentary(*msg.approvalCommentaryAnswer)
@@ -571,7 +586,7 @@ func (m *uiModel) removePendingInjectedByID(id string) {
 	}
 	filtered := m.pendingInjected[:0]
 	for _, item := range m.pendingInjected {
-		if item.ID == id {
+		if item.ID == id || item.ClientRequestID == id {
 			continue
 		}
 		filtered = append(filtered, item)
@@ -595,11 +610,11 @@ func (m *uiModel) ensurePendingInjectedVisible(item injectedRuntimeQueueItem) {
 		return
 	}
 	for _, pending := range m.pendingInjected {
-		if pending.ID == id {
+		if pending.ID == id || pending.ClientRequestID == id {
 			return
 		}
 	}
-	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: id, Text: item.Text})
+	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: id, Text: item.Text, ClientRequestID: item.ClientRequestID})
 }
 
 func (m *uiModel) removeInjectedQueueItemsByIDs(ids []string) {
@@ -608,7 +623,7 @@ func (m *uiModel) removeInjectedQueueItemsByIDs(ids []string) {
 	}
 	filtered := m.injectedQueue[:0]
 	for _, item := range m.injectedQueue {
-		if containsInjectedQueueID(ids, item.ServerID) || containsInjectedQueueID(ids, item.LocalID) {
+		if containsInjectedQueueID(ids, item.ServerID) || containsInjectedQueueID(ids, item.LocalID) || containsInjectedQueueID(ids, item.ClientRequestID) {
 			continue
 		}
 		filtered = append(filtered, item)
