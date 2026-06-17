@@ -644,6 +644,37 @@ func TestDeleteTaskHardDeletesAssociatedRecords(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskHardDeletesParallelBatchRecords(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+
+	// Fan-out leaves placements carrying parallel_batch_transition_id and
+	// transition rows carrying source_placement_id/source_run_id. These are the
+	// ON DELETE SET NULL cross-links whose runtime validation triggers previously
+	// aborted a cascading task delete; deletion must remove them cleanly.
+	result := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
+	if len(result.PlacementIDs) != 2 {
+		t.Fatalf("fanout result = %+v, want two parallel branch placements", result)
+	}
+
+	deleted, err := store.DeleteTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("DeleteTask with parallel batch placements: %v", err)
+	}
+	if deleted.ID != task.ID {
+		t.Fatalf("deleted task id = %q, want %q", deleted.ID, task.ID)
+	}
+	if _, err := store.queries.GetTask(ctx, string(task.ID)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetTask after DeleteTask = %v, want sql.ErrNoRows", err)
+	}
+	assertZeroTaskRows(t, store, "task_node_placements", string(task.ID))
+	assertZeroTaskRows(t, store, "task_transitions", string(task.ID))
+	assertZeroTaskRows(t, store, "task_comments", string(task.ID))
+}
+
 func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)

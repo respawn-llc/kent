@@ -7,6 +7,7 @@ Usage of kent task:
   kent task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]
   kent task show <short-id-or-task-id> [--json]
   kent task cancel <short-id-or-task-id> [--reason <text>]
+  kent task delete <short-id-or-task-id>
   kent task comment add <short-id-or-task-id> (--body <text>|--body-file <path>) [--author <user|agent>] [--author-id <id>]
   kent task comment list <short-id-or-task-id> [--page-size <n>] [--page-token <token>]
   kent task comment replace <comment-id> --body <text>
