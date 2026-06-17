@@ -31,7 +31,6 @@ type WorktreeSettings struct {
 type WorkflowSettings struct {
 	CompletionMode               WorkflowCompletionMode
 	Concurrency                  int
-	MaxFinalAnswerViolations     int
 	MaxInvalidCompletionAttempts int
 }
 
@@ -60,6 +59,8 @@ const (
 	WorkflowCompletionModeAuto             WorkflowCompletionMode = "auto"
 	WorkflowCompletionModeStructuredOutput WorkflowCompletionMode = "structured_output"
 	WorkflowCompletionModeTool             WorkflowCompletionMode = "tool"
+	WorkflowCompletionModeShellCommand     WorkflowCompletionMode = "shell_command"
+	WorkflowCompletionModeUnstructured     WorkflowCompletionMode = "unstructured_output"
 
 	SleepPreventionModeAlways SleepPreventionMode = "always"
 	SleepPreventionModeActive SleepPreventionMode = "active"

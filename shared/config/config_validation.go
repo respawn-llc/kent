@@ -273,20 +273,16 @@ func validateCacheWarningMode(state settingsState, _ map[string]string) error {
 func validateWorkflowSettings(state settingsState, _ map[string]string) error {
 	if state.Settings.Workflow.CompletionMode == "" &&
 		state.Settings.Workflow.Concurrency == 0 &&
-		state.Settings.Workflow.MaxFinalAnswerViolations == 0 &&
 		state.Settings.Workflow.MaxInvalidCompletionAttempts == 0 {
 		return nil
 	}
 	switch state.Settings.Workflow.CompletionMode {
-	case WorkflowCompletionModeAuto, WorkflowCompletionModeStructuredOutput, WorkflowCompletionModeTool:
+	case WorkflowCompletionModeAuto, WorkflowCompletionModeStructuredOutput, WorkflowCompletionModeTool, WorkflowCompletionModeShellCommand, WorkflowCompletionModeUnstructured:
 	default:
-		return fmt.Errorf("%w: invalid workflow.completion_mode %q (expected auto|structured_output|tool)", errInvalidWorkflowSettings, state.Settings.Workflow.CompletionMode)
+		return fmt.Errorf("%w: invalid workflow.completion_mode %q (expected auto|structured_output|tool|shell_command|unstructured_output)", errInvalidWorkflowSettings, state.Settings.Workflow.CompletionMode)
 	}
 	if state.Settings.Workflow.Concurrency <= 0 {
 		return fmt.Errorf("%w: %w must be > 0", errInvalidWorkflowSettings, errWorkflowConcurrency)
-	}
-	if state.Settings.Workflow.MaxFinalAnswerViolations <= 0 {
-		return fmt.Errorf("%w: workflow.max_final_answer_violations must be > 0", errInvalidWorkflowSettings)
 	}
 	if state.Settings.Workflow.MaxInvalidCompletionAttempts <= 0 {
 		return fmt.Errorf("%w: workflow.max_invalid_completion_attempts must be > 0", errInvalidWorkflowSettings)

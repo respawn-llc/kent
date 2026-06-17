@@ -14,27 +14,28 @@ const (
 	// errors. These values are part of Kent's wire contract; clients must
 	// map ErrCodeRequestCanceled back to context.Canceled so user interrupts
 	// remain normal cancellation flow instead of transcript-visible errors.
-	ErrCodeParseError               = -32700
-	ErrCodeInvalidRequest           = -32600
-	ErrCodeMethodNotFound           = -32601
-	ErrCodeInvalidParams            = -32602
-	ErrCodeInternalError            = -32603
-	ErrCodeStreamGap                = -32010
-	ErrCodeStreamUnavailable        = -32011
-	ErrCodeStreamFailed             = -32012
-	ErrCodeWorkspaceNotRegistered   = -32013
-	ErrCodeProjectNotFound          = -32014
-	ErrCodeProjectUnavailable       = -32015
-	ErrCodeSessionAlreadyControlled = -32016
-	ErrCodeInvalidControllerLease   = -32017
-	ErrCodeAuthRequired             = -32018
-	ErrCodeRuntimeUnavailable       = -32019
-	ErrCodePromptNotFound           = -32020
-	ErrCodePromptResolved           = -32021
-	ErrCodePromptUnsupported        = -32022
-	ErrCodeRequestCanceled          = -32023
-	ErrCodeWorkflowTaskNotFound     = -32024
-	ErrCodeProtocolVersionMismatch  = -32025
+	ErrCodeParseError                    = -32700
+	ErrCodeInvalidRequest                = -32600
+	ErrCodeMethodNotFound                = -32601
+	ErrCodeInvalidParams                 = -32602
+	ErrCodeInternalError                 = -32603
+	ErrCodeStreamGap                     = -32010
+	ErrCodeStreamUnavailable             = -32011
+	ErrCodeStreamFailed                  = -32012
+	ErrCodeWorkspaceNotRegistered        = -32013
+	ErrCodeProjectNotFound               = -32014
+	ErrCodeProjectUnavailable            = -32015
+	ErrCodeSessionAlreadyControlled      = -32016
+	ErrCodeInvalidControllerLease        = -32017
+	ErrCodeAuthRequired                  = -32018
+	ErrCodeRuntimeUnavailable            = -32019
+	ErrCodePromptNotFound                = -32020
+	ErrCodePromptResolved                = -32021
+	ErrCodePromptUnsupported             = -32022
+	ErrCodeRequestCanceled               = -32023
+	ErrCodeWorkflowTaskNotFound          = -32024
+	ErrCodeProtocolVersionMismatch       = -32025
+	ErrCodeWorkflowTaskCompleteAmbiguous = -32026
 )
 
 type Request struct {

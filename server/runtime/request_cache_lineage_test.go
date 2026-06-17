@@ -1,10 +1,12 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/server/workflow"
 	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -15,6 +17,49 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWorkflowCacheFriendlyCompletionModesKeepRequestMetadataStableAcrossContracts(t *testing.T) {
+	tests := []struct {
+		name string
+		mode config.WorkflowCompletionMode
+	}{
+		{name: "shell command", mode: config.WorkflowCompletionModeShellCommand},
+		{name: "unstructured output", mode: config.WorkflowCompletionModeUnstructured},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, tt.mode)
+			eng := mustNewWorkflowTestEngine(t, store, &fakeClient{}, workflowCfg, Config{
+				EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+			})
+
+			reqBefore, err := eng.buildRequest(context.Background(), "step-before", true)
+			if err != nil {
+				t.Fatalf("build before request: %v", err)
+			}
+			eng.cfg.WorkflowRun.Contract.Transitions[0].Parameters = []workflow.Parameter{{Key: "different", Description: "Changed transition output."}}
+			reqAfter, err := eng.buildRequest(context.Background(), "step-after", true)
+			if err != nil {
+				t.Fatalf("build after request: %v", err)
+			}
+			beforeChunks, err := promptCacheChunks(reqBefore)
+			if err != nil {
+				t.Fatalf("before prompt cache chunks: %v", err)
+			}
+			afterChunks, err := promptCacheChunks(reqAfter)
+			if err != nil {
+				t.Fatalf("after prompt cache chunks: %v", err)
+			}
+			if len(beforeChunks) == 0 || len(afterChunks) == 0 {
+				t.Fatalf("metadata chunks missing: before=%d after=%d", len(beforeChunks), len(afterChunks))
+			}
+			if !bytes.Equal(beforeChunks[0], afterChunks[0]) {
+				t.Fatalf("%s metadata chunk changed across contract drift:\nbefore=%s\nafter=%s", tt.name, beforeChunks[0], afterChunks[0])
+			}
+		})
+	}
+}
 
 func TestCacheWarningSteeringUsesCacheWarningModeVisibility(t *testing.T) {
 	tests := []struct {

@@ -35,6 +35,50 @@ func (s *Store) ClaimRun(ctx context.Context, runID workflow.RunID, expectedGene
 	return RunnableRunRecord{RunRecord: runRecordFromClaimedTaskRun(row), WorkflowRevisionSeen: row.WorkflowRevisionSeen}, nil
 }
 
+func (s *Store) GetRun(ctx context.Context, runID workflow.RunID) (RunRecord, error) {
+	if strings.TrimSpace(string(runID)) == "" {
+		return RunRecord{}, errors.New("run id is required")
+	}
+	row, err := s.queries.GetTaskRun(ctx, string(runID))
+	if err != nil {
+		return RunRecord{}, err
+	}
+	return runRecordFromTaskRun(row), nil
+}
+
+func (s *Store) SetRunEffectiveCompletionMode(ctx context.Context, runID workflow.RunID, expectedGeneration int64, mode string) error {
+	trimmedMode := strings.TrimSpace(mode)
+	if strings.TrimSpace(string(runID)) == "" {
+		return errors.New("run id is required")
+	}
+	if !validEffectiveCompletionMode(trimmedMode) {
+		return fmt.Errorf("invalid workflow effective completion mode %q", mode)
+	}
+	now := s.now().UnixMilli()
+	updated, err := s.queries.SetTaskRunEffectiveCompletionMode(ctx, sqlitegen.SetTaskRunEffectiveCompletionModeParams{
+		ID:                      string(runID),
+		ExpectedGeneration:      expectedGeneration,
+		EffectiveCompletionMode: trimmedMode,
+		UpdatedAtUnixMs:         now,
+	})
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func validEffectiveCompletionMode(mode string) bool {
+	switch mode {
+	case "structured_output", "tool", "shell_command", "unstructured_output":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Store) InterruptRun(ctx context.Context, runID workflow.RunID, reason string, detailJSON string) error {
 	if strings.TrimSpace(detailJSON) == "" {
 		detailJSON = "{}"
@@ -89,7 +133,7 @@ func (s *Store) InterruptTaskRun(ctx context.Context, taskID workflow.TaskID, ru
 	candidates := []RunRecord{}
 	for rows.Next() {
 		var row sqlitegen.TaskRunRecord
-		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.FinalAnswerViolationCount, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
+		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.EffectiveCompletionMode, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
 			return RunRecord{}, err
 		}
 		candidates = append(candidates, runRecordFromTaskRun(row))
@@ -231,6 +275,10 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		return RunStartContext{}, err
 	}
 	workflowRecord := WorkflowRecord{ID: workflow.WorkflowID(workflowRow.ID), Name: workflowRow.Name, Description: workflowRow.Description, Version: workflowRow.Version}
+	hasContinueSessionEdge, err := s.queries.WorkflowHasContinueSessionEdge(ctx, workflowRow.ID)
+	if err != nil {
+		return RunStartContext{}, err
+	}
 	snapshot := runStartSnapshot{}
 	if err := workflow.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return RunStartContext{}, err
@@ -262,23 +310,24 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
 	if worktreeID == "" {
 		return RunStartContext{
-			Run:                  runRecordFromTaskRun(run),
-			Task:                 taskRecordFromTask(task),
-			Workflow:             workflowRecord,
-			Node:                 nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
-			ContextMode:          transitionContext.ContextMode,
-			SourceRunID:          transitionContext.SourceRunID,
-			SourceSessionID:      transitionContext.SourceSessionID,
-			SourceNode:           transitionContext.SourceNode,
-			IsFanoutBranch:       isFanoutBranch,
-			TransitionIDs:        transitionIDsFromSnapshot(snapshot),
-			TransitionOptions:    transitionOptionsFromSnapshot(snapshot),
-			PromptTemplate:       strings.TrimSpace(runMetadata.PromptTemplate),
-			Parameters:           parameters,
-			ParameterValues:      parameterValues,
-			PriorParameterValues: priorParameterValues,
-			InputValues:          inputValues,
-			NodeOutputValues:     runMetadata.NodeOutputValues,
+			Run:                            runRecordFromTaskRun(run),
+			Task:                           taskRecordFromTask(task),
+			Workflow:                       workflowRecord,
+			Node:                           nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
+			ContextMode:                    transitionContext.ContextMode,
+			WorkflowHasContinueSessionEdge: hasContinueSessionEdge != 0,
+			SourceRunID:                    transitionContext.SourceRunID,
+			SourceSessionID:                transitionContext.SourceSessionID,
+			SourceNode:                     transitionContext.SourceNode,
+			IsFanoutBranch:                 isFanoutBranch,
+			TransitionIDs:                  transitionIDsFromSnapshot(snapshot),
+			TransitionOptions:              transitionOptionsFromSnapshot(snapshot),
+			PromptTemplate:                 strings.TrimSpace(runMetadata.PromptTemplate),
+			Parameters:                     parameters,
+			ParameterValues:                parameterValues,
+			PriorParameterValues:           priorParameterValues,
+			InputValues:                    inputValues,
+			NodeOutputValues:               runMetadata.NodeOutputValues,
 		}, nil
 	}
 	worktree, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
@@ -290,26 +339,27 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		return RunStartContext{}, err
 	}
 	return RunStartContext{
-		Run:                  runRecordFromTaskRun(run),
-		Task:                 taskRecordFromTask(task),
-		Workflow:             workflowRecord,
-		Node:                 nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
-		ContextMode:          transitionContext.ContextMode,
-		SourceRunID:          transitionContext.SourceRunID,
-		SourceSessionID:      transitionContext.SourceSessionID,
-		SourceNode:           transitionContext.SourceNode,
-		TransitionIDs:        transitionIDsFromSnapshot(snapshot),
-		TransitionOptions:    transitionOptionsFromSnapshot(snapshot),
-		PromptTemplate:       strings.TrimSpace(runMetadata.PromptTemplate),
-		Parameters:           parameters,
-		ParameterValues:      parameterValues,
-		PriorParameterValues: priorParameterValues,
-		InputValues:          inputValues,
-		NodeOutputValues:     runMetadata.NodeOutputValues,
-		WorkspaceID:          workspace.ID,
-		WorkspaceRoot:        workspace.CanonicalRootPath,
-		WorktreeID:           worktree.ID,
-		WorktreeRoot:         worktree.CanonicalRoot,
+		Run:                            runRecordFromTaskRun(run),
+		Task:                           taskRecordFromTask(task),
+		Workflow:                       workflowRecord,
+		Node:                           nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
+		ContextMode:                    transitionContext.ContextMode,
+		WorkflowHasContinueSessionEdge: hasContinueSessionEdge != 0,
+		SourceRunID:                    transitionContext.SourceRunID,
+		SourceSessionID:                transitionContext.SourceSessionID,
+		SourceNode:                     transitionContext.SourceNode,
+		TransitionIDs:                  transitionIDsFromSnapshot(snapshot),
+		TransitionOptions:              transitionOptionsFromSnapshot(snapshot),
+		PromptTemplate:                 strings.TrimSpace(runMetadata.PromptTemplate),
+		Parameters:                     parameters,
+		ParameterValues:                parameterValues,
+		PriorParameterValues:           priorParameterValues,
+		InputValues:                    inputValues,
+		NodeOutputValues:               runMetadata.NodeOutputValues,
+		WorkspaceID:                    workspace.ID,
+		WorkspaceRoot:                  workspace.CanonicalRootPath,
+		WorktreeID:                     worktree.ID,
+		WorktreeRoot:                   worktree.CanonicalRoot,
 	}, nil
 }
 
@@ -585,7 +635,7 @@ func (s *Store) ResolveTaskWaitingAsk(ctx context.Context, taskID workflow.TaskI
 	matches := []RunRecord{}
 	for rows.Next() {
 		var row sqlitegen.TaskRunRecord
-		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.FinalAnswerViolationCount, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
+		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.EffectiveCompletionMode, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
 			return RunRecord{}, err
 		}
 		matches = append(matches, runRecordFromTaskRun(row))
@@ -600,4 +650,115 @@ func (s *Store) ResolveTaskWaitingAsk(ctx context.Context, taskID workflow.TaskI
 		return RunRecord{}, fmt.Errorf("task has multiple matching pending asks; %w", ErrRunIDRequired)
 	}
 	return matches[0], nil
+}
+
+func (s *Store) ResolveActiveRunCompletionTarget(ctx context.Context, selector ActiveRunCompletionTargetSelector) (ActiveRunCompletionTarget, error) {
+	clause, args, err := activeRunCompletionTargetSelectorClause(selector)
+	if err != nil {
+		return ActiveRunCompletionTarget{}, err
+	}
+	rows, err := s.db.QueryContext(ctx, activeRunCompletionTargetQuery+clause+activeRunCompletionTargetOrder, args...)
+	if err != nil {
+		return ActiveRunCompletionTarget{}, err
+	}
+	defer func() { _ = rows.Close() }()
+	matches, err := scanTaskRunRecordRows(rows)
+	if err != nil {
+		return ActiveRunCompletionTarget{}, err
+	}
+	if len(matches) == 0 {
+		return ActiveRunCompletionTarget{}, sql.ErrNoRows
+	}
+	if len(matches) != 1 {
+		return ActiveRunCompletionTarget{}, fmt.Errorf("selector matched multiple active workflow runs; %w", ErrRunIDRequired)
+	}
+	return ActiveRunCompletionTarget{Run: matches[0]}, nil
+}
+
+func activeRunCompletionTargetSelectorClause(selector ActiveRunCompletionTargetSelector) (string, []any, error) {
+	runID := strings.TrimSpace(string(selector.RunID))
+	sessionID := strings.TrimSpace(selector.SessionID)
+	taskID := strings.TrimSpace(string(selector.TaskID))
+	projectID := strings.TrimSpace(selector.ProjectID)
+	shortID := strings.TrimSpace(selector.ShortID)
+	count := 0
+	for _, value := range []string{runID, sessionID, taskID, shortID} {
+		if value != "" {
+			count++
+		}
+	}
+	if count != 1 {
+		return "", nil, errors.New("exactly one completion target selector is required")
+	}
+	if projectID != "" && shortID == "" {
+		return "", nil, errors.New("project id can only be used with short id selector")
+	}
+	switch {
+	case runID != "":
+		return " AND r.id = ?", []any{runID}, nil
+	case sessionID != "":
+		return " AND r.session_id = ?", []any{sessionID}, nil
+	case taskID != "":
+		return " AND t.id = ?", []any{taskID}, nil
+	case projectID != "":
+		return " AND t.short_id = ? AND t.project_id = ?", []any{shortID, projectID}, nil
+	default:
+		return " AND t.short_id = ?", []any{shortID}, nil
+	}
+}
+
+const activeRunCompletionTargetQuery = `
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN tasks t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND trim(COALESCE(r.session_id, '')) != ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'`
+
+const activeRunCompletionTargetOrder = `
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC`
+
+func scanTaskRunRecordRows(rows *sql.Rows) ([]RunRecord, error) {
+	matches := []RunRecord{}
+	for rows.Next() {
+		var row sqlitegen.TaskRunRecord
+		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.EffectiveCompletionMode, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
+			return nil, err
+		}
+		matches = append(matches, runRecordFromTaskRun(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return matches, nil
 }

@@ -15,7 +15,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json

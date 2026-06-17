@@ -21,20 +21,23 @@ func TestSelectCompletionMode(t *testing.T) {
 	supported := llm.ProviderCapabilities{SupportsResponsesAPI: true}
 	unsupported := llm.ProviderCapabilities{}
 	tests := []struct {
-		name    string
-		mode    config.WorkflowCompletionMode
-		caps    llm.ProviderCapabilities
-		want    CompletionMode
-		wantErr error
+		name      string
+		selection CompletionModeSelection
+		want      CompletionMode
+		wantErr   error
 	}{
-		{name: "auto structured", mode: config.WorkflowCompletionModeAuto, caps: supported, want: CompletionModeStructuredOutput},
-		{name: "auto tool", mode: config.WorkflowCompletionModeAuto, caps: unsupported, want: CompletionModeTool},
-		{name: "forced tool", mode: config.WorkflowCompletionModeTool, caps: supported, want: CompletionModeTool},
-		{name: "forced structured unsupported", mode: config.WorkflowCompletionModeStructuredOutput, caps: unsupported, wantErr: ErrStructuredOutputUnsupported},
+		{name: "auto structured", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeAuto, ProviderCapabilities: supported, ShellAvailable: true}, want: CompletionModeStructuredOutput},
+		{name: "auto tool", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeAuto, ProviderCapabilities: unsupported, ShellAvailable: true}, want: CompletionModeTool},
+		{name: "auto continuation shell", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeAuto, ProviderCapabilities: supported, HasContinueSessionEdge: true, ShellAvailable: true}, want: CompletionModeShellCommand},
+		{name: "auto shell unavailable", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeAuto, ProviderCapabilities: supported, HasContinueSessionEdge: true, ShellAvailable: false}, want: CompletionModeUnstructuredOutput},
+		{name: "forced tool", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeTool, ProviderCapabilities: supported}, want: CompletionModeTool},
+		{name: "forced shell", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeShellCommand, ProviderCapabilities: supported}, want: CompletionModeShellCommand},
+		{name: "forced unstructured", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeUnstructured, ProviderCapabilities: supported}, want: CompletionModeUnstructuredOutput},
+		{name: "forced structured unsupported", selection: CompletionModeSelection{ConfiguredMode: config.WorkflowCompletionModeStructuredOutput, ProviderCapabilities: unsupported}, wantErr: ErrStructuredOutputUnsupported},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := SelectCompletionMode(tt.mode, tt.caps)
+			got, err := SelectCompletionMode(tt.selection)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("SelectCompletionMode error = %v, want %v", err, tt.wantErr)
@@ -84,9 +87,21 @@ func TestCompletionJSONSchemaUsesOpenAICompatibleNullableTransitionParameters(t 
 	}
 	assertNullableParameterProperty(t, schema.Properties["summary"])
 	assertNullableParameterProperty(t, schema.Properties["risk"])
+	assertNullableStringProperty(t, schema.Properties["commentary"])
 	wantRequired := []string{"transition", "commentary", "risk", "summary"}
 	if strings.Join(schema.Required, ",") != strings.Join(wantRequired, ",") {
 		t.Fatalf("required = %+v, want %+v", schema.Required, wantRequired)
+	}
+}
+
+func assertNullableStringProperty(t *testing.T, property completionSchemaProperty) {
+	t.Helper()
+	values, ok := property.Type.([]any)
+	if !ok || len(values) != 2 {
+		t.Fatalf("property type = %+v, want nullable string", property.Type)
+	}
+	if values[0] != "string" || values[1] != "null" {
+		t.Fatalf("property type = %+v, want [string null]", values)
 	}
 }
 
@@ -116,7 +131,7 @@ func TestCompletionJSONSchemaRequiresSingleTransitionParameters(t *testing.T) {
 	var schema struct {
 		Required   []string `json:"required"`
 		Properties map[string]struct {
-			Type string `json:"type"`
+			Type any `json:"type"`
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(raw, &schema); err != nil {
@@ -185,7 +200,7 @@ func TestDecodeCompletionInfersSingleTransitionAndRequiresParameters(t *testing.
 		}
 	}
 
-	parsed, err := DecodeCompletion(json.RawMessage(`{"commentary":"","summary":"done","risk":"low"}`), CompletionContract{
+	parsed, err := DecodeCompletion(json.RawMessage(`{"summary":"done","risk":"low"}`), CompletionContract{
 		Transitions: []CompletionTransition{{ID: "done", Parameters: []workflow.Parameter{
 			{Key: "summary", Description: "Summary."},
 			{Key: "risk", Description: "Risk."},
@@ -199,6 +214,69 @@ func TestDecodeCompletionInfersSingleTransitionAndRequiresParameters(t *testing.
 	}
 	if parsed.OutputValues["summary"] != "done" || parsed.OutputValues["risk"] != "low" {
 		t.Fatalf("parameter values = %+v", parsed.OutputValues)
+	}
+}
+
+func TestDecodeCompletionAcceptsOptionalCommentary(t *testing.T) {
+	contract := CompletionContract{
+		Transitions: []CompletionTransition{{ID: "done", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}}},
+	}
+	for _, tt := range []struct {
+		name           string
+		raw            json.RawMessage
+		wantCommentary string
+	}{
+		{name: "omitted", raw: json.RawMessage(`{"summary":"done"}`), wantCommentary: ""},
+		{name: "null", raw: json.RawMessage(`{"commentary":null,"summary":"done"}`), wantCommentary: ""},
+		{name: "string", raw: json.RawMessage(`{"commentary":"evidence","summary":"done"}`), wantCommentary: "evidence"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := DecodeCompletion(tt.raw, contract)
+			if err != nil {
+				t.Fatalf("DecodeCompletion: %v", err)
+			}
+			if parsed.Commentary != tt.wantCommentary {
+				t.Fatalf("commentary = %q, want %q", parsed.Commentary, tt.wantCommentary)
+			}
+		})
+	}
+}
+
+func TestDecodeCompletionRejectsNullSelectedParameter(t *testing.T) {
+	_, err := DecodeCompletion(json.RawMessage(`{"summary":null}`), CompletionContract{
+		Transitions: []CompletionTransition{{ID: "done", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}}},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	validation, ok := err.(ValidationError)
+	if !ok {
+		t.Fatalf("error type = %T, want ValidationError", err)
+	}
+	for _, issue := range validation.Issues {
+		if issue.Code == "non_string_value" && issue.Field == "summary" {
+			return
+		}
+	}
+	t.Fatalf("missing non-string selected parameter issue: %+v", validation.Issues)
+}
+
+func TestDecodeUnstructuredCompletionRequiresRawJSONObject(t *testing.T) {
+	contract := CompletionContract{
+		Transitions: []CompletionTransition{{ID: "done", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}}},
+	}
+	if _, err := DecodeUnstructuredCompletion("```json\n{\"summary\":\"done\"}\n```", contract); err == nil {
+		t.Fatal("expected fenced JSON to be rejected")
+	}
+	if _, err := DecodeUnstructuredCompletion("{\"summary\":\"done\"}\nall set", contract); err == nil {
+		t.Fatal("expected trailing prose to be rejected")
+	}
+	parsed, err := DecodeUnstructuredCompletion(" \n{\"summary\":\"done\"}\t", contract)
+	if err != nil {
+		t.Fatalf("DecodeUnstructuredCompletion: %v", err)
+	}
+	if parsed.TransitionID != "done" || parsed.OutputValues["summary"] != "done" {
+		t.Fatalf("parsed = %+v", parsed)
 	}
 }
 

@@ -1309,7 +1309,7 @@ func (s *Service) runsByID(ctx context.Context, ids []string) ([]sqlitegen.TaskR
 			&row.InterruptionReason,
 			&row.InterruptionDetailJson,
 			&row.WaitingAskID,
-			&row.FinalAnswerViolationCount,
+			&row.EffectiveCompletionMode,
 			&row.InvalidCompletionCount,
 			&row.RunStartSnapshotJson,
 			&row.MetadataJson,

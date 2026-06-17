@@ -71,8 +71,6 @@ var (
 	updateWorkflowNodeQuery string
 	//go:embed queries/update_workflow_transition_group.sql
 	updateWorkflowTransitionGroupQuery string
-	//go:embed queries/record_final_answer_protocol_violation.sql
-	recordFinalAnswerProtocolViolationQuery string
 	//go:embed queries/record_invalid_completion_protocol_violation.sql
 	recordInvalidCompletionProtocolViolationQuery string
 	//go:embed queries/manual_move_previous_transition.sql

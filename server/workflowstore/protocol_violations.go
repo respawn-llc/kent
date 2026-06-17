@@ -34,10 +34,6 @@ func (s *Store) RecordProtocolViolation(ctx context.Context, req RecordProtocolV
 		requireGeneration = 1
 	}
 	switch req.Kind {
-	case ProtocolViolationFinalAnswer:
-		err = s.db.QueryRowContext(ctx, strings.TrimSuffix(recordFinalAnswerProtocolViolationQuery, "\n"),
-			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), requireGeneration, req.ExpectedGeneration,
-		).Scan(&count, &interruptedAt)
 	case ProtocolViolationInvalidCompletion:
 		err = s.db.QueryRowContext(ctx, strings.TrimSuffix(recordInvalidCompletionProtocolViolationQuery, "\n"),
 			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), requireGeneration, req.ExpectedGeneration,
@@ -69,8 +65,6 @@ func (s *Store) RecordProtocolViolation(ctx context.Context, req RecordProtocolV
 
 func protocolViolationCount(run sqlitegen.TaskRunRecord, kind ProtocolViolationKind) int64 {
 	switch kind {
-	case ProtocolViolationFinalAnswer:
-		return run.FinalAnswerViolationCount
 	case ProtocolViolationInvalidCompletion:
 		return run.InvalidCompletionCount
 	default:

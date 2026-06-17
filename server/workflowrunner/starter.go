@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"core/prompts"
 	"core/server/auth"
@@ -36,8 +37,10 @@ const (
 )
 
 type RuntimeStore interface {
+	GetRun(context.Context, workflow.RunID) (workflowstore.RunRecord, error)
 	GetRunStartContext(context.Context, workflow.RunID) (workflowstore.RunStartContext, error)
 	AttachRunSession(context.Context, workflow.RunID, int64, string) error
+	SetRunEffectiveCompletionMode(context.Context, workflow.RunID, int64, string) error
 	SetRunWaitingAsk(context.Context, workflow.RunID, int64, string) error
 	ClearRunWaitingAsk(context.Context, workflow.RunID, int64, string) error
 	CompleteRun(context.Context, workflowstore.CompleteRunRequest) (workflowstore.CompleteRunResult, error)
@@ -168,6 +171,14 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunReq
 		}
 		return s.cleanupSession(ctx, plan.Store)
 	}
+	client := llm.Client(nil)
+	if s.clientFactory != nil {
+		client = s.clientFactory(req)
+	}
+	effectiveMode, client, err := s.resolveAndPersistWorkflowCompletionMode(ctx, req, input, plan, client)
+	if err != nil {
+		return errors.Join(err, cleanupSession())
+	}
 	if err := plan.Store.SetWorktreeReminderState(&session.WorktreeReminderState{
 		Mode:          session.WorktreeReminderModeEnter,
 		WorktreePath:  input.WorktreeRoot,
@@ -191,7 +202,7 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunReq
 		s.releaseRegisteredRun(req.RunID)
 		return errors.Join(err, cleanupSession())
 	}
-	go s.run(runCtx, req, input, plan, warnings)
+	go s.run(runCtx, req, input, plan, warnings, client, effectiveMode)
 	return nil
 }
 
@@ -387,6 +398,91 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 	return plan, warnings, nil
 }
 
+func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, req SchedulerStartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, client llm.Client) (workflowruntime.CompletionMode, llm.Client, error) {
+	if stored := strings.TrimSpace(input.Run.EffectiveCompletionMode); stored != "" {
+		mode, err := workflowruntime.ParseCompletionMode(stored)
+		return mode, client, err
+	}
+	shellAvailable := toolIDEnabled(plan.EnabledTools, toolspec.ToolExecCommand)
+	if s.cfg.Settings.Workflow.CompletionMode == config.WorkflowCompletionModeShellCommand && !shellAvailable {
+		return "", client, errors.New("workflow shell_command completion requires shell tool availability for this run")
+	}
+	caps, resolvedClient, err := s.workflowProviderCapabilities(ctx, plan, client)
+	if err != nil {
+		return "", resolvedClient, fmt.Errorf("resolve provider capabilities for workflow completion: %w", err)
+	}
+	mode, err := workflowruntime.SelectCompletionMode(workflowruntime.CompletionModeSelection{
+		ConfiguredMode:         s.cfg.Settings.Workflow.CompletionMode,
+		ProviderCapabilities:   caps,
+		HasContinueSessionEdge: input.WorkflowHasContinueSessionEdge,
+		ShellAvailable:         shellAvailable,
+	})
+	if err != nil {
+		return "", resolvedClient, err
+	}
+	if err := s.store.SetRunEffectiveCompletionMode(ctx, req.RunID, req.Generation, string(mode)); err != nil {
+		return "", resolvedClient, err
+	}
+	return mode, resolvedClient, nil
+}
+
+func (s *Starter) workflowProviderCapabilities(ctx context.Context, plan launch.SessionPlan, client llm.Client) (llm.ProviderCapabilities, llm.Client, error) {
+	if caps, ok := llm.ProviderCapabilitiesFromLocked(plan.Store.Meta().Locked); ok {
+		return caps, client, nil
+	}
+	if caps, ok := llm.ProviderCapabilitiesFromOverride(plan.ActiveSettings.ProviderCapabilities); ok {
+		return caps, client, nil
+	}
+	if client == nil {
+		created, err := s.newWorkflowProviderClient(plan.ActiveSettings)
+		if err != nil {
+			return llm.ProviderCapabilities{}, nil, err
+		}
+		client = created
+	}
+	provider, ok := client.(llm.ProviderCapabilitiesClient)
+	if !ok {
+		return llm.ProviderCapabilities{}, client, fmt.Errorf("provider capabilities are unavailable for client %T", client)
+	}
+	caps, err := provider.ProviderCapabilities(ctx)
+	if err != nil {
+		return llm.ProviderCapabilities{}, client, err
+	}
+	return caps, client, nil
+}
+
+func (s *Starter) newWorkflowProviderClient(active config.Settings) (llm.Client, error) {
+	var authProvider llm.AuthHeaderProvider
+	if s.authManager != nil {
+		authProvider = s.authManager
+	}
+	override, _ := llm.ProviderCapabilitiesFromOverride(active.ProviderCapabilities)
+	var overridePtr *llm.ProviderCapabilities
+	if strings.TrimSpace(override.ProviderID) != "" {
+		overridePtr = &override
+	}
+	return llm.NewProviderClient(llm.ProviderClientOptions{
+		Provider:                     llm.Provider(strings.TrimSpace(active.ProviderOverride)),
+		Model:                        active.Model,
+		Auth:                         authProvider,
+		HTTPClient:                   llm.NewHTTPClient(time.Duration(active.Timeouts.ModelRequestSeconds) * time.Second),
+		OpenAIBaseURL:                active.OpenAIBaseURL,
+		ModelVerbosity:               string(active.ModelVerbosity),
+		Store:                        active.Store,
+		ContextWindowTokens:          active.ModelContextWindow,
+		ProviderCapabilitiesOverride: overridePtr,
+	})
+}
+
+func toolIDEnabled(enabled []toolspec.ID, want toolspec.ID) bool {
+	for _, id := range enabled {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
 func workflowRunPromptOverrides(role string) serverapi.RunPromptOverrides {
 	if workflow.IsDefaultAgentRole(role) {
 		return serverapi.RunPromptOverrides{AgentRoleSet: true}
@@ -442,7 +538,7 @@ func (s *Starter) validateRole(role string) error {
 	return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleMissing)
 }
 
-func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, warnings []string) {
+func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, warnings []string, client llm.Client, effectiveMode workflowruntime.CompletionMode) {
 	defer s.wg.Done()
 	defer s.finish(req.RunID, req.Generation)
 	logger, err := runprompt.NewRunLogger(plan.Store.Dir(), nil)
@@ -454,10 +550,6 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 	logger.Logf("workflow.runtime.start run_id=%s task_id=%s session_id=%s node_id=%s worktree=%s model=%s", req.RunID, req.TaskID, plan.Store.Meta().SessionID, req.NodeID, input.WorktreeRoot, plan.ActiveSettings.Model)
 	for _, warning := range warnings {
 		logger.Logf("workflow.runtime.warning %s", warning)
-	}
-	client := llm.Client(nil)
-	if s.clientFactory != nil {
-		client = s.clientFactory(req)
 	}
 	instructions, instructionsErr := BuildWorkflowTaskInstructions(input)
 	if instructionsErr != nil {
@@ -472,8 +564,7 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 		WorkflowRun: &workflowruntime.Config{
 			RunID:                        req.RunID,
 			Contract:                     workflowCompletionContract(req, input),
-			CompletionMode:               s.cfg.Settings.Workflow.CompletionMode,
-			MaxFinalAnswerViolations:     s.cfg.Settings.Workflow.MaxFinalAnswerViolations,
+			CompletionMode:               effectiveMode,
 			MaxInvalidCompletionAttempts: s.cfg.Settings.Workflow.MaxInvalidCompletionAttempts,
 			Controller:                   workflowruntime.StoreController{Store: s.store},
 			TaskCommentCounter:           s.store,

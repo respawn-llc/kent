@@ -161,7 +161,7 @@ type TaskRun struct {
 	InterruptionReason          string
 	InterruptionDetailJson      string
 	WaitingAskID                string
-	FinalAnswerViolationCount   int64
+	EffectiveCompletionMode     string
 	InvalidCompletionCount      int64
 	RunStartSnapshotJson        string
 	MetadataJson                string
@@ -184,7 +184,7 @@ type TaskRunRecord struct {
 	InterruptionReason          string
 	InterruptionDetailJson      string
 	WaitingAskID                string
-	FinalAnswerViolationCount   int64
+	EffectiveCompletionMode     string
 	InvalidCompletionCount      int64
 	RunStartSnapshotJson        string
 	MetadataJson                string

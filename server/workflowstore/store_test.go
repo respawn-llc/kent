@@ -2730,14 +2730,14 @@ func TestRecordProtocolViolationInterruptsAtCap(t *testing.T) {
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	first, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationFinalAnswer, MaxCount: 2, Detail: `{"detail":"first"}`})
+	first, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationInvalidCompletion, MaxCount: 2, Detail: `{"detail":"first"}`})
 	if err != nil {
 		t.Fatalf("RecordProtocolViolation first: %v", err)
 	}
 	if first.Count != 1 || first.Interrupted {
 		t.Fatalf("first violation = %+v, want count 1 active", first)
 	}
-	second, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationFinalAnswer, MaxCount: 2, Detail: `{"detail":"second"}`})
+	second, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationInvalidCompletion, MaxCount: 2, Detail: `{"detail":"second"}`})
 	if err != nil {
 		t.Fatalf("RecordProtocolViolation second: %v", err)
 	}
@@ -2748,8 +2748,41 @@ func TestRecordProtocolViolationInterruptsAtCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 1 || runs[0].FinalAnswerViolations != 2 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != "workflow_protocol_violation_limit" {
+	if len(runs) != 1 || runs[0].InvalidCompletions != 2 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != "workflow_protocol_violation_limit" {
 		t.Fatalf("run after cap = %+v", runs)
+	}
+}
+
+func TestSetRunEffectiveCompletionModePersistsAndRefusesDrift(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+	claimed, err := store.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if claimed.EffectiveCompletionMode != "" {
+		t.Fatalf("claimed effective mode = %q, want empty before resolution", claimed.EffectiveCompletionMode)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "shell_command"); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].EffectiveCompletionMode != "shell_command" {
+		t.Fatalf("run effective mode = %+v, want shell_command", runs)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "shell_command"); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode same mode: %v", err)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "tool"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("SetRunEffectiveCompletionMode drift error = %v, want sql.ErrNoRows", err)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "invalid"); err == nil {
+		t.Fatal("expected invalid effective completion mode error")
 	}
 }
 

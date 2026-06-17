@@ -12,6 +12,7 @@ import (
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
+	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/shared/config"
 	"core/shared/toolspec"
@@ -387,7 +388,7 @@ func headlessModeExitMetaMessage() (llm.Message, bool) {
 
 func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowruntime.Config, taskCommentCount int64) (llm.Message, bool, error) {
 	if cfg != nil {
-		content, err := workflowTaskInstructionsContent(mode, cfg.Instructions, taskCommentCount)
+		content, err := workflowTaskInstructionsContent(mode, cfg, taskCommentCount)
 		if err != nil {
 			return llm.Message{}, false, err
 		}
@@ -398,14 +399,7 @@ func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowr
 	}
 	content := ""
 	var err error
-	switch mode {
-	case workflowruntime.CompletionModeTool:
-		content, err = prompts.RenderWorkflowToolCompletionInstructions("")
-	case workflowruntime.CompletionModeStructuredOutput:
-		content, err = prompts.RenderWorkflowStructuredCompletionInstructions("")
-	default:
-		return llm.Message{}, false, nil
-	}
+	content, err = workflowCompletionInstructionsFragment(mode, "", workflowruntime.CompletionContract{})
 	if err != nil {
 		return llm.Message{}, false, err
 	}
@@ -415,19 +409,14 @@ func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowr
 	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, Content: content}, true, nil
 }
 
-func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, instructions workflowruntime.TaskInstructions, taskCommentCount int64) (string, error) {
-	completionInstructions := ""
-	var err error
-	switch mode {
-	case workflowruntime.CompletionModeTool:
-		completionInstructions, err = prompts.RenderWorkflowToolCompletionInstructions(instructions.WorkflowShortID)
-	case workflowruntime.CompletionModeStructuredOutput:
-		completionInstructions, err = prompts.RenderWorkflowStructuredCompletionInstructions(instructions.WorkflowShortID)
-	default:
-		return "", nil
-	}
+func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, cfg *workflowruntime.Config, taskCommentCount int64) (string, error) {
+	instructions := cfg.Instructions
+	completionInstructions, err := workflowCompletionInstructionsFragment(mode, instructions.WorkflowShortID, cfg.Contract)
 	if err != nil {
 		return "", err
+	}
+	if strings.TrimSpace(completionInstructions) == "" {
+		return "", nil
 	}
 	return prompts.RenderWorkflowTaskInstructions(prompts.WorkflowNodeContextArgs{
 		TaskId:               instructions.TaskID,
@@ -446,6 +435,59 @@ func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, instru
 		Transitions:          workflowInstructionTransitions(instructions.Transitions),
 		NodePrompt:           instructions.NodePrompt,
 	}, completionInstructions)
+}
+
+func workflowCompletionInstructionsFragment(mode workflowruntime.CompletionMode, workflowShortID string, contract workflowruntime.CompletionContract) (string, error) {
+	switch mode {
+	case workflowruntime.CompletionModeTool:
+		return prompts.RenderWorkflowToolCompletionInstructions(workflowShortID)
+	case workflowruntime.CompletionModeStructuredOutput:
+		return prompts.RenderWorkflowStructuredCompletionInstructions(workflowShortID)
+	case workflowruntime.CompletionModeShellCommand:
+		return prompts.RenderWorkflowShellCompletionInstructions(workflowCompletionPromptArgs(workflowShortID, contract))
+	case workflowruntime.CompletionModeUnstructuredOutput:
+		return prompts.RenderWorkflowUnstructuredCompletionInstructions(workflowCompletionPromptArgs(workflowShortID, contract))
+	default:
+		return "", nil
+	}
+}
+
+func workflowCompletionPromptArgs(workflowShortID string, contract workflowruntime.CompletionContract) prompts.WorkflowCompletionInstructionsArgs {
+	return prompts.WorkflowCompletionInstructionsArgs{
+		WorkflowShortID: strings.TrimSpace(workflowShortID),
+		Contract: prompts.WorkflowCompletionContract{
+			Transitions: workflowCompletionPromptTransitions(contract.Transitions),
+		},
+	}
+}
+
+func workflowCompletionPromptTransitions(in []workflowruntime.CompletionTransition) []prompts.WorkflowCompletionTransition {
+	out := make([]prompts.WorkflowCompletionTransition, 0, len(in))
+	for _, transition := range in {
+		id := strings.TrimSpace(transition.ID)
+		if id == "" {
+			continue
+		}
+		out = append(out, prompts.WorkflowCompletionTransition{
+			ID:          id,
+			DisplayName: strings.TrimSpace(transition.DisplayName),
+			Description: strings.TrimSpace(transition.Description),
+			Parameters:  workflowCompletionPromptParameters(transition.Parameters),
+		})
+	}
+	return out
+}
+
+func workflowCompletionPromptParameters(in []workflow.Parameter) []prompts.WorkflowCompletionParameter {
+	out := make([]prompts.WorkflowCompletionParameter, 0, len(in))
+	for _, parameter := range in {
+		key := strings.TrimSpace(parameter.Key)
+		if key == "" {
+			continue
+		}
+		out = append(out, prompts.WorkflowCompletionParameter{Key: key, Description: strings.TrimSpace(parameter.Description)})
+	}
+	return out
 }
 
 func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) []prompts.WorkflowTransition {

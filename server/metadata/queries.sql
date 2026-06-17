@@ -1072,6 +1072,16 @@ SELECT CAST(COUNT(*) AS INTEGER) AS run_count
 FROM task_run_records
 WHERE task_id = sqlc.arg(task_id);
 
+-- name: WorkflowHasContinueSessionEdge :one
+SELECT CAST(EXISTS (
+    SELECT 1
+    FROM workflow_edges e
+    JOIN workflow_transition_groups g ON g.id = e.transition_group_id
+    JOIN workflow_nodes n ON n.id = g.source_node_id
+    WHERE n.workflow_id = sqlc.arg(workflow_id)
+      AND e.context_mode = 'continue_session'
+) AS INTEGER) AS has_continue_session_edge;
+
 -- name: CountNonTerminalTasksByManagedWorktree :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS ref_count
 FROM tasks t
@@ -1222,7 +1232,6 @@ INSERT INTO task_runs (
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -1241,7 +1250,6 @@ INSERT INTO task_runs (
     sqlc.arg(interruption_reason),
     sqlc.arg(interruption_detail_json),
     sqlc.arg(waiting_ask_id),
-    sqlc.arg(final_answer_violation_count),
     sqlc.arg(invalid_completion_count),
     sqlc.arg(run_start_snapshot_json),
     sqlc.arg(metadata_json)
@@ -1256,7 +1264,6 @@ SET
     interruption_reason = sqlc.arg(interruption_reason),
     interruption_detail_json = sqlc.arg(interruption_detail_json),
     waiting_ask_id = sqlc.arg(waiting_ask_id),
-    final_answer_violation_count = sqlc.arg(final_answer_violation_count),
     invalid_completion_count = sqlc.arg(invalid_completion_count)
 WHERE id = sqlc.arg(id);
 
@@ -1278,7 +1285,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -1308,7 +1315,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -1334,7 +1341,7 @@ SELECT
     r.interruption_reason,
     r.interruption_detail_json,
     r.waiting_ask_id,
-    r.final_answer_violation_count,
+    r.effective_completion_mode,
     r.invalid_completion_count,
     r.run_start_snapshot_json,
     r.metadata_json
@@ -1401,10 +1408,24 @@ RETURNING
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json;
+
+-- name: SetTaskRunEffectiveCompletionMode :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    effective_completion_mode = sqlc.arg(effective_completion_mode)
+WHERE id = sqlc.arg(id)
+  AND run_generation = sqlc.arg(expected_generation)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND (
+      effective_completion_mode = ''
+      OR effective_completion_mode = sqlc.arg(effective_completion_mode)
+  );
 
 -- name: ListWaitingAskWorkflowRuns :many
 SELECT
@@ -1424,7 +1445,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json

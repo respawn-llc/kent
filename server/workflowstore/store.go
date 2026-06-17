@@ -220,20 +220,32 @@ type PlacementRecord struct {
 }
 
 type RunRecord struct {
-	ID                    workflow.RunID
-	TaskID                workflow.TaskID
-	PlacementID           workflow.PlacementID
-	NodeID                workflow.NodeID
-	SessionID             string
-	Generation            int64
-	AutomationRequestedAt int64
-	StartedAt             int64
-	CompletedAt           int64
-	InterruptedAt         int64
-	InterruptionReason    string
-	WaitingAskID          string
-	FinalAnswerViolations int64
-	InvalidCompletions    int64
+	ID                      workflow.RunID
+	TaskID                  workflow.TaskID
+	PlacementID             workflow.PlacementID
+	NodeID                  workflow.NodeID
+	SessionID               string
+	Generation              int64
+	AutomationRequestedAt   int64
+	StartedAt               int64
+	CompletedAt             int64
+	InterruptedAt           int64
+	InterruptionReason      string
+	WaitingAskID            string
+	EffectiveCompletionMode string
+	InvalidCompletions      int64
+}
+
+type ActiveRunCompletionTargetSelector struct {
+	RunID     workflow.RunID
+	SessionID string
+	TaskID    workflow.TaskID
+	ProjectID string
+	ShortID   string
+}
+
+type ActiveRunCompletionTarget struct {
+	Run RunRecord
 }
 
 type RunnableRunRecord struct {
@@ -242,14 +254,15 @@ type RunnableRunRecord struct {
 }
 
 type RunStartContext struct {
-	Run             RunRecord
-	Task            TaskRecord
-	Workflow        WorkflowRecord
-	Node            NodeRecord
-	ContextMode     workflow.ContextMode
-	SourceRunID     workflow.RunID
-	SourceSessionID string
-	SourceNode      NodeRecord
+	Run                            RunRecord
+	Task                           TaskRecord
+	Workflow                       WorkflowRecord
+	Node                           NodeRecord
+	ContextMode                    workflow.ContextMode
+	WorkflowHasContinueSessionEdge bool
+	SourceRunID                    workflow.RunID
+	SourceSessionID                string
+	SourceNode                     NodeRecord
 	// IsFanoutBranch is true when this run's placement is one branch of a
 	// parallel fan-out transition group. Continuation modes must isolate such
 	// runs (fork the source session) instead of sharing/mutating it.

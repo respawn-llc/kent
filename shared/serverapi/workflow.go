@@ -2,6 +2,7 @@ package serverapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -697,6 +698,55 @@ type WorkflowTaskMoveResponse struct {
 	PlacementIDs  []string `json:"placement_ids,omitempty"`
 	RunIDs        []string `json:"run_ids,omitempty"`
 	ApprovalError string   `json:"approval_error,omitempty"`
+}
+
+const (
+	WorkflowTaskCompleteActorAgent = "agent"
+	WorkflowTaskCompleteActorUser  = "user"
+
+	WorkflowTaskCompleteAgentOwnershipError = "Provided task parameters indicate that it does not belong to you. You aren't allowed to affect other agents' tasks to prevent disruption of their work. If you're not sure which task is yours, call for the user's help"
+	WorkflowTaskCompleteHumanSafetyWarning  = "This command is intended for use by agents only, but it seems you're a human. If you want to move the task manually, consider kent task move or GUI affordances. If you're scripting or want to run this anyway, use this command with --force to suppress this error."
+)
+
+var ErrWorkflowTaskCompleteSelectorAmbiguous = errors.New("workflow task completion selector is ambiguous")
+
+type WorkflowTaskCompleteSelectorAmbiguousError struct {
+	Message string
+}
+
+func (e WorkflowTaskCompleteSelectorAmbiguousError) Error() string {
+	message := strings.TrimSpace(e.Message)
+	if message == "" {
+		return ErrWorkflowTaskCompleteSelectorAmbiguous.Error()
+	}
+	return message
+}
+
+func (e WorkflowTaskCompleteSelectorAmbiguousError) Is(target error) bool {
+	return target == ErrWorkflowTaskCompleteSelectorAmbiguous
+}
+
+type WorkflowTaskCompleteRequest struct {
+	RunID          string            `json:"run_id,omitempty"`
+	SessionID      string            `json:"session_id,omitempty"`
+	TaskID         string            `json:"task_id,omitempty"`
+	ProjectID      string            `json:"project_id,omitempty"`
+	ShortID        string            `json:"short_id,omitempty"`
+	TransitionID   string            `json:"transition_id,omitempty"`
+	OutputValues   map[string]string `json:"output_values,omitempty"`
+	Commentary     string            `json:"commentary,omitempty"`
+	ActorKind      string            `json:"actor_kind"`
+	AgentSessionID string            `json:"agent_session_id,omitempty"`
+	Force          bool              `json:"force,omitempty"`
+}
+
+type WorkflowTaskCompleteResponse struct {
+	TransitionID string   `json:"transition_id"`
+	TaskID       string   `json:"task_id"`
+	RunID        string   `json:"run_id"`
+	State        string   `json:"state"`
+	PlacementIDs []string `json:"placement_ids,omitempty"`
+	RunIDs       []string `json:"run_ids,omitempty"`
 }
 
 type WorkflowTaskCancelRequest struct {
@@ -1525,6 +1575,45 @@ func (r WorkflowTaskMoveRequest) Validate() error {
 	return validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("target_node_id", r.TargetNodeID))
 }
 
+func (r WorkflowTaskCompleteRequest) Validate() error {
+	if err := validateWorkflowTaskCompleteActor(r); err != nil {
+		return err
+	}
+	for _, field := range []requiredWorkflowField{
+		requiredField("run_id", r.RunID),
+		requiredField("session_id", r.SessionID),
+		requiredField("task_id", r.TaskID),
+		requiredField("project_id", r.ProjectID),
+		requiredField("short_id", r.ShortID),
+		requiredField("transition_id", r.TransitionID),
+		requiredField("agent_session_id", r.AgentSessionID),
+	} {
+		if field.value != "" && strings.TrimSpace(field.value) != field.value {
+			return workflowRequestError(WorkflowRequestErrorInvalidMode, field.name, field.name+" must not have leading or trailing whitespace")
+		}
+	}
+	selectorCount := workflowTaskCompleteSelectorCount(r)
+	if selectorCount > 1 {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "selector", "at most one completion target selector is allowed")
+	}
+	if strings.TrimSpace(r.ProjectID) != "" && strings.TrimSpace(r.ShortID) == "" {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id can only be used with short_id")
+	}
+	if strings.TrimSpace(r.ActorKind) == WorkflowTaskCompleteActorAgent {
+		if strings.TrimSpace(r.AgentSessionID) == "" {
+			return workflowRequestError(WorkflowRequestErrorRequired, "agent_session_id", "agent_session_id is required for agent completion")
+		}
+		return nil
+	}
+	if !r.Force {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "force", "force is required for non-agent completion")
+	}
+	if selectorCount != 1 {
+		return workflowRequestError(WorkflowRequestErrorRequired, "selector", "one completion target selector is required")
+	}
+	return nil
+}
+
 func (r WorkflowTaskCancelRequest) Validate() error {
 	return validateRequired("task_id", r.TaskID)
 }
@@ -1535,6 +1624,34 @@ func (r WorkflowTaskDeleteRequest) Validate() error {
 
 func (r WorkflowTaskInterruptRequest) Validate() error {
 	return validateRequired("task_id", r.TaskID)
+}
+
+func validateWorkflowTaskCompleteActor(r WorkflowTaskCompleteRequest) error {
+	actor := strings.TrimSpace(r.ActorKind)
+	if actor != r.ActorKind {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "actor_kind", "actor_kind must not have leading or trailing whitespace")
+	}
+	switch actor {
+	case WorkflowTaskCompleteActorAgent:
+		if r.Force {
+			return workflowRequestError(WorkflowRequestErrorInvalidMode, "force", "force is not allowed for agent completion")
+		}
+		return nil
+	case WorkflowTaskCompleteActorUser:
+		return nil
+	default:
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "actor_kind", "actor_kind must be agent or user")
+	}
+}
+
+func workflowTaskCompleteSelectorCount(r WorkflowTaskCompleteRequest) int {
+	count := 0
+	for _, value := range []string{r.RunID, r.SessionID, r.TaskID, r.ShortID} {
+		if strings.TrimSpace(value) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (r WorkflowAttentionListRequest) Validate() error {
