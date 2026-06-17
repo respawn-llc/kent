@@ -254,6 +254,7 @@ const AttentionRow = memo(function AttentionRow({
           void openSidebar({
             kind: "taskDetail",
             initialFocus: item.kind === "question" ? "firstQuestion" : undefined,
+            inboxNav: true,
             mode: "overlay",
             onMutated: undefined,
             resumeRunID: "",

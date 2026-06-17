@@ -194,7 +194,8 @@
 - Task detail opens from Home/Board/shell through reusable native child-window infrastructure when native windows are available.
 - Browser/tests use in-app dialog fallback.
 - Direct desktop/browser route `/tasks/:taskId` renders standalone inline detail page.
-- There is one global native task-detail window; opening another task replaces content.
+- The task-detail sidebar header exposes a pop-out control (only when native windows are available) that reopens the current task as a standalone native task-detail window and closes the sidebar. Pop-out availability and window options come from a reusable per-destination mapping (`sidebarPopOutOptions`) so future sidebars opt in without new bridge plumbing.
+- Pop-out windows are keyed per task: re-popping a task that already has a window focuses the existing window instead of duplicating it; different tasks open separate windows.
 - Native/Tauri owns task-detail size and position. Do not keep custom remembered in-app sizing for native detail.
 - Closing child window after mutations blanket-refetches visible queries.
 - Fixed header/actions and task description are always visible.
@@ -218,6 +219,7 @@
 - Activity feed is newest-to-oldest and paginated for older entries.
 - Deleted comments are hidden unless backend later adds explicit delete audit rows.
 - Home Inbox lists/deep-links attention items. Answer/approval actions happen in task detail Inbox.
+- Task detail sidebars opened from the Home Inbox expose live Previous/Next controls that step through the attention feed order. Navigation reflects the live inbox; after the open task is resolved and leaves the inbox, Next advances to the item that took its place. Controls are Inbox-only — board/standalone task detail has no Previous/Next.
 - Top detail action opens or focuses next/highest-priority unresolved attention item.
 - If multiple unresolved attention items exist, all get inline controls.
 - Question UI preserves ask functionality with options, blank commentary/freeform field, recommended marker, click or arrows plus Enter, and standard Tab focus. Do not show source-origin label.

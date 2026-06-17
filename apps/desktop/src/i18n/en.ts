@@ -17,6 +17,10 @@ export const englishResources = {
       unavailable: "Unavailable",
       none: "None",
       close: "Close",
+      popOut: "Open in new window",
+      popOutError: "Could not open the pop-out window",
+      inboxPrevious: "Previous inbox item",
+      inboxNext: "Next inbox item",
       invalidNativeDialogTitle: "Invalid native dialog",
       invalidNativeDialogBody:
         "This dialog link is missing required delete context. Close it and try again from the main window.",

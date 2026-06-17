@@ -1,5 +1,6 @@
 import { useLocation } from "@tanstack/react-router";
-import { Plus, X } from "lucide-react";
+import type { NativeDialogWindowOptions } from "@app/native-bridge";
+import { PictureInPicture, Plus, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -13,16 +14,20 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button, showStatusToast } from "../ui";
+import { errorMessage } from "../api/errors";
+import { Button, IconTooltipButton, showStatusToast } from "../ui";
 import { cx } from "../ui/classes";
 import { ProjectDeleteButton } from "../features/project-edit/ProjectDeleteButton";
+import { SidebarInboxNav } from "../features/home/SidebarInboxNav";
 import { WorkflowDeleteButton } from "../features/workflow-editor/WorkflowDeleteButton";
 import { useAppServices } from "./useAppServices";
+import { useStatusController } from "./useStatusController";
 import {
   SidebarHeaderActionProvider,
   SidebarHeaderActionSlot,
 } from "./sidebarHeaderAction";
 import { SidebarDestinationView } from "./sidebarDestinations";
+import { sidebarPopOutOptions } from "./sidebarPopOut";
 import { sidebarTitle } from "./sidebarTitle";
 import { sidebarSizePreference } from "./sidebarDestinationSizing";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
@@ -238,20 +243,20 @@ export function SidebarHost() {
           tabIndex={0}
         />
         <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
-          <Button
-            aria-label={t("app.close")}
+          <IconTooltipButton
+            label={t("app.close")}
             onClick={() => {
               closeSidebar("closed");
             }}
-            size="icon"
-            variant="ghost"
           >
             <X aria-hidden="true" size={18} strokeWidth={1.5} />
-          </Button>
+          </IconTooltipButton>
           <h2 className="m-0 min-w-0 truncate text-[1.05rem] font-bold" id={titleId}>
             {title}
           </h2>
           <div className="flex items-center gap-[var(--space-2)] justify-self-end">
+            <SidebarInboxNavSlot destination={activeDestination} />
+            <SidebarPopOutSlot destination={activeDestination} title={title} />
             <SidebarHeaderActionSlot />
             <SidebarHeaderAccessory destination={activeDestination} />
           </div>
@@ -274,6 +279,56 @@ export function SidebarHost() {
         </div>
       </aside>
     </SidebarHeaderActionProvider>
+  );
+}
+
+function SidebarInboxNavSlot({ destination }: Readonly<{ destination: SidebarDestination }>) {
+  if (destination.kind !== "taskDetail" || destination.inboxNav !== true) {
+    return null;
+  }
+  return <SidebarInboxNav destination={destination} />;
+}
+
+function SidebarPopOutSlot({
+  destination,
+  title,
+}: Readonly<{ destination: SidebarDestination; title: string }>) {
+  const options = sidebarPopOutOptions(destination, title);
+  if (options === null) {
+    return null;
+  }
+  return <SidebarPopOutButton options={options} />;
+}
+
+function SidebarPopOutButton({ options }: Readonly<{ options: NativeDialogWindowOptions }>) {
+  const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
+  const { closeSidebar } = useSidebar();
+  const { push } = useStatusController();
+  if (!nativeBridge.capabilities.dialogWindows) {
+    return null;
+  }
+  return (
+    <IconTooltipButton
+      label={t("app.popOut")}
+      onClick={() => {
+        void nativeBridge.dialogs
+          .openWindow(options)
+          .then(() => {
+            closeSidebar("closed");
+          })
+          .catch((error: unknown) => {
+            push({
+              id: "sidebar-popout-error",
+              tone: "danger",
+              title: t("app.popOutError"),
+              body: errorMessage(error),
+            });
+          });
+      }}
+    >
+      <PictureInPicture aria-hidden="true" size={18} strokeWidth={1.5} />
+    </IconTooltipButton>
   );
 }
 

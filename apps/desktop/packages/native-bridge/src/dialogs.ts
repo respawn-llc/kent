@@ -28,6 +28,11 @@ const themeAttribute = "data-theme";
 export async function openNativeDialogWindow(options: NativeDialogWindowOptions): Promise<void> {
   const url = routeWithParams(options.route, withDialogTheme(options.params, options.theme ?? readEffectiveParentTheme()));
   const label = options.label.startsWith("native-dialog-") ? options.label : `native-dialog-${options.label}`;
+  const existing = await WebviewWindow.getByLabel(label);
+  if (existing !== null) {
+    await bringDialogToFront(existing);
+    return;
+  }
   const placement = await centeredOnCurrentWindow(options);
   await new Promise<void>((resolve, reject) => {
     const window = new WebviewWindow(label, {

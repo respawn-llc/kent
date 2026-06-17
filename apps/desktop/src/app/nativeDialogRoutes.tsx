@@ -6,8 +6,10 @@ import { taskDeleteNativeDialogPath } from "../features/board/taskDeleteConfirma
 import { ProjectCreateWindowRoute } from "../features/home/ProjectCreateForm";
 import { ProjectDeleteWindowRoute } from "../features/project-edit/ProjectDeleteButton";
 import { WorkspaceUnlinkWindowRoute } from "../features/project-edit/ProjectEditParts";
+import { TaskDetailWindowRoute } from "../features/task-detail/TaskDetailWindowRoute";
 import { NewTaskWindowRoute } from "../features/tasks/NewTaskDialog";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
+import { taskDetailNativeDialogPath } from "./sidebarPopOut";
 import { useWindowChromeTitle } from "./windowChromeTitle";
 
 export const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
@@ -30,6 +32,10 @@ const projectDeleteSearchSchema = z.object({
 });
 
 const taskDeleteSearchSchema = z.object({
+  taskID: optionalSearchString,
+});
+
+const taskDetailSearchSchema = z.object({
   taskID: optionalSearchString,
 });
 
@@ -91,6 +97,22 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
     return <TaskDeleteWindowRoute taskID={taskID} />;
   }
 
+  const taskDetailWindowRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: taskDetailNativeDialogPath,
+    validateSearch: (search: Record<string, unknown>) => taskDetailSearchSchema.parse(search),
+    component: TaskDetailNativeRoute,
+  });
+
+  function TaskDetailNativeRoute() {
+    const search = taskDetailSearchSchema.parse(taskDetailWindowRoute.useSearch());
+    const taskID = search.taskID.trim();
+    if (taskID.length === 0) {
+      return <InvalidNativeDialogRoute />;
+    }
+    return <TaskDetailWindowRoute taskID={taskID} />;
+  }
+
   const newTaskWindowRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/native-dialog/new-task",
@@ -125,6 +147,7 @@ export function createNativeDialogRoutes(rootRoute: AnyRootRoute) {
     projectCreateRoute,
     projectDeleteRoute,
     taskDeleteWindowRoute,
+    taskDetailWindowRoute,
     newTaskWindowRoute,
     workspaceUnlinkWindowRoute,
   ] as const;
