@@ -62,9 +62,6 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 	if !hasWindow && !hasThreshold && !hasLead {
 		return nil
 	}
-	if hasWindow && state.Settings.ModelContextWindow <= 0 {
-		return fmt.Errorf("model_context_window must be > 0")
-	}
 	if hasWindow {
 		if err := validateModelContextWindowMinimum("model_context_window", state.Settings.ModelContextWindow); err != nil {
 			return err
@@ -302,9 +299,6 @@ func validateWorkflowSettings(state settingsState, _ map[string]string) error {
 func validateContextWindow(state settingsState, _ map[string]string) error {
 	if state.Settings.ContextCompactionThresholdTokens <= 0 {
 		return fmt.Errorf("context_compaction_threshold_tokens must be > 0")
-	}
-	if state.Settings.ModelContextWindow <= 0 {
-		return fmt.Errorf("model_context_window must be > 0")
 	}
 	if err := validateModelContextWindowMinimum("model_context_window", state.Settings.ModelContextWindow); err != nil {
 		return err

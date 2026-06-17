@@ -670,6 +670,22 @@ func TestLoadSubagentRoleRejectsModelContextWindowBelowMinimum(t *testing.T) {
 	}
 }
 
+func TestLoadSubagentRoleRejectsModelContextWindowZeroWithMinimumError(t *testing.T) {
+	err := loadConfigTestFileError(t, strings.Join([]string{
+		"[subagents.fast]",
+		"model_context_window = 0",
+	}, "\n"), LoadOptions{})
+	if err == nil {
+		t.Fatal("expected subagent model_context_window zero validation error")
+	}
+	if !errors.Is(err, errSubagentRole) {
+		t.Fatalf("expected subagent role validation error, got %v", err)
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
 func TestLoadSubagentRoleRejectsReviewerModelContextWindowBelowMinimum(t *testing.T) {
 	err := loadConfigTestFileError(t, strings.Join([]string{
 		"[subagents.fast.reviewer]",

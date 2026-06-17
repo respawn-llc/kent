@@ -434,6 +434,16 @@ func TestLoadRejectsModelContextWindowBelowMinimum(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsModelContextWindowZeroWithMinimumError(t *testing.T) {
+	err := loadConfigTestFileError(t, "model_context_window = 0\n", LoadOptions{})
+	if err == nil {
+		t.Fatal("expected model_context_window zero validation error")
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
 func TestLoadAcceptsModelContextWindowMinimum(t *testing.T) {
 	_, _, cfg := loadConfigTestFileApp(t, "model_context_window = 40000\ncontext_compaction_threshold_tokens = 25000\npre_submit_compaction_lead_tokens = 1000\n", LoadOptions{})
 	if cfg.Settings.ModelContextWindow != 40000 {
