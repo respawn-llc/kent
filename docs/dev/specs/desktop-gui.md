@@ -208,6 +208,8 @@
 - Conditional fields: worktree path, agent role/run status, session ID/name, assignee/column ownership when server provides it.
 - Missing-field policy: hide expected-not-yet-created fields, show continuity fields empty/unassigned where useful, and render unexpected meaningful missing fields as unavailable/error states.
 - Task detail allows title/body edit only while still in Backlog. Source URL remains hidden.
+- Task detail self-refreshes live while open: it subscribes to its project's workflow events and refetches its own read models (detail, activity, comments, pending asks) whenever a server event mutates the task — status, runs, transitions/approvals, comments, questions, or title/body — independent of the hosting surface (board sidebar, Home inbox, or standalone window). Refreshes reuse cached data so the update is flicker-free and never collapses the surface to a loading state.
+- Live refresh never overwrites unsaved edits: a clean surface follows server updates, but in-progress title/body edits take priority and are preserved until the user saves or reverts them.
 
 ## Comments, Activity, Inbox
 
