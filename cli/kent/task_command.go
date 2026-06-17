@@ -599,7 +599,7 @@ func taskCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, taskCompleteErrorMessage(err))
 		return 1
 	}
-	if parsed.jsonMode() {
+	if parsed.JSONPayloadSet || parsed.JSONFileSet {
 		if err := json.NewEncoder(stdout).Encode(resp); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -618,10 +618,6 @@ func (a taskCompleteArgs) selectorCount() int {
 		}
 	}
 	return count
-}
-
-func (a taskCompleteArgs) jsonMode() bool {
-	return a.JSONPayloadSet || a.JSONFileSet
 }
 
 func (a taskCompleteArgs) request(ctx context.Context, cfg config.App, remote workflowCommandRemote, agentSessionID string, agentContext bool) (serverapi.WorkflowTaskCompleteRequest, error) {
@@ -774,11 +770,11 @@ func parseTaskCompleteArgs(args []string, stderr io.Writer) (taskCompleteArgs, b
 		fmt.Fprintln(stderr, "--json cannot be combined with --json-file")
 		return taskCompleteArgs{}, false, 2
 	}
-	if parsed.jsonMode() && parsed.FieldFlagsUsed {
+	if (parsed.JSONPayloadSet || parsed.JSONFileSet) && parsed.FieldFlagsUsed {
 		fmt.Fprintln(stderr, "--json cannot be combined with completion field flags")
 		return taskCompleteArgs{}, false, 2
 	}
-	if parsed.jsonMode() {
+	if parsed.JSONPayloadSet || parsed.JSONFileSet {
 		if err := parsed.applyJSONPayload(); err != nil {
 			fmt.Fprintln(stderr, err)
 			return taskCompleteArgs{}, false, 2
@@ -1002,20 +998,6 @@ func writeTaskCompleteResult(stdout io.Writer, resp serverapi.WorkflowTaskComple
 	if state := strings.TrimSpace(resp.State); state != "" && state != "applied" {
 		fmt.Fprintf(stdout, "State: %s\n", state)
 	}
-	if len(resp.RunIDs) > 0 {
-		fmt.Fprintf(stdout, "Started runs: %s\n", strings.Join(resp.RunIDs, ", "))
-	}
-}
-
-func cloneStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
 }
 
 type stringMapFlag struct {
