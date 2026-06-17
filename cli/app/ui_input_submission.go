@@ -236,6 +236,8 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	m.discardQueuedInput(activeQueuedID)
 	if msg.err != nil {
 		if errors.Is(msg.err, serverapi.ErrActivePrimaryRun) && m.canQueueOnCollaborativeActiveOwner() && strings.TrimSpace(msg.submittedText) != "" {
+			m.setExternalRuntimeStatus(&clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateOwnerRunning, QueueAccepting: true})
+			m.setBusy(true)
 			m.activity = uiActivityRunning
 			m.layout().syncViewport()
 			return m, c.enqueueSubmittedTextAfterActiveOwnerRace(msg.submittedText)

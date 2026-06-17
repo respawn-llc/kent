@@ -74,7 +74,9 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction runtimestate.Runt
 	m.conversationFreshness = reduction.Conversation.State.Freshness
 	m.reasoningStatusHeader = reduction.Reasoning.State.StatusHeader
 	m.pendingInjected = reduction.PendingInput.State.PendingInjected
-	m.removeInjectedQueueItemsByIDs(reduction.PendingInput.ConsumedQueueItemIDs)
+	for _, answer := range m.removeInjectedQueueItemsByIDs(reduction.PendingInput.ConsumedQueueItemIDs) {
+		cmd = tea.Batch(cmd, m.answerQueuedApprovalCommentary(answer))
+	}
 	m.lockedInjectText = reduction.PendingInput.State.LockedInjectText
 	m.lockedInjectID = reduction.PendingInput.State.LockedInjectID
 	m.setInputSubmitLocked(reduction.PendingInput.State.Submission == runtimestate.InputSubmissionLocked)

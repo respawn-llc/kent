@@ -35,13 +35,14 @@ const (
 )
 
 type injectedRuntimeQueueItem struct {
-	LocalID         string
-	ServerID        string
-	Text            string
-	ClientRequestID string
-	State           injectedRuntimeQueueState
-	CreateToken     uint64
-	DiscardToken    uint64
+	LocalID                  string
+	ServerID                 string
+	Text                     string
+	ClientRequestID          string
+	State                    injectedRuntimeQueueState
+	CreateToken              uint64
+	DiscardToken             uint64
+	ApprovalCommentaryAnswer *clientui.PromptAnswer
 }
 
 func (m *uiModel) queueInput(text string) {
@@ -67,13 +68,19 @@ func (m *uiModel) enqueueInjectedInputWithApprovalAnswer(text string, answer *cl
 	}
 	token := m.nextInjectedQueueToken()
 	clientRequestID := uuid.NewString()
+	var approvalCommentaryAnswer *clientui.PromptAnswer
+	if answer != nil {
+		snap := *answer
+		approvalCommentaryAnswer = &snap
+	}
 	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: localID, Text: trimmed, ClientRequestID: clientRequestID})
 	m.injectedQueue = append(m.injectedQueue, injectedRuntimeQueueItem{
-		LocalID:         localID,
-		Text:            trimmed,
-		ClientRequestID: clientRequestID,
-		State:           injectedRuntimeQueuePendingCreate,
-		CreateToken:     token,
+		LocalID:                  localID,
+		Text:                     trimmed,
+		ClientRequestID:          clientRequestID,
+		State:                    injectedRuntimeQueuePendingCreate,
+		CreateToken:              token,
+		ApprovalCommentaryAnswer: approvalCommentaryAnswer,
 	})
 	client := m.runtimeClient()
 	return func() tea.Msg {
@@ -464,6 +471,10 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	if item.CreateToken != msg.token {
 		return m, nil
 	}
+	approvalCommentaryAnswer := item.ApprovalCommentaryAnswer
+	if approvalCommentaryAnswer == nil {
+		approvalCommentaryAnswer = msg.approvalCommentaryAnswer
+	}
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		m.injectedQueue[index].State = injectedRuntimeQueueCreateFailed
@@ -476,8 +487,8 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 			m.logf("queue_create.error err=%q", detailErr)
 			m.removeInjectedQueueItemAt(index)
 			m.layout().syncViewport()
-			if msg.approvalCommentaryAnswer != nil {
-				return m, sequenceCmds(appendCmd, m.answerQueuedApprovalCommentary(*msg.approvalCommentaryAnswer))
+			if approvalCommentaryAnswer != nil {
+				return m, sequenceCmds(appendCmd, m.answerQueuedApprovalCommentary(*approvalCommentaryAnswer))
 			}
 			return m, appendCmd
 		}
@@ -495,14 +506,15 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	item.ServerID = serverID
 	item.Text = serverText
 	item.ClientRequestID = strings.TrimSpace(msg.item.ClientRequestID)
+	item.ApprovalCommentaryAnswer = nil
 	switch item.State {
 	case injectedRuntimeQueuePendingCreate:
 		item.State = injectedRuntimeQueueEnqueued
 		m.injectedQueue[index] = item
 		m.replacePendingInjectedID(item.LocalID, clientui.QueuedUserMessage{ID: serverID, Text: serverText, ClientRequestID: item.ClientRequestID})
 		m.rememberPromptHistoryLocally(serverText)
-		if msg.approvalCommentaryAnswer != nil {
-			return m, m.answerQueuedApprovalCommentary(*msg.approvalCommentaryAnswer)
+		if approvalCommentaryAnswer != nil {
+			return m, m.answerQueuedApprovalCommentary(*approvalCommentaryAnswer)
 		}
 		if !m.isBusy() && !m.isInputSubmitLocked() &&
 			!m.injectedQueueBlocksDrain() {
@@ -617,18 +629,23 @@ func (m *uiModel) ensurePendingInjectedVisible(item injectedRuntimeQueueItem) {
 	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: id, Text: item.Text, ClientRequestID: item.ClientRequestID})
 }
 
-func (m *uiModel) removeInjectedQueueItemsByIDs(ids []string) {
+func (m *uiModel) removeInjectedQueueItemsByIDs(ids []string) []clientui.PromptAnswer {
 	if len(ids) == 0 || len(m.injectedQueue) == 0 {
-		return
+		return nil
 	}
+	var approvalAnswers []clientui.PromptAnswer
 	filtered := m.injectedQueue[:0]
 	for _, item := range m.injectedQueue {
 		if containsInjectedQueueID(ids, item.ServerID) || containsInjectedQueueID(ids, item.LocalID) || containsInjectedQueueID(ids, item.ClientRequestID) {
+			if item.ApprovalCommentaryAnswer != nil {
+				approvalAnswers = append(approvalAnswers, *item.ApprovalCommentaryAnswer)
+			}
 			continue
 		}
 		filtered = append(filtered, item)
 	}
 	m.injectedQueue = filtered
+	return approvalAnswers
 }
 
 func containsInjectedQueueID(values []string, target string) bool {

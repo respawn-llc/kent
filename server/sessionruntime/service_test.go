@@ -675,8 +675,8 @@ func TestActivateSessionRuntimeAttachesCollaborativelyToExternalActiveRuntime(t 
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
-		t.Fatalf("response = %+v, want collaborative without lease/read-only", resp)
+	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
+		t.Fatalf("response = %+v, want collaborative legacy read-only without lease", resp)
 	}
 	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(false))
 	if len(fixture.service.handles) != 0 {
@@ -736,8 +736,8 @@ func TestActivateSessionRuntimeWaitsForPendingExternalOwnerBeforeClaimingControl
 		if result.err != nil {
 			t.Fatalf("ActivateSessionRuntime: %v", result.err)
 		}
-		if result.resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || result.resp.ReadOnly || strings.TrimSpace(result.resp.LeaseID) != "" {
-			t.Fatalf("response = %+v, want collaborative without controller lease", result.resp)
+		if result.resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !result.resp.ReadOnly || strings.TrimSpace(result.resp.LeaseID) != "" {
+			t.Fatalf("response = %+v, want collaborative legacy read-only without controller lease", result.resp)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for activation to attach to registered external runtime")
@@ -775,8 +775,8 @@ func TestActivateSessionRuntimeCollaborativeWorkflowRuntimeOmitsGoalManage(t *te
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
-		t.Fatalf("response = %+v, want collaborative without lease/read-only", resp)
+	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
+		t.Fatalf("response = %+v, want collaborative legacy read-only without lease", resp)
 	}
 	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
 	if len(fixture.service.handles) != 0 {

@@ -680,6 +680,12 @@ func TestCollaborativeSubmitActiveOwnerRaceQueuesSubmittedText(t *testing.T) {
 	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "race text" {
 		t.Fatalf("pending injected = %+v, want queued submitted text", updated.pendingInjected)
 	}
+	if !updated.isBusy() {
+		t.Fatal("expected active-owner fallback to stay busy while queued text waits for owner")
+	}
+	if client.submitQueuedCalls != 0 {
+		t.Fatalf("SubmitQueuedUserMessages calls = %d, want none while owner is active", client.submitQueuedCalls)
+	}
 	if updated.input != "" {
 		t.Fatalf("input = %q, want no restored text after successful queue", updated.input)
 	}

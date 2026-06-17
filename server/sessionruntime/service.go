@@ -197,6 +197,7 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 			return serverapi.SessionRuntimeActivateResponse{
 				Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
 				AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)),
+				ReadOnly:          true,
 			}, nil
 		}
 		startupPrimaryLease = nil
@@ -224,6 +225,7 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 				return serverapi.SessionRuntimeActivateResponse{
 					Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
 					AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)),
+					ReadOnly:          true,
 				}, nil
 			}
 			handle, takeover, claim, err = s.claimNewActivation(sessionID, requestID, ownerID)

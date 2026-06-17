@@ -112,6 +112,7 @@ func TestActivateAcceptsCollaborativeWithoutLease(t *testing.T) {
 	service := &fakeRuntimeService{activateResponses: []serverapi.SessionRuntimeActivateResponse{{
 		Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
 		AllowedOperations: operations,
+		ReadOnly:          true,
 	}}}
 	lease, err := Activate(context.Background(), service, Request{NewClientRequestID: fixedIDs("request-1")})
 	if err != nil {
