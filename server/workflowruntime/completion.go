@@ -27,9 +27,18 @@ var ErrStructuredOutputUnsupported = errors.New("workflow structured output comp
 type CompletionMode string
 
 const (
-	CompletionModeStructuredOutput CompletionMode = "structured_output"
-	CompletionModeTool             CompletionMode = "tool"
+	CompletionModeStructuredOutput   CompletionMode = "structured_output"
+	CompletionModeTool               CompletionMode = "tool"
+	CompletionModeShellCommand       CompletionMode = "shell_command"
+	CompletionModeUnstructuredOutput CompletionMode = "unstructured_output"
 )
+
+type CompletionModeSelection struct {
+	ConfiguredMode         config.WorkflowCompletionMode
+	ProviderCapabilities   llm.ProviderCapabilities
+	HasContinueSessionEdge bool
+	ShellAvailable         bool
+}
 
 type CompletionContract struct {
 	RunID              workflow.RunID
@@ -48,8 +57,7 @@ type CompletionTransition struct {
 type Config struct {
 	RunID                        workflow.RunID
 	Contract                     CompletionContract
-	CompletionMode               config.WorkflowCompletionMode
-	MaxFinalAnswerViolations     int
+	CompletionMode               CompletionMode
 	MaxInvalidCompletionAttempts int
 	Controller                   Controller
 	TaskCommentCounter           TaskCommentCounter
@@ -96,10 +104,19 @@ type CompletionResult struct {
 	State        string
 }
 
+type CompletionObservationRequest struct {
+	RunID              workflow.RunID
+	ExpectedGeneration int64
+	RequireGeneration  bool
+}
+
+type CompletionObservationResult struct {
+	Completed bool
+}
+
 type ViolationKind string
 
 const (
-	ViolationKindFinalAnswer       ViolationKind = "final_answer"
 	ViolationKindInvalidCompletion ViolationKind = "invalid_completion"
 )
 
@@ -111,6 +128,7 @@ type ViolationResult struct {
 type Controller interface {
 	CompleteWorkflowRun(ctx context.Context, req CompletionRequest) (CompletionResult, error)
 	RecordWorkflowProtocolViolation(ctx context.Context, req ViolationRequest) (ViolationResult, error)
+	ObserveWorkflowRunCompletion(ctx context.Context, req CompletionObservationRequest) (CompletionObservationResult, error)
 }
 
 type ViolationRequest struct {
@@ -126,6 +144,7 @@ type StoreController struct {
 	Store interface {
 		CompleteRun(context.Context, workflowstore.CompleteRunRequest) (workflowstore.CompleteRunResult, error)
 		RecordProtocolViolation(context.Context, workflowstore.RecordProtocolViolationRequest) (workflowstore.RecordProtocolViolationResult, error)
+		GetRun(context.Context, workflow.RunID) (workflowstore.RunRecord, error)
 	}
 }
 
@@ -148,6 +167,20 @@ func (c StoreController) CompleteWorkflowRun(ctx context.Context, req Completion
 	return CompletionResult{TransitionID: result.TransitionID, State: result.State}, nil
 }
 
+func (c StoreController) ObserveWorkflowRunCompletion(ctx context.Context, req CompletionObservationRequest) (CompletionObservationResult, error) {
+	if c.Store == nil {
+		return CompletionObservationResult{}, errors.New("workflow completion store is required")
+	}
+	run, err := c.Store.GetRun(ctx, req.RunID)
+	if err != nil {
+		return CompletionObservationResult{}, err
+	}
+	if req.RequireGeneration && run.Generation != req.ExpectedGeneration {
+		return CompletionObservationResult{}, nil
+	}
+	return CompletionObservationResult{Completed: run.CompletedAt != 0}, nil
+}
+
 func (c StoreController) RecordWorkflowProtocolViolation(ctx context.Context, req ViolationRequest) (ViolationResult, error) {
 	if c.Store == nil {
 		return ViolationResult{}, errors.New("workflow completion store is required")
@@ -166,22 +199,48 @@ func (c StoreController) RecordWorkflowProtocolViolation(ctx context.Context, re
 	return ViolationResult{Count: result.Count, Interrupted: result.Interrupted}, nil
 }
 
-func SelectCompletionMode(mode config.WorkflowCompletionMode, caps llm.ProviderCapabilities) (CompletionMode, error) {
-	switch mode {
+func SelectCompletionMode(selection CompletionModeSelection) (CompletionMode, error) {
+	switch selection.ConfiguredMode {
 	case config.WorkflowCompletionModeTool:
 		return CompletionModeTool, nil
 	case config.WorkflowCompletionModeStructuredOutput:
-		if !caps.SupportsResponsesAPI {
+		if !ProviderSupportsStructuredOutput(selection.ProviderCapabilities) {
 			return "", ErrStructuredOutputUnsupported
 		}
 		return CompletionModeStructuredOutput, nil
+	case config.WorkflowCompletionModeShellCommand:
+		return CompletionModeShellCommand, nil
+	case config.WorkflowCompletionModeUnstructured:
+		return CompletionModeUnstructuredOutput, nil
 	case config.WorkflowCompletionModeAuto, "":
-		if caps.SupportsResponsesAPI {
+		if !selection.ShellAvailable {
+			return CompletionModeUnstructuredOutput, nil
+		}
+		if selection.HasContinueSessionEdge {
+			return CompletionModeShellCommand, nil
+		}
+		if ProviderSupportsStructuredOutput(selection.ProviderCapabilities) {
 			return CompletionModeStructuredOutput, nil
 		}
 		return CompletionModeTool, nil
 	default:
-		return "", fmt.Errorf("invalid workflow completion mode %q", mode)
+		return "", fmt.Errorf("invalid workflow completion mode %q", selection.ConfiguredMode)
+	}
+}
+
+func ProviderSupportsStructuredOutput(caps llm.ProviderCapabilities) bool {
+	return caps.SupportsResponsesAPI
+}
+
+func ParseCompletionMode(raw string) (CompletionMode, error) {
+	mode := CompletionMode(strings.TrimSpace(raw))
+	switch mode {
+	case CompletionModeStructuredOutput, CompletionModeTool, CompletionModeShellCommand, CompletionModeUnstructuredOutput:
+		return mode, nil
+	case "":
+		return "", errors.New("workflow effective completion mode is required")
+	default:
+		return "", fmt.Errorf("invalid workflow effective completion mode %q", raw)
 	}
 }
 
@@ -246,7 +305,7 @@ func transitionProperty(transitionIDs []string) map[string]any {
 
 func commentaryProperty() map[string]any {
 	return map[string]any{
-		"type":        "string",
+		"type":        []string{"string", "null"},
 		"description": "Brief explanation of what was completed and why this transition was selected.",
 	}
 }
@@ -322,6 +381,7 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 	issues := []ValidationIssue{}
 	seen := map[string]bool{}
 	invalidFields := map[string]bool{}
+	nullParameters := map[string]bool{}
 	for _, key := range sortedRawMessageKeys(payload) {
 		value := payload[key]
 		field := strings.TrimSpace(key)
@@ -340,7 +400,7 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 			}
 			parsed.TransitionID = strings.TrimSpace(text)
 		case "commentary":
-			text, ok, issue := decodeStringValue(value, field)
+			text, ok, issue := decodeOptionalStringValue(value, field)
 			if !ok {
 				issues = append(issues, issue)
 				invalidFields[field] = true
@@ -357,9 +417,10 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 				continue
 			}
 			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				nullParameters[field] = true
 				continue
 			}
-			text, ok, issue := decodeStringValue(value, field)
+			text, ok, issue := decodeParameterValue(value, field)
 			if !ok {
 				issues = append(issues, issue)
 				invalidFields[field] = true
@@ -379,6 +440,11 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 		parsed.TransitionID = strings.TrimSpace(selected.ID)
 		selectedParameters := normalizedParameters(selected.Parameters)
 		selectedParameterSet := parameterSet(selectedParameters)
+		for _, key := range sortedBoolKeys(nullParameters) {
+			if selectedParameterSet[key] {
+				parsed.OutputValues[key] = "null"
+			}
+		}
 		for _, key := range sortedStringKeys(parsed.OutputValues) {
 			if !selectedParameterSet[key] {
 				issues = append(issues, ValidationIssue{Code: "unexpected_parameter", Field: key, Message: "parameter is not declared by the selected transition"})
@@ -386,18 +452,36 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 		}
 		for _, parameter := range selectedParameters {
 			key := strings.TrimSpace(parameter.Key)
+			if nullParameters[key] {
+				continue
+			}
 			if strings.TrimSpace(parsed.OutputValues[key]) == "" {
 				issues = append(issues, ValidationIssue{Code: "required_parameter_missing", Field: key, Message: "parameter is required by the selected transition"})
 			}
 		}
 	}
-	if !seen["commentary"] {
-		issues = append(issues, ValidationIssue{Code: "required_field_missing", Field: "commentary", Message: "commentary is required"})
-	}
 	if len(issues) > 0 {
 		return ParsedCompletion{}, ValidationError{Issues: issues}
 	}
 	return parsed, nil
+}
+
+func DecodeUnstructuredCompletion(content string, contract CompletionContract) (ParsedCompletion, error) {
+	raw := strings.TrimSpace(content)
+	if raw == "" {
+		return ParsedCompletion{}, ValidationError{Issues: []ValidationIssue{{
+			Code:    "invalid_json",
+			Message: "completion must be a JSON object",
+		}}}
+	}
+	return DecodeCompletion(json.RawMessage(raw), contract)
+}
+
+func decodeOptionalStringValue(value json.RawMessage, field string) (string, bool, ValidationIssue) {
+	if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return "", true, ValidationIssue{}
+	}
+	return decodeStringValue(value, field)
 }
 
 func decodeStringValue(value json.RawMessage, field string) (string, bool, ValidationIssue) {
@@ -409,6 +493,22 @@ func decodeStringValue(value json.RawMessage, field string) (string, bool, Valid
 		return "", false, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"}
 	}
 	return text, true, ValidationIssue{}
+}
+
+func decodeParameterValue(value json.RawMessage, field string) (string, bool, ValidationIssue) {
+	trimmed := bytes.TrimSpace(value)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return "", false, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"}
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err == nil {
+		return text, true, ValidationIssue{}
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, trimmed); err != nil {
+		return "", false, ValidationIssue{Code: "invalid_json", Field: field, Message: "value must be valid JSON"}
+	}
+	return compacted.String(), true, ValidationIssue{}
 }
 
 func sortedRawMessageKeys(values map[string]json.RawMessage) []string {
@@ -585,6 +685,15 @@ func sortedTransitionIDs(transitions []CompletionTransition) []string {
 }
 
 func sortedStringKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedBoolKeys(values map[string]bool) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)

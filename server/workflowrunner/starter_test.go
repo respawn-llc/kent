@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,12 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/registry"
 	"core/server/session"
 	askquestion "core/server/tools"
 	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/shared/config"
@@ -274,6 +277,293 @@ func TestWorkflowRuntimeStarterCancelTaskRunsStopsLiveRuntimeAfterTaskCancel(t *
 	}
 	if !client.returned() {
 		t.Fatal("CancelTaskRuns returned before live runtime stopped")
+	}
+}
+
+func TestWorkflowRuntimeStarterCancelRunStopsLiveRuntime(t *testing.T) {
+	client := newBlockingClient()
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	client.waitForCall(t)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want one live run", runs)
+	}
+	if err := fixture.starter.CancelRun(context.Background(), runs[0].ID); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	if !client.returned() {
+		t.Fatal("CancelRun returned before live runtime stopped")
+	}
+}
+
+func TestWorkflowRuntimeStarterRequestCancelRunDoesNotWaitForRuntimeStop(t *testing.T) {
+	client := newDrainingBlockingClient()
+	defer client.releaseReturn()
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer("{}"))
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	client.waitForCall(t)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want one live run", runs)
+	}
+	if !fixture.starter.RequestCancelRun(runs[0].ID) {
+		t.Fatalf("RequestCancelRun returned false for live run %s", runs[0].ID)
+	}
+	client.waitForCancel(t)
+	if client.returned() {
+		t.Fatal("RequestCancelRun waited for live runtime to stop")
+	}
+	client.releaseReturn()
+	client.waitForReturn(t)
+	fixture.waitForInterruptedRun(t, scheduler, task.ID, ReasonRuntimeCanceled)
+}
+
+func TestStarterAutoPersistsShellCommandForContinuationWorkflow(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
+	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow chained: %v", err)
+	}
+	claimed, input, plan := fixture.claimPlannedRun(t)
+
+	mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+	if err != nil {
+		t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+	}
+	if mode != workflowruntime.CompletionModeShellCommand {
+		t.Fatalf("mode = %q, want shell_command", mode)
+	}
+	runs, err := fixture.store.ListRuns(context.Background(), input.Task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].EffectiveCompletionMode != string(workflowruntime.CompletionModeShellCommand) {
+		t.Fatalf("stored mode = %+v, want shell_command", runs)
+	}
+}
+
+func TestStarterAutoUsesRunStartSnapshotForContinuationDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		snapshotMode workflow.ContextMode
+		liveMode     workflow.ContextMode
+		wantFlag     bool
+		wantMode     workflowruntime.CompletionMode
+	}{
+		{name: "snapshot keeps continue after live edit removes it", snapshotMode: workflow.ContextModeContinueSession, liveMode: workflow.ContextModeNewSession, wantFlag: true, wantMode: workflowruntime.CompletionModeShellCommand},
+		{name: "snapshot keeps non-continue after live edit adds it", snapshotMode: workflow.ContextModeNewSession, liveMode: workflow.ContextModeContinueSession, wantFlag: false, wantMode: workflowruntime.CompletionModeStructuredOutput},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+			workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, tt.snapshotMode, "coder")
+			if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+				t.Fatalf("LinkWorkflow chained: %v", err)
+			}
+			claimed, _, plan := fixture.claimPlannedRun(t)
+			updateChainedStarterWorkflowNextEdgeContextMode(t, fixture.metadata, workflowID, tt.liveMode)
+			input, err := fixture.store.GetRunStartContext(context.Background(), claimed.ID)
+			if err != nil {
+				t.Fatalf("GetRunStartContext: %v", err)
+			}
+			if input.WorkflowHasContinueSessionEdge != tt.wantFlag {
+				t.Fatalf("snapshot continuation flag = %v, want %v", input.WorkflowHasContinueSessionEdge, tt.wantFlag)
+			}
+			mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+			if err != nil {
+				t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+			}
+			if mode != tt.wantMode {
+				t.Fatalf("mode = %q, want %q", mode, tt.wantMode)
+			}
+		})
+	}
+}
+
+func TestStarterAutoPersistsUnstructuredWhenShellUnavailable(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+	disableCoderShell(t, &fixture)
+	fixture.rebuildStarter(t)
+	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
+	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow chained: %v", err)
+	}
+	claimed, input, plan := fixture.claimPlannedRun(t)
+
+	mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+	if err != nil {
+		t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+	}
+	if mode != workflowruntime.CompletionModeUnstructuredOutput {
+		t.Fatalf("mode = %q, want unstructured_output", mode)
+	}
+	runs, err := fixture.store.ListRuns(context.Background(), input.Task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].EffectiveCompletionMode != string(workflowruntime.CompletionModeUnstructuredOutput) {
+		t.Fatalf("stored mode = %+v, want unstructured_output", runs)
+	}
+}
+
+func TestStarterExplicitShellModeFailsWhenShellUnavailable(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeShellCommand)
+	disableCoderShell(t, &fixture)
+	fixture.rebuildStarter(t)
+	claimed, input, plan := fixture.claimPlannedRun(t)
+
+	_, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+	if err == nil {
+		t.Fatal("expected shell unavailable error")
+	}
+	runs, listErr := fixture.store.ListRuns(context.Background(), input.Task.ID)
+	if listErr != nil {
+		t.Fatalf("ListRuns: %v", listErr)
+	}
+	if len(runs) != 1 || runs[0].EffectiveCompletionMode != "" {
+		t.Fatalf("stored mode after failed explicit shell = %+v, want empty", runs)
+	}
+}
+
+func TestStarterSkipsProviderCapabilityProbeWhenModeDoesNotNeedIt(t *testing.T) {
+	tests := []struct {
+		name               string
+		configuredMode     config.WorkflowCompletionMode
+		hasContinueEdge    bool
+		shellAvailable     bool
+		wantCompletionMode workflowruntime.CompletionMode
+	}{
+		{name: "forced tool", configuredMode: config.WorkflowCompletionModeTool, shellAvailable: true, wantCompletionMode: workflowruntime.CompletionModeTool},
+		{name: "forced unstructured", configuredMode: config.WorkflowCompletionModeUnstructured, shellAvailable: true, wantCompletionMode: workflowruntime.CompletionModeUnstructuredOutput},
+		{name: "auto shell unavailable", configuredMode: config.WorkflowCompletionModeAuto, shellAvailable: false, wantCompletionMode: workflowruntime.CompletionModeUnstructuredOutput},
+		{name: "auto continuation shell", configuredMode: config.WorkflowCompletionModeAuto, hasContinueEdge: true, shellAvailable: true, wantCompletionMode: workflowruntime.CompletionModeShellCommand},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newStarterFixture(t, tt.configuredMode)
+			if !tt.shellAvailable {
+				disableCoderShell(t, &fixture)
+				fixture.rebuildStarter(t)
+			}
+			claimed, input, plan := fixture.claimPlannedRun(t)
+			input.WorkflowHasContinueSessionEdge = tt.hasContinueEdge
+			client := providerProbeForbiddenClient{}
+
+			mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, client)
+			if err != nil {
+				t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+			}
+			if mode != tt.wantCompletionMode {
+				t.Fatalf("mode = %q, want %q", mode, tt.wantCompletionMode)
+			}
+		})
+	}
+}
+
+func TestStarterReusesPersistedEffectiveCompletionMode(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput)
+	claimed, input, plan := fixture.claimPlannedRun(t)
+	if err := fixture.store.SetRunEffectiveCompletionMode(context.Background(), claimed.ID, claimed.Generation, string(workflowruntime.CompletionModeTool)); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode: %v", err)
+	}
+	input, err := fixture.store.GetRunStartContext(context.Background(), claimed.ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext after set mode: %v", err)
+	}
+
+	mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+	if err != nil {
+		t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+	}
+	if mode != workflowruntime.CompletionModeTool {
+		t.Fatalf("mode = %q, want persisted tool", mode)
+	}
+}
+
+func TestStarterRechecksShellAvailabilityForPersistedShellMode(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+	disableCoderShell(t, &fixture)
+	fixture.rebuildStarter(t)
+	claimed, input, plan := fixture.claimPlannedRun(t)
+	if err := fixture.store.SetRunEffectiveCompletionMode(context.Background(), claimed.ID, claimed.Generation, string(workflowruntime.CompletionModeShellCommand)); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode: %v", err)
+	}
+	input, err := fixture.store.GetRunStartContext(context.Background(), claimed.ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext after set mode: %v", err)
+	}
+
+	_, _, err = fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+	if err == nil || !errors.Is(err, errWorkflowShellCompletionRequiresShell) {
+		t.Fatalf("resolveAndPersistWorkflowCompletionMode error = %v, want shell availability failure", err)
+	}
+}
+
+func TestStarterStartWorkflowRunPersistsEffectiveCompletionModeBeforeModelRequest(t *testing.T) {
+	client := newBlockingClient()
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
+	fixture.clientFactory = func(SchedulerStartRunRequest) llm.Client { return client }
+	fixture.rebuildStarter(t)
+	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
+	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow chained: %v", err)
+	}
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	client.waitForCall(t)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].EffectiveCompletionMode != string(workflowruntime.CompletionModeShellCommand) {
+		t.Fatalf("stored mode = %+v, want shell_command", runs)
+	}
+	if err := fixture.starter.Close(); err != nil {
+		t.Fatalf("starter.Close: %v", err)
+	}
+}
+
+func TestStarterStartWorkflowRunFailsExplicitShellModeWithoutShell(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeShellCommand)
+	disableCoderShell(t, &fixture)
+	fixture.rebuildStarter(t)
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err == nil {
+		t.Fatal("expected scheduler start error")
+	}
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].InterruptedAt == 0 || runs[0].EffectiveCompletionMode != "" || runs[0].InterruptionReason != ReasonSchedulerRuntimeStartFailed {
+		t.Fatalf("run after explicit shell failure = %+v, want interrupted without stored mode", runs)
 	}
 }
 
@@ -805,6 +1095,45 @@ func (f starterFixture) createStartedTask(t *testing.T) workflowstore.TaskRecord
 	return task
 }
 
+func (f starterFixture) claimPlannedRun(t *testing.T) (workflowstore.RunnableRunRecord, workflowstore.RunStartContext, launch.SessionPlan) {
+	t.Helper()
+	task := f.createStartedTask(t)
+	if err := f.worktrees.EnsureTaskWorktree(context.Background(), string(task.ID)); err != nil {
+		t.Fatalf("EnsureTaskWorktree: %v", err)
+	}
+	runs, err := f.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want one runnable run", runs)
+	}
+	claimed, err := f.store.ClaimRun(context.Background(), runs[0].ID, runs[0].Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	input, err := f.store.GetRunStartContext(context.Background(), claimed.ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	plan, _, err := f.starter.planSession(context.Background(), input)
+	if err != nil {
+		t.Fatalf("planSession: %v", err)
+	}
+	return claimed, input, plan
+}
+
+func disableCoderShell(t *testing.T, fixture *starterFixture) {
+	t.Helper()
+	role := fixture.cfg.Settings.Subagents["coder"]
+	role.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: false}
+	if role.Sources == nil {
+		role.Sources = map[string]string{}
+	}
+	role.Sources["tools."+toolspec.ConfigName(toolspec.ToolExecCommand)] = "test"
+	fixture.cfg.Settings.Subagents["coder"] = role
+}
+
 func (f starterFixture) waitForCompletedRun(t *testing.T, taskID workflow.TaskID) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1142,6 +1471,19 @@ func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowst
 	return created.ID
 }
 
+func updateChainedStarterWorkflowNextEdgeContextMode(t *testing.T, metadataStore *metadata.Store, workflowID workflow.WorkflowID, contextMode workflow.ContextMode) {
+	t.Helper()
+	result, err := metadataStore.DB().ExecContext(context.Background(), `UPDATE workflow_edges SET context_mode = ? WHERE id = ?`, string(contextMode), "edge-next-"+string(workflowID))
+	if err != nil {
+		t.Fatalf("update live edge context mode: %v", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		t.Fatalf("update live edge rows affected: %v", err)
+	} else if rows != 1 {
+		t.Fatalf("updated live edge rows = %d, want 1", rows)
+	}
+}
+
 func starterNodeByKind(t *testing.T, def workflow.Definition, kind workflow.NodeKind) workflow.Node {
 	t.Helper()
 	for _, node := range def.Nodes {
@@ -1195,6 +1537,16 @@ func requestHasTool(req llm.Request, name string) bool {
 	return false
 }
 
+type providerProbeForbiddenClient struct{}
+
+func (providerProbeForbiddenClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{}, errors.New("generate was not expected")
+}
+
+func (providerProbeForbiddenClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return llm.ProviderCapabilities{}, errors.New("provider capability probe was not expected")
+}
+
 type blockingClient struct {
 	called chan struct{}
 	done   chan struct{}
@@ -1222,6 +1574,72 @@ func (c *blockingClient) waitForCall(t *testing.T) {
 	case <-c.called:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for fake model call")
+	}
+}
+
+type drainingBlockingClient struct {
+	called      chan struct{}
+	canceled    chan struct{}
+	release     chan struct{}
+	done        chan struct{}
+	callOnce    sync.Once
+	releaseOnce sync.Once
+}
+
+func newDrainingBlockingClient() *drainingBlockingClient {
+	return &drainingBlockingClient{called: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
+}
+
+func (c *drainingBlockingClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	c.callOnce.Do(func() { close(c.called) })
+	defer close(c.done)
+	<-ctx.Done()
+	close(c.canceled)
+	<-c.release
+	return llm.Response{}, ctx.Err()
+}
+
+func (c *drainingBlockingClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}, nil
+}
+
+func (c *drainingBlockingClient) waitForCall(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for fake model call")
+	}
+}
+
+func (c *drainingBlockingClient) waitForCancel(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for fake model cancellation")
+	}
+}
+
+func (c *drainingBlockingClient) waitForReturn(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for fake model return")
+	}
+}
+
+func (c *drainingBlockingClient) releaseReturn() {
+	c.releaseOnce.Do(func() { close(c.release) })
+}
+
+func (c *drainingBlockingClient) returned() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
 	}
 }
 

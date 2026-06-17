@@ -468,6 +468,10 @@ func protocolError(resp *protocol.ResponseError) error {
 		return errors.Join(serverapi.ErrPromptUnsupported, errors.New(message))
 	case protocol.ErrCodeWorkflowTaskNotFound:
 		return errors.Join(serverapi.ErrWorkflowTaskNotFound, errors.New(message))
+	case protocol.ErrCodeWorkflowTaskCompleteNotFound:
+		return errors.Join(serverapi.ErrWorkflowTaskCompleteTargetNotFound, errors.New(message))
+	case protocol.ErrCodeWorkflowTaskCompleteAmbiguous:
+		return errors.Join(serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous, errors.New(message))
 	default:
 		return errors.New(message)
 	}

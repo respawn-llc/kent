@@ -141,11 +141,7 @@ func (e *Engine) workflowCompletionMode(ctx context.Context) (workflowruntime.Co
 	if !e.workflowRunActive() {
 		return "", nil
 	}
-	caps, err := e.providerCapabilities(ctx)
-	if err != nil {
-		return "", fmt.Errorf("resolve provider capabilities for workflow completion: %w", err)
-	}
-	return workflowruntime.SelectCompletionMode(e.cfg.WorkflowRun.CompletionMode, caps)
+	return workflowruntime.ParseCompletionMode(string(e.cfg.WorkflowRun.CompletionMode))
 }
 
 func (e *Engine) systemPrompt(locked session.LockedContract) (string, error) {

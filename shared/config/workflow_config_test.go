@@ -16,9 +16,6 @@ func TestLoadWorkflowConfigDefaults(t *testing.T) {
 	if cfg.Settings.Workflow.Concurrency != 5 {
 		t.Fatalf("concurrency = %d, want 5", cfg.Settings.Workflow.Concurrency)
 	}
-	if cfg.Settings.Workflow.MaxFinalAnswerViolations != 3 {
-		t.Fatalf("max final answer violations = %d, want 3", cfg.Settings.Workflow.MaxFinalAnswerViolations)
-	}
 	if cfg.Settings.Workflow.MaxInvalidCompletionAttempts != 5 {
 		t.Fatalf("max invalid completion attempts = %d, want 5", cfg.Settings.Workflow.MaxInvalidCompletionAttempts)
 	}
@@ -32,23 +29,24 @@ func TestDefaultSettingsTOMLRendersWorkflowDefaults(t *testing.T) {
 	for _, want := range []string{
 		"completion_mode = \"auto\"",
 		"concurrency = 5",
-		"max_final_answer_violations = 3",
 		"max_invalid_completion_attempts = 5",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("default TOML missing %q:\n%s", want, rendered)
 		}
 	}
+	if strings.Contains(rendered, "max_final_answer_violations") {
+		t.Fatalf("default TOML should not render removed final-answer cap:\n%s", rendered)
+	}
 }
 
 func TestLoadWorkflowConfigFromFile(t *testing.T) {
 	_, _, cfg := loadConfigTestFileApp(t, `[workflow]
-completion_mode = "tool"
+completion_mode = "shell_command"
 concurrency = 7
-max_final_answer_violations = 4
 max_invalid_completion_attempts = 6
 `, LoadOptions{})
-	if cfg.Settings.Workflow.CompletionMode != WorkflowCompletionModeTool || cfg.Settings.Workflow.Concurrency != 7 || cfg.Settings.Workflow.MaxFinalAnswerViolations != 4 || cfg.Settings.Workflow.MaxInvalidCompletionAttempts != 6 {
+	if cfg.Settings.Workflow.CompletionMode != WorkflowCompletionModeShellCommand || cfg.Settings.Workflow.Concurrency != 7 || cfg.Settings.Workflow.MaxInvalidCompletionAttempts != 6 {
 		t.Fatalf("workflow settings = %+v", cfg.Settings.Workflow)
 	}
 	if got := cfg.Source.Sources["workflow.completion_mode"]; got != "file" {
@@ -60,7 +58,6 @@ func TestLoadWorkflowConfigValidation(t *testing.T) {
 	for name, payload := range map[string]string{
 		"completion_mode":                 "[workflow]\ncompletion_mode = \"invalid\"\n",
 		"concurrency":                     "[workflow]\nconcurrency = 0\n",
-		"max_final_answer_violations":     "[workflow]\nmax_final_answer_violations = 0\n",
 		"max_invalid_completion_attempts": "[workflow]\nmax_invalid_completion_attempts = 0\n",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -68,6 +65,16 @@ func TestLoadWorkflowConfigValidation(t *testing.T) {
 				t.Fatalf("Load error = %v, want workflow validation error", err)
 			}
 		})
+	}
+}
+
+func TestLoadWorkflowConfigRejectsRemovedFinalAnswerCap(t *testing.T) {
+	err := loadConfigTestFileError(t, "[workflow]\nmax_final_answer_violations = 3\n", LoadOptions{})
+	if err == nil {
+		t.Fatal("expected removed final-answer cap to be rejected")
+	}
+	if !unknownSettingsKeyReported(err, "workflow.max_final_answer_violations") {
+		t.Fatalf("Load error = %v, want unknown workflow.max_final_answer_violations", err)
 	}
 }
 

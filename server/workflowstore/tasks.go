@@ -72,7 +72,6 @@ func (e CompletionValidationError) Error() string {
 type ProtocolViolationKind string
 
 const (
-	ProtocolViolationFinalAnswer       ProtocolViolationKind = "final_answer"
 	ProtocolViolationInvalidCompletion ProtocolViolationKind = "invalid_completion"
 )
 

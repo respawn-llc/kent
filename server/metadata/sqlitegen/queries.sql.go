@@ -128,7 +128,7 @@ RETURNING
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -158,7 +158,7 @@ type ClaimWorkflowRunRow struct {
 	InterruptionReason          string
 	InterruptionDetailJson      string
 	WaitingAskID                string
-	FinalAnswerViolationCount   int64
+	EffectiveCompletionMode     string
 	InvalidCompletionCount      int64
 	RunStartSnapshotJson        string
 	MetadataJson                string
@@ -189,7 +189,7 @@ func (q *Queries) ClaimWorkflowRun(ctx context.Context, arg ClaimWorkflowRunPara
 		&i.InterruptionReason,
 		&i.InterruptionDetailJson,
 		&i.WaitingAskID,
-		&i.FinalAnswerViolationCount,
+		&i.EffectiveCompletionMode,
 		&i.InvalidCompletionCount,
 		&i.RunStartSnapshotJson,
 		&i.MetadataJson,
@@ -1220,7 +1220,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -1249,7 +1249,7 @@ func (q *Queries) GetTaskRun(ctx context.Context, id string) (TaskRunRecord, err
 		&i.InterruptionReason,
 		&i.InterruptionDetailJson,
 		&i.WaitingAskID,
-		&i.FinalAnswerViolationCount,
+		&i.EffectiveCompletionMode,
 		&i.InvalidCompletionCount,
 		&i.RunStartSnapshotJson,
 		&i.MetadataJson,
@@ -2112,7 +2112,6 @@ INSERT INTO task_runs (
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -2133,8 +2132,7 @@ INSERT INTO task_runs (
     ?14,
     ?15,
     ?16,
-    ?17,
-    ?18
+    ?17
 )
 `
 
@@ -2153,7 +2151,6 @@ type InsertTaskRunParams struct {
 	InterruptionReason          string
 	InterruptionDetailJson      string
 	WaitingAskID                string
-	FinalAnswerViolationCount   int64
 	InvalidCompletionCount      int64
 	RunStartSnapshotJson        string
 	MetadataJson                string
@@ -2175,7 +2172,6 @@ func (q *Queries) InsertTaskRun(ctx context.Context, arg InsertTaskRunParams) er
 		arg.InterruptionReason,
 		arg.InterruptionDetailJson,
 		arg.WaitingAskID,
-		arg.FinalAnswerViolationCount,
 		arg.InvalidCompletionCount,
 		arg.RunStartSnapshotJson,
 		arg.MetadataJson,
@@ -3788,7 +3784,7 @@ SELECT
     r.interruption_reason,
     r.interruption_detail_json,
     r.waiting_ask_id,
-    r.final_answer_violation_count,
+    r.effective_completion_mode,
     r.invalid_completion_count,
     r.run_start_snapshot_json,
     r.metadata_json
@@ -3834,7 +3830,7 @@ func (q *Queries) ListRunnableWorkflowRuns(ctx context.Context, limit int64) ([]
 			&i.InterruptionReason,
 			&i.InterruptionDetailJson,
 			&i.WaitingAskID,
-			&i.FinalAnswerViolationCount,
+			&i.EffectiveCompletionMode,
 			&i.InvalidCompletionCount,
 			&i.RunStartSnapshotJson,
 			&i.MetadataJson,
@@ -4223,7 +4219,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -4262,7 +4258,7 @@ func (q *Queries) ListTaskRuns(ctx context.Context, taskID string) ([]TaskRunRec
 			&i.InterruptionReason,
 			&i.InterruptionDetailJson,
 			&i.WaitingAskID,
-			&i.FinalAnswerViolationCount,
+			&i.EffectiveCompletionMode,
 			&i.InvalidCompletionCount,
 			&i.RunStartSnapshotJson,
 			&i.MetadataJson,
@@ -4572,7 +4568,7 @@ SELECT
     interruption_reason,
     interruption_detail_json,
     waiting_ask_id,
-    final_answer_violation_count,
+    effective_completion_mode,
     invalid_completion_count,
     run_start_snapshot_json,
     metadata_json
@@ -4613,7 +4609,7 @@ func (q *Queries) ListWaitingAskWorkflowRuns(ctx context.Context) ([]TaskRunReco
 			&i.InterruptionReason,
 			&i.InterruptionDetailJson,
 			&i.WaitingAskID,
-			&i.FinalAnswerViolationCount,
+			&i.EffectiveCompletionMode,
 			&i.InvalidCompletionCount,
 			&i.RunStartSnapshotJson,
 			&i.MetadataJson,
@@ -5161,6 +5157,41 @@ func (q *Queries) SetProjectPrimaryWorkspace(ctx context.Context, arg SetProject
 	return result.RowsAffected()
 }
 
+const setTaskRunEffectiveCompletionMode = `-- name: SetTaskRunEffectiveCompletionMode :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = ?1,
+    effective_completion_mode = ?2
+WHERE id = ?3
+  AND run_generation = ?4
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND (
+      effective_completion_mode = ''
+      OR effective_completion_mode = ?2
+  )
+`
+
+type SetTaskRunEffectiveCompletionModeParams struct {
+	UpdatedAtUnixMs         int64
+	EffectiveCompletionMode string
+	ID                      string
+	ExpectedGeneration      int64
+}
+
+func (q *Queries) SetTaskRunEffectiveCompletionMode(ctx context.Context, arg SetTaskRunEffectiveCompletionModeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setTaskRunEffectiveCompletionMode,
+		arg.UpdatedAtUnixMs,
+		arg.EffectiveCompletionMode,
+		arg.ID,
+		arg.ExpectedGeneration,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateSessionExecutionTargetByID = `-- name: UpdateSessionExecutionTargetByID :execrows
 UPDATE sessions
 SET
@@ -5303,21 +5334,19 @@ SET
     interruption_reason = ?4,
     interruption_detail_json = ?5,
     waiting_ask_id = ?6,
-    final_answer_violation_count = ?7,
-    invalid_completion_count = ?8
-WHERE id = ?9
+    invalid_completion_count = ?7
+WHERE id = ?8
 `
 
 type UpdateTaskRunOutcomeParams struct {
-	UpdatedAtUnixMs           int64
-	CompletedAtUnixMs         int64
-	InterruptedAtUnixMs       int64
-	InterruptionReason        string
-	InterruptionDetailJson    string
-	WaitingAskID              string
-	FinalAnswerViolationCount int64
-	InvalidCompletionCount    int64
-	ID                        string
+	UpdatedAtUnixMs        int64
+	CompletedAtUnixMs      int64
+	InterruptedAtUnixMs    int64
+	InterruptionReason     string
+	InterruptionDetailJson string
+	WaitingAskID           string
+	InvalidCompletionCount int64
+	ID                     string
 }
 
 func (q *Queries) UpdateTaskRunOutcome(ctx context.Context, arg UpdateTaskRunOutcomeParams) (int64, error) {
@@ -5328,7 +5357,6 @@ func (q *Queries) UpdateTaskRunOutcome(ctx context.Context, arg UpdateTaskRunOut
 		arg.InterruptionReason,
 		arg.InterruptionDetailJson,
 		arg.WaitingAskID,
-		arg.FinalAnswerViolationCount,
 		arg.InvalidCompletionCount,
 		arg.ID,
 	)
@@ -5729,4 +5757,22 @@ func (q *Queries) UpsertWorktree(ctx context.Context, arg UpsertWorktreeParams) 
 		arg.UpdatedAtUnixMs,
 	)
 	return err
+}
+
+const workflowHasContinueSessionEdge = `-- name: WorkflowHasContinueSessionEdge :one
+SELECT CAST(EXISTS (
+    SELECT 1
+    FROM workflow_edges e
+    JOIN workflow_transition_groups g ON g.id = e.transition_group_id
+    JOIN workflow_nodes n ON n.id = g.source_node_id
+    WHERE n.workflow_id = ?1
+      AND e.context_mode = 'continue_session'
+) AS INTEGER) AS has_continue_session_edge
+`
+
+func (q *Queries) WorkflowHasContinueSessionEdge(ctx context.Context, workflowID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, workflowHasContinueSessionEdge, workflowID)
+	var has_continue_session_edge int64
+	err := row.Scan(&has_continue_session_edge)
+	return has_continue_session_edge, err
 }

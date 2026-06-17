@@ -63,24 +63,28 @@
 - Agent nodes complete by producing structured workflow completion, not by returning natural language.
 - Completion chooses an outgoing transition group and supplies derived provision field values required by downstream consuming nodes.
 - Runtime failure, cancellation, unanswered questions, and validation blockers are orchestration outcomes, not model-selected terminal statuses.
-- Completion modes are `structured_output` and dynamic `complete_node` tool. Global `[workflow].completion_mode` selects `auto`, `structured_output`, or `tool`; there is no workflow/node override.
-- `auto` uses structured output when provider capabilities support it and dynamic tool mode otherwise.
-- Forced `structured_output` fails fast with an actionable error when unsupported. Forced `tool` always uses dynamic tool mode.
+- Completion modes are `structured_output`, dynamic `complete_node` tool, `shell_command`, and `unstructured_output`. Global `[workflow].completion_mode` selects `auto`, `structured_output`, `tool`, `shell_command`, or `unstructured_output`; there is no workflow/node override.
+- `auto` resolves per run after session planning and tool availability are known: shell-unavailable runs use `unstructured_output`; workflows with any literal `continue_session` edge use `shell_command`; all other runs use structured output when provider capabilities support it and dynamic tool mode otherwise. `compact_and_continue_session` does not trigger shell fallback.
+- The resolved effective mode is stored on `task_runs.effective_completion_mode` and reused for resumed activations of the same run.
+- Forced `structured_output` fails fast with an actionable error when unsupported. Forced `tool` always uses dynamic tool mode. Forced `shell_command` fails run start when the resolved runtime shell tool is unavailable.
 - `complete_node` is workflow-control infrastructure and is available in tool completion mode regardless of subagent role tool config.
-- Normal assistant final answers are invalid in workflow mode. Runtime appends a nudge and continues until valid completion, `ask_question`, interruption, cancellation, protocol cap, or runtime error.
-- Completion schema exposes only `transition_id`, optional `commentary`, and server-derived possible provision fields as top-level properties. It never exposes raw `next_node`.
-- Provision fields are flat and string-only. Arrays, nested objects, and mixed scalar types are out of scope for v1.
-- Possible provision fields are optional in the generated schema. Selected transition groups impose required provision fields after `transition_id` is known.
-- Required provision fields must be present as trimmed non-empty strings.
+- `shell_command` mode keeps dynamic completion contracts out of request metadata and instructs the agent to run `kent task complete` from the shell. The command infers the current run from `KENT_SESSION_ID` in agent sessions; outside agent sessions it requires `--force` plus one explicit selector.
+- `unstructured_output` mode keeps dynamic completion contracts out of request metadata and requires the assistant final answer to be exactly one raw JSON object.
+- Normal assistant final answers are invalid in tool and shell-command workflow modes. Runtime appends a nudge and continues until valid completion, `ask_question`, interruption, cancellation, protocol cap, or runtime error.
+- Completion payloads expose only optional `transition`, optional `commentary`, and server-derived possible provision fields as top-level properties. They never expose raw `next_node`.
+- Provision field outputs are flat strings. Completion payload parsers accept any JSON value for a provision field and serialize non-string values into that flat string slot; downstream input bindings never receive structured values.
+- Possible provision fields are optional in generated request metadata where a mode uses request metadata. Selected transition groups impose required provision fields after `transition` is known.
+- Required provision fields must be present as trimmed non-empty strings after parser stringification.
 - Size limits: output field name `<= 64` chars, output field description `<= 1000`, output value `<= 64 KiB`, commentary `<= 64 KiB`, task comment body `<= 256 KiB`.
-- Dynamic schemas can affect prompt-cache continuity if workflow config changes mid-run; this is acceptable.
-- Runtime enforces protocol caps. Repeated final answers or invalid completion attempts interrupt the run after `[workflow].max_final_answer_violations = 3` or `[workflow].max_invalid_completion_attempts = 5`.
+- Dynamic request metadata in `structured_output` and `tool` modes can affect prompt-cache continuity when workflow completion contracts change. `shell_command` and `unstructured_output` keep completion contracts in appended prompt text instead of request metadata.
+- Runtime observes durable external completion before each model turn, immediately after a model response returns and before assistant/tool persistence, and after local tool results are persisted.
+- Runtime enforces one protocol cap. Repeated final answers in invalid modes or invalid completion attempts interrupt the run after `[workflow].max_invalid_completion_attempts = 5`.
 - No wall-clock runtime cap is required for v1.
 
 ## Workflow Prompting
 
 - Workflow runs use dedicated workflow-mode developer instructions.
-- Prompt explains task identity, node role/assignee, completion behavior, question behavior, handoff/transition mechanics, task comments, and why ordinary final answers are invalid.
+- Prompt explains task identity, node role/assignee, selected completion behavior, question behavior, handoff/transition mechanics, task comments, and why ordinary final answers are invalid when the selected mode does not accept them.
 - Workflow runtime builds on reusable headless/session infrastructure for session launch, runtime wiring, logging, progress, subagent role handling, and mode prompts.
 - `RunPromptService.RunPrompt` final text is not workflow completion authority.
 - Existing user goal state is not reused as workflow autonomy state.
@@ -233,21 +237,21 @@
 
 - Minimal workflow/task CLI exists to exercise backend behavior and teach agents task usage.
 - CLI output must include stable IDs needed by later commands.
-- Machine-readable `--json` output and workflow-specific environment variables are not required in the first CLI milestone.
+- `kent task complete` accepts dynamic parameter flags, repeatable `--param name=value`, and `--json`/`--json-file` completion payload input. JSON input modes print JSON responses.
 - Unsupported commands may fail loudly before backend semantics land rather than implementing partial behavior.
 
 ## Q/A Decisions Preserved
 
 - Q: Should workflow definitions use a stable graph file format in v1? A: No; SQLite/API/CLI are authoritative for v1.
 - Q: Is task creation the same as starting automation? A: No; creation makes a backlog task, and task-start is explicit.
-- Q: Is completion mode per workflow/node? A: No; it is a temporary global config.
+- Q: Is completion mode per workflow/node? A: No; it is a global config with per-run effective-mode snapshots.
 - Q: Should workflow runs have a wall-clock cap? A: No v1 wall-clock cap.
 - Q: Should v1 auto-retry interrupted/runtime-failed runs? A: No; human resume is required.
 - Q: Are racing/first-success parallel branches in scope? A: No; joins wait for all required inputs.
 - Q: Can orchestrator-workers dynamically create workflow nodes/columns? A: No in v1.
 - Q: Should pending workflow questions get a task-question shadow table? A: No; use `ask_question` source of truth or upgrade ask persistence.
 - Q: Does real-provider workflow QA need explicit approval? A: Yes, ask the User before spending provider credits.
-- Q: Does the first CLI milestone need JSON output or workflow env vars? A: No.
+- Q: How do agents complete shell-command workflow runs? A: They run `kent task complete` from a shell command; `KENT_SESSION_ID` targets their current run.
 - Q: Should `tasks.short_id` be stored or derived from `project_key + task_seq`? A: Keep it stored as durable product data.
 - Q: Should `projects.next_task_seq` stay stored? A: No; replace it with transactional task sequence allocation.
 - Q: Should `task_runs.metadata_json` stay? A: No; remove it as one of the next schema cleanup tasks.

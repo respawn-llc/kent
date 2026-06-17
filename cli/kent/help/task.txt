@@ -4,6 +4,7 @@ Usage of kent task:
   kent task resume <short-id-or-task-id>
   kent task approve <transition-id>
   kent task move <short-id-or-task-id> <target-node-id> [--output name=value]
+  kent task complete [--transition <id>] [--commentary <text>] [--param name=value] [--<parameter> <value>] [--json <payload>|--json-file <path>] [--run <run-id>|--session <session-id>|--task <task-id-or-short-id> [--project <project>]] [--force]
   kent task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]
   kent task show <short-id-or-task-id> [--json]
   kent task cancel <short-id-or-task-id> [--reason <text>]
@@ -15,4 +16,6 @@ Usage of kent task:
 
 What This Does:
   Manage workflow tasks and comments through the Kent server API.
+  Agents can complete their current workflow node with kent task complete from a shell command.
+  Outside Kent agent sessions, task completion requires --force plus one explicit selector.
   Short ids are resolved within the current project by default.

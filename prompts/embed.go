@@ -3,11 +3,14 @@ package prompts
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"text/template"
 	"text/template/parse"
+
+	"core/shared/workflowkey"
 )
 
 // UnknownTemplatePlaceholderError reports that a custom prompt template
@@ -200,6 +203,27 @@ type WorkflowTransition struct {
 	Description string
 }
 
+type WorkflowCompletionInstructionsArgs struct {
+	WorkflowShortID string
+	Contract        WorkflowCompletionContract
+}
+
+type WorkflowCompletionContract struct {
+	Transitions []WorkflowCompletionTransition
+}
+
+type WorkflowCompletionTransition struct {
+	ID          string
+	DisplayName string
+	Description string
+	Parameters  []WorkflowCompletionParameter
+}
+
+type WorkflowCompletionParameter struct {
+	Key         string
+	Description string
+}
+
 type WorkflowInputValue struct {
 	Name  string
 	Value string
@@ -226,41 +250,45 @@ func mustPrompt(path string) string {
 }
 
 var (
-	SystemPrompt                                   = mustPrompt("system_prompt/system_prompt.md")
-	SystemPromptPersonality                        = mustPrompt("system_prompt/personality.md")
-	SystemPromptHarness                            = mustPrompt("system_prompt/harness_workflow_autonomy.md")
-	SystemPromptAmbiguityAndQuality                = mustPrompt("system_prompt/ambiguity_output_quality.md")
-	SystemPromptFinalAnswerAndFormatting           = mustPrompt("system_prompt/final_answer_formatting.md")
-	SystemPromptDelegation                         = mustPrompt("system_prompt/delegation.md")
-	ToolPreamblesPrompt                            = mustPrompt("tool_preambles_prompt.md")
-	CompactionPrompt                               = mustPrompt("compaction_prompt.md")
-	CompactionSummaryPrefix                        = mustPrompt("compaction_summary_prefix.md")
-	CompactionSoonReminderPrompt                   = mustPrompt("compaction_soon_reminder.md")
-	CompactionSoonReminderTriggerHandoffPrompt     = mustPrompt("compaction_soon_reminder_trigger_handoff.md")
-	GoalNudgePrompt                                = mustPrompt("goal/nudge.md")
-	GoalSetPrompt                                  = mustPrompt("goal/set.md")
-	GoalPausePrompt                                = mustPrompt("goal/pause.md")
-	GoalResumePrompt                               = mustPrompt("goal/resume.md")
-	GoalClearPrompt                                = mustPrompt("goal/clear.md")
-	GoalCompletePrompt                             = mustPrompt("goal/complete.md")
-	GoalAlreadyCompletePrompt                      = mustPrompt("goal/already_complete.md")
-	GoalAgentCommandDeniedPrompt                   = mustPrompt("goal/agent_command_denied.md")
-	GoalAgentDuplicateSetDeniedPrompt              = mustPrompt("goal/agent_duplicate_set_denied.md")
-	GoalCompleteConfirmRequiredPrompt              = mustPrompt("goal/complete_confirm_required.md")
-	ReviewPrompt                                   = mustPrompt("review_prompt.md")
-	InitPrompt                                     = mustPrompt("init_prompt.md")
-	ReviewerSystemPrompt                           = mustPrompt("reviewer_system_prompt.md")
-	SkillsPrompt                                   = mustPrompt("skills_prompt.md")
-	HeadlessModePrompt                             = mustPrompt("headless_mode_prompt.md")
-	HeadlessModeExitPrompt                         = mustPrompt("headless_mode_exit_prompt.md")
-	WorkflowTaskInstructionsPrompt                 = mustPrompt("workflow/workflow_task_instructions.md")
-	WorkflowToolCompletionInstructionsPrompt       = mustPrompt("workflow/tool_completion_instructions.md")
-	WorkflowStructuredCompletionInstructionsPrompt = mustPrompt("workflow/structured_completion_instructions.md")
-	WorkflowFinalAnswerNudgePrompt                 = mustPrompt("workflow/final_answer_nudge.md")
-	WorkflowHumanOnlyTaskActionDeniedPrompt        = mustPrompt("workflow/human_only_task_action_denied.md")
-	WorktreeModePrompt                             = mustPrompt("worktree_mode_prompt.md")
-	WorktreeModeExitPrompt                         = mustPrompt("worktree_mode_exit_prompt.md")
-	QuestionsDisabledPrompt                        = mustPrompt("questions/disabled.md")
+	SystemPrompt                                     = mustPrompt("system_prompt/system_prompt.md")
+	SystemPromptPersonality                          = mustPrompt("system_prompt/personality.md")
+	SystemPromptHarness                              = mustPrompt("system_prompt/harness_workflow_autonomy.md")
+	SystemPromptAmbiguityAndQuality                  = mustPrompt("system_prompt/ambiguity_output_quality.md")
+	SystemPromptFinalAnswerAndFormatting             = mustPrompt("system_prompt/final_answer_formatting.md")
+	SystemPromptDelegation                           = mustPrompt("system_prompt/delegation.md")
+	ToolPreamblesPrompt                              = mustPrompt("tool_preambles_prompt.md")
+	CompactionPrompt                                 = mustPrompt("compaction_prompt.md")
+	CompactionSummaryPrefix                          = mustPrompt("compaction_summary_prefix.md")
+	CompactionSoonReminderPrompt                     = mustPrompt("compaction_soon_reminder.md")
+	CompactionSoonReminderTriggerHandoffPrompt       = mustPrompt("compaction_soon_reminder_trigger_handoff.md")
+	GoalNudgePrompt                                  = mustPrompt("goal/nudge.md")
+	GoalSetPrompt                                    = mustPrompt("goal/set.md")
+	GoalPausePrompt                                  = mustPrompt("goal/pause.md")
+	GoalResumePrompt                                 = mustPrompt("goal/resume.md")
+	GoalClearPrompt                                  = mustPrompt("goal/clear.md")
+	GoalCompletePrompt                               = mustPrompt("goal/complete.md")
+	GoalAlreadyCompletePrompt                        = mustPrompt("goal/already_complete.md")
+	GoalAgentCommandDeniedPrompt                     = mustPrompt("goal/agent_command_denied.md")
+	GoalAgentDuplicateSetDeniedPrompt                = mustPrompt("goal/agent_duplicate_set_denied.md")
+	GoalCompleteConfirmRequiredPrompt                = mustPrompt("goal/complete_confirm_required.md")
+	ReviewPrompt                                     = mustPrompt("review_prompt.md")
+	InitPrompt                                       = mustPrompt("init_prompt.md")
+	ReviewerSystemPrompt                             = mustPrompt("reviewer_system_prompt.md")
+	SkillsPrompt                                     = mustPrompt("skills_prompt.md")
+	HeadlessModePrompt                               = mustPrompt("headless_mode_prompt.md")
+	HeadlessModeExitPrompt                           = mustPrompt("headless_mode_exit_prompt.md")
+	WorkflowTaskInstructionsPrompt                   = mustPrompt("workflow/workflow_task_instructions.md")
+	WorkflowToolCompletionInstructionsPrompt         = mustPrompt("workflow/tool_completion_instructions.md")
+	WorkflowStructuredCompletionInstructionsPrompt   = mustPrompt("workflow/structured_completion_instructions.md")
+	WorkflowShellCompletionInstructionsPrompt        = mustPrompt("workflow/shell_completion_instructions.md")
+	WorkflowUnstructuredCompletionInstructionsPrompt = mustPrompt("workflow/unstructured_completion_instructions.md")
+	WorkflowFinalAnswerNudgePrompt                   = mustPrompt("workflow/final_answer_nudge.md")
+	WorkflowHumanOnlyTaskActionDeniedPrompt          = mustPrompt("workflow/human_only_task_action_denied.md")
+	WorkflowTaskCompleteAgentOwnershipErrorPrompt    = strings.TrimSpace(mustPrompt("workflow/task_complete_agent_ownership_error.md"))
+	WorkflowTaskCompleteHumanSafetyWarningPrompt     = strings.TrimSpace(mustPrompt("workflow/task_complete_human_safety_warning.md"))
+	WorktreeModePrompt                               = mustPrompt("worktree_mode_prompt.md")
+	WorktreeModeExitPrompt                           = mustPrompt("worktree_mode_exit_prompt.md")
+	QuestionsDisabledPrompt                          = mustPrompt("questions/disabled.md")
 )
 
 //go:embed skills/**
@@ -437,6 +465,173 @@ func RenderWorkflowStructuredCompletionInstructions(workflowShortId string) (str
 		LaunchCommand:   LaunchCommand(),
 		WorkflowShortId: strings.TrimSpace(workflowShortId),
 	})
+}
+
+type workflowCompletionInstructionsTemplateData struct {
+	LaunchCommand       string
+	WorkflowShortID     string
+	MultipleTransitions bool
+	Examples            []workflowCompletionExample
+}
+
+type workflowCompletionExample struct {
+	TransitionID string
+	DisplayName  string
+	Description  string
+	Parameters   []workflowCompletionParameterExample
+	ShellCommand string
+	JSON         string
+}
+
+type workflowCompletionParameterExample struct {
+	Key         string
+	Description string
+	Placeholder string
+}
+
+func RenderWorkflowShellCompletionInstructions(args WorkflowCompletionInstructionsArgs) (string, error) {
+	return renderNamedTemplate("workflow shell completion instructions", WorkflowShellCompletionInstructionsPrompt, workflowCompletionInstructionsTemplateDataFor(args))
+}
+
+func RenderWorkflowUnstructuredCompletionInstructions(args WorkflowCompletionInstructionsArgs) (string, error) {
+	return renderNamedTemplate("workflow unstructured completion instructions", WorkflowUnstructuredCompletionInstructionsPrompt, workflowCompletionInstructionsTemplateDataFor(args))
+}
+
+func workflowCompletionInstructionsTemplateDataFor(args WorkflowCompletionInstructionsArgs) workflowCompletionInstructionsTemplateData {
+	examples := workflowCompletionExamples(args)
+	return workflowCompletionInstructionsTemplateData{
+		LaunchCommand:       LaunchCommand(),
+		WorkflowShortID:     strings.TrimSpace(args.WorkflowShortID),
+		MultipleTransitions: len(examples) > 1,
+		Examples:            examples,
+	}
+}
+
+func workflowCompletionExamples(args WorkflowCompletionInstructionsArgs) []workflowCompletionExample {
+	transitions := normalizedWorkflowCompletionTransitions(args.Contract.Transitions)
+	multipleTransitions := len(transitions) > 1
+	out := make([]workflowCompletionExample, 0, len(transitions))
+	for _, transition := range transitions {
+		parameters := workflowCompletionParameterExamples(transition.Parameters)
+		out = append(out, workflowCompletionExample{
+			TransitionID: strings.TrimSpace(transition.ID),
+			DisplayName:  strings.TrimSpace(transition.DisplayName),
+			Description:  strings.TrimSpace(transition.Description),
+			Parameters:   parameters,
+			ShellCommand: workflowCompletionShellCommandExample(transition, parameters, multipleTransitions),
+			JSON:         workflowCompletionJSONExample(transition, parameters, multipleTransitions),
+		})
+	}
+	return out
+}
+
+func workflowCompletionParameterExamples(parameters []WorkflowCompletionParameter) []workflowCompletionParameterExample {
+	normalized := normalizedWorkflowCompletionParameters(parameters)
+	out := make([]workflowCompletionParameterExample, 0, len(normalized))
+	for _, parameter := range normalized {
+		key := strings.TrimSpace(parameter.Key)
+		out = append(out, workflowCompletionParameterExample{
+			Key:         key,
+			Description: strings.TrimSpace(parameter.Description),
+			Placeholder: workflowCompletionParameterPlaceholder(parameter),
+		})
+	}
+	return out
+}
+
+func workflowCompletionShellCommandExample(transition WorkflowCompletionTransition, parameters []workflowCompletionParameterExample, multipleTransitions bool) string {
+	parts := []string{LaunchCommand(), "task", "complete"}
+	if multipleTransitions {
+		parts = append(parts, "--transition", shellQuoteArg(strings.TrimSpace(transition.ID)))
+	}
+	parts = append(parts, "--commentary", shellQuoteArg("Brief completion commentary."))
+	for _, parameter := range parameters {
+		if flag, ok := workflowCompletionDynamicFlag(parameter.Key); ok {
+			parts = append(parts, flag, shellQuoteArg(parameter.Placeholder))
+			continue
+		}
+		parts = append(parts, "--param", shellQuoteArg(parameter.Key+"="+parameter.Placeholder))
+	}
+	return strings.Join(parts, " ")
+}
+
+func workflowCompletionJSONExample(transition WorkflowCompletionTransition, parameters []workflowCompletionParameterExample, multipleTransitions bool) string {
+	payload := map[string]string{"commentary": "Brief completion commentary."}
+	if multipleTransitions {
+		payload["transition"] = strings.TrimSpace(transition.ID)
+	}
+	for _, parameter := range parameters {
+		payload[parameter.Key] = parameter.Placeholder
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}
+
+func workflowCompletionParameterPlaceholder(parameter WorkflowCompletionParameter) string {
+	if description := strings.TrimSpace(parameter.Description); description != "" {
+		return description
+	}
+	if key := strings.TrimSpace(parameter.Key); key != "" {
+		return "Value for " + key + "."
+	}
+	return "Parameter value."
+}
+
+func workflowCompletionDynamicFlag(key string) (string, bool) {
+	trimmed := strings.TrimSpace(key)
+	if !workflowkey.Valid(trimmed) || workflowCompletionReservedFlag(trimmed) {
+		return "", false
+	}
+	return "--" + trimmed, true
+}
+
+func workflowCompletionReservedFlag(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "run", "session", "task", "project", "transition", "commentary", "param", "json", "json-file", "force", "help", "h":
+		return true
+	default:
+		return false
+	}
+}
+
+func shellQuoteArg(value string) string {
+	return "'" + strings.ReplaceAll(strings.TrimSpace(value), "'", "'\"'\"'") + "'"
+}
+
+func normalizedWorkflowCompletionTransitions(transitions []WorkflowCompletionTransition) []WorkflowCompletionTransition {
+	out := []WorkflowCompletionTransition{}
+	seen := map[string]bool{}
+	for _, transition := range transitions {
+		id := strings.TrimSpace(transition.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, WorkflowCompletionTransition{
+			ID:          id,
+			DisplayName: strings.TrimSpace(transition.DisplayName),
+			Description: strings.TrimSpace(transition.Description),
+			Parameters:  normalizedWorkflowCompletionParameters(transition.Parameters),
+		})
+	}
+	return out
+}
+
+func normalizedWorkflowCompletionParameters(parameters []WorkflowCompletionParameter) []WorkflowCompletionParameter {
+	out := []WorkflowCompletionParameter{}
+	seen := map[string]bool{}
+	for _, parameter := range parameters {
+		key := strings.TrimSpace(parameter.Key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, WorkflowCompletionParameter{Key: key, Description: strings.TrimSpace(parameter.Description)})
+	}
+	return out
 }
 
 func renderSystemPromptTemplate(text string, args SystemPromptTemplateArgs, defaultSystemPrompt string) string {

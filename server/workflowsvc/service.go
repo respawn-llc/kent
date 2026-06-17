@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"core/prompts"
 	"core/server/requestmemo"
 	askquestion "core/server/tools"
 	"core/server/workflow"
@@ -46,6 +47,10 @@ type taskRuntimeCanceler interface {
 
 type taskRuntimeRunCanceler interface {
 	CancelRun(ctx context.Context, runID workflow.RunID) error
+}
+
+type taskRuntimeRunCancelRequester interface {
+	RequestCancelRun(runID workflow.RunID) bool
 }
 
 type schedulerNotifier interface {
@@ -648,6 +653,85 @@ func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTa
 		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "moved", req.TaskID, string(moved.TransitionID))
 	}
 	return serverapi.WorkflowTaskMoveResponse{TransitionID: string(moved.TransitionID), State: moved.State, PlacementIDs: placementIDs(moved.PlacementIDs), RunIDs: runIDs(moved.RunIDs), ApprovalError: approvalError}, nil
+}
+
+func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCompleteRequest) (serverapi.WorkflowTaskCompleteResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTaskCompleteResponse{}, err
+	}
+	target, err := s.store.ResolveActiveRunCompletionTarget(ctx, workflowCompletionTargetSelector(req))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return serverapi.WorkflowTaskCompleteResponse{}, serverapi.ErrWorkflowTaskCompleteTargetNotFound
+		}
+		if errors.Is(err, workflowstore.ErrRunIDRequired) {
+			return serverapi.WorkflowTaskCompleteResponse{}, serverapi.WorkflowTaskCompleteSelectorAmbiguousError{Message: "completion selector matched multiple active workflow runs"}
+		}
+		return serverapi.WorkflowTaskCompleteResponse{}, err
+	}
+	actor := "agent"
+	if req.ActorKind == serverapi.WorkflowTaskCompleteActorUser {
+		actor = "user"
+	} else if strings.TrimSpace(target.Run.SessionID) != strings.TrimSpace(req.AgentSessionID) {
+		return serverapi.WorkflowTaskCompleteResponse{}, errors.New(prompts.WorkflowTaskCompleteAgentOwnershipErrorPrompt)
+	}
+	taskID := string(target.Run.TaskID)
+	completed, err := s.store.CompleteRun(ctx, workflowstore.CompleteRunRequest{
+		RunID:              target.Run.ID,
+		TransitionID:       req.TransitionID,
+		OutputValues:       req.OutputValues,
+		Commentary:         req.Commentary,
+		Actor:              actor,
+		ExpectedGeneration: target.Run.Generation,
+		RequireGeneration:  true,
+	})
+	if err != nil {
+		return serverapi.WorkflowTaskCompleteResponse{}, err
+	}
+	if req.ActorKind == serverapi.WorkflowTaskCompleteActorUser {
+		notifyScheduler := true
+		if requester, ok := s.runtimeCancel.(taskRuntimeRunCancelRequester); ok {
+			notifyScheduler = !requester.RequestCancelRun(target.Run.ID)
+		} else if canceler, ok := s.runtimeCancel.(taskRuntimeRunCanceler); ok {
+			if err := canceler.CancelRun(ctx, target.Run.ID); err != nil {
+				slog.Warn("cancel completed workflow run failed", "run_id", string(target.Run.ID), "task_id", taskID, "error", err)
+			}
+		}
+		if notifyScheduler && s.schedulerWake != nil {
+			s.schedulerWake.Notify()
+		}
+	}
+	return serverapi.WorkflowTaskCompleteResponse{
+		TransitionID: string(completed.TransitionID),
+		TaskID:       taskID,
+		RunID:        string(target.Run.ID),
+		State:        completed.State,
+		PlacementIDs: placementIDs(completed.PlacementIDs),
+		RunIDs:       runIDs(completed.RunIDs),
+	}, nil
+}
+
+func workflowCompletionTargetSelector(req serverapi.WorkflowTaskCompleteRequest) workflowstore.ActiveRunCompletionTargetSelector {
+	if req.ActorKind == serverapi.WorkflowTaskCompleteActorAgent && workflowTaskCompleteExplicitSelectorCount(req) == 0 {
+		return workflowstore.ActiveRunCompletionTargetSelector{SessionID: strings.TrimSpace(req.AgentSessionID)}
+	}
+	return workflowstore.ActiveRunCompletionTargetSelector{
+		RunID:     workflow.RunID(req.RunID),
+		SessionID: strings.TrimSpace(req.SessionID),
+		TaskID:    workflow.TaskID(req.TaskID),
+		ProjectID: strings.TrimSpace(req.ProjectID),
+		ShortID:   strings.TrimSpace(req.ShortID),
+	}
+}
+
+func workflowTaskCompleteExplicitSelectorCount(req serverapi.WorkflowTaskCompleteRequest) int {
+	count := 0
+	for _, value := range []string{req.RunID, req.SessionID, req.TaskID, req.ShortID} {
+		if strings.TrimSpace(value) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {

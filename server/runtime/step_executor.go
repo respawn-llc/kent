@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"core/server/llm"
@@ -27,6 +28,11 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 	deferredFinalCommittedStart := -1
 	hasDeferredFinal := false
 	for {
+		if terminal, err := s.workflowDurableCompletionTerminal(ctx, stepID); err != nil {
+			return stepLoopResult{}, err
+		} else if terminal {
+			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
+		}
 		if err := s.prepareModelTurn(ctx, stepID); err != nil {
 			return stepLoopResult{}, err
 		}
@@ -56,6 +62,11 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 		}
 		if err := e.recordLastUsage(resp.Usage); err != nil {
 			return stepLoopResult{}, err
+		}
+		if terminal, err := s.workflowDurableCompletionTerminal(ctx, stepID); err != nil {
+			return stepLoopResult{}, err
+		} else if terminal {
+			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
 		}
 
 		localToolCalls := append([]llm.ToolCall(nil), resp.ToolCalls...)
@@ -326,6 +337,12 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 	if err != nil {
 		return false, false, err
 	}
+	if terminal {
+		if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
+			return false, false, err
+		}
+		return patchEditsApplied, true, nil
+	}
 	if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
 		return false, false, err
 	}
@@ -354,7 +371,22 @@ func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.
 			return false, false, err
 		}
 	}
-	return patchEditsApplied, terminal, nil
+	durableTerminal, err := s.workflowDurableCompletionTerminal(ctx, stepID)
+	if err != nil {
+		return false, false, err
+	}
+	return patchEditsApplied, terminal || durableTerminal, nil
+}
+
+func (s *defaultStepExecutor) workflowDurableCompletionTerminal(ctx context.Context, stepID string) (bool, error) {
+	completed, err := s.engine.observeWorkflowDurableCompletion(ctx)
+	if err != nil || !completed {
+		return false, err
+	}
+	if err := s.engine.steer(stepID, steerClearStreamingStateIntent()); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *defaultStepExecutor) appendHostedToolExecutionResults(stepID string, hostedToolExecutions []hostedToolExecution) error {
@@ -387,22 +419,32 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
 			return true, terminal, nudgeErr
 		}
-		_, completeErr := e.cfg.WorkflowRun.Controller.CompleteWorkflowRun(ctx, workflowruntime.CompletionRequest{
-			RunID:              e.cfg.WorkflowRun.Contract.RunID,
-			ExpectedGeneration: e.cfg.WorkflowRun.Contract.ExpectedGeneration,
-			RequireGeneration:  e.cfg.WorkflowRun.Contract.RequireGeneration,
-			TransitionID:       parsed.TransitionID,
-			OutputValues:       parsed.OutputValues,
-			Commentary:         parsed.Commentary,
-		})
+		completeErr := s.completeWorkflowRunFromParsed(ctx, parsed)
 		if completeErr != nil {
 			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
 			return true, terminal, nudgeErr
 		}
 		return true, true, nil
 	}
+	if mode == workflowruntime.CompletionModeUnstructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
+		parsed, parseErr := workflowruntime.DecodeUnstructuredCompletion(content, e.cfg.WorkflowRun.Contract)
+		if parseErr != nil {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
+			return true, terminal, nudgeErr
+		}
+		completeErr := s.completeWorkflowRunFromParsed(ctx, parsed)
+		if completeErr != nil {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
+			return true, terminal, nudgeErr
+		}
+		return true, true, nil
+	}
+	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {
+		terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, errors.New("normal final answers do not complete shell-command workflow nodes"))
+		return true, terminal, nudgeErr
+	}
 	if mode == workflowruntime.CompletionModeTool && assistantMsg.Phase == llm.MessagePhaseFinal {
-		record, recordErr := e.recordWorkflowProtocolViolation(ctx, workflowruntime.ViolationKindFinalAnswer, content)
+		record, recordErr := e.recordWorkflowProtocolViolation(ctx, workflowruntime.ViolationKindInvalidCompletion, content)
 		if recordErr != nil {
 			return true, false, recordErr
 		}
@@ -415,6 +457,19 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 		return true, false, nil
 	}
 	return false, false, nil
+}
+
+func (s *defaultStepExecutor) completeWorkflowRunFromParsed(ctx context.Context, parsed workflowruntime.ParsedCompletion) error {
+	e := s.engine
+	_, completeErr := e.cfg.WorkflowRun.Controller.CompleteWorkflowRun(ctx, workflowruntime.CompletionRequest{
+		RunID:              e.cfg.WorkflowRun.Contract.RunID,
+		ExpectedGeneration: e.cfg.WorkflowRun.Contract.ExpectedGeneration,
+		RequireGeneration:  e.cfg.WorkflowRun.Contract.RequireGeneration,
+		TransitionID:       parsed.TransitionID,
+		OutputValues:       parsed.OutputValues,
+		Commentary:         parsed.Commentary,
+	})
+	return completeErr
 }
 
 func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.Context, stepID string, err error) (bool, error) {
@@ -430,7 +485,29 @@ func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.C
 	if strings.TrimSpace(err.Error()) != "" {
 		content += "\n\n" + err.Error()
 	}
+	instructions, instructionsErr := e.currentWorkflowCompletionInstructions(ctx)
+	if instructionsErr != nil {
+		return false, instructionsErr
+	}
+	if strings.TrimSpace(instructions) != "" {
+		content += "\n\n" + strings.TrimSpace(instructions)
+	}
 	return false, e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: content}}))
+}
+
+func (e *Engine) currentWorkflowCompletionInstructions(ctx context.Context) (string, error) {
+	if !e.workflowRunActive() {
+		return "", nil
+	}
+	mode, err := e.workflowCompletionMode(ctx)
+	if err != nil {
+		return "", err
+	}
+	workflowShortID := ""
+	if e.cfg.WorkflowRun != nil {
+		workflowShortID = e.cfg.WorkflowRun.Instructions.WorkflowShortID
+	}
+	return workflowCompletionInstructionsFragment(mode, workflowShortID, e.cfg.WorkflowRun.Contract)
 }
 
 func customToolCallIDs(calls []llm.ToolCall) map[string]bool {
