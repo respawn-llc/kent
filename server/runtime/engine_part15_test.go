@@ -266,7 +266,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	if err := eng.autoCompactIfNeeded(context.Background(), "step-1", compactionModeAuto); err != nil {
 		t.Fatalf("auto compact failed: %v", err)
 	}
-	if eng.shouldAutoCompact() {
+	if eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected auto compact threshold to be cleared after replacement, usage=%+v", eng.usageTrackingState().Last())
 	}
 }

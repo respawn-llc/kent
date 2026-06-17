@@ -145,10 +145,6 @@ func (c *defaultContextCompactor) AutoCompactIfNeeded(ctx context.Context, stepI
 	return err
 }
 
-func (e *Engine) shouldAutoCompact() bool {
-	return e.shouldAutoCompactWithContext(context.Background())
-}
-
 func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
 	snapshot := e.compactionPlanningSnapshot()
 	planner := e.compactionPlannerState()
@@ -160,10 +156,6 @@ func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
 		return false
 	}
 	return e.usageAtOrAboveLimit(ctx, limit)
-}
-
-func (e *Engine) preSubmitCompactionTokenLimit(ctx context.Context) int {
-	return e.compactionPlannerState().preSubmitTokenLimit(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
@@ -290,10 +282,6 @@ func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
 		return 0, false
 	}
 	return e.requestInputTokensPreciselyTracked(ctx, req, true)
-}
-
-func (e *Engine) currentInputTokensPreciselyIfDue(ctx context.Context, limit int) (int, bool) {
-	return e.currentInputTokensPreciselyIfDueWithPriority(ctx, limit, false)
 }
 
 func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Context, limit int, critical bool) (int, bool) {

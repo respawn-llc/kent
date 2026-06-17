@@ -147,7 +147,7 @@ func TestCustomKeyShiftEnterThenEnterDoesNotSubmitTrailingNewline(t *testing.T) 
 	if !updated.isBusy() {
 		t.Fatal("expected submission started")
 	}
-	snapshot := stripANSIAndTrimRight(updated.view.OngoingCommittedSnapshot())
+	snapshot := stripANSIAndTrimRight(updated.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if strings.Contains(snapshot, "❯ hello\n\n") {
 		t.Fatalf("expected submitted user message without trailing blank line, got %q", snapshot)
 	}

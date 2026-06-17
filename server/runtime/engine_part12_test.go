@@ -103,7 +103,7 @@ func TestShouldAutoCompactRechecksProviderBeforeCompactingOnLargeEstimate(t *tes
 		t.Fatalf("append tool message: %v", err)
 	}
 
-	if eng.shouldAutoCompact() {
+	if eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected provider token count to prevent over-eager compaction")
 	}
 	if client.countCalls != 1 {
@@ -124,7 +124,7 @@ func TestShouldAutoCompactPrefersConfiguredThresholdOverResolvedContextWindow(t 
 		t.Fatalf("append message: %v", err)
 	}
 
-	if eng.shouldAutoCompact() {
+	if eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected auto compaction to honor configured threshold and remain below limit")
 	}
 	if client.resolveCalls != 0 {
@@ -151,7 +151,7 @@ func TestShouldAutoCompactAccountsForReservedOutputBudget(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	if !eng.shouldAutoCompact() {
+	if !eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected auto compaction when input + reserved output exceeds threshold")
 	}
 }
@@ -169,7 +169,7 @@ func TestShouldAutoCompactSkipsPreciseCountWhenFarBelowThreshold(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	if eng.shouldAutoCompact() {
+	if eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected no compaction when far below configured threshold")
 	}
 	if client.countCalls != 0 {
@@ -188,10 +188,10 @@ func TestShouldAutoCompactMemoizesPreciseCountForUnchangedRequest(t *testing.T) 
 	})
 	eng.setLastUsage(llm.Usage{InputTokens: 95_000, WindowTokens: 400_000})
 
-	if eng.shouldAutoCompact() {
+	if eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected no compaction for precise count below threshold")
 	}
-	if eng.shouldAutoCompact() {
+	if eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected no compaction for repeated unchanged request")
 	}
 	if client.countCalls != 1 {

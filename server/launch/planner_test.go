@@ -1106,7 +1106,7 @@ func TestResolveSubagentSettingsPreservesSubagentCatalogMetadata(t *testing.T) {
 		},
 	}
 
-	resolved, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	resolved, _, err := resolveSubagentSettingsWithValidation(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, true)
 	if err != nil {
 		t.Fatalf("resolveSubagentSettings: %v", err)
 	}
@@ -1131,7 +1131,7 @@ func TestResolveSubagentSettingsRejectsRoleContextWindowBelowMinimum(t *testing.
 		},
 	}
 
-	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	_, _, err := resolveSubagentSettingsWithValidation(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, true)
 	if err == nil {
 		t.Fatal("expected role context window below minimum to fail")
 	}
@@ -1152,7 +1152,7 @@ func TestResolveSubagentSettingsRejectsRoleReviewerContextWindowBelowMinimum(t *
 		},
 	}
 
-	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	_, _, err := resolveSubagentSettingsWithValidation(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, true)
 	if err == nil {
 		t.Fatal("expected role reviewer context window below minimum to fail")
 	}

@@ -13,10 +13,6 @@ import (
 
 const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + config.DocsURL
 
-func resolveSubagentSettings(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool) (config.Settings, string, error) {
-	return resolveSubagentSettingsWithValidation(base, providerBase, baseSources, roleName, authState, allowModelOverride, true)
-}
-
 func resolveSubagentSettingsWithValidation(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool, validate bool) (config.Settings, string, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {

@@ -272,7 +272,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	registry := tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandTool(dir, 16_000, manager, "")})
 	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-5"})
 	manager.SetEventHandler(func(evt shelltool.Event) {
-		eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+		eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 			Type:    string(evt.Type),
 			ID:      evt.Snapshot.ID,
 			State:   evt.Snapshot.State,
@@ -288,7 +288,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 				out := *evt.Snapshot.ExitCode
 				return &out
 			}(),
-		})
+		}, true)
 	})
 
 	assistant, err := eng.SubmitUserMessage(context.Background(), "run fast command")
@@ -361,12 +361,12 @@ func TestBackgroundShellNoticeFlushesOnFirstAvailableSlot(t *testing.T) {
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-	})
+	}, true)
 
 	client.mu.Lock()
 	callCountWhileBusy := len(client.calls)
@@ -487,12 +487,12 @@ func TestDeferredFinalWithBackgroundNoticeStillRunsReviewerAndEmitsAssistantEven
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-	})
+	}, true)
 
 	close(release)
 	result := <-submitDone
@@ -743,12 +743,12 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-	})
+	}, true)
 
 	close(release)
 	result := <-submitDone

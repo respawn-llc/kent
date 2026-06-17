@@ -226,7 +226,7 @@ func TestCurrentInputTokensPreciselyIfDueSkipsBackendFarBelowCheckpoint(t *testi
 		t.Fatalf("append message: %v", err)
 	}
 
-	if precise, ok := eng.currentInputTokensPreciselyIfDue(context.Background(), 100_000); ok || precise != 0 {
+	if precise, ok := eng.currentInputTokensPreciselyIfDueWithPriority(context.Background(), 100_000, false); ok || precise != 0 {
 		t.Fatalf("currentInputTokensPreciselyIfDue = (%d, %v), want no refresh", precise, ok)
 	}
 	if client.countCalls != 0 {
@@ -252,7 +252,7 @@ func TestCurrentInputTokensPreciselyIfCriticalForcesRefreshAfterSignificantMutat
 	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, Content: "background shell completed"}})); err != nil {
 		t.Fatalf("append developer mutation: %v", err)
 	}
-	if precise, ok := eng.currentInputTokensPreciselyIfDue(context.Background(), 1_000); ok || precise != 0 {
+	if precise, ok := eng.currentInputTokensPreciselyIfDueWithPriority(context.Background(), 1_000, false); ok || precise != 0 {
 		t.Fatalf("scheduled exact recount = (%d, %v), want no refresh below 50%%", precise, ok)
 	}
 	if precise, ok := eng.currentInputTokensPreciselyIfDueWithPriority(context.Background(), 1_000, true); !ok || precise != 220 {

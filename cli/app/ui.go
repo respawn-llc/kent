@@ -118,12 +118,6 @@ func (m *uiModel) handleRenderDiagnostic(diag tui.RenderDiagnostic) {
 	})
 }
 
-func (m *uiModel) handleRunLoggerDiagnostic(diag runLoggerDiagnostic) {
-	m.startupCmds = append(m.startupCmds, func() tea.Msg {
-		return runLoggerDiagnosticMsg{diagnostic: diag}
-	})
-}
-
 func (m *uiModel) applyRenderDiagnostic(diag tui.RenderDiagnostic) tea.Cmd {
 	message := strings.TrimSpace(diag.Message)
 	if message == "" {

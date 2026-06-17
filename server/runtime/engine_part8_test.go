@@ -56,18 +56,18 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 		t.Fatal("timed out waiting for tool call to start")
 	}
 
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1000",
 		State:      "completed",
 		NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone-a",
-	})
-	eng.HandleBackgroundShellEvent(BackgroundShellEvent{
+	}, true)
+	eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
 		Type:       "completed",
 		ID:         "1001",
 		State:      "completed",
 		NoticeText: "Background shell 1001 completed.\nExit code: 0\nOutput:\ndone-b",
-	})
+	}, true)
 
 	close(release)
 	result := <-submitDone

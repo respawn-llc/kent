@@ -27,10 +27,6 @@ type queuedBackgroundNotice struct {
 	intent    steeringIntent
 }
 
-func (e *Engine) HandleBackgroundShellEvent(evt BackgroundShellEvent) {
-	e.HandleBackgroundShellUpdate(evt, true)
-}
-
 func (e *Engine) HandleBackgroundShellUpdate(evt BackgroundShellEvent, queueNotice bool) {
 	e.ensureOrchestrationCollaborators()
 	e.backgroundFlow.HandleBackgroundShellUpdate(evt, queueNotice)

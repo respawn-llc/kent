@@ -458,10 +458,6 @@ func (m Model) OngoingSnapshot() string {
 	return strings.Join(m.ongoingLines(), "\n")
 }
 
-func (m Model) OngoingCommittedSnapshot() string {
-	return m.CommittedOngoingProjection().Render(TranscriptDivider)
-}
-
 func (m Model) OngoingStreamingText() string {
 	return m.transcriptInput.Ongoing
 }

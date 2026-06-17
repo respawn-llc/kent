@@ -615,7 +615,7 @@ func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T
 		t.Fatalf("append message: %v", err)
 	}
 
-	if !eng.shouldAutoCompact() {
+	if !eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected auto compaction to trigger from appended message growth")
 	}
 }
@@ -633,7 +633,7 @@ func TestShouldAutoCompactUsesPreciseRequestInputTokenCountWhenAvailable(t *test
 		t.Fatalf("append message: %v", err)
 	}
 
-	if !eng.shouldAutoCompact() {
+	if !eng.shouldAutoCompactWithContext(context.Background()) {
 		t.Fatalf("expected auto compaction to trigger from precise input token count")
 	}
 }
@@ -670,7 +670,7 @@ func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
 				PreSubmitCompactionLeadTokens: tt.runway,
 			})
 
-			if got := eng.preSubmitCompactionTokenLimit(context.Background()); got != tt.expected {
+			if got := eng.compactionPlannerState().preSubmitTokenLimit(eng.compactionPlanningSnapshot()); got != tt.expected {
 				t.Fatalf("unexpected pre-submit compaction threshold: got %d want %d", got, tt.expected)
 			}
 		})
