@@ -828,6 +828,58 @@ func TestApprovalAskIgnoresRepeatSubmitWhileCommentaryQueuePending(t *testing.T)
 	}
 }
 
+func TestApprovalAskAnswersWhenQueuedCommentarySubmitsBeforeCreateAck(t *testing.T) {
+	client := &runtimeControlFakeClient{queueUserMessageID: "server-commentary-1"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	reply := make(chan askReply, 2)
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
+
+	next, _ := m.Update(askEventMsg{event: event})
+	updated := next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated = next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("queue then ack")})
+	updated = next.(*uiModel)
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if cmd == nil || len(updated.pendingInjected) != 1 {
+		t.Fatalf("expected queued commentary create command and pending item, cmd=%v pending=%+v", cmd, updated.pendingInjected)
+	}
+	clientRequestID := updated.pendingInjected[0].ClientRequestID
+
+	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{
+		Kind: clientui.EventQueuedUserMessageStatus,
+		QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+			QueueItemID:     "server-commentary-1",
+			ClientRequestID: clientRequestID,
+			Status:          clientui.QueuedUserMessageSubmitted,
+		},
+	}})
+	updated = next.(*uiModel)
+	resp := <-reply
+	if resp.response.Approval == nil || resp.response.Approval.Commentary != "queue then ack" {
+		t.Fatalf("unexpected approval response after early submitted status: %+v", resp.response.Approval)
+	}
+	if len(updated.pendingInjected) != 0 || len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected early status to consume queued commentary, pending=%+v queue=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
+	select {
+	case extra := <-reply:
+		t.Fatalf("unexpected duplicate approval response after late create ack: %+v", extra.response.Approval)
+	default:
+	}
+	if len(updated.pendingInjected) != 0 || len(updated.injectedQueue) != 0 {
+		t.Fatalf("late create ack re-added queued commentary, pending=%+v queue=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+}
+
 func TestAskEventsQueueUntilCurrentQuestionAnswered(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply1 := make(chan askReply, 1)

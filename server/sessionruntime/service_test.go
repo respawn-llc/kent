@@ -19,6 +19,8 @@ import (
 	runtimepkg "core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
+	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -653,7 +655,7 @@ func TestActivateSessionRuntimeIgnoresRecoveredWarningProviderError(t *testing.T
 	}
 }
 
-func TestActivateSessionRuntimeAttachesReadOnlyToExternalActiveRuntime(t *testing.T) {
+func TestActivateSessionRuntimeAttachesCollaborativelyToExternalActiveRuntime(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	runtimes := registry.NewRuntimeRegistry()
 	engine, err := runtimepkg.New(fixture.store, &sessionRuntimeTestLLMClient{}, tools.NewRegistry(), runtimepkg.Config{Model: "gpt-5"})
@@ -673,14 +675,185 @@ func TestActivateSessionRuntimeAttachesReadOnlyToExternalActiveRuntime(t *testin
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
-		t.Fatalf("response = %+v, want read-only without lease", resp)
+	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
+		t.Fatalf("response = %+v, want collaborative legacy read-only without lease", resp)
 	}
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(false))
 	if len(fixture.service.handles) != 0 {
 		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
 	}
 	if !runtimes.IsSessionRuntimeActive(fixture.store.Meta().SessionID) {
 		t.Fatal("expected external runtime to remain registered")
+	}
+}
+
+func TestActivateSessionRuntimeWaitsForPendingExternalOwnerBeforeClaimingController(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimes := registry.NewRuntimeRegistry()
+	fixture.service.runtimes = runtimes
+	ownerLease, err := runtimes.AcquirePrimaryRun(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("AcquirePrimaryRun owner: %v", err)
+	}
+	defer ownerLease.Release()
+
+	type activationResult struct {
+		resp serverapi.SessionRuntimeActivateResponse
+		err  error
+	}
+	done := make(chan activationResult, 1)
+	go func() {
+		resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+			ClientRequestID: "req-pending-owner",
+			SessionID:       fixture.store.Meta().SessionID,
+			ActiveSettings:  config.Settings{Model: "gpt-5"},
+		})
+		done <- activationResult{resp: resp, err: err}
+	}()
+
+	select {
+	case result := <-done:
+		t.Fatalf("activation completed before external owner registration: resp=%+v err=%v", result.resp, result.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	fixture.service.mu.Lock()
+	handle := fixture.service.handles[fixture.store.Meta().SessionID]
+	fixture.service.mu.Unlock()
+	if handle != nil {
+		t.Fatalf("activation created controller handle while external owner primary-run lease was pending: %+v", handle)
+	}
+
+	engine, err := runtimepkg.New(fixture.store, &sessionRuntimeTestLLMClient{}, tools.NewRegistry(), runtimepkg.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	runtimes.Register(fixture.store.Meta().SessionID, engine)
+	t.Cleanup(func() { runtimes.Unregister(fixture.store.Meta().SessionID, engine) })
+
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("ActivateSessionRuntime: %v", result.err)
+		}
+		if result.resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !result.resp.ReadOnly || strings.TrimSpace(result.resp.LeaseID) != "" {
+			t.Fatalf("response = %+v, want collaborative legacy read-only without controller lease", result.resp)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for activation to attach to registered external runtime")
+	}
+	fixture.service.mu.Lock()
+	handle = fixture.service.handles[fixture.store.Meta().SessionID]
+	fixture.service.mu.Unlock()
+	if handle != nil {
+		t.Fatalf("collaborative activation left controller handle: %+v", handle)
+	}
+}
+
+func TestActivateSessionRuntimeCollaborativeWorkflowRuntimeOmitsGoalManage(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimes := registry.NewRuntimeRegistry()
+	engine, err := runtimepkg.New(fixture.store, &sessionRuntimeTestLLMClient{}, tools.NewRegistry(), runtimepkg.Config{
+		Model: "gpt-5",
+		WorkflowRun: &workflowruntime.Config{
+			Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("run-1")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	runtimes.Register(fixture.store.Meta().SessionID, engine)
+	t.Cleanup(func() { runtimes.Unregister(fixture.store.Meta().SessionID, engine) })
+	fixture.service.runtimes = runtimes
+
+	resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		ClientRequestID: "req-external-workflow",
+		SessionID:       fixture.store.Meta().SessionID,
+		ActiveSettings:  config.Settings{Model: "gpt-5"},
+	})
+	if err != nil {
+		t.Fatalf("ActivateSessionRuntime: %v", err)
+	}
+	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
+		t.Fatalf("response = %+v, want collaborative legacy read-only without lease", resp)
+	}
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
+	if len(fixture.service.handles) != 0 {
+		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
+	}
+}
+
+func TestActivateSessionRuntimeCollaborativeDurableWorkflowSessionOmitsGoalManage(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	if err := fixture.store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {
+		t.Fatalf("SetWorkflowSessionState: %v", err)
+	}
+	runtimes := registry.NewRuntimeRegistry()
+	engine, err := runtimepkg.New(fixture.store, &sessionRuntimeTestLLMClient{}, tools.NewRegistry(), runtimepkg.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	if engine.WorkflowRunConfigured() {
+		t.Fatal("test requires a non-workflow-configured active runtime")
+	}
+	runtimes.Register(fixture.store.Meta().SessionID, engine)
+	t.Cleanup(func() { runtimes.Unregister(fixture.store.Meta().SessionID, engine) })
+	fixture.service.runtimes = runtimes
+
+	resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		ClientRequestID: "req-external-durable-workflow",
+		SessionID:       fixture.store.Meta().SessionID,
+		ActiveSettings:  config.Settings{Model: "gpt-5"},
+	})
+	if err != nil {
+		t.Fatalf("ActivateSessionRuntime: %v", err)
+	}
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
+	err = fixture.service.WithCollaborativeRuntime(context.Background(), fixture.store.Meta().SessionID, serverapi.SessionRuntimeOperationGoalManage, func(CollaborativeRuntimeGuard) error {
+		t.Fatal("goal.manage callback should not run for durable workflow sessions")
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected durable workflow collaborative goal.manage to be unavailable")
+	}
+}
+
+func TestWithCollaborativeRuntimeRequiresExternalActiveRuntime(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimes := registry.NewRuntimeRegistry()
+	engine, err := runtimepkg.New(fixture.store, &sessionRuntimeTestLLMClient{}, tools.NewRegistry(), runtimepkg.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	runtimes.Register(fixture.store.Meta().SessionID, engine)
+	t.Cleanup(func() { runtimes.Unregister(fixture.store.Meta().SessionID, engine) })
+	fixture.service.runtimes = runtimes
+
+	called := false
+	err = fixture.service.WithCollaborativeRuntime(context.Background(), fixture.store.Meta().SessionID, serverapi.SessionRuntimeOperationQueueUserMessage, func(guard CollaborativeRuntimeGuard) error {
+		called = true
+		if guard.Engine() != engine {
+			t.Fatal("expected guarded active engine")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithCollaborativeRuntime: %v", err)
+	}
+	if !called {
+		t.Fatal("expected collaborative callback")
+	}
+
+	fixture.service.handles[fixture.store.Meta().SessionID] = &runtimeHandle{}
+	err = fixture.service.WithCollaborativeRuntime(context.Background(), fixture.store.Meta().SessionID, serverapi.SessionRuntimeOperationQueueUserMessage, func(CollaborativeRuntimeGuard) error {
+		t.Fatal("unexpected callback for controller-owned handle")
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected controller-owned session to reject collaborative access")
 	}
 }
 
@@ -1722,6 +1895,29 @@ func TestSyncExecutionTargetRebindsActiveRuntime(t *testing.T) {
 	}
 }
 
+func TestSyncExecutionTargetRebindsExternalCollaborativeRuntime(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimes := registry.NewRuntimeRegistry()
+	fixture.service.runtimes = runtimes
+	reboundRoot := ""
+	engine := &runtimepkg.Engine{}
+	runtimes.RegisterRuntimeHooks(fixture.store.Meta().SessionID, engine, func(root string) error {
+		reboundRoot = root
+		return nil
+	})
+	t.Cleanup(func() { runtimes.Unregister(fixture.store.Meta().SessionID, engine) })
+
+	err := fixture.service.SyncExecutionTarget(context.Background(), fixture.store.Meta().SessionID, clientui.SessionExecutionTarget{
+		EffectiveWorkdir: " /tmp/collaborative-worktree ",
+	}, nil)
+	if err != nil {
+		t.Fatalf("SyncExecutionTarget: %v", err)
+	}
+	if reboundRoot != "/tmp/collaborative-worktree" {
+		t.Fatalf("rebound root = %q, want /tmp/collaborative-worktree", reboundRoot)
+	}
+}
+
 func TestSyncExecutionTargetUpdatesActiveRuntimePatchTranscriptWorkdir(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	patchText := "*** Begin Patch\n*** Add File: probe.txt\n+hello\n*** End Patch\n"
@@ -1900,6 +2096,26 @@ func TestReleaseSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
 	})
 	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
 		t.Fatalf("expected path-like session id rejection, got %v", err)
+	}
+}
+
+func assertOperationsEqual(t *testing.T, got, want []serverapi.SessionRuntimeOperation) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("allowed operations = %#v, want %#v", got, want)
+	}
+	remaining := make(map[serverapi.SessionRuntimeOperation]int, len(got))
+	for _, op := range got {
+		remaining[op]++
+	}
+	for _, op := range want {
+		if remaining[op] != 1 {
+			t.Fatalf("allowed operations = %#v, want %#v", got, want)
+		}
+		delete(remaining, op)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("allowed operations = %#v, want %#v", got, want)
 	}
 }
 

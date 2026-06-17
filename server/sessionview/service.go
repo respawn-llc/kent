@@ -24,6 +24,10 @@ type RuntimeResolver interface {
 	ResolveRuntime(ctx context.Context, sessionID string) (*runtime.Engine, error)
 }
 
+type ExternalRuntimeStatusResolver interface {
+	ExternalRuntimeStatus(sessionID string) clientui.ExternalRuntimeStatus
+}
+
 type ExecutionTargetResolver interface {
 	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error)
 }

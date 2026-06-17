@@ -53,3 +53,26 @@ func (e *Engine) HasQueuedUserWork() bool {
 	}
 	return false
 }
+
+func (e *Engine) DrainQueuedUserMessagesBeforeClose(ctx context.Context) error {
+	if e == nil {
+		return nil
+	}
+	if e.WorkflowTerminalState().Completed {
+		e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+		return nil
+	}
+	if !e.HasQueuedUserWork() {
+		return nil
+	}
+	_, err := e.SubmitQueuedUserMessages(ctx)
+	if err != nil {
+		if e.WorkflowTerminalState().Completed {
+			e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+			return nil
+		}
+		e.FailQueuedUserMessages(QueuedUserMessageFailureClosing)
+		return err
+	}
+	return nil
+}

@@ -14,9 +14,13 @@ import (
 )
 
 const noGoalHint = "No goal to manage yet. First, start a goal with /goal <objective>"
+const workflowGoalUnavailableMessage = "Goal control is unavailable for workflow task sessions"
 
 func (c uiInputController) handleGoalCommand(mode commands.GoalMode, objective string) (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.workflowSessionActive() {
+		return m, m.sendTransientStatusWithNoticeID(workflowGoalUnavailableMessage, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+	}
 	switch mode {
 	case commands.GoalModeShow, "":
 		return m, c.startGoalFlowCmd()
@@ -32,6 +36,17 @@ func (c uiInputController) handleGoalCommand(mode commands.GoalMode, objective s
 		errText := "Usage: /goal [show|pause|resume|clear|<objective>]"
 		return m, sequenceCmds(c.model.appendLocalEntryWithNoticeID("error", errText, ""), c.model.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
 	}
+}
+
+func (m *uiModel) workflowSessionActive() bool {
+	if m == nil || !m.hasRuntimeClient() {
+		return false
+	}
+	if direct := m.runtimeClient().Status(); direct.WorkflowActive || direct.WorkflowSession != nil {
+		return true
+	}
+	status := m.cachedRuntimeStatus()
+	return status.WorkflowActive || status.WorkflowSession != nil
 }
 
 func goalIsActive(goal *clientui.RuntimeGoal) bool {

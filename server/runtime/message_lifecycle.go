@@ -249,16 +249,18 @@ func queuedUserSteeringIntentText(intent steeringIntent) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func queuedUserMessageIDs(messages []queuedUserSteeringIntent) []string {
-	ids := make([]string, 0, len(messages))
+func queuedUserMessagesForFlush(messages []queuedUserSteeringIntent) []QueuedUserMessage {
+	items := make([]QueuedUserMessage, 0, len(messages))
 	for _, message := range messages {
-		id := strings.TrimSpace(message.message.ID)
-		if id == "" || queuedUserSteeringIntentText(message.intent) == "" {
+		item := message.message
+		item.ID = strings.TrimSpace(item.ID)
+		item.ClientRequestID = strings.TrimSpace(item.ClientRequestID)
+		if item.ID == "" || queuedUserSteeringIntentText(message.intent) == "" {
 			continue
 		}
-		ids = append(ids, id)
+		items = append(items, item)
 	}
-	return ids
+	return items
 }
 
 func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int, error) {
@@ -273,7 +275,8 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 	queuedMessages := normalizeQueuedUserMessages(pending)
 	if len(queuedMessages) > 0 {
 		joined := strings.Join(queuedMessages, "\n\n")
-		if err := e.steer(stepID, steerQueuedUserMessageFlushIntent(joined, queuedMessages, queuedUserMessageIDs(pending))); err != nil {
+		if err := e.steer(stepID, steerQueuedUserMessageFlushIntent(joined, queuedMessages, queuedUserMessagesForFlush(pending))); err != nil {
+			m.queue.RestoreFront(pending)
 			return flushed, err
 		}
 		flushed++
@@ -287,18 +290,30 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 	return flushed, nil
 }
 
-func (m *defaultMessageLifecycle) QueueUserMessage(text string) QueuedUserMessage {
+func (m *defaultMessageLifecycle) QueueUserMessage(text string, clientRequestID string) QueuedUserMessage {
 	if m == nil || m.queue == nil {
 		return QueuedUserMessage{}
 	}
-	return m.queue.Queue(text)
+	return m.queue.Queue(text, clientRequestID)
 }
 
-func (m *defaultMessageLifecycle) DiscardQueuedUserMessage(queueItemID string) bool {
+func (m *defaultMessageLifecycle) DrainPendingUserInjections() []QueuedUserMessage {
 	if m == nil || m.queue == nil {
-		return false
+		return nil
 	}
-	return m.queue.Discard(queueItemID)
+	pending := m.queue.Drain()
+	out := make([]QueuedUserMessage, 0, len(pending))
+	for _, item := range pending {
+		out = append(out, item.message)
+	}
+	return out
+}
+
+func (m *defaultMessageLifecycle) DiscardQueuedUserMessage(queueItemID string) (QueuedUserMessage, bool) {
+	if m == nil || m.queue == nil {
+		return QueuedUserMessage{}, false
+	}
+	return m.queue.DiscardItem(queueItemID)
 }
 
 func (m *defaultMessageLifecycle) HasPendingUserInjections() bool {

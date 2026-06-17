@@ -75,7 +75,11 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 	if _, err := eng.flushPendingUserInjections("flush-step"); err != nil {
 		t.Fatalf("flush pending user injections: %v", err)
 	}
-	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventUserMessageFlushed, stepID: "flush-step", committedChanged: true}})
+	assertEventFlags(t, events[start:], []eventFlagExpectation{
+		{kind: EventQueuedUserMessageStatus, stepID: "", committedChanged: false},
+		{kind: EventUserMessageFlushed, stepID: "flush-step", committedChanged: true},
+		{kind: EventQueuedUserMessageStatus, stepID: "", committedChanged: false},
+	})
 
 	eng.ensureOrchestrationCollaborators()
 	start = len(events)

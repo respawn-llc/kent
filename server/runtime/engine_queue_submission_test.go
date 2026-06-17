@@ -58,6 +58,57 @@ func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {
 	}
 }
 
+func TestQueuedUserMessageStatusEventsCoverAcceptedSubmittedAndFailed(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "after queued steer"},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+
+	first := eng.QueueUserMessageWithClientRequestID("steer now", "req-1")
+	if _, err := eng.SubmitQueuedUserMessages(context.Background()); err != nil {
+		t.Fatalf("SubmitQueuedUserMessages: %v", err)
+	}
+	second := eng.QueueUserMessageWithClientRequestID("restore me", "req-2")
+	failed := eng.FailQueuedUserMessages(QueuedUserMessageFailureClosing)
+
+	if len(failed) != 1 || failed[0].ID != second.ID {
+		t.Fatalf("failed queued messages = %+v, want second queue item", failed)
+	}
+	want := []QueuedUserMessageStatus{
+		QueuedUserMessageAccepted,
+		QueuedUserMessageSubmitted,
+		QueuedUserMessageAccepted,
+		QueuedUserMessageFailed,
+	}
+	if len(statuses) != len(want) {
+		t.Fatalf("statuses = %+v, want %d events", statuses, len(want))
+	}
+	for i, status := range want {
+		if statuses[i].Status != status {
+			t.Fatalf("status[%d] = %q, want %q in %+v", i, statuses[i].Status, status, statuses)
+		}
+	}
+	if statuses[0].QueueItemID != first.ID || statuses[0].ClientRequestID != "req-1" {
+		t.Fatalf("accepted status = %+v, want first id/client request", statuses[0])
+	}
+	if statuses[1].QueueItemID != first.ID || statuses[1].ClientRequestID != "req-1" {
+		t.Fatalf("submitted status = %+v, want first id/client request", statuses[1])
+	}
+	if statuses[3].QueueItemID != second.ID || statuses[3].ClientRequestID != "req-2" || statuses[3].RestoreText != "restore me" || statuses[3].FailureReason != QueuedUserMessageFailureClosing {
+		t.Fatalf("failed status = %+v, want correlated restore", statuses[3])
+	}
+}
+
 func TestQueuedUserMessagesCoalesceFromStoredSteeringIntents(t *testing.T) {
 	pending := []queuedUserSteeringIntent{
 		{
@@ -74,9 +125,9 @@ func TestQueuedUserMessagesCoalesceFromStoredSteeringIntents(t *testing.T) {
 	if len(messages) != 2 || messages[0] != "intent text" || messages[1] != "second intent" {
 		t.Fatalf("queued messages = %+v, want stored intent content", messages)
 	}
-	ids := queuedUserMessageIDs(pending)
-	if len(ids) != 2 || ids[0] != "queue-1" || ids[1] != "queue-2" {
-		t.Fatalf("queued message ids = %+v, want ids for non-empty stored intents", ids)
+	items := queuedUserMessagesForFlush(pending)
+	if len(items) != 2 || items[0].ID != "queue-1" || items[1].ID != "queue-2" {
+		t.Fatalf("queued message items = %+v, want ids for non-empty stored intents", items)
 	}
 }
 
@@ -121,6 +172,91 @@ func TestSubmitQueuedUserMessagesRetriesTransientBusyErrors(t *testing.T) {
 	}
 	if !hasQueuedUser {
 		t.Fatalf("expected retried request to include queued user message, got %+v", requestMessages(client.calls[0]))
+	}
+}
+
+func TestDrainQueuedUserMessagesBeforeCloseProcessesQueuedSteeringAfterFinalAnswer(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+			Usage:     llm.Usage{WindowTokens: 200000},
+		},
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ack queued steer", Phase: llm.MessagePhaseFinal},
+			Usage:     llm.Usage{WindowTokens: 200000},
+		},
+	}}
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	if _, err := eng.SubmitUserMessage(context.Background(), "initial"); err != nil {
+		t.Fatalf("SubmitUserMessage: %v", err)
+	}
+	queued := eng.QueueUserMessageWithClientRequestID("queued steer", "req-queued")
+	if err := eng.DrainQueuedUserMessagesBeforeClose(context.Background()); err != nil {
+		t.Fatalf("DrainQueuedUserMessagesBeforeClose: %v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("model calls = %d, want initial plus queued drain", len(client.calls))
+	}
+	hasQueuedUser := false
+	for _, message := range requestMessages(client.calls[1]) {
+		if message.Role == llm.RoleUser && message.Content == "queued steer" {
+			hasQueuedUser = true
+			break
+		}
+	}
+	if !hasQueuedUser {
+		t.Fatalf("expected drained request to include queued user message, got %+v", requestMessages(client.calls[1]))
+	}
+	if len(statuses) != 2 || statuses[0].Status != QueuedUserMessageAccepted || statuses[1].Status != QueuedUserMessageSubmitted || statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-queued" {
+		t.Fatalf("queued statuses = %+v, want accepted then submitted for %q", statuses, queued.ID)
+	}
+}
+
+func TestDrainQueuedUserMessagesBeforeCloseFailsRestoredQueueWhenFlushPersistenceFails(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unused"},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	persistErr := errors.New("persist queued flush")
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	eng.beforePersistMessage = func(msg llm.Message) error {
+		if msg.Role == llm.RoleUser && msg.Content == "queued steer" {
+			return persistErr
+		}
+		return nil
+	}
+	queued := eng.QueueUserMessageWithClientRequestID("queued steer", "req-queued")
+
+	err := eng.DrainQueuedUserMessagesBeforeClose(context.Background())
+	if !errors.Is(err, persistErr) {
+		t.Fatalf("DrainQueuedUserMessagesBeforeClose error = %v, want %v", err, persistErr)
+	}
+	if eng.HasQueuedUserWork() {
+		t.Fatal("queued user work remained after close-drain failure")
+	}
+	if len(statuses) != 2 || statuses[0].Status != QueuedUserMessageAccepted || statuses[1].Status != QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	}
+	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-queued" || statuses[1].RestoreText != "queued steer" || statuses[1].FailureReason != QueuedUserMessageFailureClosing {
+		t.Fatalf("failed status = %+v, want correlated close failure restore", statuses[1])
 	}
 }
 

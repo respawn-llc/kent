@@ -385,17 +385,12 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("goal set overwrite stdout = %q, want empty", overwriteOutput)
 	}
 	for _, want := range []string{
-		"status: active",
-		"<goal>\nexercise live goal CLI\n</goal>",
-		"Overwriting an existing goal is not allowed",
-		"active or paused",
+		"collaborative runtime",
+		"unavailable",
 	} {
 		if !strings.Contains(overwriteErr, want) {
 			t.Fatalf("goal set overwrite stderr missing %q: %q", want, overwriteErr)
 		}
-	}
-	if strings.Contains(overwriteErr, "Detected invocation by the agent") {
-		t.Fatalf("goal set overwrite stderr used generic agent-denial reason: %q", overwriteErr)
 	}
 	record, err = metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
 	if err != nil {
@@ -405,30 +400,30 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("persisted goal after rejected overwrite = %+v", goal)
 	}
 
-	completeOutput, completeErr := runGoalCommandSubprocess(t, kentPath, unboundWorktree, store.Meta().SessionID, "complete", "--confirm")
-	if completeErr != "" {
-		t.Fatalf("goal complete stderr = %q", completeErr)
+	completeOutput, completeErr, completeRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "complete", "--confirm")
+	if completeRunErr == nil {
+		t.Fatalf("goal complete unexpectedly succeeded stdout=%q stderr=%q", completeOutput, completeErr)
 	}
-	if !strings.Contains(completeOutput, "Status: complete") {
-		t.Fatalf("complete stdout = %q", completeOutput)
+	if completeOutput != "" {
+		t.Fatalf("goal complete stdout = %q, want empty", completeOutput)
+	}
+	if !strings.Contains(completeErr, "collaborative runtime") || !strings.Contains(completeErr, "unavailable") {
+		t.Fatalf("goal complete stderr = %q, want collaborative runtime unavailable", completeErr)
 	}
 
-	setOutput, setErr := runGoalCommandSubprocess(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
-	if setErr != "" {
-		t.Fatalf("goal set after complete stderr = %q", setErr)
-	}
-	if !strings.Contains(setOutput, "Goal: follow-up live goal CLI") || !strings.Contains(setOutput, "Status: active") {
-		t.Fatalf("goal set after complete stdout = %q", setOutput)
+	setOutput, setErr, setRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
+	if setRunErr == nil {
+		t.Fatalf("goal set after rejected complete unexpectedly succeeded stdout=%q stderr=%q", setOutput, setErr)
 	}
 	record, err = metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
 	if err != nil {
-		t.Fatalf("ResolvePersistedSession after follow-up set: %v", err)
+		t.Fatalf("ResolvePersistedSession after rejected follow-up set: %v", err)
 	}
 	if record.Meta == nil {
-		t.Fatal("persisted metadata missing after follow-up set")
+		t.Fatal("persisted metadata missing after rejected follow-up set")
 	}
-	if goal := record.Meta.Goal; goal == nil || goal.Objective != "follow-up live goal CLI" || goal.Status != session.GoalStatusActive {
-		t.Fatalf("persisted follow-up goal = %+v", goal)
+	if goal := record.Meta.Goal; goal == nil || goal.Objective != "exercise live goal CLI" || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted goal after rejected follow-up set = %+v", goal)
 	}
 }
 
@@ -542,14 +537,14 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 	}
 
 	stdout, stderr, err := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, "", "set", "--session", store.Meta().SessionID, "new goal while busy")
-	if err != nil {
-		t.Fatalf("goal set failed during active primary run: %v stdout=%q stderr=%q", err, stdout, stderr)
+	if err == nil {
+		t.Fatalf("goal set unexpectedly succeeded during active primary run stdout=%q stderr=%q", stdout, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("goal set stderr = %q, want empty", stderr)
+	if stdout != "" {
+		t.Fatalf("goal set stdout = %q, want empty", stdout)
 	}
-	if !strings.Contains(stdout, "Goal: new goal while busy") || !strings.Contains(stdout, "Status: active") {
-		t.Fatalf("goal set stdout = %q", stdout)
+	if !strings.Contains(stderr, "active primary run") {
+		t.Fatalf("goal set stderr = %q, want active primary run rejection", stderr)
 	}
 	record, err := metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
 	if err != nil {
@@ -558,8 +553,8 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 	if record.Meta == nil {
 		t.Fatal("persisted session metadata missing")
 	}
-	if goal := record.Meta.Goal; goal == nil || goal.Objective != "new goal while busy" || goal.Status != session.GoalStatusActive {
-		t.Fatalf("persisted goal = %+v", goal)
+	if goal := record.Meta.Goal; goal != nil {
+		t.Fatalf("persisted goal after rejected busy set = %+v, want nil", goal)
 	}
 	events, err := store.ReadEvents()
 	if err != nil {
@@ -571,8 +566,8 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 			foundGoalSet = true
 		}
 	}
-	if !foundGoalSet {
-		t.Fatalf("goal_set event not persisted after busy subprocess set")
+	if foundGoalSet {
+		t.Fatalf("goal_set event persisted after rejected busy subprocess set")
 	}
 
 	cancelSubmit()

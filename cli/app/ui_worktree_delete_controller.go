@@ -75,10 +75,12 @@ func (c uiInputController) handleWorktreeDeleteDialogKey(msg tea.KeyMsg) (tea.Mo
 		case uiWorktreeDeleteActionCancel:
 			m.closeWorktreeDialog()
 			return m, nil
-		case uiWorktreeDeleteActionDelete:
-			return m, m.worktreeDeleteCmd(dialog.target, false)
-		case uiWorktreeDeleteActionDeleteBranch:
-			return m, m.worktreeDeleteCmd(dialog.target, true)
+		case uiWorktreeDeleteActionDelete, uiWorktreeDeleteActionDeleteBranch:
+			deleteBranch := dialog.selectedAction == uiWorktreeDeleteActionDeleteBranch
+			deleteCmd := m.worktreeDeleteCmd(dialog.target, deleteBranch)
+			return m, tea.Batch(deleteCmd, m.reconcileSpinnerTicking(false))
+		default:
+			return m, nil
 		}
 	}
 	return m, nil

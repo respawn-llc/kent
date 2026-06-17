@@ -56,6 +56,7 @@ type uiInputFeatureState struct {
 	promptHistoryDraftCursor int
 	activity                 uiActivity
 	runtimeLifecycle         runtimestate.RuntimeRunState
+	externalRuntimeStatus    *clientui.ExternalRuntimeStatus
 	reviewerEnabled          bool
 	reviewerMode             string
 	autoCompactionEnabled    bool

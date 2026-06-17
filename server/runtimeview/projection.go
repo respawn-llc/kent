@@ -30,7 +30,7 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 		return clientui.RuntimeStatus{}
 	}
 	usage := engine.ContextUsage()
-	return clientui.RuntimeStatus{
+	status := clientui.RuntimeStatus{
 		ReviewerFrequency:                 engine.ReviewerFrequency(),
 		ReviewerEnabled:                   engine.ReviewerEnabled(),
 		AutoCompactionEnabled:             engine.AutoCompactionEnabled(),
@@ -51,6 +51,15 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 		CompactionCount: engine.CompactionCount(),
 		Goal:            GoalFromSessionState(engine.Goal(), engine.GoalLoopSuspended()),
 	}
+	if workflowState := engine.WorkflowSessionState(); workflowState.RunID != "" {
+		status.WorkflowActive = engine.WorkflowRunConfigured() && !engine.WorkflowTerminalState().Completed
+		status.WorkflowSession = &clientui.WorkflowSessionStatus{
+			RunID:      workflowState.RunID,
+			TaskID:     workflowState.TaskID,
+			WorkflowID: workflowState.WorkflowID,
+		}
+	}
+	return status
 }
 
 func GoalFromSessionState(goal *session.GoalState, suspended bool) *clientui.RuntimeGoal {
@@ -162,6 +171,16 @@ func EventFromRuntime(evt runtime.Event) clientui.Event {
 		if evt.Background.ExitCode != nil {
 			exitCode := *evt.Background.ExitCode
 			view.Background.ExitCode = &exitCode
+		}
+	}
+	if evt.QueuedUserMessageStatus != nil {
+		view.QueuedUserMessageStatus = &clientui.QueuedUserMessageStatusEvent{
+			SessionID:       evt.QueuedUserMessageStatus.SessionID,
+			QueueItemID:     evt.QueuedUserMessageStatus.QueueItemID,
+			ClientRequestID: evt.QueuedUserMessageStatus.ClientRequestID,
+			Status:          clientui.QueuedUserMessageStatus(evt.QueuedUserMessageStatus.Status),
+			FailureReason:   clientui.QueuedUserMessageFailureReason(evt.QueuedUserMessageStatus.FailureReason),
+			RestoreText:     evt.QueuedUserMessageStatus.RestoreText,
 		}
 	}
 	return view

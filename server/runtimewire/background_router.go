@@ -42,14 +42,18 @@ func (r *BackgroundEventRouter) SetActiveSession(sessionID string, engine *runti
 	r.active[trimmedSessionID] = activeRuntime{engine: engine, activatedAt: time.Now().UTC()}
 }
 
-func (r *BackgroundEventRouter) ClearActiveSession(sessionID string) {
+func (r *BackgroundEventRouter) ClearActiveSession(sessionID string, engine *runtime.Engine) {
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
+	if trimmedSessionID == "" || engine == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.active) == 0 {
+		return
+	}
+	active, ok := r.active[trimmedSessionID]
+	if !ok || active.engine != engine {
 		return
 	}
 	delete(r.active, trimmedSessionID)

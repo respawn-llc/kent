@@ -297,6 +297,22 @@ func TestGoalCommandWithoutGoalShowsLocalHint(t *testing.T) {
 	}
 }
 
+func TestWorkflowSessionGoalCommandIsBlockedBeforeRuntimeCall(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{WorkflowSession: &clientui.WorkflowSessionStatus{RunID: "run-1"}}}
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
+	m.input = "/goal ship workflow"
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+
+	if client.setGoalArg != "" || client.showGoalCalls != 0 {
+		t.Fatalf("goal runtime calls should be blocked, set=%q show=%d", client.setGoalArg, client.showGoalCalls)
+	}
+	if updated.transientStatus != workflowGoalUnavailableMessage {
+		t.Fatalf("transient status = %q, want workflow goal block", updated.transientStatus)
+	}
+}
+
 func TestGoalClearActiveGoalRequiresConfirmation(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
 	m := newSizedProjectedClosedUIModel(client, 100, 20)

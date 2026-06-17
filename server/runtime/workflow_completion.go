@@ -72,6 +72,9 @@ func (e *Engine) observeWorkflowDurableCompletion(ctx context.Context) (bool, er
 	if err != nil {
 		return false, err
 	}
+	if result.Completed {
+		e.setWorkflowTerminalState(WorkflowCompletionSourceObserved)
+	}
 	return result.Completed, nil
 }
 

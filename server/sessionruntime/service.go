@@ -73,10 +73,17 @@ type runtimeIdleTimer struct {
 	timer      *time.Timer
 }
 
+type CollaborativeRuntimeGuard interface {
+	Engine() *runtime.Engine
+	Rebind(workdir string) error
+	Release()
+}
+
 const (
 	defaultRuntimeIdleUnloadDelay        = 5 * time.Second
 	defaultRunFinishedIdleUnloadDelay    = 3 * time.Minute
 	bestEffortRuntimeLeaseReleaseTimeout = 2 * time.Second
+	activationPrimaryRunRetryDelay       = 10 * time.Millisecond
 )
 
 type runtimeTakeover struct {
@@ -95,6 +102,7 @@ const (
 	activationClaimClosing
 	activationClaimTakeoverReuse
 	activationClaimTakeover
+	activationClaimMissing
 )
 
 func NewService(persistenceRoot string, metadataStore *metadata.Store, authManager *auth.Manager, fastModeState *runtime.FastModeState, background *shelltool.Manager, backgroundRouter *runtimewire.BackgroundEventRouter, runtimes *registry.RuntimeRegistry, sessionStores *registry.SessionStoreRegistry, storeOptions ...session.StoreOption) *Service {
@@ -182,17 +190,61 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 	var handle *runtimeHandle
 	var takeover *runtimeTakeover
 	var claim activationClaim
+	var startupPrimaryLease primaryrun.Lease
 	var err error
 	for {
-		if s.confirmExternalSessionRuntimeActive(ctx, sessionID) {
-			return serverapi.SessionRuntimeActivateResponse{ReadOnly: true}, nil
+		if engine, ok := s.confirmExternalSessionRuntimeActive(ctx, sessionID); ok {
+			return serverapi.SessionRuntimeActivateResponse{
+				Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
+				AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)),
+				ReadOnly:          true,
+			}, nil
 		}
-		handle, takeover, claim, err = s.claimActivation(sessionID, requestID, ownerID)
+		startupPrimaryLease = nil
+		handle, takeover, claim, err = s.claimExistingActivation(sessionID, requestID, ownerID)
 		if err != nil {
 			return serverapi.SessionRuntimeActivateResponse{}, err
 		}
+		if claim == activationClaimMissing {
+			// Workflow/headless owners hold the primary-run gate before runtime
+			// registration, so a fresh controller must acquire the same gate
+			// before publishing a handle or wait for the owner to register.
+			startupPrimaryLease, err = s.acquirePrimaryRunLease(sessionID)
+			if errors.Is(err, primaryrun.ErrActivePrimaryRun) {
+				if waitErr := waitForActivationPrimaryRunRetry(ctx); waitErr != nil {
+					return serverapi.SessionRuntimeActivateResponse{}, waitErr
+				}
+				continue
+			}
+			if err != nil {
+				return serverapi.SessionRuntimeActivateResponse{}, err
+			}
+			if engine, ok := s.confirmExternalSessionRuntimeActive(ctx, sessionID); ok {
+				startupPrimaryLease.Release()
+				startupPrimaryLease = nil
+				return serverapi.SessionRuntimeActivateResponse{
+					Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
+					AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)),
+					ReadOnly:          true,
+				}, nil
+			}
+			handle, takeover, claim, err = s.claimNewActivation(sessionID, requestID, ownerID)
+			if err != nil {
+				startupPrimaryLease.Release()
+				startupPrimaryLease = nil
+				return serverapi.SessionRuntimeActivateResponse{}, err
+			}
+			if claim != activationClaimOwner {
+				startupPrimaryLease.Release()
+				startupPrimaryLease = nil
+			}
+		}
 		if claim != activationClaimClosing {
 			break
+		}
+		if startupPrimaryLease != nil {
+			startupPrimaryLease.Release()
+			startupPrimaryLease = nil
 		}
 		if err := waitForRuntimeHandleClosed(ctx, handle); err != nil {
 			return serverapi.SessionRuntimeActivateResponse{}, err
@@ -225,6 +277,10 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 		}
 		if strings.TrimSpace(leaseID) != "" {
 			s.releaseRuntimeLeaseBestEffort(sessionID, leaseID)
+		}
+		if startupPrimaryLease != nil {
+			startupPrimaryLease.Release()
+			startupPrimaryLease = nil
 		}
 		s.failActivation(sessionID, handle, err)
 	}()
@@ -296,22 +352,25 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 	if s.backgroundRouter != nil {
 		backgroundRouter = s.backgroundRouter
 	}
-	registration := runtimewire.RegisterSessionRuntime(sessionID, wiring.Engine, runtimeRegistry, backgroundRouter)
-	cleanup = func() {
-		registration.Close()
-		_ = wiring.Close()
-		_ = logger.Close()
-	}
-	handle.rebind = nil
 	var localRebind func(string) error
 	if wiring.LocalTools != nil {
 		localRebind = wiring.LocalTools.Rebind
 	}
 	handle.rebind = runtimeRebindFunc(localRebind, wiring.Engine)
+	registration := runtimewire.RegisterSessionRuntime(sessionID, wiring.Engine, runtimeRegistry, backgroundRouter, runtimewire.WithRuntimeRebind(handle.rebind))
+	cleanup = func() {
+		registration.Close()
+		_ = wiring.Close()
+		_ = logger.Close()
+	}
 	s.completeActivation(handle, leaseID, cleanup)
+	if startupPrimaryLease != nil {
+		startupPrimaryLease.Release()
+		startupPrimaryLease = nil
+	}
 	s.cancelScheduledIdleUnload(sessionID)
 	cleanup = nil
-	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID}, nil
+	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID, Mode: serverapi.SessionRuntimeAttachModeController}, nil
 }
 
 func (s *Service) externalSessionRuntimeActive(sessionID string) bool {
@@ -323,15 +382,95 @@ func (s *Service) externalSessionRuntimeActive(sessionID string) bool {
 	return s.handles[strings.TrimSpace(sessionID)] == nil
 }
 
-func (s *Service) confirmExternalSessionRuntimeActive(ctx context.Context, sessionID string) bool {
-	if !s.externalSessionRuntimeActive(sessionID) || s.runtimes == nil {
+func (s *Service) WithCollaborativeRuntime(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(CollaborativeRuntimeGuard) error) error {
+	if s == nil || s.runtimes == nil {
+		return fmt.Errorf("collaborative runtime %q is unavailable", strings.TrimSpace(sessionID))
+	}
+	id := strings.TrimSpace(sessionID)
+	if !s.externalSessionRuntimeActive(id) {
+		return fmt.Errorf("collaborative runtime %q is unavailable", id)
+	}
+	guard, err := s.runtimes.BeginRuntimeGuard(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer guard.Release()
+	if !s.externalSessionRuntimeActive(id) {
+		return fmt.Errorf("collaborative runtime %q is unavailable", id)
+	}
+	if !collaborativeOperationAllowed(op, guard.Engine()) {
+		return fmt.Errorf("collaborative operation %q is unavailable for session %q", op, id)
+	}
+	return fn(guard)
+}
+
+func (s *Service) WithCollaborativeRuntimeEngine(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(*runtime.Engine) error) error {
+	return s.WithCollaborativeRuntime(ctx, sessionID, op, func(guard CollaborativeRuntimeGuard) error {
+		return fn(guard.Engine())
+	})
+}
+
+func (s *Service) BeginCollaborativeRuntimeGuard(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation) (interface {
+	Release()
+	Rebind(workdir string) error
+}, error) {
+	if s == nil || s.runtimes == nil {
+		return nil, fmt.Errorf("collaborative runtime %q is unavailable", strings.TrimSpace(sessionID))
+	}
+	id := strings.TrimSpace(sessionID)
+	if !s.externalSessionRuntimeActive(id) {
+		return nil, fmt.Errorf("collaborative runtime %q is unavailable", id)
+	}
+	guard, err := s.runtimes.BeginRuntimeGuard(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !s.externalSessionRuntimeActive(id) {
+		guard.Release()
+		return nil, fmt.Errorf("collaborative runtime %q is unavailable", id)
+	}
+	if !collaborativeOperationAllowed(op, guard.Engine()) {
+		guard.Release()
+		return nil, fmt.Errorf("collaborative operation %q is unavailable for session %q", op, id)
+	}
+	return guard, nil
+}
+
+func (s *Service) WithCollaborativePromptResponder(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(registry.GuardedPromptResponder) error) error {
+	return s.WithCollaborativeRuntime(ctx, sessionID, op, func(guard CollaborativeRuntimeGuard) error {
+		responder, ok := guard.(registry.GuardedPromptResponder)
+		if !ok {
+			return fmt.Errorf("collaborative prompt responder for session %q is unavailable", strings.TrimSpace(sessionID))
+		}
+		return fn(responder)
+	})
+}
+
+func collaborativeOperationAllowed(op serverapi.SessionRuntimeOperation, engine *runtime.Engine) bool {
+	for _, allowed := range serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)) {
+		if allowed == op {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowCollaborativeSession(engine *runtime.Engine) bool {
+	if engine == nil {
 		return false
+	}
+	return engine.WorkflowRunConfigured() || strings.TrimSpace(engine.WorkflowSessionState().RunID) != ""
+}
+
+func (s *Service) confirmExternalSessionRuntimeActive(ctx context.Context, sessionID string) (*runtime.Engine, bool) {
+	if !s.externalSessionRuntimeActive(sessionID) || s.runtimes == nil {
+		return nil, false
 	}
 	engine, err := s.runtimes.ResolveRuntime(ctx, sessionID)
 	if err != nil || engine == nil {
-		return false
+		return nil, false
 	}
-	return s.externalSessionRuntimeActive(sessionID)
+	return engine, s.externalSessionRuntimeActive(sessionID)
 }
 
 func runtimeRebindFunc(localRebind func(string) error, engine *runtime.Engine) func(string) error {
@@ -818,12 +957,33 @@ func (s *Service) SyncExecutionTarget(ctx context.Context, sessionID string, tar
 		return err
 	}
 	if handle == nil || handle.rebind == nil {
+		if s.externalSessionRuntimeActive(trimmedSessionID) {
+			if err := s.WithCollaborativeRuntime(ctx, trimmedSessionID, serverapi.SessionRuntimeOperationWorktreeManage, func(guard CollaborativeRuntimeGuard) error {
+				return guard.Rebind(trimmedWorkdir)
+			}); err != nil {
+				return err
+			}
+		}
 		return s.persistWorktreeReminderState(ctx, trimmedSessionID, normalizedReminder)
 	}
 	if err := handle.rebind(trimmedWorkdir); err != nil {
 		return err
 	}
 	return s.persistWorktreeReminderState(ctx, trimmedSessionID, normalizedReminder)
+}
+
+func (s *Service) PersistWorktreeReminderState(ctx context.Context, sessionID string, reminder *session.WorktreeReminderState) error {
+	if s == nil {
+		return errors.New("session runtime service is required")
+	}
+	if reminder == nil {
+		return nil
+	}
+	normalized, err := normalizeWorktreeReminderState(*reminder)
+	if err != nil {
+		return err
+	}
+	return s.persistWorktreeReminderState(ctx, strings.TrimSpace(sessionID), &normalized)
 }
 
 func (s *Service) persistWorktreeReminderState(ctx context.Context, sessionID string, reminder *session.WorktreeReminderState) error {
@@ -911,10 +1071,33 @@ func (s *Service) activeRuntimeHandle(ctx context.Context, sessionID string) (*r
 	return current, nil
 }
 
+func waitForActivationPrimaryRunRetry(ctx context.Context) error {
+	timer := time.NewTimer(activationPrimaryRunRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Service) claimExistingActivation(sessionID string, requestID string, ownerID string) (*runtimeHandle, *runtimeTakeover, activationClaim, error) {
+	return s.claimActivationWithCreate(sessionID, requestID, ownerID, false)
+}
+
+func (s *Service) claimNewActivation(sessionID string, requestID string, ownerID string) (*runtimeHandle, *runtimeTakeover, activationClaim, error) {
+	return s.claimActivationWithCreate(sessionID, requestID, ownerID, true)
+}
+
+func (s *Service) claimActivation(sessionID string, requestID string, ownerID string) (*runtimeHandle, *runtimeTakeover, activationClaim, error) {
+	return s.claimActivationWithCreate(sessionID, requestID, ownerID, true)
+}
+
 // Phase 2 temporarily allows many attached readers, but exactly one controlling
 // client per session. A second activation must fail explicitly instead of
 // joining the active runtime.
-func (s *Service) claimActivation(sessionID string, requestID string, ownerID string) (*runtimeHandle, *runtimeTakeover, activationClaim, error) {
+func (s *Service) claimActivationWithCreate(sessionID string, requestID string, ownerID string, allowCreate bool) (*runtimeHandle, *runtimeTakeover, activationClaim, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if current := s.handles[sessionID]; current != nil {
@@ -939,6 +1122,9 @@ func (s *Service) claimActivation(sessionID string, requestID string, ownerID st
 			return current, takeover, activationClaimTakeover, nil
 		}
 		return nil, nil, activationClaimOwner, errors.Join(serverapi.ErrSessionAlreadyControlled, fmt.Errorf("session %q is already controlled by another client", sessionID))
+	}
+	if !allowCreate {
+		return nil, nil, activationClaimMissing, nil
 	}
 	handle := newRuntimeHandle(requestID, ownerID)
 	s.handles[sessionID] = handle
@@ -988,7 +1174,7 @@ func (s *Service) takeOverActivation(ctx context.Context, sessionID string, requ
 		finishRuntimeTakeover(takeover, "", err)
 		return serverapi.SessionRuntimeActivateResponse{}, err
 	}
-	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID}, nil
+	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID, Mode: serverapi.SessionRuntimeAttachModeController}, nil
 }
 
 func runtimeHandleReady(handle *runtimeHandle) bool {
@@ -1208,7 +1394,7 @@ func activationResponseForHandle(handle *runtimeHandle) (serverapi.SessionRuntim
 	if leaseID == "" {
 		return serverapi.SessionRuntimeActivateResponse{}, fmt.Errorf("activate session runtime: controller lease is unavailable")
 	}
-	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID}, nil
+	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID, Mode: serverapi.SessionRuntimeAttachModeController}, nil
 }
 
 func activationResponseForTakeover(takeover *runtimeTakeover) (serverapi.SessionRuntimeActivateResponse, error) {

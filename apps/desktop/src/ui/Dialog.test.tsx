@@ -46,6 +46,18 @@ describe("Dialog", () => {
     });
     expect(opener).toHaveFocus();
   });
+
+  it("preserves controlled textarea focus while the close callback identity changes", async () => {
+    const user = userEvent.setup();
+    render(<ControlledTextareaDialogHarness />);
+
+    const input = screen.getByRole("textbox", { name: "Missing value" });
+    await user.click(input);
+    await user.type(input, "abc");
+
+    expect(input).toHaveValue("abc");
+    expect(input).toHaveFocus();
+  });
 });
 
 function DialogHarness() {
@@ -72,5 +84,27 @@ function DialogHarness() {
         <button type="button">Delete</button>
       </Dialog>
     </>
+  );
+}
+
+function ControlledTextareaDialogHarness() {
+  const [value, setValue] = useState("");
+  return (
+    <Dialog
+      closeLabel="Close dialog"
+      onClose={() => {
+        setValue("");
+      }}
+      open
+      title="Controlled dialog"
+    >
+      <textarea
+        aria-label="Missing value"
+        onChange={(event) => {
+          setValue(event.currentTarget.value);
+        }}
+        value={value}
+      />
+    </Dialog>
   );
 }

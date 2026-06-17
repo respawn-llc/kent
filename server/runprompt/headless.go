@@ -18,6 +18,7 @@ import (
 	"core/server/sessionlaunch"
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
+	servicecontract "core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/serverapi"
 	"core/shared/transcriptdiag"
@@ -50,7 +51,7 @@ type HeadlessBootstrap struct {
 
 func NewLoopbackRunPromptClient(boot HeadlessBootstrap) client.RunPromptClient {
 	launcher := &headlessPromptLauncher{boot: boot}
-	service := primaryrun.NewGuardingPromptService(boot.RuntimeRegistry, NewPromptService(launcher))
+	var service servicecontract.RunPromptService = NewPromptService(launcher)
 	if service != nil {
 		service = &memoizingPromptService{
 			inner: service,
@@ -81,11 +82,24 @@ func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req 
 		return nil, err
 	}
 	plan := result.Plan
+	var primaryLease primaryrun.Lease
+	if l.boot.RuntimeRegistry != nil {
+		primaryLease, err = l.boot.RuntimeRegistry.AcquirePrimaryRun(plan.Store.Meta().SessionID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if plan.Store.Meta().Goal != nil {
+		if primaryLease != nil {
+			primaryLease.Release()
+		}
 		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
 	}
-	runtimePlan, err := l.prepareRuntime(plan, progress)
+	runtimePlan, err := l.prepareRuntime(plan, progress, primaryLease)
 	if err != nil {
+		if primaryLease != nil {
+			primaryLease.Release()
+		}
 		return nil, err
 	}
 	return &headlessPromptRuntime{plan: runtimePlan, warnings: result.Warnings, history: l.boot.PromptHistory}, nil
@@ -105,7 +119,7 @@ func (p *headlessRuntimePlan) Close() {
 	p.close()
 }
 
-func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progress serverapi.RunPromptProgressSink) (*headlessRuntimePlan, error) {
+func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progress serverapi.RunPromptProgressSink, primaryLease primaryrun.Lease) (*headlessRuntimePlan, error) {
 	logger, err := NewRunLogger(plan.Store.Dir(), func(diag RunLoggerDiagnostic) {
 		if progress != nil {
 			progress.PublishRunPromptProgress(serverapi.RunPromptProgress{Kind: serverapi.RunPromptProgressKindWarning, Message: "Run logging degraded"})
@@ -152,13 +166,22 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 	if l.boot.BackgroundRouter != nil {
 		backgroundRouter = l.boot.BackgroundRouter
 	}
-	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, backgroundRouter)
+	var rebind func(string) error
+	if wiring.LocalTools != nil {
+		rebind = runtimewire.RuntimeRebindFunc(wiring.LocalTools.Rebind, wiring.Engine)
+	}
+	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, backgroundRouter, runtimewire.WithRuntimeRebind(rebind))
 	return &headlessRuntimePlan{
 		logger:      logger,
 		engine:      wiring.Engine,
 		eventBridge: wiring.EventBridge,
 		close: func() {
-			registration.Close()
+			if primaryLease != nil {
+				defer primaryLease.Release()
+			}
+			_ = registration.CloseWithDrain(context.Background(), func(ctx context.Context) error {
+				return wiring.Engine.DrainQueuedUserMessagesBeforeClose(ctx)
+			})
 			_ = wiring.Close()
 			_ = logger.Close()
 		},

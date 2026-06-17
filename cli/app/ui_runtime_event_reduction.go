@@ -68,13 +68,22 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction runtimestate.Runt
 	m.setCompacting(reduction.RunState.State.Compaction.IsRunning())
 	m.setReviewerRunning(reduction.RunState.State.Reviewer.IsRunning())
 	m.setReviewerBlocking(reduction.RunState.State.Reviewer.IsBlocking())
+	if reduction.RunState.ExternalRuntime != nil {
+		m.setExternalRuntimeStatus(reduction.RunState.ExternalRuntime)
+	}
 	m.conversationFreshness = reduction.Conversation.State.Freshness
 	m.reasoningStatusHeader = reduction.Reasoning.State.StatusHeader
 	m.pendingInjected = reduction.PendingInput.State.PendingInjected
-	m.removeInjectedQueueItemsByIDs(reduction.PendingInput.ConsumedQueueItemIDs)
+	for _, answer := range m.removeInjectedQueueItemsByIDs(reduction.PendingInput.ConsumedQueueItemIDs) {
+		cmd = tea.Batch(cmd, m.answerQueuedApprovalCommentary(answer))
+	}
 	m.lockedInjectText = reduction.PendingInput.State.LockedInjectText
 	m.lockedInjectID = reduction.PendingInput.State.LockedInjectID
 	m.setInputSubmitLocked(reduction.PendingInput.State.Submission == runtimestate.InputSubmissionLocked)
+	if reduction.PendingInput.RestoredText != "" {
+		m.inputController().restoreInjectedTextIntoInput(reduction.PendingInput.RestoredText)
+		cmd = tea.Batch(cmd, m.sendTransientStatusWithNoticeID("queued message was not submitted; restored to input", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
+	}
 	switch reduction.PendingInput.DraftCommand {
 	case runtimestate.RuntimePendingInputClearDraft:
 		m.clearInput()
@@ -82,9 +91,16 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction runtimestate.Runt
 	switch reduction.RunState.Activity {
 	case runtimestate.RuntimeActivityRunning:
 		m.activity = uiActivityRunning
+		m.setBusy(true)
 	case runtimestate.RuntimeActivityIdle:
-		m.activity = uiActivityIdle
-		cmd = tea.Batch(cmd, m.releaseDeferredRuntimeSyncs())
+		if m.externalRuntimeBusy() {
+			m.activity = uiActivityRunning
+			m.setBusy(true)
+		} else {
+			m.activity = uiActivityIdle
+			m.setBusy(false)
+			cmd = tea.Batch(cmd, m.releaseDeferredRuntimeSyncs())
+		}
 	}
 	switch reduction.BackgroundProcesses.Command {
 	case runtimestate.RuntimeBackgroundProcessRefresh:

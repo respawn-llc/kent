@@ -111,7 +111,7 @@ func (r WorktreeListRequest) Validate() error {
 	if err := validateRequiredSessionID(r.SessionID); err != nil {
 		return err
 	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return nil
 }
 
 func (r WorktreeCreateTargetResolveRequest) Validate() error {
@@ -129,9 +129,6 @@ func (r WorktreeCreateRequest) Validate() error {
 		return err
 	}
 	if err := validateRequiredSessionID(r.SessionID); err != nil {
-		return err
-	}
-	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
 		return err
 	}
 	if r.CreateBranch {
@@ -159,9 +156,6 @@ func (r WorktreeSwitchRequest) Validate() error {
 	if err := validateRequiredSessionID(r.SessionID); err != nil {
 		return err
 	}
-	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
-		return err
-	}
 	if strings.TrimSpace(r.WorktreeID) == "" {
 		return errors.New("worktree_id is required")
 	}
@@ -173,9 +167,6 @@ func (r WorktreeDeleteRequest) Validate() error {
 		return err
 	}
 	if err := validateRequiredSessionID(r.SessionID); err != nil {
-		return err
-	}
-	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
 		return err
 	}
 	if strings.TrimSpace(r.WorktreeID) == "" {

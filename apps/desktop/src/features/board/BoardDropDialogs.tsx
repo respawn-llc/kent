@@ -49,21 +49,32 @@ export function MissingInputsDialog({
       title={t("board.missingInputsTitle")}
     >
       {drop === null ? null : (
-        <form className="grid gap-[var(--space-4)]" onSubmit={onSubmit}>
+        <form
+          className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-[var(--space-4)]"
+          data-testid="missing-inputs-dialog-form"
+          onSubmit={onSubmit}
+        >
           <p className="m-0 text-[var(--color-muted)]">{t("board.missingInputsBody")}</p>
-          {drop.fields.map((field) => (
-            <TextArea
-              key={field.name}
-              label={field.name}
-              hint={field.description}
-              onChange={(event) => {
-                onValueChange(field.name, event.currentTarget.value);
-              }}
-              required
-              value={drop.values[field.name] ?? ""}
-            />
-          ))}
-          <div className="flex justify-end gap-[var(--space-2)]">
+          <div
+            className="grid min-h-0 gap-[var(--space-4)] overflow-auto pr-[var(--space-1)] hide-scrollbar"
+            data-testid="missing-inputs-field-list"
+          >
+            {drop.fields.map((field) => (
+              <TextArea
+                className="!min-h-16"
+                key={field.name}
+                label={field.name}
+                hint={field.description}
+                onChange={(event) => {
+                  onValueChange(field.name, event.currentTarget.value);
+                }}
+                required
+                rows={2}
+                value={drop.values[field.name] ?? ""}
+              />
+            ))}
+          </div>
+          <div className="flex justify-end gap-[var(--space-2)]" data-testid="missing-inputs-dialog-actions">
             <Button onClick={onClose}>{t("app.cancel")}</Button>
             <Button type="submit" variant="primary">
               {t("board.missingInputsConfirm")}

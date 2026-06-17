@@ -18,10 +18,12 @@ import (
 
 const uiRuntimeControlTimeout = 3 * time.Second
 const uiRuntimeHydrationReadTimeout = 10 * time.Second
+const collaborativeFallbackRefreshCooldown = 750 * time.Millisecond
 const runtimeLeaseRecoveryWarningText = "Lost connection to the session runtime; reconnected."
 
 var uiRuntimeReadTimeout = 300 * time.Millisecond
-var errReadOnlyRuntime = errors.New("session is read-only because it is controlled by an active headless run")
+var errReadOnlyRuntime = errors.New("session is unavailable for runtime control attachment")
+var errCollaborativeOperationBlocked = errors.New("operation is unavailable for collaborative runtime attach")
 
 type sessionRuntimeClient struct {
 	reads                   client.SessionViewClient
@@ -33,10 +35,14 @@ type sessionRuntimeClient struct {
 	connectionStateObserver func(error)
 	leaseRecoveryWarning    func(string, clientui.EntryVisibility)
 	readOnly                bool
+	accessMode              serverapi.SessionRuntimeAttachMode
+	allowedOperations       map[serverapi.SessionRuntimeOperation]bool
 
 	mu                   sync.RWMutex
 	mainView             clientui.RuntimeMainView
 	hasMainView          bool
+	mainViewFallback     bool
+	mainViewRetryAfter   time.Time
 	suffixRPCUnsupported bool
 }
 
@@ -47,6 +53,74 @@ func (c *sessionRuntimeClient) SetReadOnly(readOnly bool) {
 	c.mu.Lock()
 	c.readOnly = readOnly
 	c.mu.Unlock()
+}
+
+func (c *sessionRuntimeClient) SetAccessMode(mode serverapi.SessionRuntimeAttachMode, operations []serverapi.SessionRuntimeOperation) {
+	if c == nil {
+		return
+	}
+	allowed := make(map[serverapi.SessionRuntimeOperation]bool, len(operations))
+	for _, op := range operations {
+		allowed[op] = true
+	}
+	if mode == serverapi.SessionRuntimeAttachModeCollaborative && len(allowed) == 0 {
+		for _, op := range defaultCollaborativeRuntimeOperations() {
+			allowed[op] = true
+		}
+	}
+	c.mu.Lock()
+	c.accessMode = mode
+	c.readOnly = mode == serverapi.SessionRuntimeAttachModeNoControl
+	c.allowedOperations = allowed
+	if mode == serverapi.SessionRuntimeAttachModeCollaborative {
+		c.controllerLease = nil
+		if c.applyCollaborativeMainViewFallbackLocked(&c.mainView) {
+			c.mainViewFallback = true
+			c.mainViewRetryAfter = time.Time{}
+		}
+		c.hasMainView = true
+	} else {
+		c.mainViewFallback = false
+		c.mainViewRetryAfter = time.Time{}
+	}
+	c.mu.Unlock()
+}
+
+func (c *sessionRuntimeClient) applyCollaborativeMainViewFallbackLocked(view *clientui.RuntimeMainView) bool {
+	if c == nil || view == nil || c.accessMode != serverapi.SessionRuntimeAttachModeCollaborative {
+		return false
+	}
+	if view.Session.SessionID == "" {
+		view.Session.SessionID = c.sessionID
+	}
+	if view.ExternalRuntime == nil || view.ExternalRuntime.State == "" {
+		status := clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateOwnerRunning, QueueAccepting: true}
+		view.ExternalRuntime = &status
+		return true
+	}
+	return false
+}
+
+func defaultCollaborativeRuntimeOperations() []serverapi.SessionRuntimeOperation {
+	return []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationSubmitUserTurn,
+		serverapi.SessionRuntimeOperationQueueUserMessage,
+		serverapi.SessionRuntimeOperationPromptAnswer,
+	}
+}
+
+func (c *sessionRuntimeClient) ensureOperation(op serverapi.SessionRuntimeOperation) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
+	c.mu.RLock()
+	mode := c.accessMode
+	allowed := c.allowedOperations[op]
+	c.mu.RUnlock()
+	if mode == serverapi.SessionRuntimeAttachModeCollaborative && !allowed {
+		return errCollaborativeOperationBlocked
+	}
+	return nil
 }
 
 func (c *sessionRuntimeClient) ensureWritable() error {
@@ -69,12 +143,30 @@ func (c *sessionRuntimeClient) isReadOnly() bool {
 	return readOnly
 }
 
+func (c *sessionRuntimeClient) isCollaborative() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.accessMode == serverapi.SessionRuntimeAttachModeCollaborative
+}
+
+func (c *sessionRuntimeClient) IsCollaborativeRuntime() bool {
+	return c.isCollaborative()
+}
+
+func (c *sessionRuntimeClient) CanAppendCommittedEntries() bool {
+	return c != nil && !c.isReadOnly() && !c.isCollaborative()
+}
+
 func newUIRuntimeClientWithReads(sessionID string, reads client.SessionViewClient, controls client.RuntimeControlClient) clientui.RuntimeClient {
 	if reads == nil || controls == nil {
 		return nil
 	}
 	return &sessionRuntimeClient{
 		sessionID:       sessionID,
+		accessMode:      serverapi.SessionRuntimeAttachModeController,
 		controllerLease: newControllerLeaseManager("local-ui-controller"),
 		reads:           reads,
 		controls:        controls,
@@ -164,8 +256,12 @@ func (c *sessionRuntimeClient) retryControlCallNoResult(ctx context.Context, cal
 }
 
 func retryRuntimeControlCall[T any](ctx context.Context, currentLeaseID func() string, recoverLease func(context.Context, error, bool) error, appendRecoveryWarning bool, call func(controllerLeaseID string) (T, error)) (T, error) {
-	value, err := call(currentLeaseID())
+	leaseID := strings.TrimSpace(currentLeaseID())
+	value, err := call(leaseID)
 	if !isRecoverableRuntimeControlError(err) {
+		return value, err
+	}
+	if leaseID == "" {
 		return value, err
 	}
 	var zero T
@@ -227,8 +323,8 @@ func (c *sessionRuntimeClient) SetLeaseRecoveryWarningObserver(observer func(str
 }
 
 func (c *sessionRuntimeClient) MainView() clientui.RuntimeMainView {
-	view, hasView := c.cachedMainView()
-	if !hasView {
+	view, hasView, fallback := c.cachedMainViewState()
+	if !hasView || (fallback && c.claimMainViewFallbackRefresh()) {
 		refreshed, err := c.refreshMainViewSync(uiRuntimeReadTimeout)
 		if err == nil {
 			return refreshed
@@ -278,13 +374,35 @@ func (c *sessionRuntimeClient) readContext(timeout time.Duration) (context.Conte
 }
 
 func (c *sessionRuntimeClient) cachedMainView() (clientui.RuntimeMainView, bool) {
+	view, hasView, _ := c.cachedMainViewState()
+	return view, hasView
+}
+
+func (c *sessionRuntimeClient) cachedMainViewState() (clientui.RuntimeMainView, bool, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	view := c.mainView
 	if !c.hasMainView {
-		return view, false
+		return view, false, false
 	}
-	return view, true
+	return view, true, c.mainViewFallback
+}
+
+func (c *sessionRuntimeClient) claimMainViewFallbackRefresh() bool {
+	if c == nil {
+		return false
+	}
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.mainViewFallback {
+		return false
+	}
+	if !c.mainViewRetryAfter.IsZero() && now.Before(c.mainViewRetryAfter) {
+		return false
+	}
+	c.mainViewRetryAfter = now.Add(collaborativeFallbackRefreshCooldown)
+	return true
 }
 
 func (c *sessionRuntimeClient) CachedMainView() (clientui.RuntimeMainView, bool) {
@@ -301,6 +419,8 @@ func (c *sessionRuntimeClient) storeMainView(view clientui.RuntimeMainView) clie
 	c.mu.Lock()
 	c.mainView = view
 	c.hasMainView = true
+	c.mainViewFallback = false
+	c.mainViewRetryAfter = time.Time{}
 	c.mu.Unlock()
 	return view
 }
@@ -359,6 +479,10 @@ func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (clien
 		view := c.mainView
 		if view.Session.SessionID == "" {
 			view.Session.SessionID = c.sessionID
+		}
+		if c.applyCollaborativeMainViewFallbackLocked(&view) {
+			c.mainViewFallback = true
+			c.mainViewRetryAfter = time.Now().Add(collaborativeFallbackRefreshCooldown)
 		}
 		c.mainView = view
 		c.hasMainView = true

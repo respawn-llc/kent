@@ -687,6 +687,116 @@ func TestWorktreeCreateDialogSubmitResolvesTargetWithBoundedContext(t *testing.T
 	}
 }
 
+func TestWorktreeCreateTargetResolutionSubmitSchedulesSpinnerTick(t *testing.T) {
+	withDeterministicSpinnerClock(t)
+
+	client := &worktreeCommandTestClient{
+		listResp:   testMainWorktreeListResponse(),
+		createResp: serverapi.WorktreeCreateResponse{Target: clientui.SessionExecutionTarget{EffectiveWorkdir: "/repo"}, Worktree: serverapi.WorktreeView{WorktreeID: "wt-main", DisplayName: "main", CanonicalRoot: "/repo"}},
+	}
+	updated, cmd := submitWorktreeCreateAfterTargetResolution(t, client)
+	if !updated.worktrees.create.submitting {
+		t.Fatal("expected create submitting state")
+	}
+	if updated.spinnerTickToken == 0 {
+		t.Fatal("expected create submit to start spinner ticking")
+	}
+	if updated.spinnerTickDue.IsZero() {
+		t.Fatal("expected create submit to record spinner tick deadline")
+	}
+
+	msgs := collectCmdMessages(t, cmd)
+	sawCreateDone := false
+	sawSpinnerTick := false
+	for _, msg := range msgs {
+		switch typed := msg.(type) {
+		case worktreeCreateDoneMsg:
+			sawCreateDone = true
+		case spinnerTickMsg:
+			if typed.token != updated.spinnerTickToken {
+				t.Fatalf("spinner tick token = %d, want %d", typed.token, updated.spinnerTickToken)
+			}
+			sawSpinnerTick = true
+		}
+	}
+	if !sawCreateDone {
+		t.Fatalf("expected returned command to emit create completion, got %+v", msgs)
+	}
+	if !sawSpinnerTick {
+		t.Fatalf("expected returned command to emit spinner tick, got %+v", msgs)
+	}
+	if len(client.createRequests) != 1 {
+		t.Fatalf("expected one create request, got %+v", client.createRequests)
+	}
+}
+
+func TestWorktreeCreateCompletionStopsSpinnerAfterOverlayError(t *testing.T) {
+	withDeterministicSpinnerClock(t)
+
+	client := &worktreeCommandTestClient{
+		listResp:   testMainWorktreeListResponse(),
+		createErr:  errors.New("create failed"),
+		createResp: serverapi.WorktreeCreateResponse{Target: clientui.SessionExecutionTarget{EffectiveWorkdir: "/repo"}, Worktree: serverapi.WorktreeView{WorktreeID: "wt-main", DisplayName: "main", CanonicalRoot: "/repo"}},
+	}
+	updated, cmd := submitWorktreeCreateAfterTargetResolution(t, client)
+	if updated.spinnerTickToken == 0 {
+		t.Fatal("expected create submit to start spinner ticking")
+	}
+	var done worktreeCreateDoneMsg
+	foundDone := false
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if typed, ok := msg.(worktreeCreateDoneMsg); ok {
+			done = typed
+			foundDone = true
+		}
+	}
+	if !foundDone {
+		t.Fatal("expected create completion from command")
+	}
+
+	next, _ := updated.Update(done)
+	completed := next.(*uiModel)
+	if completed.worktrees.create.submitting {
+		t.Fatal("expected create completion to clear submitting state")
+	}
+	if completed.spinnerTickToken != 0 {
+		t.Fatalf("expected create error completion to stop spinner ticking, got token %d", completed.spinnerTickToken)
+	}
+}
+
+func submitWorktreeCreateAfterTargetResolution(t *testing.T, client *worktreeCommandTestClient) (*uiModel, tea.Cmd) {
+	t.Helper()
+	m := newWorktreeTestModel(t, client)
+	m.input = "/worktree create"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := applyWorktreeCmdMessages(t, next.(*uiModel), cmd)
+	updated.worktrees.create.branchTarget.Replace(strings.NewReplacer("\r", "", "\n", "").Replace("main"))
+	updated.worktrees.create.focus = uiWorktreeCreateFieldActions
+	updated.worktrees.create.action = uiWorktreeCreateActionCreate
+	updated.worktrees.create.syncFocus()
+
+	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected create target resolution command")
+	}
+
+	next, cmd = updated.Update(worktreeCreateTargetResolveDoneMsg{
+		token: updated.worktrees.create.resolveToken,
+		query: "main",
+		resp: serverapi.WorktreeCreateTargetResolveResponse{Resolution: serverapi.WorktreeCreateTargetResolution{
+			Input: "main",
+			Kind:  serverapi.WorktreeCreateTargetResolutionKindExistingBranch,
+		}},
+	})
+	updated = next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected create command after target resolution")
+	}
+	return updated, cmd
+}
+
 func TestWorktreeCreateDialogLayoutStaysStableAcrossResolutionStates(t *testing.T) {
 	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
 	m := newWorktreeTestModel(t, client)

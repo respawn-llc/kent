@@ -38,6 +38,38 @@ describe("classifyDrop", () => {
       ),
     ).toEqual({ kind: "move" });
   });
+
+  it("moves terminal targets without collecting transition output values", () => {
+    expect(
+      classifyDrop(
+        {
+          ...baseColumn,
+          id: "node-terminal",
+          isDone: true,
+          kind: "terminal",
+          transitionOutputFields: [{ name: "summary", description: "Summary" }],
+        },
+        { ...baseDragPayload, manualMoveTargetNodeIDs: [] },
+        undefined,
+      ),
+    ).toEqual({ kind: "move", allowMissingEdge: true });
+  });
+
+  it("collects transition output values for non-terminal targets", () => {
+    expect(
+      classifyDrop(
+        {
+          ...baseColumn,
+          id: "node-review",
+          isDone: false,
+          kind: "agent",
+          transitionOutputFields: [{ name: "summary", description: "Summary" }],
+        },
+        { ...baseDragPayload, manualMoveTargetNodeIDs: [] },
+        undefined,
+      ),
+    ).toEqual({ kind: "missingInput" });
+  });
 });
 
 const baseDragPayload: BoardCardDragPayload = {

@@ -45,6 +45,155 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	}
 }
 
+func TestReduceRuntimeEvent_QueuedStatusSubmittedRemovesPendingInputByID(t *testing.T) {
+	update := ReduceRuntimeEvent(
+		RuntimeRunState{},
+		RuntimeConversationState{},
+		PendingInputState{
+			PendingInjected: []clientui.QueuedUserMessage{{ID: "queue-1", Text: "steered message"}, {ID: "queue-2", Text: "follow-up"}},
+		},
+		RuntimeReasoningState{},
+		false,
+		clientui.Event{
+			Kind: clientui.EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+				QueueItemID: "queue-1",
+				Status:      clientui.QueuedUserMessageSubmitted,
+			},
+		},
+	)
+
+	if len(update.PendingInput.ConsumedQueueItemIDs) != 1 || update.PendingInput.ConsumedQueueItemIDs[0] != "queue-1" {
+		t.Fatalf("consumed queue item ids = %+v, want queue-1", update.PendingInput.ConsumedQueueItemIDs)
+	}
+	if len(update.PendingInput.State.PendingInjected) != 1 || update.PendingInput.State.PendingInjected[0].ID != "queue-2" {
+		t.Fatalf("pending injected = %+v, want only queue-2", update.PendingInput.State.PendingInjected)
+	}
+	if update.PendingInput.RestoredText != "" {
+		t.Fatalf("restored text = %q, want empty", update.PendingInput.RestoredText)
+	}
+}
+
+func TestReduceRuntimeEvent_QueuedStatusFailedRemovesPendingInputAndRestoresText(t *testing.T) {
+	update := ReduceRuntimeEvent(
+		RuntimeRunState{},
+		RuntimeConversationState{},
+		PendingInputState{
+			PendingInjected:  []clientui.QueuedUserMessage{{ID: "queue-1", Text: "steered message", ClientRequestID: "req-local"}},
+			LockedInjectText: "steered message",
+			LockedInjectID:   "queue-1",
+			Submission:       InputSubmissionLocked,
+		},
+		RuntimeReasoningState{},
+		false,
+		clientui.Event{
+			Kind: clientui.EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+				QueueItemID:     "queue-1",
+				ClientRequestID: "req-local",
+				Status:          clientui.QueuedUserMessageFailed,
+				RestoreText:     "steered message",
+				FailureReason:   clientui.QueuedUserMessageFailureTerminalWorkflowCompletion,
+			},
+		},
+	)
+
+	if len(update.PendingInput.State.PendingInjected) != 0 {
+		t.Fatalf("pending injected = %+v, want empty", update.PendingInput.State.PendingInjected)
+	}
+	if update.PendingInput.State.Submission != InputSubmissionUnlocked {
+		t.Fatalf("submission = %q, want unlocked", update.PendingInput.State.Submission)
+	}
+	if update.PendingInput.RestoredText != "steered message" {
+		t.Fatalf("restored text = %q, want queued text", update.PendingInput.RestoredText)
+	}
+}
+
+func TestReduceRuntimeEvent_QueuedStatusFailedMatchesProvisionalPendingInputByClientRequestID(t *testing.T) {
+	update := ReduceRuntimeEvent(
+		RuntimeRunState{},
+		RuntimeConversationState{},
+		PendingInputState{
+			PendingInjected: []clientui.QueuedUserMessage{{ID: "local-provisional", Text: "steered message", ClientRequestID: "req-local"}},
+		},
+		RuntimeReasoningState{},
+		false,
+		clientui.Event{
+			Kind: clientui.EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+				QueueItemID:     "server-queue-1",
+				ClientRequestID: "req-local",
+				Status:          clientui.QueuedUserMessageFailed,
+				RestoreText:     "steered message",
+				FailureReason:   clientui.QueuedUserMessageFailureClosing,
+			},
+		},
+	)
+
+	if len(update.PendingInput.State.PendingInjected) != 0 {
+		t.Fatalf("pending injected = %+v, want provisional item removed by client request id", update.PendingInput.State.PendingInjected)
+	}
+	if update.PendingInput.RestoredText != "steered message" {
+		t.Fatalf("restored text = %q, want queued text", update.PendingInput.RestoredText)
+	}
+	if len(update.PendingInput.ConsumedQueueItemIDs) != 2 || update.PendingInput.ConsumedQueueItemIDs[0] != "server-queue-1" || update.PendingInput.ConsumedQueueItemIDs[1] != "req-local" {
+		t.Fatalf("consumed ids = %+v, want server queue id and client request id", update.PendingInput.ConsumedQueueItemIDs)
+	}
+}
+
+func TestReduceRuntimeEvent_QueuedStatusFailedIgnoresOtherClientRestoreText(t *testing.T) {
+	update := ReduceRuntimeEvent(
+		RuntimeRunState{},
+		RuntimeConversationState{},
+		PendingInputState{
+			PendingInjected: []clientui.QueuedUserMessage{{ID: "queue-1", Text: "local message", ClientRequestID: "req-local"}},
+		},
+		RuntimeReasoningState{},
+		false,
+		clientui.Event{
+			Kind: clientui.EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+				QueueItemID:     "queue-1",
+				ClientRequestID: "req-other",
+				Status:          clientui.QueuedUserMessageFailed,
+				RestoreText:     "other client message",
+				FailureReason:   clientui.QueuedUserMessageFailureTerminalWorkflowCompletion,
+			},
+		},
+	)
+
+	if update.PendingInput.RestoredText != "" {
+		t.Fatalf("restored text = %q, want empty for other client failure", update.PendingInput.RestoredText)
+	}
+	if len(update.PendingInput.State.PendingInjected) != 1 || update.PendingInput.State.PendingInjected[0].ClientRequestID != "req-local" {
+		t.Fatalf("pending injected = %+v, want local queued item preserved", update.PendingInput.State.PendingInjected)
+	}
+}
+
+func TestReduceRuntimeEvent_QueuedStatusFailedWithoutLocalPendingInputDoesNotRestoreText(t *testing.T) {
+	update := ReduceRuntimeEvent(
+		RuntimeRunState{},
+		RuntimeConversationState{},
+		PendingInputState{},
+		RuntimeReasoningState{},
+		false,
+		clientui.Event{
+			Kind: clientui.EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+				QueueItemID:     "queue-other",
+				ClientRequestID: "req-other",
+				Status:          clientui.QueuedUserMessageFailed,
+				RestoreText:     "other client message",
+				FailureReason:   clientui.QueuedUserMessageFailureTerminalWorkflowCompletion,
+			},
+		},
+	)
+
+	if update.PendingInput.RestoredText != "" {
+		t.Fatalf("restored text = %q, want empty without local queued item", update.PendingInput.RestoredText)
+	}
+}
+
 func TestReduceRuntimeEvent_RunStateStoppedClearsReasoningAndReturnsToIdle(t *testing.T) {
 	update := ReduceRuntimeEvent(
 		RuntimeRunState{Run: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
@@ -87,6 +236,41 @@ func TestReduceRuntimeEvent_RunStateStartedDoesNotRequestTranscriptSync(t *testi
 	}
 	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncNone {
 		t.Fatal("did not expect started run to request transcript sync")
+	}
+}
+
+func TestReduceRuntimeEvent_ExternalRuntimeStatusDrivesActivity(t *testing.T) {
+	running := ReduceRuntimeEvent(
+		RuntimeRunState{Run: clientui.IdleRunLifecycle()},
+		RuntimeConversationState{},
+		PendingInputState{},
+		RuntimeReasoningState{},
+		false,
+		clientui.Event{
+			Kind:                  clientui.EventExternalRuntimeStatus,
+			ExternalRuntimeStatus: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateDraining},
+		},
+	)
+	if running.RunState.Activity != RuntimeActivityRunning {
+		t.Fatalf("draining external activity = %v, want running", running.RunState.Activity)
+	}
+	if running.RunState.ExternalRuntime == nil || running.RunState.ExternalRuntime.State != clientui.ExternalRuntimeStateDraining {
+		t.Fatalf("external runtime reduction = %+v, want draining", running.RunState.ExternalRuntime)
+	}
+
+	idle := ReduceRuntimeEvent(
+		RuntimeRunState{Run: clientui.IdleRunLifecycle()},
+		RuntimeConversationState{},
+		PendingInputState{},
+		RuntimeReasoningState{},
+		true,
+		clientui.Event{
+			Kind:                  clientui.EventExternalRuntimeStatus,
+			ExternalRuntimeStatus: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateRegisteredIdle, QueueAccepting: true},
+		},
+	)
+	if idle.RunState.Activity != RuntimeActivityIdle {
+		t.Fatalf("registered-idle external activity = %v, want idle", idle.RunState.Activity)
 	}
 }
 

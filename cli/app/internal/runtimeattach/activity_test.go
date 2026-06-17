@@ -151,3 +151,43 @@ func TestSubscribeActivitiesReadOnlyDoesNotRequirePromptActivity(t *testing.T) {
 		t.Fatal("expected no prompt subscription for read-only attach")
 	}
 }
+
+func TestSubscribeActivitiesCollaborativeSubscribesPromptActivityWithoutLease(t *testing.T) {
+	sessionSub := &fakeSessionActivitySubscription{}
+	promptSub := fakePromptActivitySubscription{}
+	sessionActivity := &fakeSessionActivityService{sub: sessionSub}
+	promptActivity := &fakePromptActivityService{sub: promptSub}
+	activities, err := SubscribeActivities(context.Background(), ActivityRequest{
+		SessionID:       "session-1",
+		Mode:            serverapi.SessionRuntimeAttachModeCollaborative,
+		SessionActivity: sessionActivity,
+		PromptActivity:  promptActivity,
+	})
+	if err != nil {
+		t.Fatalf("SubscribeActivities: %v", err)
+	}
+	if activities.Session != sessionSub || activities.Prompt == nil {
+		t.Fatalf("activities = %+v, want session and prompt subscriptions", activities)
+	}
+	if len(promptActivity.subscribeRequests) != 1 || promptActivity.subscribeRequests[0].SessionID != "session-1" {
+		t.Fatalf("prompt requests = %#v, want collaborative prompt subscription", promptActivity.subscribeRequests)
+	}
+}
+
+func TestSubscribeActivitiesNoControlDoesNotRequirePromptActivity(t *testing.T) {
+	sessionSub := &fakeSessionActivitySubscription{}
+	activities, err := SubscribeActivities(context.Background(), ActivityRequest{
+		SessionID:       "session-1",
+		Mode:            serverapi.SessionRuntimeAttachModeNoControl,
+		SessionActivity: &fakeSessionActivityService{sub: sessionSub},
+	})
+	if err != nil {
+		t.Fatalf("SubscribeActivities: %v", err)
+	}
+	if activities.Session != sessionSub {
+		t.Fatal("expected session subscription")
+	}
+	if activities.Prompt != nil {
+		t.Fatal("expected no prompt subscription for no-control attach")
+	}
+}
