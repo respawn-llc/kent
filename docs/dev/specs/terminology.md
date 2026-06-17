@@ -136,6 +136,10 @@ The immutable execution setup captured by a Kent session after its first model r
 
 The run-start snapshot of possible and required transition parameters for a node run. Runtime parameter contracts are derived from outgoing transitions, fan-out branch unions, previous-transition references, and join aggregates, then frozen for in-flight work.
 
+### Run Start Context
+
+The typed aggregate materialized for the runner before a workflow run starts. It combines task, run, node, workspace/worktree, run-start snapshot, accepted transition branch invocation facts, parameter values, context-preservation mode, and context source provenance. It is a store materialization interface, not an opaque persisted JSON envelope.
+
 ### Session
 
 Kent transcript/runtime artifact used by a run. A task may have many sessions because of loops, branches, retries, or context-preservation choices.

@@ -87,6 +87,8 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return taskShowSubcommand(args[1:], stdout, stderr)
 	case "cancel":
 		return taskCancelSubcommand(args[1:], stdout, stderr)
+	case "delete":
+		return taskDeleteSubcommand(args[1:], stdout, stderr)
 	case "approve":
 		return taskApproveSubcommand(args[1:], stdout, stderr)
 	case "move":
@@ -411,6 +413,48 @@ func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		return 1
 	}
 	fmt.Fprintf(stdout, "Canceled task %s.\n", taskDisplayID(detail))
+	return 0
+}
+
+func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := newCommandFlagSet(config.Command+" task delete", stderr, taskCommandUsage)
+	projectRef := fs.String("project", ".", "project id or path for short ids")
+	positionals, flagArgs := takeLeadingPositionals(args, 1)
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
+	}
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "task delete requires <short-id-or-task-id>")
+		return 2
+	}
+	if denyAgentHumanOnlyTaskAction(stderr) {
+		return 1
+	}
+	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() { _ = remote.Close() }()
+	taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, *projectRef, positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// Load the task detail before deletion so we can report a stable display id;
+	// the task no longer exists once the delete RPC succeeds.
+	displayID := taskID
+	if detail, err := getWorkflowTaskByID(context.Background(), remote, taskID); err == nil {
+		displayID = taskDisplayID(detail)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
+	defer cancel()
+	if err := remote.DeleteWorkflowTask(ctx, serverapi.WorkflowTaskDeleteRequest{TaskID: taskID}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Deleted task %s.\n", displayID)
 	return 0
 }
 

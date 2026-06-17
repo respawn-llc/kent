@@ -1,8 +1,58 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 import type { QuestionAnswerInput } from "../../api";
+import { errorMessage } from "../../api/errors";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
+import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
+import { workflowProjectEventAffectsTask } from "../../app/workflowProjectEvents";
+
+// useTaskDetailLiveRefresh keeps an open task detail in sync with the server by
+// subscribing to its project's workflow events. Any event that mutates this
+// task (status, runs, transitions/approvals, comments, questions, title/body)
+// invalidates the detail's queries so the surface refreshes on its own,
+// regardless of which route hosts it (board sidebar, attention inbox, or the
+// standalone task window). Invalidations target active observers only and reuse
+// existing cache data during the background refetch, so the refresh is
+// flicker-free and never collapses the surface back to a loading state.
+export function useTaskDetailLiveRefresh(taskID: string, projectID: string, enabled: boolean) {
+  const { api, logger } = useAppServices();
+  const queryClient = useQueryClient();
+  const connection = useConnectionSnapshot();
+  const connectionPhase = connection.phase;
+  const connectionGeneration = connection.generation;
+
+  useEffect(() => {
+    if (!enabled || taskID.length === 0 || projectID.length === 0 || connectionPhase !== "connected") {
+      return;
+    }
+    const subscription = api.subscribeProject(projectID, {
+      onEvent(_method, params) {
+        if (!workflowProjectEventAffectsTask(params, taskID)) {
+          return;
+        }
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID), refetchType: "active" }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID), refetchType: "active" }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.comments(taskID), refetchType: "active" }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks, refetchType: "active" }),
+        ]).catch((error: unknown) => {
+          void logger.append("warn", "Task detail live refresh failed.", { error: errorMessage(error) });
+        });
+      },
+      onComplete() {
+        return;
+      },
+      onError(error) {
+        void logger.append("warn", "Task detail subscription failed.", { error: errorMessage(error) });
+      },
+    });
+    return () => {
+      subscription.close();
+    };
+  }, [api, connectionGeneration, connectionPhase, enabled, logger, projectID, queryClient, taskID]);
+}
 
 export function useTaskDetail(taskID: string, enabled: boolean) {
   const { api } = useAppServices();

@@ -181,6 +181,7 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
       }),
       workflow: workflowPickerItemSchema,
       body: emptyString,
+      source_url: emptyString,
       source_workspace: workspaceSummarySchema,
       managed_worktree: z
         .object({
@@ -206,6 +207,7 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
     workflowVersion: value.task.workflow.version,
     title: value.task.summary.title,
     body: value.task.body,
+    sourceURL: value.task.source_url,
     sourceWorkspace: value.task.source_workspace,
     status: value.task.status,
     actions: value.task.actions,

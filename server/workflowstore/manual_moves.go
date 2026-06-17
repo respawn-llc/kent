@@ -31,7 +31,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 		return ManualMoveResult{}, err
 	}
 	derived := workflow.DeriveWiring(def)
-	sourcePlacement, sourceNodeID, err := s.activeManualMoveSource(ctx, req.TaskID)
+	sourcePlacement, sourceNodeID, pendingApprovalTransitionID, err := s.manualMoveSource(ctx, req.TaskID)
 	if err != nil {
 		return ManualMoveResult{}, err
 	}
@@ -114,19 +114,29 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	updatedResult, err := tx.ExecContext(ctx, `
+	if pendingApprovalTransitionID != "" {
+		// The task is awaiting approval and has no active placement (its source
+		// placement is already completed). Manually moving it overrides the
+		// proposed transition: reject the pending approval so the task leaves
+		// the approval state, then continue with the move below.
+		if err := rejectPendingApprovalTransition(ctx, tx, pendingApprovalTransitionID); err != nil {
+			return ManualMoveResult{}, err
+		}
+	} else {
+		updatedResult, err := tx.ExecContext(ctx, `
 UPDATE task_node_placements
 SET state = 'completed', updated_at_unix_ms = ?
 WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
-	if err != nil {
-		return ManualMoveResult{}, err
-	}
-	updated, err := updatedResult.RowsAffected()
-	if err != nil {
-		return ManualMoveResult{}, err
-	}
-	if updated != 1 {
-		return ManualMoveResult{}, sql.ErrNoRows
+		if err != nil {
+			return ManualMoveResult{}, err
+		}
+		updated, err := updatedResult.RowsAffected()
+		if err != nil {
+			return ManualMoveResult{}, err
+		}
+		if updated != 1 {
+			return ManualMoveResult{}, sql.ErrNoRows
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = ? WHERE id = ?`, now, string(req.TaskID)); err != nil {
 		return ManualMoveResult{}, fmt.Errorf("update task timestamp: %w", err)
@@ -312,6 +322,79 @@ func (s *Store) backwardManualMoveEdge(ctx context.Context, sourcePlacement work
 	group := workflow.TransitionGroup{ID: workflow.TransitionGroupID(groupID.String), TransitionID: workflow.TransitionID(transitionID), DisplayName: transitionDisplayName}
 	edge := workflow.Edge{ID: workflow.EdgeID(workflowEdgeID.String), Key: workflow.ModelKey(edgeKey), TargetNodeID: targetNode.ID, ContextMode: workflow.ContextMode(contextMode), ContextSource: workflow.CanonicalContextSource(metadata.ContextSource), RequiresApproval: requiresApproval != 0, InputBindings: inputs, OutputRequirements: requirements}
 	return group, edge, outputValues, workflow.RunID(sourceRunID.String), sessionID, true, nil
+}
+
+// manualMoveSource resolves the placement and node a manual move starts from.
+// A task with an active placement moves from it directly. A task awaiting
+// approval has no active placement (its source placement is already completed);
+// in that case the move starts from the single pending-approval transition and
+// its ID is returned so the move can reject it and override the proposal.
+func (s *Store) manualMoveSource(ctx context.Context, taskID workflow.TaskID) (workflow.PlacementID, workflow.NodeID, string, error) {
+	placement, nodeID, err := s.activeManualMoveSource(ctx, taskID)
+	if err == nil {
+		return placement, nodeID, "", nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", "", "", err
+	}
+	return s.pendingApprovalManualMoveSource(ctx, taskID)
+}
+
+func (s *Store) pendingApprovalManualMoveSource(ctx context.Context, taskID workflow.TaskID) (workflow.PlacementID, workflow.NodeID, string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT tt.id, tt.source_placement_id, p.node_id
+FROM task_transitions tt
+JOIN task_node_placements p ON p.id = tt.source_placement_id
+WHERE tt.task_id = ? AND tt.state = 'pending_approval'
+ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC`, string(taskID))
+	if err != nil {
+		return "", "", "", err
+	}
+	defer func() { _ = rows.Close() }()
+	var sources []struct {
+		transitionID string
+		placementID  string
+		nodeID       string
+	}
+	for rows.Next() {
+		var source struct {
+			transitionID string
+			placementID  string
+			nodeID       string
+		}
+		if err := rows.Scan(&source.transitionID, &source.placementID, &source.nodeID); err != nil {
+			return "", "", "", err
+		}
+		sources = append(sources, source)
+	}
+	if err := rows.Err(); err != nil {
+		return "", "", "", err
+	}
+	if len(sources) == 0 {
+		return "", "", "", ErrManualMoveNoSourcePosition
+	}
+	if len(sources) != 1 {
+		return "", "", "", ErrManualMoveMultiplePendingApprovals
+	}
+	return workflow.PlacementID(sources[0].placementID), workflow.NodeID(sources[0].nodeID), sources[0].transitionID, nil
+}
+
+func rejectPendingApprovalTransition(ctx context.Context, tx *sql.Tx, transitionID string) error {
+	result, err := tx.ExecContext(ctx, `
+UPDATE task_transitions
+SET state = 'rejected'
+WHERE id = ? AND state = 'pending_approval'`, transitionID)
+	if err != nil {
+		return fmt.Errorf("reject pending approval: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrManualMovePendingApprovalResolved
+	}
+	return nil
 }
 
 func (s *Store) activeManualMoveSource(ctx context.Context, taskID workflow.TaskID) (workflow.PlacementID, workflow.NodeID, error) {

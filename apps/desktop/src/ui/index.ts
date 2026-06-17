@@ -2,6 +2,7 @@ export { Badge } from "./Badge";
 export type { BadgeTone } from "./Badge";
 export { Button } from "./Button";
 export type { ButtonSize, ButtonVariant } from "./Button";
+export { IconTooltipButton } from "./IconTooltipButton";
 export { DisabledInteractionGuard } from "./DisabledInteractionGuard";
 export type { DisabledInteractionGuardProps } from "./DisabledInteractionGuard";
 export { Dialog } from "./Dialog";
@@ -30,6 +31,7 @@ export {
   homeListCardShellClassName,
 } from "./HomeListCard";
 export { MarkdownText } from "./MarkdownText";
+export { compactExternalUrlLabel, safeExternalUrl } from "./externalLinks";
 export { NativeDialogWindow } from "./NativeDialogWindow";
 export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";

@@ -644,6 +644,37 @@ func TestDeleteTaskHardDeletesAssociatedRecords(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskHardDeletesParallelBatchRecords(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+
+	// Fan-out leaves placements carrying parallel_batch_transition_id and
+	// transition rows carrying source_placement_id/source_run_id. These are the
+	// ON DELETE SET NULL cross-links whose runtime validation triggers previously
+	// aborted a cascading task delete; deletion must remove them cleanly.
+	result := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
+	if len(result.PlacementIDs) != 2 {
+		t.Fatalf("fanout result = %+v, want two parallel branch placements", result)
+	}
+
+	deleted, err := store.DeleteTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("DeleteTask with parallel batch placements: %v", err)
+	}
+	if deleted.ID != task.ID {
+		t.Fatalf("deleted task id = %q, want %q", deleted.ID, task.ID)
+	}
+	if _, err := store.queries.GetTask(ctx, string(task.ID)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetTask after DeleteTask = %v, want sql.ErrNoRows", err)
+	}
+	assertZeroTaskRows(t, store, "task_node_placements", string(task.ID))
+	assertZeroTaskRows(t, store, "task_transitions", string(task.ID))
+	assertZeroTaskRows(t, store, "task_comments", string(task.ID))
+}
+
 func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
@@ -2257,6 +2288,75 @@ func TestManualMoveBackwardReusesStoredOutputValues(t *testing.T) {
 	}
 	if len(transitions) != 3 || transitions[2].OutputValues["prior_summary"] != "reused" {
 		t.Fatalf("backward transition outputs = %+v, want reused prior_summary", transitions)
+	}
+}
+
+func TestManualMoveFromPendingApprovalToBacklogDiscardsApproval(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "carry"}})
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	plan := nodeByKey(t, def, "plan")
+	start := nodeByKind(t, def, workflow.NodeKindStart)
+
+	// A backward move onto an agent node parks the task in pending approval
+	// with no active placement: its source placement is already completed.
+	approval, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: plan.ID})
+	if err != nil {
+		t.Fatalf("ManualMoveTask to approval: %v", err)
+	}
+	if approval.State != "pending_approval" {
+		t.Fatalf("setup move state = %q, want pending_approval", approval.State)
+	}
+
+	// Moving the awaiting-approval task back to Backlog must succeed, discard
+	// the pending approval, and land a single active placement at the start node.
+	moved, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: start.ID, AllowMissingEdge: true})
+	if err != nil {
+		t.Fatalf("ManualMoveTask from approval to backlog: %v", err)
+	}
+	if moved.State != "applied" || len(moved.PlacementIDs) != 1 {
+		t.Fatalf("approval-to-backlog move = %+v, want applied with one placement", moved)
+	}
+
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	rejected := 0
+	for _, transition := range transitions {
+		if transition.ID == approval.TransitionID {
+			if transition.State != "rejected" {
+				t.Fatalf("approval transition state = %q, want rejected", transition.State)
+			}
+			rejected++
+		}
+	}
+	if rejected != 1 {
+		t.Fatalf("expected the pending approval to be rejected exactly once, transitions = %+v", transitions)
+	}
+
+	placements, err := store.ListPlacements(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListPlacements: %v", err)
+	}
+	active := 0
+	for _, placement := range placements {
+		if placement.State == "active" {
+			active++
+			if placement.NodeID != start.ID {
+				t.Fatalf("active placement node = %q, want start node %q", placement.NodeID, start.ID)
+			}
+		}
+	}
+	if active != 1 {
+		t.Fatalf("expected exactly one active placement at the start node, placements = %+v", placements)
 	}
 }
 

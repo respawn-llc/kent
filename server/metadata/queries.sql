@@ -509,6 +509,18 @@ WHERE t.workflow_id = sqlc.arg(workflow_id)
 DELETE FROM project_workflow_links
 WHERE id = sqlc.arg(id);
 
+-- name: DeleteTaskTransitionsByTask :execrows
+DELETE FROM task_transitions
+WHERE task_id = sqlc.arg(task_id);
+
+-- name: DeleteTaskNodePlacementsByTask :execrows
+DELETE FROM task_node_placements
+WHERE task_id = sqlc.arg(task_id);
+
+-- name: DeleteTaskCommentsByTask :execrows
+DELETE FROM task_comments
+WHERE task_id = sqlc.arg(task_id);
+
 -- name: DeleteTask :execrows
 DELETE FROM tasks
 WHERE id = sqlc.arg(id);

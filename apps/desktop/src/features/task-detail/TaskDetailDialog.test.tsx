@@ -1,5 +1,5 @@
 import { createBrowserNativeBridge, type NativeBridge } from "@app/native-bridge";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "../../App";
 import { guiTaskCommentAuthor } from "../../api/client";
@@ -456,6 +456,120 @@ describe("TaskDetailSurface", () => {
     });
   });
 
+  it("refreshes the standalone task surface when a server event mutates the task", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    let hasQuestion = false;
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.task.get",
+        handler: () => ({
+          task: {
+            ...taskDetailNoInboxResponse.task,
+            summary: {
+              ...taskDetailNoInboxResponse.task.summary,
+              updated_at_unix_ms: hasQuestion ? 99 : 2,
+            },
+            attention: hasQuestion ? [questionAttention] : [],
+          },
+        }),
+      },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: { Asks: [] } },
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByRole("textbox", { name: "Title" });
+    expect(screen.queryByRole("region", { name: "Question" })).not.toBeInTheDocument();
+
+    hasQuestion = true;
+    act(() => {
+      services.transport.emit("workflow.event", taskQuestionWaitingEvent);
+    });
+
+    const question = await screen.findByRole("region", { name: "Question" });
+    expect(await within(question).findByRole("radio", { name: /Trail mix/u })).toBeInTheDocument();
+  });
+
+  it("keeps unsaved title and description edits across a live refresh", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    let serverBody = taskDetailNoInboxResponse.task.body;
+    let serverUpdatedAt = 2;
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.task.get",
+        handler: () => ({
+          task: {
+            ...taskDetailNoInboxResponse.task,
+            summary: { ...taskDetailNoInboxResponse.task.summary, updated_at_unix_ms: serverUpdatedAt },
+            body: serverBody,
+          },
+        }),
+      },
+      { method: "workflow.task.activity.list", result: activityResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    const description = await screen.findByRole("textbox", { name: "Description" });
+    fireEvent.change(description, { target: { value: "Half-written notes" } });
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+
+    // The task advances on the server and an event fires; the in-progress edit
+    // must survive the background refresh.
+    serverBody = "Agent rewrote the body";
+    serverUpdatedAt = 99;
+    act(() => {
+      services.transport.emit("workflow.event", taskUpdatedEvent);
+    });
+
+    await waitFor(() => {
+      expect(getCallCount(services.transport.calls, "workflow.task.get")).toBeGreaterThan(1);
+    });
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("Half-written notes");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+  });
+
+  it("follows server title updates on a clean surface without unsaved edits", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    let serverTitle = "Resolve blocker";
+    let serverUpdatedAt = 2;
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.task.get",
+        handler: () => ({
+          task: {
+            ...taskDetailNoInboxResponse.task,
+            summary: {
+              ...taskDetailNoInboxResponse.task.summary,
+              title: serverTitle,
+              updated_at_unix_ms: serverUpdatedAt,
+            },
+          },
+        }),
+      },
+      { method: "workflow.task.activity.list", result: activityResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Resolve blocker");
+
+    serverTitle = "Renamed by agent";
+    serverUpdatedAt = 99;
+    act(() => {
+      services.transport.emit("workflow.event", taskUpdatedEvent);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Renamed by agent");
+    });
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  });
+
 });
 
 function nativeBridgeWithClipboard(copied: string[]): NativeBridge {
@@ -640,6 +754,39 @@ const taskDetailNoInboxResponse = {
   },
 };
 
+const questionAttention = {
+  ...attentionBase,
+  id: "attention-question",
+  kind: "question",
+  run_id: "run-1",
+  session_id: "session-1",
+  ask_id: "ask-1",
+  task_transition_id: "",
+  message: "Choose snack",
+  recommended_option_index: 1,
+  suggestions: ["Trail mix", "Dark chocolate"],
+};
+
+const taskQuestionWaitingEvent = {
+  event: {
+    resource: "task",
+    action: "question_waiting",
+    changed_ids: ["task-1", "run-1", "ask-1"],
+    project_id: "project-1",
+    workflow_id: "workflow-1",
+  },
+};
+
+const taskUpdatedEvent = {
+  event: {
+    resource: "task",
+    action: "updated",
+    changed_ids: ["task-1"],
+    project_id: "project-1",
+    workflow_id: "workflow-1",
+  },
+};
+
 const activityResponse = {
   items: [
     {
@@ -732,6 +879,13 @@ function callParams(
     throw new Error(`Missing object params for ${method}.`);
   }
   return params;
+}
+
+function getCallCount(
+  calls: readonly Readonly<{ method: string; params: JsonValue }>[],
+  method: string,
+): number {
+  return calls.filter((call) => call.method === method).length;
 }
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {

@@ -194,7 +194,8 @@
 - Task detail opens from Home/Board/shell through reusable native child-window infrastructure when native windows are available.
 - Browser/tests use in-app dialog fallback.
 - Direct desktop/browser route `/tasks/:taskId` renders standalone inline detail page.
-- There is one global native task-detail window; opening another task replaces content.
+- The task-detail sidebar header exposes a pop-out control (only when native windows are available) that reopens the current task as a standalone native task-detail window and closes the sidebar. Pop-out availability and window options come from a reusable per-destination mapping (`sidebarPopOutOptions`) so future sidebars opt in without new bridge plumbing.
+- Pop-out windows are keyed per task: re-popping a task that already has a window focuses the existing window instead of duplicating it; different tasks open separate windows.
 - Native/Tauri owns task-detail size and position. Do not keep custom remembered in-app sizing for native detail.
 - Closing child window after mutations blanket-refetches visible queries.
 - Fixed header/actions and task description are always visible.
@@ -205,9 +206,11 @@
 - Activity tab is compact timeline with no mutation controls and no count badge.
 - Runs tab contains runs, worktree/session info, and telemetry when too dense for header; it has a run count badge.
 - Required identity/status fields: task ID, title, body rendered as Markdown, project, workflow, source workspace, current node/status, completion/done/cancel state, and server action flags.
-- Conditional fields: worktree path, agent role/run status, session ID/name, assignee/column ownership when server provides it.
+- Conditional fields: worktree path, agent role/run status, session ID/name, source URL, assignee/column ownership when server provides it.
 - Missing-field policy: hide expected-not-yet-created fields, show continuity fields empty/unassigned where useful, and render unexpected meaningful missing fields as unavailable/error states.
-- Task detail allows title/body edit only while still in Backlog. Source URL remains hidden.
+- Task detail allows title/body edit only while still in Backlog. Source URL is shown read-only in Properties and is never editable: valid `http(s)`/`mailto` values render as a compact link labeled with the bare host (e.g. `github.com`) opening in the system browser, and other values fall back to plain `Source: <text>`.
+- Task detail self-refreshes live while open: it subscribes to its project's workflow events and refetches its own read models (detail, activity, comments, pending asks) whenever a server event mutates the task — status, runs, transitions/approvals, comments, questions, or title/body — independent of the hosting surface (board sidebar, Home inbox, or standalone window). Refreshes reuse cached data so the update is flicker-free and never collapses the surface to a loading state.
+- Live refresh never overwrites unsaved edits: a clean surface follows server updates, but in-progress title/body edits take priority and are preserved until the user saves or reverts them.
 
 ## Comments, Activity, Inbox
 
@@ -216,6 +219,7 @@
 - Activity feed is newest-to-oldest and paginated for older entries.
 - Deleted comments are hidden unless backend later adds explicit delete audit rows.
 - Home Inbox lists/deep-links attention items. Answer/approval actions happen in task detail Inbox.
+- Task detail sidebars opened from the Home Inbox expose live Previous/Next controls that step through the attention feed order. Navigation reflects the live inbox; after the open task is resolved and leaves the inbox, Next advances to the item that took its place. Controls are Inbox-only — board/standalone task detail has no Previous/Next.
 - Top detail action opens or focuses next/highest-priority unresolved attention item.
 - If multiple unresolved attention items exist, all get inline controls.
 - Question UI preserves ask functionality with options, blank commentary/freeform field, recommended marker, click or arrows plus Enter, and standard Tab focus. Do not show source-origin label.
@@ -265,7 +269,7 @@
 - Q: What is canonical board order? A: Backlog fixed left, workflow-defined nodes, Done fixed right.
 - Q: Where are completed tasks shown? A: Same board in fixed-right Done with per-node infinite scroll.
 - Q: What task fields are required if backend data is missing? A: Hide expected-not-yet-created fields, show continuity fields empty/unassigned, unexpected meaningful missing fields as unavailable/error.
-- Q: Which task edits belong in MVP? A: Title/body/source workspace only while Backlog; source URL hidden.
+- Q: Which task edits belong in MVP? A: Title/body/source workspace only while Backlog; source URL is shown read-only in detail Properties, not editable.
 - Q: Are task comments MVP? A: Yes, full create/edit/delete.
 - Q: Where are workflow questions and approvals answered? A: Home Inbox lists/deep-links; task detail Inbox owns action controls.
 - Q: Is approval Reject in MVP? A: No, Approve only.

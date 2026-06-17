@@ -25,7 +25,6 @@ import {
   cardBelongsToColumn,
   dirtyBoardCardCountColumnIDs,
   dirtyBoardCardColumnIDs,
-  pendingBoardCardMoveDestinationMissing,
   type BoardCardColumnCountSnapshot,
   type BoardCardColumnsSnapshot,
   type PendingBoardCardMove,
@@ -174,7 +173,7 @@ export function BoardRailMotionController({
           dirtyCountColumnSet.has(columnID),
         ),
       );
-      if (!dirtySettled && (!fromTimeout || pendingBoardCardMoveDestinationMissing(nextDisplayed, pendingCardMove))) {
+      if (!dirtySettled && !fromTimeout) {
         clearStaleSnapshotTimer(timeoutRef);
         timeoutRef.current = window.setTimeout(() => {
           timeoutRef.current = null;
@@ -207,7 +206,7 @@ export function BoardRailMotionController({
         revealCardIDs: participants.revealCardIDs,
       });
     },
-    [latestSnapshot, layoutSignature, pendingCardMove],
+    [latestSnapshot, layoutSignature],
   );
 
   useLayoutEffect(() => {

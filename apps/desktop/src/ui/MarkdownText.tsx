@@ -3,12 +3,12 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
+import { safeExternalUrl } from "./externalLinks";
+
 export type MarkdownTextProps = Readonly<{
   value: string;
   onOpenLink?: (url: string) => void;
 }>;
-
-const safeProtocols = new Set(["http:", "https:", "mailto:"]);
 
 export function MarkdownText({ value, onOpenLink }: MarkdownTextProps) {
   return (
@@ -26,7 +26,7 @@ export function MarkdownText({ value, onOpenLink }: MarkdownTextProps) {
 function markdownComponents(onOpenLink: MarkdownTextProps["onOpenLink"]): Components {
   return {
     a({ children, href }) {
-      const safeHref = safeLink(href);
+      const safeHref = safeExternalUrl(href);
       if (safeHref === undefined) {
         return <span>{children}</span>;
       }
@@ -54,17 +54,4 @@ function markdownComponents(onOpenLink: MarkdownTextProps["onOpenLink"]): Compon
       return <pre>{children}</pre>;
     },
   };
-}
-
-function safeLink(value: string | undefined): string | undefined {
-  if (value === undefined || value.trim().length === 0) {
-    return undefined;
-  }
-
-  try {
-    const parsed = new URL(value);
-    return safeProtocols.has(parsed.protocol) ? parsed.toString() : undefined;
-  } catch {
-    return undefined;
-  }
 }

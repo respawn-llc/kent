@@ -557,6 +557,45 @@ func (q *Queries) DeleteTaskComment(ctx context.Context, id string) (int64, erro
 	return result.RowsAffected()
 }
 
+const deleteTaskCommentsByTask = `-- name: DeleteTaskCommentsByTask :execrows
+DELETE FROM task_comments
+WHERE task_id = ?1
+`
+
+func (q *Queries) DeleteTaskCommentsByTask(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskCommentsByTask, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteTaskNodePlacementsByTask = `-- name: DeleteTaskNodePlacementsByTask :execrows
+DELETE FROM task_node_placements
+WHERE task_id = ?1
+`
+
+func (q *Queries) DeleteTaskNodePlacementsByTask(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskNodePlacementsByTask, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteTaskTransitionsByTask = `-- name: DeleteTaskTransitionsByTask :execrows
+DELETE FROM task_transitions
+WHERE task_id = ?1
+`
+
+func (q *Queries) DeleteTaskTransitionsByTask(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskTransitionsByTask, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteWorkflowEdge = `-- name: DeleteWorkflowEdge :execrows
 DELETE FROM workflow_edges
 WHERE id = ?1

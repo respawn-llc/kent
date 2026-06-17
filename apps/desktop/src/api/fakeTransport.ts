@@ -1,6 +1,6 @@
 import { ConnectionStore } from "./connectionStore";
 import type { JsonValue } from "./json";
-import type { RpcSubscription, RpcTransport } from "./transport";
+import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
 
 export type FakeRoute = Readonly<{
   method: string;
@@ -14,6 +14,7 @@ export class FakeRpcTransport implements RpcTransport {
   readonly calls: Readonly<{ method: string; params: JsonValue }>[] = [];
   #routes = new Map<string, FakeRoute>();
   #callCounts = new Map<string, number>();
+  #subscribers: Readonly<{ method: string; handler: RpcEventHandler }>[] = [];
 
   constructor(routes: readonly FakeRoute[]) {
     for (const route of routes) {
@@ -39,11 +40,21 @@ export class FakeRpcTransport implements RpcTransport {
     return route.result;
   }
 
-  subscribe(): RpcSubscription {
+  subscribe(method: string, _params: JsonValue, handler: RpcEventHandler): RpcSubscription {
+    const entry = { method, handler };
+    this.#subscribers.push(entry);
     return {
-      close() {
-        return;
+      close: () => {
+        this.#subscribers = this.#subscribers.filter((subscriber) => subscriber !== entry);
       },
     };
+  }
+
+  // emit delivers an event to every open subscription, letting tests drive the
+  // event-stream code paths (live refresh, attention updates) deterministically.
+  emit(method: string, params: unknown): void {
+    for (const subscriber of [...this.#subscribers]) {
+      subscriber.handler.onEvent(method, params);
+    }
   }
 }
