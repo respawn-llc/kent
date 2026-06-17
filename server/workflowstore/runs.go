@@ -315,6 +315,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 			SourceRunID:                    transitionContext.SourceRunID,
 			SourceSessionID:                transitionContext.SourceSessionID,
 			SourceNode:                     transitionContext.SourceNode,
+			AcceptedTransitionPath:         transitionContext.AcceptedTransitionPath,
 			IsFanoutBranch:                 isFanoutBranch,
 			TransitionIDs:                  transitionIDsFromSnapshot(snapshot),
 			TransitionOptions:              transitionOptionsFromSnapshot(snapshot),
@@ -344,6 +345,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		SourceRunID:                    transitionContext.SourceRunID,
 		SourceSessionID:                transitionContext.SourceSessionID,
 		SourceNode:                     transitionContext.SourceNode,
+		AcceptedTransitionPath:         transitionContext.AcceptedTransitionPath,
 		IsFanoutBranch:                 isFanoutBranch,
 		TransitionIDs:                  transitionIDsFromSnapshot(snapshot),
 		TransitionOptions:              transitionOptionsFromSnapshot(snapshot),
@@ -382,23 +384,32 @@ func (s *Store) placementIsFanoutBranch(ctx context.Context, taskID, placementID
 }
 
 type runTransitionContext struct {
-	ContextMode     workflow.ContextMode
-	SourceRunID     workflow.RunID
-	SourceSessionID string
-	SourceNode      NodeRecord
+	ContextMode            workflow.ContextMode
+	SourceRunID            workflow.RunID
+	SourceSessionID        string
+	SourceNode             NodeRecord
+	AcceptedTransitionPath AcceptedTransitionPath
 }
 
 func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID string, runMetadataJSON string) (runTransitionContext, error) {
 	var contextMode string
 	var sourceRunID sql.NullString
-	err := s.db.QueryRowContext(ctx, strings.TrimSuffix(resolveRunTransitionContextQuery, "\n"), placementID).Scan(&contextMode, &sourceRunID)
+	var sourceNodeDisplayName string
+	var targetNodeDisplayName string
+	err := s.db.QueryRowContext(ctx, strings.TrimSuffix(resolveRunTransitionContextQuery, "\n"), placementID).Scan(&contextMode, &sourceRunID, &sourceNodeDisplayName, &targetNodeDisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return runTransitionContext{ContextMode: workflow.ContextModeNewSession}, nil
 	}
 	if err != nil {
 		return runTransitionContext{}, fmt.Errorf("resolve workflow run transition context: %w", err)
 	}
-	resolved := runTransitionContext{ContextMode: workflow.ContextMode(strings.TrimSpace(contextMode))}
+	resolved := runTransitionContext{
+		ContextMode: workflow.ContextMode(strings.TrimSpace(contextMode)),
+		AcceptedTransitionPath: AcceptedTransitionPath{
+			SourceNodeDisplayName: strings.TrimSpace(sourceNodeDisplayName),
+			TargetNodeDisplayName: strings.TrimSpace(targetNodeDisplayName),
+		},
+	}
 	if resolved.ContextMode == "" {
 		resolved.ContextMode = workflow.ContextModeNewSession
 	}

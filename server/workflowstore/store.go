@@ -264,6 +264,7 @@ type RunStartContext struct {
 	SourceRunID                    workflow.RunID
 	SourceSessionID                string
 	SourceNode                     NodeRecord
+	AcceptedTransitionPath         AcceptedTransitionPath
 	// IsFanoutBranch is true when this run's placement is one branch of a
 	// parallel fan-out transition group. Continuation modes must isolate such
 	// runs (fork the source session) instead of sharing/mutating it.
@@ -280,6 +281,11 @@ type RunStartContext struct {
 	WorkspaceRoot        string
 	WorktreeID           string
 	WorktreeRoot         string
+}
+
+type AcceptedTransitionPath struct {
+	SourceNodeDisplayName string
+	TargetNodeDisplayName string
 }
 
 type TransitionOption struct {

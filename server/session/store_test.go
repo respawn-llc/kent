@@ -269,6 +269,63 @@ func TestAppendEventPersistsFirstPromptPreview(t *testing.T) {
 	}
 }
 
+func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
+	root := t.TempDir()
+	observer := &recordingPersistenceObserver{}
+	store, err := Create(root, "workspace-x", "/tmp/work", WithPersistenceObserver(observer))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := store.SetListingMetadata("  Workflow Session  ", "\n  Rendered workflow prompt\nsecond line"); err != nil {
+		t.Fatalf("SetListingMetadata: %v", err)
+	}
+	meta := store.Meta()
+	if meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
+		t.Fatalf("metadata = name %q preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
+	}
+	if !observer.called || observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
+		t.Fatalf("observer snapshot = %+v, called %v", observer.snapshot.Meta, observer.called)
+	}
+
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "event prompt"}); err != nil {
+		t.Fatalf("append user event: %v", err)
+	}
+	if got := store.Meta().FirstPromptPreview; got != "Rendered workflow prompt" {
+		t.Fatalf("event capture overwrote explicit preview: %q", got)
+	}
+
+	longPreview := strings.Repeat("x", firstPromptPreviewMaxChars+5)
+	if err := store.SetListingMetadata("Updated", longPreview); err != nil {
+		t.Fatalf("SetListingMetadata overwrite: %v", err)
+	}
+	wantTruncated := strings.Repeat("x", firstPromptPreviewMaxChars-1) + "…"
+	if got := store.Meta().FirstPromptPreview; got != wantTruncated {
+		t.Fatalf("truncated preview = %q, want %q", got, wantTruncated)
+	}
+
+	if err := store.SetListingMetadata("  ", " \n\t "); err != nil {
+		t.Fatalf("SetListingMetadata clear: %v", err)
+	}
+	if store.Meta().Name != "" || store.Meta().FirstPromptPreview != "" {
+		t.Fatalf("cleared metadata = %+v, want empty name and preview", store.Meta())
+	}
+
+	reopened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if reopened.Meta().Name != "" || reopened.Meta().FirstPromptPreview != "" {
+		t.Fatalf("reopened metadata = %+v, want empty name and preview", reopened.Meta())
+	}
+	items, err := ListSessions(root)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "" || items[0].FirstPromptPreview != "" {
+		t.Fatalf("listed sessions = %+v, want cleared metadata persisted", items)
+	}
+}
+
 func TestConversationFreshnessAdvancesOnlyForVisibleUserMessages(t *testing.T) {
 	store := newSessionTestStore(t)
 	if got := store.ConversationFreshness(); got != ConversationFreshnessFresh {

@@ -162,20 +162,26 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunReq
 	// dispose of it on setup failure. Only freshly created run sessions
 	// (new-session and fan-out clones) are disposable.
 	//
-	// For reused sessions, snapshot the previous reminder state so SetWorktreeReminderState
+	// For reused sessions, snapshot previous listing/reminder metadata so setup
 	// mutations can be rolled back if any later setup step fails.
 	var prevReminderState *session.WorktreeReminderState
+	var prevListingMetadata *sessionListingMetadata
 	if reusesExistingSession(input) {
-		if wr := plan.Store.Meta().WorktreeReminder; wr != nil {
+		meta := plan.Store.Meta()
+		prevListingMetadata = &sessionListingMetadata{Name: meta.Name, FirstPromptPreview: meta.FirstPromptPreview}
+		if wr := meta.WorktreeReminder; wr != nil {
 			snap := *wr
 			prevReminderState = &snap
 		}
 	}
 	cleanupSession := func() error {
 		if reusesExistingSession(input) {
-			return plan.Store.SetWorktreeReminderState(prevReminderState)
+			return errors.Join(restoreSessionListingMetadata(plan.Store, prevListingMetadata), plan.Store.SetWorktreeReminderState(prevReminderState))
 		}
 		return s.cleanupSession(ctx, plan.Store)
+	}
+	if err := applyWorkflowSessionMetadata(input, &plan); err != nil {
+		return errors.Join(err, cleanupSession())
 	}
 	client := llm.Client(nil)
 	if s.clientFactory != nil {
@@ -439,6 +445,56 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 	}
 	planSucceeded = true
 	return plan, warnings, nil
+}
+
+type sessionListingMetadata struct {
+	Name               string
+	FirstPromptPreview string
+}
+
+func restoreSessionListingMetadata(store *session.Store, metadata *sessionListingMetadata) error {
+	if store == nil || metadata == nil {
+		return nil
+	}
+	return store.SetListingMetadata(metadata.Name, metadata.FirstPromptPreview)
+}
+
+func applyWorkflowSessionMetadata(input workflowstore.RunStartContext, plan *launch.SessionPlan) error {
+	if plan == nil || plan.Store == nil {
+		return errors.New("workflow session plan store is required")
+	}
+	name, err := workflowSessionName(input)
+	if err != nil {
+		return err
+	}
+	preview, err := renderTransitionPrompt(input.PromptTemplate, input)
+	if err != nil {
+		return err
+	}
+	if err := plan.Store.SetListingMetadata(name, preview); err != nil {
+		return err
+	}
+	plan.SessionName = plan.Store.Meta().Name
+	return nil
+}
+
+func workflowSessionName(input workflowstore.RunStartContext) (string, error) {
+	taskDisplayID := strings.TrimSpace(input.Task.ShortID)
+	if taskDisplayID == "" {
+		taskDisplayID = strings.TrimSpace(string(input.Task.ID))
+	}
+	if taskDisplayID == "" {
+		return "", errors.New("workflow session metadata requires a task id")
+	}
+	sourceDisplayName := strings.TrimSpace(input.AcceptedTransitionPath.SourceNodeDisplayName)
+	if sourceDisplayName == "" {
+		return "", errors.New("workflow session metadata requires accepted transition source display name")
+	}
+	targetDisplayName := strings.TrimSpace(input.AcceptedTransitionPath.TargetNodeDisplayName)
+	if targetDisplayName == "" {
+		return "", errors.New("workflow session metadata requires accepted transition target display name")
+	}
+	return fmt.Sprintf("%s: %s -> %s", taskDisplayID, sourceDisplayName, targetDisplayName), nil
 }
 
 func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, req SchedulerStartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, client llm.Client) (workflowruntime.CompletionMode, llm.Client, error) {

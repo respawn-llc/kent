@@ -292,6 +292,15 @@ func (s *Store) SetName(name string) error {
 	})
 }
 
+func (s *Store) SetListingMetadata(name string, firstPromptPreview string) error {
+	return s.mutateAndPersist(func() error {
+		s.meta.Name = strings.TrimSpace(name)
+		s.meta.FirstPromptPreview = normalizeFirstPromptPreview(firstPromptPreview)
+		s.meta.UpdatedAt = time.Now().UTC()
+		return nil
+	})
+}
+
 func (s *Store) SetParentSessionID(parentSessionID string) error {
 	return s.mutateAndPersist(func() error {
 		s.meta.ParentSessionID = strings.TrimSpace(parentSessionID)
