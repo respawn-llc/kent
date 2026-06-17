@@ -404,6 +404,11 @@ func TestServiceCompleteWorkflowTaskFromAgentSessionCompletesWithoutSchedulerWak
 	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
 	sessionID := "session-agent-complete"
 	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, sessionID)
+	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflowProject: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
 	notifier := &recordingSchedulerNotifier{}
 	service.schedulerWake = notifier
 
@@ -421,12 +426,35 @@ func TestServiceCompleteWorkflowTaskFromAgentSessionCompletesWithoutSchedulerWak
 	if notifier.count != 0 {
 		t.Fatalf("agent completion scheduler notifications = %d, want 0", notifier.count)
 	}
+	event := nextWorkflowProjectEvent(t, sub)
+	if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID || event.Resource != "task" || event.Action != "completed" {
+		t.Fatalf("completion event = %+v, want single store-owned task completed event", event)
+	}
+	noEventCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if extra, extraErr := sub.Next(noEventCtx); extraErr == nil {
+		t.Fatalf("unexpected duplicate completion event: %+v", extra)
+	} else if !errors.Is(extraErr, context.DeadlineExceeded) {
+		t.Fatalf("waiting for duplicate completion event returned %v, want deadline", extraErr)
+	}
 	runs, err := service.store.ListRuns(ctx, workflow.TaskID(task.Task.ID))
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	if len(runs) != 1 || runs[0].CompletedAt == 0 {
 		t.Fatalf("runs after completion = %+v, want completed source run", runs)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskMapsMissingActiveTarget(t *testing.T) {
+	ctx, service, _, _ := newWorkflowServiceTestContextWithMetadata(t)
+
+	_, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
+		AgentSessionID: "session-without-run",
+	})
+	if !errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
+		t.Fatalf("CompleteWorkflowTask missing target error = %v, want ErrWorkflowTaskCompleteTargetNotFound", err)
 	}
 }
 

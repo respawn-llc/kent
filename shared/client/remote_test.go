@@ -613,6 +613,12 @@ func TestProtocolErrorMapsWorkflowTaskCompleteAmbiguousCode(t *testing.T) {
 	}
 }
 
+func TestProtocolErrorMapsWorkflowTaskCompleteNotFoundCode(t *testing.T) {
+	if err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeWorkflowTaskCompleteNotFound, Message: "missing completion target"}); !errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
+		t.Fatalf("expected missing workflow task completion target, got %v", err)
+	}
+}
+
 func TestProtocolErrorMapsAuthRequiredCode(t *testing.T) {
 	if err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeAuthRequired, Message: "auth required"}); !errors.Is(err, serverapi.ErrServerAuthRequired) {
 		t.Fatalf("expected server auth required, got %v", err)

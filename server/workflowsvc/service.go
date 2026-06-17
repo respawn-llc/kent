@@ -656,6 +656,9 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.Workfl
 	}
 	target, err := s.store.ResolveActiveRunCompletionTarget(ctx, workflowCompletionTargetSelector(req))
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return serverapi.WorkflowTaskCompleteResponse{}, serverapi.ErrWorkflowTaskCompleteTargetNotFound
+		}
 		if errors.Is(err, workflowstore.ErrRunIDRequired) {
 			return serverapi.WorkflowTaskCompleteResponse{}, serverapi.WorkflowTaskCompleteSelectorAmbiguousError{Message: "completion selector matched multiple active workflow runs"}
 		}
@@ -689,9 +692,6 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.Workfl
 		if s.schedulerWake != nil {
 			s.schedulerWake.Notify()
 		}
-	}
-	if detail, detailErr := s.view.GetTask(ctx, taskID); detailErr == nil {
-		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "completed", taskID, string(target.Run.ID), string(completed.TransitionID))
 	}
 	return serverapi.WorkflowTaskCompleteResponse{
 		TransitionID: string(completed.TransitionID),

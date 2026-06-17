@@ -36,6 +36,7 @@ const (
 	ErrCodeWorkflowTaskNotFound          = -32024
 	ErrCodeProtocolVersionMismatch       = -32025
 	ErrCodeWorkflowTaskCompleteAmbiguous = -32026
+	ErrCodeWorkflowTaskCompleteNotFound  = -32027
 )
 
 type Request struct {

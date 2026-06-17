@@ -973,7 +973,7 @@ func sortedRawJSONKeys(payload map[string]json.RawMessage) []string {
 
 func taskCompleteErrorMessage(err error) string {
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case errors.Is(err, sql.ErrNoRows), errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound):
 		return "no active unfinished agent run matched the completion selector. Retry with --run <run-id>, --session <session-id>, or --task <task-id-or-short-id>."
 	case errors.Is(err, serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous):
 		return "the completion selector matched multiple active workflow runs. Retry with --run <run-id> or the current Kent session."

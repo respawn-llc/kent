@@ -245,6 +245,26 @@ func TestTaskCompleteAmbiguousSelectorErrorShowsRetryGuidance(t *testing.T) {
 	}
 }
 
+func TestTaskCompleteMissingTargetErrorShowsRetryGuidance(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-agent")
+	remote := &taskCompleteCaptureRemote{
+		err: serverapi.ErrWorkflowTaskCompleteTargetNotFound,
+	}
+	restore := replaceWorkflowCommandRemoteOpener(t, config.App{WorkspaceRoot: t.TempDir()}, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "complete")
+	if code != 1 {
+		t.Fatalf("task complete missing target exit=%d stderr=%q", code, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "no active unfinished agent run matched") || !strings.Contains(stderr, "--session <session-id>") {
+		t.Fatalf("stderr = %q, want missing target retry guidance", stderr)
+	}
+}
+
 func TestTaskCompleteJSONInputModes(t *testing.T) {
 	t.Run("inline json produces json output", func(t *testing.T) {
 		t.Setenv(sessionenv.SessionIDEnv, "")
