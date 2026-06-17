@@ -413,7 +413,7 @@ func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task delete", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task delete", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
