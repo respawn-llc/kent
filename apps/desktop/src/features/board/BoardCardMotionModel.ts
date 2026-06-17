@@ -108,20 +108,6 @@ export function boardCardColumnIDsWithCards(snapshot: BoardCardColumnsSnapshot):
   return new Set(Array.from(snapshot, ([columnID, cards]) => (cards.length > 0 ? columnID : "")).filter(Boolean));
 }
 
-export function pendingBoardCardMoveDestinationMissing(
-  snapshot: BoardCardColumnsSnapshot,
-  pendingMove: PendingBoardCardMove | null,
-): boolean {
-  if (pendingMove === null) {
-    return false;
-  }
-  const targetCards = snapshot.get(pendingMove.targetColumnID);
-  if (targetCards === undefined) {
-    return false;
-  }
-  return !targetCards.some((card) => card.id === pendingMove.taskID);
-}
-
 export function boardRailLayoutSignature(
   board: WorkflowBoard,
   sections: readonly BoardSection[],
