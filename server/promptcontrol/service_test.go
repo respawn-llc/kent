@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"core/server/registry"
 	"core/server/requestmemo"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
@@ -30,6 +31,34 @@ func (s *stubPromptResponder) SubmitPromptResponse(sessionID string, resp askque
 type stubLeaseVerifier struct {
 	calls int
 	err   error
+}
+
+type stubCollaborativeRuntimeResolver struct {
+	calls     int
+	op        serverapi.SessionRuntimeOperation
+	err       error
+	responder *stubPromptResponder
+}
+
+func (s *stubCollaborativeRuntimeResolver) WithCollaborativePromptResponder(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(registry.GuardedPromptResponder) error) error {
+	s.calls++
+	s.op = op
+	if s.err != nil {
+		return s.err
+	}
+	return fn(stubGuardedPromptResponder{sessionID: sessionID, responder: s.responder})
+}
+
+type stubGuardedPromptResponder struct {
+	sessionID string
+	responder *stubPromptResponder
+}
+
+func (s stubGuardedPromptResponder) SubmitPromptResponse(resp askquestion.AskQuestionResponse, err error) error {
+	if s.responder == nil {
+		return nil
+	}
+	return s.responder.SubmitPromptResponse(s.sessionID, resp, err)
 }
 
 func (s *stubLeaseVerifier) RequireControllerLease(context.Context, string, string) error {
@@ -80,6 +109,55 @@ func TestServiceAnswerAskRequiresControllerLease(t *testing.T) {
 	}
 	if responder.calls != 0 {
 		t.Fatalf("responder call count = %d, want 0", responder.calls)
+	}
+}
+
+func TestServiceAnswerAskAllowsCollaborativeEmptyLease(t *testing.T) {
+	responder := &stubPromptResponder{}
+	verifier := &stubLeaseVerifier{err: errors.New("lease should not be required")}
+	collaborative := &stubCollaborativeRuntimeResolver{responder: responder}
+	service := NewPromptControlService(responder).WithControllerLeaseVerifier(verifier).WithCollaborativeRuntimeResolver(collaborative)
+	req := serverapi.AskAnswerRequest{
+		ClientRequestID: "req-1",
+		SessionID:       "session-1",
+		AskID:           "ask-1",
+		Answer:          "hello",
+	}
+
+	if err := service.AnswerAsk(context.Background(), req); err != nil {
+		t.Fatalf("AnswerAsk: %v", err)
+	}
+	if verifier.calls != 0 {
+		t.Fatalf("lease verifier call count = %d, want 0", verifier.calls)
+	}
+	if collaborative.calls != 1 || collaborative.op != serverapi.SessionRuntimeOperationPromptAnswer {
+		t.Fatalf("collaborative calls=%d op=%q, want prompt answer", collaborative.calls, collaborative.op)
+	}
+	if responder.calls != 1 || responder.response.Answer != "hello" {
+		t.Fatalf("unexpected responder state: calls=%d response=%+v", responder.calls, responder.response)
+	}
+}
+
+func TestServiceAnswerAskCollaborativeUsesGuardedPromptResponder(t *testing.T) {
+	unguarded := &stubPromptResponder{}
+	guarded := &stubPromptResponder{}
+	collaborative := &stubCollaborativeRuntimeResolver{responder: guarded}
+	service := NewPromptControlService(unguarded).WithCollaborativeRuntimeResolver(collaborative)
+	req := serverapi.AskAnswerRequest{
+		ClientRequestID: "req-guarded",
+		SessionID:       "session-1",
+		AskID:           "ask-1",
+		Answer:          "guarded answer",
+	}
+
+	if err := service.AnswerAsk(context.Background(), req); err != nil {
+		t.Fatalf("AnswerAsk: %v", err)
+	}
+	if unguarded.calls != 0 {
+		t.Fatalf("unguarded responder calls = %d, want 0", unguarded.calls)
+	}
+	if guarded.calls != 1 || guarded.response.Answer != "guarded answer" {
+		t.Fatalf("guarded responder state: calls=%d response=%+v", guarded.calls, guarded.response)
 	}
 }
 

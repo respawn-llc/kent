@@ -32,6 +32,8 @@ type serviceTestRuntime struct {
 	rebindHook      func(context.Context, string, string, string)
 	requireErr      error
 	controllerSeen  bool
+	activeGuards    int
+	releasedGuards  int
 }
 
 type serviceRuntimeCall struct {
@@ -69,23 +71,80 @@ func (r *serviceTestRuntime) RecordWorktreeTransition(_ context.Context, _ strin
 }
 
 func (r *serviceTestRuntime) SyncExecutionTarget(_ context.Context, sessionID string, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	trimmedSessionID := strings.TrimSpace(sessionID)
+	r.mu.Lock()
 	if reminder != nil {
 		r.reminderCalls = append(r.reminderCalls, *reminder)
 	}
 	if !r.activeSessions[trimmedSessionID] {
+		r.mu.Unlock()
 		return nil
 	}
-	r.rebindCalls = append(r.rebindCalls, serviceRuntimeCall{sessionID: sessionID, root: strings.TrimSpace(target.EffectiveWorkdir)})
 	if err := r.syncErrSessions[trimmedSessionID]; err != nil {
+		r.mu.Unlock()
 		return err
 	}
-	if r.rebindErr != nil && (strings.TrimSpace(r.rebindErrRoot) == "" || strings.TrimSpace(r.rebindErrRoot) == strings.TrimSpace(target.EffectiveWorkdir)) {
-		return r.rebindErr
+	r.mu.Unlock()
+	guard, err := r.BeginCollaborativeRuntimeGuard(context.Background(), sessionID, serverapi.SessionRuntimeOperationWorktreeManage)
+	if err != nil {
+		return err
+	}
+	defer guard.Release()
+	return guard.Rebind(strings.TrimSpace(target.EffectiveWorkdir))
+}
+
+func (r *serviceTestRuntime) PersistWorktreeReminderState(_ context.Context, _ string, reminder *session.WorktreeReminderState) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if reminder != nil {
+		r.reminderCalls = append(r.reminderCalls, *reminder)
 	}
 	return nil
+}
+
+func (r *serviceTestRuntime) BeginCollaborativeRuntimeGuard(_ context.Context, sessionID string, _ serverapi.SessionRuntimeOperation) (interface {
+	Release()
+	Rebind(workdir string) error
+}, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if r.activeSessions != nil && !r.activeSessions[trimmedSessionID] {
+		return nil, errors.New("collaborative runtime unavailable")
+	}
+	r.requireCalls = append(r.requireCalls, serviceRuntimeCall{sessionID: sessionID})
+	r.activeGuards++
+	return &serviceTestCollaborativeRuntimeAccess{runtime: r, sessionID: sessionID}, nil
+}
+
+func (r *serviceTestRuntime) WithCollaborativeRuntimeEngine(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(*runtimepkg.Engine) error) error {
+	lease, err := r.BeginCollaborativeRuntimeGuard(ctx, sessionID, op)
+	if err != nil {
+		return err
+	}
+	defer lease.Release()
+	return fn(&runtimepkg.Engine{})
+}
+
+type serviceTestCollaborativeRuntimeAccess struct {
+	runtime   *serviceTestRuntime
+	sessionID string
+	once      sync.Once
+}
+
+func (a *serviceTestCollaborativeRuntimeAccess) Rebind(workspaceRoot string) error {
+	return a.runtime.RebindLocalTools(context.Background(), a.sessionID, "", workspaceRoot)
+}
+
+func (a *serviceTestCollaborativeRuntimeAccess) Release() {
+	a.once.Do(func() {
+		a.runtime.mu.Lock()
+		defer a.runtime.mu.Unlock()
+		if a.runtime.activeGuards > 0 {
+			a.runtime.activeGuards--
+		}
+		a.runtime.releasedGuards++
+	})
 }
 
 func (r *serviceTestRuntime) IsSessionRuntimeActive(sessionID string) bool {
@@ -510,6 +569,42 @@ func TestSwitchWorktreeClampsCwdAndRecordsPendingReminder(t *testing.T) {
 	}
 	if finalTarget.WorktreeID != "" || finalTarget.CwdRelpath != "." {
 		t.Fatalf("unexpected final target after switch: %+v", finalTarget)
+	}
+}
+
+func TestSwitchWorktreeCollaborativeRuntimeReusesScopedGuardForRebind(t *testing.T) {
+	env := newServiceTestEnv(t)
+	created := mustCreateWorktree(t, env, "feature/collaborative-scoped-rebind")
+	env.runtime.mu.Lock()
+	env.runtime.activeSessions[env.session.Meta().SessionID] = true
+	env.runtime.requireCalls = nil
+	env.runtime.rebindCalls = nil
+	env.runtime.reminderCalls = nil
+	env.runtime.releasedGuards = 0
+	env.runtime.mu.Unlock()
+
+	_, err := env.service.SwitchWorktree(env.ctx, serverapi.WorktreeSwitchRequest{
+		ClientRequestID: "req-switch-collaborative-scoped-rebind",
+		SessionID:       env.session.Meta().SessionID,
+		WorktreeID:      created.WorktreeID,
+	})
+	if err != nil {
+		t.Fatalf("SwitchWorktree collaborative: %v", err)
+	}
+	env.runtime.mu.Lock()
+	requireCalls := append([]serviceRuntimeCall(nil), env.runtime.requireCalls...)
+	rebindCalls := append([]serviceRuntimeCall(nil), env.runtime.rebindCalls...)
+	activeGuards := env.runtime.activeGuards
+	releasedGuards := env.runtime.releasedGuards
+	env.runtime.mu.Unlock()
+	if len(requireCalls) != 1 {
+		t.Fatalf("collaborative guard acquisitions = %d, want 1; calls=%+v", len(requireCalls), requireCalls)
+	}
+	if len(rebindCalls) != 1 || rebindCalls[0].root != created.CanonicalRoot {
+		t.Fatalf("collaborative rebind calls = %+v, want one rebind to %q", rebindCalls, created.CanonicalRoot)
+	}
+	if activeGuards != 0 || releasedGuards != 1 {
+		t.Fatalf("collaborative guard counts active=%d released=%d, want active=0 released=1", activeGuards, releasedGuards)
 	}
 }
 

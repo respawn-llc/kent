@@ -11,6 +11,7 @@ import (
 	"core/server/runtime"
 	"core/server/runtimeview"
 	askquestion "core/server/tools"
+	"core/shared/clientui"
 	"core/shared/serverapi"
 )
 
@@ -30,6 +31,10 @@ type RuntimeRegistry struct {
 	runningSessions map[string]bool
 }
 
+type GuardedPromptResponder interface {
+	SubmitPromptResponse(resp askquestion.AskQuestionResponse, err error) error
+}
+
 type RuntimeInterestReason int
 
 const (
@@ -46,10 +51,17 @@ func NewRuntimeRegistry() *RuntimeRegistry {
 }
 
 func (r *RuntimeRegistry) Register(sessionID string, engine *runtime.Engine) {
+	r.RegisterRuntimeHooks(sessionID, engine, nil)
+}
+
+func (r *RuntimeRegistry) RegisterRuntimeHooks(sessionID string, engine *runtime.Engine, rebind func(string) error) {
 	if r == nil || engine == nil {
 		return
 	}
-	previous := r.directory.Register(sessionID, engine)
+	previous := r.directory.Register(sessionID, engine, rebind, func(previous *runtimeEntry) {
+		publishExternalRuntimeStatusToEntry(previous, clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateClosing, QueueAccepting: false})
+		failRuntimeEntryQueuedMessages(previous, runtime.QueuedUserMessageFailureClosing)
+	})
 	closeRuntimeEntry(previous, io.EOF)
 	if previous != nil {
 		r.updateAggregateRunState(sessionID, false)
@@ -64,9 +76,52 @@ func (r *RuntimeRegistry) Unregister(sessionID string, engine *runtime.Engine) {
 	if id == "" {
 		return
 	}
+	publishExternalRuntimeStatusToEntry(entry, clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateClosing, QueueAccepting: false})
+	publishExternalRuntimeStatusToEntry(entry, clientui.ExternalRuntimeStatus{})
 	r.leases.Clear(id)
 	closeRuntimeEntry(entry, io.EOF)
 	r.updateAggregateRunState(id, false)
+}
+
+func (r *RuntimeRegistry) CloseRuntimeWithDrain(ctx context.Context, sessionID string, engine *runtime.Engine, drain func(context.Context) error) error {
+	if r == nil {
+		return nil
+	}
+	id, entry, drainRef := r.directory.BeginClose(sessionID, engine)
+	if id == "" || entry == nil || drainRef == nil {
+		return nil
+	}
+	publishExternalRuntimeStatusToEntry(entry, clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateDraining, QueueAccepting: false})
+	drainRef.WaitForGuards()
+	var drainErr error
+	if drain != nil {
+		drainErr = drain(ctx)
+	}
+	removedID, removedEntry := r.directory.RemoveClosing(id, engine, entry)
+	if removedID == "" || removedEntry == nil {
+		drainRef.Release()
+		return drainErr
+	}
+	publishExternalRuntimeStatusToEntry(removedEntry, clientui.ExternalRuntimeStatus{})
+	drainRef.Release()
+	closeRuntimeEntry(removedEntry, io.EOF)
+	r.updateAggregateRunState(removedID, false)
+	return drainErr
+}
+
+type RuntimeGuard interface {
+	Engine() *runtime.Engine
+	Generation() uint64
+	Rebind(workdir string) error
+	GuardedPromptResponder
+	Release()
+}
+
+func (r *RuntimeRegistry) BeginRuntimeGuard(ctx context.Context, sessionID string) (RuntimeGuard, error) {
+	if r == nil {
+		return nil, fmt.Errorf("runtime registry is required")
+	}
+	return r.directory.BeginGuard(ctx, sessionID)
 }
 
 func (r *RuntimeRegistry) ResolveRuntime(_ context.Context, sessionID string) (*runtime.Engine, error) {
@@ -81,6 +136,48 @@ func (r *RuntimeRegistry) IsSessionRuntimeActive(sessionID string) bool {
 		return false
 	}
 	return r.directory.Active(sessionID)
+}
+
+func (r *RuntimeRegistry) ExternalRuntimeStatus(sessionID string) clientui.ExternalRuntimeStatus {
+	if r == nil {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	entry := r.directory.Entry(id)
+	if entry == nil {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	return r.externalRuntimeStatusForEntry(id, entry)
+}
+
+func (r *RuntimeRegistry) externalRuntimeStatusForEntry(sessionID string, entry *runtimeEntry) clientui.ExternalRuntimeStatus {
+	if r == nil || entry == nil {
+		return clientui.ExternalRuntimeStatus{}
+	}
+	closing, draining := entry.closeState()
+	if closing {
+		state := clientui.ExternalRuntimeStateClosing
+		if draining {
+			state = clientui.ExternalRuntimeStateDraining
+		}
+		return clientui.ExternalRuntimeStatus{
+			State:          state,
+			QueueAccepting: false,
+		}
+	}
+	if r.leases.Active(sessionID) {
+		return clientui.ExternalRuntimeStatus{
+			State:          clientui.ExternalRuntimeStateOwnerRunning,
+			QueueAccepting: true,
+		}
+	}
+	return clientui.ExternalRuntimeStatus{
+		State:          clientui.ExternalRuntimeStateRegisteredIdle,
+		QueueAccepting: true,
+	}
 }
 
 func (r *RuntimeRegistry) PublishRuntimeEventToAll(evt runtime.Event) {
@@ -246,7 +343,16 @@ func (r *RuntimeRegistry) AcquirePrimaryRun(sessionID string) (primaryrun.Lease,
 	if r == nil {
 		return nil, primaryrun.ErrActivePrimaryRun
 	}
-	return r.leases.Acquire(sessionID)
+	id := strings.TrimSpace(sessionID)
+	lease, err := r.leases.Acquire(id)
+	if err != nil {
+		return nil, err
+	}
+	r.publishExternalRuntimeStatus(id)
+	return primaryrun.LeaseFunc(func() {
+		lease.Release()
+		r.publishExternalRuntimeStatus(id)
+	}), nil
 }
 
 func (r *RuntimeRegistry) SetInterestObserver(observer func(sessionID string, reason RuntimeInterestReason)) {
@@ -321,6 +427,38 @@ func (r *RuntimeRegistry) updateAggregateRunState(sessionID string, running bool
 	if observer != nil {
 		observer(active)
 	}
+}
+
+func failRuntimeEntryQueuedMessages(entry *runtimeEntry, reason runtime.QueuedUserMessageFailureReason) {
+	if entry == nil || entry.engine == nil {
+		return
+	}
+	entry.engine.FailQueuedUserMessages(reason)
+}
+
+func (r *RuntimeRegistry) publishExternalRuntimeStatus(sessionID string) {
+	if r == nil {
+		return
+	}
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return
+	}
+	entry := r.directory.Entry(id)
+	if entry == nil {
+		return
+	}
+	publishExternalRuntimeStatusToEntry(entry, r.externalRuntimeStatusForEntry(id, entry))
+}
+
+func publishExternalRuntimeStatusToEntry(entry *runtimeEntry, status clientui.ExternalRuntimeStatus) {
+	if entry == nil || entry.sessionActivity == nil {
+		return
+	}
+	entry.sessionActivity.Publish(clientui.Event{
+		Kind:                  clientui.EventExternalRuntimeStatus,
+		ExternalRuntimeStatus: &status,
+	})
 }
 
 type notifyingSessionActivitySubscription struct {

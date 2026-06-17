@@ -179,7 +179,7 @@ func (e *Engine) appendMessageRaw(stepID string, msg llm.Message, eventPolicy st
 	return nil
 }
 
-func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch []string, queueItemIDs []string) error {
+func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch []string, queueItems []QueuedUserMessage) error {
 	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleUser, Content: text}, e.transcriptWorkingDir())
 	if strings.TrimSpace(msg.Content) == "" {
 		return nil
@@ -194,7 +194,8 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch 
 	} else {
 		e.markCurrentRequestShapeDirty()
 	}
-	normalizedIDs := normalizedQueueItemIDs(queueItemIDs)
+	normalizedItems := normalizedQueuedUserMessageStatusItems(queueItems)
+	normalizedIDs := queuedUserMessageStatusItemIDs(normalizedItems)
 	if _, _, err := e.store.AppendEvent(stepID, "message", msg); err != nil {
 		return err
 	}
@@ -207,21 +208,71 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch 
 		UserMessageBatchQueueItemIDs: normalizedIDs,
 		CommittedTranscriptChanged:   true,
 	})
+	for _, item := range normalizedItems {
+		e.emitRaw(Event{
+			Kind: EventQueuedUserMessageStatus,
+			QueuedUserMessageStatus: &QueuedUserMessageStatusEvent{
+				SessionID:       e.SessionID(),
+				QueueItemID:     item.ID,
+				ClientRequestID: item.ClientRequestID,
+				Status:          QueuedUserMessageSubmitted,
+			},
+		})
+	}
 	return nil
 }
 
-func normalizedQueueItemIDs(raw []string) []string {
-	out := make([]string, 0, len(raw))
+func normalizedQueuedUserMessageStatusItems(raw []QueuedUserMessage) []QueuedUserMessage {
+	out := make([]QueuedUserMessage, 0, len(raw))
 	seen := map[string]bool{}
-	for _, id := range raw {
-		trimmed := strings.TrimSpace(id)
-		if trimmed == "" || seen[trimmed] {
+	for _, item := range raw {
+		item.ID = strings.TrimSpace(item.ID)
+		item.ClientRequestID = strings.TrimSpace(item.ClientRequestID)
+		if item.ID == "" || seen[item.ID] {
 			continue
 		}
-		seen[trimmed] = true
-		out = append(out, trimmed)
+		seen[item.ID] = true
+		out = append(out, item)
 	}
 	return out
+}
+
+func queuedUserMessageStatusItemIDs(items []QueuedUserMessage) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) != "" {
+			ids = append(ids, strings.TrimSpace(item.ID))
+		}
+	}
+	return ids
+}
+
+func (e *Engine) emitQueuedUserMessageStatus(item QueuedUserMessage, status QueuedUserMessageStatus, reason QueuedUserMessageFailureReason, restore bool) {
+	if e == nil || item.ID == "" {
+		return
+	}
+	event := &QueuedUserMessageStatusEvent{
+		SessionID:       e.SessionID(),
+		QueueItemID:     item.ID,
+		ClientRequestID: item.ClientRequestID,
+		Status:          status,
+		FailureReason:   reason,
+	}
+	if restore {
+		event.RestoreText = item.Text
+	}
+	e.emitRaw(Event{Kind: EventQueuedUserMessageStatus, QueuedUserMessageStatus: event})
+}
+
+func (e *Engine) FailQueuedUserMessages(reason QueuedUserMessageFailureReason) []QueuedUserMessage {
+	e.ensureOrchestrationCollaborators()
+	pending := e.messageFlow.DrainPendingUserInjections()
+	messages := make([]QueuedUserMessage, 0, len(pending))
+	for _, item := range pending {
+		messages = append(messages, item)
+		e.emitQueuedUserMessageStatus(item, QueuedUserMessageFailed, reason, true)
+	}
+	return messages
 }
 
 func (e *Engine) clearStreamingAssistantStateRaw(stepID string) {

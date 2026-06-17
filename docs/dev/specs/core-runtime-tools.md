@@ -246,7 +246,11 @@
 - Output modes are explicit: `final-text` default and optional `json`.
 - JSON mode emits exactly one final object on stdout.
 - Progress is quiet by default and emits to stderr only with `--progress-mode=stderr`.
-- A headless run owns the active session runtime it registers. Interactive activation for the same active session attaches read-only.
+- A headless run owns the active session runtime it registers. Interactive activation for the same active session attaches in limited-control mode: live transcript/status, user steering and queued messages, prompt/approval answers, and explicitly allowed controls operate against the active runtime without controller ownership.
+- Queued steering accepted from a limited-control attach is submitted by the active owner before the runtime unregisters, unless terminal workflow completion wins first; in that case the client receives a visible failure instead of a silent drop. Queue requests made while the runtime is closing are rejected so the client can restore the input.
+- Limited-control attaches report the active runtime phase from shared runtime state and use an active/busy fallback while the external owner is executing, draining, or closing, including periods with no active engine-step snapshot. Registered-idle external runtimes remain collaborative and can accept allowed idle operations.
+- Prompt and approval resolution uses server-acknowledged shared prompt state. Clients do not locally finalize a pending prompt before the server accepts the answer and publishes/returns the resolved state.
+- Worktree controls are available from limited-control attaches when the active runtime is idle; worktree mutation remains serialized by the primary-run and workspace locks and rejects while the external owner is executing, draining, or closing.
 - Resuming a session with persisted subagent role metadata reapplies that role best-effort when it exists. Missing roles do not block explicit continuation.
 
 ## Provider Wiring

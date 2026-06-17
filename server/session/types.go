@@ -135,7 +135,14 @@ type Meta struct {
 	WorktreeReminder                *WorktreeReminderState `json:"worktree_reminder,omitempty"`
 	UsageState                      *UsageState            `json:"usage_state,omitempty"`
 	Goal                            *GoalState             `json:"goal,omitempty"`
+	WorkflowSession                 *WorkflowSessionState  `json:"workflow_session,omitempty"`
 	Locked                          *LockedContract        `json:"locked,omitempty"`
+}
+
+type WorkflowSessionState struct {
+	RunID      string `json:"run_id,omitempty"`
+	TaskID     string `json:"task_id,omitempty"`
+	WorkflowID string `json:"workflow_id,omitempty"`
 }
 
 type Event struct {

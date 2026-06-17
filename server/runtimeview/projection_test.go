@@ -11,6 +11,8 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
+	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/shared/clientui"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
@@ -357,6 +359,45 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	}
 	if view.ActiveRun != nil {
 		t.Fatalf("expected no active run in idle main view, got %+v", view.ActiveRun)
+	}
+}
+
+func TestMainViewFromWorkflowRuntimeIncludesWorkflowStatus(t *testing.T) {
+	store := newRuntimeViewStore(t)
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{
+		Model: "gpt-5",
+		WorkflowRun: &workflowruntime.Config{
+			Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("run-1")},
+			Instructions: workflowruntime.TaskInstructions{
+				TaskID:     "task-1",
+				WorkflowID: "workflow-1",
+			},
+		},
+	})
+	view := MainViewFromRuntime(eng)
+	if !view.Status.WorkflowActive || view.Status.WorkflowSession == nil {
+		t.Fatalf("workflow status = %+v, want active workflow session", view.Status)
+	}
+	if view.Status.WorkflowSession.RunID != "run-1" || view.Status.WorkflowSession.TaskID != "task-1" || view.Status.WorkflowSession.WorkflowID != "workflow-1" {
+		t.Fatalf("workflow session = %+v, want run/task/workflow ids", view.Status.WorkflowSession)
+	}
+}
+
+func TestMainViewFromReopenedWorkflowSessionIncludesDurableWorkflowStatus(t *testing.T) {
+	store := newRuntimeViewStore(t)
+	if err := store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {
+		t.Fatalf("SetWorkflowSessionState: %v", err)
+	}
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{Model: "gpt-5"})
+	view := MainViewFromRuntime(eng)
+	if view.Status.WorkflowActive {
+		t.Fatalf("workflow active = true, want false for reopened non-workflow runtime")
+	}
+	if view.Status.WorkflowSession == nil {
+		t.Fatalf("workflow session = nil, status=%+v", view.Status)
+	}
+	if view.Status.WorkflowSession.RunID != "run-1" || view.Status.WorkflowSession.TaskID != "task-1" || view.Status.WorkflowSession.WorkflowID != "workflow-1" {
+		t.Fatalf("workflow session = %+v, want run/task/workflow ids", view.Status.WorkflowSession)
 	}
 }
 

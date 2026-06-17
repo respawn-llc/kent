@@ -104,6 +104,28 @@ func TestActivateRecoverReportsReadOnlyTransition(t *testing.T) {
 	}
 }
 
+func TestActivateAcceptsCollaborativeWithoutLease(t *testing.T) {
+	operations := []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationSubmitUserTurn,
+		serverapi.SessionRuntimeOperationQueueUserMessage,
+	}
+	service := &fakeRuntimeService{activateResponses: []serverapi.SessionRuntimeActivateResponse{{
+		Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
+		AllowedOperations: operations,
+		ReadOnly:          true,
+	}}}
+	lease, err := Activate(context.Background(), service, Request{NewClientRequestID: fixedIDs("request-1")})
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if lease.Mode != serverapi.SessionRuntimeAttachModeCollaborative || lease.ReadOnly || lease.ID != "" {
+		t.Fatalf("lease = %+v, want collaborative no lease and not read-only", lease)
+	}
+	if !reflect.DeepEqual(lease.AllowedOperations, operations) {
+		t.Fatalf("allowed operations = %#v, want %#v", lease.AllowedOperations, operations)
+	}
+}
+
 func TestActivateRejectsEmptyLease(t *testing.T) {
 	service := &fakeRuntimeService{activateResponses: []serverapi.SessionRuntimeActivateResponse{{LeaseID: " "}}}
 	_, err := Activate(context.Background(), service, Request{NewClientRequestID: fixedIDs("request-1")})
@@ -112,17 +134,20 @@ func TestActivateRejectsEmptyLease(t *testing.T) {
 	}
 }
 
-func TestActivateAcceptsReadOnlyWithoutLease(t *testing.T) {
+func TestActivateTreatsLegacyReadOnlyWithoutLeaseAsNoControl(t *testing.T) {
 	service := &fakeRuntimeService{activateResponses: []serverapi.SessionRuntimeActivateResponse{{ReadOnly: true}}}
 	lease, err := Activate(context.Background(), service, Request{NewClientRequestID: fixedIDs("request-1")})
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
 	if !lease.ReadOnly {
-		t.Fatal("expected read-only lease")
+		t.Fatal("expected legacy read-only response to remain no-control")
 	}
-	if lease.ID != "" {
-		t.Fatalf("lease id = %q, want empty", lease.ID)
+	if lease.Mode != serverapi.SessionRuntimeAttachModeNoControl {
+		t.Fatalf("mode = %q, want no-control", lease.Mode)
+	}
+	if len(lease.AllowedOperations) != 0 {
+		t.Fatalf("allowed operations = %#v, want none for no-control", lease.AllowedOperations)
 	}
 }
 

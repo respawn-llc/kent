@@ -10,7 +10,7 @@ import (
 
 func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 	covered := map[reflect.Type]map[string]struct{}{
-		reflect.TypeOf(clientui.RuntimeMainView{}): fieldSet("Status", "Session", "ActiveRun"),
+		reflect.TypeOf(clientui.RuntimeMainView{}): fieldSet("Status", "Session", "ActiveRun", "ExternalRuntime"),
 		reflect.TypeOf(clientui.RuntimeStatus{}): fieldSet(
 			"ReviewerFrequency",
 			"ReviewerEnabled",
@@ -26,12 +26,16 @@ func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 			"ContextUsage",
 			"CompactionCount",
 			"Goal",
+			"WorkflowActive",
+			"WorkflowSession",
 			"Update",
 		),
-		reflect.TypeOf(clientui.RuntimeContextUsage{}): fieldSet("UsedTokens", "WindowTokens", "CacheHitPercent", "HasCacheHitPercentage"),
-		reflect.TypeOf(clientui.RuntimeGoal{}):         fieldSet("ID", "Objective", "Status", "Suspended"),
-		reflect.TypeOf(clientui.UpdateStatus{}):        fieldSet("Checked", "Available", "CurrentVersion", "LatestVersion"),
-		reflect.TypeOf(clientui.RuntimeSessionView{}):  fieldSet("SessionID", "SessionName", "ConversationFreshness", "ExecutionTarget", "Transcript", "Chat"),
+		reflect.TypeOf(clientui.WorkflowSessionStatus{}): fieldSet("RunID", "TaskID", "WorkflowID"),
+		reflect.TypeOf(clientui.ExternalRuntimeStatus{}): fieldSet("State", "QueueAccepting"),
+		reflect.TypeOf(clientui.RuntimeContextUsage{}):   fieldSet("UsedTokens", "WindowTokens", "CacheHitPercent", "HasCacheHitPercentage"),
+		reflect.TypeOf(clientui.RuntimeGoal{}):           fieldSet("ID", "Objective", "Status", "Suspended"),
+		reflect.TypeOf(clientui.UpdateStatus{}):          fieldSet("Checked", "Available", "CurrentVersion", "LatestVersion"),
+		reflect.TypeOf(clientui.RuntimeSessionView{}):    fieldSet("SessionID", "SessionName", "ConversationFreshness", "ExecutionTarget", "Transcript", "Chat"),
 		reflect.TypeOf(clientui.SessionExecutionTarget{}): fieldSet(
 			"WorkspaceID",
 			"WorkspaceName",

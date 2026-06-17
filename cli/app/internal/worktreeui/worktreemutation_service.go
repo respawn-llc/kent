@@ -150,8 +150,12 @@ func (s Service) clientRequestID() string {
 }
 
 func retryControlCall[T any](ctx context.Context, currentLeaseID func() string, recoverLease func(context.Context, error, bool) error, appendRecoveryWarning bool, call func(string) (T, error)) (T, error) {
-	value, err := call(currentLeaseID())
+	leaseID := strings.TrimSpace(currentLeaseID())
+	value, err := call(leaseID)
 	if !isRecoverableControlError(err) {
+		return value, err
+	}
+	if leaseID == "" {
 		return value, err
 	}
 	var zero T

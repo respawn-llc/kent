@@ -194,6 +194,57 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	}
 }
 
+func TestServiceGetSessionMainViewFallsBackToDurableWorkflowSessionState(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {
+		t.Fatalf("SetWorkflowSessionState: %v", err)
+	}
+	svc := NewService(NewStaticSessionResolver(store), nil, nil)
+	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("GetSessionMainView: %v", err)
+	}
+	if resp.MainView.Status.WorkflowSession == nil {
+		t.Fatalf("workflow session = nil, status=%+v", resp.MainView.Status)
+	}
+	if resp.MainView.Status.WorkflowActive {
+		t.Fatalf("workflow active = true, want false for reopened non-workflow runtime")
+	}
+	if resp.MainView.Status.WorkflowSession.RunID != "run-1" || resp.MainView.Status.WorkflowSession.TaskID != "task-1" || resp.MainView.Status.WorkflowSession.WorkflowID != "workflow-1" {
+		t.Fatalf("workflow session = %+v, want run/task/workflow ids", resp.MainView.Status.WorkflowSession)
+	}
+}
+
+func TestServiceGetSessionMainViewMergesDurableWorkflowSessionStateIntoLiveRuntime(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {
+		t.Fatalf("SetWorkflowSessionState: %v", err)
+	}
+	eng, err := runtime.New(store, &serviceFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
+	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("GetSessionMainView: %v", err)
+	}
+	if resp.MainView.Status.WorkflowSession == nil {
+		t.Fatalf("workflow session = nil, status=%+v", resp.MainView.Status)
+	}
+	if resp.MainView.Status.WorkflowSession.RunID != "run-1" || resp.MainView.Status.WorkflowSession.TaskID != "task-1" || resp.MainView.Status.WorkflowSession.WorkflowID != "workflow-1" {
+		t.Fatalf("workflow session = %+v, want run/task/workflow ids", resp.MainView.Status.WorkflowSession)
+	}
+}
+
 func TestServiceGetSessionMainViewIncludesExecutionTarget(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)

@@ -1766,6 +1766,73 @@ func TestRuntimeClientMainViewFailsFastWhenReadStalls(t *testing.T) {
 	}
 }
 
+func TestRuntimeClientCollaborativeMainViewSeedsBusyFallbackBeforeHydration(t *testing.T) {
+	withUIRuntimeReadTimeout(t, time.Millisecond)
+
+	reads := &blockingCountingSessionViewClient{}
+	runtimeClient := newRuntimeClientReadTest(reads).(*sessionRuntimeClient)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationQueueUserMessage,
+	})
+
+	view := runtimeClient.MainView()
+	if view.Session.SessionID != "session-1" {
+		t.Fatalf("fallback session id = %q, want session-1", view.Session.SessionID)
+	}
+	if view.ExternalRuntime == nil || view.ExternalRuntime.State != clientui.ExternalRuntimeStateOwnerRunning || !view.ExternalRuntime.QueueAccepting {
+		t.Fatalf("external runtime fallback = %+v, want owner-running accepting", view.ExternalRuntime)
+	}
+	if got := reads.count.Load(); got != 1 {
+		t.Fatalf("main view read count = %d, want one hydration attempt before fallback", got)
+	}
+}
+
+func TestRuntimeClientCollaborativeMainViewThrottlesFallbackHydrationRetry(t *testing.T) {
+	withUIRuntimeReadTimeout(t, time.Millisecond)
+
+	reads := &blockingCountingSessionViewClient{}
+	runtimeClient := newRuntimeClientReadTest(reads).(*sessionRuntimeClient)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, []serverapi.SessionRuntimeOperation{
+		serverapi.SessionRuntimeOperationQueueUserMessage,
+	})
+
+	_ = runtimeClient.MainView()
+	_ = runtimeClient.MainView()
+	if got := reads.count.Load(); got != 1 {
+		t.Fatalf("main view read count before fallback retry cooldown = %d, want 1", got)
+	}
+}
+
+func TestRuntimeClientCollaborativeRefreshMainViewKeepsBusyFallbackOnReadError(t *testing.T) {
+	runtimeClient := newRuntimeClientReadTest(&blockingCountingSessionViewClient{}).(*sessionRuntimeClient)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, nil)
+
+	view, err := runtimeClient.refreshMainViewSync(time.Millisecond)
+	if err == nil {
+		t.Fatal("expected refresh error")
+	}
+	if view.ExternalRuntime == nil || view.ExternalRuntime.State != clientui.ExternalRuntimeStateOwnerRunning || !view.ExternalRuntime.QueueAccepting {
+		t.Fatalf("external runtime fallback = %+v, want owner-running accepting", view.ExternalRuntime)
+	}
+}
+
+func TestRuntimeClientCollaborativeRefreshMainViewAllowsAuthoritativeDowngrade(t *testing.T) {
+	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{
+		Session:         clientui.RuntimeSessionView{SessionID: "session-1"},
+		ExternalRuntime: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateRegisteredIdle, QueueAccepting: true},
+	}}
+	runtimeClient := newRuntimeClientReadTest(reads).(*sessionRuntimeClient)
+	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, nil)
+
+	view, err := runtimeClient.RefreshMainView()
+	if err != nil {
+		t.Fatalf("RefreshMainView: %v", err)
+	}
+	if view.ExternalRuntime == nil || view.ExternalRuntime.State != clientui.ExternalRuntimeStateRegisteredIdle || !view.ExternalRuntime.QueueAccepting {
+		t.Fatalf("external runtime state = %+v, want authoritative registered-idle accepting", view.ExternalRuntime)
+	}
+}
+
 func withUIRuntimeReadTimeout(t *testing.T, timeout time.Duration) {
 	t.Helper()
 	original := uiRuntimeReadTimeout

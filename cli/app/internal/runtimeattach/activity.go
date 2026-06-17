@@ -3,6 +3,7 @@ package runtimeattach
 import (
 	"context"
 	"errors"
+	"strings"
 
 	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
@@ -12,6 +13,7 @@ type ActivityRequest struct {
 	SessionID       string
 	Runtime         servicecontract.SessionRuntimeService
 	LeaseID         string
+	Mode            serverapi.SessionRuntimeAttachMode
 	ReadOnly        bool
 	SessionActivity servicecontract.SessionActivityService
 	PromptActivity  servicecontract.PromptActivityService
@@ -27,7 +29,7 @@ func SubscribeActivities(ctx context.Context, req ActivityRequest) (Activities, 
 		releaseIfOwned(req)
 		return Activities{}, errors.New("session activity service is required")
 	}
-	if req.PromptActivity == nil && !req.ReadOnly {
+	if req.PromptActivity == nil && shouldSubscribePromptActivity(req) {
 		releaseIfOwned(req)
 		return Activities{}, errors.New("prompt activity service is required")
 	}
@@ -36,7 +38,7 @@ func SubscribeActivities(ctx context.Context, req ActivityRequest) (Activities, 
 		releaseIfOwned(req)
 		return Activities{}, err
 	}
-	if req.ReadOnly {
+	if !shouldSubscribePromptActivity(req) {
 		return Activities{Session: sessionSub}, nil
 	}
 	promptSub, err := req.PromptActivity.SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: req.SessionID})
@@ -49,8 +51,12 @@ func SubscribeActivities(ctx context.Context, req ActivityRequest) (Activities, 
 }
 
 func releaseIfOwned(req ActivityRequest) {
-	if req.ReadOnly {
+	if req.ReadOnly || req.Mode == serverapi.SessionRuntimeAttachModeCollaborative || strings.TrimSpace(req.LeaseID) == "" {
 		return
 	}
 	Release(req.Runtime, req.SessionID, req.LeaseID)
+}
+
+func shouldSubscribePromptActivity(req ActivityRequest) bool {
+	return !req.ReadOnly && req.Mode != serverapi.SessionRuntimeAttachModeNoControl
 }

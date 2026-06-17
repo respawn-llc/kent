@@ -355,6 +355,62 @@ func TestWorktreeReminderBeforeUserFlushRendersOnceInOngoing(t *testing.T) {
 	}
 }
 
+func TestQueuedUserMessageFailedStatusRestoresPendingInjectedInput(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.pendingInjected = []clientui.QueuedUserMessage{{ID: "queue-1", Text: "steered message"}}
+	m.injectedQueue = []injectedRuntimeQueueItem{{LocalID: "local-1", ServerID: "queue-1", Text: "steered message", State: injectedRuntimeQueueEnqueued}}
+
+	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
+		Kind: clientui.EventQueuedUserMessageStatus,
+		QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+			QueueItemID:   "queue-1",
+			Status:        clientui.QueuedUserMessageFailed,
+			RestoreText:   "steered message",
+			FailureReason: clientui.QueuedUserMessageFailureClosing,
+		},
+	}, true).cmd
+
+	if len(m.pendingInjected) != 0 || len(m.injectedQueue) != 0 {
+		t.Fatalf("expected failed queued item removed, pending=%+v queue=%+v", m.pendingInjected, m.injectedQueue)
+	}
+	if strings.TrimSpace(m.input) != "steered message" {
+		t.Fatalf("input = %q, want restored queued text", m.input)
+	}
+	if m.transientStatus == "" || m.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("expected transient queue failure status, got %q kind=%d", m.transientStatus, m.transientStatusKind)
+	}
+	if cmd == nil {
+		t.Fatal("expected transient status clear command")
+	}
+}
+
+func TestQueuedUserMessageSubmittedStatusRemovesPendingInjectedInput(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.pendingInjected = []clientui.QueuedUserMessage{{ID: "queue-1", Text: "steered message"}, {ID: "queue-2", Text: "follow-up"}}
+	m.injectedQueue = []injectedRuntimeQueueItem{
+		{LocalID: "local-1", ServerID: "queue-1", Text: "steered message", State: injectedRuntimeQueueEnqueued},
+		{LocalID: "local-2", ServerID: "queue-2", Text: "follow-up", State: injectedRuntimeQueueEnqueued},
+	}
+
+	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
+		Kind: clientui.EventQueuedUserMessageStatus,
+		QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+			QueueItemID: "queue-1",
+			Status:      clientui.QueuedUserMessageSubmitted,
+		},
+	}, true).cmd
+
+	if len(m.pendingInjected) != 1 || m.pendingInjected[0].ID != "queue-2" {
+		t.Fatalf("pending injected = %+v, want only queue-2", m.pendingInjected)
+	}
+	if len(m.injectedQueue) != 1 || m.injectedQueue[0].ServerID != "queue-2" {
+		t.Fatalf("injected queue = %+v, want only queue-2", m.injectedQueue)
+	}
+	if m.input != "" {
+		t.Fatalf("input = %q, want unchanged empty input", m.input)
+	}
+}
+
 func TestProjectedUserMessageFlushedWithSameTextAndNewCommittedCountAppendsDistinctEntry(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 100

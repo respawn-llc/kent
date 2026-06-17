@@ -201,6 +201,26 @@ func TestReadOnlyRuntimeControlRejectsListBeforeRPC(t *testing.T) {
 	}
 }
 
+func TestCollaborativeRuntimeControlUsesEmptyLeaseForListAndMutations(t *testing.T) {
+	client := &testWorktreeClient{}
+	service := newTestService(client)
+	service.Runtime.CurrentLeaseID = func() string { return "" }
+	service.Runtime.ReadOnly = func() bool { return false }
+
+	if _, err := service.List(false); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if _, err := service.Switch("wt-1"); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if got := client.listRequests[0].ControllerLeaseID; got != "" {
+		t.Fatalf("list lease id = %q, want empty collaborative lease", got)
+	}
+	if got := client.switchRequests[0].ControllerLeaseID; got != "" {
+		t.Fatalf("switch lease id = %q, want empty collaborative lease", got)
+	}
+}
+
 func newTestService(client *testWorktreeClient) Service {
 	return Service{
 		Client:    client,

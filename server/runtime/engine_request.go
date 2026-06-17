@@ -137,6 +137,10 @@ func (e *Engine) workflowRunActive() bool {
 	return e != nil && e.cfg.WorkflowRun != nil && strings.TrimSpace(string(e.cfg.WorkflowRun.Contract.RunID)) != ""
 }
 
+func (e *Engine) WorkflowRunConfigured() bool {
+	return e.workflowRunActive()
+}
+
 func (e *Engine) workflowCompletionMode(ctx context.Context) (workflowruntime.CompletionMode, error) {
 	if !e.workflowRunActive() {
 		return "", nil

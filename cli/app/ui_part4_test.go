@@ -167,6 +167,62 @@ func TestBusyEnterQueuesInjectedInputWithoutRuntimeCreateDuringUpdate(t *testing
 	}
 }
 
+func TestQueuedInjectedInputEarlyFailureStatusClearsProvisionalQueue(t *testing.T) {
+	client := &runtimeControlFakeClient{queueUserMessageID: "server-queue-1"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	m.input = "please continue with tests"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected async queue create command")
+	}
+	if len(updated.pendingInjected) != 1 {
+		t.Fatalf("expected one provisional pending item, got %+v", updated.pendingInjected)
+	}
+	clientRequestID := updated.pendingInjected[0].ClientRequestID
+	if clientRequestID == "" {
+		t.Fatalf("expected provisional pending item to have client request id, got %+v", updated.pendingInjected[0])
+	}
+
+	msgs := collectCmdMessages(t, cmd)
+	var createDone injectedQueueCreateDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			createDone = typed
+		}
+	}
+	if createDone.item.ID != "server-queue-1" || createDone.item.ClientRequestID != clientRequestID {
+		t.Fatalf("expected queue response with server id and request id, got %+v request=%q", createDone.item, clientRequestID)
+	}
+
+	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{
+		Kind: clientui.EventQueuedUserMessageStatus,
+		QueuedUserMessageStatus: &clientui.QueuedUserMessageStatusEvent{
+			QueueItemID:     "server-queue-1",
+			ClientRequestID: clientRequestID,
+			Status:          clientui.QueuedUserMessageFailed,
+			RestoreText:     "please continue with tests",
+			FailureReason:   clientui.QueuedUserMessageFailureClosing,
+		},
+	}})
+	updated = next.(*uiModel)
+	if len(updated.pendingInjected) != 0 || len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected early status to clear provisional queue, pending=%+v injected=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+	if updated.input != "please continue with tests" {
+		t.Fatalf("expected failed queued text restored, got %q", updated.input)
+	}
+
+	next, _ = updated.Update(createDone)
+	updated = next.(*uiModel)
+	if len(updated.pendingInjected) != 0 || len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected delayed create completion ignored after failure, pending=%+v injected=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+}
+
 func TestQueuedRuntimeWorkCheckDoesNotSubmitWhenRuntimeBecameBusy(t *testing.T) {
 	client := &runtimeControlFakeClient{hasQueuedUserWork: true}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())

@@ -394,6 +394,24 @@ func TestWorkflowRuntimeRejectsUnresolvedCompletionMode(t *testing.T) {
 	}
 }
 
+func TestWorkflowCompletionRecordsTerminalStateForStructuredOutput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	eng := mustNewWorkflowTestEngine(t, store, &fakeClient{responses: []llm.Response{
+		structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
+	}}, testWorkflowConfig(controller, config.WorkflowCompletionModeStructuredOutput), Config{
+		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{SupportsResponsesAPI: true},
+	})
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("SubmitWorkflowTurn: %v", err)
+	}
+	terminal := eng.WorkflowTerminalState()
+	if !terminal.Completed || terminal.RunID != "run-1" || terminal.Source != WorkflowCompletionSourceStructuredOutput {
+		t.Fatalf("terminal state = %+v, want structured completion", terminal)
+	}
+}
+
 func TestWorkflowRuntimeUsesPersistedStructuredOutputMode(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "legacy"}}
@@ -624,6 +642,80 @@ func TestWorkflowUnstructuredFinalAnswerCompletesRun(t *testing.T) {
 	}
 	if got := requests[0].Commentary; got != "complete" {
 		t.Fatalf("completion commentary = %q, want complete", got)
+	}
+	terminal := eng.WorkflowTerminalState()
+	if !terminal.Completed || terminal.Source != WorkflowCompletionSourceUnstructured || terminal.RunID != "run-1" {
+		t.Fatalf("terminal state = %+v, want unstructured completion", terminal)
+	}
+}
+
+func TestWorkflowUnstructuredTerminalCompletionFailsQueuedSteeringDuringCloseDrain(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
+		structuredFinalResponse("unexpected queued turn"),
+	}}
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	queued := eng.QueueUserMessageWithClientRequestID("do not submit after completion", "req-after-complete")
+	if err := eng.DrainQueuedUserMessagesBeforeClose(context.Background()); err != nil {
+		t.Fatalf("DrainQueuedUserMessagesBeforeClose: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	if len(statuses) != 2 || statuses[0].Status != QueuedUserMessageAccepted || statuses[1].Status != QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	}
+	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-after-complete" || statuses[1].RestoreText != "do not submit after completion" || statuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
+		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", statuses[1], queued.ID)
+	}
+}
+
+func TestWorkflowObservedDurableCompletionFailsQueuedSteeringDuringCloseDrain(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	controller.completedExternally.Store(true)
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse("unexpected queued turn"),
+	}}
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand), Config{
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	queued := eng.QueueUserMessageWithClientRequestID("do not submit after observed completion", "req-observed-complete")
+	completed, err := eng.observeWorkflowDurableCompletion(context.Background())
+	if err != nil {
+		t.Fatalf("observeWorkflowDurableCompletion: %v", err)
+	}
+	if !completed {
+		t.Fatal("expected durable workflow completion observation")
+	}
+	terminal := eng.WorkflowTerminalState()
+	if !terminal.Completed || terminal.Source != WorkflowCompletionSourceObserved || terminal.RunID != "run-1" {
+		t.Fatalf("terminal state = %+v, want observed completion", terminal)
+	}
+	if err := eng.DrainQueuedUserMessagesBeforeClose(context.Background()); err != nil {
+		t.Fatalf("DrainQueuedUserMessagesBeforeClose: %v", err)
+	}
+	assertModelCallCount(t, client, 0)
+	if len(statuses) != 2 || statuses[0].Status != QueuedUserMessageAccepted || statuses[1].Status != QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	}
+	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-observed-complete" || statuses[1].RestoreText != "do not submit after observed completion" || statuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
+		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", statuses[1], queued.ID)
 	}
 }
 

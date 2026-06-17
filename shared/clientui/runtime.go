@@ -54,7 +54,15 @@ type RuntimeStatus struct {
 	ContextUsage                      RuntimeContextUsage
 	CompactionCount                   int
 	Goal                              *RuntimeGoal
+	WorkflowActive                    bool
+	WorkflowSession                   *WorkflowSessionStatus
 	Update                            UpdateStatus
+}
+
+type WorkflowSessionStatus struct {
+	RunID      string
+	TaskID     string
+	WorkflowID string
 }
 
 type UpdateStatus struct {
@@ -83,15 +91,31 @@ type RunView struct {
 	FinishedAt time.Time
 }
 
+type ExternalRuntimeState string
+
+const (
+	ExternalRuntimeStateRegisteredIdle ExternalRuntimeState = "registered_idle"
+	ExternalRuntimeStateOwnerRunning   ExternalRuntimeState = "owner_running"
+	ExternalRuntimeStateDraining       ExternalRuntimeState = "draining"
+	ExternalRuntimeStateClosing        ExternalRuntimeState = "closing"
+)
+
+type ExternalRuntimeStatus struct {
+	State          ExternalRuntimeState
+	QueueAccepting bool
+}
+
 type RuntimeMainView struct {
-	Status    RuntimeStatus
-	Session   RuntimeSessionView
-	ActiveRun *RunView
+	Status          RuntimeStatus
+	Session         RuntimeSessionView
+	ActiveRun       *RunView
+	ExternalRuntime *ExternalRuntimeStatus
 }
 
 type QueuedUserMessage struct {
-	ID   string
-	Text string
+	ID              string
+	Text            string
+	ClientRequestID string
 }
 
 type TranscriptMetadata struct {

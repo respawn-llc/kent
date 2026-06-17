@@ -148,10 +148,14 @@ func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, i
 			return nil
 		}
 		var resolved resolvedSessionAction
-		if runtimePlan.ReadOnly {
+		if runtimePlan.HasControllerLease() {
+			resolved, err = resolveSessionAction(ctx, server, interactor, plan.SessionID, runtimePlan.CurrentControllerLeaseID(), transition)
+		} else if runtimePlan.AccessMode == serverapi.SessionRuntimeAttachModeCollaborative {
+			resolved, err = resolveCollaborativeSessionAction(ctx, server, interactor, plan.SessionID, transition)
+		} else if runtimePlan.ReadOnly {
 			resolved, err = resolveReadOnlySessionAction(ctx, server, interactor, plan.SessionID, transition)
 		} else {
-			resolved, err = resolveSessionAction(ctx, server, interactor, plan.SessionID, runtimePlan.CurrentControllerLeaseID(), transition)
+			resolved, err = resolveCollaborativeSessionAction(ctx, server, interactor, plan.SessionID, transition)
 		}
 		runtimePlan.Close()
 		if err != nil {
@@ -232,6 +236,14 @@ type resolvedSessionAction struct {
 }
 
 func resolveReadOnlySessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition) (resolvedSessionAction, error) {
+	return resolvePureNavigationSessionAction(ctx, server, interactor, sessionID, transition, errReadOnlyRuntime)
+}
+
+func resolveCollaborativeSessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition) (resolvedSessionAction, error) {
+	return resolvePureNavigationSessionAction(ctx, server, interactor, sessionID, transition, errCollaborativeOperationBlocked)
+}
+
+func resolvePureNavigationSessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition, blockedErr error) (resolvedSessionAction, error) {
 	switch transition.Action {
 	case UIActionNewSession:
 		return resolvedSessionAction{
@@ -260,7 +272,7 @@ func resolveReadOnlySessionAction(ctx context.Context, server sessionTransitionS
 	case UIActionExit, "":
 		return resolvedSessionAction{}, nil
 	default:
-		return resolvedSessionAction{}, errReadOnlyRuntime
+		return resolvedSessionAction{}, blockedErr
 	}
 }
 

@@ -139,7 +139,8 @@ type ContextUsage struct {
 }
 
 type Engine struct {
-	mu sync.Mutex
+	mu               sync.Mutex
+	workflowTerminal WorkflowTerminalState
 
 	lifecycleMu     sync.Mutex
 	lifecycleOnce   sync.Once
@@ -380,18 +381,29 @@ func (e *Engine) launchLifecycleTask(task func(context.Context)) bool {
 }
 
 type QueuedUserMessage struct {
-	ID   string
-	Text string
+	ID              string
+	Text            string
+	ClientRequestID string
 }
 
 func (e *Engine) QueueUserMessage(text string) QueuedUserMessage {
+	return e.QueueUserMessageWithClientRequestID(text, "")
+}
+
+func (e *Engine) QueueUserMessageWithClientRequestID(text string, clientRequestID string) QueuedUserMessage {
 	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.QueueUserMessage(text)
+	item := e.messageFlow.QueueUserMessage(text, clientRequestID)
+	e.emitQueuedUserMessageStatus(item, QueuedUserMessageAccepted, "", false)
+	return item
 }
 
 func (e *Engine) DiscardQueuedUserMessage(queueItemID string) bool {
 	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.DiscardQueuedUserMessage(queueItemID)
+	item, discarded := e.messageFlow.DiscardQueuedUserMessage(queueItemID)
+	if discarded {
+		e.emitQueuedUserMessageStatus(item, QueuedUserMessageDiscarded, "", false)
+	}
+	return discarded
 }
 
 func (e *Engine) Interrupt() error {

@@ -89,9 +89,10 @@ const (
 )
 
 type RuntimeRunStateReduction struct {
-	State    RuntimeRunState
-	Activity RuntimeActivityCommand
-	Err      error
+	State           RuntimeRunState
+	Activity        RuntimeActivityCommand
+	ExternalRuntime *clientui.ExternalRuntimeStatus
+	Err             error
 }
 
 type RuntimeDraftInputCommandKind uint8
@@ -105,6 +106,7 @@ type RuntimePendingInputReduction struct {
 	State                PendingInputState
 	DraftCommand         RuntimeDraftInputCommandKind
 	ConsumedQueueItemIDs []string
+	RestoredText         string
 }
 
 type RuntimeReasoningStreamCommandKind uint8
@@ -233,8 +235,41 @@ func ReduceRuntimeRunStateEvent(state RuntimeRunState, activityRunning bool, evt
 		if activityRunning {
 			reduction.Activity = RuntimeActivityIdle
 		}
+	case clientui.EventExternalRuntimeStatus:
+		reduction.ExternalRuntime = cloneExternalRuntimeStatus(evt.ExternalRuntimeStatus)
+		if externalRuntimeBusy(evt.ExternalRuntimeStatus) {
+			reduction.Activity = RuntimeActivityRunning
+			return reduction
+		}
+		if reduction.State.Run.IsRunning() {
+			reduction.Activity = RuntimeActivityRunning
+			return reduction
+		}
+		if activityRunning {
+			reduction.Activity = RuntimeActivityIdle
+		}
 	}
 	return reduction
+}
+
+func cloneExternalRuntimeStatus(status *clientui.ExternalRuntimeStatus) *clientui.ExternalRuntimeStatus {
+	if status == nil {
+		return nil
+	}
+	next := *status
+	return &next
+}
+
+func externalRuntimeBusy(status *clientui.ExternalRuntimeStatus) bool {
+	if status == nil {
+		return false
+	}
+	switch status.State {
+	case clientui.ExternalRuntimeStateOwnerRunning, clientui.ExternalRuntimeStateDraining, clientui.ExternalRuntimeStateClosing:
+		return true
+	default:
+		return false
+	}
 }
 
 func ReduceRuntimePendingInputEvent(input PendingInputState, evt clientui.Event) RuntimePendingInputReduction {
@@ -258,8 +293,47 @@ func ReduceRuntimePendingInputEvent(input PendingInputState, evt clientui.Event)
 			reduction.State.LockedInjectID = ""
 			reduction.State.Submission = InputSubmissionUnlocked
 		}
+	case clientui.EventQueuedUserMessageStatus:
+		status := evt.QueuedUserMessageStatus
+		if status == nil {
+			break
+		}
+		switch status.Status {
+		case clientui.QueuedUserMessageSubmitted, clientui.QueuedUserMessageDiscarded:
+			if _, removed := removePendingQueuedUserMessageByStatus(&reduction.State.PendingInjected, status); removed {
+				reduction.consumeQueuedStatusIDs(status)
+				reduction.unlockSubmittedPendingInput(status.QueueItemID)
+			}
+		case clientui.QueuedUserMessageFailed:
+			if _, removed := removePendingQueuedUserMessageByStatus(&reduction.State.PendingInjected, status); removed {
+				reduction.consumeQueuedStatusIDs(status)
+				reduction.unlockSubmittedPendingInput(status.QueueItemID)
+				reduction.RestoredText = strings.TrimSpace(status.RestoreText)
+			}
+		}
 	}
 	return reduction
+}
+
+func (reduction *RuntimePendingInputReduction) consumeQueuedStatusIDs(status *clientui.QueuedUserMessageStatusEvent) {
+	if reduction == nil || status == nil {
+		return
+	}
+	if id := strings.TrimSpace(status.QueueItemID); id != "" {
+		reduction.ConsumedQueueItemIDs = append(reduction.ConsumedQueueItemIDs, id)
+	}
+	if id := strings.TrimSpace(status.ClientRequestID); id != "" {
+		reduction.ConsumedQueueItemIDs = append(reduction.ConsumedQueueItemIDs, id)
+	}
+}
+
+func (reduction *RuntimePendingInputReduction) unlockSubmittedPendingInput(queueItemID string) {
+	if reduction.State.Submission != InputSubmissionLocked || !queuedUserMessageIDMatches(reduction.State.LockedInjectID, queueItemID) {
+		return
+	}
+	reduction.State.LockedInjectText = ""
+	reduction.State.LockedInjectID = ""
+	reduction.State.Submission = InputSubmissionUnlocked
 }
 
 func ReduceRuntimeReasoningEvent(state RuntimeReasoningState, evt clientui.Event) RuntimeReasoningReduction {
@@ -362,6 +436,44 @@ func containsQueuedUserMessageID(messages []clientui.QueuedUserMessage, id strin
 		}
 	}
 	return false
+}
+
+func removePendingQueuedUserMessageByStatus(messages *[]clientui.QueuedUserMessage, status *clientui.QueuedUserMessageStatusEvent) (clientui.QueuedUserMessage, bool) {
+	if status == nil || messages == nil || len(*messages) == 0 {
+		return clientui.QueuedUserMessage{}, false
+	}
+	removed := false
+	var removedMessage clientui.QueuedUserMessage
+	filtered := (*messages)[:0]
+	for _, message := range *messages {
+		if queuedUserMessageMatchesStatus(message, status) {
+			removed = true
+			removedMessage = message
+			continue
+		}
+		filtered = append(filtered, message)
+	}
+	*messages = filtered
+	return removedMessage, removed
+}
+
+func queuedUserMessageMatchesStatus(message clientui.QueuedUserMessage, status *clientui.QueuedUserMessageStatusEvent) bool {
+	if status == nil {
+		return false
+	}
+	localRequestID := strings.TrimSpace(message.ClientRequestID)
+	statusRequestID := strings.TrimSpace(status.ClientRequestID)
+	if localRequestID != "" {
+		if statusRequestID != "" {
+			return localRequestID == statusRequestID
+		}
+		return queuedUserMessageIDMatches(message.ID, status.QueueItemID)
+	}
+	return queuedUserMessageIDMatches(message.ID, status.QueueItemID)
+}
+
+func queuedUserMessageIDMatches(left, right string) bool {
+	return strings.TrimSpace(left) != "" && strings.TrimSpace(left) == strings.TrimSpace(right)
 }
 
 func cloneReasoningDelta(delta *clientui.ReasoningDelta) *clientui.ReasoningDelta {

@@ -17,6 +17,7 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
+	"core/server/primaryrun"
 	"core/server/runprompt"
 	"core/server/runtime"
 	"core/server/runtimeview"
@@ -59,6 +60,7 @@ type TaskWorktreeEnsurer interface {
 }
 
 type RuntimeEventRegistry interface {
+	primaryrun.Gate
 	runtimewire.RuntimeRegistry
 	PublishRuntimeEvent(sessionID string, evt runtime.Event)
 	AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error)
@@ -201,10 +203,27 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunReq
 		s.releaseRegisteredRun(req.RunID)
 		return errors.Join(err, cleanupSession())
 	}
-	if err := s.store.AttachRunSession(ctx, req.RunID, req.Generation, plan.Store.Meta().SessionID); err != nil {
+	var previousWorkflowSession *session.WorkflowSessionState
+	if workflowSession := plan.Store.Meta().WorkflowSession; workflowSession != nil {
+		snap := *workflowSession
+		previousWorkflowSession = &snap
+	}
+	restoreWorkflowSession := func() error {
+		return plan.Store.SetWorkflowSessionState(previousWorkflowSession)
+	}
+	if err := plan.Store.SetWorkflowSessionState(&session.WorkflowSessionState{
+		RunID:      string(req.RunID),
+		TaskID:     string(input.Task.ID),
+		WorkflowID: string(input.Task.WorkflowID),
+	}); err != nil {
 		cancel()
 		s.releaseRegisteredRun(req.RunID)
 		return errors.Join(err, cleanupSession())
+	}
+	if err := s.store.AttachRunSession(ctx, req.RunID, req.Generation, plan.Store.Meta().SessionID); err != nil {
+		cancel()
+		s.releaseRegisteredRun(req.RunID)
+		return errors.Join(err, restoreWorkflowSession(), cleanupSession())
 	}
 	go s.run(runCtx, req, input, plan, warnings, client, effectiveMode)
 	return nil
@@ -658,8 +677,41 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 			return askquestion.AskQuestionResponse{}, errors.New("workflow questions require runtime registry")
 		})
 	}
-	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter)
-	defer registration.Close()
+	var rebind func(string) error
+	if wiring.LocalTools != nil {
+		rebind = runtimewire.RuntimeRebindFunc(wiring.LocalTools.Rebind, wiring.Engine)
+	}
+	sessionID := plan.Store.Meta().SessionID
+	var workflowTurnLease primaryrun.Lease
+	workflowTurnLease, err = s.acquirePrimaryRun(sessionID)
+	if err != nil {
+		s.interrupt(context.Background(), req.RunID, req.Generation, ReasonRuntimeFailed, err)
+		return
+	}
+	workflowTurnLeaseHeld := true
+	failQueuedOnClose := false
+	registration := runtimewire.RegisterSessionRuntime(sessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter, runtimewire.WithRuntimeRebind(rebind))
+	defer func() {
+		if workflowTurnLeaseHeld && workflowTurnLease != nil {
+			defer workflowTurnLease.Release()
+		}
+		_ = registration.CloseWithDrain(context.Background(), func(drainCtx context.Context) error {
+			if failQueuedOnClose {
+				wiring.Engine.FailQueuedUserMessages(runtime.QueuedUserMessageFailureClosing)
+				return nil
+			}
+			if workflowTurnLeaseHeld {
+				return wiring.Engine.DrainQueuedUserMessagesBeforeClose(drainCtx)
+			}
+			lease, err := s.acquirePrimaryRun(plan.Store.Meta().SessionID)
+			if err != nil {
+				wiring.Engine.FailQueuedUserMessages(runtime.QueuedUserMessageFailureClosing)
+				return err
+			}
+			defer lease.Release()
+			return wiring.Engine.DrainQueuedUserMessagesBeforeClose(drainCtx)
+		})
+	}()
 	// Compact exactly once per compact_and_continue handoff. The compaction's
 	// provenance is recorded atomically in its history_replaced event and rebuilt
 	// on restore, so the engine reports which run last compacted this session.
@@ -673,6 +725,7 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 	if input.ContextMode == workflow.ContextModeCompactAndContinueSession &&
 		wiring.Engine.LastCompactionWorkflowRunID() != string(req.RunID) {
 		if err := wiring.Engine.CompactContext(ctx, ""); err != nil {
+			failQueuedOnClose = true
 			reason := ReasonRuntimeFailed
 			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 				reason = ReasonRuntimeCanceled
@@ -681,13 +734,22 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 			return
 		}
 	}
-	if _, err := wiring.Engine.SubmitWorkflowTurn(ctx); err != nil {
+	_, err = wiring.Engine.SubmitWorkflowTurn(ctx)
+	if err != nil {
+		failQueuedOnClose = true
 		reason := ReasonRuntimeFailed
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			reason = ReasonRuntimeCanceled
 		}
 		s.interrupt(context.Background(), req.RunID, req.Generation, reason, err)
 	}
+}
+
+func (s *Starter) acquirePrimaryRun(sessionID string) (primaryrun.Lease, error) {
+	if s == nil || s.runtimes == nil {
+		return primaryrun.LeaseFunc(nil), nil
+	}
+	return s.runtimes.AcquirePrimaryRun(sessionID)
 }
 
 func (s *Starter) finish(runID workflow.RunID, generation int64) {

@@ -53,6 +53,12 @@ func (c uiAskController) acceptEvent(evt askEvent) {
 		return
 	}
 	c.notifyAskPending(evt.req)
+	incomingPromptID := strings.TrimSpace(evt.req.PromptID)
+	if incomingPromptID != "" && m.ask.hasCurrent() && strings.TrimSpace(m.ask.current.req.PromptID) == incomingPromptID {
+		m.ask.current.req = evt.req
+		m.ask.answerPending = false
+		return
+	}
 	if !m.ask.hasCurrent() {
 		c.setActiveAsk(evt)
 		m.activity = uiActivityQuestion
@@ -436,11 +442,20 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) bool {
 	if !m.ask.hasCurrent() {
 		return false
 	}
-	m.ask.answerPending = false
+	m.ask.answerPending = true
 	if resp.PromptID == "" {
 		resp.PromptID = m.ask.current.req.PromptID
 	}
 	m.ask.current.reply <- askReply{response: resp, err: err}
+	if strings.TrimSpace(m.ask.current.req.SessionID) == "" || strings.TrimSpace(m.ask.current.req.PromptID) == "" {
+		return c.resolveAnsweredPromptOptimistically()
+	}
+	return false
+}
+
+func (c uiAskController) resolveAnsweredPromptOptimistically() bool {
+	m := c.model
+	m.ask.answerPending = false
 	if len(m.ask.queue) == 0 {
 		m.ask.current = nil
 		m.ask.currentToken = nextNonZeroToken(m.ask.currentToken)

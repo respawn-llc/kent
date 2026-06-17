@@ -643,7 +643,7 @@ func TestBackgroundEventRouterDoesNotRetroactivelyQueueNoticeAfterOwnerSessionRe
 	if !res.Backgrounded {
 		t.Fatal("expected process to background")
 	}
-	router.ClearActiveSession(storeA.Meta().SessionID)
+	router.ClearActiveSession(storeA.Meta().SessionID, engA)
 	router.SetActiveSession(storeB.Meta().SessionID, engB)
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -684,7 +684,7 @@ func TestBackgroundEventRouterDropsNoticeWhenNoSessionIsActive(t *testing.T) {
 	client := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	eng := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{})
 	router.SetActiveSession(store.Meta().SessionID, eng)
-	router.ClearActiveSession(store.Meta().SessionID)
+	router.ClearActiveSession(store.Meta().SessionID, eng)
 	router.handle(shelltool.Event{Snapshot: shelltool.Snapshot{ID: "1002", OwnerSessionID: store.Meta().SessionID, State: "completed"}, Type: shelltool.EventCompleted, Preview: "done"})
 	time.Sleep(50 * time.Millisecond)
 	if got := client.CallCount(); got != 0 {

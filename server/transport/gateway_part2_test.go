@@ -292,6 +292,22 @@ func TestGatewaySessionActivitySubscriptionStreamsEventsAndCompletion(t *testing
 	}
 
 	appCore.UnregisterRuntime(store.Meta().SessionID, engine)
+	var closing protocol.SessionActivityEventParams
+	receiveGatewayNotification(t, conn, protocol.MethodSessionActivityEvent, "closing external runtime", &closing)
+	if closing.Event.Kind != clientui.EventExternalRuntimeStatus ||
+		closing.Event.ExternalRuntimeStatus == nil ||
+		closing.Event.ExternalRuntimeStatus.State != clientui.ExternalRuntimeStateClosing ||
+		closing.Event.ExternalRuntimeStatus.QueueAccepting {
+		t.Fatalf("unexpected closing external runtime event: %+v", closing.Event)
+	}
+	var closed protocol.SessionActivityEventParams
+	receiveGatewayNotification(t, conn, protocol.MethodSessionActivityEvent, "closed external runtime", &closed)
+	if closed.Event.Kind != clientui.EventExternalRuntimeStatus ||
+		closed.Event.ExternalRuntimeStatus == nil ||
+		closed.Event.ExternalRuntimeStatus.State != "" ||
+		closed.Event.ExternalRuntimeStatus.QueueAccepting {
+		t.Fatalf("unexpected closed external runtime event: %+v", closed.Event)
+	}
 	var complete protocol.StreamCompleteParams
 	receiveGatewayNotification(t, conn, protocol.MethodSessionActivityComplete, "completion", &complete)
 	if complete.Code != 0 || complete.Message != "" {

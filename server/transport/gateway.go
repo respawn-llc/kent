@@ -360,6 +360,9 @@ func protocolError(err error) (int, string) {
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		return protocol.ErrCodeRuntimeUnavailable, message
 	}
+	if errors.Is(err, serverapi.ErrActivePrimaryRun) {
+		return protocol.ErrCodeActivePrimaryRun, message
+	}
 	if errors.Is(err, serverapi.ErrStreamUnavailable) {
 		return protocol.ErrCodeStreamUnavailable, message
 	}

@@ -35,8 +35,10 @@ func (r AskAnswerRequest) Validate() error {
 	if err := validateRequiredSessionID(r.SessionID); err != nil {
 		return err
 	}
-	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
-		return err
+	if strings.TrimSpace(r.ControllerLeaseID) != "" {
+		if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(r.AskID) == "" {
 		return errors.New("ask_id is required")
@@ -51,8 +53,10 @@ func (r ApprovalAnswerRequest) Validate() error {
 	if err := validateRequiredSessionID(r.SessionID); err != nil {
 		return err
 	}
-	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
-		return err
+	if strings.TrimSpace(r.ControllerLeaseID) != "" {
+		if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(r.ApprovalID) == "" {
 		return errors.New("approval_id is required")

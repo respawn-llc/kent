@@ -1,8 +1,8 @@
 package primaryrun
 
-import "errors"
+import "core/shared/serverapi"
 
-var ErrActivePrimaryRun = errors.New("session already has an active primary run")
+var ErrActivePrimaryRun = serverapi.ErrActivePrimaryRun
 
 type Lease interface {
 	Release()

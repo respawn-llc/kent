@@ -64,6 +64,7 @@ type runtimeLaunchPlan struct {
 	Wiring            *runtimeWiring
 	ControllerLeaseID string
 	ReadOnly          bool
+	AccessMode        serverapi.SessionRuntimeAttachMode
 	controllerLease   *controllerLeaseManager
 	close             func()
 }
@@ -85,6 +86,10 @@ func (p *runtimeLaunchPlan) CurrentControllerLeaseID() string {
 		}
 	}
 	return strings.TrimSpace(p.ControllerLeaseID)
+}
+
+func (p *runtimeLaunchPlan) HasControllerLease() bool {
+	return strings.TrimSpace(p.CurrentControllerLeaseID()) != ""
 }
 
 type sessionPickerRunner func([]clientui.SessionSummary, string, sessionPickerHeaderInfo) (sessionPickerResult, error)

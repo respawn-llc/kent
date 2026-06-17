@@ -73,9 +73,9 @@ type steeringCacheObservation struct {
 }
 
 type steeringQueuedUserMessageFlush struct {
-	text         string
-	batch        []string
-	queueItemIDs []string
+	text       string
+	batch      []string
+	queueItems []QueuedUserMessage
 }
 
 type steeringMessageEventPolicy uint8
@@ -134,13 +134,13 @@ func steerToolCompletionIntent(result tools.Result) steeringIntent {
 	}
 }
 
-func steerQueuedUserMessageFlushIntent(text string, batch []string, queueItemIDs []string) steeringIntent {
+func steerQueuedUserMessageFlushIntent(text string, batch []string, queueItems []QueuedUserMessage) steeringIntent {
 	return steeringIntent{
 		priority: steeringPriorityUser,
 		items: []steeringItem{{queuedFlush: &steeringQueuedUserMessageFlush{
-			text:         text,
-			batch:        append([]string(nil), batch...),
-			queueItemIDs: append([]string(nil), queueItemIDs...),
+			text:       text,
+			batch:      append([]string(nil), batch...),
+			queueItems: append([]QueuedUserMessage(nil), queueItems...),
 		}}},
 	}
 }
@@ -248,7 +248,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		return nil
 	}
 	if item.queuedFlush != nil {
-		return e.appendQueuedUserMessageFlush(stepID, item.queuedFlush.text, item.queuedFlush.batch, item.queuedFlush.queueItemIDs)
+		return e.appendQueuedUserMessageFlush(stepID, item.queuedFlush.text, item.queuedFlush.batch, item.queuedFlush.queueItems)
 	}
 	if item.event != nil {
 		evt := *item.event

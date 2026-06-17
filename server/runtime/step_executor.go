@@ -424,6 +424,7 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
 			return true, terminal, nudgeErr
 		}
+		e.setWorkflowTerminalState(WorkflowCompletionSourceStructuredOutput)
 		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeUnstructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
@@ -437,6 +438,7 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
 			return true, terminal, nudgeErr
 		}
+		e.setWorkflowTerminalState(WorkflowCompletionSourceUnstructured)
 		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {

@@ -11,30 +11,32 @@ type EventKind string
 type TranscriptRecoveryCause string
 
 const (
-	EventConversationUpdated EventKind = "conversation_updated"
-	EventStreamGap           EventKind = "stream_gap"
-	EventAssistantDelta      EventKind = "assistant_delta"
-	EventAssistantDeltaReset EventKind = "assistant_delta_reset"
-	EventOngoingErrorUpdated EventKind = "ongoing_error_updated"
-	EventReasoningDelta      EventKind = "reasoning_delta"
-	EventReasoningDeltaReset EventKind = "reasoning_delta_reset"
-	EventAssistantMessage    EventKind = "assistant_message"
-	EventModelResponse       EventKind = "model_response_received"
-	EventUserMessageFlushed  EventKind = "user_message_flushed"
-	EventToolCallStarted     EventKind = "tool_call_started"
-	EventToolCallCompleted   EventKind = "tool_call_completed"
-	EventReviewerStarted     EventKind = "reviewer_started"
-	EventReviewerCompleted   EventKind = "reviewer_completed"
-	EventInFlightClearFailed EventKind = "in_flight_clear_failed"
-	EventCompactionStarted   EventKind = "context_compaction_started"
-	EventCompactionCompleted EventKind = "context_compaction_completed"
-	EventCompactionFailed    EventKind = "context_compaction_failed"
-	EventCacheWarning        EventKind = "cache_warning"
-	EventLocalEntryAdded     EventKind = "local_entry_added"
-	EventRunStateChanged     EventKind = "run_state_changed"
-	EventBackgroundUpdated   EventKind = "background_updated"
-	EventSleepGuardFailed    EventKind = "sleep_guard_failed"
-	EventGoalStatusUpdated   EventKind = "goal_status_updated"
+	EventConversationUpdated     EventKind = "conversation_updated"
+	EventStreamGap               EventKind = "stream_gap"
+	EventAssistantDelta          EventKind = "assistant_delta"
+	EventAssistantDeltaReset     EventKind = "assistant_delta_reset"
+	EventOngoingErrorUpdated     EventKind = "ongoing_error_updated"
+	EventReasoningDelta          EventKind = "reasoning_delta"
+	EventReasoningDeltaReset     EventKind = "reasoning_delta_reset"
+	EventAssistantMessage        EventKind = "assistant_message"
+	EventModelResponse           EventKind = "model_response_received"
+	EventUserMessageFlushed      EventKind = "user_message_flushed"
+	EventToolCallStarted         EventKind = "tool_call_started"
+	EventToolCallCompleted       EventKind = "tool_call_completed"
+	EventReviewerStarted         EventKind = "reviewer_started"
+	EventReviewerCompleted       EventKind = "reviewer_completed"
+	EventInFlightClearFailed     EventKind = "in_flight_clear_failed"
+	EventCompactionStarted       EventKind = "context_compaction_started"
+	EventCompactionCompleted     EventKind = "context_compaction_completed"
+	EventCompactionFailed        EventKind = "context_compaction_failed"
+	EventCacheWarning            EventKind = "cache_warning"
+	EventLocalEntryAdded         EventKind = "local_entry_added"
+	EventRunStateChanged         EventKind = "run_state_changed"
+	EventBackgroundUpdated       EventKind = "background_updated"
+	EventSleepGuardFailed        EventKind = "sleep_guard_failed"
+	EventGoalStatusUpdated       EventKind = "goal_status_updated"
+	EventQueuedUserMessageStatus EventKind = "queued_user_message_status"
+	EventExternalRuntimeStatus   EventKind = "external_runtime_status"
 
 	TranscriptRecoveryCauseNone         TranscriptRecoveryCause = ""
 	TranscriptRecoveryCauseStreamGap    TranscriptRecoveryCause = "stream_gap"
@@ -65,6 +67,8 @@ type Event struct {
 	ContextUsage                 *RuntimeContextUsage
 	Background                   *BackgroundShellEvent
 	GoalStatus                   *RuntimeGoalStatusUpdate
+	QueuedUserMessageStatus      *QueuedUserMessageStatusEvent
+	ExternalRuntimeStatus        *ExternalRuntimeStatus
 }
 
 type RuntimeGoalStatusUpdate struct {
@@ -72,6 +76,32 @@ type RuntimeGoalStatusUpdate struct {
 	Objective string
 	Status    RuntimeGoalStatus
 	Cleared   bool
+}
+
+type QueuedUserMessageStatus string
+
+const (
+	QueuedUserMessageAccepted  QueuedUserMessageStatus = "accepted"
+	QueuedUserMessageSubmitted QueuedUserMessageStatus = "submitted"
+	QueuedUserMessageFailed    QueuedUserMessageStatus = "failed"
+	QueuedUserMessageDiscarded QueuedUserMessageStatus = "discarded"
+)
+
+type QueuedUserMessageFailureReason string
+
+const (
+	QueuedUserMessageFailureClosing                    QueuedUserMessageFailureReason = "closing"
+	QueuedUserMessageFailureTerminalWorkflowCompletion QueuedUserMessageFailureReason = "terminal_workflow_completion"
+	QueuedUserMessageFailureRuntimeUnavailable         QueuedUserMessageFailureReason = "runtime_unavailable"
+)
+
+type QueuedUserMessageStatusEvent struct {
+	SessionID       string
+	QueueItemID     string
+	ClientRequestID string
+	Status          QueuedUserMessageStatus
+	FailureReason   QueuedUserMessageFailureReason
+	RestoreText     string
 }
 
 type CompactionStatus struct {
