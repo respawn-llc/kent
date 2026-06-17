@@ -183,23 +183,54 @@ func TestLoadUsesExplicitConfigRootWithoutHomeMutation(t *testing.T) {
 	}
 }
 
-func TestLoadExplicitConfigRootOverridesNestedPersistenceRoot(t *testing.T) {
+func TestLoadRejectsPersistenceRootInConfigFile(t *testing.T) {
 	configRoot := t.TempDir()
-	otherRoot := t.TempDir()
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(configRoot, "config.toml"), []byte("persistence_root = \""+filepath.ToSlash(otherRoot)+"\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configRoot, "config.toml"), []byte("persistence_root = \"/tmp/custom\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: configRoot})
+	_, err := Load(workspace, LoadOptions{ConfigRoot: configRoot})
+	if !errors.Is(err, errPersistenceRootInConfigFile) {
+		t.Fatalf("expected persistence_root migration error, got: %v", err)
+	}
+}
+
+func TestLoadUsesPersistenceRootEnvForConfigAndData(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv(PersistenceRootEnvName, root)
+
+	cfg, err := Load(workspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.PersistenceRoot != configRoot {
-		t.Fatalf("persistence root = %q, want explicit config root %q", cfg.PersistenceRoot, configRoot)
+	if cfg.Source.HomeSettingsPath != filepath.Join(root, "config.toml") {
+		t.Fatalf("home settings path = %q, want env root config.toml", cfg.Source.HomeSettingsPath)
 	}
-	if got := cfg.Source.Sources["persistence_root"]; got != "config_root" {
-		t.Fatalf("persistence_root source = %q, want config_root", got)
+	if cfg.PersistenceRoot != root {
+		t.Fatalf("persistence root = %q, want env root %q", cfg.PersistenceRoot, root)
+	}
+	if got := cfg.Source.Sources["persistence_root"]; got != "env" {
+		t.Fatalf("persistence_root source = %q, want env", got)
+	}
+}
+
+func TestLoadFlagOverridesPersistenceRootEnv(t *testing.T) {
+	flagRoot := t.TempDir()
+	envRoot := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv(PersistenceRootEnvName, envRoot)
+
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: flagRoot})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.PersistenceRoot != flagRoot {
+		t.Fatalf("persistence root = %q, want flag root %q", cfg.PersistenceRoot, flagRoot)
+	}
+	if got := cfg.Source.Sources["persistence_root"]; got != "flag" {
+		t.Fatalf("persistence_root source = %q, want flag", got)
 	}
 }
 
@@ -582,20 +613,24 @@ func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
-	home, workspace, configPath := newConfigTestFile(t)
+	root := t.TempDir()
+	workspace := t.TempDir()
 	configText := strings.Join([]string{
-		"persistence_root = \"~/custom-kent\"",
-		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",
 		"setup_script = \"scripts/setup-worktree.sh\"",
 		"",
 	}, "\n")
-	writeConfigTestFile(t, configPath, configText)
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
-	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 
-	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-kent"); got != want {
+	if got, want := cfg.PersistenceRoot, root; got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
 	}
 	if got, want := cfg.Settings.Worktrees.BaseDir, filepath.Join(cfg.PersistenceRoot, "managed", "worktrees"); got != want {
@@ -607,10 +642,15 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
-	configText := "persistence_root = \"~/custom-kent\"\n"
-	home, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
+	root := t.TempDir()
+	workspace := t.TempDir()
 
-	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-kent"); got != want {
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if got, want := cfg.PersistenceRoot, root; got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
 	}
 	if got, want := cfg.Settings.Worktrees.BaseDir, filepath.Join(cfg.PersistenceRoot, "worktrees"); got != want {
@@ -619,13 +659,19 @@ func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
 	configText := strings.Join([]string{
-		"persistence_root = \"~/custom-kent\"",
-		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",
 	}, "\n")
-	_, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	info, err := os.Stat(cfg.Settings.Worktrees.BaseDir)
 	if err != nil {
 		t.Fatalf("stat worktree base dir: %v", err)
@@ -761,8 +807,8 @@ func TestLoadSubagentRoleRejectsPersistenceRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected persistence_root in subagent role to fail")
 	}
-	if !errors.Is(err, errSubagentPersistenceRoot) {
-		t.Fatalf("unexpected error: %v", err)
+	if !unknownSettingsKeyReported(err, "subagents.fast.persistence_root") {
+		t.Fatalf("expected unknown persistence_root subagent key, got: %v", err)
 	}
 }
 

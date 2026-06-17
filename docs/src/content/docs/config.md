@@ -13,7 +13,7 @@ Kent resolves settings in this order (higher no. = higher priority):
 4. Environment variables
 5. `kent run` CLI flags
 
-Interactive session flows resolve workspace-local config from the session workspace root. `kent serve` starts without a workspace root and applies workspace config only when a project/session selects a workspace. `kent run` is the only entrypoint that accepts config override flags.
+Interactive session flows resolve workspace-local config from the session workspace root. `kent serve` starts without a workspace root and applies workspace config only when a project/session selects a workspace. `kent run` is the only entrypoint that accepts the model/provider/theme override flags; the `--persistence-root` flag (config+data root) is also accepted by `kent` and `kent serve`.
 
 ## Locations
 
@@ -39,7 +39,9 @@ Kent also installs a user-editable ripgrep config at:
 
 Kent creates `~/.kent/rg.conf` when missing and exports it to shell tools via `RIPGREP_CONFIG_PATH` only when you have not already set `RIPGREP_CONFIG_PATH` yourself.
 
-Changing `persistence_root` does not move either config file. `persistence_root` controls where Kent stores its database & auth state. The default is `~/.kent`.
+The config+data root defaults to `~/.kent`. Set a different root with the `--persistence-root` flag (accepted by `kent`, `kent run`, and `kent serve`) or the `KENT_PERSISTENCE_ROOT` environment variable; the flag wins over the env var. This relocates **both** `config.toml` discovery and all persisted state (database, auth, sessions, worktrees) to that one directory — config and data are not configurable separately, and `persistence_root` is no longer a `config.toml` setting (a config file cannot relocate the directory it is read from). Workspace config is still read from `<workspace-root>/.kent/config.toml`.
+
+Migration: if an existing `config.toml` still contains `persistence_root`, Kent fails to load with a clear error; remove the key and pass `--persistence-root`/`KENT_PERSISTENCE_ROOT` instead.
 
 
 ## Example
@@ -143,7 +145,6 @@ verbose_output = false # show in ongoing transcript
 | `shell.postprocessing_mode` | string | `builtin` | `KENT_SHELL_POSTPROCESSING_MODE` |  | Semantic post-processing mode for `exec_command`. Allowed: `none`, `builtin`, `user`, `all`. `builtin` enables Kent processors only. `all` runs Kent processors first, then your hook. |
 | `shell.postprocess_hook` | string | `""` | `KENT_SHELL_POSTPROCESS_HOOK` |  | Optional executable/script path for a single local command post-processing hook. Kent sends JSON on stdin and expects JSON on stdout. |
 | `prevent_sleep` | string | `active` | `KENT_PREVENT_SLEEP` |  | Prevent system sleep while Kent is running. Allowed: `always` (while the server process is live), `active` (while any agent is working, plus up to one minute of idle-confirmation grace), `never` (disabled). Only system sleep is inhibited; screensaver and display sleep are unaffected. |
-| `persistence_root` | string | `~/.kent` | `KENT_PERSISTENCE_ROOT` |  | Root for auth, session, and workspace index storage. Does not change the location of `~/.kent/config.toml`. |
 
 ### Timeouts
 

@@ -67,3 +67,5 @@ docs/tmp/
 .kent/qa/
 .kent/proofs/
 .builder/
+# Private, machine-local QA harness skill (references omlx + user dirs)
+.kent/skills/qa-harness/

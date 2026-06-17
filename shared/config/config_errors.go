@@ -27,9 +27,10 @@ var (
 	// role; the role key is preserved in the wrapped message.
 	errSubagentRole = newConfigError("invalid subagent role")
 
-	// errSubagentPersistenceRoot is returned when a subagent role attempts to
-	// set persistence_root, which is not supported in role scope.
-	errSubagentPersistenceRoot = newConfigError("persistence_root is not supported in subagent roles")
+	// errPersistenceRootInConfigFile is returned when a config.toml still
+	// declares the removed persistence_root setting. The config+data root is
+	// set with the --persistence-root flag or the KENT_PERSISTENCE_ROOT env var.
+	errPersistenceRootInConfigFile = newConfigError("persistence_root is no longer a config.toml setting; set the config and data root with the --persistence-root flag or the KENT_PERSISTENCE_ROOT environment variable")
 
 	// errSubagentDescriptionTooLong is returned when a subagent description
 	// exceeds the maximum length after normalization.

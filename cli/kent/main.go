@@ -33,6 +33,7 @@ type commonFlags struct {
 	Tools                 string
 	OpenAIBaseURL         string
 	OpenAIBaseURLExplicit bool
+	PersistenceRoot       string
 }
 
 type runJSONResult struct {
@@ -119,6 +120,7 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 	rootFS := newCommandFlagSet(config.Command, stderr, rootUsage)
 	showVersion := rootFS.Bool("version", false, "print version and exit")
 	forceInteractive := rootFS.Bool("force-interactive", false, "run interactive UI even when stdin/stdout are not terminals")
+	persistenceRoot := rootFS.String("persistence-root", "", "config and data root directory (overrides KENT_PERSISTENCE_ROOT and the default ~/.kent)")
 	flags := registerSessionFlags(rootFS)
 	if ok, exitCode := parseCommandFlags(rootFS, args); !ok {
 		return exitCode
@@ -146,6 +148,7 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 	opts := app.Options{
 		WorkspaceRoot: ".",
 		SessionID:     sessionID,
+		ConfigRoot:    strings.TrimSpace(*persistenceRoot),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -269,6 +272,7 @@ func runSubcommand(args []string) int {
 		Tools:                     flags.Tools,
 		OpenAIBaseURL:             flags.OpenAIBaseURL,
 		OpenAIBaseURLExplicit:     flags.OpenAIBaseURLExplicit,
+		ConfigRoot:                strings.TrimSpace(flags.PersistenceRoot),
 	}
 
 	var progress io.Writer
@@ -338,6 +342,7 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout override in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "enabled tools override as csv (e.g. shell,patch)")
 	fs.StringVar(&flags.OpenAIBaseURL, "openai-base-url", "", "OpenAI-compatible base URL override")
+	fs.StringVar(&flags.PersistenceRoot, "persistence-root", "", "config and data root directory (overrides KENT_PERSISTENCE_ROOT and the default ~/.kent)")
 	return flags
 }
 

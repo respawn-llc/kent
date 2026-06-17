@@ -13,6 +13,9 @@ const (
 	DefaultPersistence   = PersistenceRoot
 	databaseDirName      = "db"
 	globalAuthConfigName = "auth.json"
+	// PersistenceRootEnvName is the env var that sets the config+data root,
+	// equivalent to the --persistence-root flag (LoadOptions.ConfigRoot).
+	PersistenceRootEnvName = "KENT_PERSISTENCE_ROOT"
 )
 
 type CompactionMode string

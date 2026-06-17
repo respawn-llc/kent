@@ -22,6 +22,7 @@ type Options struct {
 	Tools                     string
 	OpenAIBaseURL             string
 	OpenAIBaseURLExplicit     bool
+	ConfigRoot                string
 }
 
 func Run(ctx context.Context, opts Options) error {

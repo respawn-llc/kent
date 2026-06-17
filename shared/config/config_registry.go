@@ -596,13 +596,6 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			nil,
 			settingDocOptions{}),
-		newStringSetting("persistence_root", DefaultPersistence,
-			func(state *settingsState, value string) { state.PersistenceRoot = value },
-			func(state settingsState) string { return state.PersistenceRoot },
-			"KENT_PERSISTENCE_ROOT",
-			nil,
-			nil,
-			settingDocOptions{}),
 	}
 
 	registry := settingsRegistry{
@@ -1141,11 +1134,6 @@ func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (S
 	}
 	if len(explicitSources) == 0 {
 		explicitSources = nil
-	}
-	if explicitSources != nil {
-		if _, exists := explicitSources["persistence_root"]; exists {
-			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, errSubagentPersistenceRoot)
-		}
 	}
 	if err := validateSubagentRoleState(roleState, explicitSources); err != nil {
 		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)

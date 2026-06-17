@@ -33,7 +33,20 @@ func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (A
 		return App{}, errors.New("workspace root is required")
 	}
 
-	homeSettingsPath, err := resolveSettingsFilePathInRoot(opts.ConfigRoot)
+	// The config+data root is controlled by the --persistence-root flag
+	// (opts.ConfigRoot) or the KENT_PERSISTENCE_ROOT env var, in that order.
+	// It locates config.toml and roots all persistence. It is intentionally
+	// NOT a config.toml setting (a file cannot relocate its own directory).
+	configRoot, configRootSource := resolveConfigRoot(opts)
+	if configRoot != "" {
+		expanded, expandErr := expandTildePath(configRoot)
+		if expandErr != nil {
+			return App{}, fmt.Errorf("resolve persistence root: %w", expandErr)
+		}
+		configRoot = expanded
+	}
+
+	homeSettingsPath, err := resolveSettingsFilePathInRoot(configRoot)
 	if err != nil {
 		return App{}, err
 	}
@@ -46,6 +59,9 @@ func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (A
 	if homeSettingsExists {
 		homeFileConfig, err = readSettingsFile(homeSettingsPath)
 		if err != nil {
+			return App{}, err
+		}
+		if err := rejectRemovedPersistenceRootKey(homeFileConfig, homeSettingsPath); err != nil {
 			return App{}, err
 		}
 	}
@@ -66,11 +82,16 @@ func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (A
 			if err != nil {
 				return App{}, err
 			}
+			if err := rejectRemovedPersistenceRootKey(workspaceFileConfig, workspaceSettingsPath); err != nil {
+				return App{}, err
+			}
 		}
 	}
 
 	state := configRegistry.defaultState()
+	state.PersistenceRoot = DefaultPersistence
 	sources := configRegistry.defaultSourceMap()
+	sources["persistence_root"] = "default"
 
 	if err := configRegistry.applyFile(homeFileConfig, homeSettingsPath, &state, sources); err != nil {
 		return App{}, err
@@ -92,9 +113,7 @@ func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (A
 	if err := configRegistry.applyCLI(opts, &state, sources); err != nil {
 		return App{}, err
 	}
-	if err := applyExplicitConfigRootPersistence(opts, &state, sources); err != nil {
-		return App{}, err
-	}
+	applyConfigRootPersistence(configRoot, configRootSource, &state, sources)
 	inheritReviewerDefaultsWithSources(&state.Settings, sources)
 
 	if err := configRegistry.validate(settingsState{Settings: state.Settings}, sources); err != nil {
@@ -138,17 +157,37 @@ func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (A
 	}, nil
 }
 
-func applyExplicitConfigRootPersistence(opts LoadOptions, state *settingsState, sources map[string]string) error {
-	configRoot := strings.TrimSpace(opts.ConfigRoot)
-	if configRoot == "" {
-		return nil
+// resolveConfigRoot picks the explicit config+data root from the
+// --persistence-root flag (opts.ConfigRoot) or the KENT_PERSISTENCE_ROOT env
+// var, returning the trimmed root and a source label for the source report.
+func resolveConfigRoot(opts LoadOptions) (root string, source string) {
+	if trimmed := strings.TrimSpace(opts.ConfigRoot); trimmed != "" {
+		return trimmed, "flag"
 	}
-	absConfigRoot, err := filepath.Abs(configRoot)
-	if err != nil {
-		return fmt.Errorf("resolve config root: %w", err)
+	if trimmed := strings.TrimSpace(os.Getenv(PersistenceRootEnvName)); trimmed != "" {
+		return trimmed, "env"
 	}
-	state.PersistenceRoot = absConfigRoot
-	sources["persistence_root"] = "config_root"
+	return "", "default"
+}
+
+func applyConfigRootPersistence(configRoot string, source string, state *settingsState, sources map[string]string) {
+	if strings.TrimSpace(configRoot) == "" {
+		return
+	}
+	// configRoot is already tilde-expanded in load(); preparePersistenceRoot
+	// resolves it to an absolute path alongside the default path.
+	state.PersistenceRoot = configRoot
+	sources["persistence_root"] = source
+}
+
+// rejectRemovedPersistenceRootKey fails loads when a config.toml still declares
+// persistence_root, which is no longer a settings key. A config file cannot
+// relocate the directory it is read from, so the root is set via the
+// --persistence-root flag or the KENT_PERSISTENCE_ROOT env var instead.
+func rejectRemovedPersistenceRootKey(raw settingsFile, settingsPath string) error {
+	if _, ok, err := lookupFileString(raw, []string{"persistence_root"}); ok || err != nil {
+		return fmt.Errorf("%w (in %s)", errPersistenceRootInConfigFile, settingsPath)
+	}
 	return nil
 }
 

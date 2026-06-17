@@ -245,6 +245,7 @@ func startupConfigRequest(opts Options) startupconfig.Request {
 			Theme:               opts.Theme,
 			ModelTimeoutSeconds: opts.ModelTimeoutSeconds,
 			Tools:               opts.Tools,
+			ConfigRoot:          opts.ConfigRoot,
 		},
 	}
 }

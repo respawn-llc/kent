@@ -30,6 +30,7 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	serveFS := newCommandFlagSet(brand.Command+" serve", stderr, serveUsage)
+	persistenceRoot := serveFS.String("persistence-root", "", "config and data root directory (overrides KENT_PERSISTENCE_ROOT and the default ~/.kent)")
 	if ok, exitCode := parseCommandFlags(serveFS, args); !ok {
 		return exitCode
 	}
@@ -43,6 +44,7 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	authHandler, onboardingHandler := newServeStartupHandlers()
 	server, err := startServeServer(ctx, serverstartup.Request{
 		AllowUnauthenticated: true,
+		LoadOptions:          brand.LoadOptions{ConfigRoot: strings.TrimSpace(*persistenceRoot)},
 	}, authHandler, onboardingHandler)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
