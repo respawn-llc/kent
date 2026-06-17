@@ -41,7 +41,7 @@ func TestRemoteCompactionUsesSublinearPreciseTokenCountCalls(t *testing.T) {
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
 	for i := 0; i < 600; i++ {
-		if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "a"})); err != nil {
+		if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "a"}})); err != nil {
 			t.Fatalf("append assistant message %d: %v", i, err)
 		}
 	}
@@ -80,7 +80,7 @@ func TestLocalCompactionCarryoverUsesSublinearPreciseTokenCountCalls(t *testing.
 		CompactionMode:      "local",
 	})
 	for i := 0; i < 512; i++ {
-		if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "u"})); err != nil {
+		if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "u"}})); err != nil {
 			t.Fatalf("append user message %d: %v", i, err)
 		}
 	}
@@ -119,22 +119,22 @@ func TestManualCompactionLocalUsesHistorySinceLastCompactionCheckpoint(t *testin
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, Content: "canonical context"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, Content: "canonical context"}})); err != nil {
 		t.Fatalf("append canonical context: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "old user request"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "old user request"}})); err != nil {
 		t.Fatalf("append old user message: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "old assistant response"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "old assistant response"}})); err != nil {
 		t.Fatalf("append old assistant message: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "old compacted summary"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "old compacted summary"}})); err != nil {
 		t.Fatalf("append compaction checkpoint: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "new user request"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "new user request"}})); err != nil {
 		t.Fatalf("append new user message: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "new assistant response"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "new assistant response"}})); err != nil {
 		t.Fatalf("append new assistant message: %v", err)
 	}
 
@@ -203,7 +203,7 @@ func TestManualCompactionLocalFailsWhenModelAttemptsToolCalls(t *testing.T) {
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -226,7 +226,7 @@ func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
 
 	client := &fakeCompactionClient{}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "none"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -258,7 +258,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 190000, OutputTokens: 0, WindowTokens: 200000})
@@ -267,7 +267,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 		t.Fatalf("auto compact failed: %v", err)
 	}
 	if eng.shouldAutoCompact() {
-		t.Fatalf("expected auto compact threshold to be cleared after replacement, usage=%+v", eng.lastUsageSnapshot())
+		t.Fatalf("expected auto compact threshold to be cleared after replacement, usage=%+v", eng.usageTrackingState().Last())
 	}
 }
 
@@ -287,7 +287,7 @@ func TestCompactionLabelsSingleSummaryEntry(t *testing.T) {
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 190000, OutputTokens: 0, WindowTokens: 200000})
@@ -329,7 +329,7 @@ func TestEmitCompactionStatusStillPublishesFailureEventWhenErrorPersistenceFails
 		return nil
 	}
 
-	err := eng.emitCompactionStatus("step-1", EventCompactionFailed, compactionModeAuto, "remote", "openai", 0, 2, "quota exceeded")
+	err := newCompactionPersistence(eng).emitStatus("step-1", EventCompactionFailed, compactionModeAuto, "remote", "openai", 0, 2, "quota exceeded")
 	if !errors.Is(err, localEntryErr) {
 		t.Fatalf("emitCompactionStatus error = %v, want %v", err, localEntryErr)
 	}
@@ -350,10 +350,10 @@ func TestEmitCompactionStatusStillPublishesFailureEventWhenErrorPersistenceFails
 func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "pre-compaction"})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "pre-compaction"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	eventsPath := filepath.Join(store.Dir(), "events.jsonl")
 	if err := os.Chmod(eventsPath, 0o444); err != nil {
@@ -363,11 +363,11 @@ func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.
 		_ = os.Chmod(eventsPath, 0o644)
 	}()
 
-	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
 	if err == nil {
 		t.Fatal("expected replaceHistory persistence failure")
 	}
-	if messages := eng.snapshotMessages(); len(messages) != 1 || messages[0].Content != "pre-compaction" {
+	if messages := eng.transcriptRuntimeState().SnapshotMessages(); len(messages) != 1 || messages[0].Content != "pre-compaction" {
 		t.Fatalf("runtime transcript mutated despite persistence failure: %+v", messages)
 	}
 	if !eng.compactionRuntimeState().SoonReminderIssued() {
@@ -404,19 +404,19 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenMetadataPersistFailsAfterEventAppe
 	observer := &failOnCompactionReminderResetObservation{}
 	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "pre-compaction"})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "pre-compaction"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	if err := store.SetCompactionSoonReminderIssued(true); err != nil {
 		t.Fatalf("persist seed reminder state: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
-	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
 	if err == nil {
 		t.Fatal("expected replaceHistory metadata persistence failure")
 	}
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) != 1 || messages[0].Content != "summary" {
 		t.Fatalf("runtime transcript not updated after durable history replacement: %+v", messages)
 	}
@@ -430,7 +430,7 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenUsageMetadataPersistFailsAfterEven
 	observer := &failOnUsageStateResetObservation{}
 	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "pre-compaction"})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "pre-compaction"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	if err := store.SetUsageState(&session.UsageState{InputTokens: 42, WindowTokens: 100}); err != nil {
@@ -438,11 +438,11 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenUsageMetadataPersistFailsAfterEven
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 42, WindowTokens: 100})
 
-	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
 	if err == nil {
 		t.Fatal("expected replaceHistory usage metadata persistence failure")
 	}
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) != 1 || messages[0].Content != "summary" {
 		t.Fatalf("runtime transcript not updated after durable history replacement: %+v", messages)
 	}
@@ -618,7 +618,7 @@ func TestRemoteCompactionReinjectsActiveWorkflowPrompt(t *testing.T) {
 	}}}
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -626,9 +626,9 @@ func TestRemoteCompactionReinjectsActiveWorkflowPrompt(t *testing.T) {
 		t.Fatalf("compactNow: %v", err)
 	}
 
-	workflowMessages := workflowModeMessagesFromItems(eng.snapshotItems())
+	workflowMessages := workflowModeMessagesFromItems(eng.transcriptRuntimeState().SnapshotItems())
 	if len(workflowMessages) != 1 {
-		t.Fatalf("workflow prompt count after compaction = %d, want 1; items=%+v", len(workflowMessages), eng.snapshotItems())
+		t.Fatalf("workflow prompt count after compaction = %d, want 1; items=%+v", len(workflowMessages), eng.transcriptRuntimeState().SnapshotItems())
 	}
 	workflowPrompt := workflowMessages[0]
 	if workflowPrompt.SourcePath != "run-1" {
@@ -654,10 +654,10 @@ func TestRemoteCompactionRefreshesWorkflowTaskCommentCount(t *testing.T) {
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
 	workflowCfg.TaskCommentCounter = counter
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-1", Content: "old workflow prompt with 1 comment"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-1", Content: "old workflow prompt with 1 comment"}})); err != nil {
 		t.Fatalf("append stale workflow prompt: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -668,9 +668,9 @@ func TestRemoteCompactionRefreshesWorkflowTaskCommentCount(t *testing.T) {
 	if got := counter.calls.Load(); got != 1 {
 		t.Fatalf("CountTaskComments calls = %d, want 1", got)
 	}
-	workflowMessages := workflowModeMessagesFromItems(eng.snapshotItems())
+	workflowMessages := workflowModeMessagesFromItems(eng.transcriptRuntimeState().SnapshotItems())
 	if len(workflowMessages) != 1 {
-		t.Fatalf("workflow prompt count after compaction = %d, want 1; items=%+v", len(workflowMessages), eng.snapshotItems())
+		t.Fatalf("workflow prompt count after compaction = %d, want 1; items=%+v", len(workflowMessages), eng.transcriptRuntimeState().SnapshotItems())
 	}
 	if strings.Contains(workflowMessages[0].Content, "old workflow prompt") || !strings.Contains(workflowMessages[0].Content, "3 comments") {
 		t.Fatalf("workflow prompt was not refreshed from current comment count:\n%s", workflowMessages[0].Content)
@@ -690,7 +690,7 @@ func TestRemoteCompactionTaskCommentCountErrorDoesNotReplaceHistory(t *testing.T
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
 	workflowCfg.TaskCommentCounter = &fakeTaskCommentCounter{err: countErr}
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -698,7 +698,7 @@ func TestRemoteCompactionTaskCommentCountErrorDoesNotReplaceHistory(t *testing.T
 	if !errors.Is(err, countErr) {
 		t.Fatalf("compactNow error = %v, want %v", err, countErr)
 	}
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) != 1 || messages[0].Role != llm.RoleUser || messages[0].Content != "seed" {
 		t.Fatalf("active list mutated after comment count error: %+v", messages)
 	}
@@ -723,7 +723,7 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAtomically(t *testi
 		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -799,11 +799,11 @@ func TestHistoryReplacementDurableAfterAppendObserverFailure(t *testing.T) {
 	observer := &failOnHistoryReplacementAgentResetObservation{}
 	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace, session.WithPersistenceObserver(observer))
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "before replacement"})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "before replacement"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
-	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
+	err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
 	if err == nil {
 		t.Fatal("expected replacement observer failure")
 	}
@@ -833,15 +833,15 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace, session.WithPersistenceObserver(observer))
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"}, Usage: llm.Usage{WindowTokens: 200000}}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "before replacement"})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "before replacement"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
-	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
+	err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
 	if err == nil {
 		t.Fatal("expected replacement observer failure")
 	}
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) != 1 || messages[0].MessageType != llm.MessageTypeCompactionSummary || messages[0].Content != "summary seed" {
 		t.Fatalf("live active list after committed replacement error = %+v, want compacted seed", messages)
 	}
@@ -881,7 +881,7 @@ func TestWorkflowRequestAfterCompactionDoesNotDuplicateReinjectedWorkflowPrompt(
 	}
 	workflowCfg := testWorkflowConfig(controller, config.WorkflowCompletionModeTool)
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	if _, err := eng.compactNow(context.Background(), "step-1", compactionModeManual, "", false); err != nil {
@@ -949,7 +949,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 	if err := store.SetHeadlessActive(true); err != nil {
 		t.Fatalf("mark headless active: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -957,7 +957,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		t.Fatalf("compactNow: %v", err)
 	}
 
-	items := eng.snapshotItems()
+	items := eng.transcriptRuntimeState().SnapshotItems()
 	if len(items) < 7 {
 		t.Fatalf("expected canonical remote compaction prefix, got %+v", items)
 	}

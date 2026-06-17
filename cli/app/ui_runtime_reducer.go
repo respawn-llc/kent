@@ -42,27 +42,27 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(next, cmd)
 	case runtimeConnectionStateChangedMsg:
 		m.observeRuntimeRequestResult(msg.err)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
 	case runtimeLeaseRecoveryWarningMsg:
 		cmd := m.sendTransientStatusWithNoticeID(msg.text, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, "")
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, sequenceCmds(cmd, waitRuntimeLeaseRecoveryWarning(m.runtimeLeaseRecoveryWarning)))
 	case runtimeMainViewRefreshedMsg:
 		cmd := m.handleRuntimeMainViewRefreshed(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case runtimeTranscriptRefreshedMsg:
 		cmd := m.handleRuntimeTranscriptRefreshed(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case runtimeCommittedTranscriptSuffixRefreshedMsg:
 		cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case runtimeTranscriptRetryMsg:
 		if msg.token != m.runtimeTranscriptRetry {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		req := msg.req
@@ -70,11 +70,11 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			req = runtimeTranscriptSyncRequestForPage(m.transcriptRequestForCurrentMode(), false, msg.syncCause, msg.recoveryCause)
 		}
 		cmd := m.startRuntimeTranscriptSyncRequest(req).cmd
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case detailTranscriptLoadMsg:
 		cmd := m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(m.transcriptRequestForCurrentMode(), true, runtimeTranscriptSyncCauseManualTranscriptRefresh, clientui.TranscriptRecoveryCauseNone)).cmd
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}

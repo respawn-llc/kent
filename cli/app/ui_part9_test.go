@@ -257,7 +257,7 @@ func TestHelpDismissesOnRegisteredKeyAndAppliesAction(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)
@@ -278,7 +278,7 @@ func TestHelpDismissesOnAnyKeypress(t *testing.T) {
 	m.termHeight = 24
 	m.windowSizeKnown = true
 	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)
@@ -298,7 +298,7 @@ func TestQuestionMarkTogglesHelpWhenInputIsEmpty(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	updated := next.(*uiModel)
@@ -315,7 +315,7 @@ func TestQuestionMarkInsertsLiteralWhenInputIsNotEmpty(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "draft"
 	m.inputCursor = len([]rune(m.input))
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	updated := next.(*uiModel)
@@ -333,7 +333,7 @@ func TestAltQuestionMarkTogglesHelp(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}, Alt: true})
 	updated := next.(*uiModel)
@@ -348,7 +348,7 @@ func TestF1TogglesHelp(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF1})
 	updated := next.(*uiModel)
@@ -450,7 +450,7 @@ func TestAltSlashTogglesHelp(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}, Alt: true})
 	updated := next.(*uiModel)
@@ -465,7 +465,7 @@ func TestHelpToggleClearsRollbackEscArming(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -500,7 +500,7 @@ func TestCmdSlashCSIUTogglesHelp(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(adaptCustomKeyMsg(testBubbleTeaUnknownCSISequence("\x1b[47;10u")))
 	updated := next.(*uiModel)
@@ -515,7 +515,7 @@ func TestHelpToggleKeyHidesVisibleHelp(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)
@@ -533,7 +533,7 @@ func TestHelpToggleIgnoredInDetailMode(t *testing.T) {
 	m.termHeight = 24
 	m.windowSizeKnown = true
 	m.forwardToView(tui.ToggleModeMsg{})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)
@@ -548,7 +548,7 @@ func TestTranscriptToggleClosesVisibleHelp(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)
@@ -572,7 +572,7 @@ func TestHelpRollbackSelectionDismissesAndMovesSelection(t *testing.T) {
 	if !m.startRollbackSelectionMode() {
 		t.Fatal("expected rollback selection mode to start")
 	}
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)
@@ -601,7 +601,7 @@ func TestHelpRollbackEditDismissesAndReturnsToSelection(t *testing.T) {
 		t.Fatal("expected rollback editing mode to start")
 	}
 	m.input = ""
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)

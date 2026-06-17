@@ -226,15 +226,15 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 		Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), cfg)
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
 	if err := eng.CompactContext(context.Background(), ""); err != nil {
 		t.Fatalf("compact: %v", err)
 	}
-	if !hasSubagentCatalog(eng.snapshotMessages(), "- `worker`: Callable helper.") {
-		t.Fatalf("expected in-memory canonical transcript to keep subagent catalog, got %+v", eng.snapshotMessages())
+	if !hasSubagentCatalog(eng.transcriptRuntimeState().SnapshotMessages(), "- `worker`: Callable helper.") {
+		t.Fatalf("expected in-memory canonical transcript to keep subagent catalog, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 
 	reopenedStore, err := session.Open(store.Dir())
@@ -242,8 +242,8 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 		t.Fatalf("reopen store: %v", err)
 	}
 	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), cfg)
-	if !hasSubagentCatalog(restored.snapshotMessages(), "- `worker`: Callable helper.") {
-		t.Fatalf("expected persisted canonical transcript to keep subagent catalog, got %+v", restored.snapshotMessages())
+	if !hasSubagentCatalog(restored.transcriptRuntimeState().SnapshotMessages(), "- `worker`: Callable helper.") {
+		t.Fatalf("expected persisted canonical transcript to keep subagent catalog, got %+v", restored.transcriptRuntimeState().SnapshotMessages())
 	}
 }
 

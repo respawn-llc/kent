@@ -27,7 +27,7 @@ func TestRollbackSelectionUsesAbsoluteTranscriptEntryIndexWhenPaged(t *testing.T
 	m.transcriptBaseOffset = 200
 	m.transcriptTotalEntries = 203
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: m.transcriptBaseOffset, TotalEntries: m.transcriptTotalEntries, Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -93,7 +93,7 @@ func TestRollbackSelectionRecentersTranscript(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -135,7 +135,7 @@ func TestRollbackSelectionEdgeArrowRecentersWhenNoPageAvailable(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 8
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -182,7 +182,7 @@ func TestRollbackSelectionCancelRestoresPriorOngoingScroll(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	updated := next.(*uiModel)
@@ -223,7 +223,7 @@ func TestRollbackTransitionsUseDetailOverlayInNativeMode(t *testing.T) {
 	)
 	m.termWidth = 100
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated := next.(*uiModel)
@@ -458,7 +458,7 @@ func TestRollbackEditCancelChainRestoresPriorOngoingScroll(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript(entries))
 	m.termWidth = 100
 	m.termHeight = 10
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	updated := next.(*uiModel)

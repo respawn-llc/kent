@@ -18,7 +18,7 @@ func TestLockedInputEditKeysDismissHelpAndStillNoOp(t *testing.T) {
 	m.setInputSubmitLocked(true)
 	m.setBusy(true)
 	m.input = "locked"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})
 	updated := next.(*uiModel)

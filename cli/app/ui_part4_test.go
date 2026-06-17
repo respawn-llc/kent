@@ -22,7 +22,7 @@ func TestMainInputViewportTracksCursorLine(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "first\nsecond\nthird\nfourth"
 	m.inputCursor = 1
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	plain := stripANSIAndTrimRight(strings.Join(m.layout().renderInputLines(20, uiThemeStyles("dark")), "\n"))
 	if !strings.Contains(plain, "› first") || !strings.Contains(plain, "second") {

@@ -164,7 +164,7 @@ func TestNormalizeSettingsForPersistence_AllowsDisabledThinkingWithReviewerInher
 		VerboseOutput:  false,
 	}
 
-	normalized, err := NormalizeSettingsForPersistence(settings)
+	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
 	if err != nil {
 		t.Fatalf("normalize settings for persistence: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestNormalizeSettingsForPersistence_AllowsProviderOverrideWithExplicitPersi
 	settings.Model = "my-team-alias"
 	settings.ProviderOverride = "openai"
 
-	normalized, err := NormalizeSettingsForPersistence(settings)
+	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
 	if err != nil {
 		t.Fatalf("normalize settings for persistence: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestNormalizeSettingsForPersistenceRejectsModelContextWindowBelowMinimum(t 
 	settings.ModelContextWindow = 39999
 	settings.ContextCompactionThresholdTokens = 30000
 
-	if _, err := NormalizeSettingsForPersistence(settings); err == nil {
+	if _, err := NormalizeSettingsForPersistenceWithSources(settings, nil); err == nil {
 		t.Fatal("expected model_context_window below minimum validation error")
 	} else if !errors.Is(err, errModelContextWindowBelowMinimum) {
 		t.Fatalf("expected model context window minimum validation detail, got %v", err)

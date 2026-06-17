@@ -190,10 +190,6 @@ func hasAnyConfiguredSource(sources map[string]string, keys ...string) bool {
 	return false
 }
 
-func NormalizeSettingsForPersistence(settings Settings) (Settings, error) {
-	return NormalizeSettingsForPersistenceWithSources(settings, nil)
-}
-
 func NormalizeSettingsForPersistenceWithSources(settings Settings, sources map[string]string) (Settings, error) {
 	normalized := settings
 	if normalized.EnabledTools == nil {

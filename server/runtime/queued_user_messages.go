@@ -24,7 +24,7 @@ func newQueuedUserMessageStore() *queuedUserMessageStore {
 
 func (s *queuedUserMessageStore) Queue(text string) QueuedUserMessage {
 	item := QueuedUserMessage{ID: uuid.NewString(), Text: text}
-	intent := steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: item.Text})
+	intent := steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: item.Text}})
 	s.mu.Lock()
 	s.pending = append(s.pending, queuedUserSteeringIntent{message: item, intent: intent})
 	s.mu.Unlock()

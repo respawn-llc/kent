@@ -93,7 +93,11 @@ func (t *HTTPTransport) Generate(ctx context.Context, request OpenAIRequest) (Op
 		return OpenAIResponse{}, err
 	}
 
-	service := t.newResponseService(mode)
+	service := responses.NewResponseService(
+		option.WithBaseURL(t.serviceBaseURL(mode)),
+		option.WithHTTPClient(t.Client),
+		option.WithMaxRetries(0),
+	)
 	reqOpts := t.buildRequestOptions(authHeader, mode, request.SessionID)
 	var rawResp *http.Response
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
@@ -142,7 +146,11 @@ func (t *HTTPTransport) GenerateStreamWithEvents(ctx context.Context, request Op
 		return OpenAIResponse{}, err
 	}
 
-	service := t.newResponseService(mode)
+	service := responses.NewResponseService(
+		option.WithBaseURL(t.serviceBaseURL(mode)),
+		option.WithHTTPClient(t.Client),
+		option.WithMaxRetries(0),
+	)
 	reqOpts := t.buildRequestOptions(authHeader, mode, request.SessionID)
 	var rawResp *http.Response
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
@@ -178,12 +186,16 @@ func (t *HTTPTransport) Compact(ctx context.Context, request OpenAICompactionReq
 		return OpenAICompactionResponse{}, err
 	}
 
-	payload, err := t.buildCompactPayload(request)
+	payload, err := newOpenAIRequestPayloadBuilder(t.Store, t.ModelVerbosity, ProviderCapabilities{}).BuildCompact(request)
 	if err != nil {
 		return OpenAICompactionResponse{}, err
 	}
 
-	service := t.newResponseService(mode)
+	service := responses.NewResponseService(
+		option.WithBaseURL(t.serviceBaseURL(mode)),
+		option.WithHTTPClient(t.Client),
+		option.WithMaxRetries(0),
+	)
 	reqOpts := t.buildRequestOptions(authHeader, mode, request.SessionID)
 	var rawResp *http.Response
 	var rawBody []byte

@@ -633,10 +633,6 @@ func (p *TranscriptViewProjector) Project(input TranscriptProjectionInput, state
 	return p.project(input, state, true)
 }
 
-func (p *TranscriptViewProjector) ProjectShared(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
-	return p.project(input, state, false)
-}
-
 func (p *TranscriptViewProjector) ProjectDetailShared(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
 	key := NewTranscriptViewProjectionKey(input, state)
 	if key.Revision > 0 && p != nil && p.detailViewSet && transcriptViewProjectionKeysEqual(p.detailViewKey, key) {

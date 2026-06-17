@@ -14,12 +14,8 @@ func nextNonZeroToken(token uint64) uint64 {
 	return token
 }
 
-func (m *uiModel) invalidateMainInputDraftToken() {
-	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
-}
-
 func (m *uiModel) replaceMainInput(text string, cursor int) {
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = text
 	m.inputCursor = cursor
 	m.syncPromptHistorySelectionToInput()
@@ -36,7 +32,7 @@ func (m *uiModel) insertInputRunes(chars []rune) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -48,7 +44,7 @@ func (m *uiModel) backspaceInput() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -61,7 +57,7 @@ func (m *uiModel) deleteForwardInput() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -74,7 +70,7 @@ func (m *uiModel) deleteBackwardWordInput() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -88,7 +84,7 @@ func (m *uiModel) deleteForwardWordInput() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -102,7 +98,7 @@ func (m *uiModel) killInputToLineStart() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -116,7 +112,7 @@ func (m *uiModel) killInputToLineEnd() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -130,7 +126,7 @@ func (m *uiModel) yankInput() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -187,7 +183,7 @@ func (m *uiModel) deleteCurrentInputLine() bool {
 	if !ok {
 		return false
 	}
-	m.invalidateMainInputDraftToken()
+	m.mainInputDraftToken = nextNonZeroToken(m.mainInputDraftToken)
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()

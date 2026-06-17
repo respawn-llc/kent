@@ -216,16 +216,8 @@ func EnabledToolIDs(v Settings) []toolspec.ID {
 	return ids
 }
 
-func ProjectsRoot(cfg App) string {
-	return filepath.Join(cfg.PersistenceRoot, "projects")
-}
-
-func ProjectRoot(cfg App, projectID string) string {
-	return filepath.Join(ProjectsRoot(cfg), projectID)
-}
-
 func ProjectSessionsRoot(cfg App, projectID string) string {
-	return filepath.Join(ProjectRoot(cfg, projectID), "sessions")
+	return filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), projectID, "sessions")
 }
 
 func ProjectSessionDir(cfg App, projectID string, sessionID string) string {

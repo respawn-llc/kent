@@ -130,7 +130,7 @@ func (c uiInputController) blockInjectedQueueSubmission() (bool, tea.Cmd) {
 	}
 	detailErr := "queued runtime message is still pending; retry or discard it before submitting"
 	m.activity = uiActivityError
-	m.syncViewport()
+	m.layout().syncViewport()
 	return true, m.sendTransientStatusWithNoticeID(detailErr, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 }
 
@@ -144,11 +144,11 @@ func (c uiInputController) blockDisconnectedSubmission(restoreHidden bool, submi
 		c.restoreSubmittedTextIntoInput(submittedText)
 		c.restoreQueuedMessagesIntoInput()
 		m.activity = uiActivityError
-		m.syncViewport()
+		m.layout().syncViewport()
 		return true, tea.Batch(restoreCmd, m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, runtimeDisconnectedStatusMessage, ""))
 	}
 	m.activity = uiActivityError
-	m.syncViewport()
+	m.layout().syncViewport()
 	return true, m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, runtimeDisconnectedStatusMessage, "")
 }
 
@@ -270,7 +270,7 @@ func (c uiInputController) resumeQueuedInputsAfterIdleRuntime() tea.Cmd {
 	if m.hasRuntimeClient() && c.queuedDrainRequiresHydration() {
 		m.pendingQueuedDrainAfterHydration = true
 		m.queuedDrainReadyAfterHydration = false
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m.requestRuntimeQueuedDrainTranscriptSync()
 	}
 	_, cmd := c.flushQueuedInputs(queueDrainAuto)
@@ -461,7 +461,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 			appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 			m.logf("queue_create.error err=%q", detailErr)
 			m.removeInjectedQueueItemAt(index)
-			m.syncViewport()
+			m.layout().syncViewport()
 			if msg.approvalCommentaryAnswer != nil {
 				return m, sequenceCmds(appendCmd, m.answerQueuedApprovalCommentary(*msg.approvalCommentaryAnswer))
 			}

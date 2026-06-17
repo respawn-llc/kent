@@ -37,7 +37,7 @@ func (e *Engine) HandleBackgroundShellUpdate(evt BackgroundShellEvent, queueNoti
 }
 
 func (b *defaultBackgroundNoticeScheduler) HandleBackgroundShellUpdate(evt BackgroundShellEvent, queueNotice bool) {
-	_ = b.engine.steerEvent("", Event{Kind: EventBackgroundUpdated, Background: &evt})
+	_ = b.engine.steer("", steerEventIntent(Event{Kind: EventBackgroundUpdated, Background: &evt}))
 	if !queueNotice {
 		return
 	}
@@ -89,7 +89,7 @@ func (b *defaultBackgroundNoticeScheduler) QueueDeveloperNotice(msg llm.Message)
 	shouldSchedule := false
 	notice := queuedBackgroundNotice{
 		sessionID: strings.TrimSpace(msg.Name),
-		intent:    steerMessageIntent(msg),
+		intent:    steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{msg}),
 	}
 	b.mu.Lock()
 	b.pending = append(b.pending, notice)

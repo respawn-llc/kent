@@ -104,7 +104,7 @@ func TestNativeProgramKeepsPendingToolTailLiveOnlyUntilCompletion(t *testing.T) 
 	}
 	model.transcriptEntries = append(model.transcriptEntries, call)
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries})
-	model.syncViewport()
+	model.layout().syncViewport()
 	if cmd := model.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatalf("expected pending tool call not to flush committed history, got %T", cmd())
 	}
@@ -119,7 +119,7 @@ func TestNativeProgramKeepsPendingToolTailLiveOnlyUntilCompletion(t *testing.T) 
 	result := tui.TranscriptEntry{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call_1"}
 	model.transcriptEntries = append(model.transcriptEntries, result)
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries})
-	model.syncViewport()
+	model.layout().syncViewport()
 	cmd := model.syncNativeHistoryFromTranscript()
 	if cmd == nil {
 		t.Fatal("expected finalized tool block flush")

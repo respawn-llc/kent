@@ -87,7 +87,7 @@ func (p userHookProcessor) Process(ctx context.Context, envelope Envelope) (Deci
 	}
 
 	var response hookResponse
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(stdout.buffer.Bytes(), &response); err != nil {
 		return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: "command postprocess hook returned invalid JSON", Err: err}
 	}
 	if !response.Processed {
@@ -123,10 +123,6 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	_, _ = b.buffer.Write(chunk)
 	b.remaining -= int64(len(chunk))
 	return written, nil
-}
-
-func (b *limitedBuffer) Bytes() []byte {
-	return b.buffer.Bytes()
 }
 
 func (b *limitedBuffer) String() string {

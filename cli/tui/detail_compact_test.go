@@ -84,7 +84,7 @@ func TestCompactDetailToggleStartsWithMultilineTailBlockSelected(t *testing.T) {
 		t.Fatal("expected visible selectable detail entries")
 	}
 	want := visible[len(visible)-1]
-	owners := m.currentDetailViewport().Owners
+	owners := m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners
 	if !m.detailSelectedActive || m.detailSelectedEntry != want {
 		t.Fatalf("expected multiline tail block selected on detail open, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, owners)
 	}
@@ -112,7 +112,7 @@ func TestCompactDetailViewportShrinkKeepsBottomSelectionVisible(t *testing.T) {
 	}
 	want := visible[len(visible)-1]
 	if !m.detailSelectedActive || m.detailSelectedEntry != want {
-		t.Fatalf("expected bottom visible entry selected after viewport shrink, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, m.currentDetailViewport().Owners)
+		t.Fatalf("expected bottom visible entry selected after viewport shrink, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *te
 
 	beforeScroll := m.DetailScroll()
 	beforeFirst, beforeLast, beforeRangeOK := m.DetailVisibleEntryRange()
-	owners := m.currentDetailViewport().Owners
+	owners := m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners
 	if center <= 0 || center >= len(owners)-1 {
 		t.Fatalf("center line %d outside spacer assertion range, owners=%d", center, len(owners))
 	}

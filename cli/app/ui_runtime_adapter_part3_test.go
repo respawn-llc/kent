@@ -185,7 +185,7 @@ func TestApplyRuntimeTranscriptPageSkipsDuplicateDetailRefresh(t *testing.T) {
 	m.detailTranscript.replace(page)
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: page.Offset, TotalEntries: page.TotalEntries, Entries: entries})
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Offset: page.Offset, Limit: len(page.Entries)}, page, clientui.TranscriptRecoveryCauseNone)
 	if cmd != nil {
@@ -258,7 +258,7 @@ func TestApplyRuntimeTranscriptPageInDetailModeAdvancesRevisionEvenWhenPageMatch
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	updated := page
 	updated.Revision = 11

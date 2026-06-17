@@ -42,7 +42,7 @@ func TestSessionActivityStreamGapHydratesThenRearmsOngoingRuntimeWait(t *testing
 	m.termWidth = 90
 	m.termHeight = 16
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	firstMsg, ok := m.waitRuntimeEventCmd()().(runtimeEventBatchMsg)
 	if !ok {

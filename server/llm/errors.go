@@ -15,10 +15,6 @@ const (
 	UnifiedErrorCodeProviderContract      = llmerrors.UnifiedErrorCodeProviderContract
 )
 
-func NewProviderContractError(providerID string, statusCode int, cause error) *ProviderAPIError {
-	return llmerrors.NewProviderContractError(providerID, statusCode, cause)
-}
-
 func IsAuthenticationError(err error) bool {
 	return llmerrors.IsAuthenticationError(err)
 }

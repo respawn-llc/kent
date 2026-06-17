@@ -78,7 +78,7 @@ func (m *uiModel) reconcileSpinnerTicking(force bool) tea.Cmd {
 		return nil
 	}
 	now := uiAnimationNow()
-	if m.spinnerTickToken != 0 && m.spinnerClock.Running() && !m.spinnerTickDue.IsZero() {
+	if m.spinnerTickToken != 0 && !m.spinnerClock.anchor.IsZero() && !m.spinnerTickDue.IsZero() {
 		rearmAfter := m.spinnerTickDue.Add(spinnerTickRearmGrace)
 		if force {
 			rearmAfter = m.spinnerTickDue
@@ -87,7 +87,7 @@ func (m *uiModel) reconcileSpinnerTicking(force bool) tea.Cmd {
 			return nil
 		}
 	}
-	if !m.spinnerClock.Running() {
+	if m.spinnerClock.anchor.IsZero() {
 		m.spinnerClock.Start(now)
 		m.spinnerFrame = 0
 	} else {

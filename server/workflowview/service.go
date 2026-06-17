@@ -730,7 +730,7 @@ func (s *Service) attentionItemsPage(ctx context.Context, projectID string, page
 			}
 			items = append(items, item)
 			if len(items) == pageSize {
-				return items, attentionCandidatePageToken(projectID, candidate), nil
+				return items, attentionPageTokenFor(projectID, candidate.occurredAtUnixMs, candidate.id), nil
 			}
 		}
 		if !moreCandidates {
@@ -1441,10 +1441,6 @@ func attentionPageTokenFor(projectID string, occurredAtUnixMs int64, id string) 
 	return base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(projectID))) + "|" +
 		strconv.FormatInt(occurredAtUnixMs, 10) + "|" +
 		base64.RawURLEncoding.EncodeToString([]byte(id))
-}
-
-func attentionCandidatePageToken(projectID string, item attentionCandidateRow) string {
-	return attentionPageTokenFor(projectID, item.occurredAtUnixMs, item.id)
 }
 
 func (s *Service) approvalAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {

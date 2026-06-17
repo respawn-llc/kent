@@ -361,7 +361,7 @@ func TestNormalizeSettingsForPersistencePreservesReviewerCapabilityFalseWithoutS
 	settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = false
 	settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = false
 
-	normalized, err := NormalizeSettingsForPersistence(settings)
+	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
 	if err != nil {
 		t.Fatalf("normalize settings for persistence: %v", err)
 	}

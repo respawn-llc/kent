@@ -128,7 +128,7 @@ func WriteSettingsFileForOnboardingWithOptions(settings Settings, options Onboar
 	if err != nil {
 		return "", err
 	}
-	normalized, err := NormalizeSettingsForPersistence(settings)
+	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
 	if err != nil {
 		return "", err
 	}

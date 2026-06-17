@@ -107,7 +107,7 @@ func TestDefinitionContractsDriveRuntimeAndRequestExposure(t *testing.T) {
 	if execTool.LocalRuntimeBuilder() != LocalRuntimeBuilderExecCommand {
 		t.Fatalf("expected %s local runtime builder, got %q", toolspec.ToolExecCommand, execTool.LocalRuntimeBuilder())
 	}
-	if !execTool.ExposedToModelRequest(RequestExposureContext{}) {
+	if !execTool.contract.Request.Allowed(RequestExposureContext{}) {
 		t.Fatalf("expected %s to be request-exposed without vision", toolspec.ToolExecCommand)
 	}
 
@@ -121,10 +121,10 @@ func TestDefinitionContractsDriveRuntimeAndRequestExposure(t *testing.T) {
 	if viewImage.LocalRuntimeBuilder() != LocalRuntimeBuilderViewImage {
 		t.Fatalf("expected %s local runtime builder, got %q", toolspec.ToolViewImage, viewImage.LocalRuntimeBuilder())
 	}
-	if viewImage.ExposedToModelRequest(RequestExposureContext{}) {
+	if viewImage.contract.Request.Allowed(RequestExposureContext{}) {
 		t.Fatalf("expected %s to remain hidden without vision support", toolspec.ToolViewImage)
 	}
-	if !viewImage.ExposedToModelRequest(RequestExposureContext{SupportsVision: true}) {
+	if !viewImage.contract.Request.Allowed(RequestExposureContext{SupportsVision: true}) {
 		t.Fatalf("expected %s to be request-exposed with vision support", toolspec.ToolViewImage)
 	}
 
@@ -138,7 +138,7 @@ func TestDefinitionContractsDriveRuntimeAndRequestExposure(t *testing.T) {
 	if triggerHandoff.LocalRuntimeBuilder() != LocalRuntimeBuilderTriggerHandoff {
 		t.Fatalf("expected %s local runtime builder, got %q", toolspec.ToolTriggerHandoff, triggerHandoff.LocalRuntimeBuilder())
 	}
-	if !triggerHandoff.ExposedToModelRequest(RequestExposureContext{}) {
+	if !triggerHandoff.contract.Request.Allowed(RequestExposureContext{}) {
 		t.Fatalf("expected %s to be request-exposed when enabled", toolspec.ToolTriggerHandoff)
 	}
 
@@ -152,7 +152,7 @@ func TestDefinitionContractsDriveRuntimeAndRequestExposure(t *testing.T) {
 	if webSearch.LocalRuntimeBuilder() != "" {
 		t.Fatalf("expected %s to have no local runtime builder, got %q", toolspec.ToolWebSearch, webSearch.LocalRuntimeBuilder())
 	}
-	if webSearch.ExposedToModelRequest(RequestExposureContext{SupportsVision: true}) {
+	if webSearch.contract.Request.Allowed(RequestExposureContext{SupportsVision: true}) {
 		t.Fatalf("expected %s to stay hidden from request tool declarations", toolspec.ToolWebSearch)
 	}
 	if !webSearch.EnablesNativeWebSearch("native") {
@@ -172,7 +172,7 @@ func TestDefinitionContractsDriveRuntimeAndRequestExposure(t *testing.T) {
 	if edit.LocalRuntimeBuilder() != LocalRuntimeBuilderEdit {
 		t.Fatalf("expected %s local runtime builder, got %q", toolspec.ToolEdit, edit.LocalRuntimeBuilder())
 	}
-	if !edit.ExposedToModelRequest(RequestExposureContext{}) {
+	if !edit.contract.Request.Allowed(RequestExposureContext{}) {
 		t.Fatalf("expected %s to be request-exposed when enabled", toolspec.ToolEdit)
 	}
 }

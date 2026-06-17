@@ -109,10 +109,6 @@ func (d Definition) LocalRuntimeBuilder() LocalRuntimeBuilder {
 	return d.contract.Runtime.LocalBuilder
 }
 
-func (d Definition) ExposedToModelRequest(ctx RequestExposureContext) bool {
-	return d.contract.Request.Allowed(ctx)
-}
-
 func (d Definition) BuildToolCallMeta(ctx ToolCallContext, raw json.RawMessage) transcript.ToolCallMeta {
 	meta := transcript.ToolCallMeta{ToolName: string(d.ID)}
 	if d.contract.Transcript.BuildCallMeta != nil {
@@ -201,7 +197,7 @@ func FormatToolResultByName(toolName string, raw json.RawMessage, isError bool) 
 	if ok {
 		return def.FormatToolResult(Result{Name: def.ID, Output: raw, IsError: isError})
 	}
-	output := strings.TrimSpace(FormatGenericOutput(raw))
+	output := strings.TrimSpace(formatOutputDefault(raw))
 	if output == "" {
 		if isError {
 			return "tool failed"
@@ -231,20 +227,16 @@ func DefinitionsFor(ids []toolspec.ID) []Definition {
 func FilterRequestExposedDefinitions(defs []Definition, ctx RequestExposureContext) []Definition {
 	out := make([]Definition, 0, len(defs))
 	for _, def := range defs {
-		if def.ExposedToModelRequest(ctx) {
+		if def.contract.Request.Allowed(ctx) {
 			out = append(out, def)
 		}
 	}
 	return out
 }
 
-func RequestExposedDefinitions(ids []toolspec.ID, ctx RequestExposureContext) []Definition {
-	return FilterRequestExposedDefinitions(DefinitionsFor(ids), ctx)
-}
-
 func RequestExposedDefinitionsForSession(enabled []toolspec.ID, registered []Definition, ctx RequestExposureContext) []Definition {
 	if len(enabled) > 0 {
-		return RequestExposedDefinitions(enabled, ctx)
+		return FilterRequestExposedDefinitions(DefinitionsFor(enabled), ctx)
 	}
 	return FilterRequestExposedDefinitions(registered, ctx)
 }
@@ -278,8 +270,4 @@ func HostedExecutionsFromOutputs(items []HostedToolOutput, defs []Definition) []
 		}
 	}
 	return out
-}
-
-func FormatGenericOutput(raw json.RawMessage) string {
-	return formatOutputDefault(raw)
 }
