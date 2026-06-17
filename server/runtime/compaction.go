@@ -350,6 +350,13 @@ func (e *Engine) requestInputTokensPreciselyTracked(ctx context.Context, req llm
 	}
 	count, err := counter.CountRequestInputTokens(ctx, req)
 	if err != nil {
+		if e.errorIsRepairableMissingToolOutput(err) {
+			// The request carries interrupted tool calls without outputs that the
+			// model request path repairs by appending synthetic outputs. Fall back to
+			// an estimate for this probe only; do not persist a permanent failure that
+			// would disable exact counting for the rest of the active list.
+			return 0, false
+		}
 		e.reportPreciseTokenCountFailure(err)
 		return 0, false
 	}
