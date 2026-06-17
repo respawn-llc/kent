@@ -24,7 +24,6 @@ func resolveSubagentSettings(base config.Settings, providerBase config.Settings,
 	if !hasRole && normalizedRole != config.BuiltInSubagentRoleFast {
 		return config.Settings{}, "", fmt.Errorf("Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]", normalizedRole, strings.Join(config.AvailableSubagentRoleNames(base, false), ", "))
 	}
-	resolved := cloneSettings(base)
 	providerSettings := cloneSettings(providerBase)
 	providerSettings.Subagents = nil
 	applySubagentProviderOverrides(&providerSettings, role)
@@ -32,21 +31,43 @@ func resolveSubagentSettings(base config.Settings, providerBase config.Settings,
 	if err != nil {
 		return config.Settings{}, "", err
 	}
-	_ = applyBuiltInRoleHeuristics(&resolved, normalizedRole, strings.TrimSpace(providerCaps.ProviderID), allowModelOverride)
-	applySubagentRoleOverrides(&resolved, role, allowModelOverride)
-	effectiveSources := cloneStringMap(baseSources)
-	for key := range role.Sources {
-		effectiveSources[key] = "subagent"
+	resolved, _, warning, err := resolveSubagentSettingsWithProviderID(
+		base,
+		config.SourceReport{Sources: baseSources},
+		normalizedRole,
+		strings.TrimSpace(providerCaps.ProviderID),
+		allowModelOverride,
+	)
+	if err != nil {
+		return config.Settings{}, "", err
 	}
+	return resolved, warning, nil
+}
+
+func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource config.SourceReport, roleName string, providerID string, allowModelOverride bool) (config.Settings, config.SourceReport, string, error) {
+	normalizedRole := config.NormalizeSubagentSelector(roleName)
+	if normalizedRole == "" {
+		return config.Settings{}, config.SourceReport{}, "", fmt.Errorf("invalid subagent role %q", roleName)
+	}
+	role, hasRole := base.Subagents[normalizedRole]
+	if !hasRole && normalizedRole != config.BuiltInSubagentRoleFast {
+		return config.Settings{}, config.SourceReport{}, "", fmt.Errorf("Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]", normalizedRole, strings.Join(config.AvailableSubagentRoleNames(base, false), ", "))
+	}
+	resolved := cloneSettings(base)
+	_ = applyBuiltInRoleHeuristics(&resolved, normalizedRole, strings.TrimSpace(providerID), allowModelOverride)
+	applySubagentRoleOverrides(&resolved, role, allowModelOverride)
+	effectiveSource := sourceReportWithSubagentRoleSources(baseSource, base, normalizedRole, allowModelOverride)
+	effectiveSources := cloneStringMap(effectiveSource.Sources)
 	applyReviewerInheritance(&resolved, effectiveSources)
+	effectiveSource.Sources = effectiveSources
 	if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
-		return config.Settings{}, "", fmt.Errorf("invalid subagent role %q: %w", normalizedRole, err)
+		return config.Settings{}, config.SourceReport{}, "", fmt.Errorf("invalid subagent role %q: %w", normalizedRole, err)
 	}
 	warning := ""
 	if normalizedRole == config.BuiltInSubagentRoleFast && sameResolvedSubagentSettings(base, resolved) {
 		warning = fastRoleSameAsMainWarning
 	}
-	return resolved, warning, nil
+	return resolved, effectiveSource, warning, nil
 }
 
 func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, providerID string, allowModelOverride bool) bool {

@@ -153,20 +153,14 @@ func TestServicePlanSessionAppliesLaunchOverrides(t *testing.T) {
 	workspace := t.TempDir()
 	persistenceRoot := t.TempDir()
 	containerDir := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	cfg.Settings.Model = "gpt-5.4"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	cfg.Source.Sources["model"] = "file"
+	cfg.Source.Sources["tools.shell"] = "file"
+	cfg.Source.Sources["tools.patch"] = "default"
 	service := NewService(launch.Planner{
-		Config: config.App{
-			WorkspaceRoot:   workspace,
-			PersistenceRoot: persistenceRoot,
-			Settings: config.Settings{
-				Model:        "gpt-5.4",
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			},
-			Source: config.SourceReport{Sources: map[string]string{
-				"model":       "file",
-				"tools.shell": "file",
-				"tools.patch": "default",
-			}},
-		},
+		Config:       cfg,
 		ContainerDir: containerDir,
 	}, registry.NewSessionStoreRegistry())
 
@@ -209,15 +203,11 @@ func TestServicePlanSessionRespectsLockedContractWhenApplyingOverrides(t *testin
 	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-model", EnabledTools: []string{"shell"}}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	cfg.Settings.Model = "base-model"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
 	service := NewService(launch.Planner{
-		Config: config.App{
-			WorkspaceRoot:   workspace,
-			PersistenceRoot: persistenceRoot,
-			Settings: config.Settings{
-				Model:        "base-model",
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			},
-		},
+		Config:       cfg,
 		ContainerDir: containerDir,
 	}, registry.NewSessionStoreRegistry())
 
@@ -244,16 +234,13 @@ func TestServicePlanSessionRespectsLockedContractWhenApplyingOverrides(t *testin
 func TestServicePlanSessionPropagatesOverrideToolConflict(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
+	cfg := loadSessionLaunchTestConfig(t, workspace, t.TempDir())
+	cfg.Settings.Model = "claude-sonnet-4.5"
+	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	cfg.Source.Sources["tools.patch"] = "default"
+	cfg.Source.Sources["tools.edit"] = "default"
 	service := NewService(launch.Planner{
-		Config: config.App{
-			WorkspaceRoot:   workspace,
-			PersistenceRoot: t.TempDir(),
-			Settings: config.Settings{
-				Model:        "claude-sonnet-4.5",
-				EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			},
-			Source: config.SourceReport{Sources: map[string]string{"tools.patch": "default", "tools.edit": "default"}},
-		},
+		Config:       cfg,
 		ContainerDir: t.TempDir(),
 	}, registry.NewSessionStoreRegistry())
 
@@ -266,6 +253,16 @@ func TestServicePlanSessionPropagatesOverrideToolConflict(t *testing.T) {
 	if err == nil || !errors.Is(err, launch.ErrPatchEditToolsConflict) {
 		t.Fatalf("error = %v, want tool conflict", err)
 	}
+}
+
+func loadSessionLaunchTestConfig(t *testing.T, workspace string, persistenceRoot string) config.App {
+	t.Helper()
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.PersistenceRoot = persistenceRoot
+	return cfg
 }
 
 func TestServicePlanSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T) {

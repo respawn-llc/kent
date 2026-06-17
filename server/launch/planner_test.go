@@ -164,25 +164,23 @@ func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "smart_reviewer"}); err != nil {
 		t.Fatalf("SetContinuationContext: %v", err)
 	}
-	settings := config.Settings{
-		Model:         "gpt-5.5",
-		ThinkingLevel: "medium",
-		EnabledTools: map[toolspec.ID]bool{
-			toolspec.ToolExecCommand: true,
-			toolspec.ToolPatch:       true,
-		},
-		Subagents: map[string]config.SubagentRole{
-			"smart_reviewer": {
-				Settings: config.Settings{
-					Model:         "gpt-5.5",
-					ThinkingLevel: "xhigh",
-					EnabledTools: map[toolspec.ID]bool{
-						toolspec.ToolExecCommand: true,
-						toolspec.ToolPatch:       false,
-					},
-				},
-				Sources: map[string]string{"thinking_level": "file", "tools.patch": "file"},
-			},
+	loaded := loadLaunchConfig(t, workspace)
+	settings := loaded.Settings
+	settings.ThinkingLevel = "medium"
+	settings.EnabledTools = map[toolspec.ID]bool{
+		toolspec.ToolExecCommand: true,
+		toolspec.ToolPatch:       true,
+	}
+	roleSettings := settings
+	roleSettings.ThinkingLevel = "xhigh"
+	roleSettings.EnabledTools = map[toolspec.ID]bool{
+		toolspec.ToolExecCommand: true,
+		toolspec.ToolPatch:       false,
+	}
+	settings.Subagents = map[string]config.SubagentRole{
+		"smart_reviewer": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"thinking_level": "file", "tools.patch": "file"},
 		},
 	}
 	planner := Planner{
@@ -190,13 +188,7 @@ func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
 			WorkspaceRoot:   workspace,
 			PersistenceRoot: root,
 			Settings:        settings,
-			Source: config.SourceReport{Sources: map[string]string{
-				"model":          "file",
-				"thinking_level": "file",
-				"tools.shell":    "file",
-				"tools.patch":    "file",
-				"tools.edit":     "file",
-			}},
+			Source:          loaded.Source,
 		},
 		ContainerDir: containerDir,
 	}
@@ -1013,15 +1005,15 @@ func TestPlannerNewChildSessionHonorsCanceledContextBeforeParentCopy(t *testing.
 func TestApplyRunPromptOverridesOverridesHeadlessSettingsWithoutMutatingBasePlan(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	plan := newSettingsPlan(t, workspace, config.Settings{
-		Model:         "base-model",
-		ThinkingLevel: "low",
-		Theme:         "dark",
-		EnabledTools: map[toolspec.ID]bool{
-			toolspec.ToolExecCommand: true,
-		},
-		Timeouts: config.Timeouts{ModelRequestSeconds: 100},
-	})
+	loaded := loadLaunchConfig(t, workspace)
+	settings := loaded.Settings
+	settings.Model = "base-model"
+	settings.ThinkingLevel = "low"
+	settings.Theme = "dark"
+	settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	settings.Timeouts = config.Timeouts{ModelRequestSeconds: 100}
+	loaded.Settings = settings
+	plan := newLoadedConfigPlan(t, workspace, loaded)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{
 		Model:               "gpt-5-mini",
@@ -1127,6 +1119,43 @@ func TestResolveSubagentSettingsPreservesSubagentCatalogMetadata(t *testing.T) {
 	}
 }
 
+func TestResolveSubagentSettingsRejectsRoleContextWindowBelowMinimum(t *testing.T) {
+	cfg := loadLaunchConfig(t, t.TempDir())
+	base := cfg.Settings
+	roleSettings := base
+	roleSettings.ModelContextWindow = 39_999
+	roleSettings.ContextCompactionThresholdTokens = 38_000
+	base.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"model_context_window": "file", "context_compaction_threshold_tokens": "file"},
+		},
+	}
+
+	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	if err == nil {
+		t.Fatal("expected role context window below minimum to fail")
+	}
+}
+
+func TestResolveSubagentSettingsRejectsRoleReviewerContextWindowBelowMinimum(t *testing.T) {
+	cfg := loadLaunchConfig(t, t.TempDir())
+	base := cfg.Settings
+	roleSettings := base
+	roleSettings.Reviewer.ModelContextWindow = 39_999
+	base.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"reviewer.model_context_window": "file"},
+		},
+	}
+
+	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	if err == nil {
+		t.Fatal("expected role reviewer context window below minimum to fail")
+	}
+}
+
 func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
@@ -1144,12 +1173,15 @@ func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 func TestApplyRunPromptOverridesRecomputesEnabledToolsForModelOverride(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	plan := newSettingsPlan(t, workspace, config.Settings{
-		Model: "gpt-5.4",
-		EnabledTools: map[toolspec.ID]bool{
-			toolspec.ToolExecCommand: true,
-		},
-	})
+	loaded := loadLaunchConfig(t, workspace)
+	settings := loaded.Settings
+	settings.Model = "gpt-5.4"
+	settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	source := loaded.Source
+	source.Sources = cloneStringMap(loaded.Source.Sources)
+	source.Sources["tools.patch"] = "file"
+	source.Sources["tools.edit"] = "file"
+	plan := newSettingsPlanWithSource(t, workspace, settings, source)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.3-codex"}, auth.EmptyState())
 	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
@@ -1163,15 +1195,16 @@ func TestApplyRunPromptOverridesRecomputesEnabledToolsForModelOverride(t *testin
 func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	plan := newSettingsPlanWithSource(t, workspace, config.Settings{
-		Model: "gpt-5.4",
-		EnabledTools: map[toolspec.ID]bool{
-			toolspec.ToolExecCommand: true,
-		},
-	}, config.SourceReport{Sources: map[string]string{
-		"model":       "file",
-		"tools.shell": "cli",
-	}})
+	loaded := loadLaunchConfig(t, workspace)
+	settings := loaded.Settings
+	settings.Model = "gpt-5.4"
+	settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
+	source := loaded.Source
+	source.Sources = cloneStringMap(loaded.Source.Sources)
+	source.Sources["tools.shell"] = "cli"
+	source.Sources["tools.patch"] = "file"
+	source.Sources["tools.edit"] = "file"
+	plan := newSettingsPlanWithSource(t, workspace, settings, source)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.3-codex"}, auth.EmptyState())
 	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
@@ -1465,6 +1498,99 @@ func TestPlannerResumeFastRoleUsesOpenAIBaseURLForHeuristic(t *testing.T) {
 	}
 	if !plan.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected fast heuristic priority mode")
+	}
+}
+
+func TestPlannerResumePersistedRoleRejectsContextWindowBelowMinimum(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace)
+	roleSettings := loaded.Settings
+	roleSettings.ModelContextWindow = 39_999
+	roleSettings.ContextCompactionThresholdTokens = 38_000
+	loaded.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"model_context_window": "file", "context_compaction_threshold_tokens": "file"},
+		},
+	}
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
+	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        loaded.Settings,
+			Source:          loaded.Source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID}); err == nil {
+		t.Fatal("expected persisted subagent role context window below minimum to fail")
+	}
+}
+
+func TestPlannerResumePersistedRoleRejectsReviewerContextWindowBelowMinimum(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace)
+	roleSettings := loaded.Settings
+	roleSettings.Reviewer.ModelContextWindow = 39_999
+	loaded.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"reviewer.model_context_window": "file"},
+		},
+	}
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
+	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        loaded.Settings,
+			Source:          loaded.Source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID}); err == nil {
+		t.Fatal("expected persisted subagent role reviewer context window below minimum to fail")
+	}
+}
+
+func TestPlannerResumeRemovedPersistedRoleKeepsBaseSettings(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace)
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
+	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "removed"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        loaded.Settings,
+			Source:          loaded.Source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.Model != loaded.Settings.Model {
+		t.Fatalf("model = %q, want base model %q", plan.ActiveSettings.Model, loaded.Settings.Model)
 	}
 }
 
