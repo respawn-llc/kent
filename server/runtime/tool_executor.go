@@ -48,7 +48,7 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 			started.CommittedEntryStart = start
 			started.CommittedEntryStartSet = true
 		}
-		if err := e.steerEvent(stepID, started); err != nil {
+		if err := e.steer(stepID, steerEventIntent(started)); err != nil {
 			callErrs[i] = fmt.Errorf("persist tool started (call_id=%s tool=%s): %w", call.ID, executableCall.Name, err)
 			continue
 		}

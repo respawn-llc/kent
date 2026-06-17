@@ -319,7 +319,7 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 	}
 	eng.restorePersistedUsageState(meta.UsageState)
 	if meta.InFlightStep {
-		if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage})); err != nil {
+		if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage}})); err != nil {
 			return nil, err
 		}
 		if err := store.MarkInFlight(false); err != nil {
@@ -416,14 +416,14 @@ func (e *Engine) SubmitUserMessage(ctx context.Context, text string) (assistant 
 		}
 		userMessage := llm.Message{Role: llm.RoleUser, Content: text}
 		if !hasQueuedInjected {
-			intents := []steeringIntent{steerUserMessageWithoutDerivedEventIntent(userMessage)}
+			intents := []steeringIntent{steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventNone, true, []llm.Message{userMessage})}
 			if flushed := flushedUserMessageEvent(userMessage, stepID); flushed != nil {
 				intents = append(intents, steerEventIntent(*flushed))
 			}
 			if err := e.steer(stepID, intents...); err != nil {
 				return err
 			}
-		} else if err := e.steer(stepID, steerUserMessageIntent(userMessage)); err != nil {
+		} else if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventDefault, true, []llm.Message{userMessage})); err != nil {
 			return err
 		}
 		msg, runErr := e.runStepLoop(stepCtx, stepID)
@@ -470,17 +470,17 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 				"user_initiated": true,
 			}),
 		}
-		if err := e.steer(stepID, steerMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}})); err != nil {
+		if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}})); err != nil {
 			return err
 		}
 		if _, ok := e.registry.Get(toolspec.ToolExecCommand); !ok {
 			transcriptCall := normalizeToolCallForTranscript(call, e.transcriptWorkingDir())
-			_ = e.steerEvent(stepID, Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true})
+			_ = e.steer(stepID, steerEventIntent(Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true}))
 			result = tools.Result{CallID: call.ID, Name: toolspec.ToolExecCommand, IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: "unknown tool"}
 			if err := e.steer(stepID, steerToolCompletionIntent(result)); err != nil {
 				return fmt.Errorf("%w (call_id=%s tool=%s): %w", errPersistToolCompletion, call.ID, result.Name, err)
 			}
-			if appendErr := e.steer(stepID, steerMessageIntent(llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)})); appendErr != nil {
+			if appendErr := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}})); appendErr != nil {
 				return appendErr
 			}
 			return errUnknownTool
@@ -491,7 +491,7 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 			return errors.New("shell tool execution returned no result")
 		}
 		result = results[0]
-		if appendErr := e.steer(stepID, steerMessageIntent(llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)})); appendErr != nil {
+		if appendErr := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}})); appendErr != nil {
 			return errors.Join(execErr, appendErr)
 		}
 		return execErr
@@ -501,7 +501,7 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 
 func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, error) {
 	reviewerFrequency := e.ReviewerFrequency()
-	reviewerClient := e.reviewerClientSnapshot()
+	reviewerClient := e.reviewerRuntimeState().Client()
 	result, err := e.runStepLoopWithOptions(ctx, stepID, reviewerFrequency, reviewerClient, true, true)
 	if result.NoopFinalAnswer {
 		return llm.Message{}, err
@@ -575,10 +575,6 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	return lock, nil
 }
 
-func (e *Engine) generateWithRetry(ctx context.Context, stepID string, req llm.Request, onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
-	return e.generateWithRetryClient(ctx, stepID, e.llm, req, onDelta, onReasoningDelta, onAttemptReset)
-}
-
 // generateWithMissingToolOutputRepair runs a model turn, and on a provider HTTP
 // 400 attempts an append-only repair that closes any interrupted tool calls that
 // lack outputs, then rebuilds the request and retries. The request is rebuilt
@@ -610,7 +606,7 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 				onReasoningDelta(delta)
 			}
 		}
-		resp, err := e.generateWithRetry(ctx, stepID, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		resp, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
 		if err == nil {
 			return resp, nil
 		}

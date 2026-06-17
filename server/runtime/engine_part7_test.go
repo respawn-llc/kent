@@ -305,7 +305,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	if callCount != 2 {
 		t.Fatalf("model call count = %d, want 2", callCount)
 	}
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeBackgroundNotice {
 			t.Fatalf("did not expect background notice for foreground exec_command completion: %+v", msg)
 		}
@@ -789,7 +789,7 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 	finalAssistantContents := make([]string, 0)
 	foundBackgroundNotice := false
 	noopFinalCount := 0
-	for _, persisted := range eng.snapshotMessages() {
+	for _, persisted := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if persisted.Role == llm.RoleAssistant && persisted.Phase == llm.MessagePhaseFinal {
 			finalAssistantContents = append(finalAssistantContents, persisted.Content)
 		}
@@ -801,10 +801,10 @@ func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 		}
 	}
 	if !foundBackgroundNotice {
-		t.Fatalf("expected persisted background notice, got %+v", eng.snapshotMessages())
+		t.Fatalf("expected persisted background notice, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 	if noopFinalCount != 1 {
-		t.Fatalf("noop final count = %d, want 1; messages=%+v", noopFinalCount, eng.snapshotMessages())
+		t.Fatalf("noop final count = %d, want 1; messages=%+v", noopFinalCount, eng.transcriptRuntimeState().SnapshotMessages())
 	}
 	if len(finalAssistantContents) != 1 || finalAssistantContents[0] != reviewerNoopToken {
 		t.Fatalf("expected hidden persisted noop final assistant message, got %q", finalAssistantContents)

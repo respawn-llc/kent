@@ -38,14 +38,14 @@ func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.Goa
 	if e == nil || e.store == nil {
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
 	}
-	msg := e.goalDeveloperMessage(prompts.RenderGoalSetPrompt(strings.TrimSpace(objective)), goalSetCompactText(objective))
+	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.RenderGoalSetPrompt(strings.TrimSpace(objective)), CompactContent: goalSetCompactText(objective)}, e.transcriptWorkingDir())
 	e.controlMutationMu.Lock()
 	defer e.controlMutationMu.Unlock()
 	goal, err := e.store.SetGoalWithEvents(objective, actor, []session.EventInput{{Kind: "message", Payload: msg}})
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	if err := e.steer("", steerStoredMessageProjectionIntent(msg), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
+	if err := e.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, false, []llm.Message{msg}), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
 		return session.GoalState{}, err
 	}
 	return goal, nil
@@ -71,7 +71,7 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	if err := e.steer("", steerStoredMessageProjectionIntent(msg), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
+	if err := e.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, false, []llm.Message{msg}), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
 		return session.GoalState{}, err
 	}
 	return goal, nil
@@ -81,14 +81,14 @@ func (e *Engine) ClearGoal(actor session.GoalActor) (session.GoalState, error) {
 	if e == nil || e.store == nil {
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
 	}
-	msg := e.goalDeveloperMessage(prompts.GoalClearPrompt, "Goal cleared")
+	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.GoalClearPrompt, CompactContent: "Goal cleared"}, e.transcriptWorkingDir())
 	e.controlMutationMu.Lock()
 	defer e.controlMutationMu.Unlock()
 	goal, err := e.store.ClearGoalWithEvents(actor, []session.EventInput{{Kind: "message", Payload: msg}})
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	if err := e.steer("", steerStoredMessageProjectionIntent(msg), steerGoalStatusUpdateIntent(goalStatusClearUpdate())); err != nil {
+	if err := e.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, false, []llm.Message{msg}), steerGoalStatusUpdateIntent(goalStatusClearUpdate())); err != nil {
 		return session.GoalState{}, err
 	}
 	return goal, nil
@@ -179,7 +179,7 @@ func (e *Engine) runGoalTurn(ctx context.Context, appendNudge bool) (assistant l
 			return errGoalLoopInactive
 		}
 		if appendNudge {
-			if err := e.steer(stepID, steerMessageIntent(e.goalDeveloperMessage(prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status)), goalNudgeCompactText(*goal)))); err != nil {
+			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status)), CompactContent: goalNudgeCompactText(*goal)}, e.transcriptWorkingDir())})); err != nil {
 				return err
 			}
 		}
@@ -245,15 +245,6 @@ func (e *Engine) goalLoopState() *goalLoopState {
 		e.goalLoop = newGoalLoopState()
 	}
 	return e.goalLoop
-}
-
-func (e *Engine) goalDeveloperMessage(content string, compact string) llm.Message {
-	return normalizeMessageForTranscript(llm.Message{
-		Role:           llm.RoleDeveloper,
-		MessageType:    llm.MessageTypeGoal,
-		Content:        content,
-		CompactContent: compact,
-	}, e.transcriptWorkingDir())
 }
 
 func (e *Engine) requireAskQuestionForActiveGoal() error {

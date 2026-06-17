@@ -37,13 +37,13 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if err := json.Unmarshal(evt.Payload, &msg); err != nil {
 				return fmt.Errorf("decode message event: %w", err)
 			}
-			e.transcriptPersistence().AppendMessage(msg)
+			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendMessage(msg)
 			recoveredHandoff.ApplyMessage(msg)
 			if isCompactionSoonReminderMessage(msg) {
 				reminderIssued = true
 			}
 		case "tool_completed":
-			if err := e.transcriptPersistence().RestoreToolCompletionPayload(evt.Payload); err != nil {
+			if err := newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).RestoreToolCompletionPayload(evt.Payload); err != nil {
 				return err
 			}
 			if err := recoveredHandoff.ApplyToolCompletion(evt.Payload); err != nil {
@@ -54,10 +54,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if err := json.Unmarshal(evt.Payload, &entry); err != nil {
 				return fmt.Errorf("decode local_entry event: %w", err)
 			}
-			e.restoreLocalDiagnostic(entry.DiagnosticKey)
-			e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
+			e.diagnosticDedupeStore().RestoreLocal(entry.DiagnosticKey)
+			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendLocalEntryRecord(*localEntryChatEntry(entry))
 		case sessionEventCacheWarning:
-			if err := applyPersistedCacheWarningToTranscript(e.transcriptPersistence(), evt.Payload, e.cfg.CacheWarningMode); err != nil {
+			if err := applyPersistedCacheWarningToTranscript(newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()), evt.Payload, e.cfg.CacheWarningMode); err != nil {
 				return err
 			}
 		case sessionEventCacheRequestObserved:
@@ -77,9 +77,9 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return nil
 			}
 			e.resetLocalDiagnostics()
-			e.transcriptPersistence().ReplaceHistory(payload.Items)
-			e.nextCompactionCount()
-			e.setLastCompactionWorkflowRunID(payload.WorkflowRunID)
+			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).ReplaceHistory(payload.Items)
+			e.compactionRuntimeState().IncrementCount()
+			e.compactionRuntimeState().SetLastWorkflowRunID(payload.WorkflowRunID)
 			recoveredHandoff.ClearSatisfiedByCompaction()
 			reminderIssued = false
 		}
@@ -87,7 +87,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	}); err != nil {
 		return err
 	}
-	e.setCompactionSoonReminderIssued(reminderIssued)
+	e.compactionRuntimeState().SetSoonReminderIssued(reminderIssued)
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
 		return err
 	}
@@ -96,12 +96,12 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	// history_replaced payload). Any restored history therefore already carries
 	// it, so a non-empty restore means injection has happened. This is a
 	// deterministic length check, never a scan of which messages are present.
-	e.baseMetaInjected = len(e.snapshotMessages()) > 0
+	e.baseMetaInjected = len(e.transcriptRuntimeState().SnapshotMessages()) > 0
 	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
-		e.queuePendingHandoffFutureMessage(futureMessage)
+		e.handoffRuntimeState().QueueFutureMessage(futureMessage)
 	}
 	if req, ok := recoveredHandoff.PendingRequest(); ok {
-		e.queueHandoffRequest(req.summarizerPrompt, req.futureAgentMessage)
+		e.handoffRuntimeState().QueueRequest(req.summarizerPrompt, req.futureAgentMessage)
 	}
 	return nil
 }

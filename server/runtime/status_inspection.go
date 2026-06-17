@@ -22,7 +22,7 @@ type SkillInspection struct {
 }
 
 func (e *Engine) CompactionCount() int {
-	return e.compactionCountSnapshot()
+	return e.compactionRuntimeState().Count()
 }
 
 func InspectSkills(workspaceRoot string, disabledSkills map[string]bool) ([]SkillInspection, error) {

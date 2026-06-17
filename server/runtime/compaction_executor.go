@@ -72,7 +72,7 @@ func (e *Engine) compactWithContextRepairRetry(
 ) (llm.CompactionResponse, []llm.ResponseItem, compactionOverflowRepairStats, error) {
 	currentInput := llm.CloneResponseItems(request.InputItems)
 	repairStats := compactionOverflowRepairStats{}
-	contextWindowTokens := e.contextWindowTokens()
+	contextWindowTokens := e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 
 	// send issues one compaction request. canRepair is set only for the first,
 	// uncollapsed send: a missing-tool-output HTTP 400 there is repaired in place
@@ -97,7 +97,7 @@ func (e *Engine) compactWithContextRepairRetry(
 		if repaired == 0 {
 			return resp, items, err
 		}
-		repairedItems := llm.CloneResponseItems(e.snapshotItems())
+		repairedItems := llm.CloneResponseItems(e.transcriptRuntimeState().SnapshotItems())
 		req.InputItems = llm.CloneResponseItems(repairedItems)
 		resp, err = e.compactWithRetry(ctx, stepID, client, req)
 		return resp, repairedItems, err
@@ -179,7 +179,7 @@ func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request 
 	if e == nil {
 		return llm.Request{}, false, nil
 	}
-	cacheKey := e.conversationPromptCacheKey()
+	cacheKey := conversationPromptCacheKey(e.SessionID(), e.compactionRuntimeState().Count())
 	if cacheKey == "" {
 		return llm.Request{}, false, nil
 	}
@@ -202,7 +202,7 @@ func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request 
 	}
 	req.ReasoningEffort = e.ThinkingLevel()
 	req.FastMode = e.FastModeEnabled()
-	req.SessionID = e.conversationSessionID()
+	req.SessionID = e.SessionID()
 	req.PromptCacheKey = cacheKey
 	req.PromptCacheScope = transcript.CacheWarningScopeConversation
 	return req, true, nil
@@ -227,7 +227,7 @@ func (e *Engine) compactLocal(ctx context.Context, input []llm.ResponseItem, pro
 	return compactionResult{
 		engine:            "local",
 		items:             replacement,
-		usage:             llm.Usage{InputTokens: usageInputTokens, WindowTokens: e.contextWindowTokens()},
+		usage:             llm.Usage{InputTokens: usageInputTokens, WindowTokens: e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())},
 		trimmedItemsCount: 0,
 		overflowRepair:    repairStats,
 		provider:          providerID,
@@ -256,7 +256,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	requestTools := e.requestTools(ctx, workflowMode)
 	window := localCompactionWindow(input)
 	repairStats := compactionOverflowRepairStats{}
-	contextWindowTokens := e.contextWindowTokens()
+	contextWindowTokens := e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	// summarize mirrors the remote send closure: it repairs a missing-tool-output
 	// HTTP 400 (append + re-snapshot + retry) only on the first, uncollapsed
 	// window. After a collapse, output items are preserved, so a missing-output
@@ -276,7 +276,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 		if repaired == 0 {
 			return summary, w, err
 		}
-		repairedWindow := localCompactionWindow(e.snapshotItems())
+		repairedWindow := localCompactionWindow(e.transcriptRuntimeState().SnapshotItems())
 		summary, err = e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, repairedWindow, instructions, requestTools, mode)
 		return summary, repairedWindow, err
 	}
@@ -317,15 +317,15 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, locked se
 		}
 		req.ReasoningEffort = e.ThinkingLevel()
 		req.FastMode = e.FastModeEnabled()
-		req.SessionID = e.conversationSessionID()
+		req.SessionID = e.SessionID()
 		if e.supportsPromptCacheKey(ctx) {
-			if cacheKey := e.conversationPromptCacheKey(); cacheKey != "" {
+			if cacheKey := conversationPromptCacheKey(e.SessionID(), e.compactionRuntimeState().Count()); cacheKey != "" {
 				req.PromptCacheKey = cacheKey
 				req.PromptCacheScope = transcript.CacheWarningScopeConversation
 			}
 		}
 
-		resp, err := e.generateWithRetry(ctx, "", req, nil, nil, nil)
+		resp, err := e.generateWithRetryClient(ctx, "", e.llm, req, nil, nil, nil)
 		if err != nil {
 			return "", err
 		}

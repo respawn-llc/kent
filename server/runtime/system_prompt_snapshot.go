@@ -18,10 +18,6 @@ type systemPromptSnapshotOptions struct {
 	SystemPromptFiles []config.SystemPromptFile
 }
 
-func (e *Engine) buildSystemPromptSnapshot(locked session.LockedContract) (string, error) {
-	return e.buildSystemPromptSnapshotForRoot(locked, e.systemPromptWorkspaceRoot())
-}
-
 func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract, workspaceRoot string) (string, error) {
 	includeToolPreambles := true
 	if locked.ToolPreambles != nil {

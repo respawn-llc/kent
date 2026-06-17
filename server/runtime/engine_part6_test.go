@@ -157,7 +157,7 @@ func TestRunReviewerFollowUpReturnsCompletionWhenReviewerInstructionAppendFails(
 		Model:    "gpt-5",
 		Reviewer: ReviewerConfig{Model: "gpt-5"},
 	})
-	if err := eng.steer("prep-1", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "first request"})); err != nil {
+	if err := eng.steer("prep-1", steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "first request"}})); err != nil {
 		t.Fatalf("append first message: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestRunStepLoopFailsWhenReviewerStatusPersistenceFailsAfterReviewerInstruct
 		}
 		return nil
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "do task"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "do task"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -520,7 +520,7 @@ func TestRestoreMessagesIgnoresLegacyReviewerRollbackHistoryReplacement(t *testi
 	case <-time.After(2 * time.Second):
 		t.Fatal("restore engine timed out while ignoring legacy reviewer_rollback history replacement")
 	}
-	items := restored.snapshotItems()
+	items := restored.transcriptRuntimeState().SnapshotItems()
 	if len(items) != 0 {
 		t.Fatalf("expected legacy reviewer rollback replacement to be ignored, got %+v", items)
 	}

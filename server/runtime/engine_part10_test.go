@@ -514,7 +514,7 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 	if err := store.SetHeadlessActive(true); err != nil {
 		t.Fatalf("mark headless active: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "continue"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -522,7 +522,7 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 		t.Fatalf("compact: %v", err)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	headlessCount := 0
 	exitCount := 0
 	for _, message := range messages {
@@ -548,13 +548,13 @@ func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"}})); err != nil {
 		t.Fatalf("append headless mode: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: "interactive mode instructions"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: "interactive mode instructions"}})); err != nil {
 		t.Fatalf("append headless exit: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "continue"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -562,7 +562,7 @@ func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 		t.Fatalf("compact: %v", err)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	for _, message := range messages {
 		if message.MessageType == llm.MessageTypeHeadlessMode {
 			t.Fatalf("did not expect headless enter reinjection after exit, got messages=%+v", messages)

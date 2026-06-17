@@ -54,7 +54,7 @@ func TestRunStepLoopDoesNotDuplicateCompactionSoonReminderAfterAutoCompactionIsD
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestRunStepLoopDoesNotDuplicateCompactionSoonReminderAfterAutoCompactionIsD
 	if !changed || enabled {
 		t.Fatalf("expected auto compaction toggle off, changed=%v enabled=%v", changed, enabled)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "continue"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -115,12 +115,12 @@ func TestCompactionSoonReminderIncludesTriggerHandoffAdditionWhenConfigured(t *t
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
 
-	if err := eng.maybeAppendCompactionSoonReminder(context.Background(), "step-1"); err != nil {
+	if err := newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), "step-1"); err != nil {
 		t.Fatalf("append reminder: %v", err)
 	}
 
@@ -143,32 +143,32 @@ func TestCompactionSoonReminderRechecksPreciselyAfterTranscriptMutation(t *testi
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 860, WindowTokens: 2_000})
 
-	if err := eng.maybeAppendCompactionSoonReminder(context.Background(), "step-1"); err != nil {
+	if err := newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), "step-1"); err != nil {
 		t.Fatalf("reminder below exact threshold: %v", err)
 	}
 	if client.countCalls != 1 {
 		t.Fatalf("expected first reminder probe to count precisely once, got %d", client.countCalls)
 	}
-	if eng.handoffToolEnabled() {
+	if eng.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("did not expect handoff tool to become enabled below the exact reminder threshold")
 	}
 
 	client.inputTokenCount = 860
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "mutation"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "mutation"}})); err != nil {
 		t.Fatalf("append mutation: %v", err)
 	}
-	if err := eng.maybeAppendCompactionSoonReminder(context.Background(), "step-2"); err != nil {
+	if err := newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), "step-2"); err != nil {
 		t.Fatalf("reminder above exact threshold after mutation: %v", err)
 	}
 	if client.countCalls != 2 {
 		t.Fatalf("expected transcript mutation to force a fresh precise reminder check, got %d calls", client.countCalls)
 	}
-	if !eng.handoffToolEnabled() {
+	if !eng.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected reminder to enable trigger_handoff after exact recount")
 	}
 	reminders := 0
@@ -197,7 +197,7 @@ func TestTriggerHandoffFailsWhenAutoCompactionDisabled(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 	changed, enabled := eng.SetAutoCompactionEnabled(false)
 	if !changed || enabled {
 		t.Fatalf("expected auto compaction toggle off, changed=%v enabled=%v", changed, enabled)
@@ -216,10 +216,10 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithoutManualCa
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}}},
 	}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 	activeCall := llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff), Input: json.RawMessage(`{"summarizer_prompt":"keep API details","future_agent_message":"resume with tests"}`)}
 
 	summary, futureAdded, err := eng.TriggerHandoff(context.Background(), "step-1", activeCall, "keep API details", "resume with tests")
@@ -250,7 +250,7 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithoutManualCa
 		t.Fatalf("expected handoff to reuse compaction instructions, got %+v", client.calls[0].Items)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	foundFutureMessage := false
 	foundManualCarryover := false
 	for _, message := range messages {
@@ -298,11 +298,11 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 1_900, WindowTokens: 2_000})
-	eng.queueHandoffRequest("keep runtime details", "")
+	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 
 	executor := &defaultStepExecutor{engine: eng}
 	if err := executor.prepareModelTurn(context.Background(), "step-1"); err != nil {
@@ -339,18 +339,18 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 1_900, WindowTokens: 2_000})
-	eng.queueHandoffRequest("keep runtime details", "")
+	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 
 	executor := &defaultStepExecutor{engine: eng}
 	if err := executor.prepareModelTurn(context.Background(), "step-1"); err != nil {
 		t.Fatalf("prepare model turn: %v", err)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	reminderCount := 0
 	for _, message := range messages {
 		if message.Role == llm.RoleDeveloper && message.MessageType == llm.MessageTypeWorktreeMode {
@@ -399,11 +399,11 @@ func TestPrepareModelTurnHandoffReminderPersistenceFailureRetriesWithoutDuplicat
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 1_900, WindowTokens: 2_000})
-	eng.queueHandoffRequest("keep runtime details", "")
+	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 	executor := &defaultStepExecutor{engine: eng}
 
 	if err := executor.prepareModelTurn(context.Background(), "step-1"); err == nil || !strings.Contains(err.Error(), "persist observer failed") {
@@ -411,7 +411,7 @@ func TestPrepareModelTurnHandoffReminderPersistenceFailureRetriesWithoutDuplicat
 	}
 	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
 
-	eng.queueHandoffRequest("keep runtime details", "")
+	eng.handoffRuntimeState().QueueRequest("keep runtime details", "")
 	if err := executor.prepareModelTurn(context.Background(), "step-2"); err != nil {
 		t.Fatalf("retry prepare model turn: %v", err)
 	}
@@ -447,10 +447,10 @@ func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T)
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch, toolspec.ToolTriggerHandoff},
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_tool_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "")
 	if err != nil {
@@ -459,8 +459,8 @@ func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T)
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); err != nil {
 		t.Fatalf("apply pending handoff: %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("expected successful retry to clear pending handoff, got %+v", eng.pendingHandoffRequestSnapshot())
+	if eng.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("expected successful retry to clear pending handoff, got %+v", eng.handoffRuntimeState().RequestSnapshot())
 	}
 	if len(client.calls) != 2 {
 		t.Fatalf("expected local summary retry after failed tool call, got %d requests", len(client.calls))
@@ -501,10 +501,10 @@ func TestPendingTriggerHandoffFailsMalformedToolCallWithEmptyID(t *testing.T) {
 		Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
 	}}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_empty_id", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
 	if err != nil {
@@ -513,7 +513,7 @@ func TestPendingTriggerHandoffFailsMalformedToolCallWithEmptyID(t *testing.T) {
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); !errors.Is(err, errLocalCompactionToolCallEmptyID) {
 		t.Fatalf("expected errLocalCompactionToolCallEmptyID, got %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() == nil {
+	if eng.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected malformed handoff failure to keep pending request queued")
 	}
 	if len(client.calls) != 1 {
@@ -568,10 +568,10 @@ func TestPendingTriggerHandoffRetriesCustomToolCallOutput(t *testing.T) {
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolPatch, toolspec.ToolTriggerHandoff},
 	}, toolspec.ToolPatch)
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_custom_tool_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "")
 	if err != nil {
@@ -648,10 +648,10 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 		},
 	}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_second_failure", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
 	if err != nil {
@@ -660,10 +660,10 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); !errors.Is(err, errLocalCompactionAttemptedToolCalls) {
 		t.Fatalf("expected errLocalCompactionAttemptedToolCalls, got %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() == nil {
+	if eng.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected failed handoff retry to keep pending request queued")
 	}
-	if got, want := eng.pendingHandoffRequestSnapshot().futureAgentMessage, "resume with tests"; got != want {
+	if got, want := eng.handoffRuntimeState().RequestSnapshot().futureAgentMessage, "resume with tests"; got != want {
 		t.Fatalf("pending future_agent_message after retry failure = %q, want %q", got, want)
 	}
 	if len(client.calls) != 4 {
@@ -687,16 +687,16 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 		},
 	}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() == nil {
+	if eng.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected queued handoff before compaction attempt")
 	}
 
@@ -704,13 +704,13 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); err == nil {
 		t.Fatal("expected first pending handoff attempt to fail when compaction summary response is missing")
 	}
-	if eng.pendingHandoffRequestSnapshot() == nil {
+	if eng.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected failed handoff compaction to leave pending request queued for retry")
 	}
-	if got, want := eng.pendingHandoffRequestSnapshot().summarizerPrompt, "keep API details"; got != want {
+	if got, want := eng.handoffRuntimeState().RequestSnapshot().summarizerPrompt, "keep API details"; got != want {
 		t.Fatalf("pending summarizer_prompt after failure = %q, want %q", got, want)
 	}
-	if got, want := eng.pendingHandoffRequestSnapshot().futureAgentMessage, "resume with tests"; got != want {
+	if got, want := eng.handoffRuntimeState().RequestSnapshot().futureAgentMessage, "resume with tests"; got != want {
 		t.Fatalf("pending future_agent_message after failure = %q, want %q", got, want)
 	}
 
@@ -721,11 +721,11 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); err != nil {
 		t.Fatalf("retry pending handoff: %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("expected successful retry to clear pending handoff, got %+v", eng.pendingHandoffRequestSnapshot())
+	if eng.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("expected successful retry to clear pending handoff, got %+v", eng.handoffRuntimeState().RequestSnapshot())
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	foundFutureMessage := false
 	for _, message := range messages {
 		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == prompts.FormatHandoffFutureAgentMessage("resume with tests") {
@@ -746,10 +746,10 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 	futureAgentMessage := "resume \"with tests\"\nthen inspect logs"
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_append_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", futureAgentMessage)
@@ -771,12 +771,12 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 	if len(client.calls) != 1 {
 		t.Fatalf("expected exactly one compaction summary call after append failure, got %d", len(client.calls))
 	}
-	if eng.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("expected compaction-success path to consume original handoff request, got %+v", eng.pendingHandoffRequestSnapshot())
+	if eng.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("expected compaction-success path to consume original handoff request, got %+v", eng.handoffRuntimeState().RequestSnapshot())
 	}
 	// The retry queue keeps the raw tool argument so retry emission cannot wrap
 	// already-formatted future-agent context a second time.
-	if got, want := eng.pendingHandoffFutureMessageSnapshot(), futureAgentMessage; got != want {
+	if got, want := eng.handoffRuntimeState().FutureMessageSnapshot(), futureAgentMessage; got != want {
 		t.Fatalf("pending future-agent message after append failure = %q, want %q", got, want)
 	}
 
@@ -787,11 +787,11 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 	if len(client.calls) != 1 {
 		t.Fatalf("expected retry after future-message append failure not to re-run compaction, got %d compaction calls", len(client.calls))
 	}
-	if got := eng.pendingHandoffFutureMessageSnapshot(); got != "" {
+	if got := eng.handoffRuntimeState().FutureMessageSnapshot(); got != "" {
 		t.Fatalf("expected successful retry to clear pending future-agent message, got %q", got)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	foundFutureMessage := false
 	for _, message := range messages {
 		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == prompts.FormatHandoffFutureAgentMessage(futureAgentMessage) {
@@ -812,7 +812,7 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	handoffCall := llm.ToolCall{
@@ -820,7 +820,7 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 		Name:  string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{"summarizer_prompt": "keep API details", "future_agent_message": "resume after restart"}),
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
@@ -830,10 +830,10 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 	if err := eng.steer("step-1", steerToolCompletionIntent(tools.Result{CallID: handoffCall.ID, Name: toolspec.ToolTriggerHandoff, Output: resultOutput})); err != nil {
 		t.Fatalf("persist tool completion: %v", err)
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleTool, ToolCallID: handoffCall.ID, Name: string(toolspec.ToolTriggerHandoff), Content: string(resultOutput)})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, ToolCallID: handoffCall.ID, Name: string(toolspec.ToolTriggerHandoff), Content: string(resultOutput)}})); err != nil {
 		t.Fatalf("append tool result: %v", err)
 	}
-	eng.queueHandoffRequest("keep API details", "resume after restart")
+	eng.handoffRuntimeState().QueueRequest("keep API details", "resume after restart")
 
 	eng.beforePersistMessage = func(msg llm.Message) error {
 		if msg.MessageType == llm.MessageTypeHandoffFutureMessage {
@@ -847,8 +847,8 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 	if len(client.calls) != 1 {
 		t.Fatalf("expected exactly one compaction summary call before reopen, got %d", len(client.calls))
 	}
-	if eng.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("expected successful compaction to consume queued handoff request before reopen, got %+v", eng.pendingHandoffRequestSnapshot())
+	if eng.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("expected successful compaction to consume queued handoff request before reopen, got %+v", eng.handoffRuntimeState().RequestSnapshot())
 	}
 
 	reopenedStore, err := session.Open(store.Dir())
@@ -860,10 +860,10 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 		Usage:     llm.Usage{InputTokens: 300, WindowTokens: 2_000},
 	}}}
 	restored := mustNewHandoffTestEngine(t, reopenedStore, resumedClient, Config{})
-	if restored.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("did not expect restore to requeue handoff after successful compaction, got %+v", restored.pendingHandoffRequestSnapshot())
+	if restored.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("did not expect restore to requeue handoff after successful compaction, got %+v", restored.handoffRuntimeState().RequestSnapshot())
 	}
-	if got, want := restored.pendingHandoffFutureMessageSnapshot(), "resume after restart"; got != want {
+	if got, want := restored.handoffRuntimeState().FutureMessageSnapshot(), "resume after restart"; got != want {
 		t.Fatalf("pending future-agent message after reopen = %q, want %q", got, want)
 	}
 
@@ -877,10 +877,10 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 	if len(resumedClient.calls) != 1 {
 		t.Fatalf("expected reopened retry to append future-agent message without re-running compaction, got %d requests", len(resumedClient.calls))
 	}
-	if got, want := resumedClient.calls[0].SessionID, restored.conversationSessionID(); got != want {
+	if got, want := resumedClient.calls[0].SessionID, restored.SessionID(); got != want {
 		t.Fatalf("expected reopened request session id to stay on the main conversation after restored handoff compaction, got %q want %q", got, want)
 	}
-	if got, want := resumedClient.calls[0].PromptCacheKey, restored.conversationPromptCacheKey(); got != want {
+	if got, want := resumedClient.calls[0].PromptCacheKey, conversationPromptCacheKey(restored.SessionID(), restored.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("expected reopened request prompt cache key to stay rotated after restored handoff compaction, got %q want %q", got, want)
 	}
 	foundFuture := false
@@ -929,10 +929,10 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	msg, err := eng.runStepLoop(context.Background(), "step-1")
 	if err != nil {
@@ -944,10 +944,10 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 	if len(client.calls) != 3 {
 		t.Fatalf("expected tool call, local compaction summary, and follow-up requests, got %d", len(client.calls))
 	}
-	if got, want := client.calls[2].SessionID, eng.conversationSessionID(); got != want {
+	if got, want := client.calls[2].SessionID, eng.SessionID(); got != want {
 		t.Fatalf("expected follow-up request session id to stay on the main conversation after handoff compaction, got %q want %q", got, want)
 	}
-	if got, want := client.calls[2].PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
+	if got, want := client.calls[2].PromptCacheKey, conversationPromptCacheKey(eng.SessionID(), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("expected follow-up request prompt cache key to rotate after handoff compaction, got %q want %q", got, want)
 	}
 
@@ -1009,7 +1009,7 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFol
 		AutoCompactTokenLimit: 10_000,
 		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 8_900, WindowTokens: 20_000})
@@ -1024,10 +1024,10 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFol
 	if len(client.calls) != 3 {
 		t.Fatalf("expected trigger request, local compaction summary, and follow-up requests, got %d", len(client.calls))
 	}
-	if got, want := client.calls[2].SessionID, eng.conversationSessionID(); got != want {
+	if got, want := client.calls[2].SessionID, eng.SessionID(); got != want {
 		t.Fatalf("expected follow-up request session id to stay on the main conversation after handoff compaction, got %q want %q", got, want)
 	}
-	if got, want := client.calls[2].PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
+	if got, want := client.calls[2].PromptCacheKey, conversationPromptCacheKey(eng.SessionID(), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("expected follow-up request prompt cache key to rotate after handoff compaction, got %q want %q", got, want)
 	}
 
@@ -1095,7 +1095,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	// Match real startup semantics: the initial runtime session has already injected
@@ -1106,7 +1106,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 	if err := eng.steerBaseMetaContextIfNeeded("seed-meta"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	if _, err := eng.runStepLoop(context.Background(), "step-1"); err != nil {
 		t.Fatalf("runStepLoop: %v", err)
@@ -1132,10 +1132,10 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 	if len(resumedClient.calls) != 1 {
 		t.Fatalf("expected one resumed model call, got %d", len(resumedClient.calls))
 	}
-	if got, want := resumedClient.calls[0].SessionID, restored.conversationSessionID(); got != want {
+	if got, want := resumedClient.calls[0].SessionID, restored.SessionID(); got != want {
 		t.Fatalf("expected resumed request session id to stay on the main conversation after restore, got %q want %q", got, want)
 	}
-	if got, want := resumedClient.calls[0].PromptCacheKey, restored.conversationPromptCacheKey(); got != want {
+	if got, want := resumedClient.calls[0].PromptCacheKey, conversationPromptCacheKey(restored.SessionID(), restored.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("expected resumed request prompt cache key to stay rotated after restore, got %q want %q", got, want)
 	}
 	for _, item := range resumedClient.calls[0].Items {

@@ -20,7 +20,7 @@ type requestBuildPlan struct {
 }
 
 func (e *Engine) buildRequest(ctx context.Context, stepID string, allowTools bool) (llm.Request, error) {
-	plan, err := e.buildRequestPlan(ctx, stepID, allowTools)
+	plan, err := e.buildRequestPlanWithExtraItems(ctx, stepID, nil, allowTools)
 	if err != nil {
 		return llm.Request{}, err
 	}
@@ -33,10 +33,6 @@ func (e *Engine) buildRequestWithExtraItems(ctx context.Context, stepID string, 
 		return llm.Request{}, err
 	}
 	return plan.Request, nil
-}
-
-func (e *Engine) buildRequestPlan(ctx context.Context, stepID string, allowTools bool) (requestBuildPlan, error) {
-	return e.buildRequestPlanWithExtraItems(ctx, stepID, nil, allowTools)
 }
 
 func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID string, extra []llm.ResponseItem, allowTools bool) (requestBuildPlan, error) {
@@ -60,7 +56,7 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 		requestTools = []llm.Tool{}
 	}
 
-	items := e.snapshotItems()
+	items := e.transcriptRuntimeState().SnapshotItems()
 	if len(extra) > 0 {
 		items = append(items, llm.CloneResponseItems(extra)...)
 	}
@@ -74,9 +70,9 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 	}
 	req.ReasoningEffort = e.ThinkingLevel()
 	req.FastMode = e.FastModeEnabled()
-	req.SessionID = e.conversationSessionID()
+	req.SessionID = e.SessionID()
 	if e.supportsPromptCacheKey(ctx) {
-		if cacheKey := e.conversationPromptCacheKey(); cacheKey != "" {
+		if cacheKey := conversationPromptCacheKey(e.SessionID(), e.compactionRuntimeState().Count()); cacheKey != "" {
 			req.PromptCacheKey = cacheKey
 			req.PromptCacheScope = transcript.CacheWarningScopeConversation
 		}
@@ -159,7 +155,7 @@ func (e *Engine) systemPrompt(locked session.LockedContract) (string, error) {
 	if prompt := strings.TrimSpace(locked.SystemPrompt); prompt != "" {
 		return prompt, nil
 	}
-	prompt, err := e.buildSystemPromptSnapshot(locked)
+	prompt, err := e.buildSystemPromptSnapshotForRoot(locked, e.systemPromptWorkspaceRoot())
 	if err != nil {
 		return "", err
 	}

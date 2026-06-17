@@ -34,7 +34,7 @@ func (e *Engine) persistToolCompletionRaw(stepID string, r tools.Result) error {
 	_, _, err := e.store.AppendEvent(stepID, "tool_completed", payload)
 	if err == nil {
 		e.markCurrentRequestShapeDirtyForSignificantMutation()
-		e.transcriptPersistence().RecordStoredToolCompletion(payload)
+		newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).RecordStoredToolCompletion(payload)
 	}
 	return err
 }
@@ -45,7 +45,7 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 		return nil
 	}
 	var callItem *llm.ResponseItem
-	for _, item := range e.snapshotItems() {
+	for _, item := range e.transcriptRuntimeState().SnapshotItems() {
 		if !isToolCallItem(item.Type) {
 			continue
 		}
@@ -82,7 +82,7 @@ func (e *Engine) steerPersistedDiagnosticEntry(stepID, diagnosticKey, role, text
 			Text:       text,
 		}))
 	}
-	if !e.beginLocalDiagnostic(diagnosticKey) {
+	if !e.diagnosticDedupeStore().BeginLocal(diagnosticKey) {
 		return nil
 	}
 	entry := storedLocalEntry{
@@ -95,11 +95,11 @@ func (e *Engine) steerPersistedDiagnosticEntry(stepID, diagnosticKey, role, text
 	entry.Text = strings.TrimSpace(entry.Text)
 	entry.DiagnosticKey = strings.TrimSpace(entry.DiagnosticKey)
 	if entry.Role == "" || entry.Text == "" {
-		e.clearLocalDiagnostic(diagnosticKey)
+		e.diagnosticDedupeStore().ClearLocal(diagnosticKey)
 		return nil
 	}
 	if err := e.steer(stepID, steerLocalEntryIntent(entry)); err != nil {
-		e.clearLocalDiagnostic(diagnosticKey)
+		e.diagnosticDedupeStore().ClearLocal(diagnosticKey)
 		return err
 	}
 	return nil
@@ -121,7 +121,7 @@ func (e *Engine) appendPersistedLocalEntryRecordRaw(stepID string, entry storedL
 	}
 	_, _, err := e.store.AppendEvent(stepID, "local_entry", entry)
 	if err == nil {
-		e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
+		newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendLocalEntryRecord(*localEntryChatEntry(entry))
 		e.emitRaw(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	}
 	return err
@@ -135,22 +135,6 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 		OngoingText: strings.TrimSpace(entry.OngoingText),
 		NoticeID:    strings.TrimSpace(entry.NoticeID),
 	}
-}
-
-func (e *Engine) beginLocalDiagnostic(key string) bool {
-	return e.diagnosticDedupeStore().BeginLocal(key)
-}
-
-func (e *Engine) clearLocalDiagnostic(key string) {
-	e.diagnosticDedupeStore().ClearLocal(key)
-}
-
-func (e *Engine) restoreLocalDiagnostic(key string) {
-	e.diagnosticDedupeStore().RestoreLocal(key)
-}
-
-func (e *Engine) hasPersistedDiagnostic(key string) bool {
-	return e.diagnosticDedupeStore().HasPersisted(key)
 }
 
 func (e *Engine) resetLocalDiagnostics() {
@@ -182,7 +166,7 @@ func (e *Engine) appendMessageRaw(stepID string, msg llm.Message, eventPolicy st
 	} else {
 		e.markCurrentRequestShapeDirty()
 	}
-	e.transcriptPersistence().AppendMessage(msg)
+	newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendMessage(msg)
 	if persist {
 		if _, _, err := e.store.AppendEvent(stepID, "message", msg); err != nil {
 			return err
@@ -214,7 +198,7 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch 
 	if _, _, err := e.store.AppendEvent(stepID, "message", msg); err != nil {
 		return err
 	}
-	e.transcriptPersistence().AppendMessage(msg)
+	newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendMessage(msg)
 	e.emitRaw(Event{
 		Kind:                         EventUserMessageFlushed,
 		StepID:                       stepID,
@@ -241,7 +225,7 @@ func normalizedQueueItemIDs(raw []string) []string {
 }
 
 func (e *Engine) clearStreamingAssistantStateRaw(stepID string) {
-	e.transcriptPersistence().ClearStreamingAssistantState()
+	newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).ClearStreamingAssistantState()
 	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})
 	e.emitRaw(Event{Kind: EventAssistantDeltaReset, StepID: stepID})
 	e.emitRaw(Event{Kind: EventReasoningDeltaReset, StepID: stepID})
