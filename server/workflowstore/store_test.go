@@ -1783,8 +1783,8 @@ func TestCompleteRunFanoutCreatesParallelBranchPlacements(t *testing.T) {
 		if !input.IsFanoutBranch {
 			t.Fatalf("branch run context %s IsFanoutBranch=false, want true", runID)
 		}
-		if input.WorktreeID != worktreeID || input.WorktreeRoot == "" {
-			t.Fatalf("branch run context %s worktree id/root = %q/%q, want managed worktree", runID, input.WorktreeID, input.WorktreeRoot)
+		if input.WorktreeID != worktreeID || input.WorktreeRoot != worktreeRoot {
+			t.Fatalf("branch run context %s worktree id/root = %q/%q, want %q/%q", runID, input.WorktreeID, input.WorktreeRoot, worktreeID, worktreeRoot)
 		}
 	}
 	rows, err := store.db.QueryContext(ctx, `

@@ -781,6 +781,28 @@ func TestWorkflowInvalidCompletionAttemptsInterruptAtCap(t *testing.T) {
 	}
 }
 
+func TestWorkflowInvalidCompletionFailClosedWhenConfiguredCapInvalid(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse("normal final answer is invalid in tool mode"),
+		structuredFinalResponse("unexpected"),
+	}}
+	workflowCfg := testWorkflowConfig(controller, config.WorkflowCompletionModeTool)
+	workflowCfg.MaxInvalidCompletionAttempts = 0
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	if got := controller.violations.Load(); got != 1 {
+		t.Fatalf("violations = %d, want 1", got)
+	}
+	if got := controller.maxHits.Load(); got != 1 {
+		t.Fatalf("max hits = %d, want immediate fail-closed interruption", got)
+	}
+}
+
 func TestWorkflowFinalAnswersUseInvalidCompletionCap(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}

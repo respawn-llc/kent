@@ -36,6 +36,8 @@ const (
 	ReasonRuntimeFailed   = "workflow_runtime_failed"
 )
 
+var errWorkflowShellCompletionRequiresShell = errors.New("workflow shell_command completion requires shell tool availability for this run")
+
 type RuntimeStore interface {
 	GetRun(context.Context, workflow.RunID) (workflowstore.RunRecord, error)
 	GetRunStartContext(context.Context, workflow.RunID) (workflowstore.RunStartContext, error)
@@ -415,12 +417,12 @@ func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, r
 			return "", client, err
 		}
 		if mode == workflowruntime.CompletionModeShellCommand && !shellAvailable {
-			return "", client, errors.New("workflow shell_command completion requires shell tool availability for this run")
+			return "", client, errWorkflowShellCompletionRequiresShell
 		}
 		return mode, client, nil
 	}
 	if s.cfg.Settings.Workflow.CompletionMode == config.WorkflowCompletionModeShellCommand && !shellAvailable {
-		return "", client, errors.New("workflow shell_command completion requires shell tool availability for this run")
+		return "", client, errWorkflowShellCompletionRequiresShell
 	}
 	selection := workflowruntime.CompletionModeSelection{
 		ConfiguredMode:         s.cfg.Settings.Workflow.CompletionMode,

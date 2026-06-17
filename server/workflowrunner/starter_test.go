@@ -483,7 +483,7 @@ func TestStarterRechecksShellAvailabilityForPersistedShellMode(t *testing.T) {
 	}
 
 	_, _, err = fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
-	if err == nil || !strings.Contains(err.Error(), "shell tool availability") {
+	if err == nil || !errors.Is(err, errWorkflowShellCompletionRequiresShell) {
 		t.Fatalf("resolveAndPersistWorkflowCompletionMode error = %v, want shell availability failure", err)
 	}
 }

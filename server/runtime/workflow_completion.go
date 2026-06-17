@@ -15,6 +15,10 @@ import (
 
 const (
 	workflowInvalidNudge = "Workflow completion was rejected. Retry with valid workflow completion output only."
+	// This is not a config fallback. Runtime config validation should reject
+	// invalid caps; if an invalid value reaches the runtime anyway, fail closed
+	// by recording one durable violation and interrupting immediately.
+	workflowInvalidCompletionFailClosedMaxCount = 1
 )
 
 var workflowFinalAnswerNudge = strings.TrimSpace(prompts.WorkflowFinalAnswerNudgePrompt)
@@ -40,7 +44,7 @@ func (e *Engine) recordWorkflowProtocolViolation(ctx context.Context, kind workf
 	}
 	maxCount := e.cfg.WorkflowRun.MaxInvalidCompletionAttempts
 	if maxCount <= 0 {
-		return workflowruntime.ViolationResult{}, fmt.Errorf("workflow max invalid completion attempts must be > 0")
+		maxCount = workflowInvalidCompletionFailClosedMaxCount
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"kind":   string(kind),
