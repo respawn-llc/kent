@@ -358,6 +358,97 @@ func TestCloneRuntimeGoalReturnsIndependentCopy(t *testing.T) {
 	}
 }
 
+func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
+	runtimeClient := newTestSessionRuntimeClientWithControls(&leaseRetryRuntimeControlClient{})
+	runtimeClient.storeMainView(clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}})
+
+	runtimeClient.observeRuntimeEventStatus(clientui.Event{
+		Kind: clientui.EventGoalStatusUpdated,
+		GoalStatus: &clientui.RuntimeGoalStatusUpdate{
+			ID:        "goal-1",
+			Objective: "ship feature",
+			Status:    clientui.RuntimeGoalStatusActive,
+		},
+	})
+	assertRuntimeClientGoalCached(t, runtimeClient, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive}, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive})
+
+	runtimeClient.observeRuntimeEventStatus(clientui.Event{
+		Kind: clientui.EventGoalStatusUpdated,
+		GoalStatus: &clientui.RuntimeGoalStatusUpdate{
+			ID:        "goal-1",
+			Objective: "ship feature",
+			Status:    clientui.RuntimeGoalStatusPaused,
+		},
+	})
+	assertRuntimeClientGoalCached(t, runtimeClient, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused}, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused})
+
+	runtimeClient.observeRuntimeEventStatus(clientui.Event{
+		Kind:       clientui.EventGoalStatusUpdated,
+		GoalStatus: &clientui.RuntimeGoalStatusUpdate{Cleared: true},
+	})
+	assertRuntimeClientGoalCached(t, runtimeClient, nil, nil)
+}
+
+func TestRuntimeClientGoalStatusEventNormalizesSuspendedCache(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing *clientui.RuntimeGoal
+		update   clientui.RuntimeGoalStatusUpdate
+		want     *clientui.RuntimeGoal
+	}{
+		{
+			name:     "non active does not preserve suspended",
+			existing: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
+			update:   clientui.RuntimeGoalStatusUpdate{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+			want:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+		},
+		{
+			name:     "new active id does not preserve suspended",
+			existing: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
+			update:   clientui.RuntimeGoalStatusUpdate{ID: "goal-2", Objective: "next", Status: clientui.RuntimeGoalStatusActive},
+			want:     &clientui.RuntimeGoal{ID: "goal-2", Objective: "next", Status: clientui.RuntimeGoalStatusActive},
+		},
+		{
+			name:     "paused to active does not preserve suspended",
+			existing: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old", Status: clientui.RuntimeGoalStatusPaused, Suspended: true},
+			update:   clientui.RuntimeGoalStatusUpdate{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			want:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+		},
+		{
+			name:     "same active id preserves suspended",
+			existing: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
+			update:   clientui.RuntimeGoalStatusUpdate{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			want:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
+		},
+		{
+			name:     "clear removes suspended goal",
+			existing: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
+			update:   clientui.RuntimeGoalStatusUpdate{Cleared: true},
+			want:     nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runtimeClient := newTestSessionRuntimeClientWithControls(&leaseRetryRuntimeControlClient{})
+			runtimeClient.storeMainView(clientui.RuntimeMainView{
+				Session: clientui.RuntimeSessionView{SessionID: "session-1"},
+				Status:  clientui.RuntimeStatus{Goal: cloneRuntimeGoal(tt.existing)},
+			})
+
+			runtimeClient.observeRuntimeEventStatus(clientui.Event{Kind: clientui.EventGoalStatusUpdated, GoalStatus: &tt.update})
+
+			view, ok := runtimeClient.CachedMainView()
+			if !ok {
+				t.Fatal("expected cached main view")
+			}
+			if !reflect.DeepEqual(view.Status.Goal, tt.want) {
+				t.Fatalf("cached goal = %+v, want %+v", view.Status.Goal, tt.want)
+			}
+		})
+	}
+}
+
 func assertRuntimeClientGoalCached(t *testing.T, runtimeClient *sessionRuntimeClient, got *clientui.RuntimeGoal, want *clientui.RuntimeGoal) {
 	t.Helper()
 	if !reflect.DeepEqual(got, want) {

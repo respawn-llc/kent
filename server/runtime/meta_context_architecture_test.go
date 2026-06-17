@@ -61,14 +61,13 @@ func TestRequestEntryPointsUseUnifiedMetaContextPreparation(t *testing.T) {
 
 func TestProductionRuntimeOutputMutationsUseSteeringBoundary(t *testing.T) {
 	allowedFiles := map[string]bool{
-		"chat_store.go":                 true,
-		"engine_message_ops.go":         true,
-		"engine_state.go":               true,
-		"missing_tool_output_repair.go": true,
-		"output_steering.go":            true,
-		"transcript_persistence.go":     true,
-		"transcript_projector.go":       true,
-		"transcript_scan.go":            true,
+		"chat_store.go":             true,
+		"engine_message_ops.go":     true,
+		"engine_state.go":           true,
+		"output_steering.go":        true,
+		"transcript_persistence.go": true,
+		"transcript_projector.go":   true,
+		"transcript_scan.go":        true,
 	}
 	bannedCalls := map[string]bool{
 		"appendAssistantMessage":                     true,
@@ -107,14 +106,13 @@ func TestRawOutputMutationPrimitivesStayInsideSteeringBoundary(t *testing.T) {
 
 func TestTranscriptProjectionMutationsStayInsideOutputBoundary(t *testing.T) {
 	allowedFiles := map[string]bool{
-		"compaction_persistence.go":     true,
-		"engine_message_ops.go":         true,
-		"engine_state.go":               true,
-		"message_lifecycle.go":          true,
-		"missing_tool_output_repair.go": true,
-		"output_steering.go":            true,
-		"transcript_persistence.go":     true,
-		"transcript_projector.go":       true,
+		"compaction_persistence.go": true,
+		"engine_message_ops.go":     true,
+		"engine_state.go":           true,
+		"message_lifecycle.go":      true,
+		"output_steering.go":        true,
+		"transcript_persistence.go": true,
+		"transcript_projector.go":   true,
 	}
 	bannedCalls := map[string]bool{
 		"AppendMessage":                       true,

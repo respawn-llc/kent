@@ -240,7 +240,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	snap = eng.ChatSnapshot()
 	reminders := 0
 	for _, entry := range snap.Entries {
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			reminders++
 		}
 	}
@@ -260,7 +260,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	snap = eng.ChatSnapshot()
 	reminders = 0
 	for _, entry := range snap.Entries {
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			reminders++
 		}
 	}
@@ -598,7 +598,7 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 
 	snap := eng.ChatSnapshot()
 	for _, entry := range snap.Entries {
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			t.Fatalf("did not expect reminder in transcript after immediate auto-compaction, entries=%+v", snap.Entries)
 		}
 	}
@@ -653,7 +653,7 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 		if entry.Role == "assistant" && entry.Text == "done" {
 			assistantIdx = idx
 		}
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			reminders++
 			reminderIdx = idx
 		}
@@ -734,7 +734,7 @@ func TestRunStepLoopAppendsCompactionSoonReminderImmediatelyAfterToolOutputBound
 		if strings.HasPrefix(entry.Role, "tool_result") {
 			toolIdx = idx
 		}
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
+		if entry.Role == "warning" && entry.MessageType == llm.MessageTypeCompactionSoonReminder {
 			reminders++
 			reminderIdx = idx
 		}

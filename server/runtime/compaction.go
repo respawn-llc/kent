@@ -205,7 +205,7 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	if err != nil {
 		return false, err
 	}
-	if preciseInput, ok, _ := e.requestInputTokensPrecisely(ctx, req, false, false); ok {
+	if preciseInput, ok := e.requestInputTokensPrecisely(ctx, req); ok {
 		return preciseInput+reservedOutput >= limit, nil
 	}
 	return estimatedCurrentTotal+promptEstimate >= limit, nil
@@ -272,7 +272,7 @@ func (e *Engine) usageAtOrAboveLimit(ctx context.Context, limit int) bool {
 		return false
 	}
 	reservedOutput := e.reservedOutputTokens()
-	if preciseInput, ok := e.currentInputTokensPreciselyIfCriticalWithRepair(ctx, limit); ok {
+	if preciseInput, ok := e.currentInputTokensPreciselyIfCritical(ctx, limit); ok {
 		return preciseInput+reservedOutput >= limit
 	}
 	estimatedInput := e.currentTokenUsage()
@@ -281,11 +281,19 @@ func (e *Engine) usageAtOrAboveLimit(ctx context.Context, limit int) bool {
 	if estimatedTotal < limit && estimatedTotal+margin < limit {
 		return false
 	}
-	preciseInput, ok := e.currentInputTokensPreciselyWithRepair(ctx)
+	preciseInput, ok := e.currentInputTokensPrecisely(ctx)
 	if !ok {
 		return estimatedTotal >= limit
 	}
 	return preciseInput+reservedOutput >= limit
+}
+
+func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
+	req, err := e.buildRequest(ctx, "", true)
+	if err != nil {
+		return 0, false
+	}
+	return e.requestInputTokensPreciselyTracked(ctx, req, true)
 }
 
 func (e *Engine) currentInputTokensPreciselyIfDue(ctx context.Context, limit int) (int, bool) {
@@ -294,13 +302,6 @@ func (e *Engine) currentInputTokensPreciselyIfDue(ctx context.Context, limit int
 
 func (e *Engine) currentInputTokensPreciselyIfCritical(ctx context.Context, limit int) (int, bool) {
 	return e.currentInputTokensPreciselyIfDueWithPriority(ctx, limit, true)
-}
-
-func (e *Engine) currentInputTokensPreciselyIfCriticalWithRepair(ctx context.Context, limit int) (int, bool) {
-	if !e.shouldRefreshCurrentPreciseInputTokens(limit, true) {
-		return 0, false
-	}
-	return e.currentInputTokensPreciselyWithRepair(ctx)
 }
 
 func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Context, limit int, critical bool) (int, bool) {
@@ -312,38 +313,24 @@ func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Contex
 	if !e.shouldRefreshCurrentPreciseInputTokens(limit, critical) {
 		return 0, false
 	}
-	return e.currentInputTokensPrecisely(ctx)
-}
-
-func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
 	req, err := e.buildRequest(ctx, "", true)
 	if err != nil {
 		return 0, false
 	}
-	count, ok, _ := e.requestInputTokensPrecisely(ctx, req, true, false)
-	return count, ok
+	return e.requestInputTokensPreciselyTracked(ctx, req, true)
 }
 
-func (e *Engine) currentInputTokensPreciselyWithRepair(ctx context.Context) (int, bool) {
-	for {
-		req, err := e.buildRequest(ctx, "", true)
-		if err != nil {
-			return 0, false
-		}
-		count, ok, repaired := e.requestInputTokensPrecisely(ctx, req, true, true)
-		if ok || !repaired {
-			return count, ok
-		}
-	}
+func (e *Engine) requestInputTokensPrecisely(ctx context.Context, req llm.Request) (int, bool) {
+	return e.requestInputTokensPreciselyTracked(ctx, req, false)
 }
 
-func (e *Engine) requestInputTokensPrecisely(ctx context.Context, req llm.Request, current bool, allowRepair bool) (int, bool, bool) {
+func (e *Engine) requestInputTokensPreciselyTracked(ctx context.Context, req llm.Request, current bool) (int, bool) {
 	counter, ok := e.llm.(llm.RequestInputTokenCountClient)
 	if !ok {
-		return 0, false, false
+		return 0, false
 	}
 	if !e.preciseInputTokenCountSupported(ctx) {
-		return 0, false, false
+		return 0, false
 	}
 	cacheKey := ""
 	if payload, err := json.Marshal(req); err == nil {
@@ -355,33 +342,24 @@ func (e *Engine) requestInputTokensPrecisely(ctx context.Context, req llm.Reques
 			if current {
 				e.storePreciseTokenCount(cacheKey, cached, true)
 			}
-			return cached, true, false
+			return cached, true
 		}
 	}
 	if e.hasPersistedDiagnostic(preciseTokenCountFailureDiagnostic) {
-		return 0, false, false
+		return 0, false
 	}
 	count, err := counter.CountRequestInputTokens(ctx, req)
 	if err != nil {
-		if current && allowRepair && llm.HasHTTPStatus(err, 400) {
-			repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400("")
-			if repairErr == nil && repair.Changed && repair.RemovedCalls > 0 {
-				return 0, false, true
-			}
-			if repairErr != nil {
-				err = errors.Join(err, repairErr)
-			}
-		}
 		e.reportPreciseTokenCountFailure(err)
-		return 0, false, false
+		return 0, false
 	}
 	if count <= 0 {
-		return 0, false, false
+		return 0, false
 	}
 	if cacheKey != "" {
 		e.storePreciseTokenCount(cacheKey, count, current)
 	}
-	return count, true, false
+	return count, true
 }
 
 func (e *Engine) preciseInputTokenCountSupported(ctx context.Context) bool {
@@ -633,7 +611,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		windowTokens = e.contextWindowTokens()
 	}
 	inputTokens := estimateItemsTokens(e.snapshotItems())
-	if preciseInput, ok := e.currentInputTokensPreciselyWithRepair(ctx); ok {
+	if preciseInput, ok := e.currentInputTokensPrecisely(ctx); ok {
 		inputTokens = preciseInput
 	}
 	if err := e.recordLastUsage(llm.Usage{
@@ -771,6 +749,7 @@ func (e *Engine) compactionPlanningSnapshot() compactionPlanningSnapshot {
 	e.mu.Unlock()
 	snapshot.lockedMaxOutputTokens = e.lockedContractState().MaxOutputToken()
 	snapshot.lastUsage = e.lastUsageSnapshot()
+	snapshot.currentUsedTokens = e.currentTokenUsage()
 	return snapshot
 }
 

@@ -154,6 +154,7 @@ func (e dormantTranscriptCacheEntry) mainView(meta session.Meta, freshness clien
 			ConversationFreshness:             freshness,
 			ParentSessionID:                   meta.ParentSessionID,
 			LastCommittedAssistantFinalAnswer: e.lastCommittedAssistantAnswer,
+			Goal:                              runtimeview.GoalFromSessionState(meta.Goal, false),
 		},
 		Session: clientui.RuntimeSessionView{
 			SessionID:             meta.SessionID,

@@ -183,6 +183,9 @@ func TestCompactionPlannerDerivesLimitsFromSnapshot(t *testing.T) {
 	if got := planner.soonReminderLimit(snapshot); got != 765_000 {
 		t.Fatalf("soonReminderLimit()=%d, want 765000", got)
 	}
+	// Current usage sits at the soon-reminder threshold (765000), leaving 135000 tokens before the
+	// forced limit; 135000 / 1400 rounds to 96 estimated tool calls.
+	snapshot.currentUsedTokens = 765_000
 	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 96 {
 		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 96", got)
 	}
@@ -195,23 +198,29 @@ func TestEstimatedToolCallsUsesRemainingBudgetNearForcedLimit(t *testing.T) {
 	planner := newCompactionPlanner()
 	snapshot := compactionPlanningSnapshot{
 		autoCompactTokenLimit: 900_000,
-		lastUsage:             llm.Usage{WindowTokens: 880_000},
+		// 880000 of live usage leaves 20000 before the forced limit, which rounds to 14 tool calls.
+		currentUsedTokens: 880_000,
 	}
-	// Remaining budget (forced limit - current usage = 20000) is far below the fixed threshold gap
-	// (forcedLimit-reminderLimit = 135000), so the estimate must reflect the smaller runway.
 	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 14 {
 		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 14", got)
 	}
-	// Without a usage signal it falls back to the threshold gap.
-	snapshot.lastUsage = llm.Usage{}
-	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 96 {
-		t.Fatalf("estimatedToolCallsUntilForcedHandoff() fallback=%d, want 96", got)
+}
+
+func TestEstimatedToolCallsPanicsWhenUsageReachesForcedLimit(t *testing.T) {
+	planner := newCompactionPlanner()
+	snapshot := compactionPlanningSnapshot{
+		autoCompactTokenLimit: 900_000,
+		// 950000 of live usage is past the forced limit. The reminder is gated behind the same usage
+		// check that triggers forced compaction, so this state is unreachable in production and must
+		// fail loudly rather than report a clamped runway.
+		currentUsedTokens: 950_000,
 	}
-	// Once usage reaches or passes the forced limit the estimate floors at one, never zero/negative.
-	snapshot.lastUsage = llm.Usage{WindowTokens: 950_000}
-	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 1 {
-		t.Fatalf("estimatedToolCallsUntilForcedHandoff() over limit=%d, want floor 1", got)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic when consumed tokens reach the forced compaction limit")
+		}
+	}()
+	planner.estimatedToolCallsUntilForcedHandoff(snapshot)
 }
 
 func TestCompactionPlannerAppliesFallbacksAndDisableModes(t *testing.T) {

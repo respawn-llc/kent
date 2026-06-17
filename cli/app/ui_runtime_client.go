@@ -315,12 +315,35 @@ func (c *sessionRuntimeClient) patchMainView(apply func(view *clientui.RuntimeMa
 }
 
 func (c *sessionRuntimeClient) observeRuntimeEventStatus(evt clientui.Event) {
-	if c == nil || evt.ContextUsage == nil {
+	if c == nil || (evt.ContextUsage == nil && evt.GoalStatus == nil) {
 		return
 	}
 	c.patchMainView(func(view *clientui.RuntimeMainView) {
-		view.Status.ContextUsage = *evt.ContextUsage
+		if evt.ContextUsage != nil {
+			view.Status.ContextUsage = *evt.ContextUsage
+		}
+		if evt.Kind == clientui.EventGoalStatusUpdated && evt.GoalStatus != nil {
+			view.Status.Goal = runtimeGoalFromStatusUpdate(view.Status.Goal, *evt.GoalStatus)
+		}
 	})
+}
+
+func runtimeGoalFromStatusUpdate(existing *clientui.RuntimeGoal, update clientui.RuntimeGoalStatusUpdate) *clientui.RuntimeGoal {
+	if update.Cleared {
+		return nil
+	}
+	goal := &clientui.RuntimeGoal{
+		ID:        strings.TrimSpace(update.ID),
+		Objective: update.Objective,
+		Status:    update.Status,
+	}
+	if existing != nil &&
+		strings.TrimSpace(existing.ID) == goal.ID &&
+		existing.Status == clientui.RuntimeGoalStatusActive &&
+		goal.Status == clientui.RuntimeGoalStatusActive {
+		goal.Suspended = existing.Suspended
+	}
+	return goal
 }
 
 func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (clientui.RuntimeMainView, error) {

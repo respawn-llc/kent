@@ -95,7 +95,6 @@
 - Large tool output is truncated for model consumption using standardized head/tail payloads with truncation metadata.
 - Model-step transient failures use exponential backoff retries with 5 attempts: `1s`, `2s`, `4s`, `8s`, `16s`.
 - Model/API errors in ongoing mode are shown as concise single-line errors; full details remain in detail/logs.
-- After a provider HTTP 400, Kent may repair a persisted post-compaction transcript tail by removing unfinished tool calls that lack proper outputs, then retry the request. It never appends synthetic tool completions. Each repair appends an operator-only warning: `Transcript history was rolled back <N> calls to repair after interruption`.
 - Persisted operator-facing turn-start failures that prevent the agent loop from starting use `developer_error_feedback` so they appear in ongoing scrollback.
 - Local command/validation failures that do not block a model turn remain plain `error` diagnostics.
 
@@ -219,6 +218,7 @@
 - Kent CLI is the authoritative control surface for goals.
 - Models may use normal shell commands `kent goal show`, `kent goal complete`, and first-time `kent goal set <objective>` for the current session.
 - Agent `goal set` is allowed only when no active or paused goal exists. Completed goals do not block the next agent-set goal.
+- Successful goal mutations emit typed runtime status updates carrying the projected goal status state so frontends can update from goal SSOT instead of inferring status from transcript feedback or run lifecycle. Set, pause, resume, complete, and clear emit updates; show/read-only operations do not.
 - `/goal <objective>` immediately sets/replaces the session goal and starts a model turn. It is rejected while a model turn is running.
 - `/goal resume` on a completed goal reopens it as active.
 - Goal completion is explicit CLI state mutation, not natural-language inference.

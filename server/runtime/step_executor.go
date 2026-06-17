@@ -31,16 +31,16 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			return stepLoopResult{}, err
 		}
 
-		resp, err := e.generateWithHTTP400Repair(
+		requestPlan, err := e.buildRequestPlan(ctx, stepID, true)
+		if err != nil {
+			return stepLoopResult{}, err
+		}
+		req := requestPlan.Request
+
+		resp, err := e.generateWithRetry(
 			ctx,
 			stepID,
-			func() (llm.Request, error) {
-				requestPlan, err := e.buildRequestPlan(ctx, stepID, true)
-				if err != nil {
-					return llm.Request{}, err
-				}
-				return requestPlan.Request, nil
-			},
+			req,
 			func(delta string) {
 				_ = e.steer(stepID, steerAssistantDeltaIntent(delta))
 			},
