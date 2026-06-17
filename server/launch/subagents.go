@@ -7,15 +7,15 @@ import (
 
 	"core/server/auth"
 	"core/server/llm"
+	"core/server/session"
 	"core/shared/brand"
-	"core/shared/compaction"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
 
 const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + brand.DocsURL
 
-func resolveSubagentSettings(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool) (config.Settings, string, error) {
+func resolveSubagentSettings(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool, locked *session.LockedContract) (config.Settings, string, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {
 		return config.Settings{}, "", fmt.Errorf("invalid subagent role %q", roleName)
@@ -32,11 +32,24 @@ func resolveSubagentSettings(base config.Settings, providerBase config.Settings,
 	if err != nil {
 		return config.Settings{}, "", err
 	}
-	_ = applyBuiltInRoleHeuristics(&resolved, normalizedRole, strings.TrimSpace(providerCaps.ProviderID), allowModelOverride)
+	fallback := budgetFallbackFromSettings(base)
+	builtInModelSelected := applyBuiltInRoleHeuristics(&resolved, normalizedRole, strings.TrimSpace(providerCaps.ProviderID), allowModelOverride)
+	roleModelSelected := subagentRoleSelectsModel(role, allowModelOverride)
 	applySubagentRoleOverrides(&resolved, role, allowModelOverride)
 	effectiveSources := cloneStringMap(baseSources)
 	for key := range role.Sources {
+		if !subagentRoleSourceAppliesUnderLock(key, allowModelOverride) {
+			continue
+		}
 		effectiveSources[key] = "subagent"
+	}
+	if err := reconcileContextBudget(&resolved, contextBudgetReconciliation{
+		sources:       effectiveSources,
+		fallback:      fallback,
+		modelSelected: builtInModelSelected || roleModelSelected,
+		locked:        locked,
+	}); err != nil {
+		return config.Settings{}, "", fmt.Errorf("invalid subagent role %q: %w", normalizedRole, err)
 	}
 	applyReviewerInheritance(&resolved, effectiveSources)
 	if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
@@ -58,11 +71,9 @@ func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, prov
 	}
 	settings.PriorityRequestMode = true
 	if !allowModelOverride {
-		return true
+		return false
 	}
 	settings.Model = "gpt-5.4-mini"
-	llm.ApplyDerivedModelContextBudget(settings, settings.Model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens)
-	settings.PreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
 	return true
 }
 
@@ -131,11 +142,17 @@ func applySubagentRoleOverrides(settings *config.Settings, role config.SubagentR
 		case "allow_non_cwd_edits":
 			settings.AllowNonCwdEdits = role.Settings.AllowNonCwdEdits
 		case "model_context_window":
-			settings.ModelContextWindow = role.Settings.ModelContextWindow
+			if allowModelOverride {
+				settings.ModelContextWindow = role.Settings.ModelContextWindow
+			}
 		case "context_compaction_threshold_tokens":
-			settings.ContextCompactionThresholdTokens = role.Settings.ContextCompactionThresholdTokens
+			if allowModelOverride {
+				settings.ContextCompactionThresholdTokens = role.Settings.ContextCompactionThresholdTokens
+			}
 		case "pre_submit_compaction_lead_tokens":
-			settings.PreSubmitCompactionLeadTokens = role.Settings.PreSubmitCompactionLeadTokens
+			if allowModelOverride {
+				settings.PreSubmitCompactionLeadTokens = role.Settings.PreSubmitCompactionLeadTokens
+			}
 		case "minimum_exec_to_bg_seconds":
 			settings.MinimumExecToBgSeconds = role.Settings.MinimumExecToBgSeconds
 		case "compaction_mode":
@@ -158,7 +175,7 @@ func applySubagentRoleOverrides(settings *config.Settings, role config.SubagentR
 			}
 		}
 	}
-	applyDerivedModelContextBudgetOverrides(settings, role.Sources, originalModel, allowModelOverride)
+	_ = originalModel
 	for _, id := range toolspec.CatalogIDs() {
 		key := "tools." + toolspec.ConfigName(id)
 		if _, ok := role.Sources[key]; !ok {
@@ -178,6 +195,21 @@ func applySubagentRoleOverrides(settings *config.Settings, role config.SubagentR
 		}
 		settings.SkillToggles[key] = enabled
 	}
+}
+
+func subagentRoleSelectsModel(role config.SubagentRole, allowModelOverride bool) bool {
+	if !allowModelOverride {
+		return false
+	}
+	_, ok := role.Sources["model"]
+	return ok
+}
+
+func subagentRoleSourceAppliesUnderLock(key string, allowModelOverride bool) bool {
+	if allowModelOverride {
+		return true
+	}
+	return key != "model" && key != "model_context_window" && key != "context_compaction_threshold_tokens" && key != "pre_submit_compaction_lead_tokens"
 }
 
 func applySubagentProviderOverrides(settings *config.Settings, role config.SubagentRole) {
@@ -209,29 +241,6 @@ func applySubagentProviderOverrides(settings *config.Settings, role config.Subag
 		case "provider_capabilities.is_openai_first_party":
 			settings.ProviderCapabilities.IsOpenAIFirstParty = role.Settings.ProviderCapabilities.IsOpenAIFirstParty
 		}
-	}
-}
-
-func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]string, originalModel string, allowModelOverride bool) {
-	if settings == nil || !allowModelOverride {
-		return
-	}
-	if _, ok := explicitSources["model"]; !ok {
-		return
-	}
-	if strings.TrimSpace(settings.Model) == "" || strings.TrimSpace(settings.Model) == originalModel {
-		return
-	}
-	if _, ok := explicitSources["model_context_window"]; !ok {
-		if meta, ok := llm.LookupModelMetadata(settings.Model); ok && meta.ContextWindowTokens > 0 {
-			settings.ModelContextWindow = meta.ContextWindowTokens
-		}
-	}
-	if _, ok := explicitSources["context_compaction_threshold_tokens"]; !ok && settings.ModelContextWindow > 0 {
-		settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
-	}
-	if _, ok := explicitSources["pre_submit_compaction_lead_tokens"]; !ok {
-		settings.PreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
 	}
 }
 

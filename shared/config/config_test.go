@@ -727,6 +727,13 @@ func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
 	}
 }
 
+func TestDefaultSettingsTOMLRendersFastSubagentMiniContextWindow(t *testing.T) {
+	rendered := settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil)
+	if !strings.Contains(rendered, "# model_context_window = 128000 # built-in gpt-5.4-mini default context window") {
+		t.Fatalf("expected fast subagent context window comment to use 128000, got:\n%s", rendered)
+	}
+}
+
 func TestWriteSettingsFileForOnboardingDoesNotOverwriteExistingFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

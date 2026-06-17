@@ -17,7 +17,8 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"context_compaction_threshold_tokens = 180000",
+		"model_context_window = 128000",
+		"context_compaction_threshold_tokens = 120000",
 	)
 	store := createTestSession(t, workspace)
 	plan := SessionPlan{
@@ -33,11 +34,55 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
 		t.Fatalf("model = %q, want gpt-5.4-mini", updated.ActiveSettings.Model)
 	}
-	if updated.ActiveSettings.ModelContextWindow != 272_000 {
-		t.Fatalf("context window = %d, want 272000", updated.ActiveSettings.ModelContextWindow)
+	if updated.ActiveSettings.ModelContextWindow != 128_000 {
+		t.Fatalf("context window = %d, want 128000", updated.ActiveSettings.ModelContextWindow)
 	}
-	if updated.ActiveSettings.ContextCompactionThresholdTokens != 180_000 {
-		t.Fatalf("compaction threshold = %d, want 180000", updated.ActiveSettings.ContextCompactionThresholdTokens)
+	if updated.ActiveSettings.ContextCompactionThresholdTokens != 120_000 {
+		t.Fatalf("compaction threshold = %d, want 120000", updated.ActiveSettings.ContextCompactionThresholdTokens)
+	}
+}
+
+func TestApplyRunPromptOverridesCLIModelOverrideRejectsInvalidExplicitBudget(t *testing.T) {
+	tests := []struct {
+		name        string
+		configLines []string
+	}{
+		{
+			name:        "threshold",
+			configLines: []string{"model = \"gpt-5.4\"", "context_compaction_threshold_tokens = 180000"},
+		},
+		{
+			name:        "pre submit lead",
+			configLines: []string{"model = \"gpt-5.4\"", "pre_submit_compaction_lead_tokens = 70000"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			loaded := loadLaunchConfig(t, workspace, tt.configLines...)
+			plan := newLoadedConfigPlan(t, workspace, loaded)
+
+			if _, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"}, auth.EmptyState()); err == nil {
+				t.Fatal("expected invalid derived context budget error")
+			}
+		})
+	}
+}
+
+func TestApplyRunPromptOverridesCLIModelOverrideReconcilesSameModelSelection(t *testing.T) {
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace, "model = \"gpt-5.4-mini\"")
+	plan := newLoadedConfigPlan(t, workspace, loaded)
+
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"}, auth.EmptyState())
+	if updated.ActiveSettings.ModelContextWindow != 128_000 {
+		t.Fatalf("context window = %d, want 128000", updated.ActiveSettings.ModelContextWindow)
+	}
+	if updated.ActiveSettings.ContextCompactionThresholdTokens != 121_600 {
+		t.Fatalf("compaction threshold = %d, want 121600", updated.ActiveSettings.ContextCompactionThresholdTokens)
+	}
+	if updated.ActiveSettings.Reviewer.ModelContextWindow != 128_000 {
+		t.Fatalf("reviewer context window = %d, want 128000", updated.ActiveSettings.Reviewer.ModelContextWindow)
 	}
 }
 

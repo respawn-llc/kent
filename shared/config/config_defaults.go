@@ -145,7 +145,7 @@ func writeBuiltInSubagentSections(builder *strings.Builder) {
 	builder.WriteString("# description = \"\" # model-visible role description for future/catalog uses\n")
 	builder.WriteString("# model = \"gpt-5.4-mini\" # built-in heuristic on exact OpenAI first-party setups\n")
 	builder.WriteString("# priority_request_mode = true # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# model_context_window = 272000 # conservative default; larger API-key windows can be added later\n")
+	builder.WriteString("# model_context_window = 128000 # built-in gpt-5.4-mini default context window\n")
 }
 
 func filterRenderedLines(lines []defaultConfigLine, omittedKeys map[string]bool) []defaultConfigLine {

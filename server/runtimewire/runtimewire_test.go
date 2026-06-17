@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -174,6 +175,44 @@ func TestNewLocalToolRegistryBindingRejectsEmptyWorkspaceRoot(t *testing.T) {
 	)
 	if !errors.Is(err, errWorkspaceRootRequired) {
 		t.Fatalf("new local tool registry binding error = %v, want errWorkspaceRootRequired", err)
+	}
+}
+
+func TestNewRuntimeWiringUsesActiveContextWindow(t *testing.T) {
+	root := t.TempDir()
+	store := newRuntimeWireSession(t, root, "ws")
+	client := &runtimewireCaptureClient{
+		caps:      llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
+		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}}},
+	}
+	wiring, err := NewRuntimeWiring(store, config.Settings{
+		Model:                            "gpt-5.4-mini",
+		ModelContextWindow:               128_000,
+		ContextCompactionThresholdTokens: 121_600,
+		PreSubmitCompactionLeadTokens:    35_000,
+		MinimumExecToBgSeconds:           1,
+		ShellOutputMaxChars:              16_000,
+		Timeouts:                         config.Timeouts{ModelRequestSeconds: 30},
+		Reviewer:                         config.ReviewerSettings{Frequency: "off"},
+		ProviderCapabilities:             config.ProviderCapabilitiesOverride{ProviderID: "openai"},
+		CacheWarningMode:                 config.CacheWarningModeDefault,
+	}, []toolspec.ID{toolspec.ToolExecCommand}, root, nil, nil, RuntimeWiringOptions{Client: client})
+	if err != nil {
+		t.Fatalf("NewRuntimeWiring: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := wiring.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	})
+	if got := wiring.Engine.ContextUsage().WindowTokens; got != 128_000 {
+		t.Fatalf("runtime context window = %d, want 128000", got)
+	}
+	if got := runtimeEngineConfigInt(t, wiring.Engine, "AutoCompactTokenLimit"); got != 121_600 {
+		t.Fatalf("runtime auto compact limit = %d, want 121600", got)
+	}
+	if got := runtimeEngineConfigInt(t, wiring.Engine, "PreSubmitCompactionLeadTokens"); got != 35_000 {
+		t.Fatalf("runtime pre-submit lead = %d, want 35000", got)
 	}
 }
 
@@ -647,6 +686,15 @@ func canonicalPathForTest(t *testing.T, path string) string {
 		t.Fatalf("canonicalize path %q: %v", path, err)
 	}
 	return filepath.Clean(canonical)
+}
+
+func runtimeEngineConfigInt(t *testing.T, eng *runtime.Engine, field string) int {
+	t.Helper()
+	value := reflect.ValueOf(eng).Elem().FieldByName("cfg").FieldByName(field)
+	if !value.IsValid() || value.Kind() != reflect.Int {
+		t.Fatalf("runtime config field %q is not an int", field)
+	}
+	return int(value.Int())
 }
 
 type busyToggleFakeClient struct {

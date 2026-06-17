@@ -67,7 +67,7 @@ func TestLookupModelMetadataForGPT54MiniLargeContext(t *testing.T) {
 	if !ok {
 		t.Fatal("expected model metadata for gpt-5.4-mini")
 	}
-	if meta.ContextWindowTokens != 272_000 {
+	if meta.ContextWindowTokens != 128_000 {
 		t.Fatalf("unexpected default context window: %d", meta.ContextWindowTokens)
 	}
 	if meta.LargeContextWindowTokens != 400_000 {

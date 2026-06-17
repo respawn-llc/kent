@@ -1115,7 +1115,7 @@ func TestResolveSubagentSettingsPreservesSubagentCatalogMetadata(t *testing.T) {
 		},
 	}
 
-	resolved, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	resolved, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, nil)
 	if err != nil {
 		t.Fatalf("resolveSubagentSettings: %v", err)
 	}
@@ -1250,8 +1250,14 @@ func TestApplyRunPromptOverridesFastRoleAppliesBuiltInHeuristics(t *testing.T) {
 	if updated.ActiveSettings.Reviewer.Model != "gpt-5.4-mini" {
 		t.Fatalf("reviewer model = %q, want gpt-5.4-mini", updated.ActiveSettings.Reviewer.Model)
 	}
-	if updated.ActiveSettings.ModelContextWindow != 272_000 {
-		t.Fatalf("context window = %d, want 272000", updated.ActiveSettings.ModelContextWindow)
+	if updated.ActiveSettings.ModelContextWindow != 128_000 {
+		t.Fatalf("context window = %d, want 128000", updated.ActiveSettings.ModelContextWindow)
+	}
+	if updated.ActiveSettings.ContextCompactionThresholdTokens != 121_600 {
+		t.Fatalf("compaction threshold = %d, want 121600", updated.ActiveSettings.ContextCompactionThresholdTokens)
+	}
+	if updated.ActiveSettings.Reviewer.ModelContextWindow != 128_000 {
+		t.Fatalf("reviewer context window = %d, want 128000", updated.ActiveSettings.Reviewer.ModelContextWindow)
 	}
 	if updated.ConfiguredModelName != "gpt-5.4-mini" {
 		t.Fatalf("configured model = %q, want gpt-5.4-mini", updated.ConfiguredModelName)
@@ -1329,9 +1335,6 @@ func TestApplyRunPromptOverridesRoleModelOverrideRecomputesContextBudget(t *test
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"model_context_window = 272000",
-		"context_compaction_threshold_tokens = 258400",
-		"pre_submit_compaction_lead_tokens = 35000",
 		"",
 		"[subagents.fast]",
 		"model = \"gpt-5.3-codex-spark\"",
@@ -1357,8 +1360,7 @@ func TestApplyRunPromptOverridesRoleModelOverrideKeepsExplicitContextWindow(t *t
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"gpt-5.4\"",
-		"model_context_window = 272000",
-		"context_compaction_threshold_tokens = 258400",
+		"model_context_window = 300000",
 		"pre_submit_compaction_lead_tokens = 35000",
 		"",
 		"[subagents.fast]",

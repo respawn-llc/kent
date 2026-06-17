@@ -100,10 +100,25 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	}
 	active, source := baseActive, baseSource
 	if meta.Continuation != nil {
-		active, source = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil)
+		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked)
+		if err != nil {
+			return SessionPlan{}, err
+		}
 		if shouldApplyPersistedContinuationBaseURL(baseActive, continuationAgentRole) && continuationBaseURL != "" {
 			active.OpenAIBaseURL = continuationBaseURL
 		}
+	}
+	if meta.Locked != nil {
+		if err := reconcileContextBudget(&active, contextBudgetReconciliation{
+			sources:  source.Sources,
+			fallback: budgetFallbackFromSettings(baseActive),
+			locked:   meta.Locked,
+		}); err != nil {
+			return SessionPlan{}, fmt.Errorf("invalid locked session context budget: %w", err)
+		}
+		effectiveSources := cloneStringMap(source.Sources)
+		applyReviewerInheritance(&active, effectiveSources)
+		source.Sources = effectiveSources
 	}
 	continuation := session.ContinuationContext{OpenAIBaseURL: active.OpenAIBaseURL}
 	if meta.Continuation != nil {
@@ -134,25 +149,36 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	}, nil
 }
 
-func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName string, allowModelOverride bool) (config.Settings, config.SourceReport) {
+func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName string, locked *session.LockedContract) (config.Settings, config.SourceReport, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {
-		return base, source
+		return base, source, nil
 	}
 	role, hasRole := base.Subagents[normalizedRole]
 	if !hasRole && normalizedRole != config.BuiltInSubagentRoleFast {
-		return base, source
+		return base, source, nil
 	}
+	allowModelOverride := locked == nil
 	resolved := cloneSettings(base)
 	providerSettings := cloneSettings(base)
 	applySubagentProviderOverrides(&providerSettings, role)
-	_ = applyBuiltInRoleHeuristics(&resolved, normalizedRole, persistedRoleProviderID(providerSettings), allowModelOverride)
+	fallback := budgetFallbackFromSettings(base)
+	builtInModelSelected := applyBuiltInRoleHeuristics(&resolved, normalizedRole, persistedRoleProviderID(providerSettings), allowModelOverride)
+	roleModelSelected := subagentRoleSelectsModel(role, allowModelOverride)
 	applySubagentRoleOverrides(&resolved, role, allowModelOverride)
 	effectiveSource := sourceReportWithSubagentRoleSources(source, base, normalizedRole, allowModelOverride)
 	effectiveSources := cloneStringMap(effectiveSource.Sources)
+	if err := reconcileContextBudget(&resolved, contextBudgetReconciliation{
+		sources:       effectiveSources,
+		fallback:      fallback,
+		modelSelected: builtInModelSelected || roleModelSelected,
+		locked:        locked,
+	}); err != nil {
+		return config.Settings{}, config.SourceReport{}, fmt.Errorf("invalid persisted subagent role %q: %w", normalizedRole, err)
+	}
 	applyReviewerInheritance(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
-	return resolved, effectiveSource
+	return resolved, effectiveSource, nil
 }
 
 func shouldApplyPersistedContinuationBaseURL(base config.Settings, roleName string) bool {
@@ -241,7 +267,7 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 		if value := strings.TrimSpace(overrides.OpenAIBaseURL); value != "" {
 			providerBase.OpenAIBaseURL = value
 		}
-		resolved, warning, err := resolveSubagentSettings(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked)
+		resolved, warning, err := resolveSubagentSettings(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked, plan.Store.Meta().Locked)
 		if err != nil {
 			return SessionPlan{}, nil, err
 		}
@@ -283,16 +309,15 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 	locked := plan.Store.Meta().Locked
 	mergedSource := mergeOverrideSources(next.Source, loaded.Source)
 	if strings.TrimSpace(overrides.Model) != "" && !next.ModelContractLocked {
-		originalModel := strings.TrimSpace(next.ActiveSettings.Model)
-		explicitSources := map[string]string{}
-		for key, source := range mergedSource.Sources {
-			if strings.TrimSpace(source) == "" || strings.TrimSpace(source) == "default" {
-				continue
-			}
-			explicitSources[key] = source
-		}
+		fallback := budgetFallbackFromSettings(baseSettings)
 		next.ActiveSettings.Model = loaded.Settings.Model
-		applyDerivedModelContextBudgetOverrides(&next.ActiveSettings, explicitSources, originalModel, true)
+		if err := reconcileContextBudget(&next.ActiveSettings, contextBudgetReconciliation{
+			sources:       mergedSource.Sources,
+			fallback:      fallback,
+			modelSelected: true,
+		}); err != nil {
+			return SessionPlan{}, nil, err
+		}
 		next.ConfiguredModelName = loaded.Settings.Model
 	}
 	if strings.TrimSpace(overrides.ProviderOverride) != "" {
@@ -324,6 +349,7 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 		next.ActiveSettings.OpenAIBaseURL = loaded.Settings.OpenAIBaseURL
 	}
 	next.Source = mergedSource
+	applyReviewerInheritance(&next.ActiveSettings, next.Source.Sources)
 	if shouldPersistContinuation {
 		if err := persistContinuation(); err != nil {
 			return SessionPlan{}, nil, err
@@ -362,6 +388,9 @@ func sourceReportWithSubagentRoleSources(base config.SourceReport, settings conf
 	next.Sources = cloneStringMap(base.Sources)
 	for key := range role.Sources {
 		if key == "model" && !allowModelOverride {
+			continue
+		}
+		if !subagentRoleSourceAppliesUnderLock(key, allowModelOverride) {
 			continue
 		}
 		next.Sources[key] = "subagent"
@@ -560,6 +589,9 @@ func EffectiveSettings(base config.Settings, locked *session.LockedContract) con
 	}
 	if strings.TrimSpace(locked.Model) != "" {
 		out.Model = locked.Model
+	}
+	if locked.ContextWindow > 0 {
+		out.ModelContextWindow = locked.ContextWindow
 	}
 	return out
 }
