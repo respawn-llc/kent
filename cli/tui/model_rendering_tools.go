@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"fmt"
@@ -29,7 +28,7 @@ func normalizeOngoingDividerRole(role RenderIntent) RenderIntent {
 }
 
 func compactOngoingShellPreviewText(command string) string {
-	normalized := textutil.NormalizeCRLF(command)
+	normalized := strings.ReplaceAll(command, "\r\n", "\n")
 	if !strings.Contains(normalized, "\n") {
 		return command
 	}

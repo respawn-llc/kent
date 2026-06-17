@@ -196,7 +196,7 @@ provider_id = "reviewer-provider"
 supports_responses_api = false
 supports_prompt_cache_key = false
 `, LoadOptions{})
-	reviewer := EffectiveReviewerSettings(cfg.Settings)
+	reviewer := cfg.Settings.Reviewer
 	if reviewer.ModelCapabilities.SupportsReasoningEffort || reviewer.ModelCapabilities.SupportsVisionInputs {
 		t.Fatalf("expected explicit false reviewer model capabilities to survive effective helper, got %+v", reviewer.ModelCapabilities)
 	}

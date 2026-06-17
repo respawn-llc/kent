@@ -5,7 +5,6 @@ import (
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/session"
-	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 	"encoding/json"
@@ -80,7 +79,7 @@ func createGatewayAuthoritativeSession(t *testing.T, appCore *core.Core) *sessio
 	}
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	store, err := session.Create(
-		config.ProjectSessionsRoot(appCore.Config(), appCore.ProjectID()),
+		filepath.Join(filepath.Join(appCore.Config().PersistenceRoot, "projects"), appCore.ProjectID(), "sessions"),
 		filepath.Base(appCore.Config().WorkspaceRoot),
 		appCore.Config().WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

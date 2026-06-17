@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	"core/shared/textutil"
 )
 
 func Render(src, cwd string) RenderedPatch {
@@ -27,14 +25,14 @@ func Raw(src string) RenderedPatch {
 	if trimmed == "" {
 		return RenderedPatch{SummaryLines: summary, DetailLines: detail}
 	}
-	for _, line := range textutil.SplitLinesCRLF(trimmed) {
+	for _, line := range strings.Split(strings.ReplaceAll(trimmed, "\r\n", "\n"), "\n") {
 		detail = append(detail, RenderedLine{Kind: RenderedLineKindRaw, Text: line, FileIndex: -1})
 	}
 	return RenderedPatch{SummaryLines: summary, DetailLines: detail}
 }
 
 func StripEditedLabel(text string) string {
-	lines := textutil.SplitLinesCRLF(strings.TrimSpace(text))
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(text), "\r\n", "\n"), "\n")
 	if len(lines) == 0 {
 		return ""
 	}

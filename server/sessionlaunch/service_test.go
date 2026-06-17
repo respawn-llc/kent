@@ -41,7 +41,7 @@ func TestServicePlanSessionReadsPromptHistoryFromMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, meta.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

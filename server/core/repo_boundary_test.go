@@ -117,7 +117,6 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 	allowedFuncs := map[string]struct{}{
 		"CompactionLifecycle.IsRunning":             {},
 		"ConversationFreshness.IsFresh":             {},
-		"FinishedRunLifecycle":                      {},
 		"IdleRunLifecycle":                          {},
 		"MustRunLifecycle":                          {},
 		"NewCompactionLifecycle":                    {},
@@ -136,7 +135,6 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"RunLifecycle.IsGoalLoopRunning":            {},
 		"RunLifecycle.IsRunning":                    {},
 		"RunLifecycle.Validate":                     {},
-		"RunningRunLifecycle":                       {},
 		"RuntimeConnectionLifecycle.IsDisconnected": {},
 		"SessionExecutionTargetIsZero":              {},
 		"SessionExecutionTargetsEqual":              {},

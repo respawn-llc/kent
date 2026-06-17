@@ -318,7 +318,7 @@ func newServiceTestEnv(t *testing.T) *serviceTestEnv {
 
 func createServiceTestSession(t *testing.T, store *metadata.Store, cfg config.App, binding metadata.Binding) *session.Store {
 	t.Helper()
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

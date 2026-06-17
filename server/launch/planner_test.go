@@ -601,7 +601,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	parent := createTestSessionInContainer(t, containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err := parent.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable parent: %v", err)
@@ -885,7 +885,7 @@ func TestPlannerNewChildSessionRollsBackDurableChildWhenExecutionTargetCopyFails
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	parent := createTestSessionInContainer(t, containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, metadataStore.SessionStoreOptions()...)
 	if err := parent.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable parent: %v", err)

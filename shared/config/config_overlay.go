@@ -8,10 +8,6 @@ import (
 	"core/shared/toolspec"
 )
 
-func EffectiveReviewerSettings(settings Settings) ReviewerSettings {
-	return settings.Reviewer
-}
-
 func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]string) {
 	reviewerProviderSelectionExplicit := ReviewerUsesIndependentProviderSelection(*settings)
 	if strings.TrimSpace(settings.Reviewer.Model) == "" {

@@ -23,7 +23,7 @@ func TestTranscriptDiagnosticGateUsesSharedHelper(t *testing.T) {
 		},
 		{
 			path:           filepath.Join(root, "cli", "app", "ui_runtime_client.go"),
-			mustContain:    "EnabledForProcess(false)",
+			mustContain:    "transcriptdiag.Enabled(false, os.Getenv)",
 			mustNotContain: "EnabledFromEnv(",
 		},
 	}

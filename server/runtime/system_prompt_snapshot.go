@@ -41,7 +41,7 @@ func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract,
 		}
 		return rendered, nil
 	}
-	return prompts.MainSystemPrompt(includeToolPreambles, args), nil
+	return prompts.WithToolPreambles(prompts.BaseSystemPrompt(args), includeToolPreambles), nil
 }
 
 func editingToolName(enabled []toolspec.ID) string {

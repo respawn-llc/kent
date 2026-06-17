@@ -266,10 +266,6 @@ var (
 //go:embed skills/**
 var GeneratedSkillsFS embed.FS
 
-func MainSystemPrompt(includeToolPreambles bool, args SystemPromptTemplateArgs) string {
-	return WithToolPreambles(BaseSystemPrompt(args), includeToolPreambles)
-}
-
 func RenderCustomSystemPrompt(text string, includeToolPreambles bool, args SystemPromptTemplateArgs) (string, error) {
 	sections, err := renderSystemPromptSections(args)
 	if err != nil {

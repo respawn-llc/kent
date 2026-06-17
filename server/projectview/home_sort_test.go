@@ -11,7 +11,6 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/workflowstore"
-	"core/shared/config"
 	"core/shared/serverapi"
 )
 
@@ -76,7 +75,7 @@ func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T)
 		t.Fatalf("project order after edit = %+v, want [%s %s]", got, newer.Binding.ProjectID, older.ProjectID)
 	}
 
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, older.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), older.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

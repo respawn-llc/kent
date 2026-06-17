@@ -68,7 +68,7 @@ func TestRuntimeBusyEventStartsSpinnerTicking(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	next, cmd := m.Update(runtimeEventMsg{event: clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
-		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
+		RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
 	}})
 	updated := next.(*uiModel)
 	if !updated.isBusy() {

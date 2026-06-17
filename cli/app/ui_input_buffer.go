@@ -4,6 +4,7 @@ import (
 	tuiinput "core/cli/tui/input"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rivo/uniseg"
 )
 
 func nextNonZeroToken(token uint64) uint64 {
@@ -380,8 +381,8 @@ func moveBufferCursorVertical(text string, cursor int, width int, prefix string,
 	targetIndex := lineIndex + delta
 	currentLine := lines[lineIndex]
 	targetLine := lines[targetIndex]
-	targetCol := tuiinput.DisplayWidth(renderText[currentLine.Start:editor.Cursor()])
-	prefixWidth := tuiinput.DisplayWidth(prefix)
+	targetCol := uniseg.StringWidth(renderText[currentLine.Start:editor.Cursor()])
+	prefixWidth := uniseg.StringWidth(prefix)
 	currentHasPrefix := currentLine.Start < len(prefix)
 	targetHasPrefix := targetLine.Start < len(prefix)
 	switch {

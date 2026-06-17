@@ -176,7 +176,7 @@ func (m *uiModel) persistLocalEntryCmd(role, text, noticeID string) tea.Cmd {
 }
 
 func statusKindForLocalEntryRole(role string) uiStatusNoticeKind {
-	switch transcript.NormalizeEntryRole(role) {
+	switch strings.ToLower(strings.TrimSpace(role)) {
 	case string(transcript.EntryRoleDeveloperErrorFeedback), "error":
 		return uiStatusNoticeError
 	case "warning":

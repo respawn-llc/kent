@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -384,7 +385,7 @@ func (m *uiModel) transcriptDiagnosticsEnabled() bool {
 	if m == nil {
 		return false
 	}
-	return m.transcriptDiagnostics || transcriptdiag.EnabledForProcess(m.debugMode)
+	return m.transcriptDiagnostics || transcriptdiag.Enabled(m.debugMode, os.Getenv)
 }
 
 func (m *uiModel) updateTranscriptDiagnosticsMode() {

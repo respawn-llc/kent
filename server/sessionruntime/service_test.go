@@ -1928,7 +1928,7 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	projectSessionsDir := config.ProjectSessionsRoot(appCfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(appCfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), appCfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

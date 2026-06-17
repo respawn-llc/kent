@@ -511,7 +511,7 @@ func TestWorkflowRuntimeCompactAndContinueAllowsCrossRole(t *testing.T) {
 	if len(runs) != 2 || runs[1].InterruptedAt != 0 || runs[1].CompletedAt == 0 || runs[0].SessionID != runs[1].SessionID {
 		t.Fatalf("runs = %+v, want cross-role compact_and_continue to complete in source session", runs)
 	}
-	containerDir := config.ProjectSessionsRoot(fixture.cfg, fixture.projectID)
+	containerDir := filepath.Join(filepath.Join(fixture.cfg.PersistenceRoot, "projects"), fixture.projectID, "sessions")
 	sourceDir, err := session.ResolveScopedSessionDir(containerDir, runs[1].SessionID)
 	if err != nil {
 		t.Fatalf("ResolveScopedSessionDir: %v", err)
@@ -536,7 +536,7 @@ func TestWorkflowRuntimeDefaultRoleClearsInvalidPersistedRoleBeforeValidation(t 
 		Sources:  map[string]string{"model": "test", "context_compaction_threshold_tokens": "test"},
 	}
 	fixture.rebuildStarter(t)
-	containerDir := config.ProjectSessionsRoot(fixture.cfg, fixture.projectID)
+	containerDir := filepath.Join(filepath.Join(fixture.cfg.PersistenceRoot, "projects"), fixture.projectID, "sessions")
 	source, err := session.Create(containerDir, filepath.Base(containerDir), fixture.cfg.WorkspaceRoot, fixture.metadata.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create source session: %v", err)
@@ -668,7 +668,7 @@ func TestRemoveFanoutCloneDeletesOrphanedClone(t *testing.T) {
 		t.Fatalf("ListRuns = %+v, err %v", runs, err)
 	}
 
-	containerDir := config.ProjectSessionsRoot(fixture.cfg, fixture.projectID)
+	containerDir := filepath.Join(filepath.Join(fixture.cfg.PersistenceRoot, "projects"), fixture.projectID, "sessions")
 	cloneID, err := fixture.starter.cloneSourceSessionForFanout(containerDir, runs[0].SessionID)
 	if err != nil {
 		t.Fatalf("cloneSourceSessionForFanout: %v", err)
@@ -945,7 +945,7 @@ func (f starterFixture) assertRunSessionUsesTaskWorktree(t *testing.T, sessionID
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
 	}
-	if got, want := filepath.Dir(record.SessionDir), config.ProjectSessionsRoot(f.cfg, f.projectID); got != want {
+	if got, want := filepath.Dir(record.SessionDir), filepath.Join(filepath.Join(f.cfg.PersistenceRoot, "projects"), f.projectID, "sessions"); got != want {
 		t.Fatalf("session dir parent = %q, want project sessions root %q", got, want)
 	}
 	target, err := f.metadata.ResolveSessionExecutionTarget(context.Background(), sessionID)

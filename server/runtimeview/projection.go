@@ -227,7 +227,7 @@ func RunViewFromRuntime(sessionID string, snapshot *runtime.RunSnapshot) *client
 		SessionID:  sessionID,
 		StepID:     snapshot.StepID,
 		Status:     clientui.RunStatus(snapshot.Status),
-		Lifecycle:  clientui.RunningRunLifecycle(mode),
+		Lifecycle:  clientui.MustRunLifecycle(clientui.RunLifecycleRunning, mode),
 		StartedAt:  snapshot.StartedAt,
 		FinishedAt: snapshot.FinishedAt,
 	}
@@ -237,9 +237,9 @@ func RunViewFromSessionRecord(sessionID string, record *session.RunRecord) *clie
 	if record == nil {
 		return nil
 	}
-	lifecycle := clientui.FinishedRunLifecycle(clientui.RunModeTurn)
+	lifecycle := clientui.MustRunLifecycle(clientui.RunLifecycleFinished, clientui.RunModeTurn)
 	if record.Status == session.RunStatusRunning {
-		lifecycle = clientui.RunningRunLifecycle(clientui.RunModeTurn)
+		lifecycle = clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)
 	}
 	return &clientui.RunView{
 		RunID:      record.RunID,

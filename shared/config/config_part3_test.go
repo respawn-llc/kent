@@ -2,7 +2,9 @@ package config
 
 import (
 	"errors"
+	"net"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -340,7 +342,7 @@ func TestLoadServerHostPortPrecedenceAndValidation(t *testing.T) {
 	}
 	assertConfigSource(t, cfg, "server_host", "env")
 	assertConfigSource(t, cfg, "server_port", "env")
-	if got := ServerListenAddress(cfg); got != "[::1]:65432" {
+	if got := net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)); got != "[::1]:65432" {
 		t.Fatalf("ServerListenAddress = %q, want [::1]:65432", got)
 	}
 	if got := ServerHTTPBaseURL(cfg); got != "http://[::1]:65432" {

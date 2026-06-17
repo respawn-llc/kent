@@ -276,10 +276,6 @@ func (e *Editor) CursorAtDisplayColumn(line LineRange, targetCol int) int {
 	return cursorAtDisplayColumn(e.text, line, targetCol)
 }
 
-func DisplayWidth(text string) int {
-	return uniseg.StringWidth(text)
-}
-
 func (e *Editor) replaceRange(start int, end int, replacement string) {
 	start = clampCursor(e.text, start)
 	end = clampCursor(e.text, end)

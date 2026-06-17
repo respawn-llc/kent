@@ -392,7 +392,7 @@ func TestRuntimeMainViewActiveRunSeedsBusyGoalState(t *testing.T) {
 			SessionID: "session-1",
 			StepID:    "step-1",
 			Status:    clientui.RunStatusRunning,
-			Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeGoalLoop),
+			Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeGoalLoop),
 		},
 	}}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUISessionID("session-1"))

@@ -545,7 +545,7 @@ func createAttachedAuthoritativeAppSession(t *testing.T, persistenceRoot string,
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 	store, err := session.Create(
-		config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, projectID),
+		filepath.Join(filepath.Join(config.App{PersistenceRoot: persistenceRoot}.PersistenceRoot, "projects"), projectID, "sessions"),
 		filepath.Base(filepath.Clean(workspaceRoot)),
 		workspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
@@ -836,7 +836,7 @@ func TestReviewTeleportLifecyclePreservesParentWorktreeContext(t *testing.T) {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 	parent, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(filepath.Clean(cfg.WorkspaceRoot)),
 		cfg.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

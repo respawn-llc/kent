@@ -39,7 +39,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 		t.Fatal("expected queued drain deferred until hydration completes")
 	}
 
-	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}})
+	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}})
 	updated = next.(*uiModel)
 	if !updated.isBusy() {
 		t.Fatal("expected unrelated runtime activity to mark UI busy before hydration completes")

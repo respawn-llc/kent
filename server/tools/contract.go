@@ -250,10 +250,6 @@ func NeedsNativeWebSearch(ids []toolspec.ID, mode string) bool {
 	return false
 }
 
-func FormatToolResultForTranscript(result Result) string {
-	return FormatToolResultByName(string(result.Name), result.Output, result.IsError)
-}
-
 func HostedExecutionsFromOutputs(items []HostedToolOutput, defs []Definition) []HostedExecution {
 	if len(items) == 0 || len(defs) == 0 {
 		return nil

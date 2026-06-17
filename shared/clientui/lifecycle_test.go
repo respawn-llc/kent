@@ -9,11 +9,11 @@ func TestRunLifecycleTransitionTable(t *testing.T) {
 		wantRunning bool
 		wantGoal    bool
 	}{
-		{name: "run start", lifecycle: RunningRunLifecycle(RunModeTurn), wantRunning: true},
-		{name: "goal start", lifecycle: RunningRunLifecycle(RunModeGoalLoop), wantRunning: true, wantGoal: true},
-		{name: "run finish", lifecycle: FinishedRunLifecycle(RunModeTurn)},
-		{name: "interrupt", lifecycle: FinishedRunLifecycle(RunModeTurn)},
-		{name: "panic failure", lifecycle: FinishedRunLifecycle(RunModeTurn)},
+		{name: "run start", lifecycle: MustRunLifecycle(RunLifecycleRunning, RunModeTurn), wantRunning: true},
+		{name: "goal start", lifecycle: MustRunLifecycle(RunLifecycleRunning, RunModeGoalLoop), wantRunning: true, wantGoal: true},
+		{name: "run finish", lifecycle: MustRunLifecycle(RunLifecycleFinished, RunModeTurn)},
+		{name: "interrupt", lifecycle: MustRunLifecycle(RunLifecycleFinished, RunModeTurn)},
+		{name: "panic failure", lifecycle: MustRunLifecycle(RunLifecycleFinished, RunModeTurn)},
 		{name: "idle hydration", lifecycle: IdleRunLifecycle()},
 	}
 	for _, tt := range tests {

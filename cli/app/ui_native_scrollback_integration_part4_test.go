@@ -194,7 +194,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 	})
 	baselineLoadCalls := client.LoadCalls()
 
-	runtimeEvents <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
+	runtimeEvents <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}
 	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}
 	waitForTestCondition(t, 2*time.Second, "assistant delta visible", func() bool {
 		return strings.Contains(normalizedOutput(out.String()), "foreground done")

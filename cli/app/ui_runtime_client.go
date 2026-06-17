@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -486,7 +487,7 @@ func (c *sessionRuntimeClient) transcriptDiagnosticsEnabled() bool {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.transcriptDiagnostics || transcriptdiag.EnabledForProcess(false)
+	return c.transcriptDiagnostics || transcriptdiag.Enabled(false, os.Getenv)
 }
 
 func (c *sessionRuntimeClient) notifyConnectionState(err error) {

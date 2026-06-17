@@ -250,7 +250,7 @@ func modelCapabilitySourceConfigured(sources map[string]string, key string) bool
 }
 
 func reviewerProviderRuntimeSettings(active config.Settings) providerRuntimeSettings {
-	reviewer := config.EffectiveReviewerSettings(active)
+	reviewer := active.Reviewer
 	reviewerProvider := config.ResolveReviewerProviderSettings(config.Settings{
 		ProviderOverride: active.ProviderOverride,
 		OpenAIBaseURL:    active.OpenAIBaseURL,

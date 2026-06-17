@@ -315,10 +315,6 @@ func (r ValidationResult) HasBlockingErrors() bool {
 	return false
 }
 
-func (r ValidationResult) Valid() bool {
-	return !r.HasBlockingErrors()
-}
-
 func (r ValidationResult) BlockingErrors() []ValidationError {
 	out := make([]ValidationError, 0, len(r.Errors))
 	for _, err := range r.Errors {

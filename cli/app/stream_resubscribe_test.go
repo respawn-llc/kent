@@ -30,7 +30,7 @@ func TestStartSessionActivityEventsResubscribesFromLastSequenceAfterStreamGap(t 
 	defer cancel()
 
 	initial := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 41, Kind: clientui.EventAssistantDelta, AssistantDelta: "first"}}, {err: serverapi.ErrStreamGap}}}
-	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 42, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}}}}
+	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 42, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}}}}
 	remaining := []serverapi.SessionActivitySubscription{resubscribed}
 	var requestedAfter uint64
 
@@ -144,7 +144,7 @@ func TestStartSessionActivityEventsEmitsExplicitGapWhenInitialStreamDropsWithout
 	defer cancel()
 
 	initial := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{err: io.EOF}}}
-	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}}}}
+	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}}}}
 	var requestedAfter []uint64
 	events, stop := startSessionActivityEvents(ctx, initial, func(_ context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
 		requestedAfter = append(requestedAfter, afterSequence)
@@ -236,7 +236,7 @@ func TestStartSessionActivityEventsResubscribeStaysIsolatedAcrossStreams(t *test
 	defer cancel()
 
 	initialA := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventAssistantDelta, AssistantDelta: "a-first"}}, {err: serverapi.ErrStreamGap}}}
-	resubA := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 2, Kind: clientui.EventRunStateChanged, StepID: "step-a", RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}}}}
+	resubA := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 2, Kind: clientui.EventRunStateChanged, StepID: "step-a", RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}}}}
 	remainingA := []serverapi.SessionActivitySubscription{resubA}
 
 	initialB := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "b-first"}}}}

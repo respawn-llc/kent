@@ -47,7 +47,7 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 
 func TestReduceRuntimeEvent_RunStateStoppedClearsReasoningAndReturnsToIdle(t *testing.T) {
 	update := ReduceRuntimeEvent(
-		RuntimeRunState{Run: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
+		RuntimeRunState{Run: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
 		RuntimeConversationState{},
 		PendingInputState{},
 		RuntimeReasoningState{StatusHeader: "Running checks"},
@@ -76,7 +76,7 @@ func TestReduceRuntimeEvent_RunStateStartedDoesNotRequestTranscriptSync(t *testi
 		PendingInputState{},
 		RuntimeReasoningState{},
 		false,
-		clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}},
+		clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}},
 	)
 
 	if !update.RunState.State.Run.IsRunning() {
@@ -97,7 +97,7 @@ func TestReduceRuntimeEvent_GoalRunStateTracksOnlyBusyGoalTurns(t *testing.T) {
 		PendingInputState{},
 		RuntimeReasoningState{},
 		false,
-		clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeGoalLoop)}},
+		clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeGoalLoop)}},
 	)
 	if !started.RunState.State.Run.IsGoalLoopRunning() {
 		t.Fatalf("expected goal loop run state after start, got %+v", started.RunState.State)
@@ -109,7 +109,7 @@ func TestReduceRuntimeEvent_GoalRunStateTracksOnlyBusyGoalTurns(t *testing.T) {
 		PendingInputState{},
 		RuntimeReasoningState{},
 		true,
-		clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.FinishedRunLifecycle(clientui.RunModeGoalLoop)}},
+		clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleFinished, clientui.RunModeGoalLoop)}},
 	)
 	if stopped.RunState.State.Run.IsGoalLoopRunning() {
 		t.Fatalf("expected goal loop run state cleared after stop, got %+v", stopped.RunState.State)
@@ -311,7 +311,7 @@ func TestReduceRuntimeEvent_CompactionCompletedClearsCompacting(t *testing.T) {
 }
 
 func TestReduceRuntimeRunStateEventRejectsInvalidLifecycleAtReducerBoundary(t *testing.T) {
-	initial := RuntimeRunState{Run: clientui.RunningRunLifecycle(clientui.RunModeTurn)}
+	initial := RuntimeRunState{Run: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}
 	reduction := ReduceRuntimeRunStateEvent(
 		initial,
 		true,

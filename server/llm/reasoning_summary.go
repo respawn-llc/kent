@@ -2,15 +2,13 @@ package llm
 
 import (
 	"strings"
-
-	"core/shared/textutil"
 )
 
 func normalizeReasoningEntries(entries []ReasoningEntry) []ReasoningEntry {
 	out := make([]ReasoningEntry, 0, len(entries))
 	for _, entry := range entries {
 		role := strings.TrimSpace(entry.Role)
-		summary := normalizeReasoningSummaryLines(textutil.SplitLinesCRLF(entry.Text))
+		summary := normalizeReasoningSummaryLines(strings.Split(strings.ReplaceAll(entry.Text, "\r\n", "\n"), "\n"))
 		if role == "" || summary == "" {
 			continue
 		}
@@ -23,7 +21,7 @@ func reasoningSummaryDeltaFromText(key, role, text string) ReasoningSummaryDelta
 	return ReasoningSummaryDelta{
 		Key:  key,
 		Role: role,
-		Text: normalizeReasoningSummaryLines(textutil.SplitLinesCRLF(text)),
+		Text: normalizeReasoningSummaryLines(strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")),
 	}
 }
 
