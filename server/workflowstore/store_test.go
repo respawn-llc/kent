@@ -1761,11 +1761,31 @@ func TestCompleteRunFanoutCreatesParallelBranchPlacements(t *testing.T) {
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	worktreeID := "worktree-fanout-" + string(workflowID)
+	worktreeRoot := filepath.Join(t.TempDir(), "fanout-worktree")
+	if err := store.metadata.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{ID: worktreeID, WorkspaceID: binding.WorkspaceID, CanonicalRoot: worktreeRoot, Managed: true, CreatedBranch: true}); err != nil {
+		t.Fatalf("UpsertWorktreeRecord: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE tasks SET source_workspace_id = ?, managed_worktree_id = ? WHERE id = ?`, binding.WorkspaceID, worktreeID, string(task.ID)); err != nil {
+		t.Fatalf("attach managed worktree to task: %v", err)
+	}
 	started := startTask(t, ctx, store, task.ID)
 
 	result := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
 	if len(result.PlacementIDs) != 2 || len(result.RunIDs) != 2 {
 		t.Fatalf("fanout result = %+v, want two branch placements and runs", result)
+	}
+	for _, runID := range result.RunIDs {
+		input, err := store.GetRunStartContext(ctx, runID)
+		if err != nil {
+			t.Fatalf("GetRunStartContext branch %s: %v", runID, err)
+		}
+		if !input.IsFanoutBranch {
+			t.Fatalf("branch run context %s IsFanoutBranch=false, want true", runID)
+		}
+		if input.WorktreeID != worktreeID || input.WorktreeRoot == "" {
+			t.Fatalf("branch run context %s worktree id/root = %q/%q, want managed worktree", runID, input.WorktreeID, input.WorktreeRoot)
+		}
 	}
 	rows, err := store.db.QueryContext(ctx, `
 SELECT id, parallel_batch_transition_id, parallel_branch_edge_id
@@ -2765,6 +2785,9 @@ func TestSetRunEffectiveCompletionModePersistsAndRefusesDrift(t *testing.T) {
 	if claimed.EffectiveCompletionMode != "" {
 		t.Fatalf("claimed effective mode = %q, want empty before resolution", claimed.EffectiveCompletionMode)
 	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "invalid"); !errors.Is(err, ErrInvalidEffectiveCompletionMode) {
+		t.Fatalf("SetRunEffectiveCompletionMode invalid error = %v, want ErrInvalidEffectiveCompletionMode", err)
+	}
 	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "shell_command"); err != nil {
 		t.Fatalf("SetRunEffectiveCompletionMode: %v", err)
 	}
@@ -2780,9 +2803,6 @@ func TestSetRunEffectiveCompletionModePersistsAndRefusesDrift(t *testing.T) {
 	}
 	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "tool"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("SetRunEffectiveCompletionMode drift error = %v, want sql.ErrNoRows", err)
-	}
-	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "invalid"); err == nil {
-		t.Fatal("expected invalid effective completion mode error")
 	}
 }
 

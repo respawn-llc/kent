@@ -486,6 +486,37 @@ func TestServiceCompleteWorkflowTaskForceCancelsRuntimeAndWakesScheduler(t *test
 	}
 }
 
+func TestServiceCompleteWorkflowTaskForceKeepsCompletionWhenRuntimeCancelFails(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-human-force")
+	notifier := &recordingSchedulerNotifier{}
+	canceler := &recordingTaskRuntimeCanceler{err: errors.New("runtime already gone")}
+	service.schedulerWake = notifier
+	service.runtimeCancel = canceler
+
+	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind: serverapi.WorkflowTaskCompleteActorUser,
+		Force:     true,
+		RunID:     started.RunID,
+	})
+	if err != nil {
+		t.Fatalf("CompleteWorkflowTask force with cancel failure: %v", err)
+	}
+	if completed.RunID != started.RunID || completed.State != "applied" {
+		t.Fatalf("force complete response = %+v", completed)
+	}
+	if len(canceler.runIDs) != 1 || canceler.runIDs[0] != workflow.RunID(started.RunID) {
+		t.Fatalf("canceled run IDs = %+v, want %s", canceler.runIDs, started.RunID)
+	}
+	if notifier.count != 1 {
+		t.Fatalf("force completion scheduler notifications = %d, want 1", notifier.count)
+	}
+}
+
 func TestServiceMoveTaskAutoApproveSurfacesCommittedPendingMoveWhenApprovalFails(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
@@ -695,16 +726,17 @@ func (n *recordingSchedulerNotifier) Notify() {
 type recordingTaskRuntimeCanceler struct {
 	taskIDs []workflow.TaskID
 	runIDs  []workflow.RunID
+	err     error
 }
 
 func (c *recordingTaskRuntimeCanceler) CancelTaskRuns(_ context.Context, taskID workflow.TaskID) error {
 	c.taskIDs = append(c.taskIDs, taskID)
-	return nil
+	return c.err
 }
 
 func (c *recordingTaskRuntimeCanceler) CancelRun(_ context.Context, runID workflow.RunID) error {
 	c.runIDs = append(c.runIDs, runID)
-	return nil
+	return c.err
 }
 
 type recordingTaskWorktreeEnsurer struct {

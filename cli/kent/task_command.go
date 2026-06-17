@@ -811,6 +811,9 @@ func taskCompleteStringFlagValue(args []string, index int, inlineValue string, h
 	if next >= len(args) {
 		return "", index, fmt.Errorf("--%s requires a value", name)
 	}
+	if strings.HasPrefix(args[next], "-") && args[next] != "-" {
+		return "", index, fmt.Errorf("--%s requires a value", name)
+	}
 	return args[next], next, nil
 }
 

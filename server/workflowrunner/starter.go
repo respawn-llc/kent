@@ -407,16 +407,21 @@ func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, r
 	if s.cfg.Settings.Workflow.CompletionMode == config.WorkflowCompletionModeShellCommand && !shellAvailable {
 		return "", client, errors.New("workflow shell_command completion requires shell tool availability for this run")
 	}
-	caps, resolvedClient, err := s.workflowProviderCapabilities(ctx, plan, client)
-	if err != nil {
-		return "", resolvedClient, fmt.Errorf("resolve provider capabilities for workflow completion: %w", err)
-	}
-	mode, err := workflowruntime.SelectCompletionMode(workflowruntime.CompletionModeSelection{
+	selection := workflowruntime.CompletionModeSelection{
 		ConfiguredMode:         s.cfg.Settings.Workflow.CompletionMode,
-		ProviderCapabilities:   caps,
 		HasContinueSessionEdge: input.WorkflowHasContinueSessionEdge,
 		ShellAvailable:         shellAvailable,
-	})
+	}
+	resolvedClient := client
+	if workflowCompletionModeNeedsProviderCapabilities(selection) {
+		caps, nextClient, err := s.workflowProviderCapabilities(ctx, plan, client)
+		if err != nil {
+			return "", nextClient, fmt.Errorf("resolve provider capabilities for workflow completion: %w", err)
+		}
+		selection.ProviderCapabilities = caps
+		resolvedClient = nextClient
+	}
+	mode, err := workflowruntime.SelectCompletionMode(selection)
 	if err != nil {
 		return "", resolvedClient, err
 	}
@@ -424,6 +429,17 @@ func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, r
 		return "", resolvedClient, err
 	}
 	return mode, resolvedClient, nil
+}
+
+func workflowCompletionModeNeedsProviderCapabilities(selection workflowruntime.CompletionModeSelection) bool {
+	switch selection.ConfiguredMode {
+	case config.WorkflowCompletionModeStructuredOutput:
+		return true
+	case config.WorkflowCompletionModeAuto, "":
+		return selection.ShellAvailable && !selection.HasContinueSessionEdge
+	default:
+		return false
+	}
 }
 
 func (s *Starter) workflowProviderCapabilities(ctx context.Context, plan launch.SessionPlan, client llm.Client) (llm.ProviderCapabilities, llm.Client, error) {

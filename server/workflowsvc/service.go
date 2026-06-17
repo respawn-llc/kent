@@ -667,6 +667,7 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.Workfl
 	} else if strings.TrimSpace(target.Run.SessionID) != strings.TrimSpace(req.AgentSessionID) {
 		return serverapi.WorkflowTaskCompleteResponse{}, errors.New(serverapi.WorkflowTaskCompleteAgentOwnershipError)
 	}
+	taskID := string(target.Run.TaskID)
 	completed, err := s.store.CompleteRun(ctx, workflowstore.CompleteRunRequest{
 		RunID:              target.Run.ID,
 		TransitionID:       req.TransitionID,
@@ -682,14 +683,13 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.Workfl
 	if req.ActorKind == serverapi.WorkflowTaskCompleteActorUser {
 		if canceler, ok := s.runtimeCancel.(taskRuntimeRunCanceler); ok {
 			if err := canceler.CancelRun(ctx, target.Run.ID); err != nil {
-				return serverapi.WorkflowTaskCompleteResponse{}, err
+				slog.Warn("cancel completed workflow run failed", "run_id", string(target.Run.ID), "task_id", taskID, "error", err)
 			}
 		}
 		if s.schedulerWake != nil {
 			s.schedulerWake.Notify()
 		}
 	}
-	taskID := string(target.Run.TaskID)
 	if detail, detailErr := s.view.GetTask(ctx, taskID); detailErr == nil {
 		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "completed", taskID, string(target.Run.ID), string(completed.TransitionID))
 	}

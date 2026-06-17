@@ -208,6 +208,23 @@ func TestTaskCompleteRejectsMultipleSelectors(t *testing.T) {
 	}
 }
 
+func TestTaskCompleteRejectsMissingFlagValueBeforeNextFlag(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "session-agent")
+	restore := replaceWorkflowCommandRemoteOpener(t, config.App{WorkspaceRoot: t.TempDir()}, taskCompleteFatalRemote{t: t})
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "complete", "--run", "--session", "session-1")
+	if code != 2 {
+		t.Fatalf("task complete missing value exit=%d stderr=%q", code, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "--run requires a value") {
+		t.Fatalf("stderr = %q, want missing run value", stderr)
+	}
+}
+
 func TestTaskCompleteAmbiguousSelectorErrorShowsRetryGuidance(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-agent")
 	remote := &taskCompleteCaptureRemote{

@@ -45,6 +45,10 @@ var (
 	// ErrStaleRunGeneration is returned when an optimistic-generation guard fails.
 	ErrStaleRunGeneration = errors.New("stale workflow run generation")
 
+	// ErrInvalidEffectiveCompletionMode is returned when a run completion-mode
+	// snapshot value is not one of the runtime-supported modes.
+	ErrInvalidEffectiveCompletionMode = errors.New("invalid workflow effective completion mode")
+
 	// ErrTransitionIDRequired is returned when a transition id is required but
 	// blank.
 	ErrTransitionIDRequired = errors.New("transition id is required")

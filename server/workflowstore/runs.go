@@ -52,7 +52,7 @@ func (s *Store) SetRunEffectiveCompletionMode(ctx context.Context, runID workflo
 		return errors.New("run id is required")
 	}
 	if !validEffectiveCompletionMode(trimmedMode) {
-		return fmt.Errorf("invalid workflow effective completion mode %q", mode)
+		return fmt.Errorf("%w %q", ErrInvalidEffectiveCompletionMode, mode)
 	}
 	now := s.now().UnixMilli()
 	updated, err := s.queries.SetTaskRunEffectiveCompletionMode(ctx, sqlitegen.SetTaskRunEffectiveCompletionModeParams{
@@ -348,6 +348,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		SourceRunID:                    transitionContext.SourceRunID,
 		SourceSessionID:                transitionContext.SourceSessionID,
 		SourceNode:                     transitionContext.SourceNode,
+		IsFanoutBranch:                 isFanoutBranch,
 		TransitionIDs:                  transitionIDsFromSnapshot(snapshot),
 		TransitionOptions:              transitionOptionsFromSnapshot(snapshot),
 		PromptTemplate:                 strings.TrimSpace(runMetadata.PromptTemplate),

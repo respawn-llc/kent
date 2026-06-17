@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -345,6 +346,41 @@ func TestStarterExplicitShellModeFailsWhenShellUnavailable(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].EffectiveCompletionMode != "" {
 		t.Fatalf("stored mode after failed explicit shell = %+v, want empty", runs)
+	}
+}
+
+func TestStarterSkipsProviderCapabilityProbeWhenModeDoesNotNeedIt(t *testing.T) {
+	tests := []struct {
+		name               string
+		configuredMode     config.WorkflowCompletionMode
+		hasContinueEdge    bool
+		shellAvailable     bool
+		wantCompletionMode workflowruntime.CompletionMode
+	}{
+		{name: "forced tool", configuredMode: config.WorkflowCompletionModeTool, shellAvailable: true, wantCompletionMode: workflowruntime.CompletionModeTool},
+		{name: "forced unstructured", configuredMode: config.WorkflowCompletionModeUnstructured, shellAvailable: true, wantCompletionMode: workflowruntime.CompletionModeUnstructuredOutput},
+		{name: "auto shell unavailable", configuredMode: config.WorkflowCompletionModeAuto, shellAvailable: false, wantCompletionMode: workflowruntime.CompletionModeUnstructuredOutput},
+		{name: "auto continuation shell", configuredMode: config.WorkflowCompletionModeAuto, hasContinueEdge: true, shellAvailable: true, wantCompletionMode: workflowruntime.CompletionModeShellCommand},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newStarterFixture(t, tt.configuredMode)
+			if !tt.shellAvailable {
+				disableCoderShell(t, &fixture)
+				fixture.rebuildStarter(t)
+			}
+			claimed, input, plan := fixture.claimPlannedRun(t)
+			input.WorkflowHasContinueSessionEdge = tt.hasContinueEdge
+			client := providerProbeForbiddenClient{}
+
+			mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, client)
+			if err != nil {
+				t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+			}
+			if mode != tt.wantCompletionMode {
+				t.Fatalf("mode = %q, want %q", mode, tt.wantCompletionMode)
+			}
+		})
 	}
 }
 
@@ -1370,6 +1406,16 @@ func requestHasTool(req llm.Request, name string) bool {
 		}
 	}
 	return false
+}
+
+type providerProbeForbiddenClient struct{}
+
+func (providerProbeForbiddenClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{}, errors.New("generate was not expected")
+}
+
+func (providerProbeForbiddenClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return llm.ProviderCapabilities{}, errors.New("provider capability probe was not expected")
 }
 
 type blockingClient struct {
