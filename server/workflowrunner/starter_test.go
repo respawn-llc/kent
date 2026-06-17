@@ -74,6 +74,37 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 	}
 }
 
+func TestSchedulerNamesFreshWorkflowSessionFromAcceptedTransition(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"finished structured"}`))
+	def, _, err := fixture.store.GetDefinition(context.Background(), fixture.workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	startEdgePrompt := starterEdgeByKey(t, def, "start").PromptTemplate
+	task := fixture.createStartedTask(t)
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	fixture.waitForCompletedRun(t, task.ID)
+
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || strings.TrimSpace(runs[0].SessionID) == "" {
+		t.Fatalf("runs = %+v, want attached run session", runs)
+	}
+	meta := fixture.sessionMeta(t, runs[0].SessionID)
+	if meta.Name != "RUN-1: Backlog -> Agent" {
+		t.Fatalf("session name = %q, want accepted workflow transition name", meta.Name)
+	}
+	if meta.FirstPromptPreview != startEdgePrompt {
+		t.Fatalf("session preview = %q, want rendered start edge prompt %q", meta.FirstPromptPreview, startEdgePrompt)
+	}
+}
+
 func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 	input := json.RawMessage(`{"commentary":"finished tool"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, ScriptedToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
@@ -595,6 +626,48 @@ func TestStarterStartWorkflowRunFailsExplicitShellModeWithoutShell(t *testing.T)
 	}
 }
 
+func TestStarterRestoresReusedSessionMetadataWhenSetupFailsAfterPlanning(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`))
+	disableCoderShell(t, &fixture)
+	fixture.rebuildStarter(t)
+	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
+	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow chained: %v", err)
+	}
+	task := fixture.createStartedTask(t)
+	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
+		t.Fatalf("first Process: %v", err)
+	}
+	fixture.waitForRunCount(t, task.ID, 2)
+	fixture.waitForCompletedRunCount(t, task.ID, 1)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after first run: %v", err)
+	}
+	if len(runs) != 2 || strings.TrimSpace(runs[0].SessionID) == "" || strings.TrimSpace(runs[1].SessionID) != "" {
+		t.Fatalf("runs after first run = %+v, want source session and unattached continuation", runs)
+	}
+	sourceSessionID := runs[0].SessionID
+	metaBefore := fixture.sessionMeta(t, sourceSessionID)
+
+	fixture.cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeShellCommand
+	fixture.rebuildStarter(t)
+	if err := fixture.scheduler(t).Process(context.Background()); err == nil {
+		t.Fatalf("expected scheduler start error")
+	}
+	runs, err = fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after failed continuation: %v", err)
+	}
+	if len(runs) != 2 || runs[1].InterruptedAt == 0 || strings.TrimSpace(runs[1].SessionID) != "" {
+		t.Fatalf("runs after failed continuation = %+v, want interrupted unattached continuation", runs)
+	}
+	metaAfter := fixture.sessionMeta(t, sourceSessionID)
+	if metaAfter.Name != metaBefore.Name || metaAfter.FirstPromptPreview != metaBefore.FirstPromptPreview {
+		t.Fatalf("source session metadata after failed setup = name %q preview %q, want restored name %q preview %q", metaAfter.Name, metaAfter.FirstPromptPreview, metaBefore.Name, metaBefore.FirstPromptPreview)
+	}
+}
+
 func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.T) {
 	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflow(t, fixture.store)
@@ -676,6 +749,21 @@ func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
 	}
 	if len(runs) != 2 || strings.TrimSpace(runs[0].SessionID) == "" || runs[0].SessionID != runs[1].SessionID {
 		t.Fatalf("runs = %+v, want same session reused across continue_session edge", runs)
+	}
+	meta := fixture.sessionMeta(t, runs[1].SessionID)
+	if meta.Name != "RUN-1: Plan -> Implement" {
+		t.Fatalf("continued session name = %q, want latest accepted transition name", meta.Name)
+	}
+	input, err := fixture.store.GetRunStartContext(context.Background(), runs[1].ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext continued run: %v", err)
+	}
+	wantPreview, err := renderTransitionPrompt(input.PromptTemplate, input)
+	if err != nil {
+		t.Fatalf("render continued prompt: %v", err)
+	}
+	if meta.FirstPromptPreview != wantPreview {
+		t.Fatalf("continued session preview = %q, want %q", meta.FirstPromptPreview, wantPreview)
 	}
 	reqs := fixture.client.Requests()
 	if len(reqs) < 2 {
@@ -781,6 +869,21 @@ func TestWorkflowRuntimeCompactAndContinueReusesSourceSessionWithRealCompaction(
 	if runs[1].SessionID == "" || runs[1].SessionID != runs[0].SessionID {
 		t.Fatalf("runs = %+v, want compact_and_continue_session to reuse the source session in place", runs)
 	}
+	meta := fixture.sessionMeta(t, runs[1].SessionID)
+	if meta.Name != "RUN-1: Plan -> Implement" {
+		t.Fatalf("compact continuation session name = %q, want latest accepted transition name", meta.Name)
+	}
+	input, err := fixture.store.GetRunStartContext(context.Background(), runs[1].ID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext compact run: %v", err)
+	}
+	wantPreview, err := renderTransitionPrompt(input.PromptTemplate, input)
+	if err != nil {
+		t.Fatalf("render compact prompt: %v", err)
+	}
+	if meta.FirstPromptPreview != wantPreview {
+		t.Fatalf("compact continuation session preview = %q, want %q", meta.FirstPromptPreview, wantPreview)
+	}
 	events := fixture.sessionEventsText(t, runs[0].SessionID)
 	if strings.Contains(events, "Workflow compacted continuation context.") {
 		t.Fatalf("session events unexpectedly contain the removed compact-continuation stub: %q", events)
@@ -840,6 +943,86 @@ func TestWorkflowRuntimeCompactAndContinueAllowsCrossRole(t *testing.T) {
 	}
 	if got := sourceStore.Meta().Continuation; got == nil || got.AgentRole != "reviewer" {
 		t.Fatalf("continuation role = %+v, want reviewer", got)
+	}
+}
+
+func TestWorkflowRuntimeFanoutCompactAndContinueClonesUseBranchTransitionMetadata(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
+		ScriptedFinalAnswer(`{"commentary":"planned","summary":"plan summary"}`),
+		ScriptedFinalAnswer("branch compacted"),
+		ScriptedFinalAnswer(`{"commentary":"branch done","joined":"branch joined"}`),
+		ScriptedFinalAnswer("branch compacted"),
+		ScriptedFinalAnswer(`{"commentary":"branch done"}`),
+	)
+	workflowID := createFanoutCompactStarterWorkflow(t, fixture.store)
+	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow fanout: %v", err)
+	}
+	def, _, err := fixture.store.GetDefinition(context.Background(), workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition fanout: %v", err)
+	}
+	nodeKeyByID := map[workflow.NodeID]workflow.ModelKey{}
+	for _, node := range def.Nodes {
+		nodeKeyByID[workflow.NodeID(node.ID)] = node.Key
+	}
+	task := fixture.createStartedTask(t)
+
+	ctx := context.Background()
+	if err := fixture.scheduler(t).Process(ctx); err != nil {
+		t.Fatalf("plan Process: %v", err)
+	}
+	fixture.waitForRunCount(t, task.ID, 3)
+	fixture.waitForCompletedRunCount(t, task.ID, 1)
+
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) < 3 {
+		t.Fatalf("runs = %+v, want plan and two branch runs", runs)
+	}
+	sourceSessionID := ""
+	branchRecords := map[string]workflowstore.RunRecord{}
+	for _, run := range runs {
+		switch nodeKeyByID[run.NodeID] {
+		case "plan":
+			sourceSessionID = run.SessionID
+		case "impl_a", "impl_b":
+			branchRecords[string(nodeKeyByID[run.NodeID])] = run
+		}
+	}
+	if sourceSessionID == "" || branchRecords["impl_a"].ID == "" || branchRecords["impl_b"].ID == "" {
+		t.Fatalf("run records by node: source=%q branches=%+v from runs %+v", sourceSessionID, branchRecords, runs)
+	}
+
+	startClaimedWorkflowRun(t, ctx, fixture, branchRecords["impl_a"])
+	fixture.waitForCompletedRunCount(t, task.ID, 2)
+	startClaimedWorkflowRun(t, ctx, fixture, branchRecords["impl_b"])
+	fixture.waitForCompletedRunCount(t, task.ID, 3)
+
+	runs, err = fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after branches: %v", err)
+	}
+	branchSessions := map[string]string{}
+	for _, run := range runs {
+		if key := string(nodeKeyByID[run.NodeID]); key == "impl_a" || key == "impl_b" {
+			branchSessions[key] = run.SessionID
+		}
+	}
+	if branchSessions["impl_a"] == sourceSessionID || branchSessions["impl_b"] == sourceSessionID || branchSessions["impl_a"] == branchSessions["impl_b"] {
+		t.Fatalf("fanout branch sessions = %+v source=%q, want isolated clones", branchSessions, sourceSessionID)
+	}
+	metaA := fixture.sessionMeta(t, branchSessions["impl_a"])
+	wantPreviewA := renderedPromptForRun(t, fixture.store, branchRecords["impl_a"].ID)
+	if metaA.Name != "RUN-1: Plan -> Implement A" || metaA.FirstPromptPreview != wantPreviewA {
+		t.Fatalf("branch A metadata = name %q preview %q, want branch transition metadata", metaA.Name, metaA.FirstPromptPreview)
+	}
+	metaB := fixture.sessionMeta(t, branchSessions["impl_b"])
+	wantPreviewB := renderedPromptForRun(t, fixture.store, branchRecords["impl_b"].ID)
+	if metaB.Name != "RUN-1: Plan -> Implement B" || metaB.FirstPromptPreview != wantPreviewB {
+		t.Fatalf("branch B metadata = name %q preview %q, want branch transition metadata", metaB.Name, metaB.FirstPromptPreview)
 	}
 }
 
@@ -915,12 +1098,47 @@ func TestWorkflowRuntimeStartFailsWhenRoleDisappearedAfterTaskStart(t *testing.T
 	}
 }
 
+func TestWorkflowRuntimeStartFailsWhenTransitionPromptPreviewCannotRender(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"should not run"}`))
+	task := fixture.createStartedTask(t)
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns initial: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("initial runs = %+v, want one run", runs)
+	}
+	if _, err := fixture.metadata.DB().ExecContext(context.Background(), `UPDATE task_runs SET metadata_json = json_set(metadata_json, '$.prompt_template', ?) WHERE id = ?`, "{{.Missing}}", string(runs[0].ID)); err != nil {
+		t.Fatalf("update run prompt metadata: %v", err)
+	}
+	scheduler := fixture.scheduler(t)
+
+	if err := scheduler.Process(context.Background()); !errors.Is(err, ErrSchedulerRuntimeStartFailed) {
+		t.Fatalf("Process error = %v, want scheduler runtime start failure", err)
+	}
+	runs, err = fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != ReasonSchedulerRuntimeStartFailed || strings.TrimSpace(runs[0].SessionID) != "" {
+		t.Fatalf("run after prompt render failure = %+v, want interrupted without attached session", runs)
+	}
+	if reqs := fixture.client.Requests(); len(reqs) != 0 {
+		t.Fatalf("model requests = %+v, want none before invalid prompt render failure", reqs)
+	}
+}
+
 func TestWorkflowRuntimeResumeInterruptedRunUsesSameSession(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool)
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, ScriptedFinalAnswer(`{"commentary":"resumed"}`))
 	task := fixture.createStartedTask(t)
 	if err := fixture.worktrees.EnsureTaskWorktree(context.Background(), string(task.ID)); err != nil {
 		t.Fatalf("EnsureTaskWorktree: %v", err)
 	}
+	def, _, err := fixture.store.GetDefinition(context.Background(), fixture.workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	startEdgePrompt := starterEdgeByKey(t, def, "start").PromptTemplate
 	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns initial: %v", err)
@@ -961,16 +1179,20 @@ func TestWorkflowRuntimeResumeInterruptedRunUsesSameSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeTaskRun: %v", err)
 	}
-	resumedInput, err := fixture.store.GetRunStartContext(context.Background(), resumed.ID)
-	if err != nil {
-		t.Fatalf("GetRunStartContext resumed: %v", err)
+	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
+		t.Fatalf("Process resumed: %v", err)
 	}
-	resumePlan, _, err := fixture.starter.planSession(context.Background(), resumedInput)
+	fixture.waitForCompletedRun(t, task.ID)
+	runs, err = fixture.store.ListRuns(context.Background(), task.ID)
 	if err != nil {
-		t.Fatalf("planSession resumed: %v", err)
+		t.Fatalf("ListRuns resumed: %v", err)
 	}
-	if resumed.ID != runs[0].ID || resumePlan.Store.Meta().SessionID != originalSessionID {
-		t.Fatalf("resume plan session = %s for run %+v, want same session %s", resumePlan.Store.Meta().SessionID, resumed, originalSessionID)
+	if len(runs) != 1 || resumed.ID != runs[0].ID || runs[0].SessionID != originalSessionID {
+		t.Fatalf("resumed run = %+v, want same session %s for run %s", runs, originalSessionID, resumed.ID)
+	}
+	meta := fixture.sessionMeta(t, runs[0].SessionID)
+	if meta.Name != "RUN-1: Backlog -> Agent" || meta.FirstPromptPreview != startEdgePrompt {
+		t.Fatalf("resumed session metadata = name %q preview %q, want accepted transition metadata", meta.Name, meta.FirstPromptPreview)
 	}
 }
 
@@ -1328,6 +1550,50 @@ func (f starterFixture) sessionEventsText(t *testing.T, sessionID string) string
 	return string(data)
 }
 
+func (f starterFixture) sessionMeta(t *testing.T, sessionID string) session.Meta {
+	t.Helper()
+	record, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("ResolvePersistedSession: %v", err)
+	}
+	store, err := session.Open(record.SessionDir, f.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("Open session: %v", err)
+	}
+	return store.Meta()
+}
+
+func renderedPromptForRun(t *testing.T, store *workflowstore.Store, runID workflow.RunID) string {
+	t.Helper()
+	input, err := store.GetRunStartContext(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	prompt, err := renderTransitionPrompt(input.PromptTemplate, input)
+	if err != nil {
+		t.Fatalf("render transition prompt: %v", err)
+	}
+	return prompt
+}
+
+func startClaimedWorkflowRun(t *testing.T, ctx context.Context, fixture starterFixture, run workflowstore.RunRecord) {
+	t.Helper()
+	claimed, err := fixture.store.ClaimRun(ctx, run.ID, run.Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun %s: %v", run.ID, err)
+	}
+	req := SchedulerStartRunRequest{
+		RunID:       claimed.ID,
+		TaskID:      claimed.TaskID,
+		PlacementID: claimed.PlacementID,
+		NodeID:      claimed.NodeID,
+		Generation:  claimed.Generation,
+	}
+	if err := fixture.starter.StartWorkflowRun(ctx, req); err != nil {
+		t.Fatalf("StartWorkflowRun %s: %v", run.ID, err)
+	}
+}
+
 func workflowRequestAskQuestionToolMessages(reqs []llm.Request) []llm.Message {
 	messages := []llm.Message{}
 	for _, req := range reqs {
@@ -1499,6 +1765,71 @@ func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowst
 	return created.ID
 }
 
+func createFanoutCompactStarterWorkflow(t *testing.T, store *workflowstore.Store) workflow.WorkflowID {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Fanout Compact Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := starterNodeByKind(t, def, workflow.NodeKindStart)
+	done := starterNodeByKind(t, def, workflow.NodeKindTerminal)
+	planID := workflow.NodeID("node-plan-" + string(created.ID))
+	implAID := workflow.NodeID("node-impl-a-" + string(created.ID))
+	implBID := workflow.NodeID("node-impl-b-" + string(created.ID))
+	joinID := workflow.NodeID("node-join-" + string(created.ID))
+	synthID := workflow.NodeID("node-synth-" + string(created.ID))
+	joinAEdgeID := workflow.EdgeID("edge-join-a-" + string(created.ID))
+	joinBEdgeID := workflow.EdgeID("edge-join-b-" + string(created.ID))
+	for _, node := range []workflowstore.NodeRecord{
+		{ID: planID, WorkflowID: created.ID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implAID, WorkflowID: created.ID, Key: "impl_a", Kind: workflow.NodeKindAgent, DisplayName: "Implement A", SubagentRole: "coder", PromptTemplate: "A.", InputFields: []workflow.InputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implBID, WorkflowID: created.ID, Key: "impl_b", Kind: workflow.NodeKindAgent, DisplayName: "Implement B", SubagentRole: "coder", PromptTemplate: "B.", InputFields: []workflow.InputField{{Name: "summary", Description: "Summary."}}},
+		{ID: joinID, WorkflowID: created.ID, Key: "join", Kind: workflow.NodeKindJoin, DisplayName: "Join", JoinInputProviders: []workflow.JoinInputProvider{{InputName: "joined", ProviderEdgeID: joinAEdgeID}}},
+		{ID: synthID, WorkflowID: created.ID, Key: "synth", Kind: workflow.NodeKindAgent, DisplayName: "Synthesize", SubagentRole: "coder", PromptTemplate: "Synthesize.", InputFields: []workflow.InputField{{Name: "joined", Description: "Joined branch summary."}}},
+	} {
+		if _, err := store.AddNode(ctx, node); err != nil {
+			t.Fatalf("AddNode %s: %v", node.Key, err)
+		}
+	}
+	startGroup := workflow.TransitionGroupID("group-start-" + string(created.ID))
+	splitGroup := workflow.TransitionGroupID("group-split-" + string(created.ID))
+	joinAGroup := workflow.TransitionGroupID("group-join-a-" + string(created.ID))
+	joinBGroup := workflow.TransitionGroupID("group-join-b-" + string(created.ID))
+	synthGroup := workflow.TransitionGroupID("group-synth-" + string(created.ID))
+	doneGroup := workflow.TransitionGroupID("group-done-" + string(created.ID))
+	for _, group := range []workflowstore.TransitionGroupRecord{
+		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
+		{ID: splitGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "split", DisplayName: "Split"},
+		{ID: joinAGroup, WorkflowID: created.ID, SourceNodeID: implAID, TransitionID: "join", DisplayName: "Join"},
+		{ID: joinBGroup, WorkflowID: created.ID, SourceNodeID: implBID, TransitionID: "join", DisplayName: "Join"},
+		{ID: synthGroup, WorkflowID: created.ID, SourceNodeID: joinID, TransitionID: "synth", DisplayName: "Synthesize"},
+		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: synthID, TransitionID: "done", DisplayName: "Done"},
+	} {
+		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
+			t.Fatalf("AddTransitionGroup %s: %v", group.TransitionID, err)
+		}
+	}
+	for _, edge := range []workflowstore.EdgeRecord{
+		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Plan."},
+		{ID: workflow.EdgeID("edge-split-a-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "split_a", TargetNodeID: implAID, ContextMode: workflow.ContextModeCompactAndContinueSession, PromptTemplate: "A {{.Params.summary}}.", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}},
+		{ID: workflow.EdgeID("edge-split-b-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "split_b", TargetNodeID: implBID, ContextMode: workflow.ContextModeCompactAndContinueSession, PromptTemplate: "B {{.Params.summary}}.", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}},
+		{ID: joinAEdgeID, WorkflowID: created.ID, TransitionGroupID: joinAGroup, Key: "join_a", TargetNodeID: joinID, ContextMode: workflow.ContextModeNewSession, Parameters: []workflow.Parameter{{Key: "joined", Description: "Joined branch summary."}}},
+		{ID: joinBEdgeID, WorkflowID: created.ID, TransitionGroupID: joinBGroup, Key: "join_b", TargetNodeID: joinID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-synth-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: synthGroup, Key: "synth", TargetNodeID: synthID, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Synthesize {{.Params.joined}}."},
+		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession},
+	} {
+		if _, err := store.AddEdge(ctx, edge); err != nil {
+			t.Fatalf("AddEdge %s: %v", edge.Key, err)
+		}
+	}
+	return created.ID
+}
+
 func updateChainedStarterWorkflowNextEdgeContextMode(t *testing.T, metadataStore *metadata.Store, workflowID workflow.WorkflowID, contextMode workflow.ContextMode) {
 	t.Helper()
 	result, err := metadataStore.DB().ExecContext(context.Background(), `UPDATE workflow_edges SET context_mode = ? WHERE id = ?`, string(contextMode), "edge-next-"+string(workflowID))
@@ -1521,6 +1852,17 @@ func starterNodeByKind(t *testing.T, def workflow.Definition, kind workflow.Node
 	}
 	t.Fatalf("node kind %s missing", kind)
 	return workflow.Node{}
+}
+
+func starterEdgeByKey(t *testing.T, def workflow.Definition, key workflow.ModelKey) workflow.Edge {
+	t.Helper()
+	for _, edge := range def.Edges {
+		if edge.Key == key {
+			return edge
+		}
+	}
+	t.Fatalf("edge key %s missing", key)
+	return workflow.Edge{}
 }
 
 func assertPromptContains(t *testing.T, req llm.Request, needles []string) {

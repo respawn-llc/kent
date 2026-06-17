@@ -818,6 +818,22 @@ func TestStartTaskRejectsCanceledAndAlreadyStartedTasks(t *testing.T) {
 	}
 }
 
+func TestRunStartContextExposesAcceptedStartTransitionPath(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+
+	input, err := store.GetRunStartContext(ctx, started.RunID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	if input.AcceptedTransitionPath.SourceNodeDisplayName != "Backlog" || input.AcceptedTransitionPath.TargetNodeDisplayName != "Agent" {
+		t.Fatalf("accepted transition path = %+v, want Backlog -> Agent", input.AcceptedTransitionPath)
+	}
+}
+
 func TestWorkflowTransitionsRefreshTaskUpdatedAt(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
@@ -1148,6 +1164,9 @@ func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
 	}
 	if input.SourceRunID != implementationRun.ID || input.SourceSessionID != implementationSessionID || input.SourceNode.Key != "implementation" {
 		t.Fatalf("open_pr context source = run %q session %q node %q, want implementation run %q session %q", input.SourceRunID, input.SourceSessionID, input.SourceNode.Key, implementationRun.ID, implementationSessionID)
+	}
+	if input.AcceptedTransitionPath.SourceNodeDisplayName != "Acceptance" || input.AcceptedTransitionPath.TargetNodeDisplayName != "Open PR" {
+		t.Fatalf("open_pr accepted transition path = %+v, want Acceptance -> Open PR", input.AcceptedTransitionPath)
 	}
 	if input.InputValues["acceptance_decision"] != "approved" {
 		t.Fatalf("open_pr input values = %+v, want immediate acceptance output", input.InputValues)
