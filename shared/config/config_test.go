@@ -295,6 +295,23 @@ func TestLoadGlobalSkipsWorkspaceConfigLayer(t *testing.T) {
 	}
 }
 
+func TestLoadGlobalRejectsModelContextWindowBelowMinimum(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, brand.ConfigDirName), 0o755); err != nil {
+		t.Fatalf("create home config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, brand.ConfigDirName, "config.toml"), []byte("model_context_window = 39999\ncontext_compaction_threshold_tokens = 30000\n"), 0o644); err != nil {
+		t.Fatalf("write home config: %v", err)
+	}
+
+	if _, err := LoadGlobal(LoadOptions{}); err == nil {
+		t.Fatal("expected model_context_window below minimum validation error")
+	} else if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
 func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -633,6 +650,55 @@ func TestLoadSubagentRoleRejectsInvalidValues(t *testing.T) {
 	}
 	if !errors.Is(err, errSubagentRole) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadSubagentRoleRejectsModelContextWindowBelowMinimum(t *testing.T) {
+	err := loadConfigTestFileError(t, strings.Join([]string{
+		"[subagents.fast]",
+		"model_context_window = 39999",
+		"context_compaction_threshold_tokens = 30000",
+	}, "\n"), LoadOptions{})
+	if err == nil {
+		t.Fatal("expected subagent model_context_window below minimum validation error")
+	}
+	if !errors.Is(err, errSubagentRole) {
+		t.Fatalf("expected subagent role validation error, got %v", err)
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
+func TestLoadSubagentRoleRejectsReviewerModelContextWindowBelowMinimum(t *testing.T) {
+	err := loadConfigTestFileError(t, strings.Join([]string{
+		"[subagents.fast.reviewer]",
+		"model_context_window = 39999",
+	}, "\n"), LoadOptions{})
+	if err == nil {
+		t.Fatal("expected subagent reviewer.model_context_window below minimum validation error")
+	}
+	if !errors.Is(err, errSubagentRole) {
+		t.Fatalf("expected subagent role validation error, got %v", err)
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
+	}
+}
+
+func TestLoadSubagentRoleRejectsReviewerModelContextWindowExplicitZero(t *testing.T) {
+	err := loadConfigTestFileError(t, strings.Join([]string{
+		"[subagents.fast.reviewer]",
+		"model_context_window = 0",
+	}, "\n"), LoadOptions{})
+	if err == nil {
+		t.Fatal("expected subagent reviewer.model_context_window=0 validation error")
+	}
+	if !errors.Is(err, errSubagentRole) {
+		t.Fatalf("expected subagent role validation error, got %v", err)
+	}
+	if !errors.Is(err, errModelContextWindowBelowMinimum) {
+		t.Fatalf("expected model context window minimum validation detail, got %v", err)
 	}
 }
 

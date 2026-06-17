@@ -64,4 +64,5 @@ docs/tmp/
 .env
 .kent/config.toml
 .kent/plans/
+.kent/qa/
 .kent/proofs/

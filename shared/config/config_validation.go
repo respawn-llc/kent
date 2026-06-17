@@ -65,6 +65,11 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 	if hasWindow && state.Settings.ModelContextWindow <= 0 {
 		return fmt.Errorf("model_context_window must be > 0")
 	}
+	if hasWindow {
+		if err := validateModelContextWindowMinimum("model_context_window", state.Settings.ModelContextWindow); err != nil {
+			return err
+		}
+	}
 	if hasThreshold && state.Settings.ContextCompactionThresholdTokens <= 0 {
 		return fmt.Errorf("context_compaction_threshold_tokens must be > 0")
 	}
@@ -301,6 +306,9 @@ func validateContextWindow(state settingsState, _ map[string]string) error {
 	if state.Settings.ModelContextWindow <= 0 {
 		return fmt.Errorf("model_context_window must be > 0")
 	}
+	if err := validateModelContextWindowMinimum("model_context_window", state.Settings.ModelContextWindow); err != nil {
+		return err
+	}
 	if state.Settings.ContextCompactionThresholdTokens >= state.Settings.ModelContextWindow {
 		return fmt.Errorf("context_compaction_threshold_tokens must be < model_context_window")
 	}
@@ -373,6 +381,9 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 	if reviewer.ModelContextWindow < 0 {
 		return errReviewerContextWindowNegative
 	}
+	if err := validateModelContextWindowMinimum("reviewer.model_context_window", reviewer.ModelContextWindow); err != nil {
+		return err
+	}
 	switch normalizeReviewerAuth(reviewer.Auth) {
 	case "inherit":
 	case "none":
@@ -383,6 +394,18 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 		return fmt.Errorf("reviewer.timeout_seconds must be > 0")
 	}
 	return nil
+}
+
+func validateModelContextWindowMinimum(field string, window int) error {
+	if window >= minimumModelContextWindow {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: %s must be >= %d",
+		errModelContextWindowBelowMinimum,
+		field,
+		minimumModelContextWindow,
+	)
 }
 
 func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverride) error {

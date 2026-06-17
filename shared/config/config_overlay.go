@@ -28,7 +28,7 @@ func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]s
 	settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
 	inheritReviewerModelCapabilities(settings, sources)
 	inheritReviewerProviderCapabilities(settings, sources, reviewerProviderSelectionExplicit)
-	if settings.Reviewer.ModelContextWindow == 0 {
+	if settings.Reviewer.ModelContextWindow == 0 && !hasConfiguredSource(sources, "reviewer.model_context_window") {
 		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
 	}
 }
