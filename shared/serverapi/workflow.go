@@ -73,6 +73,7 @@ type WorkflowNode struct {
 	GroupKey           string                      `json:"group_key,omitempty"`
 	SubagentRole       string                      `json:"subagent_role,omitempty"`
 	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	CompletionMode     string                      `json:"completion_mode,omitempty"`
 	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
 	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 	OutputFields       []WorkflowOutputField       `json:"output_fields,omitempty"`
@@ -208,6 +209,7 @@ type WorkflowGraphDraftNode struct {
 	GroupKey           string                      `json:"group_key,omitempty"`
 	SubagentRole       string                      `json:"subagent_role,omitempty"`
 	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	CompletionMode     string                      `json:"completion_mode,omitempty"`
 	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
 	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 }
@@ -382,6 +384,7 @@ type WorkflowNodeAddRequest struct {
 	GroupKey           string                      `json:"group_key,omitempty"`
 	SubagentRole       string                      `json:"subagent_role,omitempty"`
 	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	CompletionMode     string                      `json:"completion_mode,omitempty"`
 	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
 	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 }
@@ -399,6 +402,7 @@ type WorkflowNodeUpdateRequest struct {
 	GroupKey           string                      `json:"group_key,omitempty"`
 	SubagentRole       string                      `json:"subagent_role,omitempty"`
 	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	CompletionMode     string                      `json:"completion_mode,omitempty"`
 	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
 	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 }
@@ -1191,17 +1195,17 @@ func (r WorkflowGetRequest) Validate() error {
 }
 
 func (r WorkflowNodeAddRequest) Validate() error {
-	return validateWorkflowNodeFields(r.WorkflowID, "", r.Key, r.Kind, r.DisplayName, r.GroupKey, r.InputFields, r.JoinInputProviders)
+	return validateWorkflowNodeFields(r.WorkflowID, "", r.Key, r.Kind, r.DisplayName, r.GroupKey, r.CompletionMode, r.InputFields, r.JoinInputProviders)
 }
 
 func (r WorkflowNodeUpdateRequest) Validate() error {
 	if err := validateRequired("node_id", r.NodeID); err != nil {
 		return err
 	}
-	return validateWorkflowNodeFields(r.WorkflowID, r.NodeID, r.Key, r.Kind, r.DisplayName, r.GroupKey, r.InputFields, r.JoinInputProviders)
+	return validateWorkflowNodeFields(r.WorkflowID, r.NodeID, r.Key, r.Kind, r.DisplayName, r.GroupKey, r.CompletionMode, r.InputFields, r.JoinInputProviders)
 }
 
-func validateWorkflowNodeFields(workflowID string, nodeID string, key string, kind string, displayName string, groupKey string, inputFields []WorkflowInputField, joinInputProviders []WorkflowJoinInputProvider) error {
+func validateWorkflowNodeFields(workflowID string, nodeID string, key string, kind string, displayName string, groupKey string, completionMode string, inputFields []WorkflowInputField, joinInputProviders []WorkflowJoinInputProvider) error {
 	if err := validateRequired("workflow_id", workflowID); err != nil {
 		return err
 	}
@@ -1212,6 +1216,9 @@ func validateWorkflowNodeFields(workflowID string, nodeID string, key string, ki
 		return err
 	}
 	if err := validateDisplayName(displayName); err != nil {
+		return err
+	}
+	if err := validateWorkflowNodeCompletionMode(kind, completionMode); err != nil {
 		return err
 	}
 	if strings.TrimSpace(groupKey) != "" {
@@ -1236,6 +1243,22 @@ func validateWorkflowNodeFields(workflowID string, nodeID string, key string, ki
 		}
 	}
 	return nil
+}
+
+func validateWorkflowNodeCompletionMode(kind string, completionMode string) error {
+	trimmedMode := strings.TrimSpace(completionMode)
+	if trimmedMode == "" {
+		return nil
+	}
+	if strings.TrimSpace(kind) != "agent" {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "completion_mode", "completion_mode is only valid for agent nodes")
+	}
+	switch trimmedMode {
+	case "auto", "structured_output", "tool", "shell_command", "unstructured_output":
+		return nil
+	default:
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "completion_mode", "completion_mode must be auto|structured_output|tool|shell_command|unstructured_output")
+	}
 }
 
 func (r WorkflowNodeGroupAddRequest) Validate() error {
@@ -1526,6 +1549,9 @@ func validateWorkflowGraphDraftEnvelope(graph WorkflowGraphDraft) error {
 		}
 	}
 	for _, node := range graph.Nodes {
+		if err := validateWorkflowNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, "graph.nodes.completion_mode", err.Error())
+		}
 		if len(node.InputFields) > WorkflowGraphDraftMaxFieldsPerEntity {
 			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.nodes.input_fields", fmt.Sprintf("input_fields must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
 		}

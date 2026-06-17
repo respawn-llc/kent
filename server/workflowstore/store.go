@@ -112,6 +112,7 @@ type NodeRecord struct {
 	GroupKey           string
 	SubagentRole       string
 	PromptTemplate     string
+	CompletionMode     string
 	InputFields        []workflow.InputField
 	JoinInputProviders []workflow.JoinInputProvider
 	OutputFields       []workflow.OutputField
@@ -517,6 +518,9 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 	if strings.TrimSpace(string(node.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
 	}
+	if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
+		return 0, err
+	}
 	inputFields, err := workflow.MarshalString(node.InputFields)
 	if err != nil {
 		return 0, err
@@ -557,6 +561,7 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 		DisplayName:            strings.TrimSpace(node.DisplayName),
 		SubagentRole:           strings.TrimSpace(node.SubagentRole),
 		PromptTemplate:         strings.TrimSpace(node.PromptTemplate),
+		CompletionMode:         nodeCompletionMode(node),
 		InputFieldsJson:        inputFields,
 		JoinInputProvidersJson: joinProviders,
 		OutputFieldsJson:       outputFields,
@@ -581,6 +586,9 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 	}
 	if strings.TrimSpace(string(node.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
+	}
+	if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
+		return 0, err
 	}
 	inputFields, err := workflow.MarshalString(node.InputFields)
 	if err != nil {
@@ -617,6 +625,7 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 		strings.TrimSpace(node.DisplayName),
 		strings.TrimSpace(node.SubagentRole),
 		strings.TrimSpace(node.PromptTemplate),
+		nodeCompletionMode(node),
 		inputFields,
 		joinProviders,
 		outputFields,
@@ -642,6 +651,30 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 		return 0, err
 	}
 	return revision, nil
+}
+
+func validateNodeCompletionMode(kind workflow.NodeKind, mode string) error {
+	trimmed := strings.TrimSpace(mode)
+	if trimmed == "" {
+		return nil
+	}
+	if kind != workflow.NodeKindAgent {
+		return fmt.Errorf("workflow completion mode override is only valid for agent nodes")
+	}
+	switch trimmed {
+	case "auto", "structured_output", "tool", "shell_command", "unstructured_output":
+		return nil
+	default:
+		return fmt.Errorf("invalid workflow node completion mode %q", mode)
+	}
+}
+
+func nodeCompletionMode(node NodeRecord) string {
+	mode := strings.TrimSpace(node.CompletionMode)
+	if node.Kind != workflow.NodeKindAgent {
+		return ""
+	}
+	return mode
 }
 
 func (s *Store) AddNodeGroup(ctx context.Context, group NodeGroupRecord) (NodeGroupRecord, int64, error) {
@@ -1042,7 +1075,7 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 			groupID = node.GroupID.String
 			groupMemberIDs[groupID] = append(groupMemberIDs[groupID], workflow.NodeID(node.ID))
 		}
-		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.NodeKey), DisplayName: node.DisplayName, Kind: workflow.NodeKind(node.Kind), GroupID: groupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: outputFields})
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.NodeKey), DisplayName: node.DisplayName, Kind: workflow.NodeKind(node.Kind), GroupID: groupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, CompletionMode: node.CompletionMode, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: outputFields})
 	}
 	for index := range def.NodeGroups {
 		def.NodeGroups[index].MemberNodeIDs = groupMemberIDs[def.NodeGroups[index].ID]

@@ -33,13 +33,15 @@ describe("workflowEditorDraft", () => {
 
     const graph = workflowEditorDraftReducer(initial, {
       nodeID: "node-agent",
-      patch: { name: "Edited agent" },
+      patch: { completionMode: "shell_command", name: "Edited agent" },
       type: "editAgentNode",
     });
     expect(workflowEditorDirtyState(graph)).toEqual({ dirty: true, graphDirty: true, metadataDirty: false });
     expect(graph.version).toBe(initial.version + 1);
     expect(graph.graphVersion).toBe(initial.graphVersion);
     expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.name).toBe("Edited agent");
+    expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.completionMode).toBe("shell_command");
+    expect(workflowEditorDraftGraph(graph).nodes[0]?.completionMode).toBe("shell_command");
     expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.outputFields).toEqual([
       { description: "Summary", name: "summary" },
     ]);
@@ -257,6 +259,7 @@ describe("workflowEditorDraft", () => {
           key: "done",
           kind: "terminal",
           name: "Done",
+          completionMode: "",
           outputFields: [],
           promptTemplate: "",
           subagentRole: "",
@@ -334,7 +337,18 @@ function withVersion(source: WorkflowDefinition, version: number): WorkflowDefin
 function fixedWorkflowNode(id: string, key: string, name: string, kind: "start" | "terminal") {
   const source = workflowDefinition.nodes[0];
   if (source === undefined) throw new Error("Expected workflow fixture to include a node.");
-  return { ...source, id, inputFields: [], key, kind, name, outputFields: [], promptTemplate: "", subagentRole: "" };
+  return {
+    ...source,
+    completionMode: "",
+    id,
+    inputFields: [],
+    key,
+    kind,
+    name,
+    outputFields: [],
+    promptTemplate: "",
+    subagentRole: "",
+  };
 }
 
 function expectDefined<T>(value: T | undefined, message: string): T {
@@ -360,6 +374,7 @@ const workflowDefinition: WorkflowDefinition = {
       key: "implement",
       kind: "agent",
       name: "Implement",
+      completionMode: "",
       inputFields: [],
       joinInputProviders: [],
       outputFields: [{ description: "Summary", name: "summary" }],

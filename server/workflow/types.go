@@ -102,6 +102,7 @@ type Node struct {
 	GroupID            string
 	SubagentRole       string
 	PromptTemplate     string
+	CompletionMode     string
 	InputFields        []InputField
 	JoinInputProviders []JoinInputProvider
 	OutputFields       []OutputField

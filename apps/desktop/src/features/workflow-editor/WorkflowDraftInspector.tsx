@@ -44,6 +44,7 @@ import {
   emptyWorkflowValidation,
   immediateContextSource,
   parameterSummaryFields,
+  workflowCompletionModeOptions,
   useWorkflowAssigneeOptions,
 } from "./workflowInspectorWiring";
 
@@ -435,6 +436,18 @@ function AgentNodeDraftDetails({
           options={assigneeOptions}
           placeholder={t("workflowEditor.selectAssignee")}
           value={node.subagentRole}
+        />
+        <SelectField
+          label={t("workflowEditor.completionMode")}
+          onValueChange={(value) => {
+            controller.dispatch({
+              nodeID: node.id,
+              patch: { completionMode: value },
+              type: "editAgentNode",
+            });
+          }}
+          options={workflowCompletionModeOptions(t)}
+          value={node.completionMode}
         />
       </DetailSection>
       <FieldSummary

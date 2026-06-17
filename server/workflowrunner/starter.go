@@ -434,11 +434,15 @@ func (s *Starter) resolveAndPersistWorkflowCompletionMode(ctx context.Context, r
 		}
 		return mode, client, nil
 	}
-	if s.cfg.Settings.Workflow.CompletionMode == config.WorkflowCompletionModeShellCommand && !shellAvailable {
+	configuredMode := s.cfg.Settings.Workflow.CompletionMode
+	if nodeMode := strings.TrimSpace(input.Node.CompletionMode); nodeMode != "" {
+		configuredMode = config.WorkflowCompletionMode(nodeMode)
+	}
+	if configuredMode == config.WorkflowCompletionModeShellCommand && !shellAvailable {
 		return "", client, errWorkflowShellCompletionRequiresShell
 	}
 	selection := workflowruntime.CompletionModeSelection{
-		ConfiguredMode:         s.cfg.Settings.Workflow.CompletionMode,
+		ConfiguredMode:         configuredMode,
 		HasContinueSessionEdge: input.WorkflowHasContinueSessionEdge,
 		ShellAvailable:         shellAvailable,
 	}

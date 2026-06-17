@@ -381,6 +381,17 @@ export function useWorkflowAssigneeOptions(definition: WorkflowDefinition): read
   return workflowAssigneeOptions(definition, readiness?.subagentRoles ?? []);
 }
 
+export function workflowCompletionModeOptions(t: (key: string) => string): readonly SelectFieldOption[] {
+  return [
+    { label: t("workflowEditor.completionModeInherit"), value: "" },
+    { label: t("workflowEditor.completionModeAuto"), value: "auto" },
+    { label: t("workflowEditor.completionModeStructuredOutput"), value: "structured_output" },
+    { label: t("workflowEditor.completionModeTool"), value: "tool" },
+    { label: t("workflowEditor.completionModeShellCommand"), value: "shell_command" },
+    { label: t("workflowEditor.completionModeUnstructuredOutput"), value: "unstructured_output" },
+  ];
+}
+
 export function useCachedServerReadiness(): ServerReadiness | undefined {
   const queryClient = useQueryClient();
   return useSyncExternalStore(

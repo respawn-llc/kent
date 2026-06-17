@@ -867,7 +867,7 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 		if group, ok := groupByID[groupID]; ok {
 			groupKey = group.GroupKey
 		}
-		def.Nodes = append(def.Nodes, serverapi.WorkflowNode{ID: node.ID, WorkflowID: node.WorkflowID, Key: node.NodeKey, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: groupID, GroupKey: groupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: fields})
+		def.Nodes = append(def.Nodes, serverapi.WorkflowNode{ID: node.ID, WorkflowID: node.WorkflowID, Key: node.NodeKey, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: groupID, GroupKey: groupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, CompletionMode: node.CompletionMode, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: fields})
 		nodeKinds[node.ID] = workflow.NodeKind(node.Kind)
 	}
 	for _, group := range groups {
@@ -1764,7 +1764,7 @@ func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definiti
 		if strings.TrimSpace(node.GroupID) != "" {
 			groupMemberIDs[node.GroupID] = append(groupMemberIDs[node.GroupID], workflow.NodeID(node.ID))
 		}
-		out.Nodes = append(out.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputs, JoinInputProviders: joinProviders, OutputFields: fields})
+		out.Nodes = append(out.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, CompletionMode: node.CompletionMode, InputFields: inputs, JoinInputProviders: joinProviders, OutputFields: fields})
 	}
 	for index := range out.NodeGroups {
 		out.NodeGroups[index].MemberNodeIDs = groupMemberIDs[out.NodeGroups[index].ID]

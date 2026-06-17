@@ -193,6 +193,7 @@ export type WorkflowNode = Readonly<{
   groupKey: string;
   subagentRole: string;
   promptTemplate: string;
+  completionMode?: string | undefined;
   inputFields: readonly WorkflowInputField[];
   joinInputProviders: readonly WorkflowJoinInputProvider[];
   outputFields: readonly WorkflowOutputField[];
@@ -300,6 +301,7 @@ export type WorkflowGraphDraftNode = Readonly<{
   groupKey: string;
   subagentRole: string;
   promptTemplate: string;
+  completionMode?: string | undefined;
   inputFields: readonly WorkflowInputField[];
   joinInputProviders: readonly WorkflowJoinInputProvider[];
 }>;

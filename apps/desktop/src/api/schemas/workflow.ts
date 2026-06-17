@@ -122,6 +122,7 @@ const workflowNodesSchema = z
         group_key: emptyString,
         subagent_role: emptyString,
         prompt_template: emptyString,
+        completion_mode: emptyString,
         input_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
         join_input_providers: z
           .array(
@@ -149,6 +150,7 @@ const workflowNodesSchema = z
         groupKey: value.group_key,
         subagentRole: value.subagent_role,
         promptTemplate: value.prompt_template,
+        completionMode: value.completion_mode,
         inputFields: value.input_fields,
         joinInputProviders: value.join_input_providers,
         outputFields: value.output_fields,

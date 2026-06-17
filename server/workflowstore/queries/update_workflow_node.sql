@@ -5,6 +5,7 @@ SET
     display_name = ?,
     subagent_role = ?,
     prompt_template = ?,
+    completion_mode = ?,
     input_fields_json = ?,
     join_input_providers_json = ?,
     output_fields_json = ?,

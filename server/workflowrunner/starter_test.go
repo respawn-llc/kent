@@ -501,6 +501,34 @@ func TestStarterReusesPersistedEffectiveCompletionMode(t *testing.T) {
 	}
 }
 
+func TestStarterNodeCompletionModeOverridesGlobalConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		globalMode config.WorkflowCompletionMode
+		nodeMode   string
+		wantMode   workflowruntime.CompletionMode
+	}{
+		{name: "explicit tool overrides global structured", globalMode: config.WorkflowCompletionModeStructuredOutput, nodeMode: "tool", wantMode: workflowruntime.CompletionModeTool},
+		{name: "explicit auto overrides global tool", globalMode: config.WorkflowCompletionModeTool, nodeMode: "auto", wantMode: workflowruntime.CompletionModeStructuredOutput},
+		{name: "empty inherits global tool", globalMode: config.WorkflowCompletionModeTool, nodeMode: "", wantMode: workflowruntime.CompletionModeTool},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newStarterFixture(t, tt.globalMode)
+			claimed, input, plan := fixture.claimPlannedRun(t)
+			input.Node.CompletionMode = tt.nodeMode
+
+			mode, _, err := fixture.starter.resolveAndPersistWorkflowCompletionMode(context.Background(), SchedulerStartRunRequest{RunID: claimed.ID, Generation: claimed.Generation}, input, plan, NewScriptedClient(llm.ProviderCapabilities{ProviderID: "fake", SupportsResponsesAPI: true}))
+			if err != nil {
+				t.Fatalf("resolveAndPersistWorkflowCompletionMode: %v", err)
+			}
+			if mode != tt.wantMode {
+				t.Fatalf("mode = %q, want %q", mode, tt.wantMode)
+			}
+		})
+	}
+}
+
 func TestStarterRechecksShellAvailabilityForPersistedShellMode(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeAuto)
 	disableCoderShell(t, &fixture)

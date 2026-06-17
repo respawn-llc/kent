@@ -22,6 +22,10 @@ export function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject
         group_key: node.groupKey.length > 0 ? node.groupKey : undefined,
         subagent_role: node.subagentRole.length > 0 ? node.subagentRole : undefined,
         prompt_template: node.promptTemplate.length > 0 ? node.promptTemplate : undefined,
+        completion_mode:
+          node.completionMode !== undefined && node.completionMode.length > 0
+            ? node.completionMode
+            : undefined,
         input_fields: node.inputFields.map((field) => ({
           name: field.name,
           description: field.description,

@@ -214,7 +214,7 @@ func (s *Service) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNod
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
-	revision, err := s.store.AddNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, InputFields: inputFields(req.InputFields), JoinInputProviders: joinInputProviders(req.JoinInputProviders)})
+	revision, err := s.store.AddNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, CompletionMode: req.CompletionMode, InputFields: inputFields(req.InputFields), JoinInputProviders: joinInputProviders(req.JoinInputProviders)})
 	if err != nil {
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
@@ -226,7 +226,7 @@ func (s *Service) UpdateWorkflowNode(ctx context.Context, req serverapi.Workflow
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowNodeUpdateResponse{}, err
 	}
-	revision, err := s.store.UpdateNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, InputFields: inputFields(req.InputFields), JoinInputProviders: joinInputProviders(req.JoinInputProviders)})
+	revision, err := s.store.UpdateNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, CompletionMode: req.CompletionMode, InputFields: inputFields(req.InputFields), JoinInputProviders: joinInputProviders(req.JoinInputProviders)})
 	if err != nil {
 		return serverapi.WorkflowNodeUpdateResponse{}, err
 	}
@@ -1112,6 +1112,7 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 			GroupID:            node.GroupID,
 			SubagentRole:       node.SubagentRole,
 			PromptTemplate:     node.PromptTemplate,
+			CompletionMode:     node.CompletionMode,
 			InputFields:        inputFields(node.InputFields),
 			JoinInputProviders: joinInputProviders(node.JoinInputProviders),
 		})
@@ -1173,7 +1174,7 @@ func workflowGraphStoreSaveRequest(workflowID string, expectedVersion int64, met
 		req.NodeGroups = append(req.NodeGroups, workflowstore.NodeGroupRecord{ID: group.ID, WorkflowID: workflow.WorkflowID(workflowID), Key: workflow.ModelKey(group.Key), DisplayName: group.DisplayName})
 	}
 	for _, node := range graph.Nodes {
-		req.Nodes = append(req.Nodes, workflowstore.NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: workflow.WorkflowID(workflowID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, GroupKey: node.GroupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields(node.InputFields), JoinInputProviders: joinInputProviders(node.JoinInputProviders)})
+		req.Nodes = append(req.Nodes, workflowstore.NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: workflow.WorkflowID(workflowID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, GroupKey: node.GroupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, CompletionMode: node.CompletionMode, InputFields: inputFields(node.InputFields), JoinInputProviders: joinInputProviders(node.JoinInputProviders)})
 	}
 	for _, group := range graph.TransitionGroups {
 		req.TransitionGroups = append(req.TransitionGroups, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflow.WorkflowID(workflowID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName, Description: group.Description})
