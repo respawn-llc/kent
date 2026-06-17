@@ -13,8 +13,8 @@ import (
 	"core/server/metadata"
 	"core/server/projectview"
 	"core/server/runtime"
-	"core/server/serve"
 	"core/server/session"
+	serverstartup "core/server/startup"
 	"core/server/tools"
 	"core/shared/client"
 	"core/shared/config"
@@ -68,7 +68,7 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) client.Projec
 	return client.NewLoopbackProjectViewClient(service)
 }
 
-func serveAppServer(t *testing.T, srv *serve.Server) func() {
+func serveAppServer(t *testing.T, srv *serverstartup.ServeServer) func() {
 	t.Helper()
 	serveCtx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -137,8 +137,8 @@ func configureAppTestServerPort(t *testing.T) {
 		t.Fatalf("reserve server port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	serve.ReserveTestListenReservation(listener)
-	t.Cleanup(func() { serve.ReleaseTestListenReservation(listener.Addr().String()) })
+	serverstartup.ReserveTestListenReservation(listener)
+	t.Cleanup(func() { serverstartup.ReleaseTestListenReservation(listener.Addr().String()) })
 	t.Setenv("KENT_SERVER_HOST", "127.0.0.1")
 	t.Setenv("KENT_SERVER_PORT", strconv.Itoa(port))
 }

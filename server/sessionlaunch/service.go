@@ -8,8 +8,8 @@ import (
 	"core/server/launch"
 	"core/server/requestmemo"
 	"core/server/session"
+	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type sessionStoreRegistrar interface {

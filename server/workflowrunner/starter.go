@@ -19,12 +19,10 @@ import (
 	"core/server/runtimeview"
 	"core/server/runtimewire"
 	"core/server/session"
-	"core/server/sessionpath"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/server/workflowscheduler"
 	"core/server/workflowstore"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -56,7 +54,7 @@ type TaskWorktreeEnsurer interface {
 type RuntimeEventRegistry interface {
 	runtimewire.RuntimeRegistry
 	PublishRuntimeEvent(sessionID string, evt runtime.Event)
-	AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.Request) (askquestion.Response, error)
+	AwaitPromptResponse(ctx context.Context, sessionID string, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error)
 }
 
 type Starter struct {
@@ -68,7 +66,7 @@ type Starter struct {
 	backgroundRouter runtimewire.BackgroundRouter
 	runtimes         RuntimeEventRegistry
 	storeOptions     []session.StoreOption
-	clientFactory    func(workflowscheduler.StartRunRequest) llm.Client
+	clientFactory    func(SchedulerStartRunRequest) llm.Client
 	worktrees        TaskWorktreeEnsurer
 	finished         func(workflow.RunID, int64)
 
@@ -81,7 +79,7 @@ type Starter struct {
 }
 
 type StarterOptions struct {
-	ClientFactory func(workflowscheduler.StartRunRequest) llm.Client
+	ClientFactory func(SchedulerStartRunRequest) llm.Client
 	Worktrees     TaskWorktreeEnsurer
 }
 
@@ -118,7 +116,7 @@ func (s *Starter) SetRuntimeFinished(fn func(workflow.RunID, int64)) {
 	s.finished = fn
 }
 
-func (s *Starter) StartWorkflowRun(ctx context.Context, req workflowscheduler.StartRunRequest) error {
+func (s *Starter) StartWorkflowRun(ctx context.Context, req SchedulerStartRunRequest) error {
 	if strings.TrimSpace(string(req.RunID)) == "" {
 		return errors.New("workflow run id is required")
 	}
@@ -197,7 +195,7 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req workflowscheduler.St
 	return nil
 }
 
-func (s *Starter) registerRun(req workflowscheduler.StartRunRequest, cancel context.CancelFunc) bool {
+func (s *Starter) registerRun(req SchedulerStartRunRequest, cancel context.CancelFunc) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -400,7 +398,7 @@ func workflowRunPromptOverrides(role string) serverapi.RunPromptOverrides {
 // session for a fan-out compact-and-continue branch and returns its session ID,
 // so the branch can be compacted/continued without touching the shared source.
 func (s *Starter) cloneSourceSessionForFanout(containerDir, sourceSessionID string) (string, error) {
-	sourceDir, err := sessionpath.ResolveScopedSessionDir(containerDir, sourceSessionID)
+	sourceDir, err := session.ResolveScopedSessionDir(containerDir, sourceSessionID)
 	if err != nil {
 		return "", fmt.Errorf("resolve source session dir: %w", err)
 	}
@@ -423,7 +421,7 @@ func (s *Starter) removeFanoutClone(ctx context.Context, containerDir, sessionID
 		return
 	}
 	cleanupCtx := context.WithoutCancel(ctx)
-	if dir, err := sessionpath.ResolveScopedSessionDir(containerDir, sessionID); err == nil {
+	if dir, err := session.ResolveScopedSessionDir(containerDir, sessionID); err == nil {
 		if store, err := session.Open(dir, s.storeOptions...); err == nil {
 			_ = store.RemoveDurable()
 		}
@@ -444,7 +442,7 @@ func (s *Starter) validateRole(role string) error {
 	return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleMissing)
 }
 
-func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, warnings []string) {
+func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input workflowstore.RunStartContext, plan launch.SessionPlan, warnings []string) {
 	defer s.wg.Done()
 	defer s.finish(req.RunID, req.Generation)
 	logger, err := runprompt.NewRunLogger(plan.Store.Dir(), nil)
@@ -504,19 +502,19 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 	}
 	if wiring.AskBroker != nil && s.runtimes != nil {
 		sessionID := plan.Store.Meta().SessionID
-		wiring.AskBroker.SetAskHandler(func(askReq askquestion.Request) (askquestion.Response, error) {
+		wiring.AskBroker.SetAskHandler(func(askReq askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 			if err := s.store.SetRunWaitingAsk(context.Background(), req.RunID, req.Generation, askReq.ID); err != nil {
-				return askquestion.Response{}, err
+				return askquestion.AskQuestionResponse{}, err
 			}
 			resp, askErr := s.runtimes.AwaitPromptResponse(ctx, sessionID, askReq)
 			if clearErr := s.store.ClearRunWaitingAsk(context.Background(), req.RunID, req.Generation, askReq.ID); clearErr != nil && askErr == nil {
-				return askquestion.Response{}, clearErr
+				return askquestion.AskQuestionResponse{}, clearErr
 			}
 			return resp, askErr
 		})
 	} else if wiring.AskBroker != nil {
-		wiring.AskBroker.SetAskHandler(func(askquestion.Request) (askquestion.Response, error) {
-			return askquestion.Response{}, errors.New("workflow questions require runtime registry")
+		wiring.AskBroker.SetAskHandler(func(askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
+			return askquestion.AskQuestionResponse{}, errors.New("workflow questions require runtime registry")
 		})
 	}
 	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter)
@@ -651,7 +649,7 @@ func workflowInstructionTransitions(options []workflowstore.TransitionOption, tr
 	return out
 }
 
-func workflowCompletionContract(req workflowscheduler.StartRunRequest, input workflowstore.RunStartContext) workflowruntime.CompletionContract {
+func workflowCompletionContract(req SchedulerStartRunRequest, input workflowstore.RunStartContext) workflowruntime.CompletionContract {
 	return workflowruntime.CompletionContract{
 		RunID:              req.RunID,
 		ExpectedGeneration: req.Generation,
@@ -764,4 +762,4 @@ func promptParameterData(current map[string]string, prior map[string]map[string]
 	return out
 }
 
-var _ workflowscheduler.RuntimeStarter = (*Starter)(nil)
+var _ SchedulerRuntimeStarter = (*Starter)(nil)

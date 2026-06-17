@@ -5,21 +5,21 @@ import (
 	"errors"
 
 	"core/server/requestmemo"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
+	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type PendingPromptResponder interface {
-	SubmitPromptResponse(sessionID string, resp askquestion.Response, err error) error
+	SubmitPromptResponse(sessionID string, resp askquestion.AskQuestionResponse, err error) error
 }
 
 type ControllerLeaseVerifier interface {
 	RequireControllerLease(ctx context.Context, sessionID string, leaseID string) error
 }
 
-type Service struct {
+type PromptControlService struct {
 	prompts   PendingPromptResponder
 	control   ControllerLeaseVerifier
 	asks      *requestmemo.Memo[askAnswerMemoRequest, struct{}]
@@ -43,15 +43,15 @@ type approvalAnswerMemoRequest struct {
 	Commentary   string
 }
 
-func NewService(prompts PendingPromptResponder) *Service {
-	return &Service{
+func NewPromptControlService(prompts PendingPromptResponder) *PromptControlService {
+	return &PromptControlService{
 		prompts:   prompts,
 		asks:      requestmemo.New[askAnswerMemoRequest, struct{}](),
 		approvals: requestmemo.New[approvalAnswerMemoRequest, struct{}](),
 	}
 }
 
-func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) *Service {
+func (s *PromptControlService) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) *PromptControlService {
 	if s == nil {
 		return nil
 	}
@@ -59,14 +59,14 @@ func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) 
 	return s
 }
 
-func (s *Service) requireControllerLease(ctx context.Context, sessionID string, leaseID string) error {
+func (s *PromptControlService) requireControllerLease(ctx context.Context, sessionID string, leaseID string) error {
 	if s == nil || s.control == nil {
 		return nil
 	}
 	return s.control.RequireControllerLease(ctx, sessionID, leaseID)
 }
 
-func (s *Service) AnswerAsk(ctx context.Context, req serverapi.AskAnswerRequest) error {
+func (s *PromptControlService) AnswerAsk(ctx context.Context, req serverapi.AskAnswerRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}
@@ -86,9 +86,9 @@ func (s *Service) AnswerAsk(ctx context.Context, req serverapi.AskAnswerRequest)
 			return struct{}{}, err
 		}
 		if req.ErrorMessage != "" {
-			return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.Response{RequestID: req.AskID}, errors.New(req.ErrorMessage))
+			return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.AskQuestionResponse{RequestID: req.AskID}, errors.New(req.ErrorMessage))
 		}
-		return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.Response{
+		return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.AskQuestionResponse{
 			RequestID:            req.AskID,
 			Answer:               req.Answer,
 			SelectedOptionNumber: req.SelectedOptionNumber,
@@ -98,7 +98,7 @@ func (s *Service) AnswerAsk(ctx context.Context, req serverapi.AskAnswerRequest)
 	return err
 }
 
-func (s *Service) AnswerApproval(ctx context.Context, req serverapi.ApprovalAnswerRequest) error {
+func (s *PromptControlService) AnswerApproval(ctx context.Context, req serverapi.ApprovalAnswerRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}
@@ -117,12 +117,12 @@ func (s *Service) AnswerApproval(ctx context.Context, req serverapi.ApprovalAnsw
 			return struct{}{}, err
 		}
 		if req.ErrorMessage != "" {
-			return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.Response{RequestID: req.ApprovalID}, errors.New(req.ErrorMessage))
+			return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.AskQuestionResponse{RequestID: req.ApprovalID}, errors.New(req.ErrorMessage))
 		}
-		return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.Response{
+		return struct{}{}, s.prompts.SubmitPromptResponse(req.SessionID, askquestion.AskQuestionResponse{
 			RequestID: req.ApprovalID,
-			Approval: &askquestion.ApprovalPayload{
-				Decision:   askquestion.ApprovalDecision(req.Decision),
+			Approval: &askquestion.AskQuestionApprovalPayload{
+				Decision:   askquestion.AskQuestionApprovalDecision(req.Decision),
 				Commentary: req.Commentary,
 			},
 		}, nil)
@@ -147,4 +147,4 @@ func sameApprovalAnswerMemoRequest(a approvalAnswerMemoRequest, b approvalAnswer
 		a.Commentary == b.Commentary
 }
 
-var _ servicecontract.PromptControlService = (*Service)(nil)
+var _ servicecontract.PromptControlService = (*PromptControlService)(nil)

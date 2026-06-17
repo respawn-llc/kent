@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"core/server/metadata"
+	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type Service struct {

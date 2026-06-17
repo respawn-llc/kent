@@ -1,8 +1,8 @@
 package tui
 
 import (
+	"core/shared/theme"
 	"core/shared/transcript"
-	"core/shared/uiglyphs"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -91,7 +91,7 @@ func assertCenterRailOnExpandedOutput(t *testing.T, m Model) {
 	if center >= len(lines) {
 		t.Fatalf("center line %d outside rendered lines %d", center, len(lines))
 	}
-	if !strings.HasPrefix(lines[center], uiglyphs.SelectionRailGlyph) || !strings.Contains(lines[center], "output line") {
+	if !strings.HasPrefix(lines[center], theme.SelectionRailGlyph) || !strings.Contains(lines[center], "output line") {
 		t.Fatalf("expected selected rail on center output line, got center=%q view=%q", lines[center], xansi.Strip(m.View()))
 	}
 }
@@ -100,10 +100,10 @@ func assertRailBearingSpacerLine(t *testing.T, line string, modeBg rgbColor, rai
 	t.Helper()
 
 	plain := xansi.Strip(line)
-	if !strings.HasPrefix(plain, uiglyphs.SelectionRailGlyph) {
+	if !strings.HasPrefix(plain, theme.SelectionRailGlyph) {
 		t.Fatalf("expected spacer line to extend selection rail, got %q", plain)
 	}
-	if strings.TrimSpace(strings.TrimPrefix(plain, uiglyphs.SelectionRailGlyph)) != "" {
+	if strings.TrimSpace(strings.TrimPrefix(plain, theme.SelectionRailGlyph)) != "" {
 		t.Fatalf("expected highlighted spacer line to be blank after rail, got %q", plain)
 	}
 	if !strings.Contains(line, fmt.Sprintf("48;2;%d;%d;%d", modeBg.r, modeBg.g, modeBg.b)) {

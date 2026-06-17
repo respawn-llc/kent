@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 
 	ansi "github.com/charmbracelet/x/ansi"
 )
@@ -18,7 +18,7 @@ func TestInteractiveAuthOAuthPresenterRendersBrowserManualFallback(t *testing.T)
 		theme:      "dark",
 	}
 
-	presenter.ShowBrowserAuto(oauthadapter.BrowserAuthSession{AuthorizeURL: "https://auth.example/authorize"}, errors.New("blocked"))
+	presenter.ShowBrowserAuto(authui.OAuthBrowserSession{AuthorizeURL: "https://auth.example/authorize"}, errors.New("blocked"))
 
 	plain := ansi.Strip(out.String())
 	for _, want := range []string{
@@ -40,7 +40,7 @@ func TestInteractiveAuthOAuthPresenterRendersDeviceCode(t *testing.T) {
 		theme:      "dark",
 	}
 
-	presenter.ShowDeviceCode(oauthadapter.DeviceCode{VerificationURL: "https://auth.example/device", UserCode: "ABCD-EFGH"})
+	presenter.ShowDeviceCode(authui.OAuthDeviceCode{VerificationURL: "https://auth.example/device", UserCode: "ABCD-EFGH"})
 
 	plain := ansi.Strip(out.String())
 	for _, want := range []string{

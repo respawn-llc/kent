@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"core/cli/app/internal/remotebinding"
+	"core/cli/app/internal/remoteattach"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protocol"
@@ -57,10 +57,10 @@ func (s *remoteAppServer) Config() config.App {
 
 func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error) {
 	if s == nil {
-		_, err := remotebinding.BindProjectWorkspace(ctx, remotebinding.Request{ProjectID: projectID, WorkspaceID: workspaceID})
+		_, err := remoteattach.BindProjectWorkspace(ctx, remoteattach.ProjectWorkspaceBindingRequest{ProjectID: projectID, WorkspaceID: workspaceID})
 		return nil, err
 	}
-	bound, err := remotebinding.BindProjectWorkspace(ctx, remotebinding.Request{
+	bound, err := remoteattach.BindProjectWorkspace(ctx, remoteattach.ProjectWorkspaceBindingRequest{
 		Current:     s.remote,
 		Config:      s.cfg,
 		ProjectID:   projectID,

@@ -5,8 +5,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/config"
+	"core/shared/transcript"
 	"encoding/json"
 	"testing"
 )
@@ -16,14 +16,14 @@ func TestGenerateWithRetryClient_RestoreSkipsDigestVersionMismatch(t *testing.T)
 	legacyRequest := persistedCacheRequestObserved{
 		DigestVersion: 999,
 		CacheKey:      "cache-key-1",
-		Scope:         cachewarn.ScopeConversation,
+		Scope:         transcript.CacheWarningScopeConversation,
 		ChunkCount:    1,
 		TerminalHash:  "legacy-hash",
 	}
 	legacyResponse := persistedCacheResponseObserved{
 		DigestVersion:        999,
 		CacheKey:             "cache-key-1",
-		Scope:                cachewarn.ScopeConversation,
+		Scope:                transcript.CacheWarningScopeConversation,
 		ChunkCount:           1,
 		TerminalHash:         "legacy-hash",
 		HasCachedInputTokens: true,
@@ -89,14 +89,14 @@ func testPromptCacheRequest(cacheKey string, messages ...string) llm.Request {
 		Model:            "gpt-5",
 		SystemPrompt:     "system",
 		PromptCacheKey:   cacheKey,
-		PromptCacheScope: cachewarn.ScopeConversation,
+		PromptCacheScope: transcript.CacheWarningScopeConversation,
 		Items:            items,
 	}
 }
 
 func testReviewerPromptCacheRequest(cacheKey string, messages ...string) llm.Request {
 	request := testPromptCacheRequest(cacheKey, messages...)
-	request.PromptCacheScope = cachewarn.ScopeReviewer
+	request.PromptCacheScope = transcript.CacheWarningScopeReviewer
 	return request
 }
 
@@ -134,18 +134,18 @@ func stringValue(value any) string {
 	return ""
 }
 
-func persistedCacheWarnings(t *testing.T, store *session.Store) []cachewarn.Warning {
+func persistedCacheWarnings(t *testing.T, store *session.Store) []transcript.CacheWarning {
 	t.Helper()
 	events, err := store.ReadEvents()
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
-	warnings := make([]cachewarn.Warning, 0, len(events))
+	warnings := make([]transcript.CacheWarning, 0, len(events))
 	for _, evt := range events {
 		if evt.Kind != sessionEventCacheWarning {
 			continue
 		}
-		var warning cachewarn.Warning
+		var warning transcript.CacheWarning
 		if err := json.Unmarshal(evt.Payload, &warning); err != nil {
 			t.Fatalf("decode warning: %v", err)
 		}

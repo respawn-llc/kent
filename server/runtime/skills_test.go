@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"core/server/llm"
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 func TestSkillsContextMessageIncludesCodexPromptAndSkillEntries(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 	"core/shared/config"
 	"core/shared/serverapi"
 )
@@ -27,12 +27,12 @@ func (c *stubAuthBootstrapClient) CompleteAuthBootstrap(_ context.Context, req s
 func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 	tests := []struct {
 		name      string
-		runPage   func(context.Context, authCallbackPageData, func(context.Context) (oauthadapter.BrowserCallback, error), func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error)
+		runPage   func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error)
 		wantInput string
 	}{
 		{
 			name: "listener callback",
-			runPage: func(ctx context.Context, _ authCallbackPageData, waitCallback func(context.Context) (oauthadapter.BrowserCallback, error), complete func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+			runPage: func(ctx context.Context, _ authCallbackPageData, waitCallback func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
 				callback, err := waitCallback(ctx)
 				if err != nil {
 					return authCallbackPageResult{}, err
@@ -45,7 +45,7 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 		},
 		{
 			name: "pasted callback",
-			runPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (oauthadapter.BrowserCallback, error), complete func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+			runPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
 				input := "http://localhost/callback?code=pasted"
 				method, err := complete(ctx, input)
 				return authCallbackPageResult{Method: method, CallbackInput: input}, err
@@ -55,7 +55,7 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			listener := &stubOAuthCallbackListener{callback: oauthadapter.BrowserCallback{Code: "code-1"}}
+			listener := &stubOAuthCallbackListener{callback: authui.OAuthBrowserCallback{Code: "code-1"}}
 			remote := &stubAuthBootstrapClient{status: serverapi.AuthGetBootstrapStatusResponse{
 				AuthReady:    false,
 				AuthRequired: true,
@@ -105,7 +105,7 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 		},
 		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
-		runCallbackPage: func(context.Context, authCallbackPageData, func(context.Context) (oauthadapter.BrowserCallback, error), func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+		runCallbackPage: func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
 			return authCallbackPageResult{Canceled: true}, nil
 		},
 	}
@@ -141,7 +141,7 @@ func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
 		},
 		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
-		runCallbackPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (oauthadapter.BrowserCallback, error), complete func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+		runCallbackPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
 			input := "http://localhost/callback?code=pasted&state=wrong"
 			method, err := complete(ctx, input)
 			return authCallbackPageResult{Method: method, CallbackInput: input}, err

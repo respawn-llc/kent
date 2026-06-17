@@ -8,7 +8,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/brand"
+	brand "core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"os"

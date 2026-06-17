@@ -7,13 +7,11 @@ import (
 
 	"core/server/auth"
 	"core/server/llm"
-	"core/shared/brand"
-	"core/shared/compaction"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
 
-const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + brand.DocsURL
+const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + config.DocsURL
 
 func resolveSubagentSettings(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool) (config.Settings, string, error) {
 	return resolveSubagentSettingsWithValidation(base, providerBase, baseSources, roleName, authState, allowModelOverride, true)
@@ -90,7 +88,7 @@ func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, prov
 	}
 	settings.Model = "gpt-5.4-mini"
 	llm.ApplyDerivedModelContextBudget(settings, settings.Model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens)
-	settings.PreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
+	settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
 	return true
 }
 
@@ -259,7 +257,7 @@ func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicit
 		settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
 	}
 	if _, ok := explicitSources["pre_submit_compaction_lead_tokens"]; !ok {
-		settings.PreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
+		settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
 	}
 }
 

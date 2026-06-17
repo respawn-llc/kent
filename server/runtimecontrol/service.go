@@ -12,9 +12,8 @@ import (
 	"core/server/requestmemo"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/controlfeedback"
+	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 	"core/shared/transcript"
 )
 
@@ -233,7 +232,7 @@ func (s *Service) SetFastModeEnabled(ctx context.Context, req serverapi.RuntimeS
 			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
 		}
 		changed, err := engine.SetFastModeEnabledWithCommittedFeedback(req.Enabled, func(changed bool) string {
-			return controlfeedback.FastModeToggleStatusMessage(req.Enabled, changed)
+			return serverapi.FastModeToggleStatusMessage(req.Enabled, changed)
 		})
 		if err != nil {
 			return serverapi.RuntimeSetFastModeEnabledResponse{}, err
@@ -256,7 +255,7 @@ func (s *Service) SetReviewerEnabled(ctx context.Context, req serverapi.RuntimeS
 			return serverapi.RuntimeSetReviewerEnabledResponse{}, err
 		}
 		changed, mode, err := engine.SetReviewerEnabledWithCommittedFeedback(req.Enabled, func(enabled bool, mode string, changed bool) string {
-			return controlfeedback.ReviewerToggleStatusMessage(enabled, mode, changed)
+			return serverapi.ReviewerToggleStatusMessage(enabled, mode, changed)
 		})
 		if err != nil {
 			return serverapi.RuntimeSetReviewerEnabledResponse{}, err
@@ -297,7 +296,7 @@ func (s *Service) SetQuestionsEnabled(ctx context.Context, req serverapi.Runtime
 			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err
 		}
 		changed, enabled, err := engine.SetQuestionsEnabledWithCommittedFeedback(req.Enabled, func(enabled bool, changed bool) string {
-			return controlfeedback.QuestionsToggleStatusMessage(enabled, changed)
+			return serverapi.QuestionsToggleStatusMessage(enabled, changed)
 		})
 		if err != nil {
 			return serverapi.RuntimeSetQuestionsEnabledResponse{}, err

@@ -9,8 +9,8 @@ import (
 	"core/cli/tui"
 	"core/server/runtime"
 	"core/shared/clientui"
+	"core/shared/theme"
 	"core/shared/transcript"
-	"core/shared/uiglyphs"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -932,7 +932,7 @@ func TestUpDownRouteByTranscriptMode(t *testing.T) {
 func selectedDetailCommandIndex(t *testing.T, view string) int {
 	t.Helper()
 
-	line := strings.TrimPrefix(selectedDetailContentLine(t, view), uiglyphs.SelectionRailGlyph)
+	line := strings.TrimPrefix(selectedDetailContentLine(t, view), theme.SelectionRailGlyph)
 	line = strings.TrimSpace(line)
 	_, suffix, ok := strings.Cut(line, " cmd ")
 	if !ok {
@@ -949,7 +949,7 @@ func selectedDetailContentLine(t *testing.T, view string) string {
 	t.Helper()
 
 	for _, line := range strings.Split(stripANSIAndTrimRight(view), "\n") {
-		if strings.HasPrefix(line, uiglyphs.SelectionRailGlyph) && strings.TrimSpace(strings.TrimPrefix(line, uiglyphs.SelectionRailGlyph)) != "" {
+		if strings.HasPrefix(line, theme.SelectionRailGlyph) && strings.TrimSpace(strings.TrimPrefix(line, theme.SelectionRailGlyph)) != "" {
 			return line
 		}
 	}
@@ -961,7 +961,7 @@ func selectedDetailLineIndex(t *testing.T, view string) int {
 	t.Helper()
 
 	for idx, line := range strings.Split(stripANSIAndTrimRight(view), "\n") {
-		if strings.HasPrefix(line, uiglyphs.SelectionRailGlyph) && strings.TrimSpace(strings.TrimPrefix(line, uiglyphs.SelectionRailGlyph)) != "" {
+		if strings.HasPrefix(line, theme.SelectionRailGlyph) && strings.TrimSpace(strings.TrimPrefix(line, theme.SelectionRailGlyph)) != "" {
 			return idx
 		}
 	}
@@ -973,7 +973,7 @@ func selectedDetailSpacerLine(t *testing.T, view string) string {
 	t.Helper()
 
 	for _, line := range strings.Split(stripANSIAndTrimRight(view), "\n") {
-		if strings.HasPrefix(line, uiglyphs.SelectionRailGlyph) && strings.TrimSpace(strings.TrimPrefix(line, uiglyphs.SelectionRailGlyph)) == "" {
+		if strings.HasPrefix(line, theme.SelectionRailGlyph) && strings.TrimSpace(strings.TrimPrefix(line, theme.SelectionRailGlyph)) == "" {
 			return line
 		}
 	}
@@ -984,8 +984,8 @@ func selectedDetailSpacerLine(t *testing.T, view string) string {
 func stripDetailSelectionRail(view string) string {
 	lines := strings.Split(view, "\n")
 	for idx, line := range lines {
-		if strings.HasPrefix(line, uiglyphs.SelectionRailGlyph) {
-			lines[idx] = uiglyphs.SelectionRailBlank + strings.TrimPrefix(line, uiglyphs.SelectionRailGlyph)
+		if strings.HasPrefix(line, theme.SelectionRailGlyph) {
+			lines[idx] = theme.SelectionRailBlank + strings.TrimPrefix(line, theme.SelectionRailGlyph)
 		}
 	}
 	return strings.Join(lines, "\n")

@@ -4,12 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"core/cli/app/internal/onboardingimportfs"
-	"core/cli/app/internal/onboardingimportproviders"
+	"core/cli/app/internal/onboarding"
 	"core/prompts"
-	"core/server/generated"
 	"core/server/runtime"
-	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/theme"
 	"core/shared/toolspec"
@@ -133,7 +130,7 @@ func TestDiscoverProviderCommandSymlinkItemsPreferRootCommandsDirectory(t *testi
 	if err := os.WriteFile(filepath.Join(nestedPluginPrompts, "plugin.md"), []byte("plugin"), 0o644); err != nil {
 		t.Fatalf("write nested plugin prompt: %v", err)
 	}
-	root, items, err := onboardingimportfs.DiscoverProviderCommands(onboardingImportProvider{ID: onboardingImportProviderClaudeCode, Label: "Claude Code"}, base)
+	root, items, err := onboarding.DiscoverProviderCommands(onboardingImportProvider{ID: onboardingImportProviderClaudeCode, Label: "Claude Code"}, base)
 	if err != nil {
 		t.Fatalf("discover provider command symlink items: %v", err)
 	}
@@ -164,7 +161,7 @@ func TestDiscoverProviderCommandSymlinkItemsFallBackToPromptsWhenCommandsHasNoDi
 	if err := os.WriteFile(filepath.Join(promptsDir, "review.md"), []byte("prompts"), 0o644); err != nil {
 		t.Fatalf("write prompt command: %v", err)
 	}
-	root, items, err := onboardingimportfs.DiscoverProviderCommands(onboardingImportProvider{ID: onboardingImportProviderClaudeCode, Label: "Claude Code"}, base)
+	root, items, err := onboarding.DiscoverProviderCommands(onboardingImportProvider{ID: onboardingImportProviderClaudeCode, Label: "Claude Code"}, base)
 	if err != nil {
 		t.Fatalf("discover provider command symlink items: %v", err)
 	}
@@ -290,7 +287,7 @@ func TestProviderSkillSymlinkSourcePrefersCodexLocalSkills(t *testing.T) {
 
 func TestDiscoverProviderSkillSymlinkItemsFallsBackWhenPreferredDirectoryIsEmpty(t *testing.T) {
 	home := t.TempDir()
-	provider, ok := onboardingimportproviders.ByID(onboardingImportProviderCodex)
+	provider, ok := onboarding.ByID(onboardingImportProviderCodex)
 	if !ok {
 		t.Fatal("expected codex provider")
 	}
@@ -300,7 +297,7 @@ func TestDiscoverProviderSkillSymlinkItemsFallsBackWhenPreferredDirectoryIsEmpty
 	}
 	writeOnboardingTestSkill(t, filepath.Join(base, "skills", "fallback-skill"), "fallback", "from skills root")
 
-	root, items, err := onboardingimportfs.DiscoverProviderSkills(provider, base)
+	root, items, err := onboarding.DiscoverProviderSkills(provider, base)
 	if err != nil {
 		t.Fatalf("discoverProviderSkillSymlinkItems: %v", err)
 	}
@@ -322,7 +319,7 @@ func TestProviderSkillSymlinkSourceErrorsWithoutSkillsRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing skills root to fail")
 	}
-	if !errors.Is(err, onboardingimportfs.ErrSkillsDirectoryNotFound) {
+	if !errors.Is(err, onboarding.ErrSkillsDirectoryNotFound) {
 		t.Fatalf("expected missing skills root error, got %v", err)
 	}
 }
@@ -399,7 +396,7 @@ func TestExecuteCommandImportValidatesSourceDirectory(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing command source to fail")
 	}
-	if !errors.Is(err, onboardingimportfs.ErrSourceDirectoryInvalid) {
+	if !errors.Is(err, onboarding.ErrSourceDirectoryInvalid) {
 		t.Fatalf("expected source validation error, got %v", err)
 	}
 }
@@ -550,7 +547,7 @@ func TestBuildSkillSelectionScreenAddsToggleAllOptionWhenThereAreMoreThanTwoItem
 func TestDiscoverOnboardingImportsIncludesGeneratedSkillCandidates(t *testing.T) {
 	home := newAppTestHome(t)
 
-	discovery := discoverOnboardingImportsForWorkspace(filepath.Join(home, brand.ConfigDirName), "")
+	discovery := discoverOnboardingImportsForWorkspace(filepath.Join(home, config.ConfigDirName), "")
 	if discovery.err != nil {
 		t.Fatalf("discover onboarding imports: %v", discovery.err)
 	}
@@ -634,9 +631,9 @@ func TestSkillSelectionCandidatesHideGeneratedSkillsShadowedByExistingSkills(t *
 func TestDiscoverOnboardingImportsHidesGeneratedSkillsShadowedByWorkspaceSkills(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	writeOnboardingTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "kent-dogfooding"), "kent-dogfooding", "workspace override")
+	writeOnboardingTestSkill(t, filepath.Join(workspace, config.ConfigDirName, "skills", "kent-dogfooding"), "kent-dogfooding", "workspace override")
 
-	discovery := discoverOnboardingImportsForWorkspace(filepath.Join(home, brand.ConfigDirName), workspace)
+	discovery := discoverOnboardingImportsForWorkspace(filepath.Join(home, config.ConfigDirName), workspace)
 	if discovery.err != nil {
 		t.Fatalf("discover onboarding imports: %v", discovery.err)
 	}
@@ -680,7 +677,7 @@ func TestReviewSummaryIncludesGeneratedSkillSelectionWithoutImport(t *testing.T)
 
 func TestOnboardingFinalWritePersistsDisabledGeneratedSkillAndRuntimeHonorsIt(t *testing.T) {
 	home := newAppTestHome(t)
-	if _, err := generated.Sync(context.Background(), generated.SyncOptions{HomeDir: home, FS: prompts.GeneratedSkillsFS}); err != nil {
+	if _, err := prompts.GeneratedSync(context.Background(), prompts.GeneratedSyncOptions{HomeDir: home, FS: prompts.GeneratedSkillsFS}); err != nil {
 		t.Fatalf("sync generated skills: %v", err)
 	}
 	defaultCfg, err := config.LoadGlobal(config.LoadOptions{})
@@ -699,7 +696,7 @@ func TestOnboardingFinalWritePersistsDisabledGeneratedSkillAndRuntimeHonorsIt(t 
 		},
 	}
 	state.settings.SkillToggles = buildSkillToggles(&state, state.skillSelection)
-	model := newOnboardingModelForWorkspace(filepath.Join(home, brand.ConfigDirName), "", state)
+	model := newOnboardingModelForWorkspace(filepath.Join(home, config.ConfigDirName), "", state)
 	msg := model.finalizeCmd(false)()
 	done, ok := msg.(onboardingFinalizeDoneMsg)
 	if !ok {

@@ -6,7 +6,6 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
@@ -182,7 +181,7 @@ func goalStatusUpdateFromRuntime(update *runtime.GoalStatusUpdate) *clientui.Run
 	}
 }
 
-func copyCacheWarningView(in *cachewarn.Warning) *cachewarn.Warning {
+func copyCacheWarningView(in *transcript.CacheWarning) *transcript.CacheWarning {
 	if in == nil {
 		return nil
 	}

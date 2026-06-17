@@ -4,31 +4,30 @@ import (
 	"context"
 
 	"core/server/auth"
-	"core/server/authpolicy"
+	"core/server/authservice"
 	"core/server/workflow"
-	"core/shared/buildinfo"
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 )
 
-type Service struct {
+type ServerStatusService struct {
 	authManager *auth.Manager
 	endpoint    string
 	settings    config.Settings
 }
 
-func NewService(authManager *auth.Manager, cfg config.App) *Service {
-	return &Service{authManager: authManager, endpoint: config.ServerRPCURL(cfg), settings: cfg.Settings}
+func NewServerStatusService(authManager *auth.Manager, cfg config.App) *ServerStatusService {
+	return &ServerStatusService{authManager: authManager, endpoint: config.ServerRPCURL(cfg), settings: cfg.Settings}
 }
 
-func (s *Service) GetServerReadiness(ctx context.Context, _ serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
+func (s *ServerStatusService) GetServerReadiness(ctx context.Context, _ serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
 	authReady := false
 	settings := config.Settings{}
 	if s != nil {
 		settings = s.settings
 	}
-	authRequired := authpolicy.RequiresStartupAuth(settings)
+	authRequired := authservice.StartupAuthRequired(settings)
 	// Only the OpenAI startup gate consults the auth store. When startup auth is
 	// not required (custom/non-OpenAI provider), readiness must not depend on the
 	// auth store at all, so a corrupt or inaccessible auth file can't block it.
@@ -42,8 +41,8 @@ func (s *Service) GetServerReadiness(ctx context.Context, _ serverapi.ServerRead
 	ready := authReady || !authRequired
 	response := serverapi.ServerReadinessResponse{
 		Ready:           ready,
-		ServerVersion:   buildinfo.Version,
-		ServerBuild:     buildinfo.Version,
+		ServerVersion:   config.Version,
+		ServerBuild:     config.Version,
 		ProtocolVersion: protocol.Version,
 		AuthReady:       authReady,
 		AuthRequired:    authRequired,

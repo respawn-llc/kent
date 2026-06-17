@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 	serverauth "core/server/auth"
 	"core/shared/client"
 	"core/shared/config"
@@ -96,7 +96,7 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	if !supportsBootstrapMode(status.SupportedModes, choice) {
 		return serverapi.AuthCompleteBootstrapRequest{}, fmt.Errorf("auth method %q is not supported by this server", choice)
 	}
-	oauthOpts := oauthadapter.OpenAIOAuthOptions{Issuer: status.OAuth.Issuer, ClientID: status.OAuth.ClientID}
+	oauthOpts := authui.OAuthOptions{Issuer: status.OAuth.Issuer, ClientID: status.OAuth.ClientID}
 	switch choice {
 	case authMethodChoiceSkip:
 		return serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeNone}, nil
@@ -115,7 +115,7 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	}
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
+func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, opts authui.OAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
 	startListener := i.startCallbackListener
 	if startListener == nil {
 		startListener = func() (oauthCallbackListener, error) {
@@ -144,22 +144,22 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		Theme:        theme,
 		AuthorizeURL: session.AuthorizeURL,
 		OpenErr:      openErr,
-	}, func(waitCtx context.Context) (oauthadapter.BrowserCallback, error) {
+	}, func(waitCtx context.Context) (authui.OAuthBrowserCallback, error) {
 		return listener.Wait(waitCtx, opts.PollTimeout)
-	}, func(_ context.Context, input string) (oauthadapter.Method, error) {
+	}, func(_ context.Context, input string) (authui.AuthMethod, error) {
 		parsed, err := serverauth.ParseOAuthCallbackInput(input)
 		if err != nil {
-			return oauthadapter.Method{}, err
+			return authui.AuthMethod{}, err
 		}
 		sessionState := strings.TrimSpace(session.State)
 		parsedState := strings.TrimSpace(parsed.State)
 		if sessionState != "" && parsedState != "" && parsedState != sessionState {
-			return oauthadapter.Method{}, ErrOAuthStateMismatch
+			return authui.AuthMethod{}, ErrOAuthStateMismatch
 		}
 		if strings.TrimSpace(parsed.Code) == "" {
-			return oauthadapter.Method{}, errors.New("oauth callback is missing code")
+			return authui.AuthMethod{}, errors.New("oauth callback is missing code")
 		}
-		return oauthadapter.Method{Type: "oauth"}, nil
+		return authui.AuthMethod{Type: "oauth"}, nil
 	})
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
@@ -179,8 +179,8 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 	}, nil
 }
 
-func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
-	grant, err := serverauth.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, func(code oauthadapter.DeviceCode) {
+func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opts authui.OAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
+	grant, err := serverauth.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, func(code authui.OAuthDeviceCode) {
 		i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceDevice), []string{
 			lipgloss.NewStyle().Foreground(uiPalette(theme).primary).Underline(true).Render(code.VerificationURL),
 			lipgloss.NewStyle().Foreground(uiPalette(theme).foreground).Render("Code: ") + lipgloss.NewStyle().Foreground(uiPalette(theme).secondary).Bold(true).Render(code.UserCode),

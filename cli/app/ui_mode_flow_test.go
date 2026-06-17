@@ -10,8 +10,8 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
+	"core/shared/transcript"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -656,7 +656,7 @@ func TestStartupHydrationKeepsCompactionSummaryDetailOnly(t *testing.T) {
 }
 
 func TestStartupHydrationKeepsDefaultCacheWarningDetailOnly(t *testing.T) {
-	warningText := cachewarn.Text(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix})
+	warningText := transcript.CacheWarningText(transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})
 	client := &startupTranscriptRuntimeClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "incident triage"}},
 		page: clientui.TranscriptPage{

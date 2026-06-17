@@ -9,7 +9,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 type workflowRunMetadata struct {
@@ -180,7 +179,7 @@ func latestTransitionParameterValue(ctx context.Context, tx *sql.Tx, taskID stri
 		return "", err
 	}
 	outputValues := map[string]string{}
-	if err := workflowjson.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
+	if err := workflow.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
 		return "", err
 	}
 	value := outputValues[parameterKey]

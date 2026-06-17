@@ -18,12 +18,12 @@ import (
 	"core/server/runtimeview"
 	"core/server/runtimewire"
 	"core/server/session"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
+	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"core/shared/transcriptdiag"
@@ -283,7 +283,7 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 		return serverapi.SessionRuntimeActivateResponse{}, err
 	}
 	if wiring.AskBroker != nil && s.runtimes != nil {
-		wiring.AskBroker.SetAskHandler(func(req askquestion.Request) (askquestion.Response, error) {
+		wiring.AskBroker.SetAskHandler(func(req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 			return s.runtimes.AwaitPromptResponse(context.Background(), sessionID, req)
 		})
 	}

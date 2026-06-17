@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"core/server/tools"
-	"core/server/tools/fsguard"
 	patchtool "core/server/tools/patch"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -31,7 +30,7 @@ type Tool struct {
 	workspaceRootInfo            os.FileInfo
 	workspaceOnly                bool
 	allowOutsideWorkspace        bool
-	outsideWorkspaceApprover     fsguard.Approver
+	outsideWorkspaceApprover     tools.FSGuardApprover
 	outsideWorkspaceSessionMu    sync.RWMutex
 	outsideWorkspaceSessionAllow bool
 }
@@ -74,7 +73,7 @@ func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 	if err != nil {
 		return editErrorResult(c, err), nil
 	}
-	unlock := fsguard.LockPaths([]string{resolved.real})
+	unlock := tools.LockFSGuardPaths([]string{resolved.real})
 	defer unlock()
 	outcome, err := t.apply(ctx, resolved, in)
 	if err != nil {
@@ -418,8 +417,8 @@ func resolveRealTarget(cleaned string) (string, error) {
 	}
 }
 
-func (t *Tool) outsideGuard() fsguard.Guard {
-	return fsguard.New(
+func (t *Tool) outsideGuard() tools.FSGuard {
+	return tools.NewFSGuard(
 		t.workspaceRoot,
 		t.workspaceRootReal,
 		t.workspaceRootInfo,
@@ -429,10 +428,10 @@ func (t *Tool) outsideGuard() fsguard.Guard {
 		t.outsideWorkspaceSessionAllowed,
 		t.setOutsideWorkspaceSessionAllowed,
 		"If it's essential to the task, ask the user to make the edit manually at the end of the task.",
-		fsguard.ErrorLabels{
+		tools.FSGuardErrorLabels{
 			OutsidePath: "edit target outside workspace",
 		},
-		fsguard.FailureFactory{
+		tools.FSGuardFailureFactory{
 			NoPermission: func(path string, reason string) error {
 				return failf("no file edit permission for %s. %s", path, reason)
 			},

@@ -3,12 +3,12 @@ package patch
 import (
 	"os"
 
-	"core/server/tools/fsguard"
+	"core/server/tools"
 )
 
-type OutsideWorkspaceErrorLabels = fsguard.ErrorLabels
-type OutsideWorkspaceFailureFactory = fsguard.FailureFactory
-type OutsideWorkspaceGuard = fsguard.Guard
+type OutsideWorkspaceErrorLabels = tools.FSGuardErrorLabels
+type OutsideWorkspaceFailureFactory = tools.FSGuardFailureFactory
+type OutsideWorkspaceGuard = tools.FSGuard
 
 func NewOutsideWorkspaceGuard(workspaceRoot string, workspaceRootReal string, workspaceRootInfo os.FileInfo, workspaceOnly bool, allowOutsideWorkspace bool, approver OutsideWorkspaceApprover, sessionAllowed func() bool, setSessionAllowed func(bool), rejectionInstruction string, errorLabels OutsideWorkspaceErrorLabels, failures OutsideWorkspaceFailureFactory, temporaryPathAllowed func(string) bool, onApproved func(OutsideWorkspaceRequest, string)) OutsideWorkspaceGuard {
 	if failures.NoPermission == nil {
@@ -20,20 +20,20 @@ func NewOutsideWorkspaceGuard(workspaceRoot string, workspaceRootReal string, wo
 	if failures.DefaultUserDenied == nil {
 		failures.DefaultUserDenied = userDeniedFailure
 	}
-	return fsguard.New(
+	return tools.NewFSGuard(
 		workspaceRoot,
 		workspaceRootReal,
 		workspaceRootInfo,
 		workspaceOnly,
 		allowOutsideWorkspace,
-		fsguard.Approver(approver),
+		tools.FSGuardApprover(approver),
 		sessionAllowed,
 		setSessionAllowed,
 		rejectionInstruction,
 		errorLabels,
 		failures,
 		temporaryPathAllowed,
-		func(req fsguard.Request, reason string) {
+		func(req tools.FSGuardRequest, reason string) {
 			if onApproved != nil {
 				onApproved(req, reason)
 			}

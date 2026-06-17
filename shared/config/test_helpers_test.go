@@ -1,7 +1,6 @@
 package config
 
 import (
-	"core/shared/brand"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,7 +19,7 @@ func newConfigTestEnv(t *testing.T) (string, string) {
 func newConfigTestFile(t *testing.T) (string, string, string) {
 	t.Helper()
 	home, workspace := newConfigTestEnv(t)
-	configPath := filepath.Join(home, brand.ConfigDirName, "config.toml")
+	configPath := filepath.Join(home, ConfigDirName, "config.toml")
 	ensureConfigTestDir(t, configPath)
 	return home, workspace, configPath
 }

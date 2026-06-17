@@ -3,14 +3,11 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/worktreedelete"
-	"core/cli/app/internal/worktreeview"
-	"core/cli/app/internal/worktreeviewport"
+	"core/cli/app/internal/worktreeui"
 	tuiinput "core/cli/tui/input"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 	sharedtheme "core/shared/theme"
-	"core/shared/uiglyphs"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,8 +15,8 @@ import (
 const worktreeOverlayMaxErrorLines = 4
 
 var (
-	worktreeOverlayRailGlyph = uiglyphs.SelectionRailGlyph
-	worktreeOverlayRailBlank = uiglyphs.SelectionRailBlank
+	worktreeOverlayRailGlyph = sharedtheme.SelectionRailGlyph
+	worktreeOverlayRailBlank = sharedtheme.SelectionRailBlank
 )
 
 func (l uiViewLayout) renderWorktreeOverlay(width, height int, style uiStyles) []string {
@@ -63,7 +60,7 @@ func (l uiViewLayout) renderWorktreeList(width, height int, style uiStyles) []st
 			for idx, item := range m.worktrees.entries {
 				rows = append(rows, renderWorktreeEntry(item, idx+1 == m.worktrees.selection, width, m.theme, style)...)
 			}
-			start := worktreeviewport.OverlayStartRow(m.worktrees.selection, m.worktreeRowCount(), remainingHeight, worktreeOverlayRowLines)
+			start := worktreeui.OverlayStartRow(m.worktrees.selection, m.worktreeRowCount(), remainingHeight, worktreeOverlayRowLines)
 			end := start + remainingHeight
 			if end > len(rows) {
 				end = len(rows)
@@ -128,7 +125,7 @@ func renderWorktreeEntry(item serverapi.WorktreeView, selected bool, width int, 
 		rail = worktreeOverlayRailGlyph
 		sep = worktreeOverlayRailGlyph
 	}
-	title := truncateQueuedMessageLine(worktreeview.DisplayName(item), max(1, width-2))
+	title := truncateQueuedMessageLine(worktreeui.DisplayName(item), max(1, width-2))
 	badges := renderWorktreeBadges(item, selected, theme)
 	line1 := worktreeOverlayComposeTitleLine(railStyle.Render(rail), title, titleStyle, badges, width, line)
 	path := metaStyle.Render(truncateQueuedMessageLine(strings.TrimSpace(item.CanonicalRoot), max(1, width-2)))
@@ -278,7 +275,7 @@ func (l uiViewLayout) renderWorktreeCreateDialog(width, height int, style uiStyl
 		focusedStart = 0
 		focusedEnd = 0
 	}
-	visibleStart := worktreeviewport.DialogVisibleStart(len(body), bodyHeight, focusedStart, focusedEnd)
+	visibleStart := worktreeui.DialogVisibleStart(len(body), bodyHeight, focusedStart, focusedEnd)
 	visibleEnd := visibleStart + bodyHeight
 	if visibleEnd > len(body) {
 		visibleEnd = len(body)
@@ -365,10 +362,10 @@ func (l uiViewLayout) renderWorktreeDeleteDialog(width, height int, style uiStyl
 	m := l.model
 	dialog := m.worktrees.deleteConfirm
 	lines := []string{
-		style.brand.Render(truncateQueuedMessageLine("Delete "+worktreeview.DisplayName(dialog.target)+"?", width)),
+		style.brand.Render(truncateQueuedMessageLine("Delete "+worktreeui.DisplayName(dialog.target)+"?", width)),
 		"",
 	}
-	body := worktreedelete.PreviewLines(dialog.target, dialog.selectedAction)
+	body := worktreeui.PreviewLines(dialog.target, dialog.selectedAction)
 	for _, line := range body {
 		lineStyle := style.chat
 		switch line.Kind {

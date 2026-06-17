@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -17,7 +17,7 @@ type sessionPickerHeaderInfo struct {
 	Model         string
 	Auth          string
 	StatusRequest uiStatusRequest
-	AuthManager   statuscollect.AuthStateResolver
+	AuthManager   status.AuthStateResolver
 	OwnsServer    bool
 	ServerAddress string
 }

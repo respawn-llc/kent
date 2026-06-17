@@ -14,12 +14,12 @@ The scope is intentionally narrow and quality-oriented.
   - Agent step loop, retries, transcript assembly, tool orchestration, lock handling, interrupts.
 - `server/bootstrap`
   - Server-owned embedded bootstrap composition for config/container resolution, auth-manager creation, and runtime-support setup shared by CLI flows.
-- `server/embedded`
-  - Explicit in-process app-server composition root used by the CLI in embedded mode; owns startup orchestration across bootstrap/auth/onboarding hooks and exposes server capabilities to frontends.
-- `server/authflow`
-  - Server-owned auth readiness loop and env-backed auth-store policy used by CLI auth UX.
-- `server/lifecycle`
-  - Server-owned interactive lifecycle mutations such as draft persistence, rollback fork creation, and logout-state clearing.
+- `server/startup`
+  - Explicit in-process app-server and daemon startup composition used by embedded and serve flows; owns startup orchestration across bootstrap/auth/onboarding hooks and exposes server capabilities to frontends.
+- `server/authservice`
+  - Server-owned auth readiness, bootstrap/status services, and env-backed auth-store policy used by CLI auth UX.
+- `server/sessionservice`
+  - Server-owned interactive session lifecycle and activity services, including draft persistence, rollback fork creation, and logout-state clearing.
 - `server/runtimeview`
   - Server-owned projection from runtime-native events and chat snapshots into client-facing UI DTOs.
 - `server/launch`
@@ -40,8 +40,8 @@ The scope is intentionally narrow and quality-oriented.
   - Persistence root/workspace container resolution and app-level paths.
 - `shared/clientui`
   - Client-facing UI event and snapshot DTOs used by frontend adapters instead of runtime-native structs.
-- `cli/actions`
-  - Typed action registry scaffold for `ask_question` post-answer hooks.
+- `shared/apicontract`
+  - Shared route metadata and route-shaped service interfaces for loopback and remote clients.
 - `docs`
   - Public Astro/Starlight documentation site. Authoritative internal product specs live under `docs/dev/specs`, process/engineering docs live under `docs/dev`, and scratch/internal working notes stay under `docs/tmp`. Keep docs up-to-date on your own and proactively.
 - `apps`

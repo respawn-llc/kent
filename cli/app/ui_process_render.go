@@ -6,11 +6,10 @@ import (
 	"strings"
 	"time"
 
-	appprocessview "core/cli/app/internal/processview"
+	appprocessview "core/cli/app/internal/status"
 	"core/shared/clientui"
 	"core/shared/textutil"
 	sharedtheme "core/shared/theme"
-	"core/shared/uiglyphs"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,8 +21,8 @@ const (
 )
 
 var (
-	processListRailGlyph = uiglyphs.SelectionRailGlyph
-	processListRailBlank = uiglyphs.SelectionRailBlank
+	processListRailGlyph = sharedtheme.SelectionRailGlyph
+	processListRailBlank = sharedtheme.SelectionRailBlank
 )
 
 func (l uiViewLayout) renderProcessList(width, height int, style uiStyles) []string {

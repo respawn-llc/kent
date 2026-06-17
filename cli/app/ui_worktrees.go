@@ -4,12 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"core/cli/app/internal/submissionerror"
-	"core/cli/app/internal/worktreecreateform"
-	"core/cli/app/internal/worktreedelete"
-	"core/cli/app/internal/worktreemutation"
-	"core/cli/app/internal/worktreeselection"
-	"core/cli/app/internal/worktreeview"
+	"core/cli/app/internal/runtimeattach"
+	"core/cli/app/internal/worktreeui"
 	tuiinput "core/cli/tui/input"
 	"core/shared/clientui"
 	"core/shared/serverapi"
@@ -21,7 +17,7 @@ const (
 	worktreeOverlayHeaderLines = 3
 	worktreeOverlayFooterLines = 1
 	worktreeOverlayRowLines    = 3
-	worktreeCreateRowID        = worktreeselection.CreateRowID
+	worktreeCreateRowID        = worktreeui.CreateRowID
 )
 
 type uiWorktreeOverlayPhase string
@@ -39,19 +35,19 @@ type uiWorktreeOpenIntent struct {
 	PreferDeleteBranch  bool
 }
 
-type uiWorktreeCreateField = worktreecreateform.Field
+type uiWorktreeCreateField = worktreeui.Field
 
 const (
-	uiWorktreeCreateFieldBranchTarget = worktreecreateform.FieldBranchTarget
-	uiWorktreeCreateFieldBaseRef      = worktreecreateform.FieldBaseRef
-	uiWorktreeCreateFieldActions      = worktreecreateform.FieldActions
+	uiWorktreeCreateFieldBranchTarget = worktreeui.FieldBranchTarget
+	uiWorktreeCreateFieldBaseRef      = worktreeui.FieldBaseRef
+	uiWorktreeCreateFieldActions      = worktreeui.FieldActions
 )
 
-type uiWorktreeCreateAction = worktreecreateform.Action
+type uiWorktreeCreateAction = worktreeui.CreateFormAction
 
 const (
-	uiWorktreeCreateActionCreate = worktreecreateform.ActionCreate
-	uiWorktreeCreateActionCancel = worktreecreateform.ActionCancel
+	uiWorktreeCreateActionCreate = worktreeui.CreateFormActionCreate
+	uiWorktreeCreateActionCancel = worktreeui.CreateFormActionCancel
 )
 
 type uiWorktreeCreateDialogState struct {
@@ -67,12 +63,12 @@ type uiWorktreeCreateDialogState struct {
 	resolution    serverapi.WorktreeCreateTargetResolution
 }
 
-type uiWorktreeDeleteAction = worktreedelete.Action
+type uiWorktreeDeleteAction = worktreeui.DeleteAction
 
 const (
-	uiWorktreeDeleteActionCancel       = worktreedelete.ActionCancel
-	uiWorktreeDeleteActionDelete       = worktreedelete.ActionDelete
-	uiWorktreeDeleteActionDeleteBranch = worktreedelete.ActionDeleteBranch
+	uiWorktreeDeleteActionCancel       = worktreeui.DeleteActionCancel
+	uiWorktreeDeleteActionDelete       = worktreeui.DeleteActionDelete
+	uiWorktreeDeleteActionDeleteBranch = worktreeui.DeleteActionDeleteBranch
 )
 
 type uiWorktreeDeleteDialogState struct {
@@ -269,9 +265,9 @@ func (m *uiModel) applyWorktreeIntent() tea.Cmd {
 	if !intent.OpenDelete {
 		return nil
 	}
-	target, err := worktreeview.ResolveDeletionTarget(m.worktrees.entries, intent.ConfirmDeleteTarget)
+	target, err := worktreeui.ResolveDeletionTarget(m.worktrees.entries, intent.ConfirmDeleteTarget)
 	if err != nil {
-		m.worktrees.errorText = submissionerror.Format(err)
+		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
 		return nil
 	}
 	m.recordWorktreeSelection()
@@ -289,7 +285,7 @@ func (m *uiModel) suggestedWorktreeBranchFromEntries() string {
 	if m == nil {
 		return ""
 	}
-	if sessionBranch := worktreeview.SanitizeBranchSuggestion(m.suggestedWorktreeSessionName()); sessionBranch != "" {
+	if sessionBranch := worktreeui.SanitizeBranchSuggestion(m.suggestedWorktreeSessionName()); sessionBranch != "" {
 		return sessionBranch
 	}
 	return ""
@@ -351,11 +347,11 @@ func (m *uiModel) worktreeDeleteCmd(target serverapi.WorktreeView, deleteBranch 
 	}
 }
 
-func (m *uiModel) worktreeMutationService() worktreemutation.Service {
+func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	if m == nil {
-		return worktreemutation.Service{}
+		return worktreeui.Service{}
 	}
-	service := worktreemutation.Service{
+	service := worktreeui.Service{
 		Client:    m.worktreeClient,
 		SessionID: m.sessionID,
 		ResolveContext: func() (context.Context, context.CancelFunc) {
@@ -363,7 +359,7 @@ func (m *uiModel) worktreeMutationService() worktreemutation.Service {
 		},
 	}
 	if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok && client != nil {
-		service.Runtime = worktreemutation.RuntimeControl{
+		service.Runtime = worktreeui.RuntimeControl{
 			Context:               service.ResolveContext,
 			CurrentLeaseID:        client.controllerLeaseIDValue,
 			RecoverLease:          client.recoverControllerLeaseWithWarning,

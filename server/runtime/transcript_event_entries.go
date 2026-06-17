@@ -6,7 +6,6 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
@@ -84,7 +83,7 @@ func TranscriptEntriesFromEvent(evt Event) []ChatEntry {
 		if evt.CacheWarning == nil {
 			return nil
 		}
-		return []ChatEntry{{Role: cacheWarningTranscriptRole, Text: cachewarn.Text(*evt.CacheWarning), Visibility: evt.CacheWarningVisibility}}
+		return []ChatEntry{{Role: cacheWarningTranscriptRole, Text: transcript.CacheWarningText(*evt.CacheWarning), Visibility: evt.CacheWarningVisibility}}
 	case EventLocalEntryAdded:
 		if evt.LocalEntry == nil {
 			return nil

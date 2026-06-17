@@ -1,7 +1,7 @@
 package clientui
 
 import (
-	"core/shared/cachewarn"
+	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
 	"time"
 )
@@ -59,7 +59,7 @@ type Event struct {
 	UserMessageBatchQueueItemIDs []string
 	TranscriptEntries            []ChatEntry
 	Compaction                   *CompactionStatus
-	CacheWarning                 *cachewarn.Warning
+	CacheWarning                 *transcript.CacheWarning
 	CacheWarningVisibility       EntryVisibility
 	RunState                     *RunState
 	ContextUsage                 *RuntimeContextUsage

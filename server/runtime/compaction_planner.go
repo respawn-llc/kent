@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"core/server/llm"
-	"core/shared/compaction"
+	compaction "core/shared/config"
 )
 
 type compactionPlanningSnapshot struct {

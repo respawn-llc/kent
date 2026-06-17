@@ -6,7 +6,7 @@ import (
 	"context"
 	"runtime"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 type unsupportedServiceBackend struct{}

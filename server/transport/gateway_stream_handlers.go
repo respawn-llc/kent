@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	rpccontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protocol"
-	"core/shared/rpccontract"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
 )

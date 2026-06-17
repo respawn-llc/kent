@@ -10,9 +10,8 @@ import (
 	"strings"
 
 	"core/server/requestmemo"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/server/workflow"
-	"core/server/workflowapi"
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/shared/serverapi"
@@ -56,7 +55,7 @@ type schedulerNotifier interface {
 type transitionApprover func(ctx context.Context, transitionID workflow.TransitionID) (workflowstore.CompleteRunResult, error)
 
 type pendingPromptResponder interface {
-	SubmitPromptResponse(sessionID string, resp askquestion.Response, err error) error
+	SubmitPromptResponse(sessionID string, resp askquestion.AskQuestionResponse, err error) error
 }
 
 type taskQuestionAnswerMemoRequest struct {
@@ -441,7 +440,7 @@ func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.
 	}
 	return serverapi.WorkflowGraphValidateDraftResponse{
 		Results:       s.workflowGraphValidationResultsForDefinition(def, req.Modes),
-		DerivedWiring: workflowapi.DerivedWiring(def),
+		DerivedWiring: workflowview.DerivedWiring(def),
 	}, nil
 }
 
@@ -454,7 +453,7 @@ func (s *Service) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.W
 		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
 	}
 	return serverapi.WorkflowGraphDeriveWiringResponse{
-		DerivedWiring: workflowapi.DerivedWiring(def),
+		DerivedWiring: workflowview.DerivedWiring(def),
 	}, nil
 }
 
@@ -730,10 +729,10 @@ func (s *Service) AnswerWorkflowTaskQuestion(ctx context.Context, req serverapi.
 			return struct{}{}, err
 		}
 		if strings.TrimSpace(req.ErrorMessage) != "" {
-			if err := s.prompts.SubmitPromptResponse(run.SessionID, askquestion.Response{RequestID: req.AskID}, errors.New(req.ErrorMessage)); err != nil {
+			if err := s.prompts.SubmitPromptResponse(run.SessionID, askquestion.AskQuestionResponse{RequestID: req.AskID}, errors.New(req.ErrorMessage)); err != nil {
 				return struct{}{}, err
 			}
-		} else if err := s.prompts.SubmitPromptResponse(run.SessionID, askquestion.Response{RequestID: req.AskID, Answer: req.Answer, SelectedOptionNumber: req.SelectedOptionNumber, FreeformAnswer: req.FreeformAnswer}, nil); err != nil {
+		} else if err := s.prompts.SubmitPromptResponse(run.SessionID, askquestion.AskQuestionResponse{RequestID: req.AskID, Answer: req.Answer, SelectedOptionNumber: req.SelectedOptionNumber, FreeformAnswer: req.FreeformAnswer}, nil); err != nil {
 			return struct{}{}, err
 		}
 		if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
@@ -1069,7 +1068,7 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 
 func workflowValidationResponse(workflowID workflow.WorkflowID, result workflow.ValidationResult) serverapi.WorkflowValidateResponse {
 	resp := serverapi.WorkflowValidateResponse{Valid: result.Valid()}
-	resp.Errors = workflowapi.ValidationErrors(string(workflowID), result.Errors)
+	resp.Errors = workflowview.ValidationErrors(string(workflowID), result.Errors)
 	return resp
 }
 

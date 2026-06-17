@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/app/internal/authoauth"
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,7 +24,7 @@ type authCallbackPageData struct {
 }
 
 type authCallbackPageResult struct {
-	Method        oauthadapter.Method
+	Method        authui.AuthMethod
 	CallbackInput string
 	Canceled      bool
 	Err           error
@@ -40,7 +39,7 @@ type authCallbackPageModel struct {
 	errorText   string
 	errorToken  uint64
 	ctx         context.Context
-	complete    func(context.Context, string) (oauthadapter.Method, error)
+	complete    func(context.Context, string) (authui.AuthMethod, error)
 	result      authCallbackPageResult
 	styles      authCallbackPageStyles
 }
@@ -60,13 +59,13 @@ type authCallbackPageErrorClearMsg struct {
 }
 
 type authCallbackPageBrowserDoneMsg struct {
-	callback oauthadapter.BrowserCallback
+	callback authui.OAuthBrowserCallback
 	err      error
 }
 
 type authCallbackPageCompleteDoneMsg struct {
 	input  string
-	method oauthadapter.Method
+	method authui.AuthMethod
 	err    error
 }
 
@@ -274,7 +273,7 @@ func (m *authCallbackPageModel) normalizedInputCursor(current []rune) int {
 	return m.inputCursor
 }
 
-var runAuthCallbackPage = func(ctx context.Context, data authCallbackPageData, waitCallback func(context.Context) (oauthadapter.BrowserCallback, error), complete func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+var runAuthCallbackPage = func(ctx context.Context, data authCallbackPageData, waitCallback func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
 	model := newAuthCallbackPageModel(data)
 	model.ctx = ctx
 	model.complete = complete
@@ -301,14 +300,14 @@ var runAuthCallbackPage = func(ctx context.Context, data authCallbackPageData, w
 func (i *interactiveAuthInteractor) runAuthBrowserHybridPage(
 	ctx context.Context,
 	theme string,
-	opts oauthadapter.OpenAIOAuthOptions,
-	session oauthadapter.BrowserAuthSession,
+	opts authui.OAuthOptions,
+	session authui.OAuthBrowserSession,
 	openErr error,
-	listener authoauth.CallbackListener,
-	complete authoauth.CompleteBrowserFlowFunc,
-) (oauthadapter.Method, error) {
+	listener authui.OAuthCallbackListener,
+	complete authui.OAuthCompleteBrowserFlowFunc,
+) (authui.AuthMethod, error) {
 	if listener == nil {
-		return oauthadapter.Method{}, errors.New("oauth callback listener is required")
+		return authui.AuthMethod{}, errors.New("oauth callback listener is required")
 	}
 	runPage := i.runCallbackPage
 	if runPage == nil {
@@ -318,27 +317,27 @@ func (i *interactiveAuthInteractor) runAuthBrowserHybridPage(
 		Theme:        theme,
 		AuthorizeURL: session.AuthorizeURL,
 		OpenErr:      openErr,
-	}, func(waitCtx context.Context) (oauthadapter.BrowserCallback, error) {
+	}, func(waitCtx context.Context) (authui.OAuthBrowserCallback, error) {
 		return listener.Wait(waitCtx, opts.PollTimeout)
-	}, func(completeCtx context.Context, input string) (oauthadapter.Method, error) {
+	}, func(completeCtx context.Context, input string) (authui.AuthMethod, error) {
 		return complete(completeCtx, opts, session, input)
 	})
 	if err != nil {
-		return oauthadapter.Method{}, err
+		return authui.AuthMethod{}, err
 	}
 	if result.Canceled {
-		return oauthadapter.Method{}, ErrAuthCanceledByUser
+		return authui.AuthMethod{}, ErrAuthCanceledByUser
 	}
 	if result.Err != nil {
-		return oauthadapter.Method{}, result.Err
+		return authui.AuthMethod{}, result.Err
 	}
 	if strings.TrimSpace(string(result.Method.Type)) == "" {
-		return oauthadapter.Method{}, fmt.Errorf("auth callback did not complete")
+		return authui.AuthMethod{}, fmt.Errorf("auth callback did not complete")
 	}
 	return result.Method, nil
 }
 
-func browserCallbackInput(callback oauthadapter.BrowserCallback) string {
+func browserCallbackInput(callback authui.OAuthBrowserCallback) string {
 	query := url.Values{
 		"code":  []string{callback.Code},
 		"state": []string{callback.State},

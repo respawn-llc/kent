@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"core/server/auth"
-	"core/server/serve"
 	serverstartup "core/server/startup"
 	"core/shared/client"
 	"core/shared/config"
@@ -19,7 +18,7 @@ func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "reauthed-key")
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		AllowUnauthenticated:  true,
@@ -60,7 +59,7 @@ func TestRemoteAppServerReauthenticatePromptsWhenServerAuthAlreadyReady(t *testi
 	t.Setenv("OPENAI_API_KEY", "reauthed-key")
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 	}, apiKeyMemoryAuthHandlerWithoutTimestamp("old-key"), autoOnboarding)
@@ -112,7 +111,7 @@ func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *
 	_, workspace := newRegisteredAppWorkspace(t)
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 	}, apiKeyMemoryAuthHandlerWithoutTimestamp("ready-key"), autoOnboarding)
@@ -156,7 +155,7 @@ func TestRemoteLoginTransitionWaitsForAuthChoiceWhenServerAuthAlreadyReady(t *te
 	t.Setenv("OPENAI_API_KEY", "reauthed-key")
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 	}, apiKeyMemoryAuthHandlerWithoutTimestamp("old-key"), autoOnboarding)

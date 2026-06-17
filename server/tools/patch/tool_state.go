@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"core/server/tools/fsguard"
+	"core/server/tools"
 	patchformat "core/shared/transcript/patchformat"
 )
 
@@ -77,7 +77,7 @@ func (s *applyState) lockDocumentPaths(doc patchformat.Document) (func(), error)
 			}
 		}
 	}
-	return fsguard.LockPaths(paths), nil
+	return tools.LockFSGuardPaths(paths), nil
 }
 
 func (s *applyState) getState(path string) (*patchFileState, error) {

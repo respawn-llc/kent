@@ -3,7 +3,7 @@ package runtime
 import (
 	"core/server/llm"
 	"core/shared/toolspec"
-	"core/shared/transcript/toolcodec"
+	"core/shared/transcript"
 	"testing"
 )
 
@@ -17,7 +17,7 @@ func TestNormalizeToolCallForTranscriptUsesCustomPatchInput(t *testing.T) {
 	}
 
 	normalized := normalizeToolCallForTranscript(call, "/workspace")
-	meta, ok := toolcodec.DecodeToolCallMeta(normalized.Presentation)
+	meta, ok := transcript.DecodeToolCallMeta(normalized.Presentation)
 	if !ok || meta == nil {
 		t.Fatalf("expected presentation metadata for custom patch call")
 	}

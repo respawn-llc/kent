@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,19 +18,19 @@ type interactiveAuthOAuthPresenter struct {
 	theme      string
 }
 
-func (p interactiveAuthOAuthPresenter) ShowBrowserAuto(session oauthadapter.BrowserAuthSession, openErr error) {
+func (p interactiveAuthOAuthPresenter) ShowBrowserAuto(session authui.OAuthBrowserSession, openErr error) {
 	lines := p.browserLines(session, openErr)
 	lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render("Waiting for browser callback..."))
 	p.print(authMethodDisplayTitle(authMethodChoiceBrowserAuto), lines)
 }
 
-func (p interactiveAuthOAuthPresenter) ShowBrowserPaste(session oauthadapter.BrowserAuthSession, openErr error) {
+func (p interactiveAuthOAuthPresenter) ShowBrowserPaste(session authui.OAuthBrowserSession, openErr error) {
 	lines := p.browserLines(session, openErr)
 	lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render("After sign-in, paste the full callback URL or just the code below."))
 	p.print(authMethodDisplayTitle(authMethodChoiceBrowserPaste), lines)
 }
 
-func (p interactiveAuthOAuthPresenter) ShowDeviceCode(code oauthadapter.DeviceCode) {
+func (p interactiveAuthOAuthPresenter) ShowDeviceCode(code authui.OAuthDeviceCode) {
 	p.print(authMethodDisplayTitle(authMethodChoiceDevice), []string{
 		lipgloss.NewStyle().Foreground(uiPalette(p.theme).primary).Underline(true).Render(code.VerificationURL),
 		lipgloss.NewStyle().Foreground(uiPalette(p.theme).foreground).Render("Code: ") + lipgloss.NewStyle().Foreground(uiPalette(p.theme).secondary).Bold(true).Render(code.UserCode),
@@ -38,7 +38,7 @@ func (p interactiveAuthOAuthPresenter) ShowDeviceCode(code oauthadapter.DeviceCo
 	})
 }
 
-func (p interactiveAuthOAuthPresenter) browserLines(session oauthadapter.BrowserAuthSession, openErr error) []string {
+func (p interactiveAuthOAuthPresenter) browserLines(session authui.OAuthBrowserSession, openErr error) []string {
 	lines := []string{lipgloss.NewStyle().Foreground(uiPalette(p.theme).primary).Underline(true).Render(session.AuthorizeURL)}
 	if openErr != nil {
 		lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render(fmt.Sprintf("Kent could not open your browser automatically (%v). Open the URL manually.", openErr)))

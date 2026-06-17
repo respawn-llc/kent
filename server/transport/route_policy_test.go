@@ -12,10 +12,10 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	shelltool "core/server/tools/shell"
+	rpccontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protocol"
-	"core/shared/rpccontract"
 	"core/shared/serverapi"
 )
 

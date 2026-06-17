@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"core/server/requestmemo"
+	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type runPromptMemoRequest struct {

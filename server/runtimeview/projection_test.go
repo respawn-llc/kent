@@ -11,7 +11,6 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
@@ -426,9 +425,9 @@ func TestEventFromRuntimeCopiesCacheWarningLostInputTokens(t *testing.T) {
 	event := EventFromRuntime(runtime.Event{
 		Kind:                   runtime.EventCacheWarning,
 		CacheWarningVisibility: transcript.EntryVisibilityAll,
-		CacheWarning: &cachewarn.Warning{
-			Scope:           cachewarn.ScopeReviewer,
-			Reason:          cachewarn.ReasonNonPostfix,
+		CacheWarning: &transcript.CacheWarning{
+			Scope:           transcript.CacheWarningScopeReviewer,
+			Reason:          transcript.CacheWarningReasonNonPostfix,
 			CacheKey:        "reviewer-cache-key",
 			LostInputTokens: 12_000,
 		},
@@ -439,8 +438,8 @@ func TestEventFromRuntimeCopiesCacheWarningLostInputTokens(t *testing.T) {
 	if event.CacheWarning.LostInputTokens != 12_000 {
 		t.Fatalf("cache warning lost input tokens = %d, want 12000", event.CacheWarning.LostInputTokens)
 	}
-	if event.CacheWarning.Scope != cachewarn.ScopeReviewer {
-		t.Fatalf("cache warning scope = %q, want %q", event.CacheWarning.Scope, cachewarn.ScopeReviewer)
+	if event.CacheWarning.Scope != transcript.CacheWarningScopeReviewer {
+		t.Fatalf("cache warning scope = %q, want %q", event.CacheWarning.Scope, transcript.CacheWarningScopeReviewer)
 	}
 	if event.CacheWarningVisibility != clientui.EntryVisibilityAll {
 		t.Fatalf("cache warning visibility = %q, want %q", event.CacheWarningVisibility, clientui.EntryVisibilityAll)
@@ -457,9 +456,9 @@ func TestEventFromRuntimeProjectsDefaultCacheWarningAsDetailOnly(t *testing.T) {
 	event := EventFromRuntime(runtime.Event{
 		Kind:                   runtime.EventCacheWarning,
 		CacheWarningVisibility: transcript.EntryVisibilityDetailOnly,
-		CacheWarning: &cachewarn.Warning{
-			Scope:  cachewarn.ScopeConversation,
-			Reason: cachewarn.ReasonNonPostfix,
+		CacheWarning: &transcript.CacheWarning{
+			Scope:  transcript.CacheWarningScopeConversation,
+			Reason: transcript.CacheWarningReasonNonPostfix,
 		},
 	})
 	if event.CacheWarningVisibility != clientui.EntryVisibilityDetailOnly {

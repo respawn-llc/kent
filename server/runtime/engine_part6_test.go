@@ -7,7 +7,6 @@ import (
 	"core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
-	"core/shared/transcript/toolcodec"
 	"encoding/json"
 	"errors"
 	"os"
@@ -434,7 +433,7 @@ func TestAppendCommittedEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
 
 func TestRestoreMessagesKeepsStoredToolCallPresentationPayload(t *testing.T) {
 	store := mustCreateTestSession(t)
-	presentation := toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
+	presentation := transcript.EncodeToolCallMeta(transcript.ToolCallMeta{
 		ToolName:       string(toolspec.ToolExecCommand),
 		Presentation:   transcript.ToolPresentationShell,
 		RenderBehavior: transcript.ToolCallRenderBehaviorShell,
@@ -477,7 +476,7 @@ func TestRestoreMessagesKeepsStoredToolCallPresentationPayload(t *testing.T) {
 
 func TestRestoreMessagesIgnoresLegacyReviewerRollbackHistoryReplacement(t *testing.T) {
 	store := mustCreateTestSession(t)
-	presentation := toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
+	presentation := transcript.EncodeToolCallMeta(transcript.ToolCallMeta{
 		ToolName:       string(toolspec.ToolExecCommand),
 		Presentation:   transcript.ToolPresentationShell,
 		RenderBehavior: transcript.ToolCallRenderBehaviorShell,

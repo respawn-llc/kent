@@ -4,8 +4,6 @@ import (
 	"context"
 	"core/server/tools"
 	"core/server/tools/shell/postprocess"
-	"core/server/tools/shell/shellenv"
-	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/sessionenv"
 	"core/shared/toolspec"
@@ -125,7 +123,7 @@ func envSliceToMap(t *testing.T, in []string) map[string]string {
 }
 
 func TestEnrichEnvOverridesNonInteractiveDefaults(t *testing.T) {
-	env := envSliceToMap(t, shellenv.EnrichForSession([]string{
+	env := envSliceToMap(t, tools.EnrichShellEnvForSession([]string{
 		"TERM=xterm-256color",
 		"AGENT=other",
 		"GIT_EDITOR=vim",
@@ -182,7 +180,7 @@ func TestEnrichEnvOverridesNonInteractiveDefaults(t *testing.T) {
 }
 
 func TestEnrichEnvForSessionEmbedsOwnerSessionID(t *testing.T) {
-	env := envSliceToMap(t, shellenv.EnrichForSession([]string{
+	env := envSliceToMap(t, tools.EnrichShellEnvForSession([]string{
 		"KENT_SESSION_ID=stale",
 		"KEEP=1",
 	}, "session-abc"))
@@ -223,8 +221,8 @@ func TestEnrichEnvAddsManagedRGConfigPathWhenAvailable(t *testing.T) {
 		t.Fatalf("ensure managed rg config file: %v", err)
 	}
 
-	env := envSliceToMap(t, shellenv.EnrichForSession([]string{"KEEP=1"}, ""))
-	want := filepath.Join(home, brand.ConfigDirName, "rg.conf")
+	env := envSliceToMap(t, tools.EnrichShellEnvForSession([]string{"KEEP=1"}, ""))
+	want := filepath.Join(home, config.ConfigDirName, "rg.conf")
 	if env["RIPGREP_CONFIG_PATH"] != want {
 		t.Fatalf("RIPGREP_CONFIG_PATH = %q, want %q", env["RIPGREP_CONFIG_PATH"], want)
 	}
@@ -237,7 +235,7 @@ func TestEnrichEnvKeepsUserRIPGREPConfigPath(t *testing.T) {
 		t.Fatalf("ensure managed rg config file: %v", err)
 	}
 
-	env := envSliceToMap(t, shellenv.EnrichForSession([]string{"RIPGREP_CONFIG_PATH=/tmp/user-rg.conf"}, ""))
+	env := envSliceToMap(t, tools.EnrichShellEnvForSession([]string{"RIPGREP_CONFIG_PATH=/tmp/user-rg.conf"}, ""))
 	if env["RIPGREP_CONFIG_PATH"] != "/tmp/user-rg.conf" {
 		t.Fatalf("RIPGREP_CONFIG_PATH = %q, want /tmp/user-rg.conf", env["RIPGREP_CONFIG_PATH"])
 	}

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"core/cli/app/commands"
-	"core/cli/app/internal/submissionerror"
+	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -456,7 +456,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		m.removePendingInjectedByID(item.LocalID)
 		if item.State == injectedRuntimeQueuePendingCreate {
 			c.restoreInjectedTextIntoInput(item.Text)
-			detailErr := submissionerror.Format(msg.err)
+			detailErr := runtimeattach.FormatSubmissionError(msg.err)
 			m.activity = uiActivityError
 			appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 			m.logf("queue_create.error err=%q", detailErr)

@@ -7,40 +7,32 @@ import (
 	"os"
 	"strings"
 
-	"core/server/approvalview"
-	"core/server/askview"
-	"core/server/authbootstrap"
-	"core/server/authstatus"
+	"core/prompts"
+	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/generated"
 	"core/server/metadata"
-	"core/server/processoutput"
+
 	"core/server/processview"
 	"core/server/projectview"
-	"core/server/promptactivity"
 	"core/server/promptcontrol"
 	"core/server/registry"
-	"core/server/rootlock"
 	"core/server/runtime"
 	"core/server/runtimecontrol"
 	"core/server/serverstatus"
-	"core/server/sessionactivity"
-	"core/server/sessionlifecycle"
 	"core/server/sessionruntime"
+	"core/server/sessionservice"
 	"core/server/sessionview"
 	"core/server/sleepguard"
-	"core/server/updatestatus"
+
 	"core/server/workflow"
 	"core/server/workflowrunner"
-	"core/server/workflowscheduler"
 	"core/server/workflowstore"
 	"core/server/workflowsvc"
 	"core/server/workflowview"
 	"core/server/worktree"
-	"core/shared/buildinfo"
+	rpccontract "core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/rpccontract"
 	"core/shared/serverapi"
 )
 
@@ -52,7 +44,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	rootLease, err := rootlock.Acquire(cfg.PersistenceRoot)
+	rootLease, err := AcquireRootLock(cfg.PersistenceRoot)
 	if err != nil {
 		return nil, fmt.Errorf("persistence bundle: root lock: %w", err)
 	}
@@ -99,35 +91,35 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		_ = metadataStore.Close()
 		return nil, fmt.Errorf("projects bundle: metadata service: %w", err)
 	}
-	askService := askview.NewService(runtimeRegistry)
-	approvalService := approvalview.NewService(runtimeRegistry)
-	processService := processview.NewService(runtimeSupport.Background)
-	processOutputService := processoutput.NewService(runtimeSupport.Background, runtimeSupport.Background)
+	askService := promptcontrol.NewAskViewService(runtimeRegistry)
+	approvalService := promptcontrol.NewApprovalViewService(runtimeRegistry)
+	processService := processview.NewProcessViewService(runtimeSupport.Background)
+	processOutputService := processview.NewProcessOutputService(runtimeSupport.Background, runtimeSupport.Background)
 	sessionRuntimeService := sessionruntime.NewService(cfg.PersistenceRoot, metadataStore, authSupport.AuthManager, runtimeSupport.FastModeState, runtimeSupport.Background, runtimeSupport.BackgroundRouter, runtimeRegistry, sessionStoreRegistry, storeOptions...).
 		WithGeneratedRecoveredWarningProvider(func() (string, bool, error) {
-			nonEmpty, err := generated.RecoveredRootNonEmpty()
+			nonEmpty, err := prompts.RecoveredRootNonEmpty()
 			if err != nil {
 				return "", false, err
 			}
 			if !nonEmpty {
 				return "", false, nil
 			}
-			return generated.RecoveredWarning(), true, nil
+			return prompts.RecoveredWarning(), true, nil
 		})
-	promptControlService := promptcontrol.NewService(runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService)
-	promptActivityService := promptactivity.NewService(runtimeRegistry)
+	promptControlService := promptcontrol.NewPromptControlService(runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService)
+	promptActivityService := promptcontrol.NewPromptActivityService(runtimeRegistry)
 	runtimeControlService := runtimecontrol.NewService(runtimeRegistry, runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService).WithPromptHistoryStore(metadataStore)
 	worktreeService := worktree.NewService(metadataStore, nil, runtimeRegistry, sessionRuntimeService, runtimeSupport.Background, runtimeControlService, worktree.ServiceOptions{BaseDir: cfg.Settings.Worktrees.BaseDir, SetupScript: cfg.Settings.Worktrees.SetupScript})
 	projectViews := client.NewLoopbackProjectViewClient(projectService)
-	authBootstrapService := authbootstrap.NewService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings, rpccontract.AllowedPreAuthMethods())
-	authStatusService := authstatus.NewService(authSupport.AuthManager, cfg.Settings)
-	serverStatusService := serverstatus.NewService(authSupport.AuthManager, cfg)
-	updateStatusService := updatestatus.NewService(buildinfo.Version)
+	authBootstrapService := authservice.NewBootstrapService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings, rpccontract.AllowedPreAuthMethods())
+	authStatusService := authservice.NewStatusService(authSupport.AuthManager, cfg.Settings)
+	serverStatusService := serverstatus.NewServerStatusService(authSupport.AuthManager, cfg)
+	updateStatusService := serverstatus.NewUpdateStatusService(config.Version)
 	sessionViewService := sessionview.NewService(registry.NewGlobalPersistenceSessionResolver(cfg.PersistenceRoot, storeOptions...), runtimeRegistry, metadataStore).WithCacheWarningMode(cfg.Settings.CacheWarningMode).WithUpdateStatusProvider(updateStatusService)
-	sessionLifecycleService := sessionlifecycle.NewGlobalService(cfg.PersistenceRoot, sessionStoreRegistry, authSupport.AuthManager, storeOptions...).WithControllerLeaseVerifier(sessionRuntimeService)
-	sessionActivityService := sessionactivity.NewService(runtimeRegistry)
+	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, sessionStoreRegistry, authSupport.AuthManager, storeOptions...).WithControllerLeaseVerifier(sessionRuntimeService)
+	sessionActivityService := sessionservice.NewSessionActivityService(runtimeRegistry)
 	var workflowRuntimeStarter *workflowrunner.Starter
-	var workflowScheduler *workflowscheduler.Service
+	var workflowScheduler *workflowrunner.SchedulerService
 	cleanupNewFailure := func() {
 		sleepManager.Close()
 		if workflowScheduler != nil {
@@ -158,7 +150,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: runtime starter: %w", err)
 	}
-	workflowScheduler, err = workflowscheduler.New(workflowStore, workflowRuntimeStarter, workflowscheduler.Config{Concurrency: cfg.Settings.Workflow.Concurrency}, workflowscheduler.WithPendingAskResolver(runtimePendingAskResolver{prompts: runtimeRegistry}))
+	workflowScheduler, err = workflowrunner.NewSchedulerService(workflowStore, workflowRuntimeStarter, workflowrunner.SchedulerConfig{Concurrency: cfg.Settings.Workflow.Concurrency}, workflowrunner.WithSchedulerPendingAskResolver(runtimePendingAskResolver{prompts: runtimeRegistry}))
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: scheduler: %w", err)

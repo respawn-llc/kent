@@ -7,11 +7,9 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/clientui"
 	"core/shared/toolspec"
 	"core/shared/transcript"
-	"core/shared/transcript/toolcodec"
 	"errors"
 	"reflect"
 	"strings"
@@ -508,7 +506,7 @@ func TestHandleProjectedRuntimeEventAppendsTranscriptEntriesImmediately(t *testi
 		ToolCall: &llm.ToolCall{
 			ID:           "call-1",
 			Name:         string(toolspec.ToolExecCommand),
-			Presentation: toolcodec.EncodeToolCallMeta(callMeta),
+			Presentation: transcript.EncodeToolCallMeta(callMeta),
 		},
 	}), true).cmd
 
@@ -575,9 +573,9 @@ func TestHandleProjectedRuntimeEventAppendsCompactionCacheWarningTranscriptEntry
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind:   runtime.EventCacheWarning,
 		StepID: "step-1",
-		CacheWarning: &cachewarn.Warning{
-			Scope:  cachewarn.ScopeConversation,
-			Reason: cachewarn.ReasonCompaction,
+		CacheWarning: &transcript.CacheWarning{
+			Scope:  transcript.CacheWarningScopeConversation,
+			Reason: transcript.CacheWarningReasonCompaction,
 		},
 	}), true).cmd
 
@@ -588,7 +586,7 @@ func TestHandleProjectedRuntimeEventAppendsCompactionCacheWarningTranscriptEntry
 	if entry.Role != "cache_warning" {
 		t.Fatalf("entry.Role = %q, want cache_warning", entry.Role)
 	}
-	expectedText := cachewarn.Text(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonCompaction})
+	expectedText := transcript.CacheWarningText(transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonCompaction})
 	if entry.Text != expectedText {
 		t.Fatalf("entry.Text = %q, want compaction cache warning", entry.Text)
 	}
@@ -603,7 +601,7 @@ func TestHandleProjectedRuntimeEventKeepsDefaultCacheWarningOutOfOngoingMode(t *
 	m := newProjectedStaticUIModel()
 	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})
 
-	warning := cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}
+	warning := transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind:                   runtime.EventCacheWarning,
 		StepID:                 "step-1",
@@ -612,13 +610,13 @@ func TestHandleProjectedRuntimeEventKeepsDefaultCacheWarningOutOfOngoingMode(t *
 	}), true).cmd
 
 	ongoing := stripANSIPreserve(m.view.OngoingSnapshot())
-	if strings.Contains(ongoing, cachewarn.Text(warning)) {
+	if strings.Contains(ongoing, transcript.CacheWarningText(warning)) {
 		t.Fatalf("expected default cache warning hidden in ongoing mode, got %q", ongoing)
 	}
 
 	detail := updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
 	detailView := stripANSIPreserve(detail.view.View())
-	if !strings.Contains(detailView, cachewarn.Text(warning)) {
+	if !strings.Contains(detailView, transcript.CacheWarningText(warning)) {
 		t.Fatalf("expected default cache warning visible in detail mode, got %q", detailView)
 	}
 }
@@ -637,7 +635,7 @@ func TestRuntimeEventBatchCoalescesCommittedNativeFlushAndPreservesOrder(t *test
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventLocalEntryAdded, StepID: "step-1", CommittedTranscriptChanged: true, CommittedEntryStart: 2, CommittedEntryStartSet: true, CommittedEntryCount: 3, LocalEntry: &runtime.ChatEntry{Role: "reviewer_status", Text: "Supervisor ran: 2 suggestions, applied."}}),
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventReviewerCompleted, StepID: "step-1", Reviewer: &runtime.ReviewerStatus{Outcome: "applied", SuggestionsCount: 2}}),
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventBackgroundUpdated, StepID: "step-1", Background: &runtime.BackgroundShellEvent{Type: "completed", ID: "1000", State: "completed", NoticeText: "Background shell 1000 completed.\nOutput:\nhello", CompactText: "Background shell 1000 completed"}}),
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventToolCallStarted, StepID: "step-1", ToolCall: &llm.ToolCall{ID: "call_1", Name: string(toolspec.ToolExecCommand), Presentation: toolcodec.EncodeToolCallMeta(callMeta)}}),
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventToolCallStarted, StepID: "step-1", ToolCall: &llm.ToolCall{ID: "call_1", Name: string(toolspec.ToolExecCommand), Presentation: transcript.EncodeToolCallMeta(callMeta)}}),
 	}
 	updated, cmd := m.Update(runtimeEventBatchMsg{events: firstBatch})
 	m = updated.(*uiModel)

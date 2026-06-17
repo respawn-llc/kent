@@ -10,7 +10,7 @@ import (
 
 	"core/server/metadata"
 	"core/server/requestmemo"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/server/workflowview"
@@ -640,11 +640,11 @@ func (d *recordingTaskWorktreeDeleter) DeleteTaskWorktree(_ context.Context, tas
 
 type recordingPromptResponder struct {
 	sessionID string
-	response  askquestion.Response
+	response  askquestion.AskQuestionResponse
 	err       error
 }
 
-func (r *recordingPromptResponder) SubmitPromptResponse(sessionID string, resp askquestion.Response, err error) error {
+func (r *recordingPromptResponder) SubmitPromptResponse(sessionID string, resp askquestion.AskQuestionResponse, err error) error {
 	r.sessionID = sessionID
 	r.response = resp
 	r.err = err

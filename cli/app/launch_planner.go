@@ -7,8 +7,7 @@ import (
 	"strings"
 
 	"core/cli/app/internal/projectbinding"
-	"core/cli/app/internal/statuscollect"
-	"core/shared/buildinfo"
+	"core/cli/app/internal/status"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -103,12 +102,12 @@ type launchPlannerServer interface {
 }
 
 type launchPlannerAuthStateProvider interface {
-	AuthStateResolver() statuscollect.AuthStateResolver
+	AuthStateResolver() status.AuthStateResolver
 	AuthStatePath() string
 }
 
 type launchPlannerAuthStateMetadata struct {
-	Resolver statuscollect.AuthStateResolver
+	Resolver status.AuthStateResolver
 	Path     string
 }
 
@@ -179,7 +178,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 			SessionViews:    p.server.SessionViewClient(),
 			Settings:        resp.Plan.ActiveSettings,
 			Source:          resp.Plan.Source,
-			AuthManager:     statuscollect.NormalizeAuthStateResolver(authState.Resolver),
+			AuthManager:     status.NormalizeAuthStateResolver(authState.Resolver),
 			AuthStatus:      p.server.AuthStatusClient(),
 			AuthStatePath:   authState.Path,
 			OwnsServer:      p.server.OwnsServer(),
@@ -282,7 +281,7 @@ func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHea
 		PersistenceRoot:   strings.TrimSpace(cfg.PersistenceRoot),
 		Settings:          cfg.Settings,
 		Source:            cfg.Source,
-		AuthCacheIdentity: statuscollect.AuthCacheIdentity(authState.Resolver),
+		AuthCacheIdentity: status.AuthCacheIdentity(authState.Resolver),
 		AuthStatus:        p.server.AuthStatusClient(),
 		AuthStatePath:     strings.TrimSpace(authState.Path),
 		ModelName:         strings.TrimSpace(cfg.Settings.Model),
@@ -290,9 +289,9 @@ func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHea
 		OwnsServer:        p.server.OwnsServer(),
 	})
 	return sessionPickerHeaderInfo{
-		Version:       buildinfo.Version,
+		Version:       config.Version,
 		StatusRequest: statusReq,
-		AuthManager:   statuscollect.NormalizeAuthStateResolver(authState.Resolver),
+		AuthManager:   status.NormalizeAuthStateResolver(authState.Resolver),
 		OwnsServer:    p != nil && p.server != nil && p.server.OwnsServer(),
 		ServerAddress: config.ServerListenAddress(cfg),
 	}

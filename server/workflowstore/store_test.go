@@ -14,7 +14,6 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/session"
 	"core/server/workflow"
-	"core/server/workflowjson"
 	"core/shared/config"
 )
 
@@ -906,7 +905,7 @@ func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) 
 		SourceRunID     string `json:"source_run_id"`
 		SourceSessionID string `json:"source_session_id"`
 	}{}
-	if err := workflowjson.UnmarshalString(runMetadataJSON, &runMetadata); err != nil {
+	if err := workflow.UnmarshalString(runMetadataJSON, &runMetadata); err != nil {
 		t.Fatalf("unmarshal target run metadata: %v", err)
 	}
 	if runMetadata.ContextMode != string(workflow.ContextModeContinueSession) || runMetadata.SourceRunID != string(started.RunID) {
@@ -936,7 +935,7 @@ func TestRunStartContextResolvesPriorTransitionParameters(t *testing.T) {
 	if input.PriorParameterValues["next"]["summary"] != "plan summary" {
 		t.Fatalf("prior parameter values = %+v, want next.summary", input.PriorParameterValues)
 	}
-	mutatedOutputs, err := workflowjson.MarshalString(map[string]string{"summary": "mutated later"})
+	mutatedOutputs, err := workflow.MarshalString(map[string]string{"summary": "mutated later"})
 	if err != nil {
 		t.Fatalf("marshal mutated outputs: %v", err)
 	}
@@ -1028,7 +1027,7 @@ func TestPriorTransitionParameterApprovalFreezesOutputValue(t *testing.T) {
 	if !pending.RequiresApproval {
 		t.Fatalf("completion result = %+v, want pending approval", pending)
 	}
-	mutatedOutputs, err := workflowjson.MarshalString(map[string]string{"summary": "mutated before approval"})
+	mutatedOutputs, err := workflow.MarshalString(map[string]string{"summary": "mutated before approval"})
 	if err != nil {
 		t.Fatalf("marshal mutated outputs: %v", err)
 	}
@@ -2310,11 +2309,11 @@ LIMIT 1`, string(transitions[0].ID)).Scan(&inputBindingsJSON, &outputRequirement
 		t.Fatalf("select transition edge snapshot: %v", err)
 	}
 	inputBindings := []workflow.InputBinding{}
-	if err := workflowjson.UnmarshalString(inputBindingsJSON, &inputBindings); err != nil {
+	if err := workflow.UnmarshalString(inputBindingsJSON, &inputBindings); err != nil {
 		t.Fatalf("unmarshal input bindings: %v", err)
 	}
 	outputRequirements := []workflow.OutputRequirement{}
-	if err := workflowjson.UnmarshalString(outputRequirementsJSON, &outputRequirements); err != nil {
+	if err := workflow.UnmarshalString(outputRequirementsJSON, &outputRequirements); err != nil {
 		t.Fatalf("unmarshal output requirements: %v", err)
 	}
 	if len(inputBindings) != 0 {
@@ -2566,7 +2565,7 @@ func mutateRunStartSnapshot(t *testing.T, ctx context.Context, store *Store, run
 		t.Fatalf("GetTaskRun: %v", err)
 	}
 	snapshot := runStartSnapshot{}
-	if err := workflowjson.UnmarshalString(row.RunStartSnapshotJson, &snapshot); err != nil {
+	if err := workflow.UnmarshalString(row.RunStartSnapshotJson, &snapshot); err != nil {
 		t.Fatalf("unmarshal snapshot: %v", err)
 	}
 	mutate(t, &snapshot)
@@ -2586,7 +2585,7 @@ func nodeSnapshotByID(t *testing.T, snapshot runStartSnapshot, nodeID workflow.N
 
 func updateRunStartSnapshot(t *testing.T, ctx context.Context, store *Store, runID workflow.RunID, snapshot runStartSnapshot) {
 	t.Helper()
-	snapshotJSON, err := workflowjson.MarshalString(snapshot)
+	snapshotJSON, err := workflow.MarshalString(snapshot)
 	if err != nil {
 		t.Fatalf("marshal snapshot: %v", err)
 	}
@@ -2803,7 +2802,7 @@ func TestRunStartContextHandlesMissingInputEdgeAndRejectsNonArrayInputJSON(t *te
 	if err != nil {
 		t.Fatalf("StartTask join inputs: %v", err)
 	}
-	joinInputsJSON, err := workflowjson.MarshalString([]workflow.InputBinding{{Name: "joined", Source: workflow.BindingSourceJoin, Field: "aggregate"}})
+	joinInputsJSON, err := workflow.MarshalString([]workflow.InputBinding{{Name: "joined", Source: workflow.BindingSourceJoin, Field: "aggregate"}})
 	if err != nil {
 		t.Fatalf("marshal join inputs: %v", err)
 	}

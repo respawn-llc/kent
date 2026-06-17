@@ -3,7 +3,7 @@ package sessionenv
 import (
 	"strings"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 const SessionIDEnv = brand.SessionIDEnv

@@ -15,10 +15,10 @@ import (
 	"core/server/runtime"
 	"core/server/runtimewire"
 	"core/server/tools"
-	"core/server/tools/askquestion"
+	askquestion "core/server/tools"
+	triggerhandofftool "core/server/tools"
 	patchtool "core/server/tools/patch"
 	shelltool "core/server/tools/shell"
-	triggerhandofftool "core/server/tools/triggerhandoff"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
@@ -68,9 +68,9 @@ func TestBuildLocalRuntimeHandler_CoversAllLocalToolContracts(t *testing.T) {
 		shellOutputMaxChars:    16_000,
 		allowNonCwdEdits:       false,
 		supportsVision:         true,
-		askQuestionBroker:      askquestion.NewBroker(),
+		askQuestionBroker:      askquestion.NewAskQuestionBroker(),
 		backgroundShellManager: background,
-		triggerHandoffController: func() triggerhandofftool.Controller {
+		triggerHandoffController: func() triggerhandofftool.TriggerHandoffController {
 			return stubTriggerHandoffController{}
 		},
 		outsideWorkspaceEditApprover: func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
@@ -148,11 +148,11 @@ func TestBuildToolRegistry_ViewImageApprovedOutsidePathSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build tool registry: %v", err)
 	}
-	broker.SetAskHandler(func(req askquestion.Request) (askquestion.Response, error) {
+	broker.SetAskHandler(func(req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 		if !strings.Contains(req.Question, "Allow reading") {
 			t.Fatalf("expected read-focused approval question, got %q", req.Question)
 		}
-		return askquestion.Response{Approval: &askquestion.ApprovalPayload{Decision: askquestion.ApprovalDecisionAllowOnce}}, nil
+		return askquestion.AskQuestionResponse{Approval: &askquestion.AskQuestionApprovalPayload{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}}, nil
 	})
 
 	viewImageHandler, ok := registry.Get(toolspec.ToolViewImage)
@@ -214,9 +214,9 @@ func TestBuildToolRegistry_ViewImageConfiguredAllowBypassesApprovalForOutsidePat
 	}
 
 	askCalls := 0
-	broker.SetAskHandler(func(req askquestion.Request) (askquestion.Response, error) {
+	broker.SetAskHandler(func(req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
 		askCalls++
-		return askquestion.Response{Approval: &askquestion.ApprovalPayload{Decision: askquestion.ApprovalDecisionAllowOnce}}, nil
+		return askquestion.AskQuestionResponse{Approval: &askquestion.AskQuestionApprovalPayload{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}}, nil
 	})
 
 	viewImageHandler, ok := registry.Get(toolspec.ToolViewImage)

@@ -15,7 +15,7 @@ import (
 	"core/server/runtimeview"
 	"core/server/runtimewire"
 	"core/server/sessionlaunch"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/client"
 	"core/shared/serverapi"
@@ -217,8 +217,8 @@ func (r *headlessPromptRuntime) Close() error {
 	return nil
 }
 
-func RunPromptAskHandler(req askquestion.Request) (askquestion.Response, error) {
-	return askquestion.Response{}, ErrHeadlessAskUnsupported
+func RunPromptAskHandler(req askquestion.AskQuestionRequest) (askquestion.AskQuestionResponse, error) {
+	return askquestion.AskQuestionResponse{}, ErrHeadlessAskUnsupported
 }
 
 func PublishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runtime.Event) {

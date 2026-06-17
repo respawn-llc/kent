@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"core/cli/app/internal/embeddedstartup"
-	"core/cli/app/internal/onboardingready"
+	"core/cli/app/internal/embeddedattach"
+	"core/cli/app/internal/onboarding"
 	"core/shared/config"
 )
 
@@ -13,7 +13,7 @@ func startEmbeddedServer(ctx context.Context, opts Options, interactor authInter
 	if interactor == nil {
 		return nil, errors.New("auth interactor is required")
 	}
-	server, err := embeddedstartup.Start(ctx, embeddedstartup.Request{
+	server, err := embeddedattach.Start(ctx, embeddedattach.StartupRequest{
 		WorkspaceRoot:         opts.WorkspaceRoot,
 		WorkspaceRootExplicit: opts.WorkspaceRootExplicit,
 		SessionID:             opts.SessionID,
@@ -27,18 +27,18 @@ func startEmbeddedServer(ctx context.Context, opts Options, interactor authInter
 			ModelTimeoutSeconds: opts.ModelTimeoutSeconds,
 			Tools:               opts.Tools,
 		},
-	}, interactor, func(ctx context.Context, req embeddedstartup.OnboardingRequest) (config.App, error) {
-		cfg, _, err := onboardingready.Ensure(ctx, onboardingready.Request{
+	}, interactor, func(ctx context.Context, req embeddedattach.OnboardingRequest) (config.App, error) {
+		cfg, _, err := onboarding.Ensure(ctx, onboarding.Request{
 			Config:       req.Config,
 			AuthManager:  req.AuthManager,
 			Interactive:  interactive,
 			ReloadConfig: req.ReloadConfig,
-			Runner: func(ctx context.Context, cfg config.App, authState onboardingready.AuthState) (onboardingready.Result, error) {
+			Runner: func(ctx context.Context, cfg config.App, authState onboarding.AuthState) (onboarding.Result, error) {
 				result, err := runOnboardingFlow(cfg, authState)
 				if err != nil {
-					return onboardingready.Result{}, err
+					return onboarding.Result{}, err
 				}
-				return onboardingready.Result{
+				return onboarding.Result{
 					Completed:            result.Completed,
 					CreatedDefaultConfig: result.CreatedDefaultConfig,
 					SettingsPath:         result.SettingsPath,

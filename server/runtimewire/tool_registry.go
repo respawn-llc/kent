@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 
 	"core/server/tools"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
+	triggerhandofftool "core/server/tools"
 	edittool "core/server/tools/edit"
 	patchtool "core/server/tools/patch"
 	readimagetool "core/server/tools/readimage"
 	shelltool "core/server/tools/shell"
-	triggerhandofftool "core/server/tools/triggerhandoff"
 	"core/shared/toolspec"
 	"errors"
 	"fmt"
@@ -34,10 +34,10 @@ type LocalToolRuntimeContext struct {
 	ShellOutputMaxChars             int
 	AllowNonCwdEdits                bool
 	SupportsVision                  bool
-	AskQuestionBroker               *askquestion.Broker
+	AskQuestionBroker               *askquestion.AskQuestionBroker
 	QuestionsEnabledGetter          func() bool
 	BackgroundShellManager          *shelltool.Manager
-	TriggerHandoffController        func() triggerhandofftool.Controller
+	TriggerHandoffController        func() triggerhandofftool.TriggerHandoffController
 	OutsideWorkspaceEditApprover    patchtool.OutsideWorkspaceApprover
 	OutsideWorkspaceReadApprover    patchtool.OutsideWorkspaceApprover
 	ViewImageOutsideWorkspaceLogger readimagetool.OutsideWorkspaceAuditLogger
@@ -85,14 +85,14 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		if ctx.AskQuestionBroker == nil {
 			return nil, fmt.Errorf("ask_question broker is unavailable")
 		}
-		return askquestion.NewTool(ctx.AskQuestionBroker, ctx.QuestionsEnabledGetter), nil
+		return askquestion.NewAskQuestionTool(ctx.AskQuestionBroker, ctx.QuestionsEnabledGetter), nil
 	case tools.LocalRuntimeBuilderCompleteNode:
 		return completeNodeUnavailableTool{}, nil
 	case tools.LocalRuntimeBuilderTriggerHandoff:
 		if ctx.TriggerHandoffController == nil {
 			return nil, fmt.Errorf("trigger_handoff controller is unavailable")
 		}
-		return triggerhandofftool.New(ctx.TriggerHandoffController), nil
+		return triggerhandofftool.NewTriggerHandoffTool(ctx.TriggerHandoffController), nil
 	case tools.LocalRuntimeBuilderViewImage:
 		if ctx.OutsideWorkspaceReadApprover == nil {
 			return nil, fmt.Errorf("view_image outside-workspace approver is unavailable")
@@ -172,12 +172,12 @@ func (b *LocalToolRegistryBinding) rebuild() error {
 	return nil
 }
 
-func NewLocalToolRegistryBinding(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger Logger, background *shelltool.Manager, triggerHandoffController func() triggerhandofftool.Controller, questionsEnabledGetter func() bool) (*LocalToolRegistryBinding, *askquestion.Broker, *shelltool.Manager, error) {
+func NewLocalToolRegistryBinding(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger Logger, background *shelltool.Manager, triggerHandoffController func() triggerhandofftool.TriggerHandoffController, questionsEnabledGetter func() bool) (*LocalToolRegistryBinding, *askquestion.AskQuestionBroker, *shelltool.Manager, error) {
 	trimmedRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedRoot == "" {
 		return nil, nil, nil, errWorkspaceRootRequired
 	}
-	broker := askquestion.NewBroker()
+	broker := askquestion.NewAskQuestionBroker()
 	if background == nil {
 		var err error
 		background, err = shelltool.NewManager(shelltool.WithMinimumExecToBgTime(minimumExecToBgTime))
@@ -224,7 +224,7 @@ func NewLocalToolRegistryBinding(workspaceRoot string, ownerSessionID string, en
 	return binding, broker, background, nil
 }
 
-func BuildToolRegistry(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger Logger, background *shelltool.Manager, triggerHandoffController func() triggerhandofftool.Controller, questionsEnabledGetter func() bool) (*tools.Registry, *askquestion.Broker, *shelltool.Manager, error) {
+func BuildToolRegistry(workspaceRoot string, ownerSessionID string, enabled []toolspec.ID, minimumExecToBgTime time.Duration, shellOutputMaxChars int, allowNonCwdEdits bool, supportsVision bool, logger Logger, background *shelltool.Manager, triggerHandoffController func() triggerhandofftool.TriggerHandoffController, questionsEnabledGetter func() bool) (*tools.Registry, *askquestion.AskQuestionBroker, *shelltool.Manager, error) {
 	binding, broker, background, err := NewLocalToolRegistryBinding(
 		workspaceRoot,
 		ownerSessionID,

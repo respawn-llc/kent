@@ -8,7 +8,6 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
-	"core/shared/cachewarn"
 	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -391,7 +390,7 @@ func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPag
 
 func TestPersistedTranscriptScanReplaysCacheWarnings(t *testing.T) {
 	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
-	if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix})); err != nil {
+	if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
 		t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
 	}
 
@@ -402,7 +401,7 @@ func TestPersistedTranscriptScanReplaysCacheWarnings(t *testing.T) {
 	if page.Entries[0].Role != cacheWarningTranscriptRole {
 		t.Fatalf("entry role = %q, want %q", page.Entries[0].Role, cacheWarningTranscriptRole)
 	}
-	if page.Entries[0].Text != cachewarn.Text(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}) {
+	if page.Entries[0].Text != transcript.CacheWarningText(transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}) {
 		t.Fatalf("unexpected cache warning text: %+v", page.Entries[0])
 	}
 }
@@ -419,7 +418,7 @@ func TestPersistedTranscriptScanUsesCacheWarningModeVisibility(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: tt.mode})
-			if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix})); err != nil {
+			if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
 				t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
 			}
 

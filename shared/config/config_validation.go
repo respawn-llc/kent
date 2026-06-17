@@ -1,12 +1,10 @@
 package config
 
 import (
+	"core/shared/theme"
 	"errors"
 	"fmt"
 	"strings"
-
-	"core/shared/compaction"
-	"core/shared/theme"
 )
 
 func validateSubagentRoleState(state settingsState, sources map[string]string) error {
@@ -79,20 +77,20 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 	if state.Settings.ContextCompactionThresholdTokens >= state.Settings.ModelContextWindow {
 		return fmt.Errorf("context_compaction_threshold_tokens must be < model_context_window")
 	}
-	minimumThreshold := compaction.MinimumThresholdTokens(state.Settings.ModelContextWindow)
+	minimumThreshold := MinimumThresholdTokens(state.Settings.ModelContextWindow)
 	if state.Settings.ContextCompactionThresholdTokens < minimumThreshold {
 		return fmt.Errorf(
 			"%w: context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
 			errCompactionThresholdBelowMinimum,
 			minimumThreshold,
-			compaction.MinimumWindowPercent,
+			MinimumWindowPercent,
 			state.Settings.ModelContextWindow,
 		)
 	}
 	if !hasLead {
 		return nil
 	}
-	effectivePreSubmitThreshold := compaction.EffectivePreSubmitThresholdTokens(
+	effectivePreSubmitThreshold := EffectivePreSubmitThresholdTokens(
 		state.Settings.ContextCompactionThresholdTokens,
 		state.Settings.PreSubmitCompactionLeadTokens,
 	)
@@ -102,7 +100,7 @@ func validateSubagentRoleContext(state settingsState, sources map[string]string)
 			errPreSubmitThresholdBelowMinimum,
 			effectivePreSubmitThreshold,
 			minimumThreshold,
-			compaction.MinimumWindowPercent,
+			MinimumWindowPercent,
 			state.Settings.ModelContextWindow,
 		)
 	}
@@ -309,17 +307,17 @@ func validateContextWindow(state settingsState, _ map[string]string) error {
 	if state.Settings.PreSubmitCompactionLeadTokens <= 0 {
 		return fmt.Errorf("pre_submit_compaction_lead_tokens must be > 0")
 	}
-	minimumThreshold := compaction.MinimumThresholdTokens(state.Settings.ModelContextWindow)
+	minimumThreshold := MinimumThresholdTokens(state.Settings.ModelContextWindow)
 	if state.Settings.ContextCompactionThresholdTokens < minimumThreshold {
 		return fmt.Errorf(
 			"%w: context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
 			errCompactionThresholdBelowMinimum,
 			minimumThreshold,
-			compaction.MinimumWindowPercent,
+			MinimumWindowPercent,
 			state.Settings.ModelContextWindow,
 		)
 	}
-	effectivePreSubmitThreshold := compaction.EffectivePreSubmitThresholdTokens(
+	effectivePreSubmitThreshold := EffectivePreSubmitThresholdTokens(
 		state.Settings.ContextCompactionThresholdTokens,
 		state.Settings.PreSubmitCompactionLeadTokens,
 	)
@@ -329,7 +327,7 @@ func validateContextWindow(state settingsState, _ map[string]string) error {
 			errPreSubmitThresholdBelowMinimum,
 			effectivePreSubmitThreshold,
 			minimumThreshold,
-			compaction.MinimumWindowPercent,
+			MinimumWindowPercent,
 			state.Settings.ModelContextWindow,
 		)
 	}

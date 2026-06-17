@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 type systemdServiceBackend struct{}

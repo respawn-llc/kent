@@ -12,7 +12,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 	"core/shared/transcript"
-	"core/shared/transcript/toolcodec"
 	"encoding/json"
 	"errors"
 	"io"
@@ -527,7 +526,7 @@ func (c *queuedSteerDuringBlockingToolClient) GenerateStream(_ context.Context, 
 				ID:    "call-1",
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"command":"sleep 1"}`),
-				Presentation: toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
+				Presentation: transcript.EncodeToolCallMeta(transcript.ToolCallMeta{
 					ToolName:    "shell",
 					IsShell:     true,
 					Command:     "sleep 1",

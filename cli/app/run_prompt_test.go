@@ -6,22 +6,19 @@ import (
 	"core/cli/app/internal/daemonlaunch"
 	"core/cli/app/internal/remoteattach"
 	"core/server/auth"
-	"core/server/authflow"
+	"core/server/authservice"
 	"core/server/launch"
 	"core/server/runprompt"
 	"core/server/runtime"
-	"core/server/serve"
 	"core/server/session"
 	serverstartup "core/server/startup"
-	"core/server/tools/askquestion"
-	"core/shared/brand"
+	askquestion "core/server/tools"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
-	"core/shared/testopenai"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -76,7 +73,7 @@ func saveReadyAppAuthState(t *testing.T, workspace string) {
 func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	worktree := filepath.Join(home, brand.ConfigDirName, "worktrees", "project", "feature")
+	worktree := filepath.Join(home, config.ConfigDirName, "worktrees", "project", "feature")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("mkdir worktree: %v", err)
 	}
@@ -136,7 +133,7 @@ func TestLoadRemoteAttachConfigKeepsExplicitSessionLookupStrict(t *testing.T) {
 func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	worktree := filepath.Join(home, brand.ConfigDirName, "worktrees", "project", "feature")
+	worktree := filepath.Join(home, config.ConfigDirName, "worktrees", "project", "feature")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("mkdir worktree: %v", err)
 	}
@@ -397,12 +394,12 @@ func (h memoryAuthHandler) WrapStore(auth.Store) auth.Store {
 	return auth.NewMemoryStore(h.state)
 }
 
-func (memoryAuthHandler) NeedsInteraction(req authflow.InteractionRequest) bool {
+func (memoryAuthHandler) NeedsInteraction(req authservice.FlowInteractionRequest) bool {
 	return !req.Gate.Ready
 }
 
-func (memoryAuthHandler) Interact(context.Context, authflow.InteractionRequest) (authflow.InteractionOutcome, error) {
-	return authflow.InteractionOutcome{}, auth.ErrAuthNotConfigured
+func (memoryAuthHandler) Interact(context.Context, authservice.FlowInteractionRequest) (authservice.FlowInteractionOutcome, error) {
+	return authservice.FlowInteractionOutcome{}, auth.ErrAuthNotConfigured
 }
 
 func (h memoryAuthHandler) LookupEnv(key string) string {
@@ -505,7 +502,7 @@ func TestWriteRunProgressEventOnlyWritesSelectedKinds(t *testing.T) {
 }
 
 func TestRunPromptAskHandlerReturnsError(t *testing.T) {
-	_, err := runprompt.RunPromptAskHandler(askquestion.Request{Question: "Need approval?"})
+	_, err := runprompt.RunPromptAskHandler(askquestion.AskQuestionRequest{Question: "Need approval?"})
 	if !errors.Is(err, runprompt.ErrHeadlessAskUnsupported) {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -540,7 +537,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"daemon reply"})
 	defer fakeResponses.Close()
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -613,13 +610,13 @@ func TestStartRunPromptClientFallsBackToEmbeddedWhenDaemonLaunchFails(t *testing
 	_, workspace := newRegisteredAppWorkspace(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if testopenai.HandleInputTokenCount(w, r, 1) {
+		if handleTestOpenAIInputTokenCount(w, r, 1) {
 			return
 		}
 		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
-		testopenai.WriteCompletedResponseStream(w, "embedded fallback", 1, 1)
+		writeTestOpenAICompletedResponseStream(w, "embedded fallback", 1, 1)
 	}))
 	defer server.Close()
 
@@ -698,7 +695,7 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 	overrideResponses, overrideHits := newFakeResponsesServer(t, []string{"override reply"})
 	defer overrideResponses.Close()
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",

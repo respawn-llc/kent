@@ -23,7 +23,7 @@ func withUIBackgroundManagerForTest(manager *shelltool.Manager) UIOption {
 		if manager == nil || m.processClientExplicit {
 			return
 		}
-		processes := processview.NewService(manager)
+		processes := processview.NewProcessViewService(manager)
 		m.processClient = newUIProcessClientWithReads(
 			client.NewLoopbackProcessViewClient(processes),
 			client.NewLoopbackProcessControlClient(processes),
@@ -102,7 +102,7 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 		t.Fatal("expected background process")
 	}
 
-	processes := processview.NewService(manager)
+	processes := processview.NewProcessViewService(manager)
 	client := newUIProcessClientWithReads(
 		client.NewLoopbackProcessViewClient(processes),
 		client.NewLoopbackProcessControlClient(processes),

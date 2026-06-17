@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"core/shared/cachewarn"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"encoding/json"
@@ -84,11 +83,11 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "session-1/cache-key",
-			Scope:         cachewarn.ScopeConversation,
+			Scope:         transcript.CacheWarningScopeConversation,
 		},
-		exactWarning: &cachewarn.Warning{
-			Scope:  cachewarn.ScopeConversation,
-			Reason: cachewarn.ReasonNonPostfix,
+		exactWarning: &transcript.CacheWarning{
+			Scope:  transcript.CacheWarningScopeConversation,
+			Reason: transcript.CacheWarningReasonNonPostfix,
 		},
 		previousCachedInputTokens: 10,
 	}, llm.Usage{HasCachedInputTokens: true, CachedInputTokens: 0}); err != nil {
@@ -226,11 +225,11 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 			request: persistedCacheRequestObserved{
 				DigestVersion: requestCacheDigestVersion,
 				CacheKey:      "session-1/cache-key",
-				Scope:         cachewarn.ScopeConversation,
+				Scope:         transcript.CacheWarningScopeConversation,
 			},
-			exactWarning: &cachewarn.Warning{
-				Scope:  cachewarn.ScopeConversation,
-				Reason: cachewarn.ReasonNonPostfix,
+			exactWarning: &transcript.CacheWarning{
+				Scope:  transcript.CacheWarningScopeConversation,
+				Reason: transcript.CacheWarningReasonNonPostfix,
 			},
 			previousCachedInputTokens: 10,
 		}, llm.Usage{HasCachedInputTokens: true, CachedInputTokens: 0})

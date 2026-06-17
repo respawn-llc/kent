@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"core/shared/rpccontract"
+	rpccontract "core/shared/apicontract"
 )
 
 type remoteRouteCall struct {
@@ -107,7 +107,7 @@ func TestLoopbackClientsExposeEveryRemoteRouteBinding(t *testing.T) {
 		}
 		serviceType, ok := loopbackServiceMethods[call.methodName]
 		if !ok {
-			t.Fatalf("route %q client method %q loopback binding is not backed by shared/servicecontract", route.Method, call.methodName)
+			t.Fatalf("route %q client method %q loopback binding is not backed by shared/apicontract service contracts", route.Method, call.methodName)
 		}
 		if want := expectedLoopbackServiceContractType(route.Dependency); serviceType != want {
 			t.Fatalf("route %q client method %q loopback service = %q, want %q", route.Method, call.methodName, serviceType, want)
@@ -313,9 +313,9 @@ func clientInterfaceMethods(t *testing.T, dir string) map[string]struct{} {
 
 func serviceContractInterfaceMethods(t *testing.T, clientDir string) map[string]map[string]struct{} {
 	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(clientDir, "..", "servicecontract", "services.go"), nil, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(clientDir, "..", "apicontract", "service_contracts.go"), nil, 0)
 	if err != nil {
-		t.Fatalf("parse servicecontract/services.go: %v", err)
+		t.Fatalf("parse apicontract/service_contracts.go: %v", err)
 	}
 	out := map[string]map[string]struct{}{}
 	for _, decl := range file.Decls {

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"core/prompts"
-	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
@@ -68,7 +67,7 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := newCommandFlagSet(brand.Command+" task", stderr, taskUsage)
+		fs := newCommandFlagSet(config.Command+" task", stderr, taskUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -96,14 +95,14 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return taskCommentSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown task command: %s\n\n", args[0])
-		fs := newCommandFlagSet(brand.Command+" task", stderr, taskUsage)
+		fs := newCommandFlagSet(config.Command+" task", stderr, taskUsage)
 		taskUsage.write(fs)
 		return 2
 	}
 }
 
 func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task create", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task create", stderr, taskCommandUsage)
 	title := fs.String("title", "", "task title")
 	body := fs.String("body", "", "task body")
 	bodyFile := fs.String("body-file", "", "path to task body file")
@@ -166,7 +165,7 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task start", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task start", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
@@ -208,7 +207,7 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 }
 
 func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task list", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task list", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path")
 	pageSize := fs.Int("page-size", taskListDefaultPageSize, "maximum tasks to print")
 	pageToken := fs.String("page-token", "", "page token from a previous task list response")
@@ -313,7 +312,7 @@ func taskListStatus(task serverapi.WorkflowTaskSummary) string {
 }
 
 func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task show", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task show", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
@@ -370,7 +369,7 @@ func taskShowOutputFromDetail(task serverapi.WorkflowTaskDetail) taskShowOutput 
 }
 
 func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task cancel", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task cancel", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	reason := fs.String("reason", "", "cancel reason")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
@@ -412,7 +411,7 @@ func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task resume", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task resume", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
@@ -454,7 +453,7 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task approve", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task approve", stderr, taskCommandUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -494,7 +493,7 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 }
 
 func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task move", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task move", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	commentary := fs.String("commentary", "", "transition commentary")
 	outputs := stringMapFlag{}
@@ -564,7 +563,7 @@ func (f *stringMapFlag) Set(raw string) error {
 
 func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := newCommandFlagSet(brand.Command+" task comment", stderr, taskUsage)
+		fs := newCommandFlagSet(config.Command+" task comment", stderr, taskUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -582,14 +581,14 @@ func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 		return taskCommentDeleteSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown task comment command: %s\n\n", args[0])
-		fs := newCommandFlagSet(brand.Command+" task comment", stderr, taskUsage)
+		fs := newCommandFlagSet(config.Command+" task comment", stderr, taskUsage)
 		taskUsage.write(fs)
 		return 2
 	}
 }
 
 func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task comment add", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task comment add", stderr, taskCommandUsage)
 	body := fs.String("body", "", "comment body")
 	bodyFile := fs.String("body-file", "", "path to comment body file")
 	author := fs.String("author", "", "comment author")
@@ -786,7 +785,7 @@ func sessionAgentAuthorID(ctx context.Context, remote workflowCommandRemote, ses
 }
 
 func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task comment list", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task comment list", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	pageSize := fs.Int("page-size", taskCommentListDefaultPageSize, "maximum comments to print")
 	pageToken := fs.String("page-token", "", "page token from a previous task comment list response")
@@ -837,7 +836,7 @@ func writeTaskCommentList(stdout io.Writer, comments []serverapi.WorkflowTaskCom
 }
 
 func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task comment replace", stderr, taskCommandUsage)
+	fs := newCommandFlagSet(config.Command+" task comment replace", stderr, taskCommandUsage)
 	body := fs.String("body", "", "replacement comment body")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
@@ -865,7 +864,7 @@ func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Wri
 }
 
 func taskCommentDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(brand.Command+" task comment delete", stderr, taskUsage)
+	fs := newCommandFlagSet(config.Command+" task comment delete", stderr, taskUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -1275,7 +1274,7 @@ func writeTaskDetailComments(stdout io.Writer, shortID string, comments []server
 		return
 	}
 	if len(comments) >= 10 {
-		fmt.Fprintf(stdout, "Comments under this task: %d. `"+brand.Command+" task comment list %s` to show them.\n", len(comments), shortID)
+		fmt.Fprintf(stdout, "Comments under this task: %d. `"+config.Command+" task comment list %s` to show them.\n", len(comments), shortID)
 		return
 	}
 	sortedComments := sortedTaskCommentsByCreatedAt(comments)

@@ -12,7 +12,6 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
-	"core/shared/cachewarn"
 	"core/shared/config"
 	"core/shared/transcript"
 )
@@ -26,21 +25,21 @@ const (
 )
 
 type persistedCacheRequestObserved struct {
-	DigestVersion int             `json:"digest_version,omitempty"`
-	CacheKey      string          `json:"cache_key"`
-	Scope         cachewarn.Scope `json:"scope,omitempty"`
-	ChunkCount    int             `json:"chunk_count"`
-	TerminalHash  string          `json:"terminal_hash"`
+	DigestVersion int                          `json:"digest_version,omitempty"`
+	CacheKey      string                       `json:"cache_key"`
+	Scope         transcript.CacheWarningScope `json:"scope,omitempty"`
+	ChunkCount    int                          `json:"chunk_count"`
+	TerminalHash  string                       `json:"terminal_hash"`
 }
 
 type persistedCacheResponseObserved struct {
-	DigestVersion        int             `json:"digest_version,omitempty"`
-	CacheKey             string          `json:"cache_key"`
-	Scope                cachewarn.Scope `json:"scope,omitempty"`
-	ChunkCount           int             `json:"chunk_count"`
-	TerminalHash         string          `json:"terminal_hash"`
-	HasCachedInputTokens bool            `json:"has_cached_input_tokens,omitempty"`
-	CachedInputTokens    int             `json:"cached_input_tokens,omitempty"`
+	DigestVersion        int                          `json:"digest_version,omitempty"`
+	CacheKey             string                       `json:"cache_key"`
+	Scope                transcript.CacheWarningScope `json:"scope,omitempty"`
+	ChunkCount           int                          `json:"chunk_count"`
+	TerminalHash         string                       `json:"terminal_hash"`
+	HasCachedInputTokens bool                         `json:"has_cached_input_tokens,omitempty"`
+	CachedInputTokens    int                          `json:"cached_input_tokens,omitempty"`
 }
 
 type requestCacheLineage struct {
@@ -48,12 +47,12 @@ type requestCacheLineage struct {
 	lastResponseHadReuse  bool
 	lastCachedInputTokens int
 	hasResponse           bool
-	pendingCause          cachewarn.Reason
+	pendingCause          transcript.CacheWarningReason
 }
 
 type preparedCacheRequestObservation struct {
 	request                   persistedCacheRequestObserved
-	exactWarning              *cachewarn.Warning
+	exactWarning              *transcript.CacheWarning
 	previousHadReuse          bool
 	previousCachedInputTokens int
 	hasPreviousResponse       bool
@@ -103,17 +102,17 @@ func (t *requestCacheTracker) Prepare(req llm.Request) (preparedCacheRequestObse
 	observation.previousCachedInputTokens = previous.lastCachedInputTokens
 	observation.hasPreviousResponse = previous.hasResponse
 	if !shape.HasPrefix(previous.request.ChunkCount, previous.request.TerminalHash) {
-		reason := cachewarn.ReasonNonPostfix
+		reason := transcript.CacheWarningReasonNonPostfix
 		if strings.TrimSpace(string(previous.pendingCause)) != "" {
 			reason = previous.pendingCause
 		}
-		warning := cachewarn.Warning{Scope: request.Scope, Reason: reason, CacheKey: cacheKey}
+		warning := transcript.CacheWarning{Scope: request.Scope, Reason: reason, CacheKey: cacheKey}
 		observation.exactWarning = &warning
 	}
 	return observation, nil
 }
 
-func (t *requestCacheTracker) RecordInvalidation(cacheKey string, reason cachewarn.Reason) {
+func (t *requestCacheTracker) RecordInvalidation(cacheKey string, reason transcript.CacheWarningReason) {
 	cacheKey = strings.TrimSpace(cacheKey)
 	if cacheKey == "" || strings.TrimSpace(string(reason)) == "" {
 		return
@@ -201,7 +200,7 @@ func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCach
 		CachedInputTokens:    usage.CachedInputTokens,
 	}
 	events := make([]session.EventInput, 0, 3)
-	var warning *cachewarn.Warning
+	var warning *transcript.CacheWarning
 	if prepared.exactWarning != nil && e.cfg.CacheWarningMode != config.CacheWarningModeOff {
 		lostInputTokens := lostCachedInputTokens(prepared, usage)
 		if lostInputTokens > 0 {
@@ -212,7 +211,7 @@ func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCach
 	} else if shouldWarnOnCacheReuseDrop(e.cfg.CacheWarningMode, prepared, usage) {
 		lostInputTokens := lostCachedInputTokens(prepared, usage)
 		if lostInputTokens > 0 {
-			warning = &cachewarn.Warning{Scope: prepared.request.Scope, Reason: cachewarn.ReasonReuseDropped, CacheKey: prepared.request.CacheKey, LostInputTokens: lostInputTokens}
+			warning = &transcript.CacheWarning{Scope: prepared.request.Scope, Reason: transcript.CacheWarningReasonReuseDropped, CacheKey: prepared.request.CacheKey, LostInputTokens: lostInputTokens}
 			events = append(events, session.EventInput{Kind: sessionEventCacheWarning, Payload: warning})
 		}
 	}
@@ -272,7 +271,7 @@ func (e *Engine) restorePromptCacheResponse(payload []byte) error {
 	return nil
 }
 
-func copyCacheWarning(in *cachewarn.Warning) *cachewarn.Warning {
+func copyCacheWarning(in *transcript.CacheWarning) *transcript.CacheWarning {
 	if in == nil {
 		return nil
 	}

@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"core/shared/controlfeedback"
+	"core/shared/serverapi"
 )
 
 func (m *uiModel) reviewerInvocationState() (bool, string) {
@@ -26,17 +26,17 @@ func (m *uiModel) fastModeState() (bool, bool) {
 }
 
 func fastModeToggleStatusMessage(enabled bool, changed bool) string {
-	return controlfeedback.FastModeToggleStatusMessage(enabled, changed)
+	return serverapi.FastModeToggleStatusMessage(enabled, changed)
 }
 
 func reviewerToggleStatusMessage(enabled bool, mode string, changed bool) string {
-	return controlfeedback.ReviewerToggleStatusMessage(enabled, mode, changed)
+	return serverapi.ReviewerToggleStatusMessage(enabled, mode, changed)
 }
 
 func questionsToggleStatusMessage(enabled bool, changed bool) string {
-	return controlfeedback.QuestionsToggleStatusMessage(enabled, changed)
+	return serverapi.QuestionsToggleStatusMessage(enabled, changed)
 }
 
 func autoCompactionToggleStatusMessage(enabled bool, changed bool, compactionMode string) string {
-	return controlfeedback.AutoCompactionToggleStatusMessage(enabled, changed, compactionMode)
+	return serverapi.AutoCompactionToggleStatusMessage(enabled, changed, compactionMode)
 }

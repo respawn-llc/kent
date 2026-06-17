@@ -12,7 +12,7 @@ import (
 	"core/server/llm"
 	"core/server/registry"
 	"core/server/session"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/shared/config"
@@ -92,8 +92,8 @@ func TestNewWithContextComposesRequiredBundles(t *testing.T) {
 func TestRuntimePendingAskResolverUsesPendingPromptSource(t *testing.T) {
 	resolver := runtimePendingAskResolver{prompts: fakePendingPromptSource{items: map[string][]registry.PendingPromptSnapshot{
 		"session-1": {
-			{Request: askquestion.Request{ID: "ask-1", Question: "Need input?"}, CreatedAt: time.Unix(1, 0)},
-			{Request: askquestion.Request{ID: "approval-1", Question: "Approve?", Approval: true}, CreatedAt: time.Unix(2, 0)},
+			{Request: askquestion.AskQuestionRequest{ID: "ask-1", Question: "Need input?"}, CreatedAt: time.Unix(1, 0)},
+			{Request: askquestion.AskQuestionRequest{ID: "approval-1", Question: "Approve?", Approval: true}, CreatedAt: time.Unix(2, 0)},
 		},
 	}}}
 

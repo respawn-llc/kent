@@ -106,7 +106,7 @@ run_frontend_build
 
 ldflags=(-s -w)
 if [ -n "$version" ]; then
-	ldflags+=(-X "core/shared/buildinfo.Version=${version}")
+	ldflags+=(-X "core/shared/config.Version=${version}")
 fi
 
 env CGO_ENABLED="${CGO_ENABLED:-0}" \

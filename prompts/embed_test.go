@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"core/cli/selfcmd"
 )
 
 func TestRenderSystemPromptTemplateUsesTypedFields(t *testing.T) {
@@ -16,7 +14,7 @@ func TestRenderSystemPromptTemplateUsesTypedFields(t *testing.T) {
 	if !strings.Contains(rendered, "calls=123") {
 		t.Fatalf("expected estimated tool calls rendered, got %q", rendered)
 	}
-	expectedCmd := "cmd=" + selfcmd.LaunchCommand() + " run"
+	expectedCmd := "cmd=" + LaunchCommand() + " run"
 	if !strings.Contains(rendered, expectedCmd) || strings.Contains(rendered, "{{") {
 		t.Fatalf("expected %q in rendered output, got %q", expectedCmd, rendered)
 	}
@@ -36,7 +34,7 @@ func TestSystemPromptRendersDeprecatedBuilderCommandAlias(t *testing.T) {
 		if alias != launch {
 			t.Fatalf("BuilderCommand alias = %q, want identical to LaunchCommand %q (defaultPrompt=%q)", alias, launch, defaultPrompt)
 		}
-		if !strings.Contains(alias, selfcmd.LaunchCommand()) {
+		if !strings.Contains(alias, LaunchCommand()) {
 			t.Fatalf("expected alias render to contain launch command, got %q", alias)
 		}
 	}
@@ -74,7 +72,7 @@ func TestCustomSystemPromptResolvesDefaultSystemPromptSectionPlaceholders(t *tes
 	if err != nil {
 		t.Fatalf("RenderCustomSystemPrompt: %v", err)
 	}
-	if !strings.Contains(rendered, selfcmd.LaunchCommand()) {
+	if !strings.Contains(rendered, LaunchCommand()) {
 		t.Fatalf("expected section prompts to substitute the launch command, got %q", rendered)
 	}
 	if strings.Contains(rendered, "{{") {
@@ -157,7 +155,7 @@ func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) 
 	// Substituted variables: short id (in the launch command), the transition
 	// id/display pair, and the node prompt body must all be injected.
 	for _, want := range []string{
-		selfcmd.LaunchCommand() + " task show BUI-1",
+		LaunchCommand() + " task show BUI-1",
 		"actionable (Actionable)",
 		"Triage the ticket.",
 	} {
@@ -187,7 +185,7 @@ func TestWorkflowTaskInstructionsCommentReminderTemplateData(t *testing.T) {
 	if one.TaskCommentsLabel != "1 comment" {
 		t.Fatalf("one-comment label = %q, want singular grammar", one.TaskCommentsLabel)
 	}
-	expectedCommand := selfcmd.LaunchCommand() + " task comment list BUI-1"
+	expectedCommand := LaunchCommand() + " task comment list BUI-1"
 	if one.TaskCommentListCommand != expectedCommand {
 		t.Fatalf("task comment list command = %q, want %q", one.TaskCommentListCommand, expectedCommand)
 	}

@@ -8,20 +8,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"core/server/tools/fsguard"
+	"core/server/tools"
 )
 
-type OutsideWorkspaceRequest = fsguard.Request
-type OutsideWorkspaceDecision = fsguard.Decision
+type OutsideWorkspaceRequest = tools.FSGuardRequest
+type OutsideWorkspaceDecision = tools.FSGuardDecision
 
 const (
-	OutsideWorkspaceDecisionDeny         = fsguard.DecisionDeny
-	OutsideWorkspaceDecisionAllowOnce    = fsguard.DecisionAllowOnce
-	OutsideWorkspaceDecisionAllowSession = fsguard.DecisionAllowSession
+	OutsideWorkspaceDecisionDeny         = tools.FSGuardDecisionDeny
+	OutsideWorkspaceDecisionAllowOnce    = tools.FSGuardDecisionAllowOnce
+	OutsideWorkspaceDecisionAllowSession = tools.FSGuardDecisionAllowSession
 )
 
-type OutsideWorkspaceApproval = fsguard.Approval
-type OutsideWorkspaceApprover = fsguard.Approver
+type OutsideWorkspaceApproval = tools.FSGuardApproval
+type OutsideWorkspaceApprover = tools.FSGuardApprover
 
 type Option func(*Tool)
 

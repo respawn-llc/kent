@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	appstatus "core/cli/app/internal/status"
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
+
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -26,7 +26,7 @@ type uiStatusConfig struct {
 	SessionViews    client.SessionViewClient
 	Settings        config.Settings
 	Source          config.SourceReport
-	AuthManager     statuscollect.AuthStateResolver
+	AuthManager     status.AuthStateResolver
 	AuthStatus      client.AuthStatusClient
 	AuthStatePath   string
 	OwnsServer      bool
@@ -43,31 +43,31 @@ type uiStatusProgressiveCollector interface {
 	CollectEnvironment(ctx context.Context, req uiStatusRequest, base uiStatusSnapshot) uiStatusEnvironmentStageResult
 }
 
-type uiStatusSection = appstatus.Section
+type uiStatusSection = status.Section
 
 const (
-	uiStatusSectionBase        = appstatus.SectionBase
-	uiStatusSectionAuth        = appstatus.SectionAuth
-	uiStatusSectionGit         = appstatus.SectionGit
-	uiStatusSectionEnvironment = appstatus.SectionEnvironment
+	uiStatusSectionBase        = status.SectionBase
+	uiStatusSectionAuth        = status.SectionAuth
+	uiStatusSectionGit         = status.SectionGit
+	uiStatusSectionEnvironment = status.SectionEnvironment
 )
 
-type uiStatusRequest = appstatus.Request
-type uiStatusSnapshot = appstatus.Snapshot
-type uiStatusAuthInfo = appstatus.AuthInfo
-type uiStatusGitInfo = appstatus.GitInfo
-type uiStatusContextInfo = appstatus.ContextInfo
-type uiStatusModelInfo = appstatus.ModelInfo
-type uiStatusUpdateInfo = appstatus.UpdateInfo
-type uiStatusConfigInfo = appstatus.ConfigInfo
-type uiStatusSubscriptionInfo = appstatus.SubscriptionInfo
-type uiStatusSubscriptionWindow = appstatus.SubscriptionWindow
-type uiStatusSkillInspection = appstatus.SkillInspection
-type uiStatusRepository = appstatus.Repository
-type uiStatusSeedResult = appstatus.SeedResult
-type uiStatusAuthStageResult = appstatus.AuthStageResult
-type uiStatusGitStageResult = appstatus.GitStageResult
-type uiStatusEnvironmentStageResult = appstatus.EnvironmentStageResult
+type uiStatusRequest = status.Request
+type uiStatusSnapshot = status.Snapshot
+type uiStatusAuthInfo = status.AuthInfo
+type uiStatusGitInfo = status.GitInfo
+type uiStatusContextInfo = status.ContextInfo
+type uiStatusModelInfo = status.ModelInfo
+type uiStatusUpdateInfo = status.UpdateInfo
+type uiStatusConfigInfo = status.ConfigInfo
+type uiStatusSubscriptionInfo = status.SubscriptionInfo
+type uiStatusSubscriptionWindow = status.SubscriptionWindow
+type uiStatusSkillInspection = status.SkillInspection
+type uiStatusRepository = status.Repository
+type uiStatusSeedResult = status.SeedResult
+type uiStatusAuthStageResult = status.AuthStageResult
+type uiStatusGitStageResult = status.GitStageResult
+type uiStatusEnvironmentStageResult = status.EnvironmentStageResult
 
 type statusRefreshDoneMsg struct {
 	token    uint64
@@ -100,12 +100,12 @@ type statusEnvironmentRefreshDoneMsg struct {
 }
 
 type defaultUIStatusCollector struct {
-	authManager statuscollect.AuthStateResolver
+	authManager status.AuthStateResolver
 }
 
 func WithUIStatusConfig(statusConfig uiStatusConfig) UIOption {
 	return func(m *uiModel) {
-		statusConfig.AuthManager = statuscollect.NormalizeAuthStateResolver(statusConfig.AuthManager)
+		statusConfig.AuthManager = status.NormalizeAuthStateResolver(statusConfig.AuthManager)
 		m.statusConfig = statusConfig
 		if statusConfig.Settings.Debug {
 			m.debugMode = true
@@ -193,10 +193,10 @@ func (m *uiModel) statusAuthCacheUnseedable() bool {
 
 func populateStatusRequestCacheKeys(req uiStatusRequest) uiStatusRequest {
 	if strings.TrimSpace(req.CacheKeys.Auth) == "" {
-		req.CacheKeys.Auth = appstatus.AuthCacheKey(req)
+		req.CacheKeys.Auth = status.AuthCacheKey(req)
 	}
 	if strings.TrimSpace(req.CacheKeys.Git) == "" {
-		req.CacheKeys.Git = appstatus.GitCacheKey(appstatus.GitRoot(req))
+		req.CacheKeys.Git = status.GitCacheKey(status.GitRoot(req))
 	}
 	if strings.TrimSpace(req.CacheKeys.Environment) == "" {
 		req.CacheKeys.Environment = strings.TrimSpace(req.WorkspaceRoot)
@@ -224,8 +224,8 @@ func (c defaultUIStatusCollector) CollectEnvironment(ctx context.Context, req ui
 	return c.adapter().CollectEnvironment(ctx, req, base)
 }
 
-func (c defaultUIStatusCollector) adapter() statuscollect.Collector {
-	return statuscollect.Collector{
+func (c defaultUIStatusCollector) adapter() status.Collector {
+	return status.Collector{
 		AuthManager:              c.authManager,
 		RequestTimeout:           statusRefreshTimeout,
 		GitTimeout:               statusGitTimeout,
@@ -383,12 +383,12 @@ func (m *uiModel) statusLineGitRefreshCmd() tea.Cmd {
 	if !ok {
 		progressive = defaultUIStatusCollector{authManager: m.statusConfig.AuthManager}
 	}
-	gitRoot := appstatus.GitRoot(request)
+	gitRoot := status.GitRoot(request)
 	if strings.TrimSpace(gitRoot) == "" {
 		return nil
 	}
 	base := defaultUIStatusCollector{}.CollectBase(request)
-	cacheKey := appstatus.GitCacheKey(gitRoot)
+	cacheKey := status.GitCacheKey(gitRoot)
 	m.statusGitBackgroundInFlight = true
 	return m.statusGitRefreshCmd(token, cacheKey, m.newStatusCollectorRequest(request), progressive, base, true)
 }

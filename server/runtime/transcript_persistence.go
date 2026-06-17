@@ -6,7 +6,6 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
-	"core/shared/cachewarn"
 	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -104,21 +103,21 @@ func (p transcriptPersistenceCoordinator) chatProjection() *chatStore {
 }
 
 func applyPersistedCacheWarningToTranscript(persistence transcriptPersistenceCoordinator, payload []byte, mode config.CacheWarningMode) error {
-	var warning cachewarn.Warning
+	var warning transcript.CacheWarning
 	if err := json.Unmarshal(payload, &warning); err != nil {
 		return fmt.Errorf("decode %s event: %w", sessionEventCacheWarning, err)
 	}
-	persistence.AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(mode))
+	persistence.AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), cacheWarningEntryVisibility(mode))
 	return nil
 }
 
 func applyPersistedCacheWarningToChat(chat *chatStore, payload []byte, mode config.CacheWarningMode) error {
-	var warning cachewarn.Warning
+	var warning transcript.CacheWarning
 	if err := json.Unmarshal(payload, &warning); err != nil {
 		return fmt.Errorf("decode %s event: %w", sessionEventCacheWarning, err)
 	}
 	if chat != nil {
-		chat.appendLocalEntryRecord(ChatEntry{Visibility: cacheWarningEntryVisibility(mode), Role: cacheWarningTranscriptRole, Text: cachewarn.Text(warning)})
+		chat.appendLocalEntryRecord(ChatEntry{Visibility: cacheWarningEntryVisibility(mode), Role: cacheWarningTranscriptRole, Text: transcript.CacheWarningText(warning)})
 	}
 	return nil
 }

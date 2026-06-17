@@ -3,12 +3,11 @@ package app
 import (
 	"context"
 	"core/server/primaryrun"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/testopenai"
 	"errors"
 	"io"
 	"net/http"
@@ -171,18 +170,18 @@ func TestEmbeddedAppServerPromptActivityStreamsAndHydratesPendingResources(t *te
 	defer runtimePlan.Close()
 
 	askDone := make(chan struct {
-		resp askquestion.Response
+		resp askquestion.AskQuestionResponse
 		err  error
 	}, 1)
 	go func() {
-		resp, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{
+		resp, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{
 			ID:                     "ask-embedded-1",
 			Question:               "Pick one",
 			Suggestions:            []string{"one", "two"},
 			RecommendedOptionIndex: 2,
 		})
 		askDone <- struct {
-			resp askquestion.Response
+			resp askquestion.AskQuestionResponse
 			err  error
 		}{resp: resp, err: err}
 	}()
@@ -207,18 +206,18 @@ func TestEmbeddedAppServerPromptActivityStreamsAndHydratesPendingResources(t *te
 	waitForPendingAskResources(t, runtimeClients.AskViews, plan.SessionID, 0)
 
 	approvalDone := make(chan struct {
-		resp askquestion.Response
+		resp askquestion.AskQuestionResponse
 		err  error
 	}, 1)
 	go func() {
-		resp, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{
+		resp, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{
 			ID:              "approval-embedded-1",
 			Question:        "Approve it?",
 			Approval:        true,
-			ApprovalOptions: []askquestion.ApprovalOption{{Decision: askquestion.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.ApprovalDecisionDeny, Label: "Deny"}},
+			ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"}},
 		})
 		approvalDone <- struct {
-			resp askquestion.Response
+			resp askquestion.AskQuestionResponse
 			err  error
 		}{resp: resp, err: err}
 	}()
@@ -233,7 +232,7 @@ func TestEmbeddedAppServerPromptActivityStreamsAndHydratesPendingResources(t *te
 		if result.err != nil {
 			t.Fatalf("AwaitPromptResponse approval: %v", result.err)
 		}
-		if result.resp.RequestID != "approval-embedded-1" || result.resp.Approval == nil || result.resp.Approval.Decision != askquestion.ApprovalDecisionAllowOnce || result.resp.Approval.Commentary != "trusted" {
+		if result.resp.RequestID != "approval-embedded-1" || result.resp.Approval == nil || result.resp.Approval.Decision != askquestion.AskQuestionApprovalDecisionAllowOnce || result.resp.Approval.Commentary != "trusted" {
 			t.Fatalf("unexpected approval response: %+v", result.resp)
 		}
 	case <-time.After(5 * time.Second):
@@ -260,12 +259,12 @@ func TestEmbeddedAppServerPendingPromptsNotifyUIAskHook(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{ID: "ask-notify-1", Question: "First?"})
+		_, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{ID: "ask-notify-1", Question: "First?"})
 		firstDone <- err
 	}()
 	secondDone := make(chan error, 1)
 	go func() {
-		_, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{ID: "ask-notify-2", Question: "Second?"})
+		_, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{ID: "ask-notify-2", Question: "Second?"})
 		secondDone <- err
 	}()
 
@@ -395,7 +394,7 @@ func TestEmbeddedAppServerPrepareRuntimeRejectsConcurrentPrimarySubmitWhileRunIn
 	firstRelease := make(chan struct{})
 	var requests atomic.Int32
 	responseServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if testopenai.HandleInputTokenCount(w, r, 11) {
+		if handleTestOpenAIInputTokenCount(w, r, 11) {
 			return
 		}
 		if r.URL.Path != "/responses" {
@@ -414,7 +413,7 @@ func TestEmbeddedAppServerPrepareRuntimeRejectsConcurrentPrimarySubmitWhileRunIn
 			t.Fatalf("unexpected responses request index %d", index)
 		}
 		reply := map[int]string{1: "first reply", 2: "second reply"}[index]
-		testopenai.WriteCompletedResponseStream(w, reply, 11, 7)
+		writeTestOpenAICompletedResponseStream(w, reply, 11, 7)
 	}))
 	defer responseServer.Close()
 

@@ -8,17 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"core/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/authui"
 	"core/server/auth"
-	"core/server/authflow"
-	"core/shared/brand"
+	"core/server/authservice"
 	"core/shared/config"
 )
 
 type stubAuthInteractor struct {
 	callCount int
 	needs     func(authInteraction) bool
-	interact  func(context.Context, authInteraction) (authflow.InteractionOutcome, error)
+	interact  func(context.Context, authInteraction) (authservice.FlowInteractionOutcome, error)
 }
 
 type storedAuthInteractor struct {
@@ -41,10 +40,10 @@ func (s *stubAuthInteractor) NeedsInteraction(req authInteraction) bool {
 	return !req.Gate.Ready
 }
 
-func (s *stubAuthInteractor) Interact(ctx context.Context, req authInteraction) (authflow.InteractionOutcome, error) {
+func (s *stubAuthInteractor) Interact(ctx context.Context, req authInteraction) (authservice.FlowInteractionOutcome, error) {
 	s.callCount++
 	if s.interact == nil {
-		return authflow.InteractionOutcome{}, nil
+		return authservice.FlowInteractionOutcome{}, nil
 	}
 	return s.interact(ctx, req)
 }
@@ -78,7 +77,7 @@ func TestBootstrapAppHeadlessUsesEnvAPIKeyWithoutPersistingAuthState(t *testing.
 	if _, err := os.Stat(authPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected no persisted auth state at %q, got err=%v", authPath, err)
 	}
-	if _, err := os.Stat(filepath.Join(home, brand.ConfigDirName, "config.toml")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, config.ConfigDirName, "config.toml")); err != nil {
 		t.Fatalf("expected config bootstrap artifacts to exist: %v", err)
 	}
 }
@@ -86,10 +85,10 @@ func TestBootstrapAppHeadlessUsesEnvAPIKeyWithoutPersistingAuthState(t *testing.
 func TestBootstrapAppReadyEnvAuthDoesNotOpenAuthPicker(t *testing.T) {
 	home, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
-	if err := os.MkdirAll(filepath.Join(home, brand.ConfigDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, config.ConfigDirName), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, brand.ConfigDirName, "config.toml"), []byte("model = \"gpt-5\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, config.ConfigDirName, "config.toml"), []byte("model = \"gpt-5\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -122,10 +121,10 @@ func TestBootstrapAppReadyEnvAuthDoesNotOpenAuthPicker(t *testing.T) {
 
 func TestBootstrapAppNoAuthPreferenceDoesNotOpenAuthPicker(t *testing.T) {
 	home, workspace := newRegisteredAppWorkspace(t)
-	if err := os.MkdirAll(filepath.Join(home, brand.ConfigDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, config.ConfigDirName), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, brand.ConfigDirName, "config.toml"), []byte("model = \"gpt-5\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, config.ConfigDirName, "config.toml"), []byte("model = \"gpt-5\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -329,7 +328,7 @@ func TestResolveSessionActionLogoutRetryPreservesStoredAuthUntilSuccess(t *testi
 			return &stubOAuthCallbackListener{}, nil
 		},
 		openBrowser: func(string) error { return nil },
-		runCallbackPage: func(context.Context, authCallbackPageData, func(context.Context) (oauthadapter.BrowserCallback, error), func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+		runCallbackPage: func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) (authui.AuthMethod, error)) (authCallbackPageResult, error) {
 			if pickCalls != 1 {
 				t.Fatalf("did not expect callback page after retry, pickCalls=%d", pickCalls)
 			}
@@ -433,8 +432,8 @@ func TestBootstrapAppSkipAuthDoesNotPersistAuthState(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 
 	interactor := &stubAuthInteractor{
-		interact: func(context.Context, authInteraction) (authflow.InteractionOutcome, error) {
-			return authflow.InteractionOutcome{ProceedWithoutAuth: true}, nil
+		interact: func(context.Context, authInteraction) (authservice.FlowInteractionOutcome, error) {
+			return authservice.FlowInteractionOutcome{ProceedWithoutAuth: true}, nil
 		},
 	}
 	boot, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace, Model: "gpt-5"}, interactor, false)
@@ -450,7 +449,7 @@ func TestBootstrapAppSkipAuthDoesNotPersistAuthState(t *testing.T) {
 	if _, err := os.Stat(authPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected no persisted auth state at %q, got err=%v", authPath, err)
 	}
-	if _, err := os.Stat(filepath.Join(home, brand.ConfigDirName, "config.toml")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, config.ConfigDirName, "config.toml")); err != nil {
 		t.Fatalf("expected onboarding config bootstrap artifacts to exist: %v", err)
 	}
 }
@@ -499,7 +498,7 @@ func TestInteractiveAuthSkipClearsStoredAuthState(t *testing.T) {
 
 func TestInteractiveAuthSkipDisablesEnvAPIKeyFallback(t *testing.T) {
 	ctx := context.Background()
-	store := authflow.WrapStoreWithEnvAPIKeyOverride(auth.NewMemoryStore(auth.EmptyState()), func(key string) string {
+	store := authservice.WrapStoreWithEnvAPIKeyOverride(auth.NewMemoryStore(auth.EmptyState()), func(key string) string {
 		if key == "OPENAI_API_KEY" {
 			return "sk-env"
 		}

@@ -6,8 +6,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	triggerhandofftool "core/server/tools/triggerhandoff"
-	"core/shared/brand"
+	triggerhandofftool "core/server/tools"
+	brand "core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"os"
@@ -31,7 +31,7 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	resultOutput := mustJSON(triggerhandofftool.ResultPayload{
+	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
 		Summary:                 "Handoff scheduled. Context will be compacted before the next model turn and future-agent guidance was saved.",
 		FutureAgentMessageAdded: true,
 	})
@@ -131,7 +131,7 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	resultOutput := mustJSON(triggerhandofftool.ResultPayload{
+	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
 		Summary:                 "Handoff scheduled. Context will be compacted before the next model turn and future-agent guidance was saved.",
 		FutureAgentMessageAdded: true,
 	})
@@ -173,7 +173,7 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	resultOutput := mustJSON(triggerhandofftool.ResultPayload{
+	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
 		Summary:                 "Handoff scheduled. Context will be compacted before the next model turn and future-agent guidance was saved.",
 		FutureAgentMessageAdded: true,
 	})
@@ -268,7 +268,7 @@ func TestReopenedSessionAfterLegacyReviewerRollbackStillRequeuesPendingTriggerHa
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	resultOutput := mustJSON(triggerhandofftool.ResultPayload{
+	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
 		Summary:                 "Handoff scheduled. Context will be compacted before the next model turn and future-agent guidance was saved.",
 		FutureAgentMessageAdded: true,
 	})

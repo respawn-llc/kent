@@ -2,12 +2,11 @@ package app
 
 import (
 	"context"
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
 	"core/server/auth"
-	"core/server/authstatus"
-	"core/server/serve"
+	"core/server/authservice"
 	serverstartup "core/server/startup"
-	askquestion "core/server/tools/askquestion"
+	askquestion "core/server/tools"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -351,15 +350,15 @@ func TestStartSessionServerRejectsDiscoveredDaemonWithoutTranscriptPagingCapabil
 func TestRemoteSessionStatusDoesNotReuseLocalAuthState(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	originalFetcher := authstatus.DefaultUsagePayloadFetcher
-	defer func() { authstatus.DefaultUsagePayloadFetcher = originalFetcher }()
+	originalFetcher := authservice.DefaultUsagePayloadFetcher
+	defer func() { authservice.DefaultUsagePayloadFetcher = originalFetcher }()
 	called := false
-	authstatus.DefaultUsagePayloadFetcher = func(_ context.Context, baseURL string, state auth.State) (authstatus.UsagePayload, error) {
+	authservice.DefaultUsagePayloadFetcher = func(_ context.Context, baseURL string, state auth.State) (authservice.UsagePayload, error) {
 		called = true
-		return authstatus.UsagePayload{PlanType: "pro"}, nil
+		return authservice.UsagePayload{PlanType: "pro"}, nil
 	}
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -427,7 +426,7 @@ func TestRemoteSessionStatusDoesNotReuseLocalAuthState(t *testing.T) {
 		PersistenceRoot:   plan.StatusConfig.PersistenceRoot,
 		Settings:          plan.StatusConfig.Settings,
 		Source:            plan.StatusConfig.Source,
-		AuthCacheIdentity: statuscollect.AuthCacheIdentity(plan.StatusConfig.AuthManager),
+		AuthCacheIdentity: status.AuthCacheIdentity(plan.StatusConfig.AuthManager),
 		AuthStatus:        plan.StatusConfig.AuthStatus,
 		AuthStatePath:     plan.StatusConfig.AuthStatePath,
 		OwnsServer:        plan.StatusConfig.OwnsServer,
@@ -449,7 +448,7 @@ func TestRemoteSessionStatusDoesNotReuseLocalAuthState(t *testing.T) {
 func TestStartSessionServerRemoteReadyAuthDoesNotOpenStartupPicker(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -493,7 +492,7 @@ func TestStartSessionServerRemoteReadyAuthDoesNotOpenStartupPicker(t *testing.T)
 func TestStartSessionServerOwnsLaunchedDaemonCloser(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -598,7 +597,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	overrideResponses, overrideHits := newFakeResponsesServer(t, []string{"interactive daemon override"})
 	defer overrideResponses.Close()
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -648,7 +647,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 func TestStartSessionServerPreservesExplicitCLIToolsWithCLIModelOverride(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5.4",
@@ -690,7 +689,7 @@ func TestStartSessionServerPreservesExplicitCLIToolsWithCLIModelOverride(t *test
 func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 
-	srv, err := serve.Start(context.Background(), serverstartup.Request{
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
@@ -715,18 +714,18 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	defer runtimePlan.Close()
 
 	askDone := make(chan struct {
-		resp askquestion.Response
+		resp askquestion.AskQuestionResponse
 		err  error
 	}, 1)
 	go func() {
-		resp, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{
+		resp, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{
 			ID:                     "ask-1",
 			Question:               "Pick one",
 			Suggestions:            []string{"one", "two"},
 			RecommendedOptionIndex: 2,
 		})
 		askDone <- struct {
-			resp askquestion.Response
+			resp askquestion.AskQuestionResponse
 			err  error
 		}{resp: resp, err: err}
 	}()
@@ -750,18 +749,18 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	waitForPendingAskResources(t, promptViews.AskViewClient(), plan.SessionID, 0)
 
 	approvalDone := make(chan struct {
-		resp askquestion.Response
+		resp askquestion.AskQuestionResponse
 		err  error
 	}, 1)
 	go func() {
-		resp, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{
+		resp, err := srv.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.AskQuestionRequest{
 			ID:              "approval-1",
 			Question:        "Approve it?",
 			Approval:        true,
-			ApprovalOptions: []askquestion.ApprovalOption{{Decision: askquestion.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.ApprovalDecisionDeny, Label: "Deny"}},
+			ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"}},
 		})
 		approvalDone <- struct {
-			resp askquestion.Response
+			resp askquestion.AskQuestionResponse
 			err  error
 		}{resp: resp, err: err}
 	}()
@@ -776,7 +775,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		if result.err != nil {
 			t.Fatalf("AwaitPromptResponse approval: %v", result.err)
 		}
-		if result.resp.RequestID != "approval-1" || result.resp.Approval == nil || result.resp.Approval.Decision != askquestion.ApprovalDecisionAllowOnce || result.resp.Approval.Commentary != "trusted" {
+		if result.resp.RequestID != "approval-1" || result.resp.Approval == nil || result.resp.Approval.Decision != askquestion.AskQuestionApprovalDecisionAllowOnce || result.resp.Approval.Commentary != "trusted" {
 			t.Fatalf("unexpected approval response: %+v", result.resp)
 		}
 	case <-time.After(5 * time.Second):

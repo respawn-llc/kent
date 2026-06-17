@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"core/cli/app/internal/statuscollect"
+	"core/cli/app/internal/status"
 	"core/server/auth"
 	"core/server/sessionview"
 	"core/shared/client"
@@ -140,7 +140,7 @@ func TestStatusParentSessionNameResolvesFromSessionViews(t *testing.T) {
 		t.Fatalf("set parent name: %v", err)
 	}
 	sessionViews := client.NewLoopbackSessionViewClient(sessionview.NewService(sessionview.NewStaticSessionResolver(parentStore), nil, nil))
-	got, warning := statuscollect.Collector{ParentSessionReadTimeout: uiRuntimeReadTimeout}.ParentSessionName(context.Background(), sessionViews, parentStore.Meta().SessionID)
+	got, warning := status.Collector{ParentSessionReadTimeout: uiRuntimeReadTimeout}.ParentSessionName(context.Background(), sessionViews, parentStore.Meta().SessionID)
 	if warning != "" {
 		t.Fatalf("unexpected warning: %q", warning)
 	}

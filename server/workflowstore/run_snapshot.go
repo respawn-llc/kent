@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"core/server/workflow"
-	"core/server/workflowjson"
 )
 
 type runStartSnapshot struct {
@@ -109,14 +108,14 @@ func mustInputBindingsJSON(value []workflow.InputBinding) string {
 	if value == nil {
 		value = []workflow.InputBinding{}
 	}
-	return workflowjson.MustMarshalString(value)
+	return workflow.MustMarshalString(value)
 }
 
 func mustOutputRequirementsJSON(value []workflow.OutputRequirement) string {
 	if value == nil {
 		value = []workflow.OutputRequirement{}
 	}
-	return workflowjson.MustMarshalString(value)
+	return workflow.MustMarshalString(value)
 }
 
 func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID workflow.NodeID) (runStartSnapshot, error) {

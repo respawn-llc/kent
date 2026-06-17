@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
-	"core/shared/servicecontract"
 )
 
 type fakeWorkflowService struct {

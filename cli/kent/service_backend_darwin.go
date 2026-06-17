@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 // Sentinel launchd reload/restart errors. Dynamic diagnostic detail (pids,

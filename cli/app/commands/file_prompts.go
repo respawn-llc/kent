@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"core/shared/brand"
+	brand "core/shared/config"
 )
 
 const (

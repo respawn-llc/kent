@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/cli/app/internal/authview"
+	"core/cli/app/internal/authui"
 	"core/cli/tui"
 	sharedtheme "core/shared/theme"
 
@@ -387,14 +387,14 @@ func newAuthMethodPickerModel(theme string, notice startupPickerNotice, includeE
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
-	notice := authview.MethodPickerNotice(authview.MethodPickerNoticeRequest{
+	notice := authui.AuthMethodPickerNotice(authui.AuthMethodPickerNoticeRequest{
 		FlowErr:      req.FlowErr,
 		StartupErr:   req.StartupErr,
 		GateReason:   req.Gate.Reason,
 		HasEnvAPIKey: req.HasEnvAPIKey,
 	})
 	kind := startupPickerNoticeNeutral
-	if notice.Kind == authview.NoticeError {
+	if notice.Kind == authui.AuthNoticeError {
 		kind = startupPickerNoticeError
 	}
 	return startupPickerNotice{Text: notice.Text, Kind: kind}

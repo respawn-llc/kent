@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"core/server/tools/shellcmd"
+	"core/server/tools"
 	"core/shared/toolspec"
 )
 
@@ -71,11 +71,11 @@ func (p fileReadContextProcessor) Process(_ context.Context, envelope Envelope) 
 }
 
 func fileReadArgsWithoutCommand(commandName string, parsedArgs []string) ([]string, bool) {
-	normalizedCommand := shellcmd.NormalizeCommandName(commandName)
+	normalizedCommand := tools.NormalizeShellCommandName(commandName)
 	if normalizedCommand == "" || len(parsedArgs) < 2 {
 		return nil, false
 	}
-	if shellcmd.NormalizeCommandName(parsedArgs[0]) != normalizedCommand {
+	if tools.NormalizeShellCommandName(parsedArgs[0]) != normalizedCommand {
 		return nil, false
 	}
 	return parsedArgs[1:], true

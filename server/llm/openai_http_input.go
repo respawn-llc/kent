@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"core/prompts"
-	"core/shared/jsonutil"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 
@@ -148,10 +147,10 @@ func normalizeToolArguments(arguments string) string {
 		return "{}"
 	}
 	if json.Valid([]byte(arguments)) {
-		return jsonutil.CompactNoHTMLEscape([]byte(arguments))
+		return textutil.CompactNoHTMLEscape([]byte(arguments))
 	}
 	quoted, _ := json.Marshal(arguments)
-	return jsonutil.CompactNoHTMLEscape(quoted)
+	return textutil.CompactNoHTMLEscape(quoted)
 }
 
 func normalizeToolInput(arguments string) json.RawMessage {
@@ -160,10 +159,10 @@ func normalizeToolInput(arguments string) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	if json.Valid([]byte(arguments)) {
-		return json.RawMessage(jsonutil.CompactNoHTMLEscape([]byte(arguments)))
+		return json.RawMessage(textutil.CompactNoHTMLEscape([]byte(arguments)))
 	}
 	quoted, _ := json.Marshal(arguments)
-	return json.RawMessage(jsonutil.CompactNoHTMLEscape(quoted))
+	return json.RawMessage(textutil.CompactNoHTMLEscape(quoted))
 }
 
 // PrepareOpenAIInputItems stamps provider-ready OpenAI input payloads onto
