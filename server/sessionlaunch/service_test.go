@@ -286,3 +286,51 @@ func TestServicePlanSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T)
 		t.Fatalf("PlanSession with default role clear should not read auth state: %v", err)
 	}
 }
+
+func TestServicePlanSessionCanClearInvalidPersistedRoleBeforeValidation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	persistenceRoot := t.TempDir()
+	containerDir := t.TempDir()
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	roleSettings := cfg.Settings
+	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.ContextCompactionThresholdTokens = 200_000
+	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+		},
+	}
+	service := NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+	}, registry.NewSessionStoreRegistry())
+
+	resp, err := service.PlanSession(context.Background(), serverapi.SessionPlanRequest{
+		ClientRequestID:   "req-1",
+		Mode:              serverapi.SessionLaunchModeInteractive,
+		SelectedSessionID: store.Meta().SessionID,
+		Overrides:         serverapi.RunPromptOverrides{AgentRoleSet: true},
+	})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if resp.Plan.ActiveSettings.Model != cfg.Settings.Model {
+		t.Fatalf("model = %q, want base model %q", resp.Plan.ActiveSettings.Model, cfg.Settings.Model)
+	}
+	reopened, err := session.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("reopen session: %v", err)
+	}
+	if got := reopened.Meta().Continuation; got != nil && got.AgentRole != "" {
+		t.Fatalf("continuation = %+v, want cleared agent role", got)
+	}
+}

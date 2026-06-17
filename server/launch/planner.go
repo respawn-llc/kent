@@ -52,10 +52,11 @@ type Planner struct {
 }
 
 type SessionRequest struct {
-	Mode              Mode
-	SelectedSessionID string
-	ForceNewSession   bool
-	ParentSessionID   string
+	Mode                                Mode
+	SelectedSessionID                   string
+	ForceNewSession                     bool
+	ParentSessionID                     string
+	SkipContinuationAgentRoleValidation bool
 }
 
 type SessionPlan struct {
@@ -100,7 +101,7 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	}
 	active, source := baseActive, baseSource
 	if meta.Continuation != nil {
-		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil)
+		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation)
 		if err != nil {
 			return SessionPlan{}, err
 		}
@@ -137,7 +138,7 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	}, nil
 }
 
-func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName string, allowModelOverride bool) (config.Settings, config.SourceReport, error) {
+func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {
 		return base, source, nil
@@ -148,7 +149,7 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 	}
 	providerSettings := cloneSettings(base)
 	applySubagentProviderOverrides(&providerSettings, role)
-	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, normalizedRole, persistedRoleProviderID(providerSettings), allowModelOverride)
+	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, normalizedRole, persistedRoleProviderID(providerSettings), allowModelOverride, validate)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, err
 	}
@@ -247,7 +248,7 @@ func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides server
 		if value := strings.TrimSpace(overrides.OpenAIBaseURL); value != "" {
 			providerBase.OpenAIBaseURL = value
 		}
-		resolved, warning, err := resolveSubagentSettings(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked)
+		resolved, warning, err := resolveSubagentSettingsWithValidation(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked, !overrides.HasConfigOverrides())
 		if err != nil {
 			return SessionPlan{}, nil, err
 		}

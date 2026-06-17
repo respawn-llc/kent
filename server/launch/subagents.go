@@ -16,6 +16,10 @@ import (
 const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + brand.DocsURL
 
 func resolveSubagentSettings(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool) (config.Settings, string, error) {
+	return resolveSubagentSettingsWithValidation(base, providerBase, baseSources, roleName, authState, allowModelOverride, true)
+}
+
+func resolveSubagentSettingsWithValidation(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool, validate bool) (config.Settings, string, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {
 		return config.Settings{}, "", fmt.Errorf("invalid subagent role %q", roleName)
@@ -37,6 +41,7 @@ func resolveSubagentSettings(base config.Settings, providerBase config.Settings,
 		normalizedRole,
 		strings.TrimSpace(providerCaps.ProviderID),
 		allowModelOverride,
+		validate,
 	)
 	if err != nil {
 		return config.Settings{}, "", err
@@ -44,7 +49,7 @@ func resolveSubagentSettings(base config.Settings, providerBase config.Settings,
 	return resolved, warning, nil
 }
 
-func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource config.SourceReport, roleName string, providerID string, allowModelOverride bool) (config.Settings, config.SourceReport, string, error) {
+func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource config.SourceReport, roleName string, providerID string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, string, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
 	if normalizedRole == "" {
 		return config.Settings{}, config.SourceReport{}, "", fmt.Errorf("invalid subagent role %q", roleName)
@@ -60,8 +65,10 @@ func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource conf
 	effectiveSources := cloneStringMap(effectiveSource.Sources)
 	applyReviewerInheritance(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
-	if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
-		return config.Settings{}, config.SourceReport{}, "", fmt.Errorf("invalid subagent role %q: %w", normalizedRole, err)
+	if validate {
+		if err := config.ValidateSettingsWithSources(resolved, effectiveSources); err != nil {
+			return config.Settings{}, config.SourceReport{}, "", fmt.Errorf("invalid subagent role %q: %w", normalizedRole, err)
+		}
 	}
 	warning := ""
 	if normalizedRole == config.BuiltInSubagentRoleFast && sameResolvedSubagentSettings(base, resolved) {

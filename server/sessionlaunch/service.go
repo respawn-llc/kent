@@ -86,10 +86,11 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req serverapi.SessionPl
 	}
 	return s.plans.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionPlanMemoRequest, func(ctx context.Context) (PlanResult, error) {
 		plan, err := s.planner.PlanSession(ctx, launch.SessionRequest{
-			Mode:              launch.Mode(req.Mode),
-			SelectedSessionID: req.SelectedSessionID,
-			ForceNewSession:   req.ForceNewSession,
-			ParentSessionID:   req.ParentSessionID,
+			Mode:                                launch.Mode(req.Mode),
+			SelectedSessionID:                   req.SelectedSessionID,
+			ForceNewSession:                     req.ForceNewSession,
+			ParentSessionID:                     req.ParentSessionID,
+			SkipContinuationAgentRoleValidation: req.Overrides.HasAny(),
 		})
 		if err != nil {
 			return PlanResult{}, err

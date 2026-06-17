@@ -1386,6 +1386,33 @@ func TestApplyRunPromptOverridesRoleModelOverrideRecomputesContextBudget(t *test
 	}
 }
 
+func TestApplyRunPromptOverridesModelOverrideCanRepairRoleDerivedBudget(t *testing.T) {
+	workspace := t.TempDir()
+	loaded := loadLaunchConfig(t, workspace,
+		"model = \"gpt-5.4\"",
+		"",
+		"[subagents.worker]",
+		"model = \"gpt-5.3-codex-spark\"",
+		"context_compaction_threshold_tokens = 201000",
+		"pre_submit_compaction_lead_tokens = 1000",
+	)
+	plan := newLoadedConfigPlan(t, workspace, loaded)
+
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{
+		AgentRole: "worker",
+		Model:     "gpt-5.3-codex",
+	}, auth.EmptyState())
+	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
+		t.Fatalf("model = %q, want gpt-5.3-codex", updated.ActiveSettings.Model)
+	}
+	if updated.ActiveSettings.ModelContextWindow != 400_000 {
+		t.Fatalf("context window = %d, want 400000", updated.ActiveSettings.ModelContextWindow)
+	}
+	if updated.ActiveSettings.ContextCompactionThresholdTokens != 201_000 {
+		t.Fatalf("compaction threshold = %d, want 201000", updated.ActiveSettings.ContextCompactionThresholdTokens)
+	}
+}
+
 func TestApplyRunPromptOverridesRoleModelOverrideKeepsExplicitContextWindow(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
