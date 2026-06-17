@@ -9,6 +9,8 @@ import (
 	"strings"
 	"text/template"
 	"text/template/parse"
+
+	"core/shared/workflowkey"
 )
 
 // UnknownTemplatePlaceholderError reports that a custom prompt template
@@ -586,16 +588,7 @@ func workflowCompletionParameterPlaceholder(parameter WorkflowCompletionParamete
 
 func workflowCompletionDynamicFlag(key string) (string, bool) {
 	trimmed := strings.TrimSpace(key)
-	if trimmed == "" || workflowCompletionReservedFlag(trimmed) {
-		return "", false
-	}
-	for idx, r := range trimmed {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-			continue
-		}
-		if idx > 0 && ((r >= '0' && r <= '9') || r == '-' || r == '_') {
-			continue
-		}
+	if !workflowkey.Valid(trimmed) || workflowCompletionReservedFlag(trimmed) {
 		return "", false
 	}
 	return "--" + trimmed, true
