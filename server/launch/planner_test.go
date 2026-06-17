@@ -1136,6 +1136,9 @@ func TestResolveSubagentSettingsRejectsRoleContextWindowBelowMinimum(t *testing.
 	if err == nil {
 		t.Fatal("expected role context window below minimum to fail")
 	}
+	if !config.IsModelContextWindowBelowMinimum(err) {
+		t.Fatalf("error = %v, want context window minimum failure", err)
+	}
 }
 
 func TestResolveSubagentSettingsRejectsRoleReviewerContextWindowBelowMinimum(t *testing.T) {
@@ -1153,6 +1156,9 @@ func TestResolveSubagentSettingsRejectsRoleReviewerContextWindowBelowMinimum(t *
 	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
 	if err == nil {
 		t.Fatal("expected role reviewer context window below minimum to fail")
+	}
+	if !config.IsModelContextWindowBelowMinimum(err) {
+		t.Fatalf("error = %v, want context window minimum failure", err)
 	}
 }
 
@@ -1558,6 +1564,8 @@ func TestPlannerResumePersistedRoleRejectsContextWindowBelowMinimum(t *testing.T
 
 	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID}); err == nil {
 		t.Fatal("expected persisted subagent role context window below minimum to fail")
+	} else if !config.IsModelContextWindowBelowMinimum(err) {
+		t.Fatalf("error = %v, want context window minimum failure", err)
 	}
 }
 
@@ -1590,6 +1598,8 @@ func TestPlannerResumePersistedRoleRejectsReviewerContextWindowBelowMinimum(t *t
 
 	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID}); err == nil {
 		t.Fatal("expected persisted subagent role reviewer context window below minimum to fail")
+	} else if !config.IsModelContextWindowBelowMinimum(err) {
+		t.Fatalf("error = %v, want context window minimum failure", err)
 	}
 }
 
