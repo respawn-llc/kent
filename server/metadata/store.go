@@ -729,7 +729,7 @@ func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, wo
 		return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
 	}
 
-	blockers, err := s.workspaceUnlinkBlockers(ctx, trimmedProjectID, workspace)
+	blockers, err := workspaceUnlinkBlockersWithQueries(ctx, s.queries, trimmedProjectID, workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -770,10 +770,6 @@ func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, wo
 		return nil, fmt.Errorf("commit workspace unlink tx: %w", err)
 	}
 	return nil, nil
-}
-
-func (s *Store) workspaceUnlinkBlockers(ctx context.Context, projectID string, workspace sqlitegen.Workspace) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return workspaceUnlinkBlockersWithQueries(ctx, s.queries, projectID, workspace)
 }
 
 func workspaceUnlinkBlockersWithQueries(ctx context.Context, q *sqlitegen.Queries, projectID string, workspace sqlitegen.Workspace) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {

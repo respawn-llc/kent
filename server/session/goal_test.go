@@ -89,8 +89,10 @@ func TestGoalWithEventsRollsBackMetadataWhenEventAppendFails(t *testing.T) {
 	}
 	previous := *store.Meta().Goal
 	makeEventsPathDirectory(t, store)
-	if _, err := store.SetGoalStatusWithEvents(GoalStatusPaused, GoalActorUser, []EventInput{{Kind: "message", Payload: "goal feedback"}}); err == nil {
-		t.Fatal("expected SetGoalStatusWithEvents to fail when event append fails")
+	if _, err := store.SetGoalStatusWithEventBuilder(GoalStatusPaused, GoalActorUser, func(GoalState) ([]EventInput, error) {
+		return []EventInput{{Kind: "message", Payload: "goal feedback"}}, nil
+	}); err == nil {
+		t.Fatal("expected SetGoalStatusWithEventBuilder to fail when event append fails")
 	}
 	if got := store.Meta().Goal; got == nil || !reflect.DeepEqual(*got, previous) {
 		t.Fatalf("goal after failed status update = %+v, want %+v", got, previous)

@@ -412,12 +412,8 @@ func (s *Store) SetGoalWithEvents(objective string, actor GoalActor, extraEvents
 }
 
 func (s *Store) SetGoalStatus(status GoalStatus, actor GoalActor) (GoalState, error) {
-	return s.SetGoalStatusWithEvents(status, actor, nil)
-}
-
-func (s *Store) SetGoalStatusWithEvents(status GoalStatus, actor GoalActor, extraEvents []EventInput) (GoalState, error) {
 	return s.SetGoalStatusWithEventBuilder(status, actor, func(GoalState) ([]EventInput, error) {
-		return extraEvents, nil
+		return nil, nil
 	})
 }
 

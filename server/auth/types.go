@@ -55,7 +55,3 @@ func EvaluateStartupGate(state State) StartupGate {
 func EnsureStartupReady(state State) error {
 	return sharedauth.EnsureStartupReady(state)
 }
-
-func EnsureIdleForMethodSwitch(isIdle bool) error {
-	return sharedauth.EnsureIdleForMethodSwitch(isIdle)
-}
