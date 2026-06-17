@@ -30,6 +30,7 @@ export {
   homeListCardShellClassName,
 } from "./HomeListCard";
 export { MarkdownText } from "./MarkdownText";
+export { compactExternalUrlLabel, safeExternalUrl } from "./externalLinks";
 export { NativeDialogWindow } from "./NativeDialogWindow";
 export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";

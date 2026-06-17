@@ -5,12 +5,15 @@ import { useTranslation } from "react-i18next";
 import type { TaskDetail, TaskRun } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
+import { useOpenExternalLink } from "../../app/nativeHooks";
 import {
   Button,
   Island,
   Popover,
   PopoverContent,
   PopoverTrigger,
+  compactExternalUrlLabel,
+  safeExternalUrl,
   showStatusToast,
 } from "../../ui";
 import { cx } from "../../ui/classes";
@@ -144,6 +147,7 @@ export function PropertiesIsland({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const openExternalLink = useOpenExternalLink();
   const [openCliError, setOpenCliError] = useState("");
   const cliSessionExists = useMemo(
     () => detail.runs.some((run) => run.sessionID.trim().length > 0),
@@ -184,6 +188,7 @@ export function PropertiesIsland({
       />
       <PropertyLine label={t("task.workspace")} value={detail.sourceWorkspace.name} />
       <PropertyLine label={t("task.workflow")} value={detail.workflowName} />
+      <SourceLine label={t("task.source")} onOpen={openExternalLink} value={detail.sourceURL} />
       <PropertyLine label={t("task.sessions")} value={detail.runs.length.toString()} />
       <div className="grid gap-[var(--space-2)] pt-[var(--space-1)]">
         {cliSessionExists ? (
@@ -272,6 +277,42 @@ function taskStatusTextClassName(tone: ReturnType<typeof taskStatusTone>): strin
     return "text-[var(--color-error)]";
   }
   return "text-[var(--color-muted)]";
+}
+
+function SourceLine({
+  label,
+  onOpen,
+  value,
+}: Readonly<{ label: string; onOpen: (url: string) => void; value: string }>) {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const href = safeExternalUrl(trimmed);
+  if (href === undefined) {
+    return <PropertyLine label={label} value={trimmed} />;
+  }
+  return (
+    <PropertyLine
+      label={label}
+      value={
+        <a
+          className="truncate text-[var(--color-primary)] underline-offset-2 hover:underline"
+          data-testid="task-source-link"
+          href={href}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpen(href);
+          }}
+          rel="noreferrer"
+          target="_blank"
+          title={href}
+        >
+          {compactExternalUrlLabel(href)}
+        </a>
+      }
+    />
+  );
 }
 
 function PropertyLine({ label, value }: Readonly<{ label: string; value: ReactNode }>) {

@@ -206,6 +206,7 @@ export const englishResources = {
       onlyOneWorkspaceLinked: "Only one workspace is linked right now.",
       workspace: "Workspace",
       workflow: "Workflow",
+      source: "Source",
       sourceWorkspaceLocked: "Source workspace locked after start.",
       validationError: "Task validation failed",
       start: "Start task",

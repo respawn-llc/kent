@@ -135,6 +135,27 @@ describe("ApiClient", () => {
       transitions: [],
       comments: [],
       attention: [],
+      sourceURL: "",
+    });
+  });
+
+  it("parses task source URL into sourceURL", async () => {
+    const client = new ApiClient(
+      new FakeRpcTransport([
+        {
+          method: "workflow.task.get",
+          result: {
+            task: {
+              ...emptyTaskDetailResponse.task,
+              source_url: "https://github.com/respawn-llc/kent/issues/1",
+            },
+          },
+        },
+      ]),
+    );
+
+    await expect(client.getTask("task-1")).resolves.toMatchObject({
+      sourceURL: "https://github.com/respawn-llc/kent/issues/1",
     });
   });
 
