@@ -62,11 +62,11 @@ func TestQueuedUserMessagesCoalesceFromStoredSteeringIntents(t *testing.T) {
 	pending := []queuedUserSteeringIntent{
 		{
 			message: QueuedUserMessage{ID: "queue-1", Text: "stale metadata"},
-			intent:  steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: "intent text"}),
+			intent:  steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: "intent text"}}),
 		},
 		{
 			message: QueuedUserMessage{ID: "queue-2"},
-			intent:  steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: "second intent"}),
+			intent:  steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: "second intent"}}),
 		},
 	}
 

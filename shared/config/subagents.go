@@ -75,10 +75,6 @@ func IsSubagentRoleNameShape(raw string) bool {
 	return true
 }
 
-func SanitizeSubagentDescription(raw string) string {
-	return strings.Join(strings.Fields(raw), " ")
-}
-
 func SubagentRoleCallable(role SubagentRole) bool {
 	return !role.AgentCallableSet || role.AgentCallable
 }

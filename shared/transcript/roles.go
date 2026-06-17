@@ -1,7 +1,5 @@
 package transcript
 
-import "strings"
-
 type EntryRole string
 
 // EntryRoleCompactionSummary marks a persisted compaction or handoff summary.
@@ -28,7 +26,3 @@ const EntryRoleInterruption EntryRole = "interruption"
 
 // EntryRoleGoalFeedback marks user-facing goal lifecycle notices.
 const EntryRoleGoalFeedback EntryRole = "goal_feedback"
-
-func NormalizeEntryRole(role string) string {
-	return strings.ToLower(strings.TrimSpace(role))
-}

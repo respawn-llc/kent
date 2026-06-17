@@ -49,7 +49,7 @@ func TestEnsureInteractiveProjectBindingBindsRegisteredWorkspaceWithoutPrompt(t 
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -154,7 +154,7 @@ func TestEnsureInteractiveProjectBindingTreatsNestedDirectoryAsUnknownWorkspace(
 
 	server := &testEmbeddedServer{
 		cfg:               nestedCfg,
-		containerDir:      config.ProjectSessionsRoot(nestedCfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(nestedCfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -206,7 +206,7 @@ func TestEnsureInteractiveProjectBindingCreatesProjectForUnknownWorkspace(t *tes
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -280,7 +280,7 @@ func TestEnsureInteractiveProjectBindingUsesServerBrowsingForMissingServerPath(t
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: client.NewLoopbackProjectViewClient(service),
 	}
 
@@ -318,7 +318,7 @@ func TestEnsureInteractiveProjectBindingRebindsSameProjectToResolvedWorkspace(t 
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-1"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-1", "sessions"),
 		projectID:         "project-1",
 		boundWorkspaceID:  "workspace-a",
 		projectViewClient: client.NewLoopbackProjectViewClient(service),
@@ -374,7 +374,7 @@ func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProjec
 
 	server := &testEmbeddedServer{
 		cfg:               cfgB,
-		containerDir:      config.ProjectSessionsRoot(cfgB, bindingA.ProjectID),
+		containerDir:      filepath.Join(filepath.Join(cfgB.PersistenceRoot, "projects"), bindingA.ProjectID, "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -418,7 +418,7 @@ func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *te
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -454,7 +454,7 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -488,7 +488,7 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: projectViewClient,
 	}
 
@@ -550,7 +550,7 @@ func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(
 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
-		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
+		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
 		projectViewClient: client.NewLoopbackProjectViewClient(service),
 	}
 
@@ -577,7 +577,7 @@ func TestEnsureInteractiveProjectBindingFormatsMissingBoundProjectError(t *testi
 	server := &failingBindProjectServer{
 		testEmbeddedServer: &testEmbeddedServer{
 			cfg:               cfg,
-			containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
+			containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 			projectViewClient: projectViewClient,
 		},
 		bindErr: fmt.Errorf("bind project: %w", serverapi.ErrProjectNotFound),
@@ -606,7 +606,7 @@ func TestEnsureInteractiveProjectBindingFormatsUnavailableBoundProjectError(t *t
 	server := &failingBindProjectServer{
 		testEmbeddedServer: &testEmbeddedServer{
 			cfg:               cfg,
-			containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
+			containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 			projectViewClient: projectViewClient,
 		},
 		bindErr: serverapi.ProjectUnavailableError{ProjectID: binding.ProjectID, RootPath: cfg.WorkspaceRoot, Availability: clientui.ProjectAvailabilityMissing},
@@ -635,7 +635,7 @@ func TestEnsureInteractiveProjectBindingFormatsInaccessibleBoundProjectError(t *
 	server := &failingBindProjectServer{
 		testEmbeddedServer: &testEmbeddedServer{
 			cfg:               cfg,
-			containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
+			containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 			projectViewClient: projectViewClient,
 		},
 		bindErr: serverapi.ProjectUnavailableError{ProjectID: binding.ProjectID, RootPath: cfg.WorkspaceRoot, Availability: clientui.ProjectAvailabilityInaccessible},

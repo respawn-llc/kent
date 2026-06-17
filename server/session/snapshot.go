@@ -15,7 +15,7 @@ type Snapshot struct {
 }
 
 func SnapshotFromDir(sessionDir string) (Snapshot, error) {
-	meta, err := ReadMetaFromDir(sessionDir)
+	meta, err := readMetaFile(filepath.Join(sessionDir, sessionFile))
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -32,10 +32,6 @@ func SnapshotFromDir(sessionDir string) (Snapshot, error) {
 		Runs:                  runsFromEvents(parsed.events),
 		ConversationFreshness: conversationFreshnessFromEvents(parsed.events),
 	}, nil
-}
-
-func ReadMetaFromDir(sessionDir string) (Meta, error) {
-	return readMetaFile(filepath.Join(sessionDir, sessionFile))
 }
 
 func readMetaFile(path string) (Meta, error) {

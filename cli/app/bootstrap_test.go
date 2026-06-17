@@ -3,11 +3,11 @@ package app
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"core/server/auth"
 	"core/server/metadata"
-	"core/shared/config"
 )
 
 func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {
@@ -32,7 +32,7 @@ func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve bootstrap binding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(boot.Config(), binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(boot.Config().PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	if _, err := os.Stat(containerDir); err != nil {
 		t.Fatalf("expected bootstrap container dir to exist: %v", err)
 	}

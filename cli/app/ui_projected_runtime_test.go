@@ -68,9 +68,9 @@ func TestWaitRuntimeEventReturnsProjectedMessage(t *testing.T) {
 
 func TestWaitRuntimeEventDrainsQueuedBatch(t *testing.T) {
 	ch := make(chan clientui.Event, 3)
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}
 	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()}}
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}
 	assertRuntimeEventBatchLen(t, nextRuntimeEventBatch(t, ch), 3)
 }
 
@@ -78,7 +78,7 @@ func TestWaitRuntimeEventDoesNotCoalesceAssistantDeltas(t *testing.T) {
 	ch := make(chan clientui.Event, 3)
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "hello"}
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: " world"}
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}
 
 	msg := nextRuntimeEventBatch(t, ch)
 	assertRuntimeEventBatchLen(t, msg, 1)
@@ -458,8 +458,8 @@ func TestHydratingClientAndLiveClientConvergeWithoutDuplicateCommittedRows(t *te
 	hydrating = next.(*uiModel)
 	_ = finalCmd
 
-	hydratingCommitted := stripANSIAndTrimRight(hydrating.view.OngoingCommittedSnapshot())
-	liveCommitted := stripANSIAndTrimRight(live.view.OngoingCommittedSnapshot())
+	hydratingCommitted := stripANSIAndTrimRight(hydrating.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
+	liveCommitted := stripANSIAndTrimRight(live.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if got := len(hydrating.transcriptEntries); got != 2 {
 		t.Fatalf("hydrating client transcript entry count = %d, want 2", got)
 	}

@@ -294,10 +294,6 @@ var (
 //go:embed skills/**
 var GeneratedSkillsFS embed.FS
 
-func MainSystemPrompt(includeToolPreambles bool, args SystemPromptTemplateArgs) string {
-	return WithToolPreambles(BaseSystemPrompt(args), includeToolPreambles)
-}
-
 func RenderCustomSystemPrompt(text string, includeToolPreambles bool, args SystemPromptTemplateArgs) (string, error) {
 	sections, err := renderSystemPromptSections(args)
 	if err != nil {
@@ -440,7 +436,7 @@ func newWorkflowTaskInstructionsTemplateData(args WorkflowNodeContextArgs, nodeC
 		NodeCompletionInstructions: strings.TrimSpace(nodeCompletionInstructions),
 		ShowTaskCommentsReminder:   args.TaskNumberOfComments > 0,
 		TaskCommentsLabel:          taskCommentsLabel(args.TaskNumberOfComments),
-		TaskCommentListCommand:     taskCommentListCommand(args.TaskShortId),
+		TaskCommentListCommand:     strings.Join([]string{LaunchCommand(), "task", "comment", "list", strings.TrimSpace(args.TaskShortId)}, " "),
 	}
 }
 
@@ -449,10 +445,6 @@ func taskCommentsLabel(numberOfComments int64) string {
 		return "1 comment"
 	}
 	return fmt.Sprintf("%d comments", numberOfComments)
-}
-
-func taskCommentListCommand(taskShortID string) string {
-	return strings.Join([]string{LaunchCommand(), "task", "comment", "list", strings.TrimSpace(taskShortID)}, " ")
 }
 
 func RenderWorkflowToolCompletionInstructions(workflowShortId string) (string, error) {

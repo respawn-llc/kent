@@ -1750,7 +1750,7 @@ func newWorkflowCommandLoopback(t *testing.T) (config.App, metadata.Binding, *wo
 func createWorkflowCommandTestSession(t *testing.T, cfg config.App, binding metadata.Binding, metadataStore *metadata.Store) string {
 	t.Helper()
 	store, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

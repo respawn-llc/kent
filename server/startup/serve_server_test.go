@@ -615,8 +615,8 @@ func TestServeFailsWhenConfiguredPortIsOccupied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	ReleaseTestListenReservation(config.ServerListenAddress(loadCfg))
-	listener, err := net.Listen("tcp", config.ServerListenAddress(loadCfg))
+	ReleaseTestListenReservation(net.JoinHostPort(loadCfg.Settings.ServerHost, strconv.Itoa(loadCfg.Settings.ServerPort)))
+	listener, err := net.Listen("tcp", net.JoinHostPort(loadCfg.Settings.ServerHost, strconv.Itoa(loadCfg.Settings.ServerPort)))
 	if err != nil {
 		t.Fatalf("occupy configured port: %v", err)
 	}

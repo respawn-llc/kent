@@ -225,7 +225,7 @@ func TestRetargetSessionsFromMissingWorktreeRollsBackActiveSessionMetadataOnRunt
 	env.runtime.rebindCalls = nil
 	env.runtime.reminderCalls = nil
 
-	err = env.service.retargetSessionsFromMissingWorktree(env.ctx, env.binding.WorkspaceID, env.workspaceRoot, record)
+	err = env.service.retargetSessionsFromWorktree(env.ctx, env.binding.WorkspaceID, env.workspaceRoot, record, worktreeSessionRetargetOptions{reminder: worktreeReminderStateForExitedWorktree})
 	if err == nil || !strings.Contains(err.Error(), "runtime rebind failed") {
 		t.Fatalf("retargetSessionsFromMissingWorktree error = %v, want runtime rebind failed", err)
 	}
@@ -318,7 +318,7 @@ func newServiceTestEnv(t *testing.T) *serviceTestEnv {
 
 func createServiceTestSession(t *testing.T, store *metadata.Store, cfg config.App, binding metadata.Binding) *session.Store {
 	t.Helper()
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

@@ -1,13 +1,12 @@
 package llm
 
 import (
+	"strings"
 	"testing"
-
-	"core/shared/textutil"
 )
 
 func TestNormalizeReasoningSummaryTextPreservesBoldMarkers(t *testing.T) {
-	text := normalizeReasoningSummaryLines(textutil.SplitLinesCRLF("**Preparing patch**\n\nI am exploring options.\n**Running checks**"))
+	text := normalizeReasoningSummaryLines(strings.Split(strings.ReplaceAll("**Preparing patch**\n\nI am exploring options.\n**Running checks**", "\r\n", "\n"), "\n"))
 	if text != "**Preparing patch**\n\nI am exploring options.\n**Running checks**" {
 		t.Fatalf("unexpected normalized text: %q", text)
 	}

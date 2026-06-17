@@ -36,10 +36,6 @@ func (t *HTTPTransport) buildInputTokenCountParams(request OpenAIRequest, capabi
 	return builder.BuildInputTokenCount(request)
 }
 
-func (t *HTTPTransport) buildCompactPayload(request OpenAICompactionRequest) (responses.ResponseCompactParams, error) {
-	return newOpenAIRequestPayloadBuilder(t.Store, t.ModelVerbosity, ProviderCapabilities{}).BuildCompact(request)
-}
-
 func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode openAIAuthMode) (responses.ResponseNewParams, error) {
 	input, err := buildResponsesInput(request.Items)
 	if err != nil {

@@ -109,7 +109,7 @@ func TestNativeStreamedFinalThenCommitAppearsOnceInScrollback(t *testing.T) {
 	if got := strings.Count(finalTerminal, "final answer"); got != 1 {
 		t.Fatalf("expected streamed final plus commit to appear once in terminal, got %d in %q", got, finalTerminal)
 	}
-	committed := normalizedOutput(model.view.OngoingCommittedSnapshot())
+	committed := normalizedOutput(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if got := strings.Count(committed, "final answer"); got != 1 {
 		t.Fatalf("expected committed final once in rendered committed ongoing transcript, got %d in %q", got, committed)
 	}
@@ -162,7 +162,7 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 	if got := strings.Count(finalTerminal, "I opened it via the browser client"); got != 1 {
 		t.Fatalf("expected final terminal tail once, got %d in %q", got, finalTerminal)
 	}
-	committed := normalizedOutput(model.view.OngoingCommittedSnapshot())
+	committed := normalizedOutput(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if got := strings.Count(committed, "Captured the Kent project board"); got != 1 {
 		t.Fatalf("expected committed multiline final prefix once, got %d in %q", got, committed)
 	}

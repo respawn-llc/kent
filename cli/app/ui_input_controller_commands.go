@@ -6,6 +6,7 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/clientui"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -223,7 +224,7 @@ func (c uiInputController) handleFastModeCommand(requested string) (tea.Model, t
 		m.fastModeEnabled = targetEnabled
 	}
 
-	status := fastModeToggleStatusMessage(m.fastModeEnabled, changed)
+	status := serverapi.FastModeToggleStatusMessage(m.fastModeEnabled, changed)
 	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeSuccess)
 }
 
@@ -258,7 +259,7 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 	}
 	m.reviewerMode = nextMode
 	m.reviewerEnabled = nextMode != "off"
-	status := reviewerToggleStatusMessage(m.reviewerEnabled, nextMode, changed)
+	status := serverapi.ReviewerToggleStatusMessage(m.reviewerEnabled, nextMode, changed)
 	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
 }
 
@@ -288,7 +289,7 @@ func (c uiInputController) handleQuestionsCommand(requested string) (tea.Model, 
 		changed = currentEnabled != targetEnabled
 	}
 	m.questionsEnabled = nextEnabled
-	status := questionsToggleStatusMessage(nextEnabled, changed)
+	status := serverapi.QuestionsToggleStatusMessage(nextEnabled, changed)
 	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
 }
 
@@ -323,6 +324,6 @@ func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Mo
 		changed = currentEnabled != targetEnabled
 	}
 	m.autoCompactionEnabled = nextEnabled
-	status := autoCompactionToggleStatusMessage(nextEnabled, changed, currentCompactionMode)
+	status := serverapi.AutoCompactionToggleStatusMessage(nextEnabled, changed, currentCompactionMode)
 	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
 }

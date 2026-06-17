@@ -1193,7 +1193,7 @@ func parseSubagentDescription(raw settingsFile) (string, error) {
 	if !ok {
 		return "", &SettingsKeyTypeError{Key: strings.Join([]string{"description"}, "."), ExpectedType: "string"}
 	}
-	description := SanitizeSubagentDescription(text)
+	description := strings.Join(strings.Fields(text), " ")
 	if len([]rune(description)) > MaxSubagentDescriptionChars {
 		return "", fmt.Errorf("%w: must be <= %d characters after whitespace normalization", errSubagentDescriptionTooLong, MaxSubagentDescriptionChars)
 	}

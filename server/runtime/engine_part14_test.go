@@ -20,7 +20,7 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 	store := mustCreateTestSession(t)
 
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	handoffCall := llm.ToolCall{
@@ -28,7 +28,7 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 		Name:  string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{"summarizer_prompt": "keep API details", "future_agent_message": "resume after restart"}),
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
@@ -38,7 +38,7 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 	if err := eng.steer("step-1", steerToolCompletionIntent(tools.Result{CallID: handoffCall.ID, Name: toolspec.ToolTriggerHandoff, Output: resultOutput})); err != nil {
 		t.Fatalf("persist tool completion: %v", err)
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleTool, ToolCallID: handoffCall.ID, Name: string(toolspec.ToolTriggerHandoff), Content: string(resultOutput)})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, ToolCallID: handoffCall.ID, Name: string(toolspec.ToolTriggerHandoff), Content: string(resultOutput)}})); err != nil {
 		t.Fatalf("append tool result: %v", err)
 	}
 
@@ -57,13 +57,13 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 		},
 	}}
 	restored := mustNewHandoffTestEngine(t, reopenedStore, resumedClient, Config{})
-	if restored.pendingHandoffRequestSnapshot() == nil {
+	if restored.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected restore to recover pending handoff request")
 	}
-	if got, want := restored.pendingHandoffRequestSnapshot().summarizerPrompt, "keep API details"; got != want {
+	if got, want := restored.handoffRuntimeState().RequestSnapshot().summarizerPrompt, "keep API details"; got != want {
 		t.Fatalf("pending summarizer_prompt = %q, want %q", got, want)
 	}
-	if got, want := restored.pendingHandoffRequestSnapshot().futureAgentMessage, "resume after restart"; got != want {
+	if got, want := restored.handoffRuntimeState().RequestSnapshot().futureAgentMessage, "resume after restart"; got != want {
 		t.Fatalf("pending future_agent_message = %q, want %q", got, want)
 	}
 
@@ -89,10 +89,10 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 		t.Fatalf("expected restored handoff compaction request to include summarizer prompt, items=%+v", first.Items)
 	}
 	followUp := resumedClient.calls[1]
-	if got, want := followUp.SessionID, restored.conversationSessionID(); got != want {
+	if got, want := followUp.SessionID, restored.SessionID(); got != want {
 		t.Fatalf("expected follow-up request session id to stay on the main conversation after restored handoff compaction, got %q want %q", got, want)
 	}
-	if got, want := followUp.PromptCacheKey, restored.conversationPromptCacheKey(); got != want {
+	if got, want := followUp.PromptCacheKey, conversationPromptCacheKey(restored.SessionID(), restored.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("expected follow-up request prompt cache key to rotate after restored handoff compaction, got %q want %q", got, want)
 	}
 	foundCall := false
@@ -120,7 +120,7 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	handoffCall := llm.ToolCall{
@@ -128,7 +128,7 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 		Name:  string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{"future_agent_message": "resume after fork"}),
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
@@ -138,10 +138,10 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 	if err := eng.steer("step-1", steerToolCompletionIntent(tools.Result{CallID: handoffCall.ID, Name: toolspec.ToolTriggerHandoff, Output: resultOutput})); err != nil {
 		t.Fatalf("persist tool completion: %v", err)
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleTool, ToolCallID: handoffCall.ID, Name: string(toolspec.ToolTriggerHandoff), Content: string(resultOutput)})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, ToolCallID: handoffCall.ID, Name: string(toolspec.ToolTriggerHandoff), Content: string(resultOutput)}})); err != nil {
 		t.Fatalf("append tool result: %v", err)
 	}
-	if err := eng.steer("step-2", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "edit anchor"})); err != nil {
+	if err := eng.steer("step-2", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "edit anchor"}})); err != nil {
 		t.Fatalf("append second user message: %v", err)
 	}
 
@@ -150,10 +150,10 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 		t.Fatalf("fork session: %v", err)
 	}
 	forked := mustNewHandoffTestEngine(t, forkedStore, &fakeClient{}, Config{})
-	if forked.pendingHandoffRequestSnapshot() == nil {
+	if forked.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected forked session to recover pending handoff request")
 	}
-	if got, want := forked.pendingHandoffRequestSnapshot().futureAgentMessage, "resume after fork"; got != want {
+	if got, want := forked.handoffRuntimeState().RequestSnapshot().futureAgentMessage, "resume after fork"; got != want {
 		t.Fatalf("forked pending future_agent_message = %q, want %q", got, want)
 	}
 }
@@ -162,7 +162,7 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	store := mustCreateTestSession(t)
 
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	handoffCall := llm.ToolCall{
@@ -170,7 +170,7 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 		Name:  string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{"future_agent_message": "resume after manual compact"}),
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
@@ -180,7 +180,7 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	if err := eng.steer("step-1", steerToolCompletionIntent(tools.Result{CallID: handoffCall.ID, Name: toolspec.ToolTriggerHandoff, Output: resultOutput})); err != nil {
 		t.Fatalf("persist tool completion: %v", err)
 	}
-	if err := eng.replaceHistory("step-1", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})); err != nil {
+	if err := newCompactionPersistence(eng).replaceHistory("step-1", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
 
@@ -193,8 +193,8 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 		Usage:     llm.Usage{InputTokens: 300, WindowTokens: 2_000},
 	}}}
 	restored := mustNewHandoffTestEngine(t, reopenedStore, resumedClient, Config{})
-	if restored.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("did not expect restore to requeue handoff after later compaction, got %+v", restored.pendingHandoffRequestSnapshot())
+	if restored.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("did not expect restore to requeue handoff after later compaction, got %+v", restored.handoffRuntimeState().RequestSnapshot())
 	}
 
 	msg, err := restored.SubmitUserMessage(context.Background(), "continue")
@@ -207,10 +207,10 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	if len(resumedClient.calls) != 1 {
 		t.Fatalf("expected compaction-satisfied session to resume with a single request, got %d", len(resumedClient.calls))
 	}
-	if got, want := resumedClient.calls[0].SessionID, restored.conversationSessionID(); got != want {
+	if got, want := resumedClient.calls[0].SessionID, restored.SessionID(); got != want {
 		t.Fatalf("expected resumed request session id to stay on the main conversation after restored compaction, got %q want %q", got, want)
 	}
-	if got, want := resumedClient.calls[0].PromptCacheKey, restored.conversationPromptCacheKey(); got != want {
+	if got, want := resumedClient.calls[0].PromptCacheKey, conversationPromptCacheKey(restored.SessionID(), restored.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("expected resumed request prompt cache key to stay rotated after restored compaction, got %q want %q", got, want)
 	}
 	for _, item := range resumedClient.calls[0].Items {
@@ -227,7 +227,7 @@ func TestReopenedSessionAfterFailedTriggerHandoffDoesNotRequeuePendingHandoff(t 
 	store := mustCreateTestSession(t)
 
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	handoffCall := llm.ToolCall{
@@ -235,7 +235,7 @@ func TestReopenedSessionAfterFailedTriggerHandoffDoesNotRequeuePendingHandoff(t 
 		Name:  string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{"future_agent_message": "should not resume"}),
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "attempting handoff", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "attempting handoff", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 	failedOutput := mustJSON(map[string]any{"error": handoffDisabledByUserMessage})
@@ -248,8 +248,8 @@ func TestReopenedSessionAfterFailedTriggerHandoffDoesNotRequeuePendingHandoff(t 
 		t.Fatalf("re-open store: %v", err)
 	}
 	restored := mustNewHandoffTestEngine(t, reopenedStore, &fakeClient{}, Config{})
-	if restored.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("did not expect failed trigger_handoff completion to requeue handoff, got %+v", restored.pendingHandoffRequestSnapshot())
+	if restored.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("did not expect failed trigger_handoff completion to requeue handoff, got %+v", restored.handoffRuntimeState().RequestSnapshot())
 	}
 }
 
@@ -257,7 +257,7 @@ func TestReopenedSessionAfterLegacyReviewerRollbackStillRequeuesPendingTriggerHa
 	store := mustCreateTestSession(t)
 
 	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	handoffCall := llm.ToolCall{
@@ -265,7 +265,7 @@ func TestReopenedSessionAfterLegacyReviewerRollbackStillRequeuesPendingTriggerHa
 		Name:  string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{"future_agent_message": "resume after rollback"}),
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}})); err != nil {
+	if err := eng.steer("step-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, Content: "handing off", Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{handoffCall}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 	resultOutput := mustJSON(triggerhandofftool.TriggerHandoffResultPayload{
@@ -284,10 +284,10 @@ func TestReopenedSessionAfterLegacyReviewerRollbackStillRequeuesPendingTriggerHa
 		t.Fatalf("re-open store: %v", err)
 	}
 	restored := mustNewHandoffTestEngine(t, reopenedStore, &fakeClient{}, Config{})
-	if restored.pendingHandoffRequestSnapshot() == nil {
+	if restored.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected ignored legacy reviewer rollback to preserve pending handoff recovery")
 	}
-	if got, want := restored.pendingHandoffRequestSnapshot().futureAgentMessage, "resume after rollback"; got != want {
+	if got, want := restored.handoffRuntimeState().RequestSnapshot().futureAgentMessage, "resume after rollback"; got != want {
 		t.Fatalf("pending future_agent_message = %q, want %q", got, want)
 	}
 }
@@ -307,23 +307,23 @@ func TestManualCompactionClearsQueuedTriggerHandoff(t *testing.T) {
 	}}
 
 	eng := mustNewHandoffTestEngine(t, store, client, Config{})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setCompactionSoonReminderIssued(true)
+	eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_manual_clear", Name: string(toolspec.ToolTriggerHandoff)}, "", "resume after manual compact")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() == nil {
+	if eng.handoffRuntimeState().RequestSnapshot() == nil {
 		t.Fatal("expected queued handoff before manual compaction")
 	}
 	if err := eng.CompactContext(context.Background(), "manual compact now"); err != nil {
 		t.Fatalf("manual compact: %v", err)
 	}
-	if eng.pendingHandoffRequestSnapshot() != nil {
-		t.Fatalf("expected manual compaction to clear queued handoff, got %+v", eng.pendingHandoffRequestSnapshot())
+	if eng.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatalf("expected manual compaction to clear queued handoff, got %+v", eng.handoffRuntimeState().RequestSnapshot())
 	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "continue")
@@ -354,7 +354,7 @@ func TestManualCompactionRemotePassesSlashCommandArgumentsAsInstructions(t *test
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -379,7 +379,7 @@ func TestManualCompactionLocalAppendsSlashCommandArgumentsToPrompt(t *testing.T)
 		},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -416,7 +416,7 @@ func TestManualCompactionLocalSendsPromptAsDeveloperMessage(t *testing.T) {
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -458,10 +458,10 @@ func TestManualCompactionAppendsLastVisibleUserMessageCarryover(t *testing.T) {
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "older summary"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "older summary"}})); err != nil {
 		t.Fatalf("append compaction summary: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "please keep tests green"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "please keep tests green"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -469,7 +469,7 @@ func TestManualCompactionAppendsLastVisibleUserMessageCarryover(t *testing.T) {
 		t.Fatalf("compact: %v", err)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) == 0 {
 		t.Fatal("expected messages after manual compaction")
 	}
@@ -524,7 +524,7 @@ func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
 		Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "please keep tests green"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "please keep tests green"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -532,7 +532,7 @@ func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
 		t.Fatalf("compact: %v", err)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	if len(messages) < 6 {
 		t.Fatalf("expected canonical post-compaction messages, got %+v", messages)
 	}
@@ -566,16 +566,16 @@ func TestHandoffCompactionAppendsFutureMessageBeforeHeadlessReentry(t *testing.T
 	if err := store.SetHeadlessActive(true); err != nil {
 		t.Fatalf("mark headless active: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "continue"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	eng.queueHandoffRequest("", "resume with tests")
+	eng.handoffRuntimeState().QueueRequest("", "resume with tests")
 
 	if _, err := eng.applyPendingHandoffIfNeeded(context.Background(), "step-1"); err != nil {
 		t.Fatalf("apply pending handoff: %v", err)
 	}
 
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	futureIdx := -1
 	headlessIdx := -1
 	for idx, message := range messages {
@@ -610,7 +610,7 @@ func TestManualLocalCompactionPlacesSummaryBeforeCarryoverInTranscript(t *testin
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "please keep tests green"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "please keep tests green"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -657,10 +657,10 @@ func TestManualLocalCompactionOmitsCarryoverWithoutNewUserMessageSincePreviousCo
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "older user message"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "older user message"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "previous compaction summary"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "previous compaction summary"}})); err != nil {
 		t.Fatalf("append previous compaction summary: %v", err)
 	}
 
@@ -668,9 +668,9 @@ func TestManualLocalCompactionOmitsCarryoverWithoutNewUserMessageSincePreviousCo
 		t.Fatalf("compact: %v", err)
 	}
 
-	for _, message := range eng.snapshotMessages() {
+	for _, message := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if message.MessageType == llm.MessageTypeManualCompactionCarryover {
-			t.Fatalf("did not expect manual carryover message when no user message followed prior compaction, got %+v", eng.snapshotMessages())
+			t.Fatalf("did not expect manual carryover message when no user message followed prior compaction, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 		}
 	}
 	for _, entry := range eng.ChatSnapshot().Entries {
@@ -691,7 +691,7 @@ func TestReopenedManualCompactionKeepsCarryoverAsSingleDetailTranscriptEntry(t *
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "please keep tests green"})); err != nil {
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "please keep tests green"}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if err := eng.CompactContext(context.Background(), ""); err != nil {
@@ -704,7 +704,7 @@ func TestReopenedManualCompactionKeepsCarryoverAsSingleDetailTranscriptEntry(t *
 	}
 	restored := mustNewExecTestEngine(t, reopenedStore, &fakeClient{}, Config{CompactionMode: "local"})
 
-	messages := restored.snapshotMessages()
+	messages := restored.transcriptRuntimeState().SnapshotMessages()
 	carryoverMessages := 0
 	for _, message := range messages {
 		if message.MessageType != llm.MessageTypeManualCompactionCarryover {

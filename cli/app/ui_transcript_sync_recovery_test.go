@@ -48,7 +48,7 @@ func TestSessionActivityGapRecoveryEventuallyHydratesCommittedTranscriptInBothMo
 	m.termWidth = 90
 	m.termHeight = 16
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	evt := waitSessionActivityEvent(t, events)
 	if evt.Kind != clientui.EventStreamGap {

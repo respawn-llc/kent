@@ -45,10 +45,6 @@ func handoffFutureAgentMessage(text string) llm.Message {
 	}
 }
 
-func (e *Engine) postCompactionMessages(mode compactionMode, manualCarryover string, headlessActive bool) []postCompactionMessage {
-	return newCompactionCarryoverCoordinator(e).postCompactionMessages(mode, manualCarryover, headlessActive)
-}
-
 func (c compactionCarryoverCoordinator) postCompactionMessages(mode compactionMode, manualCarryover string, headlessActive bool) []postCompactionMessage {
 	e := c.engine
 	out := make([]postCompactionMessage, 0, 3)
@@ -58,7 +54,7 @@ func (c compactionCarryoverCoordinator) postCompactionMessages(mode compactionMo
 		}
 	}
 	if mode == compactionModeHandoff {
-		if req := e.pendingHandoffRequestSnapshot(); req != nil {
+		if req := e.handoffRuntimeState().RequestSnapshot(); req != nil {
 			if strings.TrimSpace(req.futureAgentMessage) != "" {
 				futureMessage := handoffFutureAgentMessage(req.futureAgentMessage)
 				out = append(out, postCompactionMessage{
@@ -81,28 +77,24 @@ func (c compactionCarryoverCoordinator) postCompactionMessages(mode compactionMo
 	return out
 }
 
-func (e *Engine) appendPostCompactionMessages(stepID string, messages []postCompactionMessage) error {
-	return newCompactionCarryoverCoordinator(e).appendPostCompactionMessages(stepID, messages)
-}
-
 func (c compactionCarryoverCoordinator) appendPostCompactionMessages(stepID string, messages []postCompactionMessage) error {
 	e := c.engine
 	for _, item := range messages {
 		message := item.message
 		switch message.MessageType {
 		case llm.MessageTypeManualCompactionCarryover:
-			if err := e.steer(stepID, steerMessageWithoutDerivedEventIntent(message)); err != nil {
+			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{message})); err != nil {
 				return err
 			}
 		default:
-			if err := e.steer(stepID, steerMessageIntent(message)); err != nil {
+			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message})); err != nil {
 				if message.MessageType == llm.MessageTypeHandoffFutureMessage {
-					e.queuePendingHandoffFutureMessage(item.pendingHandoffFutureText)
+					e.handoffRuntimeState().QueueFutureMessage(item.pendingHandoffFutureText)
 				}
 				return err
 			}
 			if message.MessageType == llm.MessageTypeHandoffFutureMessage {
-				e.clearPendingHandoffFutureMessage()
+				e.handoffRuntimeState().ClearFutureMessage()
 			}
 		}
 	}

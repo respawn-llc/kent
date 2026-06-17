@@ -68,7 +68,7 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		store.AuthoritativeSessionStoreOptions()...,

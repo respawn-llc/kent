@@ -6,6 +6,7 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -417,7 +418,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		return sequenceCmds(m.appendLocalEntryWithNoticeID("system", "Thinking level set to "+m.thinkingLevel, ""), followUpCmd)
 	case runtimeControlSetFastMode:
 		m.fastModeEnabled = msg.enabled
-		status := fastModeToggleStatusMessage(m.fastModeEnabled, msg.changed)
+		status := serverapi.FastModeToggleStatusMessage(m.fastModeEnabled, msg.changed)
 		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlSetReviewer:
 		nextMode := strings.TrimSpace(msg.mode)
@@ -426,15 +427,15 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		}
 		m.reviewerMode = nextMode
 		m.reviewerEnabled = nextMode != "off"
-		status := reviewerToggleStatusMessage(m.reviewerEnabled, nextMode, msg.changed)
+		status := serverapi.ReviewerToggleStatusMessage(m.reviewerEnabled, nextMode, msg.changed)
 		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlSetAutoCompaction:
 		m.autoCompactionEnabled = msg.enabled
-		status := autoCompactionToggleStatusMessage(msg.enabled, msg.changed, msg.compactionMode)
+		status := serverapi.AutoCompactionToggleStatusMessage(msg.enabled, msg.changed, msg.compactionMode)
 		return sequenceCmds(m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral), followUpCmd)
 	case runtimeControlSetQuestions:
 		m.questionsEnabled = msg.enabled
-		status := questionsToggleStatusMessage(msg.enabled, msg.changed)
+		status := serverapi.QuestionsToggleStatusMessage(msg.enabled, msg.changed)
 		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlInterrupt:
 		return followUpCmd

@@ -75,7 +75,7 @@ const (
 )
 
 func TranscriptRoleFromWire(role string) TranscriptRole {
-	normalized := transcript.NormalizeEntryRole(role)
+	normalized := strings.ToLower(strings.TrimSpace(role))
 	if normalized == "" {
 		return TranscriptRoleUnknown
 	}

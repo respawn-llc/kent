@@ -887,7 +887,7 @@ func TestViewRendersOverlayCursorWithoutShiftingText(t *testing.T) {
 	m.termHeight = 16
 	m.windowSizeKnown = true
 	m.input = "hello world"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	if !strings.Contains(view, ansiHideCursor) {
@@ -906,7 +906,7 @@ func TestViewCursorMovementDoesNotDropCharacters(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "hello"
 	m.inputCursor = 2
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	plain := stripANSIAndTrimRight(m.View())
 	if !strings.Contains(plain, "› hello") {
@@ -921,7 +921,7 @@ func TestViewHidesCursorWhenInputLocked(t *testing.T) {
 	m.windowSizeKnown = true
 	m.setInputSubmitLocked(true)
 	m.input = "hello world"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	if !strings.Contains(view, ansiHideCursor) {

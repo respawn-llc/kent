@@ -433,7 +433,7 @@ func (s *Service) deleteTaskWorktreeBranch(ctx context.Context, workspaceRoot st
 	if branchName == "" {
 		return false, nil
 	}
-	if err := s.git.ForceDeleteBranch(ctx, workspaceRoot, branchName); err != nil {
+	if err := s.git.deleteBranch(ctx, workspaceRoot, branchName, true); err != nil {
 		return false, fmt.Errorf("delete task worktree branch %q: %w", branchName, err)
 	}
 	return true, nil
@@ -617,7 +617,7 @@ func (s *Service) cleanupFailedCreate(ctx context.Context, cleanup failedCreateC
 		collected = append(collected, err)
 	}
 	if cleanup.createdBranch && strings.TrimSpace(cleanup.branchName) != "" {
-		if err := s.git.DeleteBranch(cleanupCtx, cleanup.workspaceRoot, cleanup.branchName); err != nil {
+		if err := s.git.deleteBranch(cleanupCtx, cleanup.workspaceRoot, cleanup.branchName, false); err != nil {
 			collected = append(collected, fmt.Errorf("delete created branch %q for failed worktree create: %w", cleanup.branchName, err))
 		}
 	}
@@ -743,7 +743,7 @@ func (s *Service) DeleteWorktree(ctx context.Context, req serverapi.WorktreeDele
 	branchDeleted := false
 	branchCleanupMessage := s.branchCleanupSkippedMessage(targetWorktree, req.DeleteBranch)
 	if s.shouldAttemptBranchCleanup(targetWorktree, req.DeleteBranch) {
-		if err := s.git.DeleteBranch(ctx, workspaceCtx.workspaceRoot, targetWorktree.git.BranchName); err != nil {
+		if err := s.git.deleteBranch(ctx, workspaceCtx.workspaceRoot, targetWorktree.git.BranchName, false); err != nil {
 			branchCleanupMessage = fmt.Sprintf("Kept branch %s: %v", targetWorktree.git.BranchName, err)
 		} else {
 			branchDeleted = true
@@ -899,7 +899,7 @@ func (s *Service) syncWorkspace(ctx context.Context, workspaceID string, workspa
 		if _, ok := seenRoots[strings.TrimSpace(record.CanonicalRoot)]; ok {
 			continue
 		}
-		if err := s.retargetSessionsFromMissingWorktree(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(workspaceRoot), record); err != nil {
+		if err := s.retargetSessionsFromWorktree(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(workspaceRoot), record, worktreeSessionRetargetOptions{reminder: worktreeReminderStateForExitedWorktree}); err != nil {
 			return nil, err
 		}
 		if err := s.metadata.DeleteWorktreeRecordByID(ctx, record.ID); err != nil {
@@ -946,10 +946,6 @@ type worktreeSessionRetargetOptions struct {
 type pendingWorktreeSessionRetarget struct {
 	sessionID      string
 	previousTarget clientui.SessionExecutionTarget
-}
-
-func (s *Service) retargetSessionsFromMissingWorktree(ctx context.Context, workspaceID string, workspaceRoot string, worktree metadata.WorktreeRecord) error {
-	return s.retargetSessionsFromWorktree(ctx, workspaceID, workspaceRoot, worktree, worktreeSessionRetargetOptions{reminder: worktreeReminderStateForExitedWorktree})
 }
 
 func (s *Service) retargetActiveSessionsFromDeletedWorktree(ctx context.Context, workspaceID string, workspaceRoot string, worktree metadata.WorktreeRecord, currentSessionID string) error {

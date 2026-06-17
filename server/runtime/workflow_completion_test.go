@@ -290,9 +290,9 @@ func TestWorkflowModePromptCommentCountErrorFailsBeforeWorkflowPromptAppend(t *t
 		t.Fatalf("SubmitWorkflowTurn error = %v, want %v", err, countErr)
 	}
 	assertModelCallCount(t, client, 0)
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
-			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.snapshotMessages())
+			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 		}
 	}
 }
@@ -469,13 +469,13 @@ func TestCompleteNodeOutsideWorkflowReturnsToolError(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	found := false
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleTool && msg.Name == string(toolspec.ToolCompleteNode) && strings.Contains(msg.Content, "only available during a workflow run") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("complete_node error output missing from messages: %+v", eng.snapshotMessages())
+		t.Fatalf("complete_node error output missing from messages: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 }
 
@@ -705,12 +705,12 @@ func TestWorkflowDurableCompletionAfterModelResponseSkipsStalePersistence(t *tes
 	if len(client.calls) != 1 {
 		t.Fatalf("model calls = %d, want 1", len(client.calls))
 	}
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleAssistant && strings.Contains(msg.Content, "stale assistant") {
-			t.Fatalf("stale assistant response was persisted after external completion: %+v", eng.snapshotMessages())
+			t.Fatalf("stale assistant response was persisted after external completion: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 		}
 		if msg.Role == llm.RoleTool && msg.ToolCallID == "call_shell" {
-			t.Fatalf("stale tool result was persisted after external completion: %+v", eng.snapshotMessages())
+			t.Fatalf("stale tool result was persisted after external completion: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 		}
 	}
 }
@@ -964,7 +964,7 @@ func assertSchemaRequiredFields(t *testing.T, schema json.RawMessage, expected [
 
 func assertDeveloperErrorFeedbackAfterAssistantFinal(t *testing.T, eng *Engine, assistantContent string, feedbackContent string) {
 	t.Helper()
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	for index, message := range messages {
 		if message.Role != llm.RoleAssistant || message.Phase != llm.MessagePhaseFinal || message.Content != assistantContent {
 			continue
@@ -984,7 +984,7 @@ func assertDeveloperErrorFeedbackAfterAssistantFinal(t *testing.T, eng *Engine, 
 
 func assertDeveloperErrorFeedbackAfterAssistantFinalContains(t *testing.T, eng *Engine, assistantContent string, required []string, forbidden []string) {
 	t.Helper()
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	for index, message := range messages {
 		if message.Role != llm.RoleAssistant || message.Phase != llm.MessagePhaseFinal || message.Content != assistantContent {
 			continue
@@ -1014,12 +1014,12 @@ func assertDeveloperErrorFeedbackAfterAssistantFinalContains(t *testing.T, eng *
 
 func assertToolMessageWithCallID(t *testing.T, eng *Engine, callID string) {
 	t.Helper()
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleTool && msg.ToolCallID == callID {
 			return
 		}
 	}
-	t.Fatalf("tool message for call %s not found: %+v", callID, eng.snapshotMessages())
+	t.Fatalf("tool message for call %s not found: %+v", callID, eng.transcriptRuntimeState().SnapshotMessages())
 }
 
 func schemaRoot(t *testing.T, schema json.RawMessage) map[string]any {

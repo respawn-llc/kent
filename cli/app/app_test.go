@@ -21,7 +21,7 @@ func TestEffectiveSettingsKeepsBaseThinkingLevelEvenWhenSessionIsLocked(t *testi
 
 func TestActiveToolIDs_UsesLockedEnabledToolsVerbatim(t *testing.T) {
 	locked := &session.LockedContract{EnabledTools: []string{string(toolspec.ToolExecCommand)}}
-	ids, err := launch.ActiveToolIDs(config.Settings{Model: "gpt-5.4"}, config.SourceReport{}, locked)
+	ids, err := launch.ActiveToolIDsForPlan(config.Settings{Model: "gpt-5.4"}, config.SourceReport{}, locked)
 	if err != nil {
 		t.Fatalf("activeToolIDs: %v", err)
 	}

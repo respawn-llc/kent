@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,7 +95,8 @@ func (s *ServeServer) Serve(ctx context.Context) error {
 	if s == nil || s.Core == nil {
 		return errors.New("server core is required")
 	}
-	listenAddress := config.ServerListenAddress(s.Config())
+	listenCfg := s.Config()
+	listenAddress := net.JoinHostPort(listenCfg.Settings.ServerHost, strconv.Itoa(listenCfg.Settings.ServerPort))
 	ReleaseTestListenReservation(listenAddress)
 	tcpListener, err := net.Listen("tcp", listenAddress)
 	if err != nil {

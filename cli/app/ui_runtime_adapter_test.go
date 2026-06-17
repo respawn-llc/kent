@@ -290,7 +290,7 @@ func TestRuntimeAdapterRunStartAppliesPendingInputBeforeActivityEffect(t *testin
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
-		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
+		RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)},
 	}, true).cmd
 
 	if m.activity != uiActivityRunning {

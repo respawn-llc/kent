@@ -277,7 +277,7 @@ func (m Model) LoadedTranscriptEntries() []TranscriptEntry {
 func (m Model) DetailVisibleEntryRange() (int, int, bool) {
 	first := -1
 	last := -1
-	for _, entryIndex := range m.currentDetailViewport().Owners {
+	for _, entryIndex := range m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners {
 		if entryIndex < 0 {
 			continue
 		}
@@ -424,7 +424,7 @@ func (m *Model) VisibleLineKinds() []VisibleLineKind {
 		return nil
 	}
 	if m.mode == ModeDetail {
-		return visibleKindsForViewport(m.currentDetailViewport().Kinds, m.viewportLines)
+		return visibleKindsForViewport(m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Kinds, m.viewportLines)
 	}
 	return m.visibleOngoingLineKinds()
 }
@@ -456,10 +456,6 @@ func (m Model) OngoingScroll() int {
 
 func (m Model) OngoingSnapshot() string {
 	return strings.Join(m.ongoingLines(), "\n")
-}
-
-func (m Model) OngoingCommittedSnapshot() string {
-	return m.CommittedOngoingProjection().Render(TranscriptDivider)
 }
 
 func (m Model) OngoingStreamingText() string {
@@ -496,7 +492,7 @@ func (m Model) transitionMode(target Mode, skipDetailWarmup bool) Model {
 		}
 		m.refreshDetailViewport()
 		if m.compactDetail {
-			m.focusVisibleDetailEntry(len(m.currentDetailViewport().Owners) - 1)
+			m.focusVisibleDetailEntry(len(m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners) - 1)
 		}
 	case ModeOngoing:
 		m.mode = ModeOngoing
@@ -695,7 +691,7 @@ func (m Model) visibleDetailEntryLineRange(entryIndex int) (int, int, bool) {
 	}
 	first := -1
 	last := -1
-	for lineIndex, owner := range m.currentDetailViewport().Owners {
+	for lineIndex, owner := range m.detailViewProjection().DetailViewport(m.currentDetailViewportState()).Owners {
 		if owner != entryIndex {
 			continue
 		}
@@ -828,11 +824,7 @@ func (m Model) transcriptViewProjection() TranscriptViewProjection {
 	if m.viewProjector == nil {
 		return ProjectTranscriptViews(m.TranscriptProjectionInput(), m.TranscriptProjectionViewState())
 	}
-	return m.viewProjector.ProjectShared(m.transcriptProjectionInput(), m.TranscriptProjectionViewState())
-}
-
-func (m Model) currentDetailViewport() ProjectionViewport {
-	return m.detailViewProjection().DetailViewport(m.currentDetailViewportState())
+	return m.viewProjector.project(m.transcriptProjectionInput(), m.TranscriptProjectionViewState(), false)
 }
 
 func (m Model) currentDetailViewportState() ProjectionViewportState {

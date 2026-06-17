@@ -5,12 +5,11 @@ import (
 	"strconv"
 	"strings"
 
-	"core/shared/textutil"
 	patchformat "core/shared/transcript/patchformat"
 )
 
 func splitLines(s string) []string {
-	s = textutil.NormalizeCRLF(s)
+	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.TrimSuffix(s, "\n")
 	if s == "" {
 		return nil

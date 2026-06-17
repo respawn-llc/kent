@@ -935,7 +935,7 @@ func TestPendingOngoingAskQuestionsUseQuestionGroupAndEllipsizeQuestionText(t *t
 		},
 	}
 
-	rendered := RenderPendingOngoingSnapshot(entries, "dark", 42, "*")
+	rendered := renderPendingOngoingSnapshotProjection(entries, "dark", 42, uniformPendingSpinnerFrame("*")).Render(TranscriptDivider)
 	plain := plainTranscript(rendered)
 	if !containsInOrder(plain, "* First pending question", "* pwd", "* Second pending question?") {
 		t.Fatalf("expected pending questions and tool in model order, got %q", plain)
@@ -1130,7 +1130,7 @@ func TestPendingOngoingMultilineToolBlockRendersTreeGuidesWithSpinner(t *testing
 		},
 	}}
 
-	plain := plainTranscript(RenderPendingOngoingSnapshot(entries, "dark", 80, "*"))
+	plain := plainTranscript(renderPendingOngoingSnapshotProjection(entries, "dark", 80, uniformPendingSpinnerFrame("*")).Render(TranscriptDivider))
 	if !containsInOrder(plain, "* ./docs/a.md +2", "└ ./docs/b.md +5") {
 		t.Fatalf("expected pending multiline ongoing tool block to render tree guides with spinner, got %q", plain)
 	}

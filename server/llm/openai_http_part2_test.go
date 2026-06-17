@@ -635,7 +635,7 @@ func TestInputTokenCountPayloadMatchesCompactPayloadInputShape(t *testing.T) {
 		{Type: ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_compaction"},
 	})
 
-	compactPayload, err := transport.buildCompactPayload(OpenAICompactionRequest{
+	compactPayload, err := newOpenAIRequestPayloadBuilder(transport.Store, transport.ModelVerbosity, ProviderCapabilities{}).BuildCompact(OpenAICompactionRequest{
 		Model:        "gpt-5",
 		Instructions: "compaction instructions",
 		InputItems:   canonicalItems,
@@ -679,7 +679,7 @@ func TestOpenAIRequestBuildersRejectUnmaterializedViewImageInputFileOutput(t *te
 	_, err = transport.buildInputTokenCountParams(OpenAIRequest{Model: "gpt-5", Items: unpreparedItems}, caps)
 	checkErr("buildInputTokenCountParams", err)
 
-	_, err = transport.buildCompactPayload(OpenAICompactionRequest{Model: "gpt-5", InputItems: unpreparedItems})
+	_, err = newOpenAIRequestPayloadBuilder(transport.Store, transport.ModelVerbosity, ProviderCapabilities{}).BuildCompact(OpenAICompactionRequest{Model: "gpt-5", InputItems: unpreparedItems})
 	checkErr("buildCompactPayload", err)
 }
 

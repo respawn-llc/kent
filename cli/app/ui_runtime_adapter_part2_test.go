@@ -147,7 +147,7 @@ func TestProjectedAssistantMessageUpdatesDetailViewImmediatelyWhenCommitted(t *t
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,
@@ -207,7 +207,7 @@ func TestProjectedReviewerCompletedUpdatesDetailViewImmediatelyWhenCommitted(t *
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventLocalEntryAdded,
@@ -567,7 +567,7 @@ func TestProjectedCompactionStatusDoesNotAppendOngoingNoticeInDetailMode(t *test
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind:   runtime.EventCompactionCompleted,

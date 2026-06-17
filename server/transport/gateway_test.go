@@ -11,7 +11,6 @@ import (
 	shelltool "core/server/tools/shell"
 	rpccontract "core/shared/apicontract"
 	remoteclient "core/shared/client"
-	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
@@ -20,6 +19,7 @@ import (
 	"golang.org/x/net/websocket"
 	"io"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -850,7 +850,7 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 	defer func() { _ = metadataStore.Close() }()
 	foreignSession, err := session.Create(
-		config.ProjectSessionsRoot(resolvedB.Config, bindingB.ProjectID),
+		filepath.Join(filepath.Join(resolvedB.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
 		resolvedB.Config.WorkspaceRoot,
 		metadataStore.SessionStoreOptions()...,
@@ -940,7 +940,7 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 	}
 	defer func() { _ = metadataStore.Close() }()
 	foreignSession, err := session.Create(
-		config.ProjectSessionsRoot(resolvedB.Config, bindingB.ProjectID),
+		filepath.Join(filepath.Join(resolvedB.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
 		resolvedB.Config.WorkspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

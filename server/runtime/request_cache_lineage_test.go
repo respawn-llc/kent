@@ -288,10 +288,10 @@ func TestBuildRequest_UsesBasePromptCacheKeyBeforeFirstCompactionWhenProviderSup
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
-	if got, want := req.SessionID, eng.conversationSessionID(); got != want {
+	if got, want := req.SessionID, eng.SessionID(); got != want {
 		t.Fatalf("SessionID = %q, want %q", got, want)
 	}
-	if got, want := req.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
+	if got, want := req.PromptCacheKey, conversationPromptCacheKey(eng.SessionID(), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
 	if req.PromptCacheScope != transcript.CacheWarningScopeConversation {
@@ -308,10 +308,10 @@ func TestBuildRequest_RotatesPromptCacheKeyWithRequestSessionIDAfterCompaction(t
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
-	if got, want := req.SessionID, eng.conversationSessionID(); got != want {
+	if got, want := req.SessionID, eng.SessionID(); got != want {
 		t.Fatalf("SessionID = %q, want %q", got, want)
 	}
-	if got, want := req.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
+	if got, want := req.PromptCacheKey, conversationPromptCacheKey(eng.SessionID(), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
 }
@@ -336,10 +336,10 @@ func TestBuildRequest_RotatesPromptCacheKeyFromPersistedCompactionOnReopen(t *te
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
-	if got, want := req.SessionID, eng.conversationSessionID(); got != want {
+	if got, want := req.SessionID, eng.SessionID(); got != want {
 		t.Fatalf("SessionID = %q, want %q", got, want)
 	}
-	if got, want := req.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
+	if got, want := req.PromptCacheKey, conversationPromptCacheKey(eng.SessionID(), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
 }
@@ -364,10 +364,10 @@ func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *
 	if err != nil {
 		t.Fatalf("ensure locked: %v", err)
 	}
-	if got, want := req.SessionID, eng.conversationSessionID(); got != want {
+	if got, want := req.SessionID, eng.SessionID(); got != want {
 		t.Fatalf("SessionID = %q, want %q", got, want)
 	}
-	if got, want := req.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
+	if got, want := req.PromptCacheKey, conversationPromptCacheKey(eng.SessionID(), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
 	}
 	if got, want := req.PromptCacheScope, transcript.CacheWarningScopeConversation; got != want {
@@ -451,7 +451,7 @@ func TestOpenAIResponsesPayload_UsesExpectedCacheKeyShapesAcrossConversationSupe
 	if got, want := reopenedReq.SessionID, reopened.Meta().SessionID; got != want {
 		t.Fatalf("reopened SessionID = %q, want %q", got, want)
 	}
-	if got, want := stringValue(reopenedPayload["prompt_cache_key"]), conversationPromptCacheKey(reopened.Meta().SessionID, reopenedEng.compactionCountSnapshot()); got != want {
+	if got, want := stringValue(reopenedPayload["prompt_cache_key"]), conversationPromptCacheKey(reopened.Meta().SessionID, reopenedEng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("reopened prompt_cache_key = %q, want %q", got, want)
 	}
 	if got, want := stringValue(reopenedPayload["instructions"]), stringValue(conversationPayload["instructions"]); got != want {
@@ -578,7 +578,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 	if got, want := reopenedMain.sessionID, reopened.Meta().SessionID; got != want {
 		t.Fatalf("reopened main session_id header = %q, want %q", got, want)
 	}
-	if got, want := stringValue(reopenedMain.payload["prompt_cache_key"]), conversationPromptCacheKey(reopened.Meta().SessionID, reopenedEng.compactionCountSnapshot()); got != want {
+	if got, want := stringValue(reopenedMain.payload["prompt_cache_key"]), conversationPromptCacheKey(reopened.Meta().SessionID, reopenedEng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("reopened main prompt_cache_key = %q, want %q", got, want)
 	}
 
@@ -590,7 +590,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 	if got, want := reopenedReviewer.sessionID, reviewerSessionID(reopened.Meta().SessionID); got != want {
 		t.Fatalf("reopened reviewer session_id header = %q, want %q", got, want)
 	}
-	if got, want := stringValue(reopenedReviewer.payload["prompt_cache_key"]), conversationPromptCacheKey(reviewerSessionID(reopened.Meta().SessionID), reopenedEng.compactionCountSnapshot()); got != want {
+	if got, want := stringValue(reopenedReviewer.payload["prompt_cache_key"]), conversationPromptCacheKey(reviewerSessionID(reopened.Meta().SessionID), reopenedEng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("reopened reviewer prompt_cache_key = %q, want %q", got, want)
 	}
 }
@@ -635,7 +635,7 @@ func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.
 	if got, want := reviewerClient.calls[0].SessionID, reviewerSessionID(store.Meta().SessionID); got != want {
 		t.Fatalf("reviewer SessionID = %q, want %q", got, want)
 	}
-	if got, want := reviewerClient.calls[0].PromptCacheKey, conversationPromptCacheKey(reviewerSessionID(store.Meta().SessionID), eng.compactionCountSnapshot()); got != want {
+	if got, want := reviewerClient.calls[0].PromptCacheKey, conversationPromptCacheKey(reviewerSessionID(store.Meta().SessionID), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("reviewer PromptCacheKey = %q, want %q", got, want)
 	}
 	if reviewerClient.calls[0].PromptCacheScope != transcript.CacheWarningScopeReviewer {
@@ -672,7 +672,7 @@ func TestReviewerSuggestions_PromptCacheKeyStaysOnReviewerSessionAfterConversati
 	if got, want := reviewerClient.calls[0].SessionID, reviewerSessionID(reopened.Meta().SessionID); got != want {
 		t.Fatalf("reviewer SessionID = %q, want %q", got, want)
 	}
-	if got, want := reviewerClient.calls[0].PromptCacheKey, conversationPromptCacheKey(reviewerSessionID(reopened.Meta().SessionID), eng.compactionCountSnapshot()); got != want {
+	if got, want := reviewerClient.calls[0].PromptCacheKey, conversationPromptCacheKey(reviewerSessionID(reopened.Meta().SessionID), eng.compactionRuntimeState().Count()); got != want {
 		t.Fatalf("reviewer PromptCacheKey = %q, want %q", got, want)
 	}
 }
@@ -718,7 +718,7 @@ func TestGenerateWithRetryClient_CompactionRotatesConversationCacheKeyWithoutWar
 	if _, err := eng.generateWithRetryClient(context.Background(), "step-1", client, testPromptCacheRequest("cache-key-1", "alpha"), nil, nil, nil); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
-	if err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})); err != nil {
+	if err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
 	if len(persistedCacheWarnings(t, store)) != 0 {
@@ -779,7 +779,7 @@ func TestGenerateWithRetryClient_RestorePreservesRotatedCompactionKeyWithoutWarn
 	if _, err := eng.generateWithRetryClient(context.Background(), "step-1", client, testPromptCacheRequest("cache-key-1", "alpha"), nil, nil, nil); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
-	if err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})); err != nil {
+	if err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
 	if err := eng.Close(); err != nil {

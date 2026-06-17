@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"core/server/auth"
@@ -125,7 +126,7 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 		Sources:  plan.Source.Sources,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", FormatRuntimeEvent(evt))
-			if transcriptdiag.EnabledForProcess(plan.ActiveSettings.Debug) {
+			if transcriptdiag.Enabled(plan.ActiveSettings.Debug, os.Getenv) {
 				projected := runtimeview.EventFromRuntime(evt)
 				logger.Logf("%s", FormatTranscriptProjectionDiagnostic(plan.Store.Meta().SessionID, projected))
 				logger.Logf("%s", FormatTranscriptPublishDiagnostic(plan.Store.Meta().SessionID, projected))

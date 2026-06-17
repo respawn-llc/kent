@@ -310,7 +310,7 @@ func TestUITerminalCursorPlacementTracksWrappedOngoingInputAcrossWidthChanges(t 
 	m.windowSizeKnown = true
 	m.input = "alpha beta gamma delta epsilon"
 	m.inputCursor = -1
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	assertRenderedLinesFitWidth(t, view, m.termWidth)
@@ -329,7 +329,7 @@ func TestUITerminalCursorPlacementTracksWrappedOngoingInputAcrossWidthChanges(t 
 	}
 
 	m.termWidth = 16
-	m.syncViewport()
+	m.layout().syncViewport()
 	view = m.View()
 	assertRenderedLinesFitWidth(t, view, m.termWidth)
 	narrow, ok := state.Snapshot()
@@ -353,7 +353,7 @@ func TestUITerminalCursorPlacementTracksWrappedAltScreenInputAcrossWidthChanges(
 	m.altScreenActive = true
 	m.input = "one two three four five six"
 	m.inputCursor = -1
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	assertRenderedLinesFitWidth(t, view, m.termWidth)
@@ -366,7 +366,7 @@ func TestUITerminalCursorPlacementTracksWrappedAltScreenInputAcrossWidthChanges(
 	}
 
 	m.termWidth = 18
-	m.syncViewport()
+	m.layout().syncViewport()
 	view = m.View()
 	assertRenderedLinesFitWidth(t, view, m.termWidth)
 	narrow, ok := state.Snapshot()
@@ -392,7 +392,7 @@ func TestMainInputCursorUsesSharedFieldDisplayWidth(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "ab👍cd"
 	m.inputCursor = 3
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cursor := m.layout().inputPaneCursor(m.termWidth)
 	if !cursor.Visible {
@@ -418,7 +418,7 @@ func TestAskInputCursorUsesSharedFieldDisplayWidth(t *testing.T) {
 	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Question?"}, reply: reply})
 	m.ask.input = "ab👍cd"
 	m.ask.inputCursor = 3
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cursor := m.layout().inputPaneCursor(m.termWidth)
 	if !cursor.Visible {
@@ -442,7 +442,7 @@ func TestTerminalCursorHiddenWhenInputLocked(t *testing.T) {
 	m.windowSizeKnown = true
 	m.setInputSubmitLocked(true)
 	m.input = "locked"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	assertRenderedLinesFitWidth(t, view, m.termWidth)
@@ -458,7 +458,7 @@ func TestViewDoesNotAppendHideCursorWhenRealTerminalCursorVisible(t *testing.T) 
 	m.termHeight = 10
 	m.windowSizeKnown = true
 	m.input = "visible cursor"
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	assertRenderedLinesFitWidth(t, view, m.termWidth)
@@ -476,12 +476,12 @@ func TestRealCursorFrameChangesWhenOnlyInputSpacesMoveCursor(t *testing.T) {
 	m.termWidth = 24
 	m.termHeight = 10
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	emptyView := m.View()
 	m.input = " "
 	m.inputCursor = -1
-	m.syncViewport()
+	m.layout().syncViewport()
 	spaceView := m.View()
 	if emptyView == spaceView {
 		t.Fatal("expected real-cursor frame to change when only trailing spaces move cursor")
@@ -502,14 +502,14 @@ func TestRealCursorFrameChangesAfterTypingEachSpace(t *testing.T) {
 	m.termWidth = 24
 	m.termHeight = 10
 	m.windowSizeKnown = true
-	m.syncViewport()
+	m.layout().syncViewport()
 	previous := m.View()
 
 	for i := range 3 {
 		next, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
 		model = next
 		updated := model.(*uiModel)
-		updated.syncViewport()
+		updated.layout().syncViewport()
 		current := updated.View()
 		if current == previous {
 			t.Fatalf("view did not change after typing space %d", i+1)
@@ -534,7 +534,7 @@ func TestRealCursorFrameMarkerNotRenderedWithoutRealCursor(t *testing.T) {
 	m.termHeight = 10
 	m.windowSizeKnown = true
 	m.input = " "
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	if strings.Contains(view, realCursorFrameMarker(1)) {
@@ -555,7 +555,7 @@ func TestRealCursorFrameMarkerNotRenderedInDetailMode(t *testing.T) {
 	m.termHeight = 10
 	m.windowSizeKnown = true
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	view := m.View()
 	if strings.Contains(view, realCursorFrameMarker(1)) {

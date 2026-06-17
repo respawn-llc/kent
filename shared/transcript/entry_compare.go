@@ -31,7 +31,7 @@ type EntryPayload struct {
 func EntryPayloadEqual(left, right EntryPayload) bool {
 	return NormalizeEntryVisibility(left.Visibility) == NormalizeEntryVisibility(right.Visibility) &&
 		strings.TrimSpace(left.RollbackTargetID) == strings.TrimSpace(right.RollbackTargetID) &&
-		NormalizeEntryRole(left.Role) == NormalizeEntryRole(right.Role) &&
+		strings.ToLower(strings.TrimSpace(left.Role)) == strings.ToLower(strings.TrimSpace(right.Role)) &&
 		left.Text == right.Text &&
 		left.OngoingText == right.OngoingText &&
 		strings.TrimSpace(left.Phase) == strings.TrimSpace(right.Phase) &&

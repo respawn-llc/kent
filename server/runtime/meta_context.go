@@ -89,10 +89,6 @@ func (r metaContextBuildResult) OrderedBaseMessages() []llm.Message {
 	return out
 }
 
-func (r metaContextBuildResult) OrderedInjectionMessages() []llm.Message {
-	return r.OrderedBaseMessages()
-}
-
 type metaContextBuilder struct {
 	workspaceRoot    string
 	environmentCWD   string
@@ -114,11 +110,6 @@ func newMetaContextBuilder(workspaceRoot, model, thinkingLevel string, disabledS
 		disabledSkills: normalizedDisabledSkills(disabledSkills),
 		now:            now,
 	}
-}
-
-func (e *Engine) newActiveBaseMetaContextBuilder(model string, now time.Time) metaContextBuilder {
-	return newActiveMetaContextBuilder(e.store.Meta(), model, e.ThinkingLevel(), e.cfg.DisabledSkills, now).
-		withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
 }
 
 func baseMetaContextBuildOptions(includeSkillWarnings bool) metaContextBuildOptions {
