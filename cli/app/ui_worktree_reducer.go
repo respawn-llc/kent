@@ -154,7 +154,8 @@ func (r uiWorktreeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 				m.layout().syncViewport()
 				return handledUIFeatureUpdate(m, nil)
 			}
-			return handledUIFeatureUpdate(m, m.worktreeCreateCmd(req))
+			createCmd := m.worktreeCreateCmd(req)
+			return handledUIFeatureUpdate(m, tea.Batch(createCmd, m.reconcileSpinnerTicking(false)))
 		}
 		return handledUIFeatureUpdate(m, nil)
 	}
