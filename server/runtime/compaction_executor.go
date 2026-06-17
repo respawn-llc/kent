@@ -73,20 +73,22 @@ func (e *Engine) compactWithContextRepairRetry(
 	currentInput := llm.CloneResponseItems(request.InputItems)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
-	missingOutputRepaired := false
 
-	// send issues one compaction request and, on a repairable missing-output
-	// HTTP 400, appends synthetic outputs once and retries with the
-	// re-snapshotted transcript. It returns the items actually sent so the
-	// overflow loop keeps collapsing the repaired input. The missing-output
-	// repair is handled here, inside a single overflow attempt, so it never
-	// consumes a context-overflow collapse target.
-	send := func(items []llm.ResponseItem) (llm.CompactionResponse, []llm.ResponseItem, error) {
+	// send issues one compaction request. canRepair is set only for the first,
+	// uncollapsed send: a missing-tool-output HTTP 400 there is repaired in place
+	// by appending synthetic outputs and retrying with the re-snapshotted
+	// transcript. Overflow collapse preserves output items, so a missing-output
+	// 400 after a collapse is an invariant violation and panics; any other 400
+	// (including context overflow) falls through to the overflow loop unchanged.
+	send := func(items []llm.ResponseItem, canRepair bool) (llm.CompactionResponse, []llm.ResponseItem, error) {
 		req := request
 		req.InputItems = llm.CloneResponseItems(items)
 		resp, err := e.compactWithRetry(ctx, stepID, client, req)
-		if err == nil || missingOutputRepaired || !llm.HasHTTPStatus(err, 400) {
+		if !isMissingToolOutputProviderError(err, items) {
 			return resp, items, err
+		}
+		if !canRepair {
+			panic(missingToolOutputAfterCollapseInvariant)
 		}
 		repaired, repairErr := e.repairMissingToolOutputsByAppending(stepID)
 		if repairErr != nil {
@@ -95,7 +97,6 @@ func (e *Engine) compactWithContextRepairRetry(
 		if repaired == 0 {
 			return resp, items, err
 		}
-		missingOutputRepaired = true
 		repairedItems := llm.CloneResponseItems(e.snapshotItems())
 		req.InputItems = llm.CloneResponseItems(repairedItems)
 		resp, err = e.compactWithRetry(ctx, stepID, client, req)
@@ -103,7 +104,7 @@ func (e *Engine) compactWithContextRepairRetry(
 	}
 
 	for attempt := 0; attempt <= len(compactionOverflowRepairTargetPercents); attempt++ {
-		resp, sentInput, err := send(currentInput)
+		resp, sentInput, err := send(currentInput, attempt == 0)
 		currentInput = sentInput
 		if err == nil {
 			return resp, currentInput, repairStats, nil
@@ -256,15 +257,18 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	window := localCompactionWindow(input)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
-	missingOutputRepaired := false
 
-	// summarize mirrors the remote send closure: it absorbs a one-shot
-	// missing-output HTTP 400 repair (append + re-snapshot + retry) within a
-	// single overflow attempt so the repair never consumes a collapse target.
-	summarize := func(w []llm.ResponseItem) (string, []llm.ResponseItem, error) {
+	// summarize mirrors the remote send closure: it repairs a missing-tool-output
+	// HTTP 400 (append + re-snapshot + retry) only on the first, uncollapsed
+	// window. After a collapse, output items are preserved, so a missing-output
+	// 400 is an invariant violation and panics; other 400s fall through.
+	summarize := func(w []llm.ResponseItem, canRepair bool) (string, []llm.ResponseItem, error) {
 		summary, err := e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, w, instructions, requestTools, mode)
-		if err == nil || missingOutputRepaired || !llm.HasHTTPStatus(err, 400) {
+		if !isMissingToolOutputProviderError(err, w) {
 			return summary, w, err
+		}
+		if !canRepair {
+			panic(missingToolOutputAfterCollapseInvariant)
 		}
 		repaired, repairErr := e.repairMissingToolOutputsByAppending("")
 		if repairErr != nil {
@@ -273,14 +277,13 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 		if repaired == 0 {
 			return summary, w, err
 		}
-		missingOutputRepaired = true
 		repairedWindow := localCompactionWindow(e.snapshotItems())
 		summary, err = e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, repairedWindow, instructions, requestTools, mode)
 		return summary, repairedWindow, err
 	}
 
 	for repairAttempt := 0; repairAttempt <= len(compactionOverflowRepairTargetPercents); repairAttempt++ {
-		summary, sentWindow, err := summarize(window)
+		summary, sentWindow, err := summarize(window, repairAttempt == 0)
 		window = sentWindow
 		if err == nil {
 			return summary, repairStats, nil

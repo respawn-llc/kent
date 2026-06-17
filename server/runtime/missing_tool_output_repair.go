@@ -3,12 +3,21 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"core/server/llm"
 	"core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
+
+// missingToolOutputAfterCollapseInvariant is the panic message for a
+// missing-tool-output provider error observed once the compaction request has
+// already been overflow-collapsed. Collapse only shrinks existing tool output
+// payloads and never removes output items, so a request that still lacks an
+// output after collapsing means the transcript itself is corrupt rather than
+// merely interrupted; that is an unreachable state, not one to silently repair.
+const missingToolOutputAfterCollapseInvariant = "compaction request still has a tool call without an output after overflow collapse; collapse preserves output items, so a missing-tool-output provider error here is an invariant violation"
 
 // missingToolOutputRepairWarningTemplate is the operator-facing notice appended
 // when the repair closes one or more interrupted tool calls.
@@ -73,6 +82,42 @@ func (e *Engine) repairMissingToolOutputsByAppending(stepID string) (int, error)
 		return 0, err
 	}
 	return len(dangling), nil
+}
+
+// itemsHaveDanglingToolCalls reports whether a prepared request item sequence
+// contains a tool call with no accompanying output item. The compaction request
+// window materializes recorded completions into output items, so a dangling call
+// here is exactly what a provider rejects with a missing-tool-output HTTP 400.
+func itemsHaveDanglingToolCalls(items []llm.ResponseItem) bool {
+	materialized := collectMaterializedToolCalls(items)
+	for _, item := range items {
+		if !isToolCallItem(item.Type) {
+			continue
+		}
+		callID := strings.TrimSpace(item.CallID)
+		if callID == "" {
+			callID = strings.TrimSpace(item.ID)
+		}
+		if callID == "" {
+			continue
+		}
+		if _, ok := materialized[callID]; ok {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// isMissingToolOutputProviderError reports whether a compaction send failed with
+// a missing-tool-output HTTP 400: a non-overflow 400 whose request still carries
+// a tool call without an output. Context-overflow 400s and 400s on requests with
+// no dangling calls are explicitly excluded so they fall through as unrelated.
+func isMissingToolOutputProviderError(err error, items []llm.ResponseItem) bool {
+	if err == nil || !llm.HasHTTPStatus(err, 400) || llm.IsContextLengthOverflowError(err) {
+		return false
+	}
+	return itemsHaveDanglingToolCalls(items)
 }
 
 // errorIsRepairableMissingToolOutput reports whether a provider error is a

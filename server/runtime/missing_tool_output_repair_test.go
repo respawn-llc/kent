@@ -321,6 +321,46 @@ func TestCompactionMissingOutputRepairDoesNotConsumeOverflowAttempt(t *testing.T
 	}
 }
 
+// Overflow collapse only shrinks existing tool output payloads; it never removes
+// output items. A missing-tool-output 400 observed after a collapse therefore
+// means the transcript is corrupt, not merely interrupted, so the repair must
+// not silently re-snapshot and reapply — it must panic.
+func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
+	dir := t.TempDir()
+	store := mustCreateTestSessionAt(t, dir)
+	client := &fakeCompactionClient{
+		compactionErrors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.APIStatusError{StatusCode: 400, Body: "tool call without output"},
+		},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		ID: "call-shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"go test ./..."}`),
+	}}})); err != nil {
+		t.Fatalf("append shell call: %v", err)
+	}
+	if err := eng.steer("", steerMessageIntent(llm.Message{
+		Role: llm.RoleTool, ToolCallID: "call-shell", Name: string(toolspec.ToolExecCommand),
+		Content: `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
+	})); err != nil {
+		t.Fatalf("append shell output: %v", err)
+	}
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		ID: "call-missing", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
+	}}})); err != nil {
+		t.Fatalf("append dangling call: %v", err)
+	}
+	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.snapshotItems()}
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected a panic when a missing-output 400 surfaces after overflow collapse")
+		}
+	}()
+	_, _, _, _ = eng.compactWithContextRepairRetry(context.Background(), "compact", client, baseRequest)
+}
+
 func TestRepairWarningUsesOperatorFacingRole(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "message", llm.Message{
