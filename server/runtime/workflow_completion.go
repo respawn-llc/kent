@@ -40,7 +40,7 @@ func (e *Engine) recordWorkflowProtocolViolation(ctx context.Context, kind workf
 	}
 	maxCount := e.cfg.WorkflowRun.MaxInvalidCompletionAttempts
 	if maxCount <= 0 {
-		maxCount = 5
+		return workflowruntime.ViolationResult{}, fmt.Errorf("workflow max invalid completion attempts must be > 0")
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"kind":   string(kind),

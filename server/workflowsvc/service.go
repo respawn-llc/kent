@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"core/prompts"
 	"core/server/requestmemo"
 	askquestion "core/server/tools"
 	"core/server/workflow"
@@ -668,7 +669,7 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req serverapi.Workfl
 	if req.ActorKind == serverapi.WorkflowTaskCompleteActorUser {
 		actor = "user"
 	} else if strings.TrimSpace(target.Run.SessionID) != strings.TrimSpace(req.AgentSessionID) {
-		return serverapi.WorkflowTaskCompleteResponse{}, errors.New(serverapi.WorkflowTaskCompleteAgentOwnershipError)
+		return serverapi.WorkflowTaskCompleteResponse{}, errors.New(prompts.WorkflowTaskCompleteAgentOwnershipErrorPrompt)
 	}
 	taskID := string(target.Run.TaskID)
 	completed, err := s.store.CompleteRun(ctx, workflowstore.CompleteRunRequest{

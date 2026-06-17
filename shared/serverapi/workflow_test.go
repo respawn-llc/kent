@@ -178,8 +178,11 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskCompleteRequest{ActorKind: WorkflowTaskCompleteActorUser, Force: true, RunID: "run-1", SessionID: "session-1"}).Validate(); !isWorkflowFieldError(err, "selector", WorkflowRequestErrorInvalidMode) {
 		t.Fatalf("multi-selector task complete error = %#v, want invalid_mode on selector", err)
 	}
-	if err := (WorkflowTaskCompleteRequest{ActorKind: WorkflowTaskCompleteActorUser, Force: true, ProjectID: "project-1"}).Validate(); !isWorkflowFieldError(err, "project_id", WorkflowRequestErrorInvalidMode) {
-		t.Fatalf("project-only task complete error = %#v, want invalid_mode on project_id", err)
+	if err := (WorkflowTaskCompleteRequest{ActorKind: WorkflowTaskCompleteActorUser, Force: true, ProjectID: "project-1"}).Validate(); !isWorkflowFieldError(err, "selector", WorkflowRequestErrorRequired) {
+		t.Fatalf("project-only task complete error = %#v, want required on selector", err)
+	}
+	if err := (WorkflowTaskCompleteRequest{ActorKind: WorkflowTaskCompleteActorUser, Force: true, RunID: "run-1", ProjectID: "project-1"}).Validate(); err != nil {
+		t.Fatalf("task complete with run selector and extra project id rejected: %v", err)
 	}
 	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", FreeformAnswer: "answer"}).Validate(); err != nil {
 		t.Fatalf("valid task question answer rejected: %v", err)

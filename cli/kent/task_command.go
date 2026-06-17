@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -567,7 +568,7 @@ func taskCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		return 1
 	}
 	if !agentContext && !parsed.Force {
-		fmt.Fprintln(stderr, serverapi.WorkflowTaskCompleteHumanSafetyWarning)
+		fmt.Fprintln(stderr, prompts.WorkflowTaskCompleteHumanSafetyWarningPrompt)
 		return 1
 	}
 	if count := parsed.selectorCount(); count > 1 {
@@ -910,7 +911,7 @@ func parseTaskCompleteJSONPayload(raw string) (taskCompleteJSONFields, error) {
 		case "run_id", "session_id", "task_id", "project_id", "short_id", "actor_kind", "agent_session_id", "force":
 			return taskCompleteJSONFields{}, fmt.Errorf("parse --json payload: %s must be passed as a flag, not in the JSON payload", key)
 		default:
-			value, ok, err := taskCompleteJSONStringValue(payload[key], key)
+			value, ok, err := taskCompleteJSONParameterValue(payload[key], key)
 			if err != nil {
 				return taskCompleteJSONFields{}, err
 			}
@@ -928,7 +929,7 @@ func taskCompleteJSONOutputValues(raw json.RawMessage) (map[string]string, error
 	}
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("parse --json payload: output_values must be an object of string values")
+		return nil, fmt.Errorf("parse --json payload: output_values must be an object")
 	}
 	values := map[string]string{}
 	for _, key := range sortedRawJSONKeys(payload) {
@@ -936,7 +937,7 @@ func taskCompleteJSONOutputValues(raw json.RawMessage) (map[string]string, error
 		if trimmed == "" {
 			return nil, errors.New("parse --json payload: output_values field name is required")
 		}
-		value, ok, err := taskCompleteJSONStringValue(payload[key], "output_values."+trimmed)
+		value, ok, err := taskCompleteJSONParameterValue(payload[key], "output_values."+trimmed)
 		if err != nil {
 			return nil, err
 		}
@@ -956,6 +957,21 @@ func taskCompleteJSONStringValue(raw json.RawMessage, field string) (string, boo
 		return "", false, fmt.Errorf("parse --json payload: %s must be a string", field)
 	}
 	return value, true, nil
+}
+
+func taskCompleteJSONParameterValue(raw json.RawMessage, field string) (string, bool, error) {
+	if strings.TrimSpace(string(raw)) == "null" {
+		return "null", true, nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value, true, nil
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, bytes.TrimSpace(raw)); err != nil {
+		return "", false, fmt.Errorf("parse --json payload: %s must be valid JSON", field)
+	}
+	return compacted.String(), true, nil
 }
 
 func sortedRawJSONKeys(payload map[string]json.RawMessage) []string {

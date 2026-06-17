@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"core/prompts"
 	"core/server/workflow"
 	"core/shared/client"
 	"core/shared/config"
@@ -74,7 +75,7 @@ func TestTaskCompleteSafetyGates(t *testing.T) {
 		if stdout != "" {
 			t.Fatalf("stdout = %q, want empty", stdout)
 		}
-		if stderr != serverapi.WorkflowTaskCompleteHumanSafetyWarning+"\n" {
+		if stderr != prompts.WorkflowTaskCompleteHumanSafetyWarningPrompt+"\n" {
 			t.Fatalf("stderr = %q, want human safety warning", stderr)
 		}
 	})
@@ -284,7 +285,7 @@ func TestTaskCompleteJSONInputModes(t *testing.T) {
 			"task", "complete",
 			"--force",
 			"--run", "run-1",
-			"--json", `{"transition":"done","commentary":"finished","summary":"done","output_values":{"risk":"low"}}`,
+			"--json", `{"transition":"done","commentary":"finished","summary":123,"empty":null,"output_values":{"risk":false,"details":{"ok":true}}}`,
 		)
 		if code != 0 {
 			t.Fatalf("task complete --json exit=%d stderr=%q", code, stderr)
@@ -300,7 +301,7 @@ func TestTaskCompleteJSONInputModes(t *testing.T) {
 			t.Fatalf("json response = %+v, want complete response", decoded)
 		}
 		req := remote.requireSingleRequest(t)
-		if req.TransitionID != "done" || req.Commentary != "finished" || req.OutputValues["summary"] != "done" || req.OutputValues["risk"] != "low" {
+		if req.TransitionID != "done" || req.Commentary != "finished" || req.OutputValues["summary"] != "123" || req.OutputValues["risk"] != "false" || req.OutputValues["details"] != `{"ok":true}` || req.OutputValues["empty"] != "null" {
 			t.Fatalf("request from json = %+v", req)
 		}
 	})
@@ -403,7 +404,7 @@ func TestTaskCompleteAgentCrossSessionSelectorUsesServiceOwnershipError(t *testi
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if strings.TrimSpace(stderr) != serverapi.WorkflowTaskCompleteAgentOwnershipError {
+	if strings.TrimSpace(stderr) != prompts.WorkflowTaskCompleteAgentOwnershipErrorPrompt {
 		t.Fatalf("stderr = %q, want ownership error", stderr)
 	}
 }

@@ -284,6 +284,8 @@ var (
 	WorkflowUnstructuredCompletionInstructionsPrompt = mustPrompt("workflow/unstructured_completion_instructions.md")
 	WorkflowFinalAnswerNudgePrompt                   = mustPrompt("workflow/final_answer_nudge.md")
 	WorkflowHumanOnlyTaskActionDeniedPrompt          = mustPrompt("workflow/human_only_task_action_denied.md")
+	WorkflowTaskCompleteAgentOwnershipErrorPrompt    = strings.TrimSpace(mustPrompt("workflow/task_complete_agent_ownership_error.md"))
+	WorkflowTaskCompleteHumanSafetyWarningPrompt     = strings.TrimSpace(mustPrompt("workflow/task_complete_human_safety_warning.md"))
 	WorktreeModePrompt                               = mustPrompt("worktree_mode_prompt.md")
 	WorktreeModeExitPrompt                           = mustPrompt("worktree_mode_exit_prompt.md")
 	QuestionsDisabledPrompt                          = mustPrompt("questions/disabled.md")

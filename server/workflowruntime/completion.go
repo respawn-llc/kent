@@ -420,7 +420,7 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 				nullParameters[field] = true
 				continue
 			}
-			text, ok, issue := decodeStringValue(value, field)
+			text, ok, issue := decodeParameterValue(value, field)
 			if !ok {
 				issues = append(issues, issue)
 				invalidFields[field] = true
@@ -442,7 +442,7 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 		selectedParameterSet := parameterSet(selectedParameters)
 		for _, key := range sortedBoolKeys(nullParameters) {
 			if selectedParameterSet[key] {
-				issues = append(issues, ValidationIssue{Code: "non_string_value", Field: key, Message: "value must be a string"})
+				parsed.OutputValues[key] = "null"
 			}
 		}
 		for _, key := range sortedStringKeys(parsed.OutputValues) {
@@ -493,6 +493,22 @@ func decodeStringValue(value json.RawMessage, field string) (string, bool, Valid
 		return "", false, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"}
 	}
 	return text, true, ValidationIssue{}
+}
+
+func decodeParameterValue(value json.RawMessage, field string) (string, bool, ValidationIssue) {
+	trimmed := bytes.TrimSpace(value)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return "", false, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"}
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err == nil {
+		return text, true, ValidationIssue{}
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, trimmed); err != nil {
+		return "", false, ValidationIssue{Code: "invalid_json", Field: field, Message: "value must be valid JSON"}
+	}
+	return compacted.String(), true, ValidationIssue{}
 }
 
 func sortedRawMessageKeys(values map[string]json.RawMessage) []string {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"core/prompts"
 	"core/server/metadata"
 	"core/server/requestmemo"
 	askquestion "core/server/tools"
@@ -471,7 +472,7 @@ func TestServiceCompleteWorkflowTaskRejectsAgentCrossSessionSelector(t *testing.
 		AgentSessionID: "session-other",
 		RunID:          started.RunID,
 	})
-	if err == nil || err.Error() != serverapi.WorkflowTaskCompleteAgentOwnershipError {
+	if err == nil || err.Error() != prompts.WorkflowTaskCompleteAgentOwnershipErrorPrompt {
 		t.Fatalf("cross-session completion error = %v, want ownership denial", err)
 	}
 	runs, listErr := service.store.ListRuns(ctx, workflow.TaskID(task.Task.ID))
@@ -498,6 +499,7 @@ func TestServiceCompleteWorkflowTaskForceCancelsRuntimeAndWakesScheduler(t *test
 	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
 		ActorKind: serverapi.WorkflowTaskCompleteActorUser,
 		Force:     true,
+		ProjectID: binding.ProjectID,
 		RunID:     started.RunID,
 	})
 	if err != nil {

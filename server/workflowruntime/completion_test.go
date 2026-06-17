@@ -242,23 +242,31 @@ func TestDecodeCompletionAcceptsOptionalCommentary(t *testing.T) {
 	}
 }
 
-func TestDecodeCompletionRejectsNullSelectedParameter(t *testing.T) {
-	_, err := DecodeCompletion(json.RawMessage(`{"summary":null}`), CompletionContract{
-		Transitions: []CompletionTransition{{ID: "done", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}}},
+func TestDecodeCompletionStringifiesParameterValues(t *testing.T) {
+	parsed, err := DecodeCompletion(json.RawMessage(`{"summary":123,"risk":false,"details":{"ok":true},"items":["a",2],"empty":null}`), CompletionContract{
+		Transitions: []CompletionTransition{{ID: "done", Parameters: []workflow.Parameter{
+			{Key: "summary", Description: "Summary."},
+			{Key: "risk", Description: "Risk."},
+			{Key: "details", Description: "Details."},
+			{Key: "items", Description: "Items."},
+			{Key: "empty", Description: "Empty value."},
+		}}},
 	})
-	if err == nil {
-		t.Fatal("expected validation error")
+	if err != nil {
+		t.Fatalf("DecodeCompletion: %v", err)
 	}
-	validation, ok := err.(ValidationError)
-	if !ok {
-		t.Fatalf("error type = %T, want ValidationError", err)
+	want := map[string]string{
+		"summary": "123",
+		"risk":    "false",
+		"details": `{"ok":true}`,
+		"items":   `["a",2]`,
+		"empty":   "null",
 	}
-	for _, issue := range validation.Issues {
-		if issue.Code == "non_string_value" && issue.Field == "summary" {
-			return
+	for key, expected := range want {
+		if parsed.OutputValues[key] != expected {
+			t.Fatalf("output %s = %q, want %q; all values %+v", key, parsed.OutputValues[key], expected, parsed.OutputValues)
 		}
 	}
-	t.Fatalf("missing non-string selected parameter issue: %+v", validation.Issues)
 }
 
 func TestDecodeUnstructuredCompletionRequiresRawJSONObject(t *testing.T) {

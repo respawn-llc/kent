@@ -703,9 +703,6 @@ type WorkflowTaskMoveResponse struct {
 const (
 	WorkflowTaskCompleteActorAgent = "agent"
 	WorkflowTaskCompleteActorUser  = "user"
-
-	WorkflowTaskCompleteAgentOwnershipError = "Provided task parameters indicate that it does not belong to you. You aren't allowed to affect other agents' tasks to prevent disruption of their work. If you're not sure which task is yours, call for the user's help"
-	WorkflowTaskCompleteHumanSafetyWarning  = "This command is intended for use by agents only, but it seems you're a human. If you want to move the task manually, consider kent task move or GUI affordances. If you're scripting or want to run this anyway, use this command with --force to suppress this error."
 )
 
 var ErrWorkflowTaskCompleteTargetNotFound = errors.New("workflow task completion target not found")
@@ -1596,9 +1593,6 @@ func (r WorkflowTaskCompleteRequest) Validate() error {
 	selectorCount := workflowTaskCompleteSelectorCount(r)
 	if selectorCount > 1 {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "selector", "at most one completion target selector is allowed")
-	}
-	if strings.TrimSpace(r.ProjectID) != "" && strings.TrimSpace(r.ShortID) == "" {
-		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id can only be used with short_id")
 	}
 	if strings.TrimSpace(r.ActorKind) == WorkflowTaskCompleteActorAgent {
 		if strings.TrimSpace(r.AgentSessionID) == "" {

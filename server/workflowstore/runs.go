@@ -691,9 +691,6 @@ func activeRunCompletionTargetSelectorClause(selector ActiveRunCompletionTargetS
 	if count != 1 {
 		return "", nil, errors.New("exactly one completion target selector is required")
 	}
-	if projectID != "" && shortID == "" {
-		return "", nil, errors.New("project id can only be used with short id selector")
-	}
 	switch {
 	case runID != "":
 		return " AND r.id = ?", []any{runID}, nil

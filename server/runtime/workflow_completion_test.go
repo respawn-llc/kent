@@ -577,7 +577,7 @@ func TestWorkflowUnstructuredInvalidFinalAnswerNudgeUsesCurrentContract(t *testi
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		structuredFinalResponse(`{"summary":1}`),
+		structuredFinalResponse(`{"summary":""}`),
 		structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
 	}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{})
@@ -591,7 +591,7 @@ func TestWorkflowUnstructuredInvalidFinalAnswerNudgeUsesCurrentContract(t *testi
 	if got := controller.completed.Load(); got != 1 {
 		t.Fatalf("completions = %d, want 1", got)
 	}
-	assertDeveloperErrorFeedbackAfterAssistantFinalContains(t, eng, `{"summary":1}`, []string{"summary", "JSON"}, []string{prompts.LaunchCommand() + " task complete", string(toolspec.ToolCompleteNode)})
+	assertDeveloperErrorFeedbackAfterAssistantFinalContains(t, eng, `{"summary":""}`, []string{"summary", "JSON"}, []string{prompts.LaunchCommand() + " task complete", string(toolspec.ToolCompleteNode)})
 }
 
 func TestWorkflowShellFinalAnswerNudgeUsesShellCompletionInstructions(t *testing.T) {
@@ -713,8 +713,8 @@ func TestWorkflowInvalidCompletionAttemptsInterruptAtCap(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		commentaryResponse("bad", completeNodeCall("call_bad_1", json.RawMessage(`{"summary":1}`))),
-		commentaryResponse("bad", completeNodeCall("call_bad_2", json.RawMessage(`{"summary":1}`))),
+		commentaryResponse("bad", completeNodeCall("call_bad_1", json.RawMessage(`{"summary":""}`))),
+		commentaryResponse("bad", completeNodeCall("call_bad_2", json.RawMessage(`{"summary":""}`))),
 		structuredFinalResponse("unexpected"),
 	}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
