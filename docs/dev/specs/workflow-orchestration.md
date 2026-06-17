@@ -114,6 +114,7 @@
 - Prompt templates may reference guaranteed-prior agent node outputs through `.Nodes.<node_key>.<output_name>`.
 - `.Nodes` references use stable node keys and declared source-node output fields. The referenced source node must dominate the consuming node in the workflow graph, the source node must not be the consuming node, and unsupported dynamic template access to `.Inputs` or `.Nodes` is invalid.
 - Runtime freezes `.Nodes` values when the consuming run or approval edge is created. Prompt rendering uses the frozen values and does not re-resolve prior runs.
+- Run start context is materialized by the workflow store from typed task/run records, run-start snapshots, typed transition-edge invocation snapshots, parameter values, context-preservation mode, and context source provenance. Target runs do not carry an opaque metadata envelope for prompt/context facts.
 - The first executable node reached from `start` cannot declare upstream inputs and should use task fields such as `.TaskTitle` and `.TaskBody`.
 - Source-node output fields declare reusable outputs that later prompts can reference through `.Nodes.<node_key>.<output_name>`.
 - Edge input bindings and edge output requirements are not canonical workflow-editing concepts.
@@ -217,6 +218,7 @@
 - Workflow deletion is DB-only by default and preserves artifacts/worktrees. Artifact cleanup is an explicit future opt-in path.
 - Batch graph save uses a store-owned transaction with expected workflow `version`, draft validation, process-local edit semantics, typed blockers, and confirmation for unreferenced graph row removals.
 - Graph saves never delete or move tasks; whole-workflow deletion is the task-deleting path.
+- Run-start context has one store-owned materialization seam. It resolves target run invocation facts through the accepted transition-edge snapshot that created the target placement.
 
 ## Schema Minimization Decisions
 
@@ -225,15 +227,22 @@
 - Keep `tasks.short_id` as stored durable product data.
 - Task sequence allocation is transactional behavior, not product state stored as `projects.next_task_seq`.
 - Runtime context/source-run hints belong in typed relations or derivation, not `task_runs.metadata_json`.
+- Removing `task_runs.metadata_json` uses a one-way schema migration that backfills valid existing JSON into typed storage and then removes the column. Runtime code does not keep a `metadata_json` read fallback after the migration.
+- Continuation provenance persists typed source run IDs. Source session IDs derive from the referenced source run when run-start context is materialized.
+- Typed transition-edge snapshots own accepted branch invocation facts: context source, prompt template, transition parameters, prior parameter values, and frozen pending-approval target run-start snapshots.
 - Observed run workflow version derives from run-start snapshots; `task_runs.workflow_revision_seen` is not the long-term authority.
 - Keep `task_comments.author_id`; future multi-agent/user identity display depends on it.
-- Run-start snapshots are the long-term historical display/config authority, not transition-edge display/config snapshot columns.
+- Run-start snapshots are the long-term historical node/graph contract authority. Transition-edge snapshots keep accepted branch invocation facts rather than generic duplicate display/config snapshots.
 - Keep `sessions.first_prompt_preview` as stored listing/read-model data.
 - Keep `sessions.input_draft` as stored unsent prompt recovery data.
 
 ## CLI Surface
 
 - Minimal workflow/task CLI exists to exercise backend behavior and teach agents task usage.
+- Agents must be able to build and edit complete workflow definitions through CLI commands; command grouping and syntax are not stable product contracts.
+- High-level workflow mutation subcommands are the complete agent editing path; workflow import/export is a separate sharing feature, not the primary edit interface.
+- High-level workflow mutation commands use a CLI-local draft-edit module, then persist through batch graph save. The server does not expose row-level or semantic edit RPC routes for workflow graph mutation. Extract the draft-edit module only when a second Go caller exists.
+- Row-level workflow graph RPC methods, client methods, protocol constants, and route entries are removed in the graph-save cutover instead of preserved as migration stubs.
 - CLI output must include stable IDs needed by later commands.
 - Machine-readable `--json` output and workflow-specific environment variables are not required in the first CLI milestone.
 - Unsupported commands may fail loudly before backend semantics land rather than implementing partial behavior.
@@ -250,11 +259,17 @@
 - Q: Should pending workflow questions get a task-question shadow table? A: No; use `ask_question` source of truth or upgrade ask persistence.
 - Q: Does real-provider workflow QA need explicit approval? A: Yes, ask the User before spending provider credits.
 - Q: Does the first CLI milestone need JSON output or workflow env vars? A: No.
+- Q: Must low-level workflow CLI command shape stay stable? A: No; full workflow build/edit capability for agents matters, not the specific command grouping.
+- Q: Should full workflow graph files be the primary agent editing interface? A: No; agents edit through high-level CLI mutation commands, while import/export is a separate sharing feature.
+- Q: Where should high-level workflow edit intelligence live? A: Start with a CLI-local draft-edit module; extract it only when a second Go caller exists. The server persists graph edits only through batch graph save.
+- Q: Should row-level workflow graph RPC methods remain as migration stubs? A: No; remove the protocol methods, clients, routes, service methods, and tests for that external seam.
 - Q: Should `tasks.short_id` be stored or derived from `project_key + task_seq`? A: Keep it stored as durable product data.
 - Q: Should `projects.next_task_seq` stay stored? A: No; replace it with transactional task sequence allocation.
-- Q: Should `task_runs.metadata_json` stay? A: No; remove it as one of the next schema cleanup tasks.
+- Q: Should `task_runs.metadata_json` stay? A: No; use a one-way migration that backfills valid JSON into typed storage, removes the column, and keeps no runtime read fallback.
+- Q: Should continuation provenance persist source session IDs? A: No; persist typed source run IDs and derive the source session from the referenced run when materializing run-start context.
+- Q: Where do frozen branch invocation facts live? A: Typed transition-edge snapshots own context source, prompt template, transition parameters, prior parameter values, and frozen pending-approval target run-start snapshots.
 - Q: Should `task_runs.workflow_revision_seen` stay stored? A: No; derive it from run-start snapshots after migration.
 - Q: Should `task_comments.author_id` stay? A: Yes; keep it for future identity display.
-- Q: Should transition-edge display/config snapshots stay? A: No; remove them after run-start snapshots are the sole historical display/config source.
+- Q: Should transition-edge display/config snapshots stay? A: Keep typed accepted branch invocation facts on transition-edge snapshots; remove redundant display/config duplication that is not needed to materialize run starts or audit applied branches.
 - Q: Should `sessions.first_prompt_preview` stay stored? A: Yes.
 - Q: Should `sessions.input_draft` stay stored? A: Yes.
