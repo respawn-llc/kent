@@ -43,7 +43,7 @@ func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string
 			m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: text})
 		}
 	}
-	m.syncViewport()
+	m.layout().syncViewport()
 	if isUserShell {
 		return tea.Batch(c.submitUserShellCmd(text, command), m.reconcileSpinnerTicking(false))
 	}
@@ -169,7 +169,7 @@ func (c uiInputController) startCompactionWithOrigin(args string, origin uiCompa
 	c.startBusyActivity(true)
 	m.compactionOrigin = origin
 	m.logf("compaction.start args_chars=%d", len(strings.TrimSpace(args)))
-	m.syncViewport()
+	m.layout().syncViewport()
 	return tea.Batch(c.compactCmd(args), m.reconcileSpinnerTicking(false))
 }
 
@@ -246,14 +246,14 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		if errors.Is(msg.err, runtimeattach.ErrSubmissionInterrupted) || errors.Is(msg.err, context.Canceled) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
-			m.syncViewport()
+			m.layout().syncViewport()
 			return m, batchCmds(unlockCmd, restoreInjectedCmd)
 		}
 		detailErr := runtimeattach.FormatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 		m.logf("step.error err=%q", detailErr)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m, tea.Batch(unlockCmd, restoreInjectedCmd, appendCmd)
 	}
 
@@ -275,7 +275,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		if m.hasRuntimeClient() && c.queuedDrainRequiresHydration() {
 			m.pendingQueuedDrainAfterHydration = true
 			m.queuedDrainReadyAfterHydration = false
-			m.syncViewport()
+			m.layout().syncViewport()
 			return m, m.requestRuntimeQueuedDrainTranscriptSync()
 		}
 		next, drainCmd := c.flushQueuedInputs(queueDrainAuto)
@@ -283,7 +283,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		return next, drainCmd
 	}
 	c.notifyTurnQueueDrainedIfIdle()
-	m.syncViewport()
+	m.layout().syncViewport()
 	return m, nil
 }
 
@@ -334,7 +334,7 @@ func (c uiInputController) handleSpinnerTick(msg spinnerTickMsg) (tea.Model, tea
 		tickAt = tickAt.Add(time.Duration(m.spinnerFrame+1) * spinnerTickInterval)
 	}
 	m.spinnerFrame = m.spinnerClock.Frame(tickAt, frameCount, spinnerTickInterval)
-	m.syncViewport()
+	m.layout().syncViewport()
 	return m, m.scheduleSpinnerTick(msg.token, tickAt)
 }
 
@@ -351,14 +351,14 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 		if errors.Is(msg.err, runtimeattach.ErrSubmissionInterrupted) || errors.Is(msg.err, context.Canceled) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
-			m.syncViewport()
+			m.layout().syncViewport()
 			return m, tea.Batch(releaseCmd, restoreInjectedCmd)
 		}
 		detailErr := runtimeattach.FormatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 		m.logf("compaction.error err=%q", detailErr)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m, tea.Batch(releaseCmd, restoreInjectedCmd, appendCmd)
 	}
 
@@ -373,16 +373,16 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 	if m.injectedQueueBlocksDrain() {
 		c.notifyUserCompactionCompleted(compactionOrigin, false)
 		m.queuedRuntimeWorkCheckCompactionOrigin = compactionOrigin
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m, releaseCmd
 	}
 	if !m.hasRuntimeClient() {
 		c.notifyUserCompactionCompleted(compactionOrigin, !m.pendingQueuedDrainAfterHydration)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m, releaseCmd
 	}
 	m.queuedRuntimeWorkCheckCompactionOrigin = compactionOrigin
-	m.syncViewport()
+	m.layout().syncViewport()
 	return m, tea.Batch(releaseCmd, c.startQueuedInjectionSubmission())
 }
 

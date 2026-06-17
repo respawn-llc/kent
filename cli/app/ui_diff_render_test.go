@@ -19,7 +19,7 @@ func TestCustomPatchToolCallRendersSummaryOngoingAndHighlightedDiffDetail(t *tes
 	m := newProjectedStaticUIModel()
 	m.termWidth = viewportWidth
 	m.termHeight = 18
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind:   runtime.EventToolCallStarted,

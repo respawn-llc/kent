@@ -127,7 +127,7 @@ func createEmbeddedProjectSession(t *testing.T, server *EmbeddedServer, workspac
 	// Keep the metadata store alive for the lifetime of the session store so
 	// persistence observer writes continue to succeed during the test.
 	store, err := session.Create(
-		config.ProjectSessionsRoot(server.Config(), server.ProjectID()),
+		filepath.Join(filepath.Join(server.Config().PersistenceRoot, "projects"), server.ProjectID(), "sessions"),
 		filepath.Base(filepath.Clean(workspace)),
 		workspace,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
@@ -203,7 +203,7 @@ func TestStartBuildsEmbeddedServerAndRunsOnboarding(t *testing.T) {
 	if got := server.OAuthOptions().ClientID; got != "client-test" {
 		t.Fatalf("oauth client id = %q", got)
 	}
-	wantContainerDir := config.ProjectSessionsRoot(server.Config(), server.ProjectID())
+	wantContainerDir := filepath.Join(filepath.Join(server.Config().PersistenceRoot, "projects"), server.ProjectID(), "sessions")
 	if server.ContainerDir() != wantContainerDir {
 		t.Fatalf("container dir = %q, want %q", server.ContainerDir(), wantContainerDir)
 	}

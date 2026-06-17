@@ -65,7 +65,7 @@ func (WebSocketTransport) Dial(ctx context.Context, endpoint Endpoint) (Conn, er
 		_ = rawConn.Close()
 		return nil, err
 	}
-	adapter.attach(socket)
+	adapter.socket = socket
 	adapter.startReadLoop(socket)
 	return adapter, nil
 }
@@ -78,7 +78,7 @@ func (WebSocketTransport) Handler(handler func(context.Context, Conn)) http.Hand
 		if err != nil {
 			return
 		}
-		adapter.attach(socket)
+		adapter.socket = socket
 		defer func() { _ = adapter.Close() }()
 		adapter.startReadLoop(socket)
 		handler(r.Context(), adapter)
@@ -100,10 +100,6 @@ func newWebSocketConn() *webSocketConn {
 		events: make(chan Event, 16),
 		closed: make(chan struct{}),
 	}
-}
-
-func (c *webSocketConn) attach(socket *gws.Conn) {
-	c.socket = socket
 }
 
 func (c *webSocketConn) Send(ctx context.Context, frame Frame) error {

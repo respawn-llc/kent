@@ -708,21 +708,21 @@ func TestTranscriptViewProjectorCachesByRevisionAndViewState(t *testing.T) {
 	}
 	state := TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"}
 
-	_ = projector.Project(input, state)
+	_ = projector.project(input, state, true)
 	input.Entries[0].Text = "changed " + strings.Repeat("x", 90)
-	cached := projector.Project(input, state)
+	cached := projector.project(input, state, true)
 	if rendered := cached.Ongoing.Render(TranscriptDivider); !strings.Contains(rendered, "seed") || strings.Contains(rendered, "changed") {
 		t.Fatalf("expected same revision/view state to reuse cached projection, got %q", rendered)
 	}
 
 	input.Revision = 2
-	updated := projector.Project(input, state)
+	updated := projector.project(input, state, true)
 	if rendered := updated.Ongoing.Render(TranscriptDivider); !strings.Contains(rendered, "changed") || strings.Contains(rendered, "seed") {
 		t.Fatalf("expected advanced revision to rebuild projection, got %q", rendered)
 	}
 
 	state.ViewportWidth = 40
-	resized := projector.Project(input, state)
+	resized := projector.project(input, state, true)
 	if resized.Ongoing.Render(TranscriptDivider) == updated.Ongoing.Render(TranscriptDivider) {
 		t.Fatalf("expected viewport width change to rebuild projection")
 	}
@@ -736,13 +736,13 @@ func TestTranscriptViewProjectorReturnsImmutableProjectionClone(t *testing.T) {
 	}
 	state := TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"}
 
-	first := projector.Project(input, state)
+	first := projector.project(input, state, true)
 	first.Ongoing.Blocks[0].Lines[0] = "mutated"
 	first.OngoingLines[0].Text = "mutated"
 	first.OngoingLineOwners[0] = 999
 	first.OngoingEntryLineRanges[0] = lineRange{Start: 999, End: 999}
 
-	second := projector.Project(input, state)
+	second := projector.project(input, state, true)
 	rendered := second.Ongoing.Render(TranscriptDivider)
 	if strings.Contains(rendered, "mutated") || !strings.Contains(rendered, "seed") {
 		t.Fatalf("expected cached projection to be immutable to caller mutation, got %q", rendered)

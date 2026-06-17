@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"time"
+
+	sharedauth "core/shared/auth"
 )
 
 type Manager struct {
@@ -86,7 +88,7 @@ func (m *Manager) SwitchMethodAndSetEnvAPIKeyPreference(
 	setPreference bool,
 	isIdle bool,
 ) (State, error) {
-	if err := EnsureIdleForMethodSwitch(isIdle); err != nil {
+	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
 		return State{}, err
 	}
 	if err := method.Validate(); err != nil {
@@ -107,7 +109,7 @@ func (m *Manager) SwitchMethodAndSetEnvAPIKeyPreference(
 }
 
 func (m *Manager) ClearMethod(ctx context.Context, isIdle bool) (State, error) {
-	if err := EnsureIdleForMethodSwitch(isIdle); err != nil {
+	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
 		return State{}, err
 	}
 	return m.updateState(ctx, func(state *State) error {
@@ -118,7 +120,7 @@ func (m *Manager) ClearMethod(ctx context.Context, isIdle bool) (State, error) {
 }
 
 func (m *Manager) SetEnvAPIKeyPreference(ctx context.Context, preference EnvAPIKeyPreference, isIdle bool) (State, error) {
-	if err := EnsureIdleForMethodSwitch(isIdle); err != nil {
+	if err := sharedauth.EnsureIdleForMethodSwitch(isIdle); err != nil {
 		return State{}, err
 	}
 	if err := preference.Validate(); err != nil {

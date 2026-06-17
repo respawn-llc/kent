@@ -6,10 +6,6 @@ import (
 
 type PendingSpinnerFrameFunc func(entry TranscriptEntry, entryIndex int) string
 
-func RenderPendingOngoingSnapshot(entries []TranscriptEntry, theme string, width int, spinner string) string {
-	return renderPendingOngoingSnapshotProjection(entries, theme, width, uniformPendingSpinnerFrame(spinner)).Render(TranscriptDivider)
-}
-
 func RenderPendingOngoingSnapshotLinesWithSpinnerFrames(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) []TranscriptProjectionLine {
 	return renderPendingOngoingSnapshotProjection(entries, theme, width, spinnerForEntry).Lines(TranscriptDivider)
 }

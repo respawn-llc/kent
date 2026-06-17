@@ -11,14 +11,14 @@ func TestEventDigestIncludesRunLifecycleMode(t *testing.T) {
 		Kind:   clientui.EventRunStateChanged,
 		StepID: "step-1",
 		RunState: &clientui.RunState{
-			Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn),
+			Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn),
 			RunID:     "run-1",
 			Status:    clientui.RunStatusRunning,
 		},
 	}
 	goal := base
 	goal.RunState = &clientui.RunState{
-		Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeGoalLoop),
+		Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeGoalLoop),
 		RunID:     "run-1",
 		Status:    clientui.RunStatusRunning,
 	}

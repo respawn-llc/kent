@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -196,6 +197,124 @@ func TestWorkflowTaskInstructionsCommentReminderTemplateData(t *testing.T) {
 	}
 	if many.TaskCommentsLabel != "3 comments" {
 		t.Fatalf("multi-comment label = %q, want plural grammar", many.TaskCommentsLabel)
+	}
+}
+
+func TestWorkflowCompletionExamplesUseContractShape(t *testing.T) {
+	examples := workflowCompletionExamples(WorkflowCompletionInstructionsArgs{
+		WorkflowShortID: "workflow-1",
+		Contract: WorkflowCompletionContract{
+			Transitions: []WorkflowCompletionTransition{
+				{
+					ID:          "approve",
+					DisplayName: "Approve",
+					Parameters:  []WorkflowCompletionParameter{{Key: "summary", Description: "Summary of accepted work."}},
+				},
+				{
+					ID:          "block",
+					DisplayName: "Block",
+					Parameters:  []WorkflowCompletionParameter{{Key: "reason", Description: "Blocking reason."}},
+				},
+			},
+		},
+	})
+	if len(examples) != 2 {
+		t.Fatalf("example count = %d, want 2: %+v", len(examples), examples)
+	}
+	if examples[0].TransitionID != "approve" || examples[1].TransitionID != "block" {
+		t.Fatalf("example transition order = %+v, want contract order", examples)
+	}
+	if !strings.Contains(examples[0].ShellCommand, "--transition") || !strings.Contains(examples[0].ShellCommand, "--summary") {
+		t.Fatalf("shell example did not include transition and dynamic parameter flags: %+v", examples[0])
+	}
+	payload := map[string]string{}
+	if err := json.Unmarshal([]byte(examples[0].JSON), &payload); err != nil {
+		t.Fatalf("json example must decode as object: %v\n%s", err, examples[0].JSON)
+	}
+	if payload["transition"] != "approve" || strings.TrimSpace(payload["summary"]) == "" || strings.TrimSpace(payload["commentary"]) == "" {
+		t.Fatalf("json example payload = %+v, want transition, commentary, and selected parameter", payload)
+	}
+}
+
+func TestWorkflowCompletionExamplesInferSingleTransition(t *testing.T) {
+	examples := workflowCompletionExamples(WorkflowCompletionInstructionsArgs{
+		Contract: WorkflowCompletionContract{
+			Transitions: []WorkflowCompletionTransition{{
+				ID:         "done",
+				Parameters: []WorkflowCompletionParameter{{Key: "summary", Description: "Completion summary."}},
+			}},
+		},
+	})
+	if len(examples) != 1 {
+		t.Fatalf("example count = %d, want 1: %+v", len(examples), examples)
+	}
+	if strings.Contains(examples[0].ShellCommand, "--transition") {
+		t.Fatalf("single-transition shell example should infer transition: %+v", examples[0])
+	}
+	payload := map[string]string{}
+	if err := json.Unmarshal([]byte(examples[0].JSON), &payload); err != nil {
+		t.Fatalf("json example must decode as object: %v\n%s", err, examples[0].JSON)
+	}
+	if _, ok := payload["transition"]; ok {
+		t.Fatalf("single-transition json example should omit transition: %+v", payload)
+	}
+	if payload["summary"] == "" {
+		t.Fatalf("single-transition json example missing selected parameter: %+v", payload)
+	}
+}
+
+func TestWorkflowCompletionShellExamplesSingleQuoteUntrustedDescriptions(t *testing.T) {
+	examples := workflowCompletionExamples(WorkflowCompletionInstructionsArgs{
+		Contract: WorkflowCompletionContract{
+			Transitions: []WorkflowCompletionTransition{{
+				ID: "done",
+				Parameters: []WorkflowCompletionParameter{{
+					Key:         "summary",
+					Description: "Summary with $(danger) and `danger` and user's quote.",
+				}},
+			}},
+		},
+	})
+	if len(examples) != 1 {
+		t.Fatalf("example count = %d, want 1: %+v", len(examples), examples)
+	}
+	command := examples[0].ShellCommand
+	if strings.Contains(command, "\"Summary with $(danger)") {
+		t.Fatalf("shell example used double quotes around untrusted description: %s", command)
+	}
+	for _, want := range []string{"'Summary with $(danger) and `danger` and user", "'\"'\"'", "s quote.'"} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("shell example = %q, want safe single-quote fragment %q", command, want)
+		}
+	}
+}
+
+func TestRenderWorkflowCompletionInstructionsRenderTemplates(t *testing.T) {
+	args := WorkflowCompletionInstructionsArgs{
+		WorkflowShortID: "workflow-1",
+		Contract: WorkflowCompletionContract{
+			Transitions: []WorkflowCompletionTransition{{
+				ID:         "done",
+				Parameters: []WorkflowCompletionParameter{{Key: "summary", Description: "Completion summary."}},
+			}},
+		},
+	}
+	for name, render := range map[string]func(WorkflowCompletionInstructionsArgs) (string, error){
+		"shell":        RenderWorkflowShellCompletionInstructions,
+		"unstructured": RenderWorkflowUnstructuredCompletionInstructions,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rendered, err := render(args)
+			if err != nil {
+				t.Fatalf("render %s workflow completion instructions: %v", name, err)
+			}
+			if strings.Contains(rendered, "{{") {
+				t.Fatalf("expected workflow completion placeholders rendered, got %q", rendered)
+			}
+			if strings.TrimSpace(rendered) == "" {
+				t.Fatal("expected non-empty completion instructions")
+			}
+		})
 	}
 }
 

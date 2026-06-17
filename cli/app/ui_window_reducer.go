@@ -26,7 +26,7 @@ func (r uiWindowFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
 		m.windowSizeKnown = true
-		m.syncViewport()
+		m.layout().syncViewport()
 		if previousWidth > 0 && previousWidth != msg.Width {
 			m.nativeStreamingController.Configure(m.nativeStreamingController.theme, msg.Width)
 			m.nativeStreamingWidth = msg.Width

@@ -182,7 +182,7 @@ func TestSessionLaunchPlannerHeadlessCreatesNewSessionAndAppliesContinuationCont
 	root := t.TempDir()
 	workspaceRoot := "/tmp/workspace-a"
 	binding := mustRegisterAppBinding(t, root, workspaceRoot)
-	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: root}, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(config.App{PersistenceRoot: root}.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	planner := newSessionLaunchPlanner(&testEmbeddedServer{
 		cfg: config.App{
 			WorkspaceRoot:   workspaceRoot,
@@ -222,7 +222,7 @@ func TestSessionLaunchPlannerInteractiveUsesPickerSelection(t *testing.T) {
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	binding := mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 
 	first := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	if err := first.SetName("first"); err != nil {
@@ -288,7 +288,7 @@ func TestSessionLaunchPlannerMarksNoOtherSessionsForDirectSingleSessionResume(t 
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	binding := mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	single := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	planner := newSessionLaunchPlanner(&testEmbeddedServer{
 		cfg: config.App{
@@ -366,7 +366,7 @@ func TestSessionLaunchPlannerPropagatesServerOwnershipToStatusConfig(t *testing.
 			root := t.TempDir()
 			workspaceRoot := "/tmp/workspace-a"
 			binding := mustRegisterAppBinding(t, root, workspaceRoot)
-			containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: root}, binding.ProjectID)
+			containerDir := filepath.Join(filepath.Join(config.App{PersistenceRoot: root}.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 			planner := newSessionLaunchPlanner(&plannerOwnershipServer{
 				testEmbeddedServer: &testEmbeddedServer{
 					cfg: config.App{
@@ -400,7 +400,7 @@ func TestSessionLaunchPlannerDefaultsMissingAuthStateProviderToEmptyStatusMetada
 			PersistenceRoot: root,
 			Settings:        config.Settings{Theme: "dark"},
 		},
-		containerDir: config.ProjectSessionsRoot(config.App{PersistenceRoot: root}, binding.ProjectID),
+		containerDir: filepath.Join(filepath.Join(config.App{PersistenceRoot: root}.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 	}})
 
 	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeHeadless})
@@ -419,7 +419,7 @@ func TestSessionLaunchPlannerSelectedSessionIDBypassesPicker(t *testing.T) {
 	root := t.TempDir()
 	workspaceRoot := "/tmp/workspace-a"
 	binding := mustRegisterAppBinding(t, root, workspaceRoot)
-	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: root}, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(config.App{PersistenceRoot: root}.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store := createAuthoritativeAppSession(t, root, workspaceRoot)
 	if err := store.SetName("selected"); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)

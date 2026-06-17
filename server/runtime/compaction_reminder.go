@@ -16,10 +16,6 @@ func newCompactionReminderCoordinator(engine *Engine) compactionReminderCoordina
 	return compactionReminderCoordinator{engine: engine}
 }
 
-func (e *Engine) maybeAppendCompactionSoonReminder(ctx context.Context, stepID string) error {
-	return newCompactionReminderCoordinator(e).maybeAppend(ctx, stepID)
-}
-
 func (c compactionReminderCoordinator) maybeAppend(ctx context.Context, stepID string) error {
 	e := c.engine
 	planningSnapshot := e.compactionPlanningSnapshot()
@@ -53,11 +49,11 @@ func (c compactionReminderCoordinator) maybeAppend(ctx context.Context, stepID s
 	if content == "" {
 		return nil
 	}
-	if err := e.steer(stepID, steerMessageIntent(llm.Message{
+	if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role:        llm.RoleDeveloper,
 		MessageType: llm.MessageTypeCompactionSoonReminder,
 		Content:     content,
-	})); err != nil {
+	}})); err != nil {
 		return err
 	}
 	return e.persistCompactionSoonReminderIssued(true)
@@ -67,16 +63,8 @@ func (e *Engine) estimatedToolCallsUntilForcedHandoff() int {
 	return e.compactionPlannerState().estimatedToolCallsUntilForcedHandoff(e.compactionPlanningSnapshot())
 }
 
-func (e *Engine) handoffToolEnabled() bool {
-	return e.compactionRuntimeState().SoonReminderIssued()
-}
-
-func (e *Engine) setCompactionSoonReminderIssued(issued bool) {
-	e.compactionRuntimeState().SetSoonReminderIssued(issued)
-}
-
 func (e *Engine) persistCompactionSoonReminderIssued(issued bool) error {
-	e.setCompactionSoonReminderIssued(issued)
+	e.compactionRuntimeState().SetSoonReminderIssued(issued)
 	return e.store.SetCompactionSoonReminderIssued(issued)
 }
 

@@ -278,7 +278,7 @@ func TestFinalNoopAnswerIsInvisibleAndSkipsReviewer(t *testing.T) {
 
 	finalAssistantContents := make([]string, 0)
 	noopFinalCount := 0
-	for _, persisted := range eng.snapshotMessages() {
+	for _, persisted := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if persisted.Role == llm.RoleAssistant && persisted.Phase == llm.MessagePhaseFinal {
 			finalAssistantContents = append(finalAssistantContents, persisted.Content)
 		}
@@ -287,7 +287,7 @@ func TestFinalNoopAnswerIsInvisibleAndSkipsReviewer(t *testing.T) {
 		}
 	}
 	if noopFinalCount != 1 {
-		t.Fatalf("noop final count = %d, want 1; messages=%+v", noopFinalCount, eng.snapshotMessages())
+		t.Fatalf("noop final count = %d, want 1; messages=%+v", noopFinalCount, eng.transcriptRuntimeState().SnapshotMessages())
 	}
 	if len(finalAssistantContents) != 1 || finalAssistantContents[0] != reviewerNoopToken {
 		t.Fatalf("expected hidden persisted noop final assistant message, got %q", finalAssistantContents)

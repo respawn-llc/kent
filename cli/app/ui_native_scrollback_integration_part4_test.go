@@ -55,7 +55,7 @@ func TestNativeProgramUserFlushDoesNotTriggerTranscriptSyncThatDropsCommentary(t
 		normalized := normalizedOutput(out.String())
 		return containsInOrder(normalized, "seed", "say hi", "working")
 	})
-	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !strings.Contains(committed, "say hi") {
+	if committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)); !strings.Contains(committed, "say hi") {
 		t.Fatalf("expected committed ongoing surface to retain flushed user row before later runtime events, got %q", committed)
 	}
 	if currentLoadCalls := client.LoadCalls(); currentLoadCalls != baselineLoadCalls {
@@ -114,8 +114,8 @@ func TestNativeProgramCommittedToolStartReplacesMatchingTransientToolRowWithoutH
 	waitForTestCondition(t, 2*time.Second, "transient tool row buffered locally", func() bool {
 		return len(model.transcriptEntries) == 2 && model.transcriptEntries[1].Transient
 	})
-	if strings.Contains(stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()), "pwd") {
-		t.Fatalf("expected transient tool row to stay out of committed ongoing surface, got %q", stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()))
+	if strings.Contains(stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)), "pwd") {
+		t.Fatalf("expected transient tool row to stay out of committed ongoing surface, got %q", stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)))
 	}
 
 	runtimeEvents <- clientui.Event{
@@ -152,7 +152,7 @@ func TestNativeProgramCommittedToolStartReplacesMatchingTransientToolRowWithoutH
 	}
 
 	waitForTestCondition(t, 2*time.Second, "committed tool pair visible without hydrate", func() bool {
-		committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
+		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 		return strings.Contains(committed, "pwd")
 	})
 	if currentLoadCalls := client.LoadCalls(); currentLoadCalls != baselineLoadCalls {
@@ -160,7 +160,7 @@ func TestNativeProgramCommittedToolStartReplacesMatchingTransientToolRowWithoutH
 	}
 
 	program.QuitAndWait(2 * time.Second)
-	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !strings.Contains(committed, "pwd") {
+	if committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)); !strings.Contains(committed, "pwd") {
 		t.Fatalf("expected committed tool pair in ongoing committed surface after replacement, got %q", committed)
 	}
 }
@@ -194,7 +194,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 	})
 	baselineLoadCalls := client.LoadCalls()
 
-	runtimeEvents <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
+	runtimeEvents <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)}}
 	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}
 	waitForTestCondition(t, 2*time.Second, "assistant delta visible", func() bool {
 		return strings.Contains(normalizedOutput(out.String()), "foreground done")
@@ -218,7 +218,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 	userFlushDeadline := time.Now().Add(2 * time.Second)
 	userFlushVisible := false
 	for time.Now().Before(userFlushDeadline) {
-		committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
+		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 		if containsInOrder(committed, "seed", "steered message") {
 			userFlushVisible = true
 			break
@@ -226,7 +226,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !userFlushVisible {
-		t.Fatalf("expected user flush visible after hydrate, committed=%q load_calls=%d output=%q", stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()), client.LoadCalls(), normalizedOutput(out.String()))
+		t.Fatalf("expected user flush visible after hydrate, committed=%q load_calls=%d output=%q", stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)), client.LoadCalls(), normalizedOutput(out.String()))
 	}
 	if got := len(model.deferredCommittedTail); got != 0 {
 		t.Fatalf("expected queued user flush path to avoid deferred committed tail, got %d", got)
@@ -249,7 +249,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 	}
 
 	waitForTestCondition(t, 2*time.Second, "assistant response appends after hydrated user row", func() bool {
-		committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
+		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 		return containsInOrder(committed, "seed", "steered message", "after follow-up")
 	})
 	if currentLoadCalls := client.LoadCalls(); currentLoadCalls != baselineLoadCalls {
@@ -257,7 +257,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 	}
 
 	program.QuitAndWait(2 * time.Second)
-	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !containsInOrder(committed, "seed", "steered message", "after follow-up") {
+	if committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)); !containsInOrder(committed, "seed", "steered message", "after follow-up") {
 		t.Fatalf("expected hydrated committed user flush to remain visible in ongoing committed surface, got %q", committed)
 	}
 }
@@ -296,7 +296,7 @@ func TestNativeProgramReviewerTerminalMessageRemainsVisibleWithoutHydration(t *t
 	}
 
 	waitForTestCondition(t, 2*time.Second, "reviewer terminal message visible without hydrate", func() bool {
-		committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
+		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 		return containsInOrder(committed, "seed", "Supervisor ran: no changes.")
 	})
 	if currentLoadCalls := client.LoadCalls(); currentLoadCalls != baselineLoadCalls {
@@ -304,7 +304,7 @@ func TestNativeProgramReviewerTerminalMessageRemainsVisibleWithoutHydration(t *t
 	}
 
 	program.QuitAndWait(2 * time.Second)
-	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !containsInOrder(committed, "seed", "Supervisor ran: no changes.") {
+	if committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)); !containsInOrder(committed, "seed", "Supervisor ran: no changes.") {
 		t.Fatalf("expected reviewer terminal message in ongoing committed surface, got %q", committed)
 	}
 }
@@ -621,13 +621,13 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 		t.Fatal("timed out waiting for transcript catch-up refresh to start")
 	}
 	time.Sleep(80 * time.Millisecond)
-	if strings.Contains(stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()), "follow up") {
-		t.Fatalf("expected queued follow-up to stay out of committed ongoing transcript before final catch-up, got %q", stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()))
+	if strings.Contains(stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)), "follow up") {
+		t.Fatalf("expected queued follow-up to stay out of committed ongoing transcript before final catch-up, got %q", stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)))
 	}
 
 	close(client.releaseRefresh)
 	waitForTestCondition(t, 2*time.Second, "final answer visible before queued follow-up", func() bool {
-		committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
+		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 		return strings.Contains(committed, "final answer") && !strings.Contains(committed, "follow up")
 	})
 
@@ -648,7 +648,7 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	program.Wait(2 * time.Second)
 
-	committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
+	committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if strings.Count(committed, "final answer") != 1 {
 		t.Fatalf("expected final answer exactly once in committed ongoing transcript, got %d in %q", strings.Count(committed, "final answer"), committed)
 	}

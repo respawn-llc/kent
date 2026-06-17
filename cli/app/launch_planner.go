@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"strconv"
 	"strings"
 
 	"core/cli/app/internal/projectbinding"
@@ -293,7 +295,7 @@ func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHea
 		StatusRequest: statusReq,
 		AuthManager:   status.NormalizeAuthStateResolver(authState.Resolver),
 		OwnsServer:    p != nil && p.server != nil && p.server.OwnsServer(),
-		ServerAddress: config.ServerListenAddress(cfg),
+		ServerAddress: net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)),
 	}
 }
 

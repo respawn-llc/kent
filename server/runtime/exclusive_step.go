@@ -61,12 +61,13 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 			if snapshot.GoalLoop {
 				mode = RunModeGoalLoop
 			}
-			_ = s.engine.steerEvent(stepID, Event{Kind: EventRunStateChanged, StepID: stepID, RunState: &RunState{
+			_ = s.engine.steer(stepID, steerEventIntent(Event{Kind: EventRunStateChanged, StepID: stepID, RunState: &RunState{
 				Lifecycle: RunningRunLifecycle(mode),
 				RunID:     snapshot.RunID,
 				Status:    snapshot.Status,
 				StartedAt: snapshot.StartedAt,
-			}})
+			}}))
+
 		}
 	}
 	defer func() {
@@ -91,7 +92,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 				state.StartedAt = snapshot.StartedAt
 				state.FinishedAt = snapshot.FinishedAt
 			}
-			_ = s.engine.steerEvent(stepID, Event{Kind: EventRunStateChanged, StepID: stepID, RunState: state})
+			_ = s.engine.steer(stepID, steerEventIntent(Event{Kind: EventRunStateChanged, StepID: stepID, RunState: state}))
 		}
 		if options.PersistRunLifecycle && snapshot != nil {
 			if _, persistErr := s.engine.store.AppendRunFinished(session.RunRecord{
@@ -106,7 +107,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 		}
 		if clearErr := s.engine.store.MarkInFlight(false); clearErr != nil {
 			wrapped := fmt.Errorf("%w: %w", errMarkInFlightFalse, clearErr)
-			_ = s.engine.steerEvent(stepID, Event{Kind: EventInFlightClearFailed, StepID: stepID, Error: wrapped.Error()})
+			_ = s.engine.steer(stepID, steerEventIntent(Event{Kind: EventInFlightClearFailed, StepID: stepID, Error: wrapped.Error()}))
 			err = errors.Join(err, wrapped)
 		} else {
 			if s.background != nil {
@@ -135,7 +136,7 @@ func (s *defaultExclusiveStepLifecycle) Interrupt() error {
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.engine.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage})); err != nil {
+	if err := s.engine.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage}})); err != nil {
 		return err
 	}
 	if err := s.engine.store.MarkInFlight(false); err != nil {

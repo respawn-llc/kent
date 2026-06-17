@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -190,7 +191,7 @@ func newBindingCommandSession(t *testing.T, workspace string) (*metadata.Store, 
 		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
 	}
 	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		store.AuthoritativeSessionStoreOptions()...,
@@ -230,7 +231,7 @@ func startBindingCommandServer(t *testing.T, workspace string) func() {
 	if err != nil {
 		t.Fatalf("config.Load server workspace: %v", err)
 	}
-	serverstartup.ReleaseTestListenReservation(config.ServerListenAddress(cfg))
+	serverstartup.ReleaseTestListenReservation(net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)))
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-5"}, bindingCommandMemoryAuthHandler{state: auth.State{
 		Scope:     auth.ScopeGlobal,
 		Method:    auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},

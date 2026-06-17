@@ -1,0 +1,1 @@
+This command is intended for use by agents only, but it seems you're a human. If you want to move the task manually, consider kent task move or GUI affordances. If you're scripting or want to run this anyway, use this command with --force to suppress this error.

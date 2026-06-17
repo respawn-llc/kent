@@ -249,7 +249,7 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 		if err != nil {
 			return serverapi.SessionResolveTransitionResponse{}, err
 		}
-		forkUserMessageIndex, resolveErr := s.resolveForkUserMessageIndex(req.Transition)
+		forkUserMessageIndex, resolveErr := rollbacktarget.DecodeUserMessageIndex(req.Transition.ForkRollbackTargetID)
 		if resolveErr != nil {
 			return serverapi.SessionResolveTransitionResponse{}, resolveErr
 		}
@@ -331,10 +331,6 @@ func (s *SessionLifecycleService) preserveForkExecutionTarget(ctx context.Contex
 		return err
 	}
 	return metadataStore.UpdateSessionExecutionTargetByID(ctx, trimmedChildID, target.WorkspaceID, target.WorktreeID, target.CwdRelpath)
-}
-
-func (s *SessionLifecycleService) resolveForkUserMessageIndex(transition serverapi.SessionTransition) (int, error) {
-	return rollbacktarget.DecodeUserMessageIndex(transition.ForkRollbackTargetID)
 }
 
 func (s *SessionLifecycleService) openStore(sessionID string) (*session.Store, error) {

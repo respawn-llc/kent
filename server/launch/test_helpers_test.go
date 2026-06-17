@@ -111,7 +111,7 @@ func createMetadataBackedSession(
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(config.App{PersistenceRoot: persistenceRoot}.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store := createTestSessionInContainer(
 		t,
 		containerDir,

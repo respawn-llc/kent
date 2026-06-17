@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -18,13 +19,23 @@ import (
 )
 
 type fakeWorkflowController struct {
-	completed  atomic.Int64
-	violations atomic.Int64
-	maxHits    atomic.Int64
+	completed                           atomic.Int64
+	violations                          atomic.Int64
+	maxHits                             atomic.Int64
+	completionObservations              atomic.Int64
+	completeExternallyAfterObservations int64
+	completedRunID                      string
+	completedGeneration                 int64
+	completedExternally                 atomic.Bool
+	mu                                  sync.Mutex
+	requests                            []workflowruntime.CompletionRequest
 }
 
-func (c *fakeWorkflowController) CompleteWorkflowRun(context.Context, workflowruntime.CompletionRequest) (workflowruntime.CompletionResult, error) {
+func (c *fakeWorkflowController) CompleteWorkflowRun(_ context.Context, req workflowruntime.CompletionRequest) (workflowruntime.CompletionResult, error) {
 	c.completed.Add(1)
+	c.mu.Lock()
+	c.requests = append(c.requests, req)
+	c.mu.Unlock()
 	return workflowruntime.CompletionResult{TransitionID: "transition-applied", State: "applied"}, nil
 }
 
@@ -35,6 +46,27 @@ func (c *fakeWorkflowController) RecordWorkflowProtocolViolation(_ context.Conte
 		c.maxHits.Add(1)
 	}
 	return workflowruntime.ViolationResult{Count: count, Interrupted: interrupted}, nil
+}
+
+func (c *fakeWorkflowController) ObserveWorkflowRunCompletion(_ context.Context, req workflowruntime.CompletionObservationRequest) (workflowruntime.CompletionObservationResult, error) {
+	count := c.completionObservations.Add(1)
+	if c.completedRunID != "" && string(req.RunID) != c.completedRunID {
+		return workflowruntime.CompletionObservationResult{}, nil
+	}
+	if c.completedGeneration != 0 && req.ExpectedGeneration != c.completedGeneration {
+		return workflowruntime.CompletionObservationResult{}, nil
+	}
+	completed := c.completedExternally.Load()
+	if c.completeExternallyAfterObservations > 0 && count >= c.completeExternallyAfterObservations {
+		completed = true
+	}
+	return workflowruntime.CompletionObservationResult{Completed: completed}, nil
+}
+
+func (c *fakeWorkflowController) completionRequests() []workflowruntime.CompletionRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]workflowruntime.CompletionRequest(nil), c.requests...)
 }
 
 type fakeTaskCommentCounter struct {
@@ -61,6 +93,19 @@ func (t *countingTool) Call(_ context.Context, c tools.Call) (tools.Result, erro
 	return tools.Result{CallID: c.ID, Name: c.Name, Output: json.RawMessage(`{"ok":true}`)}, nil
 }
 
+type externalCompletionTool struct {
+	controller *fakeWorkflowController
+	count      atomic.Int64
+}
+
+func (t *externalCompletionTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
+	t.count.Add(1)
+	if t.controller != nil {
+		t.controller.completedExternally.Store(true)
+	}
+	return tools.Result{CallID: c.ID, Name: c.Name, Output: json.RawMessage(`{"completed":true}`)}, nil
+}
+
 func testWorkflowConfig(controller workflowruntime.Controller, mode config.WorkflowCompletionMode) *workflowruntime.Config {
 	return &workflowruntime.Config{
 		Contract: workflowruntime.CompletionContract{
@@ -72,8 +117,7 @@ func testWorkflowConfig(controller workflowruntime.Controller, mode config.Workf
 				Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary of work."}},
 			}},
 		},
-		CompletionMode:               mode,
-		MaxFinalAnswerViolations:     3,
+		CompletionMode:               workflowruntime.CompletionMode(mode),
 		MaxInvalidCompletionAttempts: 2,
 		Controller:                   controller,
 		Instructions: workflowruntime.TaskInstructions{
@@ -246,9 +290,9 @@ func TestWorkflowModePromptCommentCountErrorFailsBeforeWorkflowPromptAppend(t *t
 		t.Fatalf("SubmitWorkflowTurn error = %v, want %v", err, countErr)
 	}
 	assertModelCallCount(t, client, 0)
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
-			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.snapshotMessages())
+			t.Fatalf("workflow prompt should not be appended after count error: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 		}
 	}
 }
@@ -338,36 +382,79 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	}
 }
 
-func TestWorkflowAutoFallsBackToToolModeWhenStructuredOutputUnsupported(t *testing.T) {
+func TestWorkflowRuntimeRejectsUnresolvedCompletionMode(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "legacy"}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeAuto), Config{
+		Model: "legacy",
+	})
+	_, err := eng.buildRequest(context.Background(), "step", true)
+	if err == nil {
+		t.Fatal("expected unresolved completion mode error")
+	}
+}
+
+func TestWorkflowRuntimeUsesPersistedStructuredOutputMode(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "legacy"}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput), Config{
 		Model: "legacy",
 	})
 	req, err := eng.buildRequest(context.Background(), "step", true)
 	if err != nil {
 		t.Fatalf("buildRequest: %v", err)
 	}
-	if req.StructuredOutput != nil {
-		t.Fatalf("structured output set in fallback tool mode: %+v", req.StructuredOutput)
+	if req.StructuredOutput == nil {
+		t.Fatalf("structured output missing for persisted structured mode: %+v", req)
 	}
-	for _, tool := range req.Tools {
-		if tool.Name == string(toolspec.ToolCompleteNode) {
-			return
-		}
-	}
-	t.Fatalf("complete_node not advertised in auto fallback tool mode: %+v", req.Tools)
 }
 
-func TestWorkflowForcedStructuredOutputFailsWhenUnsupported(t *testing.T) {
-	store := mustCreateTestSession(t)
-	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "legacy"}}
-	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput), Config{
-		Model: "legacy",
-	})
-	_, err := eng.buildRequest(context.Background(), "step", true)
-	if !errors.Is(err, workflowruntime.ErrStructuredOutputUnsupported) {
-		t.Fatalf("buildRequest error = %v, want structured output support error", err)
+func TestWorkflowShellAndUnstructuredModesOmitDynamicCompletionMetadata(t *testing.T) {
+	tests := []struct {
+		name           string
+		mode           config.WorkflowCompletionMode
+		wantCommand    bool
+		forbidCommand  bool
+		forbidToolName bool
+	}{
+		{name: "shell command", mode: config.WorkflowCompletionModeShellCommand, wantCommand: true, forbidToolName: true},
+		{name: "unstructured output", mode: config.WorkflowCompletionModeUnstructured, forbidCommand: true, forbidToolName: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, tt.mode)
+			workflowCfg.Contract.Transitions[0].Parameters = append(workflowCfg.Contract.Transitions[0].Parameters, workflow.Parameter{Key: "details", Description: "Detailed evidence."})
+			eng := mustNewWorkflowTestEngine(t, store, &fakeClient{}, workflowCfg, Config{
+				EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+			})
+			if err := eng.ensureMetaContextForRequest(context.Background(), "step"); err != nil {
+				t.Fatalf("ensure meta context: %v", err)
+			}
+			req, err := eng.buildRequest(context.Background(), "step", true)
+			if err != nil {
+				t.Fatalf("buildRequest: %v", err)
+			}
+			if req.StructuredOutput != nil {
+				t.Fatalf("%s request has structured output: %+v", tt.name, req.StructuredOutput)
+			}
+			for _, tool := range req.Tools {
+				if tool.Name == string(toolspec.ToolCompleteNode) {
+					t.Fatalf("%s request advertised complete_node: %+v", tt.name, req.Tools)
+				}
+			}
+			workflowContent := workflowPromptContentFromRequest(t, req)
+			command := prompts.LaunchCommand() + " task complete"
+			if tt.wantCommand && !strings.Contains(workflowContent, command) {
+				t.Fatalf("%s workflow prompt did not include task completion command:\n%s", tt.name, workflowContent)
+			}
+			if tt.forbidCommand && strings.Contains(workflowContent, command) {
+				t.Fatalf("%s workflow prompt advertised shell completion command:\n%s", tt.name, workflowContent)
+			}
+			if tt.forbidToolName && strings.Contains(workflowContent, string(toolspec.ToolCompleteNode)) {
+				t.Fatalf("%s workflow prompt advertised complete_node:\n%s", tt.name, workflowContent)
+			}
+		})
 	}
 }
 
@@ -382,13 +469,13 @@ func TestCompleteNodeOutsideWorkflowReturnsToolError(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	found := false
-	for _, msg := range eng.snapshotMessages() {
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
 		if msg.Role == llm.RoleTool && msg.Name == string(toolspec.ToolCompleteNode) && strings.Contains(msg.Content, "only available during a workflow run") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("complete_node error output missing from messages: %+v", eng.snapshotMessages())
+		t.Fatalf("complete_node error output missing from messages: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
 }
 
@@ -417,6 +504,60 @@ func TestWorkflowMixedCompleteNodeRunsSideEffects(t *testing.T) {
 	}
 	if got := controller.violations.Load(); got != 0 {
 		t.Fatalf("violations = %d, want 0", got)
+	}
+}
+
+func TestWorkflowTerminalCompleteNodePersistsHostedToolResults(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseFinal},
+		ToolCalls: []llm.ToolCall{
+			completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+		},
+		OutputItems: []llm.ResponseItem{{
+			Type: llm.ResponseItemTypeOther,
+			Raw:  json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli"}}`),
+		}},
+		Usage: llm.Usage{WindowTokens: 200000},
+	}}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
+	})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := controller.completed.Load(); got != 1 {
+		t.Fatalf("completions = %d, want 1", got)
+	}
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("ReadEvents: %v", err)
+	}
+	hostedCallPersisted := false
+	hostedResultPersisted := false
+	for _, evt := range events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var persisted llm.Message
+		if err := json.Unmarshal(evt.Payload, &persisted); err != nil {
+			t.Fatalf("decode message event: %v", err)
+		}
+		if persisted.Role == llm.RoleAssistant {
+			for _, call := range persisted.ToolCalls {
+				if call.ID == "ws_1" {
+					hostedCallPersisted = true
+				}
+			}
+		}
+		if persisted.Role == llm.RoleTool && persisted.ToolCallID == "ws_1" {
+			hostedResultPersisted = true
+		}
+	}
+	if !hostedCallPersisted || !hostedResultPersisted {
+		t.Fatalf("hosted call/result persisted = %v/%v, want both", hostedCallPersisted, hostedResultPersisted)
 	}
 }
 
@@ -459,12 +600,175 @@ func TestWorkflowStructuredCompletionStopsWithoutAnotherTurn(t *testing.T) {
 	}
 }
 
+func TestWorkflowUnstructuredFinalAnswerCompletesRun(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
+		structuredFinalResponse("unexpected"),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{})
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	requests := controller.completionRequests()
+	if len(requests) != 1 {
+		t.Fatalf("completion request count = %d, want 1: %+v", len(requests), requests)
+	}
+	if got := requests[0].TransitionID; got != "done" {
+		t.Fatalf("completion transition = %q, want done", got)
+	}
+	if got := requests[0].OutputValues["summary"]; got != "done" {
+		t.Fatalf("completion summary = %q, want done", got)
+	}
+	if got := requests[0].Commentary; got != "complete" {
+		t.Fatalf("completion commentary = %q, want complete", got)
+	}
+}
+
+func TestWorkflowUnstructuredInvalidFinalAnswerNudgeUsesCurrentContract(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse(`{"summary":""}`),
+		structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{})
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 2)
+	if got := controller.violations.Load(); got != 1 {
+		t.Fatalf("violations = %d, want 1", got)
+	}
+	if got := controller.completed.Load(); got != 1 {
+		t.Fatalf("completions = %d, want 1", got)
+	}
+	assertDeveloperErrorFeedbackAfterAssistantFinalContains(t, eng, `{"summary":""}`, []string{"summary", "JSON"}, []string{prompts.LaunchCommand() + " task complete", string(toolspec.ToolCompleteNode)})
+}
+
+func TestWorkflowShellFinalAnswerNudgeUsesShellCompletionInstructions(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse("done"),
+		structuredFinalResponse("done again"),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand), Config{})
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 2)
+	if got := controller.violations.Load(); got != 2 {
+		t.Fatalf("violations = %d, want 2", got)
+	}
+	assertDeveloperErrorFeedbackAfterAssistantFinalContains(t, eng, "done", []string{prompts.LaunchCommand() + " task complete", "summary"}, []string{string(toolspec.ToolCompleteNode)})
+}
+
+func TestWorkflowDurableCompletionBeforeModelTurnStopsWithoutRequest(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	controller.completedExternally.Store(true)
+	client := &fakeClient{responses: []llm.Response{structuredFinalResponse("unexpected")}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand), Config{})
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 0)
+	if got := controller.completed.Load(); got != 0 {
+		t.Fatalf("runtime completions = %d, want external completion only", got)
+	}
+	if got := controller.completionObservations.Load(); got == 0 {
+		t.Fatal("expected runtime to observe durable completion before model request")
+	}
+}
+
+func TestWorkflowDurableCompletionAfterModelResponseSkipsStalePersistence(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &hookClient{
+		response: commentaryResponse("stale assistant",
+			llm.ToolCall{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"kent task complete"}`)},
+		),
+		beforeReturn: func() error {
+			controller.completedExternally.Store(true)
+			return nil
+		},
+	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand), Config{})
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(client.calls))
+	}
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
+		if msg.Role == llm.RoleAssistant && strings.Contains(msg.Content, "stale assistant") {
+			t.Fatalf("stale assistant response was persisted after external completion: %+v", eng.transcriptRuntimeState().SnapshotMessages())
+		}
+		if msg.Role == llm.RoleTool && msg.ToolCallID == "call_shell" {
+			t.Fatalf("stale tool result was persisted after external completion: %+v", eng.transcriptRuntimeState().SnapshotMessages())
+		}
+	}
+}
+
+func TestWorkflowShellToolDurableCompletionStopsAfterToolResult(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	shellTool := &externalCompletionTool{controller: controller}
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("run completion command",
+			llm.ToolCall{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"kent task complete"}`)},
+		),
+		structuredFinalResponse("unexpected"),
+	}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shellTool}), Config{
+		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand),
+	})
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	if got := shellTool.count.Load(); got != 1 {
+		t.Fatalf("shell tool calls = %d, want 1", got)
+	}
+	if got := controller.completed.Load(); got != 0 {
+		t.Fatalf("runtime completions = %d, want external completion only", got)
+	}
+	assertToolMessageWithCallID(t, eng, "call_shell")
+}
+
+func TestWorkflowDelayedDurableCompletionObservedBeforeNextModelTurn(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{completeExternallyAfterObservations: 4}
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("run background completion",
+			llm.ToolCall{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"kent task complete &"}`)},
+		),
+		structuredFinalResponse("unexpected"),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand), Config{})
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	assertToolMessageWithCallID(t, eng, "call_shell")
+	if got := controller.completionObservations.Load(); got < 4 {
+		t.Fatalf("completion observations = %d, want post-tool and next-turn checks", got)
+	}
+}
+
 func TestWorkflowInvalidCompletionAttemptsInterruptAtCap(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		commentaryResponse("bad", completeNodeCall("call_bad_1", json.RawMessage(`{"summary":1}`))),
-		commentaryResponse("bad", completeNodeCall("call_bad_2", json.RawMessage(`{"summary":1}`))),
+		commentaryResponse("bad", completeNodeCall("call_bad_1", json.RawMessage(`{"summary":""}`))),
+		commentaryResponse("bad", completeNodeCall("call_bad_2", json.RawMessage(`{"summary":""}`))),
 		structuredFinalResponse("unexpected"),
 	}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
@@ -477,7 +781,29 @@ func TestWorkflowInvalidCompletionAttemptsInterruptAtCap(t *testing.T) {
 	}
 }
 
-func TestWorkflowFinalAnswerViolationsInterruptAtCap(t *testing.T) {
+func TestWorkflowInvalidCompletionFailClosedWhenConfiguredCapInvalid(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		structuredFinalResponse("normal final answer is invalid in tool mode"),
+		structuredFinalResponse("unexpected"),
+	}}
+	workflowCfg := testWorkflowConfig(controller, config.WorkflowCompletionModeTool)
+	workflowCfg.MaxInvalidCompletionAttempts = 0
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	if got := controller.violations.Load(); got != 1 {
+		t.Fatalf("violations = %d, want 1", got)
+	}
+	if got := controller.maxHits.Load(); got != 1 {
+		t.Fatalf("max hits = %d, want immediate fail-closed interruption", got)
+	}
+}
+
+func TestWorkflowFinalAnswersUseInvalidCompletionCap(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
@@ -490,14 +816,14 @@ func TestWorkflowFinalAnswerViolationsInterruptAtCap(t *testing.T) {
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	assertModelCallCount(t, client, 3)
+	assertModelCallCount(t, client, 2)
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
 	assertDeveloperErrorFeedbackAfterAssistantFinal(t, eng, "done 1", strings.TrimSpace(prompts.WorkflowFinalAnswerNudgePrompt))
 }
 
-func TestWorkflowEmptyFinalAnswerViolationsInterruptAtCap(t *testing.T) {
+func TestWorkflowEmptyFinalAnswersUseInvalidCompletionCap(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
@@ -510,7 +836,7 @@ func TestWorkflowEmptyFinalAnswerViolationsInterruptAtCap(t *testing.T) {
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	assertModelCallCount(t, client, 3)
+	assertModelCallCount(t, client, 2)
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
@@ -543,7 +869,7 @@ func assertCompletionSchema(t *testing.T, schema json.RawMessage, parameterDescr
 	if _, ok := schemaProperties(t, schema)["transition"]; ok {
 		t.Fatalf("single-transition schema should infer transition instead of advertising it: %s", string(schema))
 	}
-	assertSchemaProperty(t, schema, "commentary", "string", "Brief explanation of what was completed and why this transition was selected.")
+	assertNullableSchemaProperty(t, schema, "commentary", "Brief explanation of what was completed and why this transition was selected.")
 	required := []string{"commentary"}
 	for name, description := range parameterDescriptions {
 		assertSchemaProperty(t, schema, name, "string", description)
@@ -557,6 +883,18 @@ func assertSchemaProperty(t *testing.T, schema json.RawMessage, name string, pro
 	property := schemaProperty(t, schema, name)
 	if got := property["type"]; got != propertyType {
 		t.Fatalf("schema property %s type = %v, want %s in %s", name, got, propertyType, string(schema))
+	}
+	if got := property["description"]; got != description {
+		t.Fatalf("schema property %s description = %v, want %q in %s", name, got, description, string(schema))
+	}
+}
+
+func assertNullableSchemaProperty(t *testing.T, schema json.RawMessage, name string, description string) {
+	t.Helper()
+	property := schemaProperty(t, schema, name)
+	rawTypes, ok := property["type"].([]any)
+	if !ok || len(rawTypes) != 2 || rawTypes[0] != "string" || rawTypes[1] != "null" {
+		t.Fatalf("schema property %s type = %v, want [string null] in %s", name, property["type"], string(schema))
 	}
 	if got := property["description"]; got != description {
 		t.Fatalf("schema property %s description = %v, want %q in %s", name, got, description, string(schema))
@@ -626,7 +964,7 @@ func assertSchemaRequiredFields(t *testing.T, schema json.RawMessage, expected [
 
 func assertDeveloperErrorFeedbackAfterAssistantFinal(t *testing.T, eng *Engine, assistantContent string, feedbackContent string) {
 	t.Helper()
-	messages := eng.snapshotMessages()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	for index, message := range messages {
 		if message.Role != llm.RoleAssistant || message.Phase != llm.MessagePhaseFinal || message.Content != assistantContent {
 			continue
@@ -642,6 +980,46 @@ func assertDeveloperErrorFeedbackAfterAssistantFinal(t *testing.T, eng *Engine, 
 		return
 	}
 	t.Fatalf("assistant final %q not found in messages: %+v", assistantContent, messages)
+}
+
+func assertDeveloperErrorFeedbackAfterAssistantFinalContains(t *testing.T, eng *Engine, assistantContent string, required []string, forbidden []string) {
+	t.Helper()
+	messages := eng.transcriptRuntimeState().SnapshotMessages()
+	for index, message := range messages {
+		if message.Role != llm.RoleAssistant || message.Phase != llm.MessagePhaseFinal || message.Content != assistantContent {
+			continue
+		}
+		nextIndex := index + 1
+		if nextIndex >= len(messages) {
+			t.Fatalf("assistant final %q had no following message: %+v", assistantContent, messages)
+		}
+		next := messages[nextIndex]
+		if next.Role != llm.RoleDeveloper || next.MessageType != llm.MessageTypeErrorFeedback {
+			t.Fatalf("message after assistant final %q = %+v, want developer error feedback; messages=%+v", assistantContent, next, messages)
+		}
+		for _, want := range required {
+			if !strings.Contains(next.Content, want) {
+				t.Fatalf("developer error feedback after %q missing %q:\n%s", assistantContent, want, next.Content)
+			}
+		}
+		for _, blocked := range forbidden {
+			if strings.Contains(next.Content, blocked) {
+				t.Fatalf("developer error feedback after %q contained forbidden %q:\n%s", assistantContent, blocked, next.Content)
+			}
+		}
+		return
+	}
+	t.Fatalf("assistant final %q not found in messages: %+v", assistantContent, messages)
+}
+
+func assertToolMessageWithCallID(t *testing.T, eng *Engine, callID string) {
+	t.Helper()
+	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
+		if msg.Role == llm.RoleTool && msg.ToolCallID == callID {
+			return
+		}
+	}
+	t.Fatalf("tool message for call %s not found: %+v", callID, eng.transcriptRuntimeState().SnapshotMessages())
 }
 
 func schemaRoot(t *testing.T, schema json.RawMessage) map[string]any {

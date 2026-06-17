@@ -497,7 +497,7 @@ func TestRetargetSessionWorkspaceAttachesTargetAndUpdatesSession(t *testing.T) {
 
 	store, cfg, bindingA := newMetadataTestStoreForBoundWorkspace(t, workspaceA)
 	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, bindingA.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), bindingA.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		store.AuthoritativeSessionStoreOptions()...,
@@ -603,7 +603,7 @@ func TestRetargetSessionWorkspaceAttachesTargetAndUpdatesSession(t *testing.T) {
 func TestResolvePersistedSessionPreservesWorktreeReminderStateFromMetadata(t *testing.T) {
 	store, cfg, binding := newMetadataTestStore(t)
 	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		store.AuthoritativeSessionStoreOptions()...,
@@ -640,7 +640,7 @@ func TestResolvePersistedSessionPreservesWorktreeReminderStateFromMetadata(t *te
 func TestResolvePersistedSessionPreservesGoalStateFromMetadata(t *testing.T) {
 	store, cfg, binding := newMetadataTestStore(t)
 	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(cfg.WorkspaceRoot),
 		cfg.WorkspaceRoot,
 		store.AuthoritativeSessionStoreOptions()...,
@@ -695,7 +695,7 @@ func TestRebindWorkspaceRetargetsDescendantWorktrees(t *testing.T) {
 	`, worktreeID, binding.WorkspaceID, canonicalOldWorktree, "{}", now, now); err != nil {
 		t.Fatalf("insert worktree: %v", err)
 	}
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

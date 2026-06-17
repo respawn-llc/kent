@@ -601,7 +601,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	parent := createTestSessionInContainer(t, containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err := parent.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable parent: %v", err)
@@ -885,7 +885,7 @@ func TestPlannerNewChildSessionRollsBackDurableChildWhenExecutionTargetCopyFails
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	parent := createTestSessionInContainer(t, containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, metadataStore.SessionStoreOptions()...)
 	if err := parent.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable parent: %v", err)
@@ -1106,7 +1106,7 @@ func TestResolveSubagentSettingsPreservesSubagentCatalogMetadata(t *testing.T) {
 		},
 	}
 
-	resolved, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	resolved, _, err := resolveSubagentSettingsWithValidation(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, true)
 	if err != nil {
 		t.Fatalf("resolveSubagentSettings: %v", err)
 	}
@@ -1131,7 +1131,7 @@ func TestResolveSubagentSettingsRejectsRoleContextWindowBelowMinimum(t *testing.
 		},
 	}
 
-	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	_, _, err := resolveSubagentSettingsWithValidation(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, true)
 	if err == nil {
 		t.Fatal("expected role context window below minimum to fail")
 	}
@@ -1152,7 +1152,7 @@ func TestResolveSubagentSettingsRejectsRoleReviewerContextWindowBelowMinimum(t *
 		},
 	}
 
-	_, _, err := resolveSubagentSettings(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true)
+	_, _, err := resolveSubagentSettingsWithValidation(base, base, cfg.Source.Sources, "worker", auth.EmptyState(), true, true)
 	if err == nil {
 		t.Fatal("expected role reviewer context window below minimum to fail")
 	}

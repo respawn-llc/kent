@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"core/prompts"
@@ -200,7 +201,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		}
 		if err == nil {
 			core.bundles.Projects.projectID = binding.ProjectID
-			core.bundles.Projects.containerDir = config.ProjectSessionsRoot(cfg, binding.ProjectID)
+			core.bundles.Projects.containerDir = filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 			if err := os.MkdirAll(core.bundles.Projects.containerDir, 0o755); err != nil {
 				_ = core.Close()
 				return nil, fmt.Errorf("projects bundle: sessions root: %w", err)

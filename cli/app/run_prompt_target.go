@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ var resolveDaemonExecutablePath = startupconfig.ServeExecutablePath
 var buildServeArgsFunc = func(_ string, _ Options) []string { return startupconfig.ServeArgs() }
 var buildServeEnvFunc = startupconfig.ServeEnv
 var releaseServeReservationFunc = func(cfg config.App) {
-	serverstartup.ReleaseTestListenReservation(config.ServerListenAddress(cfg))
+	serverstartup.ReleaseTestListenReservation(net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)))
 }
 
 var configuredRemoteAttachTimeout = 500 * time.Millisecond

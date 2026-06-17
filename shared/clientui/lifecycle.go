@@ -64,14 +64,6 @@ func IdleRunLifecycle() RunLifecycle {
 	return RunLifecycle{Phase: RunLifecycleIdle}
 }
 
-func RunningRunLifecycle(mode RunMode) RunLifecycle {
-	return MustRunLifecycle(RunLifecycleRunning, mode)
-}
-
-func FinishedRunLifecycle(mode RunMode) RunLifecycle {
-	return MustRunLifecycle(RunLifecycleFinished, mode)
-}
-
 func (s RunLifecycle) Validate() error {
 	_, err := NewRunLifecycle(s.Phase, s.Mode)
 	return err

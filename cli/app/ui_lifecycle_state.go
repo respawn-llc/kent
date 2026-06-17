@@ -28,7 +28,7 @@ func (m *uiModel) setBusy(busy bool) {
 	if m.isGoalRun() {
 		mode = clientui.RunModeGoalLoop
 	}
-	m.runtimeLifecycle.Run = clientui.RunningRunLifecycle(mode)
+	m.runtimeLifecycle.Run = clientui.MustRunLifecycle(clientui.RunLifecycleRunning, mode)
 }
 
 func (m *uiModel) isGoalRun() bool {
@@ -41,11 +41,11 @@ func (m *uiModel) setGoalRun(goalRun bool) {
 	}
 	if !goalRun {
 		if m.isBusy() {
-			m.runtimeLifecycle.Run = clientui.RunningRunLifecycle(clientui.RunModeTurn)
+			m.runtimeLifecycle.Run = clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeTurn)
 		}
 		return
 	}
-	m.runtimeLifecycle.Run = clientui.RunningRunLifecycle(clientui.RunModeGoalLoop)
+	m.runtimeLifecycle.Run = clientui.MustRunLifecycle(clientui.RunLifecycleRunning, clientui.RunModeGoalLoop)
 }
 
 func (m *uiModel) setRunLifecycle(lifecycle clientui.RunLifecycle) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -153,7 +154,7 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 			config:         projectCfg,
 			projectID:      trimmedProjectID,
 			projectRoot:    binding.CanonicalRoot,
-			projectSession: config.ProjectSessionsRoot(projectCfg, trimmedProjectID),
+			projectSession: filepath.Join(filepath.Join(projectCfg.PersistenceRoot, "projects"), trimmedProjectID, "sessions"),
 		}, nil
 	}
 	trimmedWorkspaceRoot := strings.TrimSpace(workspaceRoot)
@@ -171,7 +172,7 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 				config:         projectCfg,
 				projectID:      trimmedProjectID,
 				projectRoot:    binding.CanonicalRoot,
-				projectSession: config.ProjectSessionsRoot(projectCfg, trimmedProjectID),
+				projectSession: filepath.Join(filepath.Join(projectCfg.PersistenceRoot, "projects"), trimmedProjectID, "sessions"),
 			}, nil
 		}
 		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
@@ -201,7 +202,7 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 		config:         projectCfg,
 		projectID:      trimmedProjectID,
 		projectRoot:    overview.Project.RootPath,
-		projectSession: config.ProjectSessionsRoot(projectCfg, trimmedProjectID),
+		projectSession: filepath.Join(filepath.Join(projectCfg.PersistenceRoot, "projects"), trimmedProjectID, "sessions"),
 	}, nil
 }
 

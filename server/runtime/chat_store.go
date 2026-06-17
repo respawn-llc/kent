@@ -463,7 +463,7 @@ func (s *chatStore) ongoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	items, localEntries := s.detailTranscriptSourceLocked()
+	items, localEntries := llm.CloneResponseItems(s.items), append([]localChatEntry(nil), s.local...)
 	materializedToolResults := collectMaterializedToolCalls(items)
 	scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{
 		TrackOngoingTail: true,
@@ -510,7 +510,7 @@ func (s *chatStore) transcriptPageSnapshot(offset, limit int) transcriptPageSnap
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	items, localEntries := s.detailTranscriptSourceLocked()
+	items, localEntries := llm.CloneResponseItems(s.items), append([]localChatEntry(nil), s.local...)
 	materializedToolResults := collectMaterializedToolCalls(items)
 	scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{Offset: offset, Limit: limit}, s.toolCompletions, materializedToolResults)
 	localIndex := 0
@@ -541,10 +541,6 @@ func (s *chatStore) transcriptPageSnapshot(offset, limit int) transcriptPageSnap
 	return page
 }
 
-func (s *chatStore) detailTranscriptSourceLocked() ([]llm.ResponseItem, []localChatEntry) {
-	return llm.CloneResponseItems(s.items), append([]localChatEntry(nil), s.local...)
-}
-
 type materializedChatSnapshot struct {
 	Snapshot             ChatSnapshot
 	CompactionEntryStart int
@@ -554,7 +550,7 @@ func (s *chatStore) snapshotWithMetadata() materializedChatSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	items, localEntries := s.detailTranscriptSourceLocked()
+	items, localEntries := llm.CloneResponseItems(s.items), append([]localChatEntry(nil), s.local...)
 	materializedToolResults := collectMaterializedToolCalls(items)
 	scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, s.toolCompletions, materializedToolResults)
 	localIndex := 0

@@ -174,7 +174,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 			Description:          def.Workflow.Description,
 			Version:              def.Workflow.Version,
 			IsProjectDefault:     link.ID != "" && link.IsDefault != 0,
-			ValidForTaskCreation: validation.Valid() && link.ID != "",
+			ValidForTaskCreation: !validation.HasBlockingErrors() && link.ID != "",
 			ValidationErrors:     ValidationErrors(def.Workflow.ID, validation.Errors),
 		})
 	}
@@ -730,7 +730,7 @@ func (s *Service) attentionItemsPage(ctx context.Context, projectID string, page
 			}
 			items = append(items, item)
 			if len(items) == pageSize {
-				return items, attentionCandidatePageToken(projectID, candidate), nil
+				return items, attentionPageTokenFor(projectID, candidate.occurredAtUnixMs, candidate.id), nil
 			}
 		}
 		if !moreCandidates {
@@ -784,7 +784,7 @@ func (s *Service) attentionItemFromCandidate(ctx context.Context, row attentionC
 			return serverapi.WorkflowAttentionItem{}, false, err
 		}
 		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
-		if validation.Valid() {
+		if !validation.HasBlockingErrors() {
 			return serverapi.WorkflowAttentionItem{}, false, nil
 		}
 		return serverapi.WorkflowAttentionItem{ID: row.id, Kind: "validation_blocker", ProjectID: row.projectID, WorkflowID: row.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task start", def.Workflow.Name), OccurredAtUnixMs: row.occurredAtUnixMs}, true, nil
@@ -935,7 +935,7 @@ func workflowNodeByID(def serverapi.WorkflowDefinition) map[string]serverapi.Wor
 func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.ProjectWorkflowLinkRecord, validation *workflow.ValidationResult) serverapi.WorkflowPickerItem {
 	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, Version: def.Workflow.Version, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
 	if validation != nil {
-		item.ValidForTaskCreation = link.ID != "" && validation.Valid()
+		item.ValidForTaskCreation = link.ID != "" && !validation.HasBlockingErrors()
 		item.ValidationErrors = ValidationErrors(def.Workflow.ID, validation.Errors)
 	}
 	return item
@@ -1309,7 +1309,7 @@ func (s *Service) runsByID(ctx context.Context, ids []string) ([]sqlitegen.TaskR
 			&row.InterruptionReason,
 			&row.InterruptionDetailJson,
 			&row.WaitingAskID,
-			&row.FinalAnswerViolationCount,
+			&row.EffectiveCompletionMode,
 			&row.InvalidCompletionCount,
 			&row.RunStartSnapshotJson,
 			&row.MetadataJson,
@@ -1441,10 +1441,6 @@ func attentionPageTokenFor(projectID string, occurredAtUnixMs int64, id string) 
 	return base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(projectID))) + "|" +
 		strconv.FormatInt(occurredAtUnixMs, 10) + "|" +
 		base64.RawURLEncoding.EncodeToString([]byte(id))
-}
-
-func attentionCandidatePageToken(projectID string, item attentionCandidateRow) string {
-	return attentionPageTokenFor(projectID, item.occurredAtUnixMs, item.id)
 }
 
 func (s *Service) approvalAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
@@ -1667,7 +1663,7 @@ func (s *Service) validationAttentionItems(ctx context.Context, projectID string
 			return nil, err
 		}
 		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
-		if validation.Valid() {
+		if !validation.HasBlockingErrors() {
 			continue
 		}
 		items = append(items, serverapi.WorkflowAttentionItem{ID: "validation_blocker:" + link.projectID + ":" + link.workflowID, Kind: "validation_blocker", ProjectID: link.projectID, WorkflowID: link.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task start", def.Workflow.Name), OccurredAtUnixMs: link.occurredAt})

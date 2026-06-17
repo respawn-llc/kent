@@ -18,7 +18,7 @@ import (
 
 func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	containerDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	first, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create first session: %v", err)
@@ -86,7 +86,7 @@ func TestServiceRejectsUnknownProjectID(t *testing.T) {
 
 func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
-	sessionDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	sessionDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	created, err := session.Create(sessionDir, filepath.Base(sessionDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -150,7 +150,7 @@ func TestServiceDeletesProjectWithBacklogTasks(t *testing.T) {
 
 func TestServiceDeleteProjectBlocksActiveSession(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
-	sessionDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	sessionDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	created, err := session.Create(sessionDir, filepath.Base(sessionDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create session: %v", err)

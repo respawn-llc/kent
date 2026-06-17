@@ -384,12 +384,6 @@ func newSettingsRegistry() settingsRegistry {
 			"KENT_WORKFLOW_CONCURRENCY",
 			nil,
 			settingDocOptions{}),
-		newIntSetting("workflow.max_final_answer_violations", defaultWorkflowFinalAnswerCap,
-			func(state *settingsState, value int) { state.Settings.Workflow.MaxFinalAnswerViolations = value },
-			func(state settingsState) int { return state.Settings.Workflow.MaxFinalAnswerViolations },
-			"KENT_WORKFLOW_MAX_FINAL_ANSWER_VIOLATIONS",
-			nil,
-			settingDocOptions{}),
 		newIntSetting("workflow.max_invalid_completion_attempts", defaultWorkflowInvalidCompletionCap,
 			func(state *settingsState, value int) { state.Settings.Workflow.MaxInvalidCompletionAttempts = value },
 			func(state settingsState) int { return state.Settings.Workflow.MaxInvalidCompletionAttempts },
@@ -1199,7 +1193,7 @@ func parseSubagentDescription(raw settingsFile) (string, error) {
 	if !ok {
 		return "", &SettingsKeyTypeError{Key: strings.Join([]string{"description"}, "."), ExpectedType: "string"}
 	}
-	description := SanitizeSubagentDescription(text)
+	description := strings.Join(strings.Fields(text), " ")
 	if len([]rune(description)) > MaxSubagentDescriptionChars {
 		return "", fmt.Errorf("%w: must be <= %d characters after whitespace normalization", errSubagentDescriptionTooLong, MaxSubagentDescriptionChars)
 	}

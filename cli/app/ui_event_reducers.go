@@ -20,11 +20,11 @@ func (r uiDiagnosticsFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case renderDiagnosticMsg:
 		cmd := m.applyRenderDiagnostic(msg.diagnostic)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case runLoggerDiagnosticMsg:
 		cmd := m.applyRunLoggerDiagnostic(msg.diagnostic)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}
@@ -43,7 +43,7 @@ func (r uiAskFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case askEventMsg:
 		m.askController().acceptEvent(msg.event)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitAskEvent(m.askEvents))
 	}
 	return uiFeatureUpdateResult{}
@@ -62,19 +62,19 @@ func (r uiPathReferenceFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult
 	switch msg := msg.(type) {
 	case uiPathReferenceCorpusReadyMsg:
 		m.handlePathReferenceCorpusReady(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitPathReferenceSearchEvent(m.pathReferenceEvents))
 	case uiPathReferenceCorpusFailedMsg:
 		m.handlePathReferenceCorpusFailed(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitPathReferenceSearchEvent(m.pathReferenceEvents))
 	case uiPathReferenceMatchResultMsg:
 		m.handlePathReferenceMatchResult(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitPathReferenceSearchEvent(m.pathReferenceEvents))
 	case uiPathReferenceLoadingDelayMsg:
 		m.handlePathReferenceLoadingDelay(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, waitPathReferenceSearchEvent(m.pathReferenceEvents))
 	}
 	return uiFeatureUpdateResult{}
@@ -95,15 +95,15 @@ func (r uiNoticeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		if msg.token == m.transientStatusToken {
 			return handledUIFeatureUpdate(m, m.advanceTransientStatusQueue())
 		}
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	case startupUpdateNoticeMsg:
 		if m.startupUpdateShown {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		cmd := m.sendTransientStatusWithNoticeID("update available: "+strings.TrimSpace(msg.version), uiStatusNoticeUpdateAvailable, updateNoticeDuration, uiStatusNoticeQueue, "")
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}
@@ -122,7 +122,7 @@ func (r uiInputAsyncFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case authSlashCommandRefreshedMsg:
 		m.applyAuthSlashCommandRefreshed(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, nil)
 	case promptHistoryPersistErrMsg:
 		m.observeRuntimeRequestResult(msg.err)
@@ -139,41 +139,41 @@ func (r uiInputAsyncFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
 	case runtimeControlDoneMsg:
 		cmd := m.applyRuntimeControlDone(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case goalRuntimeDoneMsg:
 		cmd := m.applyGoalRuntimeDone(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case injectedQueueCreateDoneMsg:
 		next, cmd := m.inputController().handleInjectedQueueCreateDone(msg)
 		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
+		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
 	case injectedQueueDiscardDoneMsg:
 		next, cmd := m.inputController().handleInjectedQueueDiscardDone(msg)
 		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
+		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
 	case queuedRuntimeWorkCheckDoneMsg:
 		next, cmd := m.inputController().handleQueuedRuntimeWorkCheckDone(msg)
 		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
+		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
 	case submitDoneMsg:
 		next, cmd := m.inputController().handleSubmitDone(msg)
 		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
+		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
 	case compactDoneMsg:
 		next, cmd := m.inputController().handleCompactDone(msg)
 		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
+		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
 	case spinnerTickMsg:
 		next, cmd := m.inputController().handleSpinnerTick(msg)
 		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
+		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
 	}
 	return uiFeatureUpdateResult{}
@@ -192,15 +192,15 @@ func (r uiProcessFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case processListRefreshTickMsg:
 		if !m.processList.open {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		refreshCmd := m.requestProcessListRefresh()
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(refreshCmd, tea.Tick(processListRefreshInterval, func(time.Time) tea.Msg { return processListRefreshTickMsg{} }), m.reconcileSpinnerTicking(false)))
 	case processListRefreshDoneMsg:
 		if msg.token != m.processList.refreshToken {
-			m.syncViewport()
+			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.processList.refreshInFlight = false
@@ -215,14 +215,14 @@ func (r uiProcessFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.processList.refreshDirty = false
 			refreshCmd = m.requestProcessListRefresh()
 		}
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(refreshCmd, m.reconcileSpinnerTicking(false)))
 	case processActionDoneMsg:
 		cmd := m.applyProcessActionDone(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case openProcessLogsDoneMsg:
-		m.syncViewport()
+		m.layout().syncViewport()
 		if msg.err != nil {
 			return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
 		}
@@ -244,11 +244,11 @@ func (r uiClipboardFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case clipboardImagePasteDoneMsg:
 		cmd := m.handleClipboardImagePasteDone(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case clipboardTextCopyDoneMsg:
 		cmd := m.handleClipboardTextCopyDone(msg)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}

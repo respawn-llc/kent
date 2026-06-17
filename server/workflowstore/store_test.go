@@ -1792,11 +1792,31 @@ func TestCompleteRunFanoutCreatesParallelBranchPlacements(t *testing.T) {
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	worktreeID := "worktree-fanout-" + string(workflowID)
+	worktreeRoot := filepath.Join(t.TempDir(), "fanout-worktree")
+	if err := store.metadata.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{ID: worktreeID, WorkspaceID: binding.WorkspaceID, CanonicalRoot: worktreeRoot, Managed: true, CreatedBranch: true}); err != nil {
+		t.Fatalf("UpsertWorktreeRecord: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE tasks SET source_workspace_id = ?, managed_worktree_id = ? WHERE id = ?`, binding.WorkspaceID, worktreeID, string(task.ID)); err != nil {
+		t.Fatalf("attach managed worktree to task: %v", err)
+	}
 	started := startTask(t, ctx, store, task.ID)
 
 	result := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
 	if len(result.PlacementIDs) != 2 || len(result.RunIDs) != 2 {
 		t.Fatalf("fanout result = %+v, want two branch placements and runs", result)
+	}
+	for _, runID := range result.RunIDs {
+		input, err := store.GetRunStartContext(ctx, runID)
+		if err != nil {
+			t.Fatalf("GetRunStartContext branch %s: %v", runID, err)
+		}
+		if !input.IsFanoutBranch {
+			t.Fatalf("branch run context %s IsFanoutBranch=false, want true", runID)
+		}
+		if input.WorktreeID != worktreeID || input.WorktreeRoot != worktreeRoot {
+			t.Fatalf("branch run context %s worktree id/root = %q/%q, want %q/%q", runID, input.WorktreeID, input.WorktreeRoot, worktreeID, worktreeRoot)
+		}
 	}
 	rows, err := store.db.QueryContext(ctx, `
 SELECT id, parallel_batch_transition_id, parallel_branch_edge_id
@@ -2830,14 +2850,14 @@ func TestRecordProtocolViolationInterruptsAtCap(t *testing.T) {
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	first, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationFinalAnswer, MaxCount: 2, Detail: `{"detail":"first"}`})
+	first, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationInvalidCompletion, MaxCount: 2, Detail: `{"detail":"first"}`})
 	if err != nil {
 		t.Fatalf("RecordProtocolViolation first: %v", err)
 	}
 	if first.Count != 1 || first.Interrupted {
 		t.Fatalf("first violation = %+v, want count 1 active", first)
 	}
-	second, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationFinalAnswer, MaxCount: 2, Detail: `{"detail":"second"}`})
+	second, err := store.RecordProtocolViolation(ctx, RecordProtocolViolationRequest{RunID: started.RunID, Kind: ProtocolViolationInvalidCompletion, MaxCount: 2, Detail: `{"detail":"second"}`})
 	if err != nil {
 		t.Fatalf("RecordProtocolViolation second: %v", err)
 	}
@@ -2848,8 +2868,41 @@ func TestRecordProtocolViolationInterruptsAtCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 1 || runs[0].FinalAnswerViolations != 2 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != "workflow_protocol_violation_limit" {
+	if len(runs) != 1 || runs[0].InvalidCompletions != 2 || runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != "workflow_protocol_violation_limit" {
 		t.Fatalf("run after cap = %+v", runs)
+	}
+}
+
+func TestSetRunEffectiveCompletionModePersistsAndRefusesDrift(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	started := startTask(t, ctx, store, task.ID)
+	claimed, err := store.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if claimed.EffectiveCompletionMode != "" {
+		t.Fatalf("claimed effective mode = %q, want empty before resolution", claimed.EffectiveCompletionMode)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "invalid"); !errors.Is(err, ErrInvalidEffectiveCompletionMode) {
+		t.Fatalf("SetRunEffectiveCompletionMode invalid error = %v, want ErrInvalidEffectiveCompletionMode", err)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "shell_command"); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].EffectiveCompletionMode != "shell_command" {
+		t.Fatalf("run effective mode = %+v, want shell_command", runs)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "shell_command"); err != nil {
+		t.Fatalf("SetRunEffectiveCompletionMode same mode: %v", err)
+	}
+	if err := store.SetRunEffectiveCompletionMode(ctx, started.RunID, claimed.Generation, "tool"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("SetRunEffectiveCompletionMode drift error = %v, want sql.ErrNoRows", err)
 	}
 }
 
@@ -4639,7 +4692,7 @@ func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App)
 
 func createTestSession(t *testing.T, ctx context.Context, store *Store, binding metadata.Binding, cfg config.App) string {
 	t.Helper()
-	sessionRoot := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	sessionRoot := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sessionStore, err := session.Create(sessionRoot, filepath.Base(cfg.WorkspaceRoot), cfg.WorkspaceRoot, store.metadata.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

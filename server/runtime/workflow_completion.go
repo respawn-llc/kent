@@ -15,6 +15,10 @@ import (
 
 const (
 	workflowInvalidNudge = "Workflow completion was rejected. Retry with valid workflow completion output only."
+	// This is not a config fallback. Runtime config validation should reject
+	// invalid caps; if an invalid value reaches the runtime anyway, fail closed
+	// by recording one durable violation and interrupting immediately.
+	workflowInvalidCompletionFailClosedMaxCount = 1
 )
 
 var workflowFinalAnswerNudge = strings.TrimSpace(prompts.WorkflowFinalAnswerNudgePrompt)
@@ -39,15 +43,8 @@ func (e *Engine) recordWorkflowProtocolViolation(ctx context.Context, kind workf
 		return workflowruntime.ViolationResult{}, nil
 	}
 	maxCount := e.cfg.WorkflowRun.MaxInvalidCompletionAttempts
-	if kind == workflowruntime.ViolationKindFinalAnswer {
-		maxCount = e.cfg.WorkflowRun.MaxFinalAnswerViolations
-	}
 	if maxCount <= 0 {
-		if kind == workflowruntime.ViolationKindFinalAnswer {
-			maxCount = 3
-		} else {
-			maxCount = 5
-		}
+		maxCount = workflowInvalidCompletionFailClosedMaxCount
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"kind":   string(kind),
@@ -61,6 +58,21 @@ func (e *Engine) recordWorkflowProtocolViolation(ctx context.Context, kind workf
 		ExpectedGeneration: e.cfg.WorkflowRun.Contract.ExpectedGeneration,
 		RequireGeneration:  e.cfg.WorkflowRun.Contract.RequireGeneration,
 	})
+}
+
+func (e *Engine) observeWorkflowDurableCompletion(ctx context.Context) (bool, error) {
+	if !e.workflowRunActive() || e.cfg.WorkflowRun.Controller == nil {
+		return false, nil
+	}
+	result, err := e.cfg.WorkflowRun.Controller.ObserveWorkflowRunCompletion(ctx, workflowruntime.CompletionObservationRequest{
+		RunID:              e.cfg.WorkflowRun.Contract.RunID,
+		ExpectedGeneration: e.cfg.WorkflowRun.Contract.ExpectedGeneration,
+		RequireGeneration:  e.cfg.WorkflowRun.Contract.RequireGeneration,
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.Completed, nil
 }
 
 func workflowCompletionCallCount(calls []llm.ToolCall) int {

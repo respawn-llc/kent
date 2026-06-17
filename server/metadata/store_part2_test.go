@@ -157,7 +157,7 @@ func TestUpdateSessionExecutionTargetByIDRejectsCrossWorkspaceWorktree(t *testin
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding workspaceB: %v", err)
 	}
-	projectSessionsDir := config.ProjectSessionsRoot(cfgA, bindingA.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfgA.PersistenceRoot, "projects"), bindingA.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfgA.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
@@ -207,7 +207,7 @@ func TestUpsertWorktreeRecordRejectsMissingRequiredFields(t *testing.T) {
 func TestResolvePersistedSessionUsesReboundWorkspaceRoot(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
@@ -465,7 +465,7 @@ func newMetadataTestStoreForBoundWorkspace(t *testing.T, workspace string) (*Sto
 
 func createMetadataTestSession(t *testing.T, store *Store, cfg config.App, binding Binding) *session.Store {
 	t.Helper()
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)

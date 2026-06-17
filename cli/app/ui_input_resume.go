@@ -50,14 +50,14 @@ func (c uiInputController) handleQueuedRuntimeWorkCheckDone(msg queuedRuntimeWor
 		if errors.Is(msg.err, runtimeattach.ErrSubmissionInterrupted) || errors.Is(msg.err, context.Canceled) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
-			m.syncViewport()
+			m.layout().syncViewport()
 			return m, restoreCmd
 		}
 		detailErr := runtimeattach.FormatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 		m.logf("queue_check.error err=%q", detailErr)
-		m.syncViewport()
+		m.layout().syncViewport()
 		return m, tea.Batch(restoreCmd, appendCmd)
 	}
 	if !msg.hasWork || m.injectedQueueBlocksDrain() || m.isBusy() ||
@@ -72,7 +72,7 @@ func (c uiInputController) handleQueuedRuntimeWorkCheckDone(msg queuedRuntimeWor
 	c.notifyUserCompactionCompleted(compactionOrigin, false)
 	c.startBusyActivity(false)
 	m.logf("step.resume_queued_injected pending_injected=%d", len(m.pendingInjected))
-	m.syncViewport()
+	m.layout().syncViewport()
 	return m, tea.Batch(c.submitQueuedUserMessagesCmd(), c.model.reconcileSpinnerTicking(false))
 }
 

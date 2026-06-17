@@ -94,7 +94,7 @@ func (m Model) buildTranscriptBlocks(opts transcriptBlockOptions) []ongoingBlock
 		entry := m.transcriptInput.Entries[idx]
 		role := TranscriptRoleFromWire(string(entry.Role))
 		intent := role.DisplayIntent(entry.Phase)
-		if opts.mode == transcriptBlockModeOngoing && skipInOngoing(entry) {
+		if opts.mode == transcriptBlockModeOngoing && !isVisibleInOngoing(entry) {
 			continue
 		}
 		block, ok := m.entryBlock(idx, entry, role, intent, consumedResults, resultIndex, opts)

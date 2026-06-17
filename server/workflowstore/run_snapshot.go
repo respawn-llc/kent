@@ -88,6 +88,17 @@ func transitionOptionsFromSnapshot(snapshot runStartSnapshot) []TransitionOption
 	return out
 }
 
+func (s runStartSnapshot) hasContinueSessionEdge() bool {
+	for _, group := range s.TransitionGroups {
+		for _, edge := range group.Edges {
+			if edge.ContextMode == workflow.ContextModeContinueSession {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func transitionParametersFromSnapshot(group transitionContractSnapshot) []workflow.Parameter {
 	out := []workflow.Parameter{}
 	seen := map[string]bool{}

@@ -122,7 +122,7 @@ func toolResultChatEntry(result tools.Result) ChatEntry {
 	}
 	return ChatEntry{
 		Role:              role,
-		Text:              tools.FormatToolResultForTranscript(result),
+		Text:              tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),
 		OngoingText:       strings.TrimSpace(result.OngoingText),
 		ToolCallID:        strings.TrimSpace(result.CallID),
 		ToolResultSummary: strings.TrimSpace(result.Summary),

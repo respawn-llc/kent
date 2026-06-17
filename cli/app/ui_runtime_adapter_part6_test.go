@@ -138,7 +138,7 @@ func TestProjectedAssistantMessageReplacesNonTailCommittedRangeWithoutHydration(
 	m.transcriptRevision = 10
 	m.transcriptTotalEntries = len(m.transcriptEntries)
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: len(m.transcriptEntries), Entries: m.transcriptEntries})
-	m.syncViewport()
+	m.layout().syncViewport()
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,
@@ -168,7 +168,7 @@ func TestProjectedAssistantMessageReplacesNonTailCommittedRangeWithoutHydration(
 	if got := m.transcriptEntries[2].Role; got != "reviewer_status" {
 		t.Fatalf("suffix role = %q, want reviewer_status", got)
 	}
-	committed := stripANSIAndTrimRight(m.view.OngoingCommittedSnapshot())
+	committed := stripANSIAndTrimRight(m.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
 	if !containsInOrder(committed, "seed", "reviewed final", "Supervisor ran: no changes.") {
 		t.Fatalf("expected committed ongoing surface to keep reviewer suffix after assistant replacement, got %q", committed)
 	}

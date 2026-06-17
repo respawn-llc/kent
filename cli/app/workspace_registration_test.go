@@ -162,7 +162,7 @@ func createAuthoritativeAppSession(t *testing.T, persistenceRoot string, workspa
 	// Keep the metadata store alive for the lifetime of the session store so
 	// persistence observer writes continue to succeed during the test.
 	store, err := session.Create(
-		config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID),
+		filepath.Join(filepath.Join(config.App{PersistenceRoot: persistenceRoot}.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
 		filepath.Base(filepath.Clean(workspaceRoot)),
 		workspaceRoot,
 		metadataStore.AuthoritativeSessionStoreOptions()...,

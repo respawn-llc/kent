@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"core/prompts"
 	"core/server/metadata"
 	"core/server/requestmemo"
 	askquestion "core/server/tools"
@@ -396,6 +397,194 @@ func TestServiceMoveTaskAutoApprovesMissingEdgeOverrideAndStartsAgent(t *testing
 	}
 }
 
+func TestServiceCompleteWorkflowTaskFromAgentSessionCompletesWithoutSchedulerWake(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	sessionID := "session-agent-complete"
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, sessionID)
+	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflowProject: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+	notifier := &recordingSchedulerNotifier{}
+	service.schedulerWake = notifier
+
+	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
+		AgentSessionID: sessionID,
+		Commentary:     "finished",
+	})
+	if err != nil {
+		t.Fatalf("CompleteWorkflowTask: %v", err)
+	}
+	if completed.TaskID != task.Task.ID || completed.RunID != started.RunID || completed.State != "applied" {
+		t.Fatalf("complete response = %+v", completed)
+	}
+	if notifier.count != 0 {
+		t.Fatalf("agent completion scheduler notifications = %d, want 0", notifier.count)
+	}
+	event := nextWorkflowProjectEvent(t, sub)
+	if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID || event.Resource != "task" || event.Action != "completed" {
+		t.Fatalf("completion event = %+v, want single store-owned task completed event", event)
+	}
+	noEventCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if extra, extraErr := sub.Next(noEventCtx); extraErr == nil {
+		t.Fatalf("unexpected duplicate completion event: %+v", extra)
+	} else if !errors.Is(extraErr, context.DeadlineExceeded) {
+		t.Fatalf("waiting for duplicate completion event returned %v, want deadline", extraErr)
+	}
+	runs, err := service.store.ListRuns(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].CompletedAt == 0 {
+		t.Fatalf("runs after completion = %+v, want completed source run", runs)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskMapsMissingActiveTarget(t *testing.T) {
+	ctx, service, _, _ := newWorkflowServiceTestContextWithMetadata(t)
+
+	_, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
+		AgentSessionID: "session-without-run",
+	})
+	if !errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
+		t.Fatalf("CompleteWorkflowTask missing target error = %v, want ErrWorkflowTaskCompleteTargetNotFound", err)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskRejectsAgentCrossSessionSelector(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-owner")
+
+	_, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind:      serverapi.WorkflowTaskCompleteActorAgent,
+		AgentSessionID: "session-other",
+		RunID:          started.RunID,
+	})
+	if err == nil || err.Error() != prompts.WorkflowTaskCompleteAgentOwnershipErrorPrompt {
+		t.Fatalf("cross-session completion error = %v, want ownership denial", err)
+	}
+	runs, listErr := service.store.ListRuns(ctx, workflow.TaskID(task.Task.ID))
+	if listErr != nil {
+		t.Fatalf("ListRuns: %v", listErr)
+	}
+	if len(runs) != 1 || runs[0].CompletedAt != 0 {
+		t.Fatalf("runs after rejected completion = %+v, want still active", runs)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskForceRequestsRuntimeCancelWithoutDirectSchedulerWake(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-human-force")
+	notifier := &recordingSchedulerNotifier{}
+	canceler := &recordingTaskRuntimeRunCancelRequester{active: true}
+	service.schedulerWake = notifier
+	service.runtimeCancel = canceler
+
+	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind: serverapi.WorkflowTaskCompleteActorUser,
+		Force:     true,
+		ProjectID: binding.ProjectID,
+		RunID:     started.RunID,
+	})
+	if err != nil {
+		t.Fatalf("CompleteWorkflowTask force: %v", err)
+	}
+	if completed.RunID != started.RunID || completed.State != "applied" {
+		t.Fatalf("force complete response = %+v", completed)
+	}
+	if len(canceler.requestedRunIDs) != 1 || canceler.requestedRunIDs[0] != workflow.RunID(started.RunID) {
+		t.Fatalf("requested cancel run IDs = %+v, want %s", canceler.requestedRunIDs, started.RunID)
+	}
+	if len(canceler.runIDs) != 0 {
+		t.Fatalf("blocking cancel run IDs = %+v, want none", canceler.runIDs)
+	}
+	if notifier.count != 0 {
+		t.Fatalf("force completion scheduler notifications = %d, want 0 while runtime will publish RuntimeFinished", notifier.count)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskForceWakesSchedulerWhenNoRuntimeOwnsRun(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-human-force")
+	notifier := &recordingSchedulerNotifier{}
+	canceler := &recordingTaskRuntimeRunCancelRequester{active: false}
+	service.schedulerWake = notifier
+	service.runtimeCancel = canceler
+
+	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind: serverapi.WorkflowTaskCompleteActorUser,
+		Force:     true,
+		ProjectID: binding.ProjectID,
+		RunID:     started.RunID,
+	})
+	if err != nil {
+		t.Fatalf("CompleteWorkflowTask force: %v", err)
+	}
+	if completed.RunID != started.RunID || completed.State != "applied" {
+		t.Fatalf("force complete response = %+v", completed)
+	}
+	if len(canceler.requestedRunIDs) != 1 || canceler.requestedRunIDs[0] != workflow.RunID(started.RunID) {
+		t.Fatalf("requested cancel run IDs = %+v, want %s", canceler.requestedRunIDs, started.RunID)
+	}
+	if len(canceler.runIDs) != 0 {
+		t.Fatalf("blocking cancel run IDs = %+v, want none", canceler.runIDs)
+	}
+	if notifier.count != 1 {
+		t.Fatalf("force completion scheduler notifications = %d, want 1", notifier.count)
+	}
+}
+
+func TestServiceCompleteWorkflowTaskForceKeepsCompletionWhenRuntimeCancelFails(t *testing.T) {
+	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
+	claimAndAttachWorkflowServiceRun(t, ctx, service, metadataStore, binding, started.RunID, "session-human-force")
+	notifier := &recordingSchedulerNotifier{}
+	canceler := &recordingTaskRuntimeCanceler{err: errors.New("runtime already gone")}
+	service.schedulerWake = notifier
+	service.runtimeCancel = canceler
+
+	completed, err := service.CompleteWorkflowTask(ctx, serverapi.WorkflowTaskCompleteRequest{
+		ActorKind: serverapi.WorkflowTaskCompleteActorUser,
+		Force:     true,
+		RunID:     started.RunID,
+	})
+	if err != nil {
+		t.Fatalf("CompleteWorkflowTask force with cancel failure: %v", err)
+	}
+	if completed.RunID != started.RunID || completed.State != "applied" {
+		t.Fatalf("force complete response = %+v", completed)
+	}
+	if len(canceler.runIDs) != 1 || canceler.runIDs[0] != workflow.RunID(started.RunID) {
+		t.Fatalf("canceled run IDs = %+v, want %s", canceler.runIDs, started.RunID)
+	}
+	if notifier.count != 1 {
+		t.Fatalf("force completion scheduler notifications = %d, want 1", notifier.count)
+	}
+}
+
 func TestServiceMoveTaskAutoApproveSurfacesCommittedPendingMoveWhenApprovalFails(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
@@ -605,16 +794,28 @@ func (n *recordingSchedulerNotifier) Notify() {
 type recordingTaskRuntimeCanceler struct {
 	taskIDs []workflow.TaskID
 	runIDs  []workflow.RunID
+	err     error
 }
 
 func (c *recordingTaskRuntimeCanceler) CancelTaskRuns(_ context.Context, taskID workflow.TaskID) error {
 	c.taskIDs = append(c.taskIDs, taskID)
-	return nil
+	return c.err
 }
 
 func (c *recordingTaskRuntimeCanceler) CancelRun(_ context.Context, runID workflow.RunID) error {
 	c.runIDs = append(c.runIDs, runID)
-	return nil
+	return c.err
+}
+
+type recordingTaskRuntimeRunCancelRequester struct {
+	recordingTaskRuntimeCanceler
+	requestedRunIDs []workflow.RunID
+	active          bool
+}
+
+func (c *recordingTaskRuntimeRunCancelRequester) RequestCancelRun(runID workflow.RunID) bool {
+	c.requestedRunIDs = append(c.requestedRunIDs, runID)
+	return c.active
 }
 
 type recordingTaskWorktreeEnsurer struct {
@@ -1407,6 +1608,21 @@ func startWorkflowServiceTask(t *testing.T, ctx context.Context, service *Servic
 		t.Fatalf("StartWorkflowTask: %v", err)
 	}
 	return started
+}
+
+func claimAndAttachWorkflowServiceRun(t *testing.T, ctx context.Context, service *Service, metadataStore *metadata.Store, binding metadata.Binding, runID string, sessionID string) workflowstore.RunnableRunRecord {
+	t.Helper()
+	if _, err := metadataStore.DB().ExecContext(ctx, `INSERT INTO sessions (id, project_id, workspace_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, launch_visible, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json) VALUES (?, ?, ?, ?, '', '', '', '', 1, 1, 0, 0, 0, 1, '.', '{}', '{}', '{}', '{}')`, sessionID, binding.ProjectID, binding.WorkspaceID, "sessions/"+sessionID); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	claimed, err := service.store.ClaimRun(ctx, workflow.RunID(runID), 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if err := service.store.AttachRunSession(ctx, workflow.RunID(runID), claimed.Generation, sessionID); err != nil {
+		t.Fatalf("AttachRunSession: %v", err)
+	}
+	return claimed
 }
 
 func createWorkflowServiceValidWorkflow(t *testing.T, ctx context.Context, service *Service) string {

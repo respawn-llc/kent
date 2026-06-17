@@ -8,7 +8,6 @@ import (
 
 	appprocessview "core/cli/app/internal/status"
 	"core/shared/clientui"
-	"core/shared/textutil"
 	sharedtheme "core/shared/theme"
 
 	"github.com/charmbracelet/lipgloss"
@@ -269,13 +268,12 @@ func compactProcessCommandPreview(command string) string {
 	if preview == "" {
 		preview = "<no command>"
 	}
-	normalizedPreview := textutil.NormalizeCRLF(preview)
-	previewLines := textutil.SplitLinesCRLF(normalizedPreview)
+	previewLines := strings.Split(strings.ReplaceAll(preview, "\r\n", "\n"), "\n")
 	preview = strings.TrimSpace(previewLines[0])
 	if preview == "" {
 		preview = "<no command>"
 	}
-	normalizedCommand := textutil.NormalizeCRLF(strings.TrimSpace(command))
+	normalizedCommand := strings.ReplaceAll(strings.TrimSpace(command), "\r\n", "\n")
 	truncated := len(previewLines) > 1 || (strings.Contains(normalizedCommand, "\n") && strings.TrimSpace(normalizedCommand) != preview)
 	if truncated && !strings.HasSuffix(preview, " …") {
 		preview += " …"
@@ -284,7 +282,7 @@ func compactProcessCommandPreview(command string) string {
 }
 
 func processListOutputPreview(output string) string {
-	lines := textutil.SplitLinesCRLF(output)
+	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
 	for idx := len(lines) - 1; idx >= 0; idx-- {
 		line := strings.TrimSpace(lines[idx])
 		if line != "" {

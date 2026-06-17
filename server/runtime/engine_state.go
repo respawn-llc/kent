@@ -14,14 +14,6 @@ import (
 	"core/shared/transcript"
 )
 
-func (e *Engine) snapshotMessages() []llm.Message {
-	return e.transcriptRuntimeState().SnapshotMessages()
-}
-
-func (e *Engine) snapshotItems() []llm.ResponseItem {
-	return e.transcriptRuntimeState().SnapshotItems()
-}
-
 func (e *Engine) ChatSnapshot() ChatSnapshot {
 	return e.transcriptRuntimeState().Snapshot()
 }
@@ -81,9 +73,9 @@ func messagePreservesLastCommittedAssistantFinalAnswer(message llm.Message) bool
 }
 
 func (e *Engine) ContextUsage() ContextUsage {
-	window := e.contextWindowTokens()
+	window := e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	used := e.currentTokenUsage()
-	cacheHitPercent, hasCacheHitPercentage := e.cacheHitSnapshot()
+	cacheHitPercent, hasCacheHitPercentage := e.usageTrackingState().CacheHitSnapshot()
 	if used < 0 {
 		used = 0
 	}
@@ -136,13 +128,13 @@ func (e *Engine) appendCommittedEntry(entry storedLocalEntry) error {
 }
 
 func (e *Engine) SetOngoingError(text string) {
-	e.transcriptPersistence().SetOngoingError(text)
-	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})
+	newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).SetOngoingError(text)
+	_ = e.steer("", steerEventIntent(Event{Kind: EventOngoingErrorUpdated}))
 }
 
 func (e *Engine) ClearOngoingError() {
-	e.transcriptPersistence().ClearOngoingError()
-	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})
+	newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).ClearOngoingError()
+	_ = e.steer("", steerEventIntent(Event{Kind: EventOngoingErrorUpdated}))
 }
 
 func (e *Engine) SetSessionName(name string) error {
@@ -489,15 +481,7 @@ func (e *Engine) CompactionMode() string {
 func (e *Engine) initReviewerClient() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.initReviewerClientLocked()
-}
-
-func (e *Engine) initReviewerClientLocked() error {
 	return e.reviewerRuntimeStateLocked().EnsureClient(e.cfg.Reviewer.ClientFactory)
-}
-
-func (e *Engine) reviewerClientSnapshot() llm.Client {
-	return e.reviewerRuntimeState().Client()
 }
 
 func (e *Engine) reviewerTurnConfigSnapshot() (string, llm.Client) {
@@ -529,15 +513,6 @@ func (e *Engine) SessionID() string {
 	return strings.TrimSpace(e.store.Meta().SessionID)
 }
 
-func (e *Engine) compactionCountSnapshot() int {
-	return e.compactionRuntimeState().Count()
-}
-
-func (e *Engine) conversationSessionID() string {
-	return e.SessionID()
-
-}
-
 func conversationPromptCacheKey(sessionID string, compactionCount int) string {
 	trimmed := strings.TrimSpace(sessionID)
 	if trimmed == "" {
@@ -547,10 +522,6 @@ func conversationPromptCacheKey(sessionID string, compactionCount int) string {
 		return trimmed
 	}
 	return fmt.Sprintf("%s/compact-%d", trimmed, compactionCount)
-}
-
-func (e *Engine) conversationPromptCacheKey() string {
-	return conversationPromptCacheKey(e.conversationSessionID(), e.compactionCountSnapshot())
 }
 
 func (e *Engine) ParentSessionID() string {
@@ -618,16 +589,12 @@ func toToolNames(ids []toolspec.ID) []string {
 	return out
 }
 
-func (e *Engine) lastUsageSnapshot() llm.Usage {
-	return e.usageTrackingState().Last()
-}
-
 func (e *Engine) setLastUsage(usage llm.Usage) {
 	baselineEstimate := 0
 	if e != nil {
 		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
-	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.nextUsageTrackingState(usage)
+	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.usageTrackingState().Next(usage)
 	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
 }
 
@@ -636,7 +603,7 @@ func (e *Engine) recordLastUsage(usage llm.Usage) error {
 	if e != nil {
 		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
-	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.nextUsageTrackingState(usage)
+	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.usageTrackingState().Next(usage)
 	if e != nil && e.store != nil {
 		if err := e.store.SetUsageState(&session.UsageState{
 			InputTokens:             normalizedUsage.InputTokens,
@@ -674,10 +641,6 @@ func (e *Engine) restorePersistedUsageState(state *session.UsageState) {
 	)
 }
 
-func (e *Engine) nextUsageTrackingState(usage llm.Usage) (llm.Usage, int, int) {
-	return e.usageTrackingState().Next(usage)
-}
-
 func (e *Engine) applyUsageTrackingState(usage llm.Usage, baselineEstimate, totalInputTokens, totalCachedInputTokens int) {
 	if baselineEstimate < 0 {
 		baselineEstimate = 0
@@ -686,10 +649,6 @@ func (e *Engine) applyUsageTrackingState(usage llm.Usage, baselineEstimate, tota
 	if e.modelRequests().TokenUsage() != nil {
 		e.modelRequests().TokenUsage().storeUsageBaseline(usage.InputTokens, baselineEstimate)
 	}
-}
-
-func (e *Engine) cacheHitSnapshot() (int, bool) {
-	return e.usageTrackingState().CacheHitSnapshot()
 }
 
 func (e *Engine) usageTrackingState() *usageTrackingState {
@@ -721,10 +680,6 @@ func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
 		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
 	}
 	return e.transcriptState
-}
-
-func (e *Engine) transcriptPersistence() transcriptPersistenceCoordinator {
-	return newTranscriptPersistenceCoordinator(e.transcriptRuntimeState())
 }
 
 func (e *Engine) lockedContractState() *lockedContractState {
@@ -818,20 +773,12 @@ func (e *Engine) pendingToolCallStartStore() *pendingToolCallStartStore {
 	return e.toolCallStarts
 }
 
-func (e *Engine) nextCompactionCount() int {
-	return e.compactionRuntimeState().IncrementCount()
-}
-
 // LastCompactionWorkflowRunID reports the workflow run that committed the most
 // recent history replacement in this session, reconstructed from the
 // history_replaced event on restore. Empty when no compaction has run under a
 // workflow run. Workflow continuation gating reads this to compact exactly once.
 func (e *Engine) LastCompactionWorkflowRunID() string {
 	return e.compactionRuntimeState().LastWorkflowRunID()
-}
-
-func (e *Engine) setLastCompactionWorkflowRunID(runID string) {
-	e.compactionRuntimeState().SetLastWorkflowRunID(runID)
 }
 
 func (e *Engine) compactionRuntimeState() *compactionRuntimeState {
