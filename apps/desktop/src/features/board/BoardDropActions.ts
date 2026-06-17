@@ -40,6 +40,9 @@ export function classifyDrop(
   if (dragPayload.statusKind === "done" && column.kind === "agent") {
     return { kind: "confirmRollback" };
   }
+  if (isTerminalColumn(column)) {
+    return { kind: "move", allowMissingEdge: true };
+  }
   if (column.transitionOutputFields.length > 0) {
     return { kind: "missingInput" };
   }
@@ -51,4 +54,8 @@ export function classifyDrop(
 
 export function missingInputValues(fields: readonly WorkflowOutputField[]): Readonly<Record<string, string>> {
   return Object.fromEntries(fields.map((field) => [field.name, ""]));
+}
+
+function isTerminalColumn(column: BoardColumn): boolean {
+  return column.isDone || column.kind === "terminal";
 }
