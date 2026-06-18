@@ -3,6 +3,7 @@ package serverattach
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protocol"
+	"core/shared/rpcwire"
 	"core/shared/serverapi"
 )
 
@@ -359,6 +361,12 @@ func TestResolveAttachesConfiguredRemoteWithMatchingRootID(t *testing.T) {
 		return boundProjectViewWithRoot("root-want"), nil
 	})
 	policy.RootID = "root-want"
+	// The dialed workspace remote must also report the required root, since
+	// RequireRoot now pins it for reconnect validation. Use a real server so the
+	// handshake identity carries the matching persistence root id.
+	dialWorkspace, closeServer := dialWorkspaceServerWithRoot(t, "root-want")
+	defer closeServer()
+	policy.DialWorkspace = dialWorkspace
 	resolution, err := Resolve[string](context.Background(), Request[string]{
 		Mode:   ModeHeadless,
 		Remote: policy,
@@ -375,6 +383,35 @@ func TestResolveAttachesConfiguredRemoteWithMatchingRootID(t *testing.T) {
 	if resolution.Value != "remote" {
 		t.Fatalf("value = %q, want remote", resolution.Value)
 	}
+}
+
+// dialWorkspaceServerWithRoot starts a minimal RPC server whose handshake
+// reports the given persistence root id, returning a DialWorkspace that attaches
+// to it. It lets root-validation tests exercise the real client handshake path
+// where ServerIdentity.PersistenceRootID is populated.
+func dialWorkspaceServerWithRoot(t *testing.T, rootID string) (remoteattach.DialWorkspace, func()) {
+	t.Helper()
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
+		for event := range conn.Events() {
+			if event.Err != nil {
+				return
+			}
+			req := event.Frame.Request()
+			switch req.Method {
+			case protocol.MethodHandshake:
+				_ = conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1", PersistenceRootID: rootID}})))
+			case protocol.MethodAttachProject:
+				_ = conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, protocol.AttachResponse{Kind: "project", ProjectID: "project-1"})))
+			default:
+				return
+			}
+		}
+	}))
+	wsURL := "ws" + server.URL[len("http"):]
+	dial := func(ctx context.Context, _ config.App, projectID string, _ string) (*client.Remote, error) {
+		return client.DialRemoteURLForProject(ctx, wsURL, projectID)
+	}
+	return dial, server.Close
 }
 
 func TestResolveWithoutStartersReportsIncompatibleServer(t *testing.T) {

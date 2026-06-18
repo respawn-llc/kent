@@ -468,6 +468,159 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 	requireNoHandlerError(t, handlerErrs)
 }
 
+func TestValidateIdentityRoot(t *testing.T) {
+	cases := []struct {
+		name     string
+		expected string
+		identity protocol.ServerIdentity
+		wantErr  bool
+	}{
+		{name: "empty disables", expected: "", identity: protocol.ServerIdentity{PersistenceRootID: "root-A"}, wantErr: false},
+		{name: "match", expected: "root-A", identity: protocol.ServerIdentity{PersistenceRootID: "root-A"}, wantErr: false},
+		{name: "mismatch", expected: "root-A", identity: protocol.ServerIdentity{PersistenceRootID: "root-B"}, wantErr: true},
+		{name: "missing reported root", expected: "root-A", identity: protocol.ServerIdentity{}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateIdentityRoot(tc.expected, tc.identity)
+			if tc.wantErr {
+				if !errors.Is(err, ErrServerRootMismatch) {
+					t.Fatalf("validateIdentityRoot = %v, want ErrServerRootMismatch", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateIdentityRoot = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestRemoteRequireRootValidatesPinnedIdentity(t *testing.T) {
+	handlerErrs := make(chan error, 8)
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
+		serveHandshakeWithRoot(ctx, conn, "root-A", handlerErrs)
+	}))
+	defer server.Close()
+
+	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	if err := remote.RequireRoot("root-A"); err != nil {
+		t.Fatalf("RequireRoot matching root: %v", err)
+	}
+	if err := remote.RequireRoot(""); err != nil {
+		t.Fatalf("RequireRoot empty (validation disabled): %v", err)
+	}
+	if err := remote.RequireRoot("root-B"); !errors.Is(err, ErrServerRootMismatch) {
+		t.Fatalf("RequireRoot mismatched root = %v, want ErrServerRootMismatch", err)
+	}
+	requireNoHandlerError(t, handlerErrs)
+}
+
+// TestRemoteReconnectRejectsChangedPersistenceRoot guards the P1 reconnect
+// regression: a root-pinned client must not silently reattach to a different
+// instance that takes over the configured endpoint after the original drops.
+func TestRemoteReconnectRejectsChangedPersistenceRoot(t *testing.T) {
+	var connectionCount atomic.Int32
+	handlerErrs := make(chan error, 8)
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
+		connIndex := connectionCount.Add(1)
+		rootID := "root-A"
+		if connIndex >= 2 {
+			rootID = "root-B"
+		}
+		handshaken := false
+		for event := range conn.Events() {
+			if event.Err != nil {
+				return
+			}
+			req := event.Frame.Request()
+			if !handshaken {
+				if req.Method != protocol.MethodHandshake {
+					reportHandlerError(handlerErrs, "first method = %q, want handshake", req.Method)
+					return
+				}
+				if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1", PersistenceRootID: rootID}}))); err != nil {
+					reportHandlerError(handlerErrs, "send handshake response: %w", err)
+					return
+				}
+				handshaken = true
+				continue
+			}
+			if connIndex == 1 {
+				if req.Method != protocol.MethodProjectList {
+					reportHandlerError(handlerErrs, "first method = %q, want %q", req.Method, protocol.MethodProjectList)
+					return
+				}
+				if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, serverapi.ProjectListResponse{}))); err != nil {
+					reportHandlerError(handlerErrs, "send first response: %w", err)
+					return
+				}
+				return
+			}
+			reportHandlerError(handlerErrs, "mismatched-root connection should not receive method %q", req.Method)
+			return
+		}
+	}))
+	defer server.Close()
+
+	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	if err := remote.RequireRoot("root-A"); err != nil {
+		t.Fatalf("RequireRoot: %v", err)
+	}
+	if _, err := remote.ListProjects(context.Background(), serverapi.ProjectListRequest{}); err != nil {
+		t.Fatalf("first ListProjects: %v", err)
+	}
+	requireNoHandlerError(t, handlerErrs)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		requireNoHandlerError(t, handlerErrs)
+		remote.mu.Lock()
+		controlDone := remote.control == nil || remote.control.IsDone()
+		remote.mu.Unlock()
+		if controlDone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for dropped control connection")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, err := remote.ListProjects(context.Background(), serverapi.ProjectListRequest{}); !errors.Is(err, ErrServerRootMismatch) {
+		t.Fatalf("reconnect ListProjects = %v, want ErrServerRootMismatch", err)
+	}
+	requireNoHandlerError(t, handlerErrs)
+}
+
+func serveHandshakeWithRoot(ctx context.Context, conn rpcwire.Conn, rootID string, handlerErrs chan<- error) {
+	for event := range conn.Events() {
+		if event.Err != nil {
+			return
+		}
+		req := event.Frame.Request()
+		if req.Method == protocol.MethodHandshake {
+			if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1", PersistenceRootID: rootID}}))); err != nil {
+				reportHandlerError(handlerErrs, "send handshake response: %w", err)
+				return
+			}
+			continue
+		}
+		reportHandlerError(handlerErrs, "unexpected method %q", req.Method)
+		return
+	}
+}
+
 func startUnixWebSocketServer(t *testing.T, socketPath string, handler func(context.Context, rpcwire.Conn)) func() {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {

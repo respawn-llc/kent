@@ -192,6 +192,7 @@ func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remo
 			Accept:          accept,
 			Supports:        supports,
 			RequireBound:    policy.RequireBound,
+			RootID:          policy.RootID,
 		})
 		return remote, ok, nil, capability
 	case ModeHeadless:
@@ -203,6 +204,7 @@ func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remo
 			DialWorkspace:    policy.DialWorkspace,
 			Accept:           accept,
 			Supports:         supports,
+			RootID:           policy.RootID,
 		})
 		return remote, ok, err, capability
 	default:

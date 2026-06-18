@@ -39,6 +39,9 @@ type HeadlessRequest struct {
 	DialWorkspace    DialWorkspace
 	Accept           Accept
 	Supports         Supports
+	// RootID, when non-empty, is pinned on the attached remote so every
+	// (re)connect handshake must report a matching persistence root id.
+	RootID string
 }
 
 type InteractiveRequest struct {
@@ -49,6 +52,9 @@ type InteractiveRequest struct {
 	Accept          Accept
 	Supports        Supports
 	RequireBound    bool
+	// RootID, when non-empty, is pinned on the attached remote so every
+	// (re)connect handshake must report a matching persistence root id.
+	RootID string
 }
 
 func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, bool, error) {
@@ -90,6 +96,10 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		if err != nil {
 			return nil, true, err
 		}
+		if err := remote.RequireRoot(req.RootID); err != nil {
+			_ = remote.Close()
+			return nil, true, err
+		}
 		return remote, true, nil
 	case serverapi.ProjectBindingPlanKindLocalUnbound:
 		_ = projectViews.Close()
@@ -105,6 +115,10 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		_ = projectViews.Close()
 		remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, plan.Workspace.ProjectID, plan.Workspace.WorkspaceID)
 		if err != nil {
+			return nil, true, err
+		}
+		if err := remote.RequireRoot(req.RootID); err != nil {
+			_ = remote.Close()
 			return nil, true, err
 		}
 		return remote, true, nil
@@ -147,11 +161,19 @@ func DialInteractive(ctx context.Context, req InteractiveRequest) (*client.Remot
 			_ = projectViews.Close()
 			return nil, false
 		}
+		if err := remote.RequireRoot(req.RootID); err != nil {
+			_ = remote.Close()
+			return nil, false
+		}
 		return remote, true
 	}
 	_ = projectViews.Close()
 	remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, binding.ProjectID, binding.WorkspaceID)
 	if err != nil {
+		return nil, false
+	}
+	if err := remote.RequireRoot(req.RootID); err != nil {
+		_ = remote.Close()
 		return nil, false
 	}
 	return remote, true
