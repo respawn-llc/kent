@@ -194,15 +194,21 @@ func isTerminalWriter(w io.Writer) bool {
 	return term.IsTerminal(int(file.Fd()))
 }
 
-// publishPersistenceRootEnv normalizes a --persistence-root flag value to an
+// publishPersistenceRootEnv normalizes the effective config+data root to an
 // absolute path and exports it as KENT_PERSISTENCE_ROOT so the resolved root
 // propagates to child processes (subagents launched via `kent run`, shell
-// ripgrep config) and any downstream re-resolution. A blank flag value leaves
-// any inherited KENT_PERSISTENCE_ROOT untouched.
+// ripgrep config) and any downstream re-resolution. The flag value wins; when
+// it is blank, an inherited KENT_PERSISTENCE_ROOT is normalized in place so a
+// relative env value (e.g. `KENT_PERSISTENCE_ROOT=rel kent serve`) does not get
+// re-resolved against a child's different working directory. A blank flag with
+// no inherited env leaves the environment untouched.
 func publishPersistenceRootEnv(flagValue string) error {
 	trimmed := strings.TrimSpace(flagValue)
 	if trimmed == "" {
-		return nil
+		trimmed = strings.TrimSpace(os.Getenv(config.PersistenceRootEnvName))
+		if trimmed == "" {
+			return nil
+		}
 	}
 	abs, err := config.NormalizePersistenceRoot(trimmed)
 	if err != nil {
@@ -306,8 +312,9 @@ func runSubcommand(args []string) int {
 	}
 	result, runErr := runPromptApp(ctx, opts, prompt, timeout, progress)
 	continueID := strings.TrimSpace(result.SessionID)
-	continueCmd := prompts.ContinueRunCommand(continueID)
-	continueHint := buildRunContinueHint(continueID)
+	continueRoot := continueCommandPersistenceRoot(flags.PersistenceRoot)
+	continueCmd := prompts.ContinueRunCommandWithRoot(continueID, continueRoot)
+	continueHint := buildRunContinueHint(continueID, continueRoot)
 	if runErr != nil {
 		code := runErrorCode(runErr)
 		if outputMode == runOutputModeJSON {
@@ -558,12 +565,29 @@ func effectiveRunAgentRole(raw string, fast bool) (string, error) {
 	return normalized, nil
 }
 
-func buildRunContinueHint(sessionID string) string {
-	command := prompts.ContinueRunCommand(sessionID)
+func buildRunContinueHint(sessionID, persistenceRoot string) string {
+	command := prompts.ContinueRunCommandWithRoot(sessionID, persistenceRoot)
 	if command == "" {
 		return ""
 	}
 	return fmt.Sprintf("To continue this run, execute `%s`.", command)
+}
+
+// continueCommandPersistenceRoot returns the absolute root to embed in a
+// continuation command when the run selected a non-default root via the
+// --persistence-root flag. A flag run is one-shot, so the emitted command must
+// carry the root to target the same instance; runs that rely on an inherited
+// KENT_PERSISTENCE_ROOT keep that env in the caller's shell and need nothing
+// added. Returns "" when no flag root was given.
+func continueCommandPersistenceRoot(flagValue string) string {
+	trimmed := strings.TrimSpace(flagValue)
+	if trimmed == "" {
+		return ""
+	}
+	if abs, err := config.NormalizePersistenceRoot(trimmed); err == nil {
+		return abs
+	}
+	return trimmed
 }
 
 func inferRunOutputMode(args []string) runOutputMode {

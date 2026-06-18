@@ -75,6 +75,9 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 		},
 	})
 	if err != nil {
+		if errors.Is(err, serverattach.ErrServerIncompatible) {
+			return nil, nil, errRunServerIncompatible
+		}
 		if errors.Is(err, serverattach.ErrNoServerAvailable) {
 			return nil, nil, errRunRequiresServer
 		}
@@ -87,6 +90,12 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 // because none is running. kent run is a pure client and never starts a server
 // of its own, so a server must already be available.
 var errRunRequiresServer = errors.New("`kent run` can only be used when a server is already running. Start a server with `kent serve` or install a service with `kent service install` to prevent subagents and scripted runs from exiting abruptly if running concurrently with each other")
+
+// errRunServerIncompatible is returned when a server is reachable but too old or
+// otherwise incompatible (it failed the capability check). Starting another
+// server would conflict on the same address, so the operator must restart or
+// upgrade the running one instead.
+var errRunServerIncompatible = errors.New("a Kent server is running on the configured endpoint but is not compatible with this client (likely an older version). Restart or upgrade the running server (for example `kent service restart`) instead of starting another, which would conflict on the same address")
 
 const nonCallableSubagentRoleMessage = "User has disallowed calling this agent by other agents like you. Do not try to circumvent this, pick another suitable agent or do the work manually and let the user know your desire to use the subagent at the end of the task"
 

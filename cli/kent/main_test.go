@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -787,5 +788,37 @@ func TestMarkExplicitCommonFlagsIgnoresFlagTextInsidePrompt(t *testing.T) {
 	}
 	if flags.OpenAIBaseURLExplicit {
 		t.Fatal("did not expect prompt text to mark openai base url explicit")
+	}
+}
+
+func TestPublishPersistenceRootEnvNormalizesInheritedRelativeEnv(t *testing.T) {
+	t.Setenv(config.PersistenceRootEnvName, "rel-root")
+	if err := publishPersistenceRootEnv(""); err != nil {
+		t.Fatalf("publishPersistenceRootEnv: %v", err)
+	}
+	got := os.Getenv(config.PersistenceRootEnvName)
+	if !filepath.IsAbs(got) {
+		t.Fatalf("inherited relative env root = %q, want republished as absolute", got)
+	}
+}
+
+func TestPublishPersistenceRootEnvFlagWinsOverEnv(t *testing.T) {
+	t.Setenv(config.PersistenceRootEnvName, "rel-root")
+	flagRoot := filepath.Join(string(filepath.Separator), "tmp", "flag-root")
+	if err := publishPersistenceRootEnv(flagRoot); err != nil {
+		t.Fatalf("publishPersistenceRootEnv: %v", err)
+	}
+	if got := os.Getenv(config.PersistenceRootEnvName); got != flagRoot {
+		t.Fatalf("env root = %q, want flag root %q", got, flagRoot)
+	}
+}
+
+func TestPublishPersistenceRootEnvLeavesUnsetEnvUntouched(t *testing.T) {
+	t.Setenv(config.PersistenceRootEnvName, "")
+	if err := publishPersistenceRootEnv(""); err != nil {
+		t.Fatalf("publishPersistenceRootEnv: %v", err)
+	}
+	if got := os.Getenv(config.PersistenceRootEnvName); got != "" {
+		t.Fatalf("env root = %q, want empty (untouched)", got)
 	}
 }

@@ -377,6 +377,27 @@ func TestResolveAttachesConfiguredRemoteWithMatchingRootID(t *testing.T) {
 	}
 }
 
+func TestResolveWithoutStartersReportsIncompatibleServer(t *testing.T) {
+	// A reachable server that fails the capability check, with no local starter,
+	// must surface ErrServerIncompatible (not ErrNoServerAvailable) so the run
+	// path can tell the operator to restart/upgrade the running server.
+	policy := testRemotePolicyWithDiscovery(boundProjectDial)
+	policy.Supports = func(protocol.CapabilityFlags) bool { return false }
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrServerIncompatible) {
+		t.Fatalf("err = %v, want ErrServerIncompatible", err)
+	}
+	if errors.Is(err, ErrNoServerAvailable) {
+		t.Fatal("incompatible server must not be reported as no server available")
+	}
+}
+
 func TestResolvePassesRemoteOwnershipToWrapper(t *testing.T) {
 	for _, tt := range []struct {
 		name          string

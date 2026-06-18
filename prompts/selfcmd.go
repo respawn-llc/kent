@@ -21,6 +21,14 @@ func ContinueRunCommand(sessionID string) string {
 	return formatContinueRunCommand(effectiveExecutablePath(), sessionID)
 }
 
+// ContinueRunCommandWithRoot builds the continuation command and includes
+// `--persistence-root <root>` when persistenceRoot is non-empty, so a run that
+// selected a non-default root via the flag emits a command that targets the same
+// instance instead of the caller's default/inherited root.
+func ContinueRunCommandWithRoot(sessionID, persistenceRoot string) string {
+	return formatContinueRunCommandWithRoot(effectiveExecutablePath(), sessionID, persistenceRoot)
+}
+
 // effectiveExecutablePath prefers the short binary name (e.g. `kent`) over the
 // verbose absolute path whenever the short command resolves on PATH to the same
 // binary that is currently running. This keeps injected commands terse for the
@@ -85,11 +93,19 @@ func formatRunCommandPrefix(executablePath string) string {
 }
 
 func formatContinueRunCommand(executablePath, sessionID string) string {
+	return formatContinueRunCommandWithRoot(executablePath, sessionID, "")
+}
+
+func formatContinueRunCommandWithRoot(executablePath, sessionID, persistenceRoot string) string {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s --continue %s %s", formatRunCommandPrefix(executablePath), sessionID, strconv.Quote("follow-up"))
+	prefix := formatRunCommandPrefix(executablePath)
+	if root := strings.TrimSpace(persistenceRoot); root != "" {
+		prefix += " --persistence-root " + strconv.Quote(root)
+	}
+	return fmt.Sprintf("%s --continue %s %s", prefix, sessionID, strconv.Quote("follow-up"))
 }
 
 func currentExecutablePath() string {

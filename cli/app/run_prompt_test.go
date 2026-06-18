@@ -547,13 +547,14 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 
 }
 
-func TestRunPromptWithoutCompatibleServerRequiresRunningServer(t *testing.T) {
+func TestRunPromptWithIncompatibleServerReportsIncompatibleError(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
-	// A reachable but capability-incompatible server is skipped during attach.
-	// kent run is a pure client, so with no compatible server to attach to it
-	// must fail with the "server required" error rather than starting one.
+	// A reachable but capability-incompatible server (e.g. an older build without
+	// RunPrompt) must surface the distinct "incompatible server" error directing
+	// the operator to restart/upgrade it, not the generic "no server" error that
+	// would invite starting a conflicting second server.
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{
 		JSONRPCWebSocket: true,
 		ProjectAttach:    true,
@@ -573,8 +574,8 @@ func TestRunPromptWithoutCompatibleServerRequiresRunningServer(t *testing.T) {
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 	}, "hello", 0, nil)
-	if !errors.Is(err, errRunRequiresServer) {
-		t.Fatalf("RunPrompt error = %v, want errRunRequiresServer", err)
+	if !errors.Is(err, errRunServerIncompatible) {
+		t.Fatalf("RunPrompt error = %v, want errRunServerIncompatible", err)
 	}
 }
 

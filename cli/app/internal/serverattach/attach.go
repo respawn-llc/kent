@@ -104,6 +104,13 @@ type Resolution[T any] struct {
 // message; the headless run path uses it to require a pre-existing server.
 var ErrNoServerAvailable = errors.New("no server available to attach to")
 
+// ErrServerIncompatible is returned by Resolve when a server was reachable but
+// failed the capability check and no local starter is provided. Callers
+// distinguish it from ErrNoServerAvailable so they can tell the operator to
+// restart/upgrade the running server rather than start another one (which would
+// conflict on the same address).
+var ErrServerIncompatible = errors.New("reachable server is not compatible with this client")
+
 type LaunchedRemoteDialer func(context.Context, remoteattach.Accept) (*client.Remote, bool, error)
 
 type Request[T any] struct {
@@ -260,10 +267,14 @@ func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() err
 
 func startEmbedded[T any](ctx context.Context, req Request[T], launchErr error, capability CapabilityCompatibility) (Resolution[T], error) {
 	if req.StartEmbedded == nil {
-		if launchErr != nil {
-			return Resolution[T]{}, errors.Join(ErrNoServerAvailable, launchErr)
+		noServerErr := error(ErrNoServerAvailable)
+		if capability == CapabilityCompatibilityIncompatible {
+			noServerErr = ErrServerIncompatible
 		}
-		return Resolution[T]{}, ErrNoServerAvailable
+		if launchErr != nil {
+			return Resolution[T]{}, errors.Join(noServerErr, launchErr)
+		}
+		return Resolution[T]{}, noServerErr
 	}
 	target, err := req.StartEmbedded(ctx)
 	if err != nil {
