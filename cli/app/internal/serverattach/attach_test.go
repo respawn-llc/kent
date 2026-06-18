@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -443,6 +444,41 @@ func TestResolveWithoutStartersReportsIncompatibleServer(t *testing.T) {
 	}
 	if errors.Is(err, ErrNoServerAvailable) {
 		t.Fatal("incompatible server must not be reported as no server available")
+	}
+	var incompatible *IncompatibleServerError
+	if !errors.As(err, &incompatible) {
+		t.Fatalf("err = %v, want *IncompatibleServerError", err)
+	}
+	if strings.TrimSpace(incompatible.Reason) == "" {
+		t.Fatal("incompatible server error must carry a reason explaining why")
+	}
+}
+
+func TestResolveIncompatibleServerReportsProtocolVersionReason(t *testing.T) {
+	// A server reporting a different protocol version must surface that version
+	// skew as the reason, so the operator learns it is an older/newer build.
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return &projectViewRemoteStub{
+			identity: protocol.ServerIdentity{ProtocolVersion: "0.0.0-legacy", ServerID: "kent:7", PID: 7},
+			plan: func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+				return boundPlanResponse(), nil
+			},
+		}, nil
+	})
+	policy.Supports = remoteattach.SupportsRunPrompt
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	var incompatible *IncompatibleServerError
+	if !errors.As(err, &incompatible) {
+		t.Fatalf("err = %v, want *IncompatibleServerError", err)
+	}
+	if !strings.Contains(incompatible.Reason, "0.0.0-legacy") || !strings.Contains(incompatible.Reason, protocol.Version) {
+		t.Fatalf("reason = %q, want it to name the reported and required protocol versions", incompatible.Reason)
 	}
 }
 

@@ -3,6 +3,8 @@ package serverattach
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"core/cli/app/internal/remoteattach"
@@ -108,8 +110,60 @@ var ErrNoServerAvailable = errors.New("no server available to attach to")
 // failed the capability check and no local starter is provided. Callers
 // distinguish it from ErrNoServerAvailable so they can tell the operator to
 // restart/upgrade the running server rather than start another one (which would
-// conflict on the same address).
+// conflict on the same address). Resolve returns an *IncompatibleServerError
+// that matches this sentinel via errors.Is and carries the specific reason.
 var ErrServerIncompatible = errors.New("reachable server is not compatible with this client")
+
+// IncompatibleServerError reports that a reachable server failed the capability
+// check, naming why (protocol-version skew or missing capabilities) so the
+// operator learns the concrete reason instead of a generic message. It matches
+// ErrServerIncompatible via errors.Is and exposes Reason for callers that want
+// to compose their own message.
+type IncompatibleServerError struct {
+	Reason string
+}
+
+func (e *IncompatibleServerError) Error() string {
+	if strings.TrimSpace(e.Reason) == "" {
+		return ErrServerIncompatible.Error()
+	}
+	return ErrServerIncompatible.Error() + ": " + e.Reason
+}
+
+func (e *IncompatibleServerError) Is(target error) bool {
+	return target == ErrServerIncompatible
+}
+
+// capabilityVerdict records the outcome of the capability check together with a
+// human-readable reason populated when the server is incompatible.
+type capabilityVerdict struct {
+	compatibility CapabilityCompatibility
+	reason        string
+}
+
+// incompatibilityReason explains why a reachable server failed the capability
+// check using the identity it reported during the handshake.
+func incompatibilityReason(identity protocol.ServerIdentity) string {
+	server := describeIncompatibleServer(identity)
+	if reported := strings.TrimSpace(identity.ProtocolVersion); reported != "" && reported != protocol.Version {
+		return fmt.Sprintf("%s speaks protocol version %s but this client requires %s", server, reported, protocol.Version)
+	}
+	return fmt.Sprintf("%s does not advertise the capabilities this client requires (it is likely an older build)", server)
+}
+
+func describeIncompatibleServer(identity protocol.ServerIdentity) string {
+	id := strings.TrimSpace(identity.ServerID)
+	switch {
+	case id != "" && identity.PID > 0:
+		return fmt.Sprintf("the running server %s (pid %d)", id, identity.PID)
+	case id != "":
+		return fmt.Sprintf("the running server %s", id)
+	case identity.PID > 0:
+		return fmt.Sprintf("the running server (pid %d)", identity.PID)
+	default:
+		return "the running server"
+	}
+}
 
 type LaunchedRemoteDialer func(context.Context, remoteattach.Accept) (*client.Remote, bool, error)
 
@@ -129,21 +183,21 @@ func Resolve[T any](ctx context.Context, req Request[T]) (Resolution[T], error) 
 		return Resolution[T]{}, err
 	}
 	if bypass {
-		return startEmbedded(ctx, req, nil, CapabilityCompatibilityUnchecked)
+		return startEmbedded(ctx, req, nil, capabilityVerdict{compatibility: CapabilityCompatibilityUnchecked})
 	}
-	capability := CapabilityCompatibilityUnchecked
-	if candidate, ok, err := dialConfiguredRemote(ctx, req, &capability); err != nil {
+	verdict := capabilityVerdict{compatibility: CapabilityCompatibilityUnchecked}
+	if candidate, ok, err := dialConfiguredRemote(ctx, req, &verdict); err != nil {
 		return Resolution[T]{}, err
 	} else if ok {
 		return validateResolution(ctx, req, candidate)
 	}
 	launchErr := error(nil)
-	if candidate, ok, err := launchDaemon(ctx, req, &capability); err != nil {
+	if candidate, ok, err := launchDaemon(ctx, req, &verdict); err != nil {
 		launchErr = err
 	} else if ok {
 		return validateResolution(ctx, req, candidate)
 	}
-	return startEmbedded(ctx, req, launchErr, capability)
+	return startEmbedded(ctx, req, launchErr, verdict)
 }
 
 // composeRootAccept wraps an accept predicate so that, when a persistence-root
@@ -168,17 +222,31 @@ func DialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remo
 	return remote, ok, err
 }
 
-func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remoteattach.Accept) (*client.Remote, bool, error, CapabilityCompatibility) {
-	capability := CapabilityCompatibilityUnchecked
-	accept = composeRootAccept(policy.RootID, accept)
+func newIncompatibleServerError(verdict capabilityVerdict) error {
+	return &IncompatibleServerError{Reason: verdict.reason}
+}
+
+func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remoteattach.Accept) (*client.Remote, bool, error, capabilityVerdict) {
+	verdict := capabilityVerdict{compatibility: CapabilityCompatibilityUnchecked}
+	// Always wrap accept so the server identity is captured for the
+	// incompatibility reason even when the caller supplies no accept predicate
+	// and no root pin (in which case the wrapper simply passes through).
+	composed := composeRootAccept(policy.RootID, accept)
+	var captured protocol.ServerIdentity
+	accept = func(identity protocol.ServerIdentity) bool {
+		captured = identity
+		return composed == nil || composed(identity)
+	}
 	supports := policy.Supports
 	if supports != nil {
+		require := policy.Supports
 		supports = func(flags protocol.CapabilityFlags) bool {
-			if policy.Supports(flags) {
-				capability = CapabilityCompatibilityCompatible
+			if require(flags) {
+				verdict.compatibility = CapabilityCompatibilityCompatible
 				return true
 			}
-			capability = CapabilityCompatibilityIncompatible
+			verdict.compatibility = CapabilityCompatibilityIncompatible
+			verdict.reason = incompatibilityReason(captured)
 			return false
 		}
 	}
@@ -194,7 +262,7 @@ func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remo
 			RequireBound:    policy.RequireBound,
 			RootID:          policy.RootID,
 		})
-		return remote, ok, nil, capability
+		return remote, ok, nil, verdict
 	case ModeHeadless:
 		remote, ok, err := remoteattach.DialHeadless(ctx, remoteattach.HeadlessRequest{
 			Config:           policy.Config,
@@ -206,9 +274,9 @@ func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remo
 			Supports:         supports,
 			RootID:           policy.RootID,
 		})
-		return remote, ok, err, capability
+		return remote, ok, err, verdict
 	default:
-		return nil, false, errors.New("unsupported server attachment mode"), capability
+		return nil, false, errors.New("unsupported server attachment mode"), verdict
 	}
 }
 
@@ -219,9 +287,9 @@ func callBypassRemote(ctx context.Context, fn func(context.Context) (bool, error
 	return fn(ctx)
 }
 
-func dialConfiguredRemote[T any](ctx context.Context, req Request[T], capability *CapabilityCompatibility) (Resolution[T], bool, error) {
-	remote, ok, err, checkedCapability := dialRemote(ctx, req.Mode, req.Remote, nil)
-	recordCapability(capability, checkedCapability)
+func dialConfiguredRemote[T any](ctx context.Context, req Request[T], verdict *capabilityVerdict) (Resolution[T], bool, error) {
+	remote, ok, err, checked := dialRemote(ctx, req.Mode, req.Remote, nil)
+	recordCapability(verdict, checked)
 	if err != nil || !ok {
 		return Resolution[T]{}, ok, err
 	}
@@ -230,16 +298,16 @@ func dialConfiguredRemote[T any](ctx context.Context, req Request[T], capability
 		_ = remote.Close()
 		return Resolution[T]{}, false, err
 	}
-	return newResolution(req, SourceConfiguredRemote, OwnershipExternalDaemon, target, valueCapability(capability)), true, nil
+	return newResolution(req, SourceConfiguredRemote, OwnershipExternalDaemon, target, valueCapability(verdict)), true, nil
 }
 
-func launchDaemon[T any](ctx context.Context, req Request[T], capability *CapabilityCompatibility) (Resolution[T], bool, error) {
+func launchDaemon[T any](ctx context.Context, req Request[T], verdict *capabilityVerdict) (Resolution[T], bool, error) {
 	if req.LaunchDaemon == nil {
 		return Resolution[T]{}, false, nil
 	}
 	daemon, ok, err := req.LaunchDaemon(ctx, func(ctx context.Context, accept remoteattach.Accept) (*client.Remote, bool, error) {
-		remote, ok, err, checkedCapability := dialRemote(ctx, req.Mode, req.Remote, accept)
-		recordCapability(capability, checkedCapability)
+		remote, ok, err, checked := dialRemote(ctx, req.Mode, req.Remote, accept)
+		recordCapability(verdict, checked)
 		return remote, ok, err
 	})
 	if err != nil || !ok {
@@ -250,7 +318,7 @@ func launchDaemon[T any](ctx context.Context, req Request[T], capability *Capabi
 		closeTarget(DaemonTarget[*client.Remote]{Close: daemon.Close})
 		return Resolution[T]{}, false, err
 	}
-	return newResolution(req, SourceLaunchedDaemon, OwnershipLaunchedDaemon, target, valueCapability(capability)), true, nil
+	return newResolution(req, SourceLaunchedDaemon, OwnershipLaunchedDaemon, target, valueCapability(verdict)), true, nil
 }
 
 func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() error, ownership OwnershipState) (Target[T], error) {
@@ -267,11 +335,11 @@ func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() err
 	return target, nil
 }
 
-func startEmbedded[T any](ctx context.Context, req Request[T], launchErr error, capability CapabilityCompatibility) (Resolution[T], error) {
+func startEmbedded[T any](ctx context.Context, req Request[T], launchErr error, verdict capabilityVerdict) (Resolution[T], error) {
 	if req.StartEmbedded == nil {
 		noServerErr := error(ErrNoServerAvailable)
-		if capability == CapabilityCompatibilityIncompatible {
-			noServerErr = ErrServerIncompatible
+		if verdict.compatibility == CapabilityCompatibilityIncompatible {
+			noServerErr = newIncompatibleServerError(verdict)
 		}
 		if launchErr != nil {
 			return Resolution[T]{}, errors.Join(noServerErr, launchErr)
@@ -285,7 +353,7 @@ func startEmbedded[T any](ctx context.Context, req Request[T], launchErr error, 
 		}
 		return Resolution[T]{}, err
 	}
-	return validateResolution(ctx, req, newResolution(req, SourceEmbeddedFallback, OwnershipEmbedded, target, capability))
+	return validateResolution(ctx, req, newResolution(req, SourceEmbeddedFallback, OwnershipEmbedded, target, verdict.compatibility))
 }
 
 func validateResolution[T any](ctx context.Context, req Request[T], resolution Resolution[T]) (Resolution[T], error) {
@@ -315,18 +383,18 @@ func newResolution[T any](req Request[T], source Source, ownership OwnershipStat
 	}
 }
 
-func recordCapability(target *CapabilityCompatibility, checked CapabilityCompatibility) {
-	if target == nil || checked == CapabilityCompatibilityUnchecked {
+func recordCapability(target *capabilityVerdict, checked capabilityVerdict) {
+	if target == nil || checked.compatibility == CapabilityCompatibilityUnchecked {
 		return
 	}
 	*target = checked
 }
 
-func valueCapability(capability *CapabilityCompatibility) CapabilityCompatibility {
-	if capability == nil {
+func valueCapability(verdict *capabilityVerdict) CapabilityCompatibility {
+	if verdict == nil {
 		return CapabilityCompatibilityUnchecked
 	}
-	return *capability
+	return verdict.compatibility
 }
 
 func workspaceBindingState(mode Mode, requireBound bool) WorkspaceBindingState {
