@@ -120,8 +120,12 @@ func withServiceCommandTestBackendEndpoint(t *testing.T, backend *stubServiceBac
 	loadServiceSpec = func() (serviceSpec, error) {
 		host, portText, _ := net.SplitHostPort(strings.TrimPrefix(endpoint, "http://"))
 		port := parsePositiveInt(portText)
+		// These cases pass no --persistence-root, so the resolved root is the
+		// default; an unpinned `serve` registration is the default-root service and
+		// must not trip the cross-root guard. Explicit-root cases use
+		// withServiceCommandTestSpecRoot, which bakes a matching --persistence-root.
 		return serviceSpec{
-			Config:        config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{ServerHost: host, ServerPort: port}},
+			Config:        config.App{PersistenceRoot: config.DefaultPersistence, Settings: config.Settings{ServerHost: host, ServerPort: port}},
 			Executable:    "/usr/local/bin/kent",
 			Arguments:     []string{"serve"},
 			LogDir:        "/tmp/kent/logs",
@@ -398,6 +402,30 @@ func TestWindowsRegisteredScriptPathAbsentReturnsFalse(t *testing.T) {
 	// requested-root path.
 	if got, ok := windowsRegisteredScriptPath("", ""); ok {
 		t.Fatalf("windowsRegisteredScriptPath = (%q, true), want indeterminate when no registration path exists", got)
+	}
+}
+
+func TestRootMismatchErrorRejectsUnpinnedRegistrationForExplicitRoot(t *testing.T) {
+	// A registration with no --persistence-root (a pre-isolation or hand-installed
+	// service) is the single global default-root service; targeting it with an
+	// explicit non-default root must be refused rather than acting on the wrong one.
+	explicitRoot := filepath.Join(t.TempDir(), "iso")
+	status := serviceStatus{Installed: true, Command: []string{"/usr/local/bin/kent", "serve"}}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: explicitRoot}}
+	if err := rootMismatchError(status, spec); err == nil {
+		t.Fatal("expected mismatch for an unpinned registration targeted with an explicit non-default root")
+	}
+}
+
+func TestRootMismatchErrorAllowsUnpinnedRegistrationForDefaultRoot(t *testing.T) {
+	defaultRoot, err := config.NormalizePersistenceRoot(config.DefaultPersistence)
+	if err != nil {
+		t.Fatalf("normalize default root: %v", err)
+	}
+	status := serviceStatus{Installed: true, Command: []string{"/usr/local/bin/kent", "serve"}}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: defaultRoot}}
+	if err := rootMismatchError(status, spec); err != nil {
+		t.Fatalf("unexpected mismatch for a default-root unpinned registration: %v", err)
 	}
 }
 

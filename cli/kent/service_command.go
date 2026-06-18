@@ -311,21 +311,33 @@ func ensureServiceRootMatch(ctx context.Context, backend serviceBackend, spec se
 // registration's command against the resolved spec root. Lifecycle actions
 // target the single global OS registration, so acting on a registration that
 // serves a different root is a cross-root footgun. It returns nil when they
-// match, when nothing is installed, or when the installed command does not carry
-// an explicit --persistence-root (its root is then indeterminate and we fail
-// open rather than block a legitimate operation). Every service this binary
-// installs bakes --persistence-root, and backends report the actual registration
-// command (the Windows backend resolves it from the registered scheduled-task
-// action or the Startup-folder launcher, never a path under the requested root),
-// so the real cross-root footgun — a default or other-root registration targeted
-// with a different --persistence-root — is still caught.
+// match, when nothing is installed, or when the requested root is the default and
+// the installed command carries no explicit --persistence-root (a legitimate
+// default-root service). Every service this binary installs now bakes
+// --persistence-root, and backends report the actual registration command (the
+// Windows backend resolves it from the registered scheduled-task action or the
+// Startup-folder launcher, never a path under the requested root), so the real
+// cross-root footguns — a default/other-root registration targeted with a
+// different --persistence-root, or an unpinned legacy/manual registration
+// targeted with an explicit non-default root — are caught.
 func rootMismatchError(status serviceStatus, spec serviceSpec) error {
 	if !status.Installed || len(status.Command) == 0 {
 		return nil
 	}
 	installedRoot, ok := persistenceRootFromServiceCommand(status.Command)
 	if !ok {
-		return nil
+		// A registration with no --persistence-root predates root isolation or was
+		// installed by hand; its root is the default/indeterminate one. Acting on it
+		// for an explicit non-default root would target the wrong (single, global)
+		// registration, so refuse unless the requested root is itself the default.
+		requestedIsDefault, err := config.IsDefaultPersistenceRoot(spec.Config.PersistenceRoot)
+		if err != nil {
+			return err
+		}
+		if requestedIsDefault {
+			return nil
+		}
+		return fmt.Errorf("no %s is installed for persistence root %s; the installed service declares no persistence root (it predates root isolation or was installed manually) and is treated as the default root. Reinstall with `%s service install --persistence-root %s` or manage the default root instead", serviceDisplayName, spec.Config.PersistenceRoot, config.Command, spec.Config.PersistenceRoot)
 	}
 	if config.PersistenceRootHash(installedRoot) == config.PersistenceRootHash(spec.Config.PersistenceRoot) {
 		return nil
