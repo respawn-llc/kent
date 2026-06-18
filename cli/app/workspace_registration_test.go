@@ -90,11 +90,19 @@ func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL
 		t.Fatalf("StartServeServer: %v", err)
 	}
 	stop := serveAppServer(t, srv)
-	waitForConfiguredRunPromptDaemon(t, workspace)
-	return func() {
+	cleanup := func() {
 		stop()
 		_ = srv.Close()
 	}
+	needsCleanup := true
+	defer func() {
+		if needsCleanup {
+			cleanup()
+		}
+	}()
+	waitForConfiguredRunPromptDaemon(t, workspace)
+	needsCleanup = false
+	return cleanup
 }
 
 func serveAppServer(t *testing.T, srv *serverstartup.ServeServer) func() {
