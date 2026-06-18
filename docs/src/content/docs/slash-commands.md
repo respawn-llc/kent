@@ -3,34 +3,34 @@ title: Slash Commands
 description: Available slash commands, how their input is parsed, and how file-backed custom commands are discovered.
 ---
 
+Press Tab to autocomplete a command, and Enter to autocomplete and send. Press Tab again when command matches clearly to **queue** the command. This allows chains like `"commit" -> [Tab] -> "/compact" -> [Tab] -> "/prompts:open_pr"`.
+
 
 | Command | Input | What it does |
 | --- | --- | --- |
-| `/exit` | none | Exit Kent, same as Ctrl/CMD+C. |
+| `/exit` | none | Exit Kent, same as Ctrl/Cmd+C. |
 | `/new` | none | Start a new session. |
-| `/resume` | none | Return to the startup session picker. Hidden when there are no other sessions to resume. |
-| `/login` | none | Open auth options again without clearing saved credentials first. Choose `No auth` there to clear saved auth. |
-| `/logout` | none | Alias for `/login`; opens auth options without clearing saved credentials first. |
-| `/compact <instructions>` | optional free-form text | Compact the current context. Trailing text is passed through as compaction instructions. |
-| `/name <title>` | optional free-form text | Set the session title. Empty input resets it. |
+| `/resume` | none | Return to the startup session picker. |
+| `/login` | none | Open auth options. |
+| `/compact <instructions>` | optional free-form text | Compact the current context. Trailing text is passed through as **additional** compaction instructions. |
+| `/name <title>` | optional free-form text | Set the session title. Empty input resets. |
 | <code>/thinking &lt;low&#124;medium&#124;high&#124;xhigh&gt;</code> | optional single value | Set the thinking level. Empty input shows the current level. |
-| <code>/fast [on&#124;off&#124;status]</code> | optional single value | Toggle or inspect Fast mode; it can be changed while the model is working and applies to the next model request. |
+| <code>/fast [on&#124;off&#124;status]</code> | optional single value | Toggle or inspect Fast mode; |
 | <code>/supervisor [on&#124;off]</code> | optional single value | Toggle supervisor invocation. |
 | <code>/autocompaction [on&#124;off]</code> | optional single value | Toggle auto-compaction. |
 | `/status` | none | Open a page with detailed information about the config, git, runtime, and model. |
-| <code>/goal [pause&#124;resume&#124;clear&#124;&lt;objective&gt;]</code> | optional action or objective | Set or manage the current session goal. Empty input opens the goal page. |
+| <code>/goal [pause&#124;resume&#124;clear&#124;&lt;objective&gt;]</code> | optional action or objective | Set or manage the current session goal (ralph-loop). Empty input opens the goal page. |
 | <code>/ps [kill&#124;inline&#124;logs] &lt;id&gt;</code> | optional action + id | Open the background-process picker, or manage a specific background shell. |
 | <code>/wt</code> | none | Open the Worktrees page. |
 | <code>/wt create</code> | none | Open the create-worktree dialog; new branches require a non-empty base ref. |
-| <code>/wt switch &lt;target&gt;</code> | required selector | Switch directly to a worktree without opening the page first. |
-| <code>/wt delete [&lt;target&gt;]</code> | optional selector | Open delete confirmation in the Worktrees page. |
-| `/copy` | none | Copy the latest committed model final answer to the system clipboard. |
+| <code>/wt switch &lt;target&gt;</code> | required selector | Switch directly to a worktree by id/branch/path. |
+| <code>/wt delete [&lt;target&gt;]</code> | optional selector | Delete a worktree. |
+| `/copy` | none | Copy the latest model final answer to the system clipboard. |
 | `/back` | none | Teleport back to the parent session, if present. |
 | `/review <what to review>` | optional free-form text | Trigger Kent's native code review. Trailing text is appended to the prompt body. |
-| `/init <instructions>` | optional free-form text | Use the built-in workspace creation prompt. Trailing text is appended to the prompt body. |
-| `/prompt:<name>` | optional free-form text | Run a custom Markdown prompt discovered from disk. |
+| `/init <instructions>` | optional free-form text | Start a new session that sets up the workspace on first-use. Trailing text is appended to the prompt body. |
+| `/prompt:<name>` | optional free-form text | Run a custom Markdown prompt (see [prompts](../prompts/)). |
 
-Canonical forms only. Some commands also accept aliases.
 
 ## Input Behavior
 
@@ -42,17 +42,16 @@ Canonical forms only. Some commands also accept aliases.
 
 ### 2. Built-In and Custom Prompts
 
-Kent supports markdown file-backed custom prompt commands discovered from `.kent/prompts` or `.kent/commands`
+Kent supports markdown file-backed custom prompt commands.
 
 - If the prompt body contains the exact token `$ARGUMENTS`, Kent replaces every occurrence with the trailing input.
 - Otherwise, if trailing input was provided, Kent appends it to the end of the prompt body.
 
-To add a custom prompt, create a Markdown file in one of these directories:
+To add a custom prompt, create a Markdown file in one of these directories (descending priority):
 
 - `<workspace>/.kent/prompts`
 - `<workspace>/.kent/commands`
 - `~/.kent/prompts`
 - `~/.kent/commands`
 
-The command id is derived from the filename as `prompt:<normalized_base_name>`.
-Duplicate command ids are deduplicated by first match, so repo-scoped commands override global command.
+The command id is derived from the filename as `prompt:<normalized_base_name>`. Duplicate command ids are deduplicated by first match, so repo-scoped commands override global commands.

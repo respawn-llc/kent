@@ -151,3 +151,10 @@ func TestValidateRunPromptAgentRoleBlocksDefaultAliasFromNonCallableContextRole(
 		t.Fatalf("human/no-session default alias should not enforce context role: %v", err)
 	}
 }
+
+func TestStartupConfigRequestThreadsPersistenceRoot(t *testing.T) {
+	req := startupConfigRequest(Options{ConfigRoot: "/tmp/iso-root"})
+	if req.LoadOptions.ConfigRoot != "/tmp/iso-root" {
+		t.Fatalf("LoadOptions.ConfigRoot = %q, want /tmp/iso-root", req.LoadOptions.ConfigRoot)
+	}
+}

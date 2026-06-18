@@ -2,6 +2,7 @@ import { ConnectionStore } from "./connectionStore";
 import { TransportError } from "./errors";
 import type { JsonValue } from "./json";
 import {
+  assertHandshakeRoot,
   delay,
   handleSubscriptionMessage,
   handshakeMethod,
@@ -30,20 +31,22 @@ type PendingRequest = Readonly<{
   reject(error: Error): void;
 }>;
 
-export function createJsonRpcTransport(endpoint: string): RpcTransport {
-  return new JsonRpcWebSocketTransport(endpoint);
+export function createJsonRpcTransport(endpoint: string, expectedRootId = ""): RpcTransport {
+  return new JsonRpcWebSocketTransport(endpoint, expectedRootId);
 }
 
 class JsonRpcWebSocketTransport implements RpcTransport {
   readonly connection = new ConnectionStore();
   #endpoint: string;
+  #expectedRootId: string;
   #socket: WebSocket | null = null;
   #opening: Promise<WebSocket> | null = null;
   #nextID = 1;
   #pending = new Map<string, PendingRequest>();
 
-  constructor(endpoint: string) {
+  constructor(endpoint: string, expectedRootId: string) {
     this.#endpoint = endpoint;
+    this.#expectedRootId = expectedRootId;
   }
 
   async call(method: string, params: JsonValue): Promise<unknown> {
@@ -89,7 +92,8 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       this.#handleControlError();
     });
     try {
-      await this.#send(socket, handshakeMethod, { protocol_version: protocolVersion });
+      const result = await this.#send(socket, handshakeMethod, { protocol_version: protocolVersion });
+      assertHandshakeRoot(result, this.#expectedRootId);
     } catch (error) {
       socket.close();
       throw error;
@@ -212,7 +216,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       },
       { once: true },
     );
-    await handshakeSubscription(socket, rpcRequestTimeoutMs);
     const terminalCompleteRef: { current: Readonly<{ code: number; message: string }> | null } = {
       current: null,
     };
@@ -224,8 +227,12 @@ class JsonRpcWebSocketTransport implements RpcTransport {
         socket.close();
       }
     };
-    socket.addEventListener("message", subscriptionListener);
     try {
+      // The handshake must stay inside this scope: a rejected handshake (e.g. a
+      // server reporting a different persistence root) would otherwise leave the
+      // socket connected to the wrong server while the reconnect loop opens more.
+      await handshakeSubscription(socket, rpcRequestTimeoutMs, this.#expectedRootId);
+      socket.addEventListener("message", subscriptionListener);
       await sendSocketRequest(socket, method, params, rpcRequestTimeoutMs);
       handler.onOpen?.();
       await waitForSubscriptionEnd(socket, signal);

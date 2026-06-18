@@ -72,7 +72,7 @@ func TestFormatLaunchCommandQuotesExecutablePathWithoutSubcommand(t *testing.T) 
 
 func TestFormatContinueRunCommandForPath(t *testing.T) {
 	got := formatContinueRunCommand("/tmp/kent", "session-123")
-	want := "\"/tmp/kent\" run --continue session-123 \"follow-up\""
+	want := "\"/tmp/kent\" run --continue \"session-123\" \"follow-up\""
 	if got != want {
 		t.Fatalf("continue run command = %q, want %q", got, want)
 	}
@@ -80,7 +80,23 @@ func TestFormatContinueRunCommandForPath(t *testing.T) {
 
 func TestFormatContinueRunCommandForFallbackBinaryName(t *testing.T) {
 	got := formatContinueRunCommand(fallbackBinaryName, "session-123")
-	want := fallbackBinaryName + " run --continue session-123 \"follow-up\""
+	want := fallbackBinaryName + " run --continue \"session-123\" \"follow-up\""
+	if got != want {
+		t.Fatalf("continue run command = %q, want %q", got, want)
+	}
+}
+
+func TestFormatContinueRunCommandWithRootIncludesPersistenceRoot(t *testing.T) {
+	got := formatContinueRunCommandWithRoot(fallbackBinaryName, "session-123", "/tmp/iso-root")
+	want := fallbackBinaryName + " run --persistence-root \"/tmp/iso-root\" --continue \"session-123\" \"follow-up\""
+	if got != want {
+		t.Fatalf("continue run command = %q, want %q", got, want)
+	}
+}
+
+func TestFormatContinueRunCommandWithRootOmitsEmptyRoot(t *testing.T) {
+	got := formatContinueRunCommandWithRoot(fallbackBinaryName, "session-123", "  ")
+	want := fallbackBinaryName + " run --continue \"session-123\" \"follow-up\""
 	if got != want {
 		t.Fatalf("continue run command = %q, want %q", got, want)
 	}

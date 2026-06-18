@@ -321,8 +321,9 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 		return serverapi.SessionRuntimeActivateResponse{}, err
 	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(store, req.ActiveSettings, enabledTools, target.EffectiveWorkdir, s.authManager, logger, s.background, runtimewire.RuntimeWiringOptions{
-		FastMode: s.fastModeState,
-		Sources:  req.Source.Sources,
+		FastMode:        s.fastModeState,
+		Sources:         req.Source.Sources,
+		GlobalConfigDir: s.persistenceRoot,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", runprompt.FormatRuntimeEvent(evt))
 			if transcriptdiag.Enabled(req.ActiveSettings.Debug, os.Getenv) {

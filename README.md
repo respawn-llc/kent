@@ -68,43 +68,20 @@ The expensive failure is when model half-remembers a decision, forgets an in-fli
   <img src="./docs/public/readme/kent-worktrees.webp" alt="Kent switching Git worktrees from the terminal" width="900">
 </p>
 
-## Where Kent Stands Out
-
-| Area | Kent's bet |
-| --- | --- |
-| Visibility | Exact commands, patches, background shells, detail hydration, and reviewer output are inspectable instead of reduced to vague activity labels. |
-| Long sessions | Local and native compaction, proactive handoffs, pre-submit compaction, queued prompts across compacts, and full persisted history are designed for multi-hour work. |
-| Output quality | A supervisor pass and native review workflow put a second agent on the code while the original run still has context to repair mistakes. |
-| Parallel work | Headless `kent run` roles and background shells make subagents scriptable, interactive, resumable, and visible. |
-| Repo reality | Multi-repo projects, worktrees, shared shells, and a global server keep the agent attached to the checkout you mean. |
-| Model burden | Kent keeps the model-facing tool surface small and moves reliability into deterministic runtime behavior instead of prompt bloat. |
-| Control | System prompts, reviewer prompts, skills, slash commands, command post-processing, model settings, and provider capability overrides are local files, not hidden product state. |
-
-## What Is Included
-
-Kent covers the core coding-agent loop and the surrounding engineering workflow:
-
-- Terminal UI with ongoing mode, detail mode, native scrollback, markdown rendering, syntax highlighting, text editing, prompt history, message editing, session forks, and system notifications.
-- Model tools for shell execution, background process interaction, patch editing, interactive questions, local image/PDF viewing, and native web search.
-- OpenAI/Codex subscription OAuth, OpenAI API-key auth, OpenAI-compatible base URL support (including local models), model reasoning/verbosity settings, `/fast` mode.
-- Local and workspace `AGENTS.md`, system prompt files (`SYSTEM.md`), reviewer prompt overrides, skills, built-in slash commands, and file-backed custom prompts.
-- Session listing, project/workspace metadata, local server mode, system background service, multi-client connectivity, resumable headless runs, and structured JSON output for automation.
-- Smart, proactive compaction or provider-native compact endpoints, context-budget tracking, cache warning policy, and queue preservation across compaction.
-- Git worktree create/switch/delete flows with management UI, setup scripts, and agent context awareness.
-- Command output shaping through built-in shell post-processing or a local JSON hook, with raw output still available when the model needs it.
-
 ## Philosophy
 
-Kent is intentionally narrow. It optimizes for engineers who want a strong model, collaborative workflows, and great outputs. The model stays unburdened; the harness should provide infrastructure around it. As such, there will not be:
+Kent is intentionally narrow. It optimizes for engineers who want collaborative workflows, token efficiency, and quality outputs. As such, there will not be:
 
-- MCP support; MCP is outdated, use `mcporter` or migrate to CLIs.
-- Plan mode; just prompt the model to plan with you, there's no need to handicap it.
+- MCP support; MCP is suboptimal for shell-enabled agents, use [mcporter](https://github.com/openclaw/mcporter) or native CLIs.
+- Plan mode; just prompt the model to plan with you. Kent is built for collaborative work and can plan without any explicit nudges or restrictions.
 - WebFetch tool; teach the agent to use [r.jina.ai](jina.ai/reader), browser control CLI, or curl.
+
+Ready to try? Head over to the [quickstart](https://kent.sh/quickstart/) guide.
 
 ## Why no Anthropic/Gemini model support?
 
 - Anthropic and Gemini disallow use of third-party harnesses with subscriptions. Using them can get you banned, asking for their support will get people behind Kent sued. Please do not ask for support here.
-- Using models with API keys can be supported, but the priority is low due to high costs and significant effort to optimize the harness for different models. Please create or upvote an issue if you want to use Kent with an API key. Kent already supports OpenAI Responses-compatible APIs and OpenAI API keys.
+- Using models with API keys can be supported, but the priority is low due to high costs of testing and significant effort to optimize the harness for different models. Please create or upvote an issue if you want to use Kent with a new provider or model. Kent already supports OpenAI Responses-compatible APIs, local models, and OpenAI API keys.
 
 ## License
 

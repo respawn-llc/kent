@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import protocolVersionDefinition from "../../../../shared/protocol/version.json";
-import { ProtocolMismatchError, RpcError, TransportError } from "./errors";
+import { ProtocolMismatchError, RpcError, ServerRootMismatchError, TransportError } from "./errors";
 import type { JsonValue } from "./json";
 import type { RpcEventHandler } from "./transport";
 
@@ -69,13 +69,44 @@ export function parseFrame(data: string): unknown {
   }
 }
 
-export async function handshakeSubscription(socket: WebSocket, timeoutMilliseconds: number): Promise<void> {
-  await sendSocketRequest(
+const handshakeResultSchema = z.object({
+  identity: z
+    .object({
+      persistence_root_id: z.string().optional(),
+    })
+    .optional(),
+});
+
+// assertHandshakeRoot enforces that a connected server serves the persistence
+// root the GUI loaded its configuration from. expectedRootId is empty for the
+// default root (validation skipped); otherwise the server's reported
+// identity.persistence_root_id must match exactly. A server that reports no id
+// (older build) is rejected when an id is required, mirroring the Go client.
+export function assertHandshakeRoot(result: unknown, expectedRootId: string): void {
+  if (expectedRootId.length === 0) {
+    return;
+  }
+  const parsed = handshakeResultSchema.safeParse(result);
+  const reported = parsed.success ? (parsed.data.identity?.persistence_root_id ?? "") : "";
+  if (reported !== expectedRootId) {
+    throw new ServerRootMismatchError(
+      "The Kent server on this endpoint serves a different persistence root than the one this app is configured for. Start a server for the selected root (kent serve --persistence-root <root>) or check KENT_PERSISTENCE_ROOT.",
+    );
+  }
+}
+
+export async function handshakeSubscription(
+  socket: WebSocket,
+  timeoutMilliseconds: number,
+  expectedRootId: string,
+): Promise<void> {
+  const result = await sendSocketRequest(
     socket,
     handshakeMethod,
     { protocol_version: protocolVersion },
     timeoutMilliseconds,
   );
+  assertHandshakeRoot(result, expectedRootId);
 }
 
 export async function sendSocketRequest(

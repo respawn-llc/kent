@@ -92,6 +92,7 @@ func (r metaContextBuildResult) OrderedBaseMessages() []llm.Message {
 type metaContextBuilder struct {
 	workspaceRoot    string
 	environmentCWD   string
+	globalConfigDir  string
 	model            string
 	thinkingLevel    string
 	disabledSkills   map[string]bool
@@ -129,6 +130,14 @@ func (b metaContextBuilder) withEnvironmentCWD(cwd string) metaContextBuilder {
 	return b
 }
 
+// withGlobalConfigDir selects the absolute persistence root that owns global
+// model-visible context (global AGENTS.md, skills, generated skills). Empty
+// leaves the home-based default in effect.
+func (b metaContextBuilder) withGlobalConfigDir(globalConfigDir string) metaContextBuilder {
+	b.globalConfigDir = strings.TrimSpace(globalConfigDir)
+	return b
+}
+
 func (b metaContextBuilder) withSubagents(settings config.Settings, enabledTools []toolspec.ID) metaContextBuilder {
 	b.subagentSettings = settings
 	b.enabledTools = append([]toolspec.ID(nil), enabledTools...)
@@ -152,7 +161,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	}
 
 	if opts.IncludeSkills {
-		skills, issues, err := discoverInjectedSkills(b.workspaceRoot, b.disabledSkills)
+		skills, issues, err := discoverInjectedSkills(b.workspaceRoot, b.globalConfigDir, b.disabledSkills)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
@@ -214,7 +223,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 }
 
 func (b metaContextBuilder) agentPathRanks() (map[string]int, error) {
-	paths, err := agentsInjectionPaths(b.workspaceRoot)
+	paths, err := agentsInjectionPaths(b.workspaceRoot, b.globalConfigDir)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +235,7 @@ func (b metaContextBuilder) agentPathRanks() (map[string]int, error) {
 }
 
 func (b metaContextBuilder) discoverAgents(permissive bool) ([]llm.Message, error) {
-	paths, err := agentsInjectionPaths(b.workspaceRoot)
+	paths, err := agentsInjectionPaths(b.workspaceRoot, b.globalConfigDir)
 	if err != nil {
 		if permissive {
 			return nil, nil

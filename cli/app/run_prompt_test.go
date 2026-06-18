@@ -21,7 +21,6 @@ import (
 	"core/shared/sessioncontract"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,6 +144,9 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"worktree reply"})
 	defer fakeResponses.Close()
 
+	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	defer stopServer()
+
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:             worktree,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
@@ -215,6 +217,16 @@ func (s *configuredProjectViewRemoteStub) Identity() protocol.ServerIdentity {
 		return protocol.ServerIdentity{}
 	}
 	return s.identity
+}
+
+func (s *configuredProjectViewRemoteStub) RequireRoot(rootID string) error {
+	if s == nil {
+		return errors.New("remote client is required")
+	}
+	if rootID != "" && s.identity.PersistenceRootID != rootID {
+		return errors.New("project view root mismatch")
+	}
+	return nil
 }
 
 func (s *configuredProjectViewRemoteStub) ListProjects(ctx context.Context, req serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
@@ -508,28 +520,6 @@ func TestRunPromptAskHandlerReturnsError(t *testing.T) {
 	}
 }
 
-func TestRunPromptWithoutAuthReturnsErrAuthNotConfiguredWithoutReadingStdin(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	originalStdin := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe stdin: %v", err)
-	}
-	_ = w.Close()
-	os.Stdin = r
-	t.Cleanup(func() {
-		os.Stdin = originalStdin
-		_ = r.Close()
-	})
-
-	_, err = RunPrompt(context.Background(), Options{WorkspaceRoot: workspace}, "hello", 0, nil)
-	if !errors.Is(err, auth.ErrAuthNotConfigured) {
-		t.Fatalf("expected auth not configured without stdin prompt, got %v", err)
-	}
-}
-
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
@@ -567,13 +557,14 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 
 }
 
-func TestRunPromptRejectsIncompatibleConfiguredDaemonAndFallsBackToEmbedded(t *testing.T) {
+func TestRunPromptWithIncompatibleServerReportsIncompatibleError(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
-	fakeResponses, hits := newFakeResponsesServer(t, []string{"embedded fallback reply"})
-	defer fakeResponses.Close()
-
+	// A reachable but capability-incompatible server (e.g. an older build without
+	// RunPrompt) must surface the distinct "incompatible server" error directing
+	// the operator to restart/upgrade it, not the generic "no server" error that
+	// would invite starting a conflicting second server.
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{
 		JSONRPCWebSocket: true,
 		ProjectAttach:    true,
@@ -588,69 +579,13 @@ func TestRunPromptRejectsIncompatibleConfiguredDaemonAndFallsBackToEmbedded(t *t
 	})
 	defer cleanup()
 
-	result, err := RunPrompt(context.Background(), Options{
+	_, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         fakeResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, "hello through fallback", 0, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if result.Result != "embedded fallback reply" {
-		t.Fatalf("result = %q, want %q", result.Result, "embedded fallback reply")
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("expected embedded fallback llm call once, got %d", hits.Load())
-	}
-}
-
-func TestStartRunPromptClientFallsBackToEmbeddedWhenDaemonLaunchFails(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if handleTestOpenAIInputTokenCount(w, r, 1) {
-			return
-		}
-		if r.URL.Path != "/responses" {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		writeTestOpenAICompletedResponseStream(w, "embedded fallback", 1, 1)
-	}))
-	defer server.Close()
-
-	originalLaunch := launchRunPromptDaemon
-	t.Cleanup(func() { launchRunPromptDaemon = originalLaunch })
-	launchRunPromptDaemon = func(context.Context, Options) (*client.Remote, func() error, bool, error) {
-		return nil, nil, false, errors.New("daemon launch failed")
-	}
-
-	runClient, closeFn, err := startRunPromptClient(context.Background(), Options{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         server.URL,
-		OpenAIBaseURLExplicit: true,
-	})
-	if err != nil {
-		t.Fatalf("startRunPromptClient: %v", err)
-	}
-	defer func() {
-		if closeFn != nil {
-			_ = closeFn()
-		}
-	}()
-
-	response, err := runClient.RunPrompt(context.Background(), serverapi.RunPromptRequest{
-		ClientRequestID: "req-embedded-fallback",
-		Prompt:          "hello",
-	}, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if response.Result != "embedded fallback" {
-		t.Fatalf("result = %q, want embedded fallback", response.Result)
+	}, "hello", 0, nil)
+	if !errors.Is(err, errRunServerIncompatible) {
+		t.Fatalf("RunPrompt error = %v, want errRunServerIncompatible", err)
 	}
 }
 
@@ -756,47 +691,17 @@ func TestTryDialMatchingConfiguredRemoteSkipsUnregisteredWorkspace(t *testing.T)
 	}
 }
 
-func TestStartLocalRunPromptDaemonAttemptsLaunchWhenRegistrationMustBeResolvedByServer(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-	configureAppTestServerPort(t)
-
-	originalResolve := resolveDaemonExecutablePath
-	t.Cleanup(func() { resolveDaemonExecutablePath = originalResolve })
-
-	lookupCalls := 0
-	resolveDaemonExecutablePath = func() (string, bool) {
-		lookupCalls++
-		return "/bin/false", true
-	}
-
-	remote, closeFn, ok, err := startLocalRunPromptDaemon(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	if err == nil {
-		t.Fatal("expected daemon launch attempt to fail for unregistered workspace probe")
-	}
-	if ok {
-		t.Fatal("expected no connected daemon client after failed launch attempt")
-	}
-	if remote != nil {
-		t.Fatalf("expected no remote client, got %v", remote)
-	}
-	if closeFn != nil {
-		t.Fatal("expected no close function when launch is skipped")
-	}
-	if lookupCalls != 1 {
-		t.Fatalf("expected daemon executable lookup once, got %d calls", lookupCalls)
-	}
-}
-
-func TestStartRunPromptClientUnregisteredWorkspaceReturnsRegistrationError(t *testing.T) {
+func TestStartRunPromptClientWithoutServerRequiresRunningServer(t *testing.T) {
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
 	saveReadyAppAuthState(t, workspace)
 
+	// kent run is a pure client: with no server running it cannot start one of
+	// its own, so it must fail with the "server required" error.
 	runClient, closeFn, err := startRunPromptClient(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-		t.Fatalf("startRunPromptClient error = %v, want ErrWorkspaceNotRegistered", err)
+	if !errors.Is(err, errRunRequiresServer) {
+		t.Fatalf("startRunPromptClient error = %v, want errRunRequiresServer", err)
 	}
 	if runClient != nil {
 		t.Fatalf("expected no run client, got %v", runClient)
@@ -1028,5 +933,39 @@ func TestTryDialConfiguredRunPromptRemoteSkipsServerWithoutProjectAttachCapabili
 	}
 	if !projectViews.closed.Load() {
 		t.Fatal("expected incompatible project view remote to be closed")
+	}
+}
+
+func TestServerAttachRemotePolicySetsRootIDOnlyForExplicitRoot(t *testing.T) {
+	explicit := config.App{
+		PersistenceRoot: filepath.Join(string(filepath.Separator), "tmp", "iso-root"),
+		Source:          config.SourceReport{Sources: map[string]string{"persistence_root": "flag"}},
+	}
+	policy := serverAttachRemotePolicy(explicit, remoteattach.SupportsRunPrompt, true)
+	if want := config.PersistenceRootHash(explicit.PersistenceRoot); policy.RootID != want {
+		t.Fatalf("explicit-root policy RootID = %q, want %q", policy.RootID, want)
+	}
+
+	defaultRoot := config.App{
+		PersistenceRoot: filepath.Join(string(filepath.Separator), "home", "u", ".kent"),
+		Source:          config.SourceReport{Sources: map[string]string{"persistence_root": "default"}},
+	}
+	if policy := serverAttachRemotePolicy(defaultRoot, remoteattach.SupportsRunPrompt, true); policy.RootID != "" {
+		t.Fatalf("default-root policy RootID = %q, want empty (no root validation)", policy.RootID)
+	}
+
+	// An explicit flag/env root that resolves to the default <home>/.kent must
+	// not require a root id, so default-root attaches stay compatible with older
+	// servers that report an empty id.
+	resolvedDefault, err := config.NormalizePersistenceRoot(config.DefaultPersistence)
+	if err != nil {
+		t.Fatalf("normalize default root: %v", err)
+	}
+	explicitDefault := config.App{
+		PersistenceRoot: resolvedDefault,
+		Source:          config.SourceReport{Sources: map[string]string{"persistence_root": "flag"}},
+	}
+	if policy := serverAttachRemotePolicy(explicitDefault, remoteattach.SupportsRunPrompt, true); policy.RootID != "" {
+		t.Fatalf("explicit-default-root policy RootID = %q, want empty (no root validation)", policy.RootID)
 	}
 }

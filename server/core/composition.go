@@ -49,7 +49,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	if err != nil {
 		return nil, fmt.Errorf("persistence bundle: root lock: %w", err)
 	}
-	generatedSupport, err := serverbootstrap.BuildGeneratedSupport(ctx)
+	generatedSupport, err := serverbootstrap.BuildGeneratedSupport(ctx, cfg.PersistenceRoot)
 	if err != nil {
 		_ = rootLease.Close()
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)
@@ -98,14 +98,18 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	processOutputService := processview.NewProcessOutputService(runtimeSupport.Background, runtimeSupport.Background)
 	sessionRuntimeService := sessionruntime.NewService(cfg.PersistenceRoot, metadataStore, authSupport.AuthManager, runtimeSupport.FastModeState, runtimeSupport.Background, runtimeSupport.BackgroundRouter, runtimeRegistry, sessionStoreRegistry, storeOptions...).
 		WithGeneratedRecoveredWarningProvider(func() (string, bool, error) {
-			nonEmpty, err := prompts.RecoveredRootNonEmpty()
+			nonEmpty, err := prompts.RecoveredRootNonEmptyFor(cfg.PersistenceRoot)
 			if err != nil {
 				return "", false, err
 			}
 			if !nonEmpty {
 				return "", false, nil
 			}
-			return prompts.RecoveredWarning(), true, nil
+			warning, warnErr := prompts.RecoveredWarningFor(cfg.PersistenceRoot)
+			if warnErr != nil {
+				return "", false, warnErr
+			}
+			return warning, true, nil
 		})
 	sessionStoreResolver := registry.NewGlobalPersistenceSessionResolver(cfg.PersistenceRoot, storeOptions...)
 	promptControlService := promptcontrol.NewPromptControlService(runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService).WithCollaborativeRuntimeResolver(sessionRuntimeService)

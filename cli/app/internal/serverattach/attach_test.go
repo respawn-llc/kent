@@ -3,7 +3,9 @@ package serverattach
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,17 +13,29 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protocol"
+	"core/shared/rpcwire"
 	"core/shared/serverapi"
 )
 
 type projectViewRemoteStub struct {
-	identity protocol.ServerIdentity
-	plan     func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
-	closed   bool
+	identity     protocol.ServerIdentity
+	plan         func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
+	pinnedRootID string
+	closed       bool
 }
 
 func (s *projectViewRemoteStub) Close() error {
 	s.closed = true
+	return nil
+}
+
+// RequireRoot mirrors client.Remote: it records the pinned id and rejects a
+// mismatch against the stub's stamped identity (empty id disables validation).
+func (s *projectViewRemoteStub) RequireRoot(rootID string) error {
+	s.pinnedRootID = rootID
+	if rootID != "" && s.identity.PersistenceRootID != rootID {
+		return errors.New("project view root mismatch")
+	}
 	return nil
 }
 
@@ -281,6 +295,215 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 	}
 	if acceptedPID != 42 {
 		t.Fatalf("accepted pid = %d, want 42", acceptedPID)
+	}
+}
+
+func TestResolveWithoutStartersReturnsNoServerAvailable(t *testing.T) {
+	// A pure client (no LaunchDaemon, no StartEmbedded) that cannot attach to a
+	// configured remote must surface ErrNoServerAvailable rather than panicking
+	// on a nil StartEmbedded. This backs the headless kent run pure-client path.
+	resolution, err := Resolve[string](context.Background(), Request[string]{
+		Mode: ModeHeadless,
+		Remote: testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+			return nil, errors.New("configured remote unavailable")
+		}),
+		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrNoServerAvailable) {
+		t.Fatalf("err = %v, want ErrNoServerAvailable", err)
+	}
+	if resolution.Value != "" {
+		t.Fatalf("resolution value = %q, want empty", resolution.Value)
+	}
+}
+
+func boundProjectViewWithRoot(rootID string) *projectViewRemoteStub {
+	return &projectViewRemoteStub{
+		identity: protocol.ServerIdentity{Capabilities: allCapabilities(), PersistenceRootID: rootID},
+		plan: func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+			return boundPlanResponse(), nil
+		},
+	}
+}
+
+func TestRootMatches(t *testing.T) {
+	if !rootMatches("", protocol.ServerIdentity{PersistenceRootID: "anything"}) {
+		t.Fatal("no required root must match any identity")
+	}
+	if !rootMatches("root-want", protocol.ServerIdentity{PersistenceRootID: "root-want"}) {
+		t.Fatal("matching root must match")
+	}
+	if rootMatches("root-want", protocol.ServerIdentity{PersistenceRootID: "root-other"}) {
+		t.Fatal("mismatched root must not match")
+	}
+	if rootMatches("root-want", protocol.ServerIdentity{}) {
+		t.Fatal("server with no reported root must not match when a root is required")
+	}
+}
+
+func TestResolveRejectsConfiguredRemoteWithMismatchedRootID(t *testing.T) {
+	// A reachable server serving a different root, with no local starter, must
+	// surface ErrReachableServerRootMismatch (not ErrNoServerAvailable) so the run
+	// path tells the operator to stop/reconfigure the other-root server rather
+	// than start another that would conflict on the same address.
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return boundProjectViewWithRoot("root-other"), nil
+	})
+	policy.RootID = "root-want"
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrReachableServerRootMismatch) {
+		t.Fatalf("err = %v, want ErrReachableServerRootMismatch for mismatched root", err)
+	}
+	if errors.Is(err, ErrNoServerAvailable) {
+		t.Fatal("a reachable wrong-root server must not be reported as no server available")
+	}
+	var mismatch *RootMismatchServerError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("err = %v, want *RootMismatchServerError", err)
+	}
+	if strings.TrimSpace(mismatch.Reason) == "" {
+		t.Fatal("root mismatch error must carry a reason naming the other server")
+	}
+}
+
+func TestResolveReportsRootMismatchForServerReportingNoRoot(t *testing.T) {
+	// An older server that reports no persistence root must be surfaced as a root
+	// mismatch when a root is required, not as "no server available".
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return boundProjectViewWithRoot(""), nil
+	})
+	policy.RootID = "root-want"
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrReachableServerRootMismatch) {
+		t.Fatalf("err = %v, want ErrReachableServerRootMismatch for a server reporting no root", err)
+	}
+}
+
+func TestResolveAttachesConfiguredRemoteWithMatchingRootID(t *testing.T) {
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return boundProjectViewWithRoot("root-want"), nil
+	})
+	policy.RootID = "root-want"
+	// The dialed workspace remote must also report the required root, since
+	// RequireRoot now pins it for reconnect validation. Use a real server so the
+	// handshake identity carries the matching persistence root id.
+	dialWorkspace, closeServer := dialWorkspaceServerWithRoot(t, "root-want")
+	defer closeServer()
+	policy.DialWorkspace = dialWorkspace
+	resolution, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolution.Source != SourceConfiguredRemote {
+		t.Fatalf("source = %q, want configured remote", resolution.Source)
+	}
+	if resolution.Value != "remote" {
+		t.Fatalf("value = %q, want remote", resolution.Value)
+	}
+}
+
+// dialWorkspaceServerWithRoot starts a minimal RPC server whose handshake
+// reports the given persistence root id, returning a DialWorkspace that attaches
+// to it. It lets root-validation tests exercise the real client handshake path
+// where ServerIdentity.PersistenceRootID is populated.
+func dialWorkspaceServerWithRoot(t *testing.T, rootID string) (remoteattach.DialWorkspace, func()) {
+	t.Helper()
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
+		for event := range conn.Events() {
+			if event.Err != nil {
+				return
+			}
+			req := event.Frame.Request()
+			switch req.Method {
+			case protocol.MethodHandshake:
+				_ = conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1", PersistenceRootID: rootID}})))
+			case protocol.MethodAttachProject:
+				_ = conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, protocol.AttachResponse{Kind: "project", ProjectID: "project-1"})))
+			default:
+				return
+			}
+		}
+	}))
+	wsURL := "ws" + server.URL[len("http"):]
+	dial := func(ctx context.Context, _ config.App, projectID string, _ string) (*client.Remote, error) {
+		return client.DialRemoteURLForProject(ctx, wsURL, projectID)
+	}
+	return dial, server.Close
+}
+
+func TestResolveWithoutStartersReportsIncompatibleServer(t *testing.T) {
+	// A reachable server that fails the capability check, with no local starter,
+	// must surface ErrServerIncompatible (not ErrNoServerAvailable) so the run
+	// path can tell the operator to restart/upgrade the running server.
+	policy := testRemotePolicyWithDiscovery(boundProjectDial)
+	policy.Supports = func(protocol.CapabilityFlags) bool { return false }
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrServerIncompatible) {
+		t.Fatalf("err = %v, want ErrServerIncompatible", err)
+	}
+	if errors.Is(err, ErrNoServerAvailable) {
+		t.Fatal("incompatible server must not be reported as no server available")
+	}
+	var incompatible *IncompatibleServerError
+	if !errors.As(err, &incompatible) {
+		t.Fatalf("err = %v, want *IncompatibleServerError", err)
+	}
+	if strings.TrimSpace(incompatible.Reason) == "" {
+		t.Fatal("incompatible server error must carry a reason explaining why")
+	}
+}
+
+func TestResolveIncompatibleServerReportsProtocolVersionReason(t *testing.T) {
+	// A server reporting a different protocol version must surface that version
+	// skew as the reason, so the operator learns it is an older/newer build.
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return &projectViewRemoteStub{
+			identity: protocol.ServerIdentity{ProtocolVersion: "0.0.0-legacy", ServerID: "kent:7", PID: 7},
+			plan: func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+				return boundPlanResponse(), nil
+			},
+		}, nil
+	})
+	policy.Supports = remoteattach.SupportsRunPrompt
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	var incompatible *IncompatibleServerError
+	if !errors.As(err, &incompatible) {
+		t.Fatalf("err = %v, want *IncompatibleServerError", err)
+	}
+	if !strings.Contains(incompatible.Reason, "0.0.0-legacy") || !strings.Contains(incompatible.Reason, protocol.Version) {
+		t.Fatalf("reason = %q, want it to name the reported and required protocol versions", incompatible.Reason)
 	}
 }
 

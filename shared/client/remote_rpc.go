@@ -202,7 +202,12 @@ func (c *Remote) openRPCConn(ctx context.Context) (rpcwire.Conn, func(), error) 
 		return nil, nil, err
 	}
 	cleanup := func() { _ = conn.Close() }
-	if _, err := handshakeRPC(ctx, conn); err != nil {
+	identity, err := handshakeRPC(ctx, conn)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	if err := validateIdentityRoot(c.rootID(), identity); err != nil {
 		cleanup()
 		return nil, nil, err
 	}
@@ -348,6 +353,26 @@ func (c *remoteControlConn) currentErr() error {
 		return io.EOF
 	}
 	return c.err
+}
+
+// ErrServerRootMismatch reports that an attached (or reconnected) server reports
+// a different persistence root than the client pinned via Remote.RequireRoot.
+// Callers match it with errors.Is rather than comparing message text.
+var ErrServerRootMismatch = errors.New("attached server reports a different persistence root than required")
+
+// validateIdentityRoot enforces the pinned persistence-root id against a server
+// identity. An empty expectedRootID disables validation. A server that does not
+// report its root (empty id, e.g. an older build) is rejected when an id is
+// required, since the whole point is to refuse instances whose root cannot be
+// confirmed.
+func validateIdentityRoot(expectedRootID string, identity protocol.ServerIdentity) error {
+	if strings.TrimSpace(expectedRootID) == "" {
+		return nil
+	}
+	if identity.PersistenceRootID != expectedRootID {
+		return ErrServerRootMismatch
+	}
+	return nil
 }
 
 func handshakeRPC(ctx context.Context, conn rpcwire.Conn) (protocol.ServerIdentity, error) {

@@ -24,6 +24,11 @@ type ProjectViewRemote interface {
 	client.ProjectViewClient
 	Close() error
 	Identity() protocol.ServerIdentity
+	// RequireRoot pins the persistence-root id that every (re)connect handshake
+	// on this connection must report, so a control connection that drops and
+	// reconnects over the fallback TCP endpoint cannot silently serve a
+	// different root. An empty id disables validation.
+	RequireRoot(rootID string) error
 }
 
 type DialProjectView func(context.Context, config.App) (ProjectViewRemote, error)
@@ -39,6 +44,9 @@ type HeadlessRequest struct {
 	DialWorkspace    DialWorkspace
 	Accept           Accept
 	Supports         Supports
+	// RootID, when non-empty, is pinned on the attached remote so every
+	// (re)connect handshake must report a matching persistence root id.
+	RootID string
 }
 
 type InteractiveRequest struct {
@@ -49,6 +57,9 @@ type InteractiveRequest struct {
 	Accept          Accept
 	Supports        Supports
 	RequireBound    bool
+	// RootID, when non-empty, is pinned on the attached remote so every
+	// (re)connect handshake must report a matching persistence root id.
+	RootID string
 }
 
 func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, bool, error) {
@@ -72,6 +83,14 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		_ = projectViews.Close()
 		return nil, false, nil
 	}
+	// Pin the expected root before the first discovery RPC so a control
+	// connection that drops between identity acceptance and discovery cannot
+	// reconnect over the fallback TCP endpoint and resolve a binding plan from a
+	// different root before validation runs.
+	if err := projectViews.RequireRoot(req.RootID); err != nil {
+		_ = projectViews.Close()
+		return nil, true, err
+	}
 	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, req.DiscoveryTimeout)
 	plan, err := projectViews.PlanWorkspaceBinding(discoveryCtx, serverapi.ProjectBindingPlanRequest{Path: req.Config.WorkspaceRoot, Mode: serverapi.ProjectBindingPlanModeHeadless})
 	discoveryCancel()
@@ -90,6 +109,10 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		if err != nil {
 			return nil, true, err
 		}
+		if err := remote.RequireRoot(req.RootID); err != nil {
+			_ = remote.Close()
+			return nil, true, err
+		}
 		return remote, true, nil
 	case serverapi.ProjectBindingPlanKindLocalUnbound:
 		_ = projectViews.Close()
@@ -105,6 +128,10 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		_ = projectViews.Close()
 		remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, plan.Workspace.ProjectID, plan.Workspace.WorkspaceID)
 		if err != nil {
+			return nil, true, err
+		}
+		if err := remote.RequireRoot(req.RootID); err != nil {
+			_ = remote.Close()
 			return nil, true, err
 		}
 		return remote, true, nil
@@ -132,6 +159,13 @@ func DialInteractive(ctx context.Context, req InteractiveRequest) (*client.Remot
 		_ = projectViews.Close()
 		return nil, false
 	}
+	// Pin the expected root before the first discovery RPC so a dropped control
+	// connection cannot reconnect over the fallback TCP endpoint and resolve a
+	// binding from a different root before validation runs.
+	if err := projectViews.RequireRoot(req.RootID); err != nil {
+		_ = projectViews.Close()
+		return nil, false
+	}
 	binding, resolveErr := resolveInteractiveBinding(attachCtx, projectViews, req.Config.WorkspaceRoot)
 	if resolveErr != nil {
 		_ = projectViews.Close()
@@ -147,11 +181,17 @@ func DialInteractive(ctx context.Context, req InteractiveRequest) (*client.Remot
 			_ = projectViews.Close()
 			return nil, false
 		}
+		// projectViews was already pinned via RequireRoot above, so the
+		// unbound remote we return keeps validating its root on every reconnect.
 		return remote, true
 	}
 	_ = projectViews.Close()
 	remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, binding.ProjectID, binding.WorkspaceID)
 	if err != nil {
+		return nil, false
+	}
+	if err := remote.RequireRoot(req.RootID); err != nil {
+		_ = remote.Close()
 		return nil, false
 	}
 	return remote, true

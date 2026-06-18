@@ -5,7 +5,7 @@ description: Settings locations, precedence, CLI and environment overrides, and 
 
 ## Precedence
 
-Kent resolves settings in this order (higher no. = higher priority):
+Kent resolves settings in this order (ascending priority):
 
 1. Built-in defaults
 2. `~/.kent/config.toml`
@@ -13,34 +13,23 @@ Kent resolves settings in this order (higher no. = higher priority):
 4. Environment variables
 5. `kent run` CLI flags
 
-Interactive session flows resolve workspace-local config from the session workspace root. `kent serve` starts without a workspace root and applies workspace config only when a project/session selects a workspace. `kent run` is the only entrypoint that accepts config override flags.
+Interactive session flows resolve workspace-local config from the session workspace root. 
+
+:::tip
+`kent serve` starts without a workspace root and applies workspace config only when a project/session selects a workspace, so it doesn't matter where you run `kent serve`
+:::
 
 ## Locations
 
 ### Persistence root
 
-Global settings live at:
+- Workspace settings live at: `<workspace-root>/.kent/config.toml`. Note that workspace root is not necessarily the same as where you might have started the TUI - it's where the agent will actually do the work.
 
-```text
-~/.kent/config.toml
-```
+- Global settings live at: `~/.kent/config.toml`, and this location (along with all other data storage) is overridable via `--persistence-root`. The flag also relocates the root's model-visible global context — global `AGENTS.md`, the global system-prompt file, global skills, and generated assets.
+When you select a non-default root via the flag, Kent normalizes it to an absolute path and publishes it as `KENT_PERSISTENCE_ROOT` for the process, so subagents launched via `kent run` and shell tools inherit the same isolated root.
+`kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration. The OS still holds a single service, so install with the root you want managed.
 
-Workspace settings live at:
-
-```text
-<workspace-root>/.kent/config.toml
-```
-
-Kent also installs a user-editable ripgrep config at:
-
-```text
-~/.kent/rg.conf
-```
-
-Kent creates `~/.kent/rg.conf` when missing and exports it to shell tools via `RIPGREP_CONFIG_PATH` only when you have not already set `RIPGREP_CONFIG_PATH` yourself.
-
-Changing `persistence_root` does not move either config file. `persistence_root` controls where Kent stores its database & auth state. The default is `~/.kent`.
-
+Selecting a non-default root also makes client attach root-aware: a client only attaches to a server that actually serves that root, and the check is re-applied if the connection drops and reconnects, so a run can never silently switch to a different instance that later takes over the same host and port. This prevents an isolated-root invocation (for example `kent run --persistence-root /tmp/root`) from attaching to your default `~/.kent` server when both resolve to the same host and port. If no server is serving the selected root, start one with `kent serve --persistence-root <root>` (or install the service with that root). Default-root behavior is unchanged — and a `--persistence-root`/`KENT_PERSISTENCE_ROOT` value that just points back at the default `~/.kent` is treated as the default, so it keeps working against an existing default-root server.
 
 ## Example
 
@@ -52,8 +41,8 @@ model_verbosity = "medium" # or "low"
 theme = "auto" # or light / dark
 web_search = "native"
 compaction_mode = "local" # or "native" (if supported)
-cache_warning_mode = "default" # cache invalidation messages; or "verbose" / "off"
-server_host = "127.0.0.1" # kent local server config
+cache_warning_mode = "default" # cache invalidation warning frequency; or "verbose" / "off"
+server_host = "127.0.0.1"
 server_port = 53082
 
 [timeouts]
@@ -70,7 +59,7 @@ trigger_handoff = true # proactive compaction by the model
 
 [shell]
 postprocessing_mode = "all" # shell output token optimizations by Kent, or "all" | "none" | "user"
-# postprocess_hook = "~/.kent/shell_postprocess_hook" # custom postprocess_hook, see docs
+# postprocess_hook = "~/.kent/shell_postprocess_hook" # custom processor, see docs
 
 [skills]
 "skill name" = true
@@ -84,7 +73,7 @@ frequency = "edits"
 # auth = "none" # or "inherit"
 # model_context_window = 64000
 timeout_seconds = 60
-verbose_output = false # show in ongoing transcript
+verbose_output = false # show supervisor suggestions in ongoing transcript
 # system_prompt_file = "~/.kent/reviewer_system_prompt.md"
 
 # custom subagent roles config, fast is the default one, always provided
@@ -143,17 +132,12 @@ verbose_output = false # show in ongoing transcript
 | `shell.postprocessing_mode` | string | `builtin` | `KENT_SHELL_POSTPROCESSING_MODE` |  | Semantic post-processing mode for `exec_command`. Allowed: `none`, `builtin`, `user`, `all`. `builtin` enables Kent processors only. `all` runs Kent processors first, then your hook. |
 | `shell.postprocess_hook` | string | `""` | `KENT_SHELL_POSTPROCESS_HOOK` |  | Optional executable/script path for a single local command post-processing hook. Kent sends JSON on stdin and expects JSON on stdout. |
 | `prevent_sleep` | string | `active` | `KENT_PREVENT_SLEEP` |  | Prevent system sleep while Kent is running. Allowed: `always` (while the server process is live), `active` (while any agent is working, plus up to one minute of idle-confirmation grace), `never` (disabled). Only system sleep is inhibited; screensaver and display sleep are unaffected. |
-| `persistence_root` | string | `~/.kent` | `KENT_PERSISTENCE_ROOT` |  | Root for auth, session, and workspace index storage. Does not change the location of `~/.kent/config.toml`. |
-
-### Timeouts
-
-| Key | Type | Default | Env | CLI | Description |
-| --- | --- | --- | --- | --- | --- |
 | `timeouts.model_request_seconds` | int | `400` | `KENT_TIMEOUTS_MODEL_REQUEST_SECONDS` | `kent run --model-timeout-seconds` | HTTP timeout for model requests. Must be `> 0`. |
 
 
 ### Supervisor
-Configure the supervisor agent that oversees model changes.
+Configure the supervisor agent that oversees model changes ("reviewer" is the legacy name of the feature).
+
 
 | Key | Type | Default | Env | Description |
 | --- | --- | --- | --- | --- |
@@ -165,27 +149,29 @@ Configure the supervisor agent that oversees model changes.
 | `reviewer.openai_base_url` | string | inherits `openai_base_url` for OpenAI-family reviewer providers | `KENT_REVIEWER_OPENAI_BASE_URL` | OpenAI-compatible base URL for the reviewer model. Non-OpenAI endpoints can run without Kent auth when the server accepts anonymous requests. |
 | `reviewer.auth` | string | `inherit` | `KENT_REVIEWER_AUTH` | Reviewer auth policy. `inherit` uses Kent's configured auth. `none` sends no `Authorization` header; providers that require auth return their normal runtime error. |
 | `reviewer.model_context_window` | int | inherits `model_context_window` | `KENT_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. The effective value must be at least `40000`. |
-| `reviewer.system_prompt_file` | string | `""` |  | Path to a custom supervisor system prompt file. Relative paths resolve from the config file directory. Workspace config overrides global config; no CLI or environment override is provided. |
+| `reviewer.system_prompt_file` | string | `""` |  | Path to a custom supervisor system prompt file. Relative paths resolve from the config file directory. Workspace config overrides global config; |
 | `reviewer.timeout_seconds` | int | `60` | `KENT_REVIEWER_TIMEOUT_SECONDS` | Reviewer HTTP timeout. Must be `> 0`. |
 | `reviewer.verbose_output` | bool | `false` | `KENT_REVIEWER_VERBOSE_OUTPUT` | Controls whether reviewer suggestion text is shown at all. When `false`, Kent only shows the concise reviewer result/status line. When `true`, Kent shows the full suggestion list at the moment the reviewer issues it, and the later reviewer status stays concise after the follow-up is applied or ignored. |
 
+
+
 ### Supervisor Capability Overrides
+Use these for custom supervisor models or supervisor providers when the built-in registry is not enough.
 
-Use these for custom reviewer models or reviewer providers when the built-in registry is not enough.
 
-| Key | Type | Default | Env | Description |
+| Key (inside `reviewer.provider_capabilities.*`)| Type | Default | Env | Description |
 | --- | --- | --- | --- | --- |
-| `reviewer.model_capabilities.supports_reasoning_effort` | bool | inherits `model_capabilities.supports_reasoning_effort` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the reviewer model as supporting reasoning effort / thinking levels. |
-| `reviewer.model_capabilities.supports_vision_inputs` | bool | inherits `model_capabilities.supports_vision_inputs` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS` | Marks the reviewer model as supporting multimodal image and PDF inputs. |
-| `reviewer.provider_capabilities.provider_id` | string | inherits `provider_capabilities.provider_id` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID` | Required whenever you set reviewer provider capability overrides. |
-| `reviewer.provider_capabilities.supports_responses_api` | bool | inherits `provider_capabilities.supports_responses_api` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API` | Marks the reviewer provider as supporting the Responses API. |
-| `reviewer.provider_capabilities.supports_responses_compact` | bool | inherits `provider_capabilities.supports_responses_compact` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT` | Marks the reviewer provider as supporting server-side compaction. |
-| `reviewer.provider_capabilities.supports_request_input_token_count` | bool | inherits `provider_capabilities.supports_request_input_token_count` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REQUEST_INPUT_TOKEN_COUNT` | Marks the reviewer provider as supporting exact request input-token counting. |
-| `reviewer.provider_capabilities.supports_prompt_cache_key` | bool | inherits `provider_capabilities.supports_prompt_cache_key` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY` | Marks the reviewer provider as accepting prompt cache keys. |
-| `reviewer.provider_capabilities.supports_native_web_search` | bool | inherits `provider_capabilities.supports_native_web_search` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH` | Marks the reviewer provider as supporting native web search. |
-| `reviewer.provider_capabilities.supports_reasoning_encrypted` | bool | inherits `provider_capabilities.supports_reasoning_encrypted` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED` | Marks the reviewer provider as supporting encrypted reasoning items. |
-| `reviewer.provider_capabilities.supports_server_side_context_edit` | bool | inherits `provider_capabilities.supports_server_side_context_edit` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT` | Marks the reviewer provider as supporting server-side context editing. |
-| `reviewer.provider_capabilities.is_openai_first_party` | bool | inherits `provider_capabilities.is_openai_first_party` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY` | Marks the reviewer provider as first-party OpenAI semantics. |
+| `supports_reasoning_effort` | bool | inherits `model_capabilities.supports_reasoning_effort` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the reviewer model as supporting reasoning effort / thinking levels. |
+| `supports_vision_inputs` | bool | inherits `model_capabilities.supports_vision_inputs` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS` | Marks the reviewer model as supporting multimodal image and PDF inputs. |
+| `provider_id` | string | inherits `provider_capabilities.provider_id` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID` | Required whenever you set reviewer provider capability overrides. |
+| `supports_responses_api` | bool | inherits `provider_capabilities.supports_responses_api` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API` | Marks the reviewer provider as supporting the Responses API. |
+| `supports_responses_compact` | bool | inherits `provider_capabilities.supports_responses_compact` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT` | Marks the reviewer provider as supporting server-side compaction. |
+| `supports_request_input_token_count` | bool | inherits `provider_capabilities.supports_request_input_token_count` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REQUEST_INPUT_TOKEN_COUNT` | Marks the reviewer provider as supporting exact request input-token counting. |
+| `supports_prompt_cache_key` | bool | inherits `provider_capabilities.supports_prompt_cache_key` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY` | Marks the reviewer provider as accepting prompt cache keys. |
+| `supports_native_web_search` | bool | inherits `provider_capabilities.supports_native_web_search` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH` | Marks the reviewer provider as supporting native web search. |
+| `supports_reasoning_encrypted` | bool | inherits `provider_capabilities.supports_reasoning_encrypted` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED` | Marks the reviewer provider as supporting encrypted reasoning items. |
+| `supports_server_side_context_edit` | bool | inherits `provider_capabilities.supports_server_side_context_edit` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT` | Marks the reviewer provider as supporting server-side context editing. |
+| `is_openai_first_party` | bool | inherits `provider_capabilities.is_openai_first_party` | `KENT_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY` | Marks the reviewer provider as first-party OpenAI semantics. |
 
 ### Model Capability Overrides
 
@@ -200,7 +186,8 @@ If both values stay `false`, Kent falls back to the built-in model capability re
 
 ### Provider Capability Overrides
 
-Use these only for custom providers or models.
+Use these only for custom providers or models (such as local models).
+
 
 | Key | Type | Default | Env | Description |
 | --- | --- | --- | --- | --- |
@@ -220,31 +207,35 @@ File-based tool toggles merge with defaults. `KENT_TOOLS` and `kent run --tools`
 
 | Key | Default | What enabling it exposes |
 | --- | --- | --- |
-| `tools.ask_question` | `true` | Tool to ask interactive questions |
+| `tools.ask_question` | task-dependent | Tool to ask interactive questions |
 | `tools.shell` | `true` | The primary shell tool. Internally this maps to `exec_command`. |
-| `tools.patch` | dynamic | Freeform patch grammar edit tool |
-| `tools.edit` | dynamic | JSON text replacement/create/delete edit tool |
+| `tools.patch` | model-dependent | Freeform patch grammar edit tool |
+| `tools.edit` | model-dependent | JSON text replacement/create/delete edit tool. Intended for models that are not trained to apply patches. |
 | `tools.trigger_handoff` | `false` | Experimental tool the agents can use to proactively compact their own context. |
-| `tools.view_image` | `true` | Ability to view PNG, JPEG, still GIF, and PDF files (if supported) |
-| `tools.web_search` | `true` | Tool to search the web |
+| `tools.view_image` | model-dependent | Ability to view PNG, JPEG, still GIF, and PDF files (if supported) |
+| `tools.web_search` | provider-dependent | Tool to search the web |
 | `tools.write_stdin` | `true` | Interaction with background shells. |
 
 Notes:
 
 - `tools.web_search = true` does not force web search on. Native search still depends on `web_search = "native"` and provider support.
-- `tools.patch` and `tools.edit` are mutually exclusive. If both are left at their defaults, Kent chooses `patch` for first-party OpenAI providers or `gpt-*` model names, and `edit` otherwise.
-- To force `edit`, set `edit = true` and `patch = false`.
+- `tools.patch` and `tools.edit` are mutually exclusive. If both are left at their defaults, Kent chooses `patch` for first-party OpenAI providers or `gpt-*` model names, and `edit` otherwise. To force `edit`, set `edit = true` and `patch = false`.
+
+## Ripgrep config
+
+Kent also installs an optimized, editable ripgrep config at:
+
+```text
+~/.kent/rg.conf
+```
+
+Kent creates `rg.conf` in the config+data root when missing and exports it to shell tools via `RIPGREP_CONFIG_PATH` only when you have not already set `RIPGREP_CONFIG_PATH` yourself. In an isolated root this is the root's own `rg.conf`, not the default `~/.kent/rg.conf`.
 
 ### Subagents
 
 `[subagents.<role>]` is a file-only table for named headless subagent roles. Fast is always-present, but you can add custom agents here.
 
-Subagent roles inherit the main config and then override only the keys set in that role table.
-Any effective main or reviewer context window used by a subagent role must be at least `40000`.
-Set `system_prompt_file` inside a subagent role to use a role-specific main system prompt for `kent run --agent <role>`.
-Set `description` to describe a behaviorally distinct role to other agents. Set `agent_callable = false` for roles that humans may run explicitly but agents should not call from Kent sessions.
-
-More info on the [Subagents page](../headless.md).
+More info on the [Subagents page](../headless/).
 
 ### Skills
 
@@ -259,4 +250,3 @@ Notes:
 
 - Skill toggles are only applied when Kent creates a new conversation/session.
 - Use `"quoted names"` to refer to skill keys containing spaces.
-- Preinstalled skills are seeded into `~/.kent/.generated/skills`; disable them here instead of editing generated files.

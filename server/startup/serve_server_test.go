@@ -375,6 +375,66 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	_ = tcpRemote.Close()
 }
 
+func TestEmbeddedServeBackgroundExposesAttachEndpointUntilClose(t *testing.T) {
+	workspace := newServeWorkspace(t)
+
+	server, err := Start(context.Background(), Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, envAuthHandler{}, noopOnboarding)
+	if err != nil {
+		t.Fatalf("Start embedded: %v", err)
+	}
+	if err := server.ServeBackground(); err != nil {
+		_ = server.Close()
+		t.Fatalf("ServeBackground: %v", err)
+	}
+
+	loadCfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		_ = server.Close()
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	// An external client can attach and the handshake reports an identity stamped
+	// with the persistence-root id, which is exactly what kent run validates.
+	var remote *client.Remote
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		remote, err = client.DialConfiguredRemote(context.Background(), loadCfg)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = server.Close()
+			t.Fatalf("DialConfiguredRemote: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	identity := remote.Identity()
+	_ = remote.Close()
+	if identity.ServerID == "" {
+		t.Fatal("expected embedded server identity over the attach endpoint")
+	}
+	if want := config.PersistenceRootHash(loadCfg.PersistenceRoot); identity.PersistenceRootID != want {
+		t.Fatalf("identity PersistenceRootID = %q, want %q", identity.PersistenceRootID, want)
+	}
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	// After Close the control endpoint is torn down: a fresh dial must fail.
+	closedDeadline := time.Now().Add(2 * time.Second)
+	for {
+		closedRemote, dialErr := client.DialRemoteURL(context.Background(), config.ServerRPCURL(loadCfg))
+		if dialErr != nil {
+			break
+		}
+		_ = closedRemote.Close()
+		if time.Now().After(closedDeadline) {
+			t.Fatal("embedded attach endpoint still reachable after Close")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 	workspace := newServeWorkspace(t)
 

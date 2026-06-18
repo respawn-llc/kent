@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"core/cli/app/internal/onboarding"
 	"core/server/llm"
@@ -26,6 +27,7 @@ func runOnboardingFlow(cfg config.App, authState onboarding.AuthState) (onboardi
 		commandImport:        onboardingImportSelection{Mode: onboardingImportModeNone},
 	}
 	model := newOnboardingModelForWorkspace(cfg.PersistenceRoot, cfg.WorkspaceRoot, state)
+	model.settingsPath = strings.TrimSpace(cfg.Source.HomeSettingsPath)
 	terminalCursor := newUITerminalCursorState()
 	model.terminalCursor = terminalCursor
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(newUITerminalCursorWriter(os.Stdout, terminalCursor)))

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -787,5 +788,70 @@ func TestMarkExplicitCommonFlagsIgnoresFlagTextInsidePrompt(t *testing.T) {
 	}
 	if flags.OpenAIBaseURLExplicit {
 		t.Fatal("did not expect prompt text to mark openai base url explicit")
+	}
+}
+
+func TestPublishPersistenceRootEnvNormalizesInheritedRelativeEnv(t *testing.T) {
+	t.Setenv(config.PersistenceRootEnvName, "rel-root")
+	if err := publishPersistenceRootEnv(""); err != nil {
+		t.Fatalf("publishPersistenceRootEnv: %v", err)
+	}
+	got := os.Getenv(config.PersistenceRootEnvName)
+	if !filepath.IsAbs(got) {
+		t.Fatalf("inherited relative env root = %q, want republished as absolute", got)
+	}
+}
+
+func TestRootCommandNormalizesInheritedRelativeEnvBeforeDispatch(t *testing.T) {
+	// Root-checking client subcommands (project/attach/rebind/goal/workflow/task)
+	// dispatch before the interactive path's publishPersistenceRootEnv call, so
+	// rootCommand must normalize an inherited relative env at entry or those
+	// commands would hash a root resolved against the wrong directory and reject
+	// the server. --version exercises the same entry-point normalization without
+	// requiring a reachable server.
+	t.Setenv(config.PersistenceRootEnvName, "rel-root")
+	var stdout, stderr strings.Builder
+	if code := rootCommand([]string{"--version"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("rootCommand --version exit = %d: %s", code, stderr.String())
+	}
+	if got := os.Getenv(config.PersistenceRootEnvName); !filepath.IsAbs(got) {
+		t.Fatalf("inherited relative env root = %q, want normalized to absolute at dispatch entry", got)
+	}
+}
+
+func TestRootCommandToleratesUnnormalizableInheritedEnvBeforeDispatch(t *testing.T) {
+	// A bad inherited KENT_PERSISTENCE_ROOT (here a tilde that cannot expand
+	// because HOME is unresolvable) must not abort dispatch at the entry-point
+	// normalization: a command that owns a --persistence-root flag re-publishes
+	// from the flag (which must win over the env), and a flag-less command surfaces
+	// the error at its own resolution boundary. --version exercises the entry-point
+	// path and returns before any flag re-publish, so a non-zero exit here would
+	// mean the entry normalization wrongly hard-failed.
+	t.Setenv("HOME", "")
+	t.Setenv(config.PersistenceRootEnvName, "~/cannot-expand")
+	var stdout, stderr strings.Builder
+	if code := rootCommand([]string{"--version"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("rootCommand --version exit = %d: %s", code, stderr.String())
+	}
+}
+
+func TestPublishPersistenceRootEnvFlagWinsOverEnv(t *testing.T) {
+	t.Setenv(config.PersistenceRootEnvName, "rel-root")
+	flagRoot := filepath.Join(string(filepath.Separator), "tmp", "flag-root")
+	if err := publishPersistenceRootEnv(flagRoot); err != nil {
+		t.Fatalf("publishPersistenceRootEnv: %v", err)
+	}
+	if got := os.Getenv(config.PersistenceRootEnvName); got != flagRoot {
+		t.Fatalf("env root = %q, want flag root %q", got, flagRoot)
+	}
+}
+
+func TestPublishPersistenceRootEnvLeavesUnsetEnvUntouched(t *testing.T) {
+	t.Setenv(config.PersistenceRootEnvName, "")
+	if err := publishPersistenceRootEnv(""); err != nil {
+		t.Fatalf("publishPersistenceRootEnv: %v", err)
+	}
+	if got := os.Getenv(config.PersistenceRootEnvName); got != "" {
+		t.Fatalf("env root = %q, want empty (untouched)", got)
 	}
 }

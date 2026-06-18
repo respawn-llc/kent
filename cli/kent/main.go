@@ -33,6 +33,7 @@ type commonFlags struct {
 	Tools                 string
 	OpenAIBaseURL         string
 	OpenAIBaseURLExplicit bool
+	PersistenceRoot       string
 }
 
 type runJSONResult struct {
@@ -85,6 +86,16 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 	if stderr == nil {
 		stderr = io.Discard
 	}
+	// Best-effort: normalize an inherited relative KENT_PERSISTENCE_ROOT to an
+	// absolute path before dispatch so root-checking client subcommands (project,
+	// attach, rebind, goal, workflow, task) hash the same root the server stamped
+	// rather than re-resolving the relative value against the current directory.
+	// This is intentionally non-fatal: a command that owns a --persistence-root
+	// flag re-publishes below, where the flag must win over a bad inherited env,
+	// and a flag-less command that genuinely cannot resolve its root surfaces the
+	// error at its own resolution boundary instead of aborting every command here.
+	// The blank-flag call is idempotent and leaves a default root (no env) untouched.
+	_ = publishPersistenceRootEnv("")
 	if len(args) > 0 && args[0] == "run" {
 		return runSubcommand(args[1:])
 	}
@@ -119,6 +130,7 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 	rootFS := newCommandFlagSet(config.Command, stderr, rootUsage)
 	showVersion := rootFS.Bool("version", false, "print version and exit")
 	forceInteractive := rootFS.Bool("force-interactive", false, "run interactive UI even when stdin/stdout are not terminals")
+	persistenceRoot := rootFS.String("persistence-root", "", "config and data root directory (overrides KENT_PERSISTENCE_ROOT and the default ~/.kent)")
 	flags := registerSessionFlags(rootFS)
 	if ok, exitCode := parseCommandFlags(rootFS, args); !ok {
 		return exitCode
@@ -142,10 +154,15 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 
 	opts := app.Options{
 		WorkspaceRoot: ".",
 		SessionID:     sessionID,
+		ConfigRoot:    strings.TrimSpace(*persistenceRoot),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -185,6 +202,29 @@ func isTerminalWriter(w io.Writer) bool {
 		return false
 	}
 	return term.IsTerminal(int(file.Fd()))
+}
+
+// publishPersistenceRootEnv normalizes the effective config+data root to an
+// absolute path and exports it as KENT_PERSISTENCE_ROOT so the resolved root
+// propagates to child processes (subagents launched via `kent run`, shell
+// ripgrep config) and any downstream re-resolution. The flag value wins; when
+// it is blank, an inherited KENT_PERSISTENCE_ROOT is normalized in place so a
+// relative env value (e.g. `KENT_PERSISTENCE_ROOT=rel kent serve`) does not get
+// re-resolved against a child's different working directory. A blank flag with
+// no inherited env leaves the environment untouched.
+func publishPersistenceRootEnv(flagValue string) error {
+	trimmed := strings.TrimSpace(flagValue)
+	if trimmed == "" {
+		trimmed = strings.TrimSpace(os.Getenv(config.PersistenceRootEnvName))
+		if trimmed == "" {
+			return nil
+		}
+	}
+	abs, err := config.NormalizePersistenceRoot(trimmed)
+	if err != nil {
+		return err
+	}
+	return os.Setenv(config.PersistenceRootEnvName, abs)
 }
 
 func runSubcommand(args []string) int {
@@ -250,6 +290,10 @@ func runSubcommand(args []string) int {
 		emitRunUsageError(outputMode, err.Error())
 		return 2
 	}
+	if err := publishPersistenceRootEnv(flags.PersistenceRoot); err != nil {
+		emitRunUsageError(outputMode, err.Error())
+		return 2
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -269,6 +313,7 @@ func runSubcommand(args []string) int {
 		Tools:                     flags.Tools,
 		OpenAIBaseURL:             flags.OpenAIBaseURL,
 		OpenAIBaseURLExplicit:     flags.OpenAIBaseURLExplicit,
+		ConfigRoot:                strings.TrimSpace(flags.PersistenceRoot),
 	}
 
 	var progress io.Writer
@@ -277,8 +322,9 @@ func runSubcommand(args []string) int {
 	}
 	result, runErr := runPromptApp(ctx, opts, prompt, timeout, progress)
 	continueID := strings.TrimSpace(result.SessionID)
-	continueCmd := prompts.ContinueRunCommand(continueID)
-	continueHint := buildRunContinueHint(continueID)
+	continueRoot := continueCommandPersistenceRoot(flags.PersistenceRoot)
+	continueCmd := prompts.ContinueRunCommandWithRoot(continueID, continueRoot)
+	continueHint := buildRunContinueHint(continueID, continueRoot)
 	if runErr != nil {
 		code := runErrorCode(runErr)
 		if outputMode == runOutputModeJSON {
@@ -338,6 +384,7 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout override in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "enabled tools override as csv (e.g. shell,patch)")
 	fs.StringVar(&flags.OpenAIBaseURL, "openai-base-url", "", "OpenAI-compatible base URL override")
+	fs.StringVar(&flags.PersistenceRoot, "persistence-root", "", "config and data root directory (overrides KENT_PERSISTENCE_ROOT and the default ~/.kent)")
 	return flags
 }
 
@@ -528,12 +575,29 @@ func effectiveRunAgentRole(raw string, fast bool) (string, error) {
 	return normalized, nil
 }
 
-func buildRunContinueHint(sessionID string) string {
-	command := prompts.ContinueRunCommand(sessionID)
+func buildRunContinueHint(sessionID, persistenceRoot string) string {
+	command := prompts.ContinueRunCommandWithRoot(sessionID, persistenceRoot)
 	if command == "" {
 		return ""
 	}
 	return fmt.Sprintf("To continue this run, execute `%s`.", command)
+}
+
+// continueCommandPersistenceRoot returns the absolute root to embed in a
+// continuation command when the run selected a non-default root via the
+// --persistence-root flag. A flag run is one-shot, so the emitted command must
+// carry the root to target the same instance; runs that rely on an inherited
+// KENT_PERSISTENCE_ROOT keep that env in the caller's shell and need nothing
+// added. Returns "" when no flag root was given.
+func continueCommandPersistenceRoot(flagValue string) string {
+	trimmed := strings.TrimSpace(flagValue)
+	if trimmed == "" {
+		return ""
+	}
+	if abs, err := config.NormalizePersistenceRoot(trimmed); err == nil {
+		return abs
+	}
+	return trimmed
 }
 
 func inferRunOutputMode(args []string) runOutputMode {

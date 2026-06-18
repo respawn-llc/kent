@@ -41,7 +41,7 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if e.baseMetaInjected {
 		return nil
 	}
-	builder := newActiveMetaContextBuilder(e.store.Meta(), e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now()).withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
+	builder := newActiveMetaContextBuilder(e.store.Meta(), e.cfg.Model, e.ThinkingLevel(), e.cfg.GlobalConfigDir, e.cfg.DisabledSkills, time.Now()).withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
 	metaResult, err := builder.Build(baseMetaContextBuildOptions(true))
 	if err != nil {
 		return err
@@ -77,7 +77,7 @@ func (e *Engine) steerHeadlessModeTransitionIfNeeded(stepID string) error {
 	if e.cfg.HeadlessMode == e.store.Meta().HeadlessActive {
 		return nil
 	}
-	builder := newMetaContextBuilder(e.store.Meta().WorkspaceRoot, e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now())
+	builder := newMetaContextBuilder(e.store.Meta().WorkspaceRoot, e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now()).withGlobalConfigDir(e.cfg.GlobalConfigDir)
 	if e.cfg.HeadlessMode {
 		metaResult, err := builder.Build(metaContextBuildOptions{IncludeHeadless: true})
 		if err != nil {
@@ -128,7 +128,7 @@ func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, stepID string) e
 }
 
 func (e *Engine) compactionReinjectedMetaMessages(ctx context.Context) ([]llm.Message, error) {
-	builder := newActiveMetaContextBuilder(e.store.Meta(), e.currentModel(), e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now()).withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
+	builder := newActiveMetaContextBuilder(e.store.Meta(), e.currentModel(), e.ThinkingLevel(), e.cfg.GlobalConfigDir, e.cfg.DisabledSkills, time.Now()).withSubagents(e.cfg.SubagentCatalogSettings, e.cfg.EnabledTools)
 	opts := baseMetaContextBuildOptions(false)
 	if e.workflowRunActive() {
 		mode, err := e.workflowCompletionMode(ctx)

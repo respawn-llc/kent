@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +22,31 @@ import (
 func TestMain(m *testing.M) {
 	_ = os.Unsetenv(sessionenv.SessionIDEnv)
 	os.Exit(m.Run())
+}
+
+func TestServiceServeArgumentsBakesPersistenceRoot(t *testing.T) {
+	args := serviceServeArguments("/tmp/isolated-root")
+	want := []string{"serve", "--persistence-root", "/tmp/isolated-root"}
+	if len(args) != len(want) {
+		t.Fatalf("serve arguments = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("serve arguments = %v, want %v", args, want)
+		}
+	}
+	cmd := serviceCommand(serviceSpec{Executable: "/usr/local/bin/kent", Arguments: args})
+	wantCmd := []string{"/usr/local/bin/kent", "serve", "--persistence-root", "/tmp/isolated-root"}
+	if strings.Join(cmd, " ") != strings.Join(wantCmd, " ") {
+		t.Fatalf("service command = %v, want %v", cmd, wantCmd)
+	}
+}
+
+func TestServiceServeArgumentsOmitsEmptyRoot(t *testing.T) {
+	args := serviceServeArguments("")
+	if len(args) != 1 || args[0] != "serve" {
+		t.Fatalf("serve arguments = %v, want [serve]", args)
+	}
 }
 
 type stubServiceBackend struct {
@@ -94,8 +120,12 @@ func withServiceCommandTestBackendEndpoint(t *testing.T, backend *stubServiceBac
 	loadServiceSpec = func() (serviceSpec, error) {
 		host, portText, _ := net.SplitHostPort(strings.TrimPrefix(endpoint, "http://"))
 		port := parsePositiveInt(portText)
+		// These cases pass no --persistence-root, so the resolved root is the
+		// default; an unpinned `serve` registration is the default-root service and
+		// must not trip the cross-root guard. Explicit-root cases use
+		// withServiceCommandTestSpecRoot, which bakes a matching --persistence-root.
 		return serviceSpec{
-			Config:        config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{ServerHost: host, ServerPort: port}},
+			Config:        config.App{PersistenceRoot: config.DefaultPersistence, Settings: config.Settings{ServerHost: host, ServerPort: port}},
 			Executable:    "/usr/local/bin/kent",
 			Arguments:     []string{"serve"},
 			LogDir:        "/tmp/kent/logs",
@@ -182,8 +212,10 @@ func TestServiceUninstallKeepRunning(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionUninstall {
-		t.Fatalf("calls = %+v, want uninstall only", backend.calls)
+	// uninstall first reads status to verify the registration targets this root.
+	want := []serviceAction{serviceActionStatus, serviceActionUninstall}
+	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
+		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
 	}
 	if backend.uninstallStop {
 		t.Fatal("expected --keep-running to skip stop")
@@ -209,6 +241,247 @@ func TestServiceUninstallRejectsKentShellSession(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func withServiceCommandTestSpecRoot(t *testing.T, root string) {
+	t.Helper()
+	// `serviceSubcommand(... --persistence-root ...)` publishes KENT_PERSISTENCE_ROOT
+	// process-wide; register it so it is restored and does not leak into later tests.
+	t.Setenv(config.PersistenceRootEnvName, "")
+	original := loadServiceSpec
+	t.Cleanup(func() { loadServiceSpec = original })
+	loadServiceSpec = func() (serviceSpec, error) {
+		return serviceSpec{
+			Config:        config.App{PersistenceRoot: root, Settings: config.Settings{ServerHost: "127.0.0.1", ServerPort: 1}},
+			Executable:    "/usr/local/bin/kent",
+			Arguments:     serviceServeArguments(root),
+			LogDir:        "/tmp/kent/logs",
+			StdoutLogPath: "/tmp/kent/logs/server.log",
+			StderrLogPath: "/tmp/kent/logs/server.err.log",
+			Endpoint:      "http://127.0.0.1:1",
+		}, nil
+	}
+}
+
+func TestServiceStopRejectsRootMismatch(t *testing.T) {
+	requestedRoot := filepath.Join(t.TempDir(), "requested")
+	installedRoot := filepath.Join(t.TempDir(), "installed")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", installedRoot},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, requestedRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"stop", "--persistence-root", requestedRoot}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	}
+	for _, call := range backend.calls {
+		if call == serviceActionStop {
+			t.Fatalf("stop must not run against a registration for a different root; calls=%+v", backend.calls)
+		}
+	}
+	if !strings.Contains(stderr.String(), requestedRoot) || !strings.Contains(stderr.String(), installedRoot) {
+		t.Fatalf("stderr = %q, want it to name both the requested and installed roots", stderr.String())
+	}
+}
+
+func TestServiceStopAllowsMatchingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", root},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, root)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"stop", "--persistence-root", root}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	sawStop := false
+	for _, call := range backend.calls {
+		if call == serviceActionStop {
+			sawStop = true
+		}
+	}
+	if !sawStop {
+		t.Fatalf("stop must run when the installed root matches; calls=%+v", backend.calls)
+	}
+}
+
+func TestServiceRestartIfInstalledTreatsRootMismatchAsNoOp(t *testing.T) {
+	requestedRoot := filepath.Join(t.TempDir(), "requested")
+	installedRoot := filepath.Join(t.TempDir(), "installed")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", installedRoot},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, requestedRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart", "--if-installed", "--persistence-root", requestedRoot}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	for _, call := range backend.calls {
+		if call == serviceActionRestart {
+			t.Fatalf("restart --if-installed must no-op when no service exists for the root; calls=%+v", backend.calls)
+		}
+	}
+}
+
+func TestWindowsRegisteredTaskRunPathParsesListOutput(t *testing.T) {
+	output := strings.Join([]string{
+		"Folder: \\",
+		"HostName:                             DESKTOP",
+		"TaskName:                             \\Kent",
+		"Task To Run:                          C:\\OtherRoot\\service\\server.cmd",
+		"Start In:                             N/A",
+	}, "\n")
+	got, ok := windowsRegisteredTaskRunPath(output)
+	if !ok || got != "C:\\OtherRoot\\service\\server.cmd" {
+		t.Fatalf("windowsRegisteredTaskRunPath = (%q, %v), want the registered Task To Run path", got, ok)
+	}
+}
+
+func TestWindowsRegisteredTaskRunPathAbsentReturnsFalse(t *testing.T) {
+	if got, ok := windowsRegisteredTaskRunPath("ERROR: The system cannot find the file specified."); ok {
+		t.Fatalf("windowsRegisteredTaskRunPath = (%q, true), want not found when no Task To Run field is present", got)
+	}
+}
+
+func TestWindowsStartupItemScriptPathParsesLauncher(t *testing.T) {
+	launcher := "@echo off\r\nstart \"\" /min cmd.exe /d /c \"C:\\OtherRoot\\service\\server.cmd\"\r\n"
+	got, ok := windowsStartupItemScriptPath(launcher)
+	if !ok || got != "C:\\OtherRoot\\service\\server.cmd" {
+		t.Fatalf("windowsStartupItemScriptPath = (%q, %v), want the launcher's embedded script path", got, ok)
+	}
+}
+
+func TestWindowsStartupItemScriptPathAbsentReturnsFalse(t *testing.T) {
+	if got, ok := windowsStartupItemScriptPath("@echo off\r\n"); ok {
+		t.Fatalf("windowsStartupItemScriptPath = (%q, true), want not found when no launcher line is present", got)
+	}
+}
+
+func TestWindowsRegisteredScriptPathPrefersTaskActionOverStartupLauncher(t *testing.T) {
+	taskOutput := "Task To Run:                          C:\\TaskRoot\\service\\server.cmd"
+	startupLauncher := "start \"\" /min cmd.exe /d /c \"C:\\StartupRoot\\service\\server.cmd\""
+	got, ok := windowsRegisteredScriptPath(taskOutput, startupLauncher)
+	if !ok || got != "C:\\TaskRoot\\service\\server.cmd" {
+		t.Fatalf("windowsRegisteredScriptPath = (%q, %v), want the scheduled-task action path", got, ok)
+	}
+}
+
+func TestWindowsRegisteredScriptPathFallsBackToStartupLauncher(t *testing.T) {
+	startupLauncher := "start \"\" /min cmd.exe /d /c \"C:\\StartupRoot\\service\\server.cmd\""
+	got, ok := windowsRegisteredScriptPath("ERROR: no such task", startupLauncher)
+	if !ok || got != "C:\\StartupRoot\\service\\server.cmd" {
+		t.Fatalf("windowsRegisteredScriptPath = (%q, %v), want the Startup launcher path when no task action exists", got, ok)
+	}
+}
+
+func TestWindowsRegisteredScriptPathAbsentReturnsFalse(t *testing.T) {
+	// With neither an authoritative task action nor a Startup launcher, the
+	// installed root is indeterminate and callers must not substitute a
+	// requested-root path.
+	if got, ok := windowsRegisteredScriptPath("", ""); ok {
+		t.Fatalf("windowsRegisteredScriptPath = (%q, true), want indeterminate when no registration path exists", got)
+	}
+}
+
+func TestRootMismatchErrorRejectsUnpinnedRegistrationForExplicitRoot(t *testing.T) {
+	// A registration with no --persistence-root (a pre-isolation or hand-installed
+	// service) is the single global default-root service; targeting it with an
+	// explicit non-default root must be refused rather than acting on the wrong one.
+	explicitRoot := filepath.Join(t.TempDir(), "iso")
+	status := serviceStatus{Installed: true, Command: []string{"/usr/local/bin/kent", "serve"}}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: explicitRoot}}
+	if err := rootMismatchError(status, spec); err == nil {
+		t.Fatal("expected mismatch for an unpinned registration targeted with an explicit non-default root")
+	}
+}
+
+func TestRootMismatchErrorAllowsUnpinnedRegistrationForDefaultRoot(t *testing.T) {
+	defaultRoot, err := config.NormalizePersistenceRoot(config.DefaultPersistence)
+	if err != nil {
+		t.Fatalf("normalize default root: %v", err)
+	}
+	status := serviceStatus{Installed: true, Command: []string{"/usr/local/bin/kent", "serve"}}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: defaultRoot}}
+	if err := rootMismatchError(status, spec); err != nil {
+		t.Fatalf("unexpected mismatch for a default-root unpinned registration: %v", err)
+	}
+}
+
+func TestRootMismatchErrorRejectsUnreadableRegistrationForExplicitRoot(t *testing.T) {
+	// An installed service whose registered command the backend could not
+	// read/parse (empty command — e.g. a malformed plist or unit) is a root that
+	// cannot be confirmed; targeting it with an explicit non-default root must be
+	// refused rather than acting on the single global registration.
+	explicitRoot := filepath.Join(t.TempDir(), "iso")
+	status := serviceStatus{Installed: true, Command: nil}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: explicitRoot}}
+	if err := rootMismatchError(status, spec); err == nil {
+		t.Fatal("expected mismatch for an unreadable registration targeted with an explicit non-default root")
+	}
+}
+
+func TestRootMismatchErrorAllowsUnreadableRegistrationForDefaultRoot(t *testing.T) {
+	defaultRoot, err := config.NormalizePersistenceRoot(config.DefaultPersistence)
+	if err != nil {
+		t.Fatalf("normalize default root: %v", err)
+	}
+	status := serviceStatus{Installed: true, Command: nil}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: defaultRoot}}
+	if err := rootMismatchError(status, spec); err != nil {
+		t.Fatalf("unexpected mismatch for a default-root unreadable registration: %v", err)
+	}
+}
+
+func TestServiceStatusReportsNotInstalledForForeignRoot(t *testing.T) {
+	// A registration whose command targets a different root must be reported as
+	// not installed for the requested root, so `service status --persistence-root`
+	// never presents another root's service as installed/running for this one.
+	requestedRoot := filepath.Join(t.TempDir(), "requested")
+	installedRoot := filepath.Join(t.TempDir(), "installed")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		PID:       4242,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", installedRoot},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, requestedRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"status", "--json", "--persistence-root", requestedRoot}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	var status serviceStatus
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatalf("decode status json: %v; stdout=%q", err, stdout.String())
+	}
+	if status.Installed || status.Running || status.Loaded || status.PID != 0 {
+		t.Fatalf("status = %+v, want not installed/running/loaded for a foreign root", status)
 	}
 }
 

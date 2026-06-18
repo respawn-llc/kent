@@ -134,6 +134,11 @@ export type NativeTheme = "auto" | "light" | "dark";
 export type NativeContext = Readonly<{
   serverEndpoint: string;
   persistenceRoot: string;
+  // persistenceRootId is the id a connected server must report
+  // (HandshakeResponse.identity.persistence_root_id) for the GUI to trust it
+  // serves this root. Empty when validation should be skipped (default root or
+  // KENT_PERSISTENCE_ROOT unset).
+  persistenceRootId: string;
   platform: NativePlatform;
   theme: NativeTheme;
   homePath: string;
@@ -260,6 +265,7 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return {
           serverEndpoint: "ws://127.0.0.1:53082/rpc",
           persistenceRoot: "",
+          persistenceRootId: "",
           platform: capabilities.platform,
           theme: "auto",
           homePath: "",

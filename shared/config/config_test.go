@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -183,23 +184,54 @@ func TestLoadUsesExplicitConfigRootWithoutHomeMutation(t *testing.T) {
 	}
 }
 
-func TestLoadExplicitConfigRootOverridesNestedPersistenceRoot(t *testing.T) {
+func TestLoadRejectsPersistenceRootInConfigFile(t *testing.T) {
 	configRoot := t.TempDir()
-	otherRoot := t.TempDir()
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(configRoot, "config.toml"), []byte("persistence_root = \""+filepath.ToSlash(otherRoot)+"\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configRoot, "config.toml"), []byte("persistence_root = \"/tmp/custom\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{ConfigRoot: configRoot})
+	_, err := Load(workspace, LoadOptions{ConfigRoot: configRoot})
+	if !errors.Is(err, errPersistenceRootInConfigFile) {
+		t.Fatalf("expected persistence_root migration error, got: %v", err)
+	}
+}
+
+func TestLoadUsesPersistenceRootEnvForConfigAndData(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv(PersistenceRootEnvName, root)
+
+	cfg, err := Load(workspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.PersistenceRoot != configRoot {
-		t.Fatalf("persistence root = %q, want explicit config root %q", cfg.PersistenceRoot, configRoot)
+	if cfg.Source.HomeSettingsPath != filepath.Join(root, "config.toml") {
+		t.Fatalf("home settings path = %q, want env root config.toml", cfg.Source.HomeSettingsPath)
 	}
-	if got := cfg.Source.Sources["persistence_root"]; got != "config_root" {
-		t.Fatalf("persistence_root source = %q, want config_root", got)
+	if cfg.PersistenceRoot != root {
+		t.Fatalf("persistence root = %q, want env root %q", cfg.PersistenceRoot, root)
+	}
+	if got := cfg.Source.Sources["persistence_root"]; got != "env" {
+		t.Fatalf("persistence_root source = %q, want env", got)
+	}
+}
+
+func TestLoadFlagOverridesPersistenceRootEnv(t *testing.T) {
+	flagRoot := t.TempDir()
+	envRoot := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv(PersistenceRootEnvName, envRoot)
+
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: flagRoot})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.PersistenceRoot != flagRoot {
+		t.Fatalf("persistence root = %q, want flag root %q", cfg.PersistenceRoot, flagRoot)
+	}
+	if got := cfg.Source.Sources["persistence_root"]; got != "flag" {
+		t.Fatalf("persistence_root source = %q, want flag", got)
 	}
 }
 
@@ -343,6 +375,54 @@ func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 	}
 	if string(data) != existing {
 		t.Fatalf("managed rg config contents = %q, want %q", string(data), existing)
+	}
+}
+
+func TestResolveManagedRGConfigPathHonorsPersistenceRootEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	t.Setenv(PersistenceRootEnvName, root)
+
+	path, err := ResolveManagedRGConfigPath()
+	if err != nil {
+		t.Fatalf("resolve managed rg config path: %v", err)
+	}
+	want := filepath.Join(root, managedRGConfigName)
+	if path != want {
+		t.Fatalf("managed rg config path = %q, want %q (under selected root, not home)", path, want)
+	}
+}
+
+func TestResolveManagedRGConfigPathDefaultsToHomeWithoutEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(PersistenceRootEnvName, "")
+
+	path, err := ResolveManagedRGConfigPath()
+	if err != nil {
+		t.Fatalf("resolve managed rg config path: %v", err)
+	}
+	want := filepath.Join(home, ConfigDirName, managedRGConfigName)
+	if path != want {
+		t.Fatalf("managed rg config path = %q, want %q", path, want)
+	}
+}
+
+func TestNormalizePersistenceRootExpandsTildeAndAbsolutizes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got, err := NormalizePersistenceRoot("~/nested/root")
+	if err != nil {
+		t.Fatalf("normalize persistence root: %v", err)
+	}
+	want := filepath.Join(home, "nested", "root")
+	if got != want {
+		t.Fatalf("normalized tilde root = %q, want %q", got, want)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("expected absolute path, got %q", got)
 	}
 }
 
@@ -582,20 +662,24 @@ func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
-	home, workspace, configPath := newConfigTestFile(t)
+	root := t.TempDir()
+	workspace := t.TempDir()
 	configText := strings.Join([]string{
-		"persistence_root = \"~/custom-kent\"",
-		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",
 		"setup_script = \"scripts/setup-worktree.sh\"",
 		"",
 	}, "\n")
-	writeConfigTestFile(t, configPath, configText)
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
-	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 
-	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-kent"); got != want {
+	if got, want := cfg.PersistenceRoot, root; got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
 	}
 	if got, want := cfg.Settings.Worktrees.BaseDir, filepath.Join(cfg.PersistenceRoot, "managed", "worktrees"); got != want {
@@ -607,10 +691,15 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
-	configText := "persistence_root = \"~/custom-kent\"\n"
-	home, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
+	root := t.TempDir()
+	workspace := t.TempDir()
 
-	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-kent"); got != want {
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if got, want := cfg.PersistenceRoot, root; got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
 	}
 	if got, want := cfg.Settings.Worktrees.BaseDir, filepath.Join(cfg.PersistenceRoot, "worktrees"); got != want {
@@ -619,13 +708,19 @@ func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
 	configText := strings.Join([]string{
-		"persistence_root = \"~/custom-kent\"",
-		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",
 	}, "\n")
-	_, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(workspace, LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	info, err := os.Stat(cfg.Settings.Worktrees.BaseDir)
 	if err != nil {
 		t.Fatalf("stat worktree base dir: %v", err)
@@ -761,8 +856,8 @@ func TestLoadSubagentRoleRejectsPersistenceRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected persistence_root in subagent role to fail")
 	}
-	if !errors.Is(err, errSubagentPersistenceRoot) {
-		t.Fatalf("unexpected error: %v", err)
+	if !unknownSettingsKeyReported(err, "subagents.fast.persistence_root") {
+		t.Fatalf("expected unknown persistence_root subagent key, got: %v", err)
 	}
 }
 
@@ -885,5 +980,125 @@ func TestLoadReviewerOpenAIProviderOverrideInheritsMainOpenAIBaseURL(t *testing.
 	}
 	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
 		t.Fatalf("expected reviewer.openai_base_url to inherit main OpenAI base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+}
+
+func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "tmp", "kent-root-example")
+	hash := PersistenceRootHash(root)
+	if hash == "" {
+		t.Fatal("expected non-empty hash for a non-empty root")
+	}
+	if PersistenceRootHash(root) != hash {
+		t.Fatal("hash must be deterministic for the same root")
+	}
+	if PersistenceRootHash(root+string(filepath.Separator)) != hash {
+		t.Fatal("hash must be stable across trailing-separator cleaning")
+	}
+	if PersistenceRootHash(filepath.Join(string(filepath.Separator), "tmp", "kent-root-other")) == hash {
+		t.Fatal("different roots must hash differently")
+	}
+	if PersistenceRootHash("") != "" {
+		t.Fatal("empty root must hash to empty")
+	}
+	// On platforms with a local RPC socket (unix), the socket directory is
+	// scoped by the same hash so client and server agree on the instance.
+	socketPath, ok, err := ServerLocalRPCSocketPath(App{PersistenceRoot: root})
+	if err != nil {
+		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
+	}
+	if ok && !strings.Contains(socketPath, hash) {
+		t.Fatalf("local socket path %q must be scoped by the root hash %q", socketPath, hash)
+	}
+}
+
+func TestPersistenceRootHashMatchesDesktopGoldenValue(t *testing.T) {
+	// Locks the wire contract shared with the Rust desktop client
+	// (apps/desktop/src-tauri/src/lib.rs persistence_root_hash), which asserts the
+	// same constant for the same already-canonical root. "/tmp/kent-root" is
+	// already lowercase and clean, so the value holds on every platform.
+	if got, want := PersistenceRootHash("/tmp/kent-root"), "eb013faf79dfc249"; got != want {
+		t.Fatalf("PersistenceRootHash(/tmp/kent-root) = %q, want %q (desktop client must agree)", got, want)
+	}
+}
+
+func TestPersistenceRootHashFoldsCaseOnCaseInsensitivePlatforms(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "tmp", "Kent-Root-Case")
+	upper := PersistenceRootHash(root)
+	lower := PersistenceRootHash(strings.ToLower(root))
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		if upper != lower {
+			t.Fatalf("case-insensitive platform must hash %q and %q identically", root, strings.ToLower(root))
+		}
+	default:
+		if upper == lower {
+			t.Fatalf("case-sensitive platform must hash %q and %q differently", root, strings.ToLower(root))
+		}
+	}
+}
+
+func TestExplicitPersistenceRootID(t *testing.T) {
+	home := t.TempDir()
+	isoRoot := filepath.Join(string(filepath.Separator), "tmp", "iso-root-id-explicit")
+
+	t.Run("default source returns empty", func(t *testing.T) {
+		t.Setenv("HOME", home)
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "default"}}}
+		if got := ExplicitPersistenceRootID(cfg); got != "" {
+			t.Fatalf("default-source id = %q, want empty", got)
+		}
+	})
+	t.Run("explicit default root returns empty", func(t *testing.T) {
+		t.Setenv("HOME", home)
+		cfg := App{PersistenceRoot: filepath.Join(home, ConfigDirName), Source: SourceReport{Sources: map[string]string{"persistence_root": "flag"}}}
+		if got := ExplicitPersistenceRootID(cfg); got != "" {
+			t.Fatalf("explicit-default id = %q, want empty", got)
+		}
+	})
+	t.Run("explicit isolated root returns hash", func(t *testing.T) {
+		t.Setenv("HOME", home)
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "env"}}}
+		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+			t.Fatalf("explicit-iso id = %q, want %q", got, want)
+		}
+	})
+	t.Run("default comparison error pins explicit root", func(t *testing.T) {
+		// HOME unset makes IsDefaultPersistenceRoot fail to resolve the default
+		// root; the explicit root must stay pinned rather than disabling the check.
+		t.Setenv("HOME", "")
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "flag"}}}
+		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+			t.Fatalf("error-case id = %q, want %q (must pin on default-resolution failure)", got, want)
+		}
+	})
+}
+
+func TestIsDefaultPersistenceRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	defaultRoot := filepath.Join(home, ConfigDirName)
+
+	cases := []struct {
+		name string
+		root string
+		want bool
+	}{
+		{name: "empty", root: "", want: true},
+		{name: "absolute default", root: defaultRoot, want: true},
+		{name: "trailing separator default", root: defaultRoot + string(filepath.Separator), want: true},
+		{name: "tilde default", root: DefaultPersistence, want: true},
+		{name: "non-default", root: filepath.Join(string(filepath.Separator), "tmp", "iso-root"), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := IsDefaultPersistenceRoot(tc.root)
+			if err != nil {
+				t.Fatalf("IsDefaultPersistenceRoot(%q): %v", tc.root, err)
+			}
+			if got != tc.want {
+				t.Fatalf("IsDefaultPersistenceRoot(%q) = %v, want %v", tc.root, got, tc.want)
+			}
+		})
 	}
 }

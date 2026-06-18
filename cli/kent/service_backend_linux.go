@@ -186,6 +186,7 @@ func parseSystemdCommand(value string) []string {
 	var builder strings.Builder
 	inQuote := false
 	escaped := false
+	percentPending := false
 	flush := func() {
 		if builder.Len() == 0 {
 			return
@@ -204,7 +205,19 @@ func parseSystemdCommand(value string) []string {
 			escaped = false
 			continue
 		}
+		if percentPending {
+			// systemd writes a literal percent as `%%`; collapse the pair. A lone
+			// `%` (a specifier in units we did not author) is preserved verbatim.
+			percentPending = false
+			if r == '%' {
+				builder.WriteByte('%')
+				continue
+			}
+			builder.WriteByte('%')
+		}
 		switch r {
+		case '%':
+			percentPending = true
 		case '\\':
 			escaped = true
 		case '"':
@@ -221,6 +234,9 @@ func parseSystemdCommand(value string) []string {
 	}
 	if escaped {
 		builder.WriteByte('\\')
+	}
+	if percentPending {
+		builder.WriteByte('%')
 	}
 	flush()
 	return args
@@ -245,8 +261,8 @@ func renderSystemdUnit(spec serviceSpec) string {
 		"ExecStart=" + systemdCommand(serviceCommand(spec)),
 		"Restart=always",
 		"RestartSec=2",
-		"StandardOutput=append:" + spec.StdoutLogPath,
-		"StandardError=append:" + spec.StderrLogPath,
+		"StandardOutput=append:" + systemdEscapeSpecifiers(spec.StdoutLogPath),
+		"StandardError=append:" + systemdEscapeSpecifiers(spec.StderrLogPath),
 		"",
 		"[Install]",
 		"WantedBy=default.target",
@@ -263,10 +279,20 @@ func systemdCommand(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
+// systemdEscapeSpecifiers doubles `%` so systemd writes it as a literal rather
+// than expanding it as a unit specifier (systemd.unit(5)/systemd.service(5)).
+// This applies to every operator-controlled value rendered into a setting that
+// systemd specifier-expands (ExecStart arguments and the StandardOutput/Error
+// paths), independent of shell-style quoting.
+func systemdEscapeSpecifiers(value string) string {
+	return strings.ReplaceAll(value, "%", "%%")
+}
+
 func systemdQuote(value string) string {
 	if value == "" {
 		return `""`
 	}
+	value = systemdEscapeSpecifiers(value)
 	if !strings.ContainsAny(value, " \t\n\"\\$`") {
 		return value
 	}

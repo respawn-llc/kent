@@ -68,6 +68,43 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) client.Projec
 	return client.NewLoopbackProjectViewClient(service)
 }
 
+// startStandingRunPromptServer starts an in-process standing serve server for
+// the workspace and waits until it is reachable for headless run-prompt attach.
+// kent run is a pure client and never starts its own server, so integration
+// tests that drive RunPrompt end-to-end must provide a server to attach to.
+// Callers defer the returned cleanup, which stops serving and closes the server.
+func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
+	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyMemoryAuthHandler("test-key"))
+}
+
+func startStandingRunPromptServerWithAuth(t *testing.T, workspace, openAIBaseURL string, authHandler serverstartup.AuthHandler) func() {
+	t.Helper()
+	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+		WorkspaceRoot:         workspace,
+		WorkspaceRootExplicit: true,
+		Model:                 "gpt-5",
+		OpenAIBaseURL:         openAIBaseURL,
+		OpenAIBaseURLExplicit: openAIBaseURL != "",
+	}, authHandler, autoOnboarding)
+	if err != nil {
+		t.Fatalf("StartServeServer: %v", err)
+	}
+	stop := serveAppServer(t, srv)
+	cleanup := func() {
+		stop()
+		_ = srv.Close()
+	}
+	needsCleanup := true
+	defer func() {
+		if needsCleanup {
+			cleanup()
+		}
+	}()
+	waitForConfiguredRunPromptDaemon(t, workspace)
+	needsCleanup = false
+	return cleanup
+}
+
 func serveAppServer(t *testing.T, srv *serverstartup.ServeServer) func() {
 	t.Helper()
 	serveCtx, cancel := context.WithCancel(context.Background())

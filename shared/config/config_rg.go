@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,8 +14,20 @@ const managedRGConfigName = "rg.conf"
 //go:embed rg.conf
 var managedRGConfigContents string
 
+// ResolveManagedRGConfigPath resolves the managed rg.conf path under the active
+// config+data root. It honors KENT_PERSISTENCE_ROOT so shell tools point at the
+// rg config of the resolved root (including isolated --persistence-root
+// instances), rather than always resolving the default ~/.kent.
 func ResolveManagedRGConfigPath() (string, error) {
-	settingsPath, err := resolveSettingsFilePathInRoot("")
+	root := strings.TrimSpace(os.Getenv(PersistenceRootEnvName))
+	if root != "" {
+		expanded, err := expandTildePath(root)
+		if err != nil {
+			return "", err
+		}
+		root = expanded
+	}
+	settingsPath, err := resolveSettingsFilePathInRoot(root)
 	if err != nil {
 		return "", err
 	}

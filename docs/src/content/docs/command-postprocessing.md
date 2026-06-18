@@ -3,16 +3,7 @@ title: Bash Hooks
 description: Configure Kent's shell command post-processing and ship your own hook.
 ---
 
-## Overview
-
-Kent can post-process shell command output before it is shown to the model.
-It normalizes terminal output, reduces command noise, and adds useful execution context.
-Kent keeps this separate from command execution itself:
-
-- command runs normally
-- Kent runs the configured post-processing chain
-- successful commands omit the exit-code header; failed commands include `Exit code N, output:`
-- The model can disable that when it needs the full output
+Kent post-processes shell command output before it is shown to the model to normalize output, reduce command noise, and add useful execution context.
 
 ## Config
 
@@ -28,20 +19,16 @@ postprocess_hook = "~/.kent/shell_postprocess_hook"
 
 Allowed values:
 
-- `none`: disable command post-processing
-- `builtin`: run Kent's sanitizer and built-in processors
-- `user`: run Kent's sanitizer, then your configured hook
+- `none`: disable command post-processing. Not recommended.
+- `builtin`: run Kent's sanitizer and built-in processors. Kent has multiple built-in processors that are generally applicable to all projects and improve model performance.
+- `user`: run Kent's sanitizer, then your configured hook. Only recommended if your post-processors fully replace what is done in Kent.
 - `all`: run Kent's sanitizer, built-ins, then your configured hook
 
-`raw: true` on a shell tool call bypasses command post-processing for that call. `raw: true` and `postprocessing_mode = "none"` preserve ANSI/style sequences in command output, subject to JSON result encoding and output truncation.
+:::info[Not a hooks replacement]
+The model can always control whether a command is post-processed. If the output has issues, the agent will bypass command post-processing, so do not treat this as hooks replacement - hooks are not optional.
+:::
 
-## Built-ins
-
-- Successful direct `go test ...` commands collapse to `PASS` when output has no benchmarks, coverage, or JSON data.
-- Direct partial file reads add information about file size to the output, like `[Total line count: 186]`
-- Built-in processors run as a chain. A processor can pass output to later processors or stop the built-in chain with final output.
-
-## Hook Protocol
+## Protocol
 
 ### Input
 

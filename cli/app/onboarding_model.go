@@ -30,6 +30,7 @@ type onboardingModel struct {
 	result           onboardingResult
 	globalRoot       string
 	workspaceRoot    string
+	settingsPath     string
 	width            int
 	height           int
 	styles           onboardingStyles
@@ -277,16 +278,17 @@ func (m *onboardingModel) submitCurrentScreen() (tea.Model, tea.Cmd) {
 func (m *onboardingModel) finalizeCmd(writeDefaults bool) tea.Cmd {
 	state := m.state
 	globalRoot := m.globalRoot
+	settingsPath := strings.TrimSpace(m.settingsPath)
 	return func() tea.Msg {
 		if writeDefaults {
-			path, _, err := config.WriteDefaultSettingsFileWithTheme(state.settings.Theme)
+			path, _, err := writeOnboardingDefaultSettings(settingsPath, state.settings.Theme)
 			return onboardingFinalizeDoneMsg{result: onboardingResult{Completed: err == nil, CreatedDefaultConfig: err == nil, SettingsPath: path}, err: err}
 		}
 		rollback, err := executeOnboardingImports(globalRoot, state)
 		if err != nil {
 			return onboardingFinalizeDoneMsg{err: err}
 		}
-		path, err := config.WriteSettingsFileForOnboardingWithOptions(state.settings, config.OnboardingWriteOptions{
+		path, err := writeOnboardingCustomSettings(settingsPath, state.settings, config.OnboardingWriteOptions{
 			PreservedDefaults: onboardingPreservedDefaults(state),
 		})
 		if err != nil {
@@ -296,6 +298,26 @@ func (m *onboardingModel) finalizeCmd(writeDefaults bool) tea.Cmd {
 		}
 		return onboardingFinalizeDoneMsg{result: onboardingResult{Completed: err == nil, SettingsPath: path}, err: err}
 	}
+}
+
+// writeOnboardingDefaultSettings writes onboarding defaults into the resolved
+// config root when a settings path was threaded in, otherwise it falls back to
+// the default ~/.kent resolution.
+func writeOnboardingDefaultSettings(settingsPath string, selectedTheme string) (string, bool, error) {
+	if settingsPath != "" {
+		return config.WriteDefaultSettingsFileWithThemeAt(settingsPath, selectedTheme)
+	}
+	return config.WriteDefaultSettingsFileWithTheme(selectedTheme)
+}
+
+// writeOnboardingCustomSettings persists onboarding settings into the resolved
+// config root when a settings path was threaded in, otherwise it falls back to
+// the default ~/.kent resolution.
+func writeOnboardingCustomSettings(settingsPath string, settings config.Settings, options config.OnboardingWriteOptions) (string, error) {
+	if settingsPath != "" {
+		return config.WriteSettingsFileForOnboardingWithOptionsAt(settingsPath, settings, options)
+	}
+	return config.WriteSettingsFileForOnboardingWithOptions(settings, options)
 }
 
 func onboardingPreservedDefaults(state onboardingFlowState) map[string]bool {

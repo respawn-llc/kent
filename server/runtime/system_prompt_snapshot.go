@@ -15,6 +15,7 @@ import (
 
 type systemPromptSnapshotOptions struct {
 	WorkspaceRoot     string
+	GlobalConfigDir   string
 	SystemPromptFiles []config.SystemPromptFile
 }
 
@@ -29,6 +30,7 @@ func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract,
 	}
 	template, sourcePath, hasCustom, err := readSystemPromptTemplate(systemPromptSnapshotOptions{
 		WorkspaceRoot:     workspaceRoot,
+		GlobalConfigDir:   e.cfg.GlobalConfigDir,
 		SystemPromptFiles: e.cfg.SystemPromptFiles,
 	})
 	if err != nil {
@@ -138,8 +140,8 @@ func systemPromptPathsWithConfig(opts systemPromptSnapshotOptions) ([]string, er
 		addPath(filepath.Join(absWorkspace, agentsGlobalDirName, systemPromptFileName))
 	}
 	addConfigPaths(config.SystemPromptFileScopeHomeConfig)
-	if home, err := os.UserHomeDir(); err == nil {
-		addPath(filepath.Join(home, agentsGlobalDirName, systemPromptFileName))
+	if globalDir, err := resolveGlobalConfigDir(opts.GlobalConfigDir); err == nil {
+		addPath(filepath.Join(globalDir, systemPromptFileName))
 	}
 	return paths, nil
 }

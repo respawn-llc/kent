@@ -35,6 +35,9 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	}))
 	defer server.Close()
 
+	stopServer := startStandingRunPromptServer(t, workspace, server.URL)
+	defer stopServer()
+
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
@@ -155,6 +158,8 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	saveReadyAppAuthState(t, workspace)
 	fakeResponses, _ := newFakeResponsesServer(t, []string{"child reply"})
 	defer fakeResponses.Close()
+	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	defer stopServer()
 
 	result, err := RunPrompt(ctx, Options{
 		WorkspaceRoot:             worktreeSubdir,
@@ -226,6 +231,9 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		t.Fatalf("write config: %v", err)
 	}
 
+	stopServer := startStandingRunPromptServer(t, workspace, server.URL)
+	defer stopServer()
+
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
@@ -247,6 +255,27 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	}
 }
 
+// runHeadlessPromptViaEmbedded opens an in-process embedded server, runs a
+// single prompt through its run client, then closes the server (releasing the
+// root lock) so a subsequent embedded server can resume the persisted session.
+// kent run no longer starts servers, so tests drive the run client directly.
+func runHeadlessPromptViaEmbedded(t *testing.T, opts Options, clientRequestID, prompt string) serverapi.RunPromptResponse {
+	t.Helper()
+	boot, err := startEmbeddedServer(context.Background(), opts, newHeadlessAuthInteractor(), false)
+	if err != nil {
+		t.Fatalf("bootstrap app: %v", err)
+	}
+	defer func() { _ = boot.Close() }()
+	resp, err := newHeadlessRunPromptClient(boot).RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		ClientRequestID: clientRequestID,
+		Prompt:          prompt,
+	}, nil)
+	if err != nil {
+		t.Fatalf("embedded RunPrompt: %v", err)
+	}
+	return resp
+}
+
 func TestHeadlessRunPromptClientResumesExistingSessionByID(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
@@ -254,16 +283,13 @@ func TestHeadlessRunPromptClientResumesExistingSessionByID(t *testing.T) {
 	server, hits := newFakeResponsesServer(t, []string{"first response", "second response"})
 	defer server.Close()
 
-	created, err := RunPrompt(context.Background(), Options{
+	created := runHeadlessPromptViaEmbedded(t, Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         server.URL,
 		OpenAIBaseURLExplicit: true,
-	}, "first prompt", 0, nil)
-	if err != nil {
-		t.Fatalf("initial RunPrompt: %v", err)
-	}
+	}, "req-create-1", "first prompt")
 
 	boot, err := startEmbeddedServer(context.Background(), Options{
 		WorkspaceRoot:         workspace,
@@ -318,16 +344,13 @@ func TestHeadlessRunPromptClientRestoresContinuationContextFromSelectedSession(t
 	server, hits := newFakeResponsesServer(t, []string{"created via explicit base url", "resumed via continuation"})
 	defer server.Close()
 
-	created, err := RunPrompt(context.Background(), Options{
+	created := runHeadlessPromptViaEmbedded(t, Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         server.URL,
 		OpenAIBaseURLExplicit: true,
-	}, "first prompt", 0, nil)
-	if err != nil {
-		t.Fatalf("initial RunPrompt: %v", err)
-	}
+	}, "req-create-2", "first prompt")
 
 	boot, err := startEmbeddedServer(context.Background(), Options{
 		WorkspaceRoot:         workspace,

@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"

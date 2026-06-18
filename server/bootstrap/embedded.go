@@ -137,11 +137,11 @@ func BuildRuntimeSupport(cfg config.App) (RuntimeSupport, error) {
 	}, nil
 }
 
-func BuildGeneratedSupport(ctx context.Context) (prompts.GeneratedSyncResult, error) {
+func BuildGeneratedSupport(ctx context.Context, persistenceRoot string) (prompts.GeneratedSyncResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return syncGenerated(ctx, prompts.GeneratedSyncOptions{})
+	return syncGenerated(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(persistenceRoot)})
 }
 
 func loadConfig(loadOpts config.LoadOptions, workspaceRoot, openAIBaseURL string, useOpenAIBaseURL bool) (config.App, error) {

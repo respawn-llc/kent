@@ -14,15 +14,16 @@ import (
 )
 
 type Remote struct {
-	plan          remoteDialPlan
-	transport     rpcwire.ClientTransport
-	mu            sync.Mutex
-	control       *remoteControlConn
-	identity      protocol.ServerIdentity
-	projectID     string
-	workspaceID   string
-	workspaceRoot string
-	closed        atomic.Bool
+	plan           remoteDialPlan
+	transport      rpcwire.ClientTransport
+	mu             sync.Mutex
+	control        *remoteControlConn
+	identity       protocol.ServerIdentity
+	projectID      string
+	workspaceID    string
+	workspaceRoot  string
+	expectedRootID atomic.Value // string; empty disables root validation
+	closed         atomic.Bool
 }
 
 func DialRemoteURL(ctx context.Context, rpcURL string) (*Remote, error) {
@@ -71,6 +72,33 @@ func (c *Remote) Identity() protocol.ServerIdentity {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.identity
+}
+
+// RequireRoot pins the persistence-root id that every (re)connect handshake must
+// report. It validates the current identity immediately and returns an error on
+// mismatch so an initial attach to the wrong instance is rejected; the pinned id
+// then guards reconnects, where the dial plan may resolve a different server on
+// the fallback TCP endpoint after the original socket disappears. An empty rootID
+// disables root validation (default-root behavior is unchanged).
+func (c *Remote) RequireRoot(rootID string) error {
+	if c == nil {
+		return errors.New("remote client is required")
+	}
+	c.expectedRootID.Store(rootID)
+	c.mu.Lock()
+	identity := c.identity
+	c.mu.Unlock()
+	return validateIdentityRoot(rootID, identity)
+}
+
+func (c *Remote) rootID() string {
+	if c == nil {
+		return ""
+	}
+	if value, ok := c.expectedRootID.Load().(string); ok {
+		return value
+	}
+	return ""
 }
 
 func (c *Remote) GetServerReadiness(ctx context.Context, req serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
@@ -646,6 +674,10 @@ func (c *Remote) openControlRPCConn(ctx context.Context) (rpcwire.Conn, protocol
 	cleanup := func() { _ = conn.Close() }
 	identity, err := handshakeRPC(ctx, conn)
 	if err != nil {
+		cleanup()
+		return nil, protocol.ServerIdentity{}, err
+	}
+	if err := validateIdentityRoot(c.rootID(), identity); err != nil {
 		cleanup()
 		return nil, protocol.ServerIdentity{}, err
 	}

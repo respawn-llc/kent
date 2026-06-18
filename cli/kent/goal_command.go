@@ -301,7 +301,18 @@ func openGoalCommandRemote(ctx context.Context) (goalCommandRemote, error) {
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, goalCommandTimeout)
 	defer cancel()
-	return client.DialConfiguredRemote(dialCtx, cfg)
+	remote, err := client.DialConfiguredRemote(dialCtx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	// When the operator selected an explicit non-default persistence root, only
+	// operate on a server actually serving that root so goal commands never read
+	// or mutate a different instance reachable on the same TCP endpoint.
+	if err := remote.RequireRoot(config.ExplicitPersistenceRootID(cfg)); err != nil {
+		_ = remote.Close()
+		return nil, err
+	}
+	return remote, nil
 }
 
 func writeGoalShowText(stdout io.Writer, goal *serverapi.RuntimeGoal) {

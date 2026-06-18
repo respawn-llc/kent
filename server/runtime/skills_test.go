@@ -192,7 +192,7 @@ func TestAppendMissingReviewerMetaContextPrependsSkillsWhenMissing(t *testing.T)
 	writeTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "workspace-skill"), "workspace-skill", "from workspace")
 
 	in := []llm.Message{{Role: llm.RoleUser, Content: "request"}}
-	got, err := appendMissingReviewerMetaContext(in, workspace, "gpt-5", "high", false, nil)
+	got, err := appendMissingReviewerMetaContext(in, workspace, "gpt-5", "high", "", false, nil)
 	if err != nil {
 		t.Fatalf("appendMissingReviewerMetaContext: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestSplitMetaContextMessagesSeparatesMetaContextWithoutDeduplication(t *tes
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	rebuilt, err := appendMissingReviewerMetaContext(messages, t.TempDir(), "gpt-5", "high", false, nil)
+	rebuilt, err := appendMissingReviewerMetaContext(messages, t.TempDir(), "gpt-5", "high", "", false, nil)
 	if err != nil {
 		t.Fatalf("appendMissingReviewerMetaContext: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestSplitMetaContextMessagesTreatsHeadlessContextAsMeta(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	rebuilt, err := appendMissingReviewerMetaContext(messages, t.TempDir(), "gpt-5", "high", true, nil)
+	rebuilt, err := appendMissingReviewerMetaContext(messages, t.TempDir(), "gpt-5", "high", "", true, nil)
 	if err != nil {
 		t.Fatalf("appendMissingReviewerMetaContext: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestSplitMetaContextMessagesTreatsHeadlessExitContextAsMeta(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	rebuilt, err := appendMissingReviewerMetaContext(messages, t.TempDir(), "gpt-5", "high", false, nil)
+	rebuilt, err := appendMissingReviewerMetaContext(messages, t.TempDir(), "gpt-5", "high", "", false, nil)
 	if err != nil {
 		t.Fatalf("appendMissingReviewerMetaContext: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestInspectSkillsMarksConfigDisabledSkills(t *testing.T) {
 	workspace := t.TempDir()
 	writeTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "workspace-skill"), "Workspace Skill", "from workspace")
 
-	inspections, err := InspectSkills(workspace, map[string]bool{"workspace skill": true})
+	inspections, err := InspectSkills(workspace, "", map[string]bool{"workspace skill": true})
 	if err != nil {
 		t.Fatalf("InspectSkills: %v", err)
 	}
@@ -509,7 +509,7 @@ func TestInspectSkillsMarksGeneratedShadowedAndDisabled(t *testing.T) {
 	writeTestSkill(t, filepath.Join(workspace, brand.ConfigDirName, "skills", "skill-creator"), "skill-creator", "workspace")
 	generatedPath := writeTestSkill(t, filepath.Join(home, brand.ConfigDirName, ".generated", "skills", "skill-creator"), "skill-creator", "generated")
 
-	inspections, err := InspectSkills(workspace, map[string]bool{"skill-creator": true})
+	inspections, err := InspectSkills(workspace, "", map[string]bool{"skill-creator": true})
 	if err != nil {
 		t.Fatalf("InspectSkills: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestInspectSkillsLoadsSymlinkedSkillDirectory(t *testing.T) {
 		t.Fatalf("symlink skill dir: %v", err)
 	}
 
-	inspections, err := InspectSkills(workspace, nil)
+	inspections, err := InspectSkills(workspace, "", nil)
 	if err != nil {
 		t.Fatalf("InspectSkills: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestInspectSkillsReportsBrokenSymlinkedSkillDirectory(t *testing.T) {
 		t.Fatalf("symlink broken skill dir: %v", err)
 	}
 
-	inspections, err := InspectSkills(workspace, nil)
+	inspections, err := InspectSkills(workspace, "", nil)
 	if err != nil {
 		t.Fatalf("InspectSkills: %v", err)
 	}

@@ -66,7 +66,7 @@ func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	result, err := BuildGeneratedSupport(context.Background())
+	result, err := BuildGeneratedSupport(context.Background(), "")
 	if err != nil {
 		t.Fatalf("BuildGeneratedSupport: %v", err)
 	}

@@ -132,7 +132,7 @@ func (scheduledTaskServiceBackend) Status(ctx context.Context, spec serviceSpec)
 		Loaded:      taskInstalled || startupInstalled,
 		Running:     running,
 		PID:         pid,
-		Command:     readWindowsRegisteredCommand(spec),
+		Command:     readWindowsRegisteredCommand(taskOutput),
 		Endpoint:    spec.Endpoint,
 		Logs:        []string{spec.StdoutLogPath, spec.StderrLogPath},
 		InstallPath: windowsTaskScriptPath(spec),
@@ -140,8 +140,33 @@ func (scheduledTaskServiceBackend) Status(ctx context.Context, spec serviceSpec)
 	}, nil
 }
 
-func readWindowsRegisteredCommand(spec serviceSpec) []string {
-	data, err := os.ReadFile(windowsTaskScriptPath(spec))
+// readWindowsRegisteredCommand resolves the argv of the installed service from
+// the authoritative OS registration only: the scheduled task action path, or the
+// script path embedded in the Startup-folder launcher. It never derives the
+// command from a path under the requested persistence root, because lifecycle
+// actions target the single global registration -- guessing a requested-root
+// command would either fabricate a false root match or mask a real cross-root
+// mismatch (the rootMismatchError guard relies on this). It returns nil when no
+// authoritative registration path is available, which the guard treats as an
+// indeterminate (fail-open) root rather than a false match against the request.
+func readWindowsRegisteredCommand(taskQueryOutput string) []string {
+	scriptPath, ok := windowsRegisteredScriptPath(taskQueryOutput, readWindowsStartupLauncher())
+	if !ok {
+		return nil
+	}
+	return readWindowsScriptCommand(scriptPath)
+}
+
+func readWindowsStartupLauncher() string {
+	data, err := os.ReadFile(windowsStartupItemPath())
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func readWindowsScriptCommand(scriptPath string) []string {
+	data, err := os.ReadFile(scriptPath)
 	if err != nil {
 		return nil
 	}
@@ -258,7 +283,11 @@ func windowsTaskScriptPIDs(ctx context.Context, spec serviceSpec) []int {
 }
 
 func windowsRegisteredCommandPIDs(ctx context.Context, spec serviceSpec) []int {
-	command := readWindowsRegisteredCommand(spec)
+	// PID matching is scoped to the requested root's server script (the running/PID
+	// display is per requested root), which is a deliberately different concern
+	// from which root owns the global registration. Read the requested-root script
+	// directly here rather than the authoritative registration.
+	command := readWindowsScriptCommand(windowsTaskScriptPath(spec))
 	if len(command) == 0 {
 		return nil
 	}

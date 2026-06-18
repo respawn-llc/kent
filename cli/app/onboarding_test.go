@@ -713,7 +713,7 @@ func TestOnboardingFinalWritePersistsDisabledGeneratedSkillAndRuntimeHonorsIt(t 
 	if !disabled["kent-dogfooding"] {
 		t.Fatalf("expected disabled generated skill in loaded config, got toggles=%+v disabled=%+v", cfg.Settings.SkillToggles, disabled)
 	}
-	inspections, err := runtime.InspectSkills("", disabled)
+	inspections, err := runtime.InspectSkills("", "", disabled)
 	if err != nil {
 		t.Fatalf("inspect skills: %v", err)
 	}
@@ -885,5 +885,55 @@ func TestOnboardingDefaultsPathPersistsChosenTheme(t *testing.T) {
 	}
 	if !strings.Contains(string(contents), "theme = \"light\"") {
 		t.Fatalf("expected defaults path to persist chosen theme, got %q", string(contents))
+	}
+}
+
+func TestOnboardingDefaultsPathWritesIntoThreadedSettingsRoot(t *testing.T) {
+	newAppTestHome(t)
+	root := t.TempDir()
+	wantPath := filepath.Join(root, "config.toml")
+	model := newOnboardingModelForWorkspace(root, "", onboardingFlowState{settings: config.Settings{Theme: "light"}, theme: "light"})
+	model.settingsPath = wantPath
+
+	msg := model.finalizeCmd(true)()
+	done, ok := msg.(onboardingFinalizeDoneMsg)
+	if !ok {
+		t.Fatalf("expected onboarding finalize message, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("finalize defaults path: %v", done.err)
+	}
+	if done.result.SettingsPath != wantPath {
+		t.Fatalf("expected settings written to threaded root %q, got %q", wantPath, done.result.SettingsPath)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected config.toml in threaded root: %v", err)
+	}
+}
+
+func TestOnboardingCustomPathWritesIntoThreadedSettingsRoot(t *testing.T) {
+	newAppTestHome(t)
+	root := t.TempDir()
+	wantPath := filepath.Join(root, "config.toml")
+	baseline, err := config.LoadGlobal(config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("load baseline settings: %v", err)
+	}
+	model := newOnboardingModelForWorkspace(root, "", onboardingFlowState{settings: baseline.Settings, theme: "light"})
+	model.settingsPath = wantPath
+
+	msg := model.finalizeCmd(false)()
+	done, ok := msg.(onboardingFinalizeDoneMsg)
+	if !ok {
+		t.Fatalf("expected onboarding finalize message, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("finalize custom path: %v", done.err)
+	}
+	if done.result.SettingsPath != wantPath {
+		t.Fatalf("expected settings written to threaded root %q, got %q", wantPath, done.result.SettingsPath)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected config.toml in threaded root: %v", err)
 	}
 }

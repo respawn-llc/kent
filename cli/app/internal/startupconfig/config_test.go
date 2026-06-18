@@ -80,3 +80,35 @@ func TestResolveSessionConfigAppliesLoadOptions(t *testing.T) {
 		t.Fatalf("thinking level = %q, want high", cfg.Settings.ThinkingLevel)
 	}
 }
+
+func TestResolveRunPromptConfigThreadsPersistenceRoot(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+
+	res, err := ResolveRunPromptConfig(Request{
+		WorkspaceRoot: workspace,
+		LoadOptions:   config.LoadOptions{ConfigRoot: root},
+	})
+	if err != nil {
+		t.Fatalf("ResolveRunPromptConfig: %v", err)
+	}
+	if res.Config.PersistenceRoot != root {
+		t.Fatalf("persistence root = %q, want %q", res.Config.PersistenceRoot, root)
+	}
+}
+
+func TestResolveSessionConfigThreadsPersistenceRoot(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+
+	cfg, err := ResolveSessionConfig(Request{
+		WorkspaceRoot: workspace,
+		LoadOptions:   config.LoadOptions{ConfigRoot: root},
+	})
+	if err != nil {
+		t.Fatalf("ResolveSessionConfig: %v", err)
+	}
+	if cfg.PersistenceRoot != root {
+		t.Fatalf("persistence root = %q, want %q", cfg.PersistenceRoot, root)
+	}
+}
