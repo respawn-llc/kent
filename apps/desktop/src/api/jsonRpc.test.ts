@@ -210,6 +210,9 @@ describe("JsonRpcWebSocketTransport", () => {
     });
     expect(socket.sent).toHaveLength(1);
     expect(frame(socket, 0)).toMatchObject({ method: "protocol.handshake" });
+    // A rejected handshake must close the socket; otherwise the reconnect loop
+    // leaks a socket connected to the wrong server on every backoff.
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
     subscription.close();
   });
 

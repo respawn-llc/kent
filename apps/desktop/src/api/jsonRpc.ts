@@ -216,7 +216,6 @@ class JsonRpcWebSocketTransport implements RpcTransport {
       },
       { once: true },
     );
-    await handshakeSubscription(socket, rpcRequestTimeoutMs, this.#expectedRootId);
     const terminalCompleteRef: { current: Readonly<{ code: number; message: string }> | null } = {
       current: null,
     };
@@ -228,8 +227,12 @@ class JsonRpcWebSocketTransport implements RpcTransport {
         socket.close();
       }
     };
-    socket.addEventListener("message", subscriptionListener);
     try {
+      // The handshake must stay inside this scope: a rejected handshake (e.g. a
+      // server reporting a different persistence root) would otherwise leave the
+      // socket connected to the wrong server while the reconnect loop opens more.
+      await handshakeSubscription(socket, rpcRequestTimeoutMs, this.#expectedRootId);
+      socket.addEventListener("message", subscriptionListener);
       await sendSocketRequest(socket, method, params, rpcRequestTimeoutMs);
       handler.onOpen?.();
       await waitForSubscriptionEnd(socket, signal);
