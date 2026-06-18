@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -207,8 +208,10 @@ func TestServiceUninstallKeepRunning(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionUninstall {
-		t.Fatalf("calls = %+v, want uninstall only", backend.calls)
+	// uninstall first reads status to verify the registration targets this root.
+	want := []serviceAction{serviceActionStatus, serviceActionUninstall}
+	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
+		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
 	}
 	if backend.uninstallStop {
 		t.Fatal("expected --keep-running to skip stop")
@@ -234,6 +237,107 @@ func TestServiceUninstallRejectsKentShellSession(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func withServiceCommandTestSpecRoot(t *testing.T, root string) {
+	t.Helper()
+	// `serviceSubcommand(... --persistence-root ...)` publishes KENT_PERSISTENCE_ROOT
+	// process-wide; register it so it is restored and does not leak into later tests.
+	t.Setenv(config.PersistenceRootEnvName, "")
+	original := loadServiceSpec
+	t.Cleanup(func() { loadServiceSpec = original })
+	loadServiceSpec = func() (serviceSpec, error) {
+		return serviceSpec{
+			Config:        config.App{PersistenceRoot: root, Settings: config.Settings{ServerHost: "127.0.0.1", ServerPort: 1}},
+			Executable:    "/usr/local/bin/kent",
+			Arguments:     serviceServeArguments(root),
+			LogDir:        "/tmp/kent/logs",
+			StdoutLogPath: "/tmp/kent/logs/server.log",
+			StderrLogPath: "/tmp/kent/logs/server.err.log",
+			Endpoint:      "http://127.0.0.1:1",
+		}, nil
+	}
+}
+
+func TestServiceStopRejectsRootMismatch(t *testing.T) {
+	requestedRoot := filepath.Join(t.TempDir(), "requested")
+	installedRoot := filepath.Join(t.TempDir(), "installed")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", installedRoot},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, requestedRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"stop", "--persistence-root", requestedRoot}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	}
+	for _, call := range backend.calls {
+		if call == serviceActionStop {
+			t.Fatalf("stop must not run against a registration for a different root; calls=%+v", backend.calls)
+		}
+	}
+	if !strings.Contains(stderr.String(), requestedRoot) || !strings.Contains(stderr.String(), installedRoot) {
+		t.Fatalf("stderr = %q, want it to name both the requested and installed roots", stderr.String())
+	}
+}
+
+func TestServiceStopAllowsMatchingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", root},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, root)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"stop", "--persistence-root", root}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	sawStop := false
+	for _, call := range backend.calls {
+		if call == serviceActionStop {
+			sawStop = true
+		}
+	}
+	if !sawStop {
+		t.Fatalf("stop must run when the installed root matches; calls=%+v", backend.calls)
+	}
+}
+
+func TestServiceRestartIfInstalledTreatsRootMismatchAsNoOp(t *testing.T) {
+	requestedRoot := filepath.Join(t.TempDir(), "requested")
+	installedRoot := filepath.Join(t.TempDir(), "installed")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", installedRoot},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, requestedRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart", "--if-installed", "--persistence-root", requestedRoot}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	for _, call := range backend.calls {
+		if call == serviceActionRestart {
+			t.Fatalf("restart --if-installed must no-op when no service exists for the root; calls=%+v", backend.calls)
+		}
 	}
 }
 

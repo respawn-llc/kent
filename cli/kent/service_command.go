@@ -207,7 +207,7 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 		writeServiceStatus(stdout, status)
 		return 0
 	case serviceActionInstall:
-		if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, ""); err != nil {
+		if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, serviceActionInstall); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -222,13 +222,17 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 			fmt.Fprintln(stdout, "Started: no")
 		}
 	case serviceActionUninstall:
+		if err := ensureServiceRootMatch(ctx, backend, spec); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		if err := backend.Uninstall(ctx, spec, !opts.KeepRunning); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "Uninstalled %s.\n", serviceDisplayName)
 	case serviceActionStart:
-		if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, ""); err != nil {
+		if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, serviceActionStart); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -238,6 +242,10 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 		}
 		fmt.Fprintf(stdout, "Started %s.\n", serviceDisplayName)
 	case serviceActionStop:
+		if err := ensureServiceRootMatch(ctx, backend, spec); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		if err := backend.Stop(ctx, spec); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -256,6 +264,11 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 				return 1
 			}
 			if !status.Installed {
+				return 0
+			}
+			// A registration for a different root is "not installed" from this
+			// invocation's perspective, so --if-installed exits as a quiet no-op.
+			if rootMismatchError(status, spec) != nil {
 				return 0
 			}
 			if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, action); err != nil {
@@ -279,10 +292,74 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 	return 0
 }
 
+// ensureServiceRootMatch reads the current registration and returns an error
+// when the installed service serves a different config+data root than the
+// resolved spec (or when the status read itself fails). It returns nil when
+// there is no conflict (or the installed root cannot be determined). Used by
+// stop/uninstall, which otherwise do not read status; start/restart reuse the
+// status fetched by ensureNoUnmanagedServerConflictForAction instead of paying a
+// second read.
+func ensureServiceRootMatch(ctx context.Context, backend serviceBackend, spec serviceSpec) error {
+	status, err := backend.Status(ctx, spec)
+	if err != nil {
+		return err
+	}
+	return rootMismatchError(status, spec)
+}
+
+// rootMismatchError compares the persistence root baked into an installed
+// registration's command against the resolved spec root. It returns nil when
+// they match, when nothing is installed, or when the installed command does not
+// carry an explicit --persistence-root (its root is then indeterminate and we
+// fail open rather than block a legitimate operation). Every service this binary
+// installs bakes --persistence-root, so the real cross-root footgun — a default
+// or other-root registration targeted with a different --persistence-root — is
+// still caught.
+func rootMismatchError(status serviceStatus, spec serviceSpec) error {
+	if !status.Installed || len(status.Command) == 0 {
+		return nil
+	}
+	installedRoot, ok := persistenceRootFromServiceCommand(status.Command)
+	if !ok {
+		return nil
+	}
+	if config.PersistenceRootHash(installedRoot) == config.PersistenceRootHash(spec.Config.PersistenceRoot) {
+		return nil
+	}
+	return fmt.Errorf("no %s is installed for persistence root %s; the installed service targets %s. Reinstall with `%s service install --persistence-root %s` or manage the matching root instead", serviceDisplayName, spec.Config.PersistenceRoot, installedRoot, config.Command, spec.Config.PersistenceRoot)
+}
+
+// persistenceRootFromServiceCommand extracts the --persistence-root value baked
+// into an installed service command. It scans structured argv tokens (both the
+// "--persistence-root <root>" and "--persistence-root=<root>" forms) rather than
+// matching substrings.
+func persistenceRootFromServiceCommand(command []string) (string, bool) {
+	const flag = "--persistence-root"
+	for i, arg := range command {
+		if arg == flag {
+			if i+1 < len(command) {
+				return command[i+1], true
+			}
+			return "", false
+		}
+		if value, ok := strings.CutPrefix(arg, flag+"="); ok {
+			return value, true
+		}
+	}
+	return "", false
+}
+
 func ensureNoUnmanagedServerConflictForAction(ctx context.Context, backend serviceBackend, spec serviceSpec, action serviceAction) error {
 	status, err := backend.Status(ctx, spec)
 	if err != nil {
 		return err
+	}
+	// start/restart must not act on a registration installed for a different
+	// root. install (re)writes the registration, so it is exempt.
+	if action == serviceActionStart || action == serviceActionRestart {
+		if mismatch := rootMismatchError(status, spec); mismatch != nil {
+			return mismatch
+		}
 	}
 	healthStatus, healthPID := probeServiceHealth(ctx, spec)
 	healthRunning := healthStatus == protocol.HealthStatusOK
