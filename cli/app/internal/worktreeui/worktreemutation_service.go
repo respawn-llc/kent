@@ -13,6 +13,7 @@ import (
 )
 
 const defaultResolveTimeout = 3 * time.Second
+const defaultMutationTimeout = 30 * time.Second
 
 var (
 	ErrClientUnavailable          = errors.New("worktree client is unavailable")
@@ -22,6 +23,7 @@ var (
 
 type RuntimeControl struct {
 	Context               func() (context.Context, context.CancelFunc)
+	MutationContext       func() (context.Context, context.CancelFunc)
 	CurrentLeaseID        func() string
 	RecoverLease          func(context.Context, error, bool) error
 	AppendRecoveryWarning bool
@@ -102,7 +104,7 @@ func runMutation[T any](s Service, call func(context.Context, string) (T, error)
 	if s.Runtime.ReadOnly != nil && s.Runtime.ReadOnly() {
 		return zero, ErrReadOnlyRuntime
 	}
-	ctx, cancel, _, err := s.controlContextWithLease()
+	ctx, cancel, _, err := s.mutationContextWithLease()
 	if err != nil {
 		return zero, err
 	}
@@ -113,10 +115,24 @@ func runMutation[T any](s Service, call func(context.Context, string) (T, error)
 }
 
 func (s Service) controlContextWithLease() (context.Context, context.CancelFunc, string, error) {
+	return s.contextWithLease(false)
+}
+
+func (s Service) mutationContextWithLease() (context.Context, context.CancelFunc, string, error) {
+	return s.contextWithLease(true)
+}
+
+func (s Service) contextWithLease(mutation bool) (context.Context, context.CancelFunc, string, error) {
 	if s.Client == nil {
 		return nil, nil, "", ErrClientUnavailable
 	}
 	if s.Runtime.Context == nil || s.Runtime.CurrentLeaseID == nil || s.Runtime.RecoverLease == nil {
+		return nil, nil, "", ErrControllerLeaseUnavailable
+	}
+	if mutation && s.Runtime.MutationContext != nil {
+		if ctx, cancel := s.Runtime.MutationContext(); ctx != nil && cancel != nil {
+			return ctx, cancel, s.Runtime.CurrentLeaseID(), nil
+		}
 		return nil, nil, "", ErrControllerLeaseUnavailable
 	}
 	ctx, cancel := s.Runtime.Context()
@@ -138,6 +154,10 @@ func (s Service) resolveContext() (context.Context, context.CancelFunc) {
 		}
 	}
 	return context.WithTimeout(context.Background(), defaultResolveTimeout)
+}
+
+func DefaultMutationContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), defaultMutationTimeout)
 }
 
 func (s Service) clientRequestID() string {

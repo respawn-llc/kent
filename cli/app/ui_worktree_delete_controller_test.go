@@ -270,6 +270,13 @@ func TestWorktreeDeleteControllerSubmitsDelete(t *testing.T) {
 	if got := client.deleteRequests[0]; got.WorktreeID != "wt-feature" || got.DeleteBranch {
 		t.Fatalf("delete request = %+v, want worktree-only delete", got)
 	}
+	deadline, ok := client.deleteCtx.Deadline()
+	if !ok {
+		t.Fatal("expected bounded delete context")
+	}
+	if remaining := time.Until(deadline); remaining <= 20*time.Second {
+		t.Fatalf("delete context remaining = %v, want worktree mutation timeout", remaining)
+	}
 }
 
 func TestWorktreeDeleteControllerSubmitsDeleteBranch(t *testing.T) {

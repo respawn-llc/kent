@@ -361,6 +361,7 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok && client != nil {
 		service.Runtime = worktreeui.RuntimeControl{
 			Context:               service.ResolveContext,
+			MutationContext:       worktreeui.DefaultMutationContext,
 			CurrentLeaseID:        client.controllerLeaseIDValue,
 			RecoverLease:          client.recoverControllerLeaseWithWarning,
 			AppendRecoveryWarning: true,
