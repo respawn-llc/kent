@@ -219,6 +219,16 @@ func (s *configuredProjectViewRemoteStub) Identity() protocol.ServerIdentity {
 	return s.identity
 }
 
+func (s *configuredProjectViewRemoteStub) RequireRoot(rootID string) error {
+	if s == nil {
+		return errors.New("remote client is required")
+	}
+	if rootID != "" && s.identity.PersistenceRootID != rootID {
+		return errors.New("project view root mismatch")
+	}
+	return nil
+}
+
 func (s *configuredProjectViewRemoteStub) ListProjects(ctx context.Context, req serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
 	if s != nil && s.listProjects != nil {
 		return s.listProjects(ctx, req)

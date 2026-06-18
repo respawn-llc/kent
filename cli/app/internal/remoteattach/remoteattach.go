@@ -24,6 +24,11 @@ type ProjectViewRemote interface {
 	client.ProjectViewClient
 	Close() error
 	Identity() protocol.ServerIdentity
+	// RequireRoot pins the persistence-root id that every (re)connect handshake
+	// on this connection must report, so a control connection that drops and
+	// reconnects over the fallback TCP endpoint cannot silently serve a
+	// different root. An empty id disables validation.
+	RequireRoot(rootID string) error
 }
 
 type DialProjectView func(context.Context, config.App) (ProjectViewRemote, error)
@@ -77,6 +82,14 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 	if req.Supports != nil && !req.Supports(projectViews.Identity().Capabilities) {
 		_ = projectViews.Close()
 		return nil, false, nil
+	}
+	// Pin the expected root before the first discovery RPC so a control
+	// connection that drops between identity acceptance and discovery cannot
+	// reconnect over the fallback TCP endpoint and resolve a binding plan from a
+	// different root before validation runs.
+	if err := projectViews.RequireRoot(req.RootID); err != nil {
+		_ = projectViews.Close()
+		return nil, true, err
 	}
 	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, req.DiscoveryTimeout)
 	plan, err := projectViews.PlanWorkspaceBinding(discoveryCtx, serverapi.ProjectBindingPlanRequest{Path: req.Config.WorkspaceRoot, Mode: serverapi.ProjectBindingPlanModeHeadless})
@@ -146,6 +159,13 @@ func DialInteractive(ctx context.Context, req InteractiveRequest) (*client.Remot
 		_ = projectViews.Close()
 		return nil, false
 	}
+	// Pin the expected root before the first discovery RPC so a dropped control
+	// connection cannot reconnect over the fallback TCP endpoint and resolve a
+	// binding from a different root before validation runs.
+	if err := projectViews.RequireRoot(req.RootID); err != nil {
+		_ = projectViews.Close()
+		return nil, false
+	}
 	binding, resolveErr := resolveInteractiveBinding(attachCtx, projectViews, req.Config.WorkspaceRoot)
 	if resolveErr != nil {
 		_ = projectViews.Close()
@@ -161,10 +181,8 @@ func DialInteractive(ctx context.Context, req InteractiveRequest) (*client.Remot
 			_ = projectViews.Close()
 			return nil, false
 		}
-		if err := remote.RequireRoot(req.RootID); err != nil {
-			_ = remote.Close()
-			return nil, false
-		}
+		// projectViews was already pinned via RequireRoot above, so the
+		// unbound remote we return keeps validating its root on every reconnect.
 		return remote, true
 	}
 	_ = projectViews.Close()

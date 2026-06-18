@@ -13,13 +13,25 @@ import (
 )
 
 type projectViewRemoteStub struct {
-	identity protocol.ServerIdentity
-	plan     func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
-	closed   bool
+	identity     protocol.ServerIdentity
+	plan         func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
+	requireRoot  func(string) error
+	pinnedRootID string
+	rootPinned   bool
+	closed       bool
 }
 
 func (s *projectViewRemoteStub) Close() error {
 	s.closed = true
+	return nil
+}
+
+func (s *projectViewRemoteStub) RequireRoot(rootID string) error {
+	s.pinnedRootID = rootID
+	s.rootPinned = true
+	if s.requireRoot != nil {
+		return s.requireRoot(rootID)
+	}
 	return nil
 }
 
@@ -68,6 +80,46 @@ func (*projectViewRemoteStub) GetProjectOverview(context.Context, serverapi.Proj
 
 func (*projectViewRemoteStub) ListSessionsByProject(context.Context, serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
 	return serverapi.SessionListByProjectResponse{}, errors.New("unexpected ListSessionsByProject call")
+}
+
+func TestDialHeadlessPinsProjectViewRootBeforeDiscovery(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: "/workspace"}
+	pinErr := errors.New("root mismatch")
+	projectViews := &projectViewRemoteStub{
+		identity:    protocol.ServerIdentity{Capabilities: protocol.CapabilityFlags{RunPrompt: true, AuthBootstrap: true, ProjectAttach: true}},
+		requireRoot: func(string) error { return pinErr },
+		plan: func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+			t.Fatal("discovery must not run when the project-view root pin fails")
+			return serverapi.ProjectBindingPlanResponse{}, nil
+		},
+	}
+	remote, ok, err := DialHeadless(context.Background(), HeadlessRequest{
+		Config:           cfg,
+		AttachTimeout:    20 * time.Millisecond,
+		DiscoveryTimeout: 20 * time.Millisecond,
+		RootID:           "root-want",
+		DialProjectView:  func(context.Context, config.App) (ProjectViewRemote, error) { return projectViews, nil },
+		DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+			t.Fatal("workspace dial must not run when the project-view root pin fails")
+			return nil, nil
+		},
+		Supports: SupportsRunPrompt,
+	})
+	if !errors.Is(err, pinErr) {
+		t.Fatalf("DialHeadless err = %v, want %v", err, pinErr)
+	}
+	if !ok {
+		t.Fatal("DialHeadless ok = false, want true (server reachable)")
+	}
+	if remote != nil {
+		t.Fatal("DialHeadless must not return a remote when the root pin fails")
+	}
+	if projectViews.pinnedRootID != "root-want" {
+		t.Fatalf("project-view pinned root = %q, want %q", projectViews.pinnedRootID, "root-want")
+	}
+	if !projectViews.closed {
+		t.Fatal("project-view remote must be closed when the root pin fails")
+	}
 }
 
 func TestDialHeadlessUsesWorkspaceDiscoveryAndFreshWorkspaceDialTimeout(t *testing.T) {

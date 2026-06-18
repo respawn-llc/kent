@@ -17,13 +17,24 @@ import (
 )
 
 type projectViewRemoteStub struct {
-	identity protocol.ServerIdentity
-	plan     func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
-	closed   bool
+	identity     protocol.ServerIdentity
+	plan         func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
+	pinnedRootID string
+	closed       bool
 }
 
 func (s *projectViewRemoteStub) Close() error {
 	s.closed = true
+	return nil
+}
+
+// RequireRoot mirrors client.Remote: it records the pinned id and rejects a
+// mismatch against the stub's stamped identity (empty id disables validation).
+func (s *projectViewRemoteStub) RequireRoot(rootID string) error {
+	s.pinnedRootID = rootID
+	if rootID != "" && s.identity.PersistenceRootID != rootID {
+		return errors.New("project view root mismatch")
+	}
 	return nil
 }
 
