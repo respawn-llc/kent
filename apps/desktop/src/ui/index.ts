@@ -3,6 +3,8 @@ export type { BadgeTone } from "./Badge";
 export { Button } from "./Button";
 export type { ButtonSize, ButtonVariant } from "./Button";
 export { IconTooltipButton } from "./IconTooltipButton";
+export { HelpHint } from "./HelpHint";
+export type { HelpHintProps } from "./HelpHint";
 export { DisabledInteractionGuard } from "./DisabledInteractionGuard";
 export type { DisabledInteractionGuardProps } from "./DisabledInteractionGuard";
 export { Dialog } from "./Dialog";

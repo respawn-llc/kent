@@ -12,6 +12,7 @@ import {
   Dialog,
   EmptyState,
   ErrorState,
+  HelpHint,
   LoadingState,
   MarkdownText,
   SelectField,
@@ -48,6 +49,16 @@ export function PrimitiveBoard({
           <Badge tone="success">Success</Badge>
           <Badge tone="warning">Warning</Badge>
           <Badge tone="danger">Danger</Badge>
+        </div>
+        <div
+          className="flex flex-wrap items-center gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
+          data-testid="dev-showcase-help-hint-row"
+        >
+          <span className="text-sm text-[var(--color-muted)]">Help hint</span>
+          <span className="inline-flex items-center gap-[var(--space-1)] text-sm text-[var(--color-on-island)]">
+            Worktree
+            <HelpHint label={"Isolated git checkout for this task.\nChanges stay sandboxed until merged."} />
+          </span>
         </div>
         <div
           className="flex flex-wrap items-center gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
