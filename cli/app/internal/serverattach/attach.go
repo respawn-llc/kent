@@ -134,11 +134,46 @@ func (e *IncompatibleServerError) Is(target error) bool {
 	return target == ErrServerIncompatible
 }
 
-// capabilityVerdict records the outcome of the capability check together with a
-// human-readable reason populated when the server is incompatible.
+// ErrReachableServerRootMismatch is returned by Resolve when a server was
+// reachable on the configured endpoint but reported a different (or no)
+// persistence root than the one the operator explicitly selected, and no local
+// starter is provided. Callers distinguish it from ErrNoServerAvailable because
+// the actionable fix differs: the wrong-root server is already occupying the
+// shared address, so starting another (`kent serve --persistence-root <root>`)
+// would only hit a bind conflict; the operator must stop/reconfigure the
+// other-root server or point at a matching endpoint instead. Resolve returns a
+// *RootMismatchServerError that matches this sentinel via errors.Is.
+var ErrReachableServerRootMismatch = errors.New("reachable server serves a different persistence root than the selected one")
+
+// RootMismatchServerError reports that a reachable server's persistence root did
+// not match the selected root, naming the other server so the operator learns
+// which instance occupies the endpoint. It matches ErrReachableServerRootMismatch
+// via errors.Is and exposes Reason for callers that compose their own message.
+type RootMismatchServerError struct {
+	Reason string
+}
+
+func (e *RootMismatchServerError) Error() string {
+	if strings.TrimSpace(e.Reason) == "" {
+		return ErrReachableServerRootMismatch.Error()
+	}
+	return ErrReachableServerRootMismatch.Error() + ": " + e.Reason
+}
+
+func (e *RootMismatchServerError) Is(target error) bool {
+	return target == ErrReachableServerRootMismatch
+}
+
+// capabilityVerdict records the outcome of dialing a reachable server: the
+// capability-check compatibility (with a human-readable reason when
+// incompatible) and, independently, a reason populated when a reachable server
+// reported a different persistence root than the required one. The two
+// dimensions are independent — a root mismatch is detected before the capability
+// check runs — so both are tracked and merged separately.
 type capabilityVerdict struct {
-	compatibility CapabilityCompatibility
-	reason        string
+	compatibility      CapabilityCompatibility
+	reason             string
+	rootMismatchReason string
 }
 
 // incompatibilityReason explains why a reachable server failed the capability
@@ -200,21 +235,26 @@ func Resolve[T any](ctx context.Context, req Request[T]) (Resolution[T], error) 
 	return startEmbedded(ctx, req, launchErr, verdict)
 }
 
-// composeRootAccept wraps an accept predicate so that, when a persistence-root
-// id is required, only a server reporting that exact id is accepted. A server
-// that does not report its root (empty id, e.g. an older build) is rejected
-// rather than trusted, since the whole point is to avoid attaching to an
-// instance whose root cannot be confirmed.
-func composeRootAccept(rootID string, accept remoteattach.Accept) remoteattach.Accept {
-	if rootID == "" {
-		return accept
+// rootMatches reports whether identity satisfies the required persistence-root
+// id. An empty required id means no root pin (always matches). A non-empty
+// required id never matches a server that reports no/different root, since the
+// whole point of the pin is to refuse attaching to an instance whose root cannot
+// be confirmed (e.g. an older build that reports no root, or a different-root
+// server occupying the same endpoint).
+func rootMatches(rootID string, identity protocol.ServerIdentity) bool {
+	return rootID == "" || identity.PersistenceRootID == rootID
+}
+
+// rootMismatchReason explains, for the verdict, why a reachable server was
+// rejected for serving a different persistence root than the selected one. It
+// names the other server (and pid) so the operator can identify and stop or
+// reconfigure the instance occupying the endpoint.
+func rootMismatchReason(identity protocol.ServerIdentity) string {
+	server := describeIncompatibleServer(identity)
+	if strings.TrimSpace(identity.PersistenceRootID) == "" {
+		return fmt.Sprintf("%s reports no persistence root, but this client requires the selected root", server)
 	}
-	return func(identity protocol.ServerIdentity) bool {
-		if identity.PersistenceRootID != rootID {
-			return false
-		}
-		return accept == nil || accept(identity)
-	}
+	return fmt.Sprintf("%s serves a different persistence root than the selected one", server)
 }
 
 func DialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remoteattach.Accept) (*client.Remote, bool, error) {
@@ -226,16 +266,26 @@ func newIncompatibleServerError(verdict capabilityVerdict) error {
 	return &IncompatibleServerError{Reason: verdict.reason}
 }
 
+func newRootMismatchServerError(verdict capabilityVerdict) error {
+	return &RootMismatchServerError{Reason: verdict.rootMismatchReason}
+}
+
 func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remoteattach.Accept) (*client.Remote, bool, error, capabilityVerdict) {
 	verdict := capabilityVerdict{compatibility: CapabilityCompatibilityUnchecked}
 	// Always wrap accept so the server identity is captured for the
 	// incompatibility reason even when the caller supplies no accept predicate
-	// and no root pin (in which case the wrapper simply passes through).
-	composed := composeRootAccept(policy.RootID, accept)
+	// and no root pin (in which case the wrapper simply delegates). A reachable
+	// server with the wrong root is recorded distinctly so Resolve can surface it
+	// as a root mismatch rather than collapsing it into "no server available".
+	callerAccept := accept
 	var captured protocol.ServerIdentity
 	accept = func(identity protocol.ServerIdentity) bool {
 		captured = identity
-		return composed == nil || composed(identity)
+		if !rootMatches(policy.RootID, identity) {
+			verdict.rootMismatchReason = rootMismatchReason(identity)
+			return false
+		}
+		return callerAccept == nil || callerAccept(identity)
 	}
 	supports := policy.Supports
 	if supports != nil {
@@ -338,7 +388,13 @@ func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() err
 func startEmbedded[T any](ctx context.Context, req Request[T], launchErr error, verdict capabilityVerdict) (Resolution[T], error) {
 	if req.StartEmbedded == nil {
 		noServerErr := error(ErrNoServerAvailable)
-		if verdict.compatibility == CapabilityCompatibilityIncompatible {
+		switch {
+		case verdict.rootMismatchReason != "":
+			// A reachable wrong-root server is the more specific, more actionable
+			// diagnosis (the root check runs before the capability check, so a
+			// mismatched server is rejected here before compatibility is evaluated).
+			noServerErr = newRootMismatchServerError(verdict)
+		case verdict.compatibility == CapabilityCompatibilityIncompatible:
 			noServerErr = newIncompatibleServerError(verdict)
 		}
 		if launchErr != nil {
@@ -384,10 +440,20 @@ func newResolution[T any](req Request[T], source Source, ownership OwnershipStat
 }
 
 func recordCapability(target *capabilityVerdict, checked capabilityVerdict) {
-	if target == nil || checked.compatibility == CapabilityCompatibilityUnchecked {
+	if target == nil {
 		return
 	}
-	*target = checked
+	// Merge the two independent dimensions: a dial may set only the root-mismatch
+	// reason (the root check runs before, and short-circuits, the capability
+	// check), so propagating solely on a non-Unchecked compatibility would drop a
+	// recorded root mismatch.
+	if checked.compatibility != CapabilityCompatibilityUnchecked {
+		target.compatibility = checked.compatibility
+		target.reason = checked.reason
+	}
+	if checked.rootMismatchReason != "" {
+		target.rootMismatchReason = checked.rootMismatchReason
+	}
 }
 
 func valueCapability(verdict *capabilityVerdict) CapabilityCompatibility {

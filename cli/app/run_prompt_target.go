@@ -78,6 +78,13 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 			}
 			return nil, nil, errRunServerIncompatible
 		}
+		var rootMismatch *serverattach.RootMismatchServerError
+		if errors.As(err, &rootMismatch) {
+			if reason := strings.TrimSpace(rootMismatch.Reason); reason != "" {
+				return nil, nil, fmt.Errorf("%w (%s)", errRunServerRootMismatch, reason)
+			}
+			return nil, nil, errRunServerRootMismatch
+		}
 		if errors.Is(err, serverattach.ErrNoServerAvailable) {
 			return nil, nil, errRunRequiresServer
 		}
@@ -92,6 +99,13 @@ var errRunRequiresServer = errors.New("`kent run` can only be used when a server
 // errRunServerIncompatible is returned when a reachable server fails the
 // capability check.
 var errRunServerIncompatible = errors.New("a Kent server is running on the configured endpoint but is not compatible with this client. Restart or upgrade the running server (for example `kent service restart`) instead of starting another, which would conflict on the same address")
+
+// errRunServerRootMismatch is returned when a reachable server on the configured
+// endpoint serves a different persistence root than the one selected. Starting
+// another server on the same address would only hit a bind conflict, so the
+// operator must stop/reconfigure the other-root server or target a matching
+// endpoint.
+var errRunServerRootMismatch = errors.New("a Kent server is running on the configured endpoint but serves a different persistence root than the selected one. Stop or reconfigure that server, or point `--persistence-root`/the configured endpoint at the matching instance, instead of starting another server which would conflict on the same address")
 
 const nonCallableSubagentRoleMessage = "User has disallowed calling this agent by other agents like you. Do not try to circumvent this, pick another suitable agent or do the work manually and let the user know your desire to use the subagent at the end of the task"
 

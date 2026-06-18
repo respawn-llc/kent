@@ -328,30 +328,26 @@ func boundProjectViewWithRoot(rootID string) *projectViewRemoteStub {
 	}
 }
 
-func TestComposeRootAccept(t *testing.T) {
-	if got := composeRootAccept("", nil); got != nil {
-		t.Fatal("no required root must pass the accept through unchanged (nil)")
+func TestRootMatches(t *testing.T) {
+	if !rootMatches("", protocol.ServerIdentity{PersistenceRootID: "anything"}) {
+		t.Fatal("no required root must match any identity")
 	}
-	accept := composeRootAccept("root-want", nil)
-	if accept == nil {
-		t.Fatal("required root must produce an accept predicate")
+	if !rootMatches("root-want", protocol.ServerIdentity{PersistenceRootID: "root-want"}) {
+		t.Fatal("matching root must match")
 	}
-	if !accept(protocol.ServerIdentity{PersistenceRootID: "root-want"}) {
-		t.Fatal("matching root must be accepted")
+	if rootMatches("root-want", protocol.ServerIdentity{PersistenceRootID: "root-other"}) {
+		t.Fatal("mismatched root must not match")
 	}
-	if accept(protocol.ServerIdentity{PersistenceRootID: "root-other"}) {
-		t.Fatal("mismatched root must be rejected")
-	}
-	if accept(protocol.ServerIdentity{}) {
-		t.Fatal("server with no reported root must be rejected when a root is required")
-	}
-	inner := composeRootAccept("root-want", func(protocol.ServerIdentity) bool { return false })
-	if inner(protocol.ServerIdentity{PersistenceRootID: "root-want"}) {
-		t.Fatal("inner accept rejection must still apply after a root match")
+	if rootMatches("root-want", protocol.ServerIdentity{}) {
+		t.Fatal("server with no reported root must not match when a root is required")
 	}
 }
 
 func TestResolveRejectsConfiguredRemoteWithMismatchedRootID(t *testing.T) {
+	// A reachable server serving a different root, with no local starter, must
+	// surface ErrReachableServerRootMismatch (not ErrNoServerAvailable) so the run
+	// path tells the operator to stop/reconfigure the other-root server rather
+	// than start another that would conflict on the same address.
 	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
 		return boundProjectViewWithRoot("root-other"), nil
 	})
@@ -363,8 +359,37 @@ func TestResolveRejectsConfiguredRemoteWithMismatchedRootID(t *testing.T) {
 			return Target[string]{Value: "remote"}, nil
 		},
 	})
-	if !errors.Is(err, ErrNoServerAvailable) {
-		t.Fatalf("err = %v, want ErrNoServerAvailable for mismatched root", err)
+	if !errors.Is(err, ErrReachableServerRootMismatch) {
+		t.Fatalf("err = %v, want ErrReachableServerRootMismatch for mismatched root", err)
+	}
+	if errors.Is(err, ErrNoServerAvailable) {
+		t.Fatal("a reachable wrong-root server must not be reported as no server available")
+	}
+	var mismatch *RootMismatchServerError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("err = %v, want *RootMismatchServerError", err)
+	}
+	if strings.TrimSpace(mismatch.Reason) == "" {
+		t.Fatal("root mismatch error must carry a reason naming the other server")
+	}
+}
+
+func TestResolveReportsRootMismatchForServerReportingNoRoot(t *testing.T) {
+	// An older server that reports no persistence root must be surfaced as a root
+	// mismatch when a root is required, not as "no server available".
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return boundProjectViewWithRoot(""), nil
+	})
+	policy.RootID = "root-want"
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrReachableServerRootMismatch) {
+		t.Fatalf("err = %v, want ErrReachableServerRootMismatch for a server reporting no root", err)
 	}
 }
 
