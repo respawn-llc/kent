@@ -185,7 +185,16 @@ func RecoveredWarning() string {
 }
 
 func RecoveredRootNonEmpty() (bool, error) {
-	paths, err := resolvePaths("")
+	return RecoveredRootNonEmptyFor("")
+}
+
+// RecoveredRootNonEmptyFor reports whether the recovered directory under the
+// supplied persistence config root holds any salvaged content. An empty
+// configRoot falls back to the default (<home>/.kent), matching
+// RecoveredRootNonEmpty, so the recovery warning follows the selected root the
+// same way generated sync does.
+func RecoveredRootNonEmptyFor(configRoot string) (bool, error) {
+	paths, err := resolvePathsForRoot("", configRoot)
 	if err != nil {
 		return false, err
 	}

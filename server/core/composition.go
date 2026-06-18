@@ -98,7 +98,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	processOutputService := processview.NewProcessOutputService(runtimeSupport.Background, runtimeSupport.Background)
 	sessionRuntimeService := sessionruntime.NewService(cfg.PersistenceRoot, metadataStore, authSupport.AuthManager, runtimeSupport.FastModeState, runtimeSupport.Background, runtimeSupport.BackgroundRouter, runtimeRegistry, sessionStoreRegistry, storeOptions...).
 		WithGeneratedRecoveredWarningProvider(func() (string, bool, error) {
-			nonEmpty, err := prompts.RecoveredRootNonEmpty()
+			nonEmpty, err := prompts.RecoveredRootNonEmptyFor(cfg.PersistenceRoot)
 			if err != nil {
 				return "", false, err
 			}

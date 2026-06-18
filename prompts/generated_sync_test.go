@@ -480,3 +480,25 @@ func TestGeneratedSkillsRootForEmptyMatchesDefault(t *testing.T) {
 		t.Fatalf("GeneratedSkillsRootFor(\"\") = %q, want %q", got, want)
 	}
 }
+
+func TestRecoveredRootNonEmptyForUsesConfigRoot(t *testing.T) {
+	configRoot := t.TempDir()
+	// No recovered dir yet -> not flagged.
+	if nonEmpty, err := RecoveredRootNonEmptyFor(configRoot); err != nil {
+		t.Fatalf("RecoveredRootNonEmptyFor: %v", err)
+	} else if nonEmpty {
+		t.Fatal("expected empty recovered root to report false")
+	}
+	recoveredDir := filepath.Join(configRoot, recoveredDirName)
+	if err := os.MkdirAll(recoveredDir, 0o755); err != nil {
+		t.Fatalf("mkdir recovered: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(recoveredDir, "salvaged.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write salvaged file: %v", err)
+	}
+	if nonEmpty, err := RecoveredRootNonEmptyFor(configRoot); err != nil {
+		t.Fatalf("RecoveredRootNonEmptyFor: %v", err)
+	} else if !nonEmpty {
+		t.Fatalf("expected populated recovered root %q to report true", recoveredDir)
+	}
+}

@@ -216,7 +216,7 @@ func (Collector) CollectEnvironment(_ context.Context, req Request, _ Snapshot) 
 	result := EnvironmentStageResult{}
 	warnings := make([]string, 0, 3)
 	workspaceRoot := EnvironmentRoot(req.WorkspaceRoot, ExecutionTarget(req))
-	if recovered, err := prompts.RecoveredRootNonEmpty(); err != nil {
+	if recovered, err := prompts.RecoveredRootNonEmptyFor(req.PersistenceRoot); err != nil {
 		warnings = append(warnings, "generated: "+err.Error())
 	} else if recovered {
 		warnings = append(warnings, prompts.RecoveredWarning())
