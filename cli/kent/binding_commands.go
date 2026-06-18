@@ -323,6 +323,14 @@ func openBindingCommandRemote(ctx context.Context, path string) (config.App, *cl
 	if err != nil {
 		return config.App{}, nil, err
 	}
+	// When the operator selected an explicit non-default persistence root, only
+	// operate on a server actually serving that root so project/binding commands
+	// never display or mutate a different instance reachable on the same TCP
+	// endpoint.
+	if err := remote.RequireRoot(config.ExplicitPersistenceRootID(cfg)); err != nil {
+		_ = remote.Close()
+		return config.App{}, nil, err
+	}
 	return cfg, remote, nil
 }
 
