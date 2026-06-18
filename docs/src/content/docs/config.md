@@ -45,6 +45,10 @@ When you select a non-default root via the flag, Kent normalizes it to an absolu
 
 Selecting a non-default root also makes client attach root-aware: a client only attaches to a server that actually serves that root, and the check is re-applied if the connection drops and reconnects, so a run can never silently switch to a different instance that later takes over the same host and port. This prevents an isolated-root invocation (for example `kent run --persistence-root /tmp/root`) from attaching to your default `~/.kent` server when both resolve to the same host and port. If no server is serving the selected root, start one with `kent serve --persistence-root <root>` (or install the service with that root). Default-root behavior is unchanged — and a `--persistence-root`/`KENT_PERSISTENCE_ROOT` value that just points back at the default `~/.kent` is treated as the default, so it keeps working against an existing default-root server. On case-insensitive filesystems (default macOS and Windows) the root identity is matched case-insensitively, so spelling the same directory with different casing for the server and client still attaches.
 
+This applies to every client surface, not just the CLI. The desktop GUI validates the handshake the same way: when launched with a non-default `KENT_PERSISTENCE_ROOT` it refuses to drive a server that serves a different root rather than reading config from the isolated root while mutating projects and sessions on the default-root server.
+
+`kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration; `kent service start|stop|restart|uninstall --persistence-root <root>` refuses to act when the installed service targets a different root (so `kent service stop --persistence-root /tmp/root` no longer stops your default-root service). The OS still holds a single service registration, so install with the root you want managed.
+
 
 ## Example
 

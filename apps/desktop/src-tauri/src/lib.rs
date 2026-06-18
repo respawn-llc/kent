@@ -1,7 +1,8 @@
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -21,6 +22,13 @@ const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
 struct NativeContext {
     server_endpoint: String,
     persistence_root: String,
+    // persistence_root_id is the id a connected server must report
+    // (HandshakeResponse.identity.persistence_root_id) for the GUI to trust it
+    // serves this root. It is empty for the default root or when
+    // KENT_PERSISTENCE_ROOT was not explicitly set, mirroring the Go client's
+    // config.ExplicitPersistenceRootID so default behavior is unchanged and older
+    // servers (which report an empty id) keep working.
+    persistence_root_id: String,
     platform: String,
     theme: String,
     home_path: String,
@@ -134,13 +142,87 @@ pub fn run() {
 fn native_context() -> Result<NativeContext, String> {
     let settings = load_settings()?;
     let home_path = home_dir()?.to_string_lossy().to_string();
+    let persistence_root_id = expected_persistence_root_id(&settings.persistence_root)?;
     Ok(NativeContext {
         server_endpoint: server_rpc_url(&settings.server_host, settings.server_port),
         persistence_root: settings.persistence_root.to_string_lossy().to_string(),
+        persistence_root_id,
         platform: platform().to_string(),
         theme: settings.theme,
         home_path,
     })
+}
+
+// expected_persistence_root_id mirrors Go's config.ExplicitPersistenceRootID: it
+// returns the persistence-root id the GUI should require a connected server to
+// report, or an empty string when validation should be skipped (default root or
+// KENT_PERSISTENCE_ROOT unset). Skipping for the default keeps default-root
+// behavior unchanged and stays compatible with servers that report an empty id.
+fn expected_persistence_root_id(root: &Path) -> Result<String, String> {
+    let explicit =
+        matches!(env::var("KENT_PERSISTENCE_ROOT"), Ok(value) if !value.trim().is_empty());
+    if !explicit {
+        return Ok(String::new());
+    }
+    let default_root = resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?;
+    if canonical_persistence_root(root) == canonical_persistence_root(&default_root) {
+        return Ok(String::new());
+    }
+    Ok(persistence_root_hash(root))
+}
+
+// persistence_root_hash reproduces Go's config.PersistenceRootHash: the SHA-256
+// of the canonicalized root, rendered as the first 8 bytes in hex. The desktop
+// and the server it controls run on the same machine, so the canonical form
+// (and therefore the id) matches the value the Go server stamps.
+fn persistence_root_hash(root: &Path) -> String {
+    let digest = Sha256::digest(canonical_persistence_root(root).as_bytes());
+    digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+// canonical_persistence_root mirrors Go's canonicalRootForIdentity: it lexically
+// cleans the path (matching filepath.Clean) and, on case-insensitive default
+// filesystems (macOS, Windows), folds case. Case-sensitive platforms keep the
+// caller's spelling.
+fn canonical_persistence_root(root: &Path) -> String {
+    let cleaned = clean_path(root).to_string_lossy().to_string();
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        cleaned.to_lowercase()
+    } else {
+        cleaned
+    }
+}
+
+// clean_path performs the lexical normalization Go's filepath.Clean applies:
+// it drops "." segments, collapses redundant separators, and resolves ".."
+// against the preceding element without ever ascending past the root. It does
+// not touch the filesystem.
+fn clean_path(path: &Path) -> PathBuf {
+    let mut components: Vec<Component> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match components.last() {
+                Some(Component::Normal(_)) => {
+                    components.pop();
+                }
+                Some(Component::RootDir) | Some(Component::Prefix(_)) => {}
+                _ => components.push(component),
+            },
+            other => components.push(other),
+        }
+    }
+    let mut cleaned = PathBuf::new();
+    for component in components {
+        cleaned.push(component.as_os_str());
+    }
+    if cleaned.as_os_str().is_empty() {
+        cleaned.push(".");
+    }
+    cleaned
 }
 
 fn platform() -> &'static str {
@@ -339,7 +421,40 @@ fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_theme, resolve_configured_path, server_rpc_url};
+    use super::{
+        clean_path, parse_theme, persistence_root_hash, resolve_configured_path, server_rpc_url,
+    };
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn persistence_root_hash_matches_go_golden_value() {
+        // Cross-checks the SHA-256/truncation/hex against Go's
+        // config.PersistenceRootHash for an already-canonical path (lowercase,
+        // clean) so both implementations stamp the same id. The Go side asserts
+        // the same constant.
+        assert_eq!(
+            persistence_root_hash(Path::new("/tmp/kent-root")),
+            "eb013faf79dfc249"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn persistence_root_hash_folds_case_on_case_insensitive_platforms() {
+        assert_eq!(
+            persistence_root_hash(Path::new("/Tmp/Kent-Root")),
+            persistence_root_hash(Path::new("/tmp/kent-root"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clean_path_resolves_dot_and_parent_segments() {
+        assert_eq!(
+            clean_path(Path::new("/tmp/./kent//root/../root")),
+            PathBuf::from("/tmp/kent/root")
+        );
+    }
 
     #[test]
     fn resolve_configured_path_rejects_relative_roots() {

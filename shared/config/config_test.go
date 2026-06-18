@@ -1012,6 +1012,16 @@ func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
 	}
 }
 
+func TestPersistenceRootHashMatchesDesktopGoldenValue(t *testing.T) {
+	// Locks the wire contract shared with the Rust desktop client
+	// (apps/desktop/src-tauri/src/lib.rs persistence_root_hash), which asserts the
+	// same constant for the same already-canonical root. "/tmp/kent-root" is
+	// already lowercase and clean, so the value holds on every platform.
+	if got, want := PersistenceRootHash("/tmp/kent-root"), "eb013faf79dfc249"; got != want {
+		t.Fatalf("PersistenceRootHash(/tmp/kent-root) = %q, want %q (desktop client must agree)", got, want)
+	}
+}
+
 func TestPersistenceRootHashFoldsCaseOnCaseInsensitivePlatforms(t *testing.T) {
 	root := filepath.Join(string(filepath.Separator), "tmp", "Kent-Root-Case")
 	upper := PersistenceRootHash(root)

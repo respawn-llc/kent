@@ -44,6 +44,13 @@ export class StartupConfigurationError extends Error {
   }
 }
 
+export class ServerRootMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ServerRootMismatchError";
+  }
+}
+
 export function errorMessage(error: unknown): string {
   if (typeof error === "string") {
     return normalizeMessage(error);

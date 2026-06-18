@@ -55,6 +55,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "serde",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",

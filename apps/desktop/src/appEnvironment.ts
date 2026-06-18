@@ -58,7 +58,11 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   }
   const endpoint =
     browserEndpoint ?? (context.serverEndpoint.length > 0 ? context.serverEndpoint : defaultServerEndpoint);
-  const api = new ApiClient(createJsonRpcTransport(endpoint));
+  // Browser QA points at an arbitrary endpoint, so root validation only applies
+  // to the native-resolved server. context.persistenceRootId is empty for the
+  // default root (validation skipped).
+  const expectedRootId = browserEndpoint === null ? context.persistenceRootId : "";
+  const api = new ApiClient(createJsonRpcTransport(endpoint, expectedRootId));
   return {
     api,
     debugThemeOverrideEnabled: import.meta.env.DEV,

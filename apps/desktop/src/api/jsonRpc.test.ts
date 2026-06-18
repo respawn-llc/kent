@@ -1,5 +1,5 @@
 import { createJsonRpcTransport } from "./jsonRpc";
-import { ProtocolMismatchError } from "./errors";
+import { ProtocolMismatchError, ServerRootMismatchError } from "./errors";
 import { protocolVersionMismatchErrorCode } from "./jsonRpcSocket";
 
 type SentFrame = Readonly<{
@@ -92,6 +92,48 @@ describe("JsonRpcWebSocketTransport", () => {
     await expect(readiness).rejects.toBeInstanceOf(ProtocolMismatchError);
     expect(socket.sent).toHaveLength(1);
     expect(frame(socket, 0)).toMatchObject({ method: "protocol.handshake" });
+  });
+
+  it("rejects control calls when the server serves a different persistence root", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc", "expected-root");
+    const readiness = transport.call("server.readiness.get", {});
+    const socket = sockets[0] ?? failTest("control socket missing");
+
+    socket.open();
+    await waitForSent(socket, 1);
+    ackHandshakeRoot(socket, 0, "other-root");
+
+    await expect(readiness).rejects.toBeInstanceOf(ServerRootMismatchError);
+    expect(socket.sent).toHaveLength(1);
+    expect(frame(socket, 0)).toMatchObject({ method: "protocol.handshake" });
+  });
+
+  it("rejects control calls when the server reports no persistence root id", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc", "expected-root");
+    const readiness = transport.call("server.readiness.get", {});
+    const socket = sockets[0] ?? failTest("control socket missing");
+
+    socket.open();
+    await waitForSent(socket, 1);
+    ack(socket, 0);
+
+    await expect(readiness).rejects.toBeInstanceOf(ServerRootMismatchError);
+    expect(socket.sent).toHaveLength(1);
+  });
+
+  it("accepts control calls when the server serves the expected persistence root", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc", "expected-root");
+    const readiness = transport.call("server.readiness.get", {});
+    const socket = sockets[0] ?? failTest("control socket missing");
+
+    socket.open();
+    await waitForSent(socket, 1);
+    ackHandshakeRoot(socket, 0, "expected-root");
+    await waitForSent(socket, 2);
+    expect(frame(socket, 1)).toMatchObject({ method: "server.readiness.get" });
+    ack(socket, 1);
+
+    await expect(readiness).resolves.toEqual({});
   });
 
   it("installs subscription event listener before subscribe ack can race with first event", async () => {
@@ -359,6 +401,17 @@ function ack(socket: MockWebSocket, sentIndex: number): void {
 function errorAck(socket: MockWebSocket, sentIndex: number, code: number, message: string): void {
   const sent = frame(socket, sentIndex);
   socket.receive(JSON.stringify({ jsonrpc: "2.0", id: sent.id, error: { code, message } }));
+}
+
+function ackHandshakeRoot(socket: MockWebSocket, sentIndex: number, rootId: string): void {
+  const sent = frame(socket, sentIndex);
+  socket.receive(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: sent.id,
+      result: { identity: { persistence_root_id: rootId } },
+    }),
+  );
 }
 
 function frame(socket: MockWebSocket, sentIndex: number): SentFrame {
