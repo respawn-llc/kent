@@ -819,6 +819,22 @@ func TestRootCommandNormalizesInheritedRelativeEnvBeforeDispatch(t *testing.T) {
 	}
 }
 
+func TestRootCommandToleratesUnnormalizableInheritedEnvBeforeDispatch(t *testing.T) {
+	// A bad inherited KENT_PERSISTENCE_ROOT (here a tilde that cannot expand
+	// because HOME is unresolvable) must not abort dispatch at the entry-point
+	// normalization: a command that owns a --persistence-root flag re-publishes
+	// from the flag (which must win over the env), and a flag-less command surfaces
+	// the error at its own resolution boundary. --version exercises the entry-point
+	// path and returns before any flag re-publish, so a non-zero exit here would
+	// mean the entry normalization wrongly hard-failed.
+	t.Setenv("HOME", "")
+	t.Setenv(config.PersistenceRootEnvName, "~/cannot-expand")
+	var stdout, stderr strings.Builder
+	if code := rootCommand([]string{"--version"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("rootCommand --version exit = %d: %s", code, stderr.String())
+	}
+}
+
 func TestPublishPersistenceRootEnvFlagWinsOverEnv(t *testing.T) {
 	t.Setenv(config.PersistenceRootEnvName, "rel-root")
 	flagRoot := filepath.Join(string(filepath.Separator), "tmp", "flag-root")

@@ -86,16 +86,16 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	// Normalize an inherited relative KENT_PERSISTENCE_ROOT to an absolute path
-	// before dispatch so root-checking client subcommands (project, attach,
-	// rebind, goal, workflow, task) hash the same root the server stamped rather
-	// than re-resolving the relative value against the current directory. Commands
-	// that own a --persistence-root flag re-publish below; the blank-flag call is
-	// idempotent, and a default root (no env, no flag) is left untouched.
-	if err := publishPersistenceRootEnv(""); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
+	// Best-effort: normalize an inherited relative KENT_PERSISTENCE_ROOT to an
+	// absolute path before dispatch so root-checking client subcommands (project,
+	// attach, rebind, goal, workflow, task) hash the same root the server stamped
+	// rather than re-resolving the relative value against the current directory.
+	// This is intentionally non-fatal: a command that owns a --persistence-root
+	// flag re-publishes below, where the flag must win over a bad inherited env,
+	// and a flag-less command that genuinely cannot resolve its root surfaces the
+	// error at its own resolution boundary instead of aborting every command here.
+	// The blank-flag call is idempotent and leaves a default root (no env) untouched.
+	_ = publishPersistenceRootEnv("")
 	if len(args) > 0 && args[0] == "run" {
 		return runSubcommand(args[1:])
 	}
