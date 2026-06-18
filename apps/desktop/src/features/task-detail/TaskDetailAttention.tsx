@@ -240,6 +240,7 @@ export function ApprovalBox({
         <div className="grid gap-[var(--space-2)]">
           <div className="flex min-w-0 items-center gap-[var(--space-2)]" data-testid="task-approval-route-action-row">
             <WorkflowEdgeRouteGraphic
+              className="-ml-[var(--space-2)]"
               contextMode=""
               layout="compact"
               neutralArrow
@@ -323,7 +324,7 @@ function ApprovalOutputValues({
           <div className="grid gap-[var(--space-1)]">
             <strong className="text-sm">{name}</strong>
             <button
-              className="min-w-0 whitespace-pre-wrap rounded-[var(--radius-m)] px-[var(--space-1)] py-[var(--space-1)] text-left text-sm text-[var(--color-muted)] transition-colors hover:bg-[var(--color-island-2)] hover:text-[var(--color-on-island)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+              className="-mx-[var(--space-1)] min-w-0 whitespace-pre-wrap rounded-[var(--radius-m)] px-[var(--space-1)] py-[var(--space-1)] text-left text-sm text-[var(--color-muted)] transition-colors hover:bg-[var(--color-island-2)] hover:text-[var(--color-on-island)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
               onClick={() => {
                 void copyText(value, nativeBridge)
                   .then(() => {

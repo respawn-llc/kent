@@ -5,6 +5,7 @@ import { cx } from "../../ui/classes";
 import { workflowEdgeColor } from "./workflowGraphColors";
 
 export type WorkflowEdgeRouteGraphicProps = Readonly<{
+  className?: string | undefined;
   contextMode: string;
   hasError?: boolean | undefined;
   layout?: "balanced" | "compact" | undefined;
@@ -14,6 +15,7 @@ export type WorkflowEdgeRouteGraphicProps = Readonly<{
 }>;
 
 export function WorkflowEdgeRouteGraphic({
+  className,
   contextMode,
   hasError = false,
   layout = "balanced",
@@ -29,6 +31,7 @@ export function WorkflowEdgeRouteGraphic({
         "min-w-0 items-center gap-[var(--space-2)]",
         layout === "balanced" && "grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
         layout === "compact" && "flex max-w-full",
+        className,
       )}
       data-testid="workflow-edge-route-graphic"
       role="group"
