@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import {
   SidebarHeaderActionSlot,
 } from "./sidebarHeaderAction";
 import { SidebarDestinationView } from "./sidebarDestinations";
+import { SidebarHeaderOffsetContext } from "./sidebarHeaderOffset";
 import { sidebarPopOutOptions } from "./sidebarPopOut";
 import { sidebarTitle } from "./sidebarTitle";
 import { sidebarSizePreference } from "./sidebarDestinationSizing";
@@ -65,6 +67,8 @@ export function SidebarHost() {
   const sizePreference = useMemo(() => sidebarSizePreference(activeDestination), [activeDestination]);
   const titleId = useId();
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const [headerOffsetPx, setHeaderOffsetPx] = useState(0);
   const resizeDragRef = useRef<SidebarResizeDrag | null>(null);
   const [resizing, setResizing] = useState(false);
   const [resizeBounds, setResizeBounds] = useState(() =>
@@ -73,10 +77,11 @@ export function SidebarHost() {
 
   const sidebarStyle = useMemo<SidebarStyle>(
     () => ({
+      "--app-sidebar-header-height": `${headerOffsetPx.toString()}px`,
       "--app-sidebar-inset": "var(--space-2)",
       "--app-sidebar-width": `${sidebarWidthPx.toString()}px`,
     }),
-    [sidebarWidthPx],
+    [headerOffsetPx, sidebarWidthPx],
   );
 
   const resizeTo = useCallback(
@@ -169,6 +174,22 @@ export function SidebarHost() {
     };
   }, [resizing]);
 
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (header === null) {
+      return;
+    }
+    const measure = () => {
+      setHeaderOffsetPx(header.getBoundingClientRect().height);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(header);
+    return () => {
+      observer?.disconnect();
+    };
+  }, [activeDestination]);
+
   useEffect(() => {
     if (activeDestination === null) {
       return;
@@ -206,7 +227,7 @@ export function SidebarHost() {
       <aside
         aria-labelledby={titleId}
         className={cx(
-          "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
+          "app-region-no-drag app-sidebar-panel island-glass z-10 overflow-hidden",
           "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-[var(--radius-xl)]",
           mode === "shift" &&
             "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
@@ -242,7 +263,10 @@ export function SidebarHost() {
           role="separator"
           tabIndex={0}
         />
-        <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
+        <header
+          className="absolute top-0 right-0 left-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] bg-[var(--color-island-0)] px-[var(--space-4)] py-[var(--space-3)] [backdrop-filter:blur(8px)]"
+          ref={headerRef}
+        >
           <IconTooltipButton
             label={t("app.close")}
             onClick={() => {
@@ -263,19 +287,21 @@ export function SidebarHost() {
         </header>
         <div
           className={cx(
-            "min-h-0",
+            "absolute right-0 bottom-0 left-0 min-h-0",
             activeDestination.kind === "workflowEditor"
-              ? "overflow-hidden p-[var(--space-2)]"
+              ? "top-[var(--app-sidebar-header-height)] overflow-hidden p-[var(--space-2)]"
               : activeDestination.kind === "taskDetail" || activeDestination.kind === "projectEdit"
-                ? "overflow-hidden"
-                : "overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]",
+                ? "top-0 overflow-hidden"
+                : "top-0 overflow-y-auto px-[var(--space-4)] pb-[var(--space-4)] pt-[calc(var(--app-sidebar-header-height)+var(--space-4))]",
           )}
         >
-          <SidebarDestinationView
-            closeSidebar={closeSidebar}
-            destination={activeDestination}
-            resolveSidebar={resolveSidebar}
-          />
+          <SidebarHeaderOffsetContext.Provider value={headerOffsetPx}>
+            <SidebarDestinationView
+              closeSidebar={closeSidebar}
+              destination={activeDestination}
+              resolveSidebar={resolveSidebar}
+            />
+          </SidebarHeaderOffsetContext.Provider>
         </div>
       </aside>
     </SidebarHeaderActionProvider>
@@ -431,7 +457,8 @@ async function copyWorkflowEntityID(
   await navigator.clipboard.writeText(value);
 }
 
-type SidebarStyle = CSSProperties & Readonly<Record<"--app-sidebar-inset" | "--app-sidebar-width", string>>;
+type SidebarStyle = CSSProperties &
+  Readonly<Record<"--app-sidebar-header-height" | "--app-sidebar-inset" | "--app-sidebar-width", string>>;
 
 type PointerCaptureTarget = Partial<
   Readonly<{

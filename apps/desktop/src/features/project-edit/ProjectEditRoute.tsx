@@ -8,6 +8,7 @@ import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { usePublishSidebarHeaderAction } from "../../app/sidebarHeaderActionContext";
+import { useSidebarHeaderOffset } from "../../app/sidebarHeaderOffset";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, HelpHint, LoadingState, VirtualizedInfiniteList } from "../../ui";
@@ -340,6 +341,7 @@ function ProjectWorkspaceList({
   workspaces: readonly WorkspaceSummary[];
 }>) {
   const { t } = useTranslation();
+  const headerOffset = useSidebarHeaderOffset();
   return (
     <VirtualizedInfiniteList
       className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
@@ -353,7 +355,7 @@ function ProjectWorkspaceList({
       loadingLabel={t("app.loadingMore")}
       onLoadMore={onLoadMore}
       paddingEnd={16}
-      paddingStart={16}
+      paddingStart={16 + headerOffset}
       renderItem={(workspace) => (
         <div className={`mx-auto w-full ${projectEditContentMaxWidthClassName}`}>
           <WorkspaceRow
