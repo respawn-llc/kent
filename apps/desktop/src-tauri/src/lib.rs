@@ -342,7 +342,12 @@ fn resolve_configured_path(value: &str) -> Result<PathBuf, String> {
     if trimmed == "~" {
         return home_dir();
     }
-    let expanded = if let Some(rest) = trimmed.strip_prefix("~/") {
+    // Match the Go loader's expandTildePath, which expands both `~/` and the
+    // Windows `~\` separator form. A server started with
+    // KENT_PERSISTENCE_ROOT=~\kent-root is accepted by the CLI/server, so the
+    // desktop must resolve the same value rather than reject it as relative and
+    // fail to connect to the matching selected-root server.
+    let expanded = if let Some(rest) = trimmed.strip_prefix("~/").or_else(|| trimmed.strip_prefix("~\\")) {
         home_dir()?.join(rest)
     } else {
         PathBuf::from(trimmed)
@@ -467,6 +472,16 @@ mod tests {
     fn resolve_configured_path_accepts_absolute_roots() {
         let path = resolve_configured_path("/tmp/kent-root").expect("absolute root");
         assert_eq!(path, std::path::PathBuf::from("/tmp/kent-root"));
+    }
+
+    #[test]
+    fn resolve_configured_path_expands_windows_tilde_separator() {
+        // The Go loader expands `~\` as well as `~/`, so a server started with
+        // KENT_PERSISTENCE_ROOT=~\kent-root must resolve to the home-rooted path
+        // rather than be rejected as a relative root.
+        std::env::set_var("HOME", "/home/kent-user");
+        let path = resolve_configured_path("~\\kent-root").expect("tilde-backslash root");
+        assert_eq!(path, std::path::PathBuf::from("/home/kent-user/kent-root"));
     }
 
     #[test]
