@@ -166,7 +166,9 @@ fn load_settings() -> Result<Settings, String> {
 
     // The config+data root is set by KENT_PERSISTENCE_ROOT (matching the Go
     // CLI/server), defaulting to ~/.kent. config.toml is read from that root;
-    // persistence_root is no longer a config.toml key.
+    // persistence_root is no longer a config.toml key. The value must be absolute
+    // (or ~-rooted); a relative root is rejected because the desktop's working
+    // directory differs from the server's and would silently diverge.
     let persistence_root = match env::var("KENT_PERSISTENCE_ROOT") {
         Ok(value) if !value.trim().is_empty() => resolve_configured_path(value.trim())?,
         _ => resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?,
@@ -266,9 +268,15 @@ fn resolve_configured_path(value: &str) -> Result<PathBuf, String> {
     if expanded.is_absolute() {
         return Ok(expanded);
     }
-    env::current_dir()
-        .map(|cwd| cwd.join(expanded))
-        .map_err(|error| format!("Resolve path failed: {error}"))
+    // A relative KENT_PERSISTENCE_ROOT is ambiguous for the desktop app: it would
+    // resolve against the app bundle's working directory (often `/`), which
+    // differs from the directory a `kent serve`/CLI was launched from, so the GUI
+    // would read config and write data under a different root than the server it
+    // controls. Require an absolute (or ~-rooted) path instead of silently
+    // diverging.
+    Err(format!(
+        "KENT_PERSISTENCE_ROOT must be an absolute path (or start with ~); got relative path {trimmed:?}."
+    ))
 }
 
 fn home_dir() -> Result<PathBuf, String> {
@@ -331,7 +339,20 @@ fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_theme, server_rpc_url};
+    use super::{parse_theme, resolve_configured_path, server_rpc_url};
+
+    #[test]
+    fn resolve_configured_path_rejects_relative_roots() {
+        let err = resolve_configured_path("rel/root").expect_err("relative root must be rejected");
+        assert!(err.contains("absolute"), "unexpected error: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_configured_path_accepts_absolute_roots() {
+        let path = resolve_configured_path("/tmp/kent-root").expect("absolute root");
+        assert_eq!(path, std::path::PathBuf::from("/tmp/kent-root"));
+    }
 
     #[test]
     fn server_rpc_url_brackets_ipv6_hosts() {
