@@ -56,7 +56,9 @@ export function reconnectWorkflowGraphEdge(
 export function selectionFromNode(node: Node): WorkflowGraphSelection | null {
   const { data } = node;
   if (isWorkflowGraphGroupData(data)) {
-    return { groupID: data.entityID, kind: "group" };
+    // Group inspection is temporarily disabled; groups are not selectable. Re-enable
+    // by restoring the group selection here and the onGroupInspect call in inspectNode.
+    return null;
   }
   if (isWorkflowGraphNodeData(data)) {
     return { kind: "node", nodeID: data.entityID };
@@ -87,7 +89,8 @@ export function inspectNode(
 ): void {
   const { data } = node;
   if (isWorkflowGraphGroupData(data)) {
-    onGroupInspect(data.entityID);
+    // Group inspection is temporarily disabled; clicking a group is a no-op. Re-enable
+    // by restoring this onGroupInspect call and the group selection in selectionFromNode.
     return;
   }
   if (isWorkflowGraphNodeData(data)) {
