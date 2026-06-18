@@ -225,6 +225,12 @@ func serverAttachRemotePolicy(cfg config.App, supports remoteattach.Supports, re
 func explicitPersistenceRootID(cfg config.App) string {
 	switch cfg.Source.Sources["persistence_root"] {
 	case "flag", "env":
+		// An explicit root that resolves to the default (<home>/.kent) has no
+		// cross-root isolation risk, so leave attach behavior unchanged and stay
+		// compatible with older servers that report an empty root id.
+		if isDefault, err := config.IsDefaultPersistenceRoot(cfg.PersistenceRoot); err != nil || isDefault {
+			return ""
+		}
 		return config.PersistenceRootHash(cfg.PersistenceRoot)
 	default:
 		return ""

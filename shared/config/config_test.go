@@ -1010,3 +1010,32 @@ func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
 		t.Fatalf("local socket path %q must be scoped by the root hash %q", socketPath, hash)
 	}
 }
+
+func TestIsDefaultPersistenceRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	defaultRoot := filepath.Join(home, ConfigDirName)
+
+	cases := []struct {
+		name string
+		root string
+		want bool
+	}{
+		{name: "empty", root: "", want: true},
+		{name: "absolute default", root: defaultRoot, want: true},
+		{name: "trailing separator default", root: defaultRoot + string(filepath.Separator), want: true},
+		{name: "tilde default", root: DefaultPersistence, want: true},
+		{name: "non-default", root: filepath.Join(string(filepath.Separator), "tmp", "iso-root"), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := IsDefaultPersistenceRoot(tc.root)
+			if err != nil {
+				t.Fatalf("IsDefaultPersistenceRoot(%q): %v", tc.root, err)
+			}
+			if got != tc.want {
+				t.Fatalf("IsDefaultPersistenceRoot(%q) = %v, want %v", tc.root, got, tc.want)
+			}
+		})
+	}
+}

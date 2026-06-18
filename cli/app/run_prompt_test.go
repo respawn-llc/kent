@@ -943,4 +943,19 @@ func TestServerAttachRemotePolicySetsRootIDOnlyForExplicitRoot(t *testing.T) {
 	if policy := serverAttachRemotePolicy(defaultRoot, remoteattach.SupportsRunPrompt, true); policy.RootID != "" {
 		t.Fatalf("default-root policy RootID = %q, want empty (no root validation)", policy.RootID)
 	}
+
+	// An explicit flag/env root that resolves to the default <home>/.kent must
+	// not require a root id, so default-root attaches stay compatible with older
+	// servers that report an empty id.
+	resolvedDefault, err := config.NormalizePersistenceRoot(config.DefaultPersistence)
+	if err != nil {
+		t.Fatalf("normalize default root: %v", err)
+	}
+	explicitDefault := config.App{
+		PersistenceRoot: resolvedDefault,
+		Source:          config.SourceReport{Sources: map[string]string{"persistence_root": "flag"}},
+	}
+	if policy := serverAttachRemotePolicy(explicitDefault, remoteattach.SupportsRunPrompt, true); policy.RootID != "" {
+		t.Fatalf("explicit-default-root policy RootID = %q, want empty (no root validation)", policy.RootID)
+	}
 }
