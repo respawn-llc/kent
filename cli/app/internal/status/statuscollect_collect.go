@@ -219,7 +219,11 @@ func (Collector) CollectEnvironment(_ context.Context, req Request, _ Snapshot) 
 	if recovered, err := prompts.RecoveredRootNonEmptyFor(req.PersistenceRoot); err != nil {
 		warnings = append(warnings, "generated: "+err.Error())
 	} else if recovered {
-		warnings = append(warnings, prompts.RecoveredWarning())
+		if warning, warnErr := prompts.RecoveredWarningFor(req.PersistenceRoot); warnErr != nil {
+			warnings = append(warnings, "generated: "+warnErr.Error())
+		} else {
+			warnings = append(warnings, warning)
+		}
 	}
 	inspectedSkills, skillsErr := runtime.InspectSkills(workspaceRoot, req.PersistenceRoot, config.DisabledSkillToggles(req.Settings))
 	if skillsErr != nil {

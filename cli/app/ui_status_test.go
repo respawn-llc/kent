@@ -575,8 +575,9 @@ func TestStatusEnvironmentWarnsWhenRecoveredGeneratedFilesExist(t *testing.T) {
 		t.Fatalf("mkdir recovered: %v", err)
 	}
 	result := defaultUIStatusCollector{}.CollectEnvironment(context.Background(), newStatusRequestForTest(withStatusWorkspaceRoot(t.TempDir())), uiStatusSnapshot{})
-	if !strings.Contains(result.CollectorWarning, config.PersistenceRoot+"/.generated folder was edited") {
-		t.Fatalf("expected recovered generated warning, got %q", result.CollectorWarning)
+	wantGenerated := filepath.Join(home, config.ConfigDirName, ".generated")
+	if !strings.Contains(result.CollectorWarning, wantGenerated+" folder was edited") {
+		t.Fatalf("expected recovered generated warning referencing %q, got %q", wantGenerated, result.CollectorWarning)
 	}
 }
 

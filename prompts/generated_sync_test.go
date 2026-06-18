@@ -76,7 +76,8 @@ func TestSyncRecoversEditedGeneratedRoot(t *testing.T) {
 	}
 	assertFile(t, filepath.Join(wantRecovery, "skills", "skill-creator", "SKILL.md"), "edited")
 	assertFile(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
-	if !result.RecoveredRootNonEmpty || result.RecoveredWarning != recoveredWarningText {
+	wantWarning := recoveredWarning(filepath.Join(home, configDirName, generatedDirName), filepath.Join(home, configDirName, recoveredDirName))
+	if !result.RecoveredRootNonEmpty || result.RecoveredWarning != wantWarning {
 		t.Fatalf("expected recovered warning state, got %+v", result)
 	}
 }
@@ -338,7 +339,8 @@ func TestSyncDetectsRecoveredRootNonEmptyWithoutNewRecovery(t *testing.T) {
 	if result.Recovered {
 		t.Fatalf("did not expect new recovery: %+v", result)
 	}
-	if !result.RecoveredRootNonEmpty || result.RecoveredWarning != recoveredWarningText {
+	wantWarning := recoveredWarning(filepath.Join(home, configDirName, generatedDirName), filepath.Join(home, configDirName, recoveredDirName))
+	if !result.RecoveredRootNonEmpty || result.RecoveredWarning != wantWarning {
 		t.Fatalf("expected recovered warning: %+v", result)
 	}
 }
@@ -500,5 +502,25 @@ func TestRecoveredRootNonEmptyForUsesConfigRoot(t *testing.T) {
 		t.Fatalf("RecoveredRootNonEmptyFor: %v", err)
 	} else if !nonEmpty {
 		t.Fatalf("expected populated recovered root %q to report true", recoveredDir)
+	}
+}
+
+func TestRecoveredWarningForUsesConfigRoot(t *testing.T) {
+	configRoot := t.TempDir()
+	warning, err := RecoveredWarningFor(configRoot)
+	if err != nil {
+		t.Fatalf("RecoveredWarningFor: %v", err)
+	}
+	wantGenerated := filepath.Join(configRoot, generatedDirName)
+	wantRecovered := filepath.Join(configRoot, recoveredDirName)
+	if !strings.Contains(warning, wantGenerated) {
+		t.Fatalf("warning %q must reference the selected generated root %q", warning, wantGenerated)
+	}
+	if !strings.Contains(warning, wantRecovered) {
+		t.Fatalf("warning %q must reference the selected recovery root %q", warning, wantRecovered)
+	}
+	// The default-root remediation paths must not leak into a non-default root warning.
+	if strings.Contains(warning, generatedRootDir) || strings.Contains(warning, recoveredDir) {
+		t.Fatalf("warning %q must not reference the default-root layout", warning)
 	}
 }

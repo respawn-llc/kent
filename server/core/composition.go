@@ -105,7 +105,11 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 			if !nonEmpty {
 				return "", false, nil
 			}
-			return prompts.RecoveredWarning(), true, nil
+			warning, warnErr := prompts.RecoveredWarningFor(cfg.PersistenceRoot)
+			if warnErr != nil {
+				return "", false, warnErr
+			}
+			return warning, true, nil
 		})
 	promptControlService := promptcontrol.NewPromptControlService(runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService)
 	promptActivityService := promptcontrol.NewPromptActivityService(runtimeRegistry)
