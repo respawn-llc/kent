@@ -429,6 +429,31 @@ func TestRootMismatchErrorAllowsUnpinnedRegistrationForDefaultRoot(t *testing.T)
 	}
 }
 
+func TestRootMismatchErrorRejectsUnreadableRegistrationForExplicitRoot(t *testing.T) {
+	// An installed service whose registered command the backend could not
+	// read/parse (empty command — e.g. a malformed plist or unit) is a root that
+	// cannot be confirmed; targeting it with an explicit non-default root must be
+	// refused rather than acting on the single global registration.
+	explicitRoot := filepath.Join(t.TempDir(), "iso")
+	status := serviceStatus{Installed: true, Command: nil}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: explicitRoot}}
+	if err := rootMismatchError(status, spec); err == nil {
+		t.Fatal("expected mismatch for an unreadable registration targeted with an explicit non-default root")
+	}
+}
+
+func TestRootMismatchErrorAllowsUnreadableRegistrationForDefaultRoot(t *testing.T) {
+	defaultRoot, err := config.NormalizePersistenceRoot(config.DefaultPersistence)
+	if err != nil {
+		t.Fatalf("normalize default root: %v", err)
+	}
+	status := serviceStatus{Installed: true, Command: nil}
+	spec := serviceSpec{Config: config.App{PersistenceRoot: defaultRoot}}
+	if err := rootMismatchError(status, spec); err != nil {
+		t.Fatalf("unexpected mismatch for a default-root unreadable registration: %v", err)
+	}
+}
+
 func TestServiceStatusReportsNotInstalledForForeignRoot(t *testing.T) {
 	// A registration whose command targets a different root must be reported as
 	// not installed for the requested root, so `service status --persistence-root`
