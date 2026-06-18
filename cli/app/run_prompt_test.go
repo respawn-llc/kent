@@ -924,3 +924,22 @@ func TestTryDialConfiguredRunPromptRemoteSkipsServerWithoutProjectAttachCapabili
 		t.Fatal("expected incompatible project view remote to be closed")
 	}
 }
+
+func TestServerAttachRemotePolicySetsRootIDOnlyForExplicitRoot(t *testing.T) {
+	explicit := config.App{
+		PersistenceRoot: filepath.Join(string(filepath.Separator), "tmp", "iso-root"),
+		Source:          config.SourceReport{Sources: map[string]string{"persistence_root": "flag"}},
+	}
+	policy := serverAttachRemotePolicy(explicit, remoteattach.SupportsRunPrompt, true)
+	if want := config.PersistenceRootHash(explicit.PersistenceRoot); policy.RootID != want {
+		t.Fatalf("explicit-root policy RootID = %q, want %q", policy.RootID, want)
+	}
+
+	defaultRoot := config.App{
+		PersistenceRoot: filepath.Join(string(filepath.Separator), "home", "u", ".kent"),
+		Source:          config.SourceReport{Sources: map[string]string{"persistence_root": "default"}},
+	}
+	if policy := serverAttachRemotePolicy(defaultRoot, remoteattach.SupportsRunPrompt, true); policy.RootID != "" {
+		t.Fatalf("default-root policy RootID = %q, want empty (no root validation)", policy.RootID)
+	}
+}

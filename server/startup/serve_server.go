@@ -117,9 +117,10 @@ func (s *ServeServer) Serve(ctx context.Context) error {
 	}
 
 	identity := protocol.ServerIdentity{
-		ProtocolVersion: protocol.Version,
-		ServerID:        fmt.Sprintf(config.Command+":%d", os.Getpid()),
-		PID:             os.Getpid(),
+		ProtocolVersion:   protocol.Version,
+		ServerID:          fmt.Sprintf(config.Command+":%d", os.Getpid()),
+		PID:               os.Getpid(),
+		PersistenceRootID: config.PersistenceRootHash(listenCfg.PersistenceRoot),
 		Capabilities: protocol.CapabilityFlags{
 			JSONRPCWebSocket:        true,
 			AuthBootstrap:           true,

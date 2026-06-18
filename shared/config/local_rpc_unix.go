@@ -3,8 +3,6 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,7 +20,5 @@ func ServerLocalRPCSocketPath(cfg App) (string, bool, error) {
 	if runtimeBase == "" {
 		runtimeBase = filepath.Join(os.TempDir(), DefaultAppName+"-"+strconv.Itoa(os.Getuid()))
 	}
-	hash := sha256.Sum256([]byte(filepath.Clean(trimmedRoot)))
-	rootHash := hex.EncodeToString(hash[:8])
-	return filepath.Join(runtimeBase, DefaultAppName, "rpc", rootHash, localRPCSocketFilename), true, nil
+	return filepath.Join(runtimeBase, DefaultAppName, "rpc", PersistenceRootHash(trimmedRoot), localRPCSocketFilename), true, nil
 }

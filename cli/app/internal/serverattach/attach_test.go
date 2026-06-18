@@ -305,6 +305,78 @@ func TestResolveWithoutStartersReturnsNoServerAvailable(t *testing.T) {
 	}
 }
 
+func boundProjectViewWithRoot(rootID string) *projectViewRemoteStub {
+	return &projectViewRemoteStub{
+		identity: protocol.ServerIdentity{Capabilities: allCapabilities(), PersistenceRootID: rootID},
+		plan: func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+			return boundPlanResponse(), nil
+		},
+	}
+}
+
+func TestComposeRootAccept(t *testing.T) {
+	if got := composeRootAccept("", nil); got != nil {
+		t.Fatal("no required root must pass the accept through unchanged (nil)")
+	}
+	accept := composeRootAccept("root-want", nil)
+	if accept == nil {
+		t.Fatal("required root must produce an accept predicate")
+	}
+	if !accept(protocol.ServerIdentity{PersistenceRootID: "root-want"}) {
+		t.Fatal("matching root must be accepted")
+	}
+	if accept(protocol.ServerIdentity{PersistenceRootID: "root-other"}) {
+		t.Fatal("mismatched root must be rejected")
+	}
+	if accept(protocol.ServerIdentity{}) {
+		t.Fatal("server with no reported root must be rejected when a root is required")
+	}
+	inner := composeRootAccept("root-want", func(protocol.ServerIdentity) bool { return false })
+	if inner(protocol.ServerIdentity{PersistenceRootID: "root-want"}) {
+		t.Fatal("inner accept rejection must still apply after a root match")
+	}
+}
+
+func TestResolveRejectsConfiguredRemoteWithMismatchedRootID(t *testing.T) {
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return boundProjectViewWithRoot("root-other"), nil
+	})
+	policy.RootID = "root-want"
+	_, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrNoServerAvailable) {
+		t.Fatalf("err = %v, want ErrNoServerAvailable for mismatched root", err)
+	}
+}
+
+func TestResolveAttachesConfiguredRemoteWithMatchingRootID(t *testing.T) {
+	policy := testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+		return boundProjectViewWithRoot("root-want"), nil
+	})
+	policy.RootID = "root-want"
+	resolution, err := Resolve[string](context.Background(), Request[string]{
+		Mode:   ModeHeadless,
+		Remote: policy,
+		WrapRemote: func(*client.Remote, config.App, func() error, OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolution.Source != SourceConfiguredRemote {
+		t.Fatalf("source = %q, want configured remote", resolution.Source)
+	}
+	if resolution.Value != "remote" {
+		t.Fatalf("value = %q, want remote", resolution.Value)
+	}
+}
+
 func TestResolvePassesRemoteOwnershipToWrapper(t *testing.T) {
 	for _, tt := range []struct {
 		name          string

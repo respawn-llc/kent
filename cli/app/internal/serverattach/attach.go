@@ -68,6 +68,12 @@ type RemotePolicy struct {
 	DialWorkspace    remoteattach.DialWorkspace
 	Supports         remoteattach.Supports
 	RequireBound     bool
+	// RootID, when non-empty, requires an attached server to report a matching
+	// protocol.ServerIdentity.PersistenceRootID. It is set when the operator
+	// explicitly selects a non-default persistence root, so a run cannot attach
+	// to a different instance reachable on the same TCP endpoint. Empty means no
+	// root validation (default-root behavior is unchanged).
+	RootID string
 }
 
 type Target[T any] struct {
@@ -133,6 +139,23 @@ func Resolve[T any](ctx context.Context, req Request[T]) (Resolution[T], error) 
 	return startEmbedded(ctx, req, launchErr, capability)
 }
 
+// composeRootAccept wraps an accept predicate so that, when a persistence-root
+// id is required, only a server reporting that exact id is accepted. A server
+// that does not report its root (empty id, e.g. an older build) is rejected
+// rather than trusted, since the whole point is to avoid attaching to an
+// instance whose root cannot be confirmed.
+func composeRootAccept(rootID string, accept remoteattach.Accept) remoteattach.Accept {
+	if rootID == "" {
+		return accept
+	}
+	return func(identity protocol.ServerIdentity) bool {
+		if identity.PersistenceRootID != rootID {
+			return false
+		}
+		return accept == nil || accept(identity)
+	}
+}
+
 func DialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remoteattach.Accept) (*client.Remote, bool, error) {
 	remote, ok, err, _ := dialRemote(ctx, mode, policy, accept)
 	return remote, ok, err
@@ -140,6 +163,7 @@ func DialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remo
 
 func dialRemote(ctx context.Context, mode Mode, policy RemotePolicy, accept remoteattach.Accept) (*client.Remote, bool, error, CapabilityCompatibility) {
 	capability := CapabilityCompatibilityUnchecked
+	accept = composeRootAccept(policy.RootID, accept)
 	supports := policy.Supports
 	if supports != nil {
 		supports = func(flags protocol.CapabilityFlags) bool {

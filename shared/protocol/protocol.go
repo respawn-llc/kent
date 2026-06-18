@@ -44,6 +44,14 @@ type ServerIdentity struct {
 	ServerID        string          `json:"server_id"`
 	PID             int             `json:"pid"`
 	Capabilities    CapabilityFlags `json:"capabilities"`
+	// PersistenceRootID is a short, stable hash of the server's persistence
+	// root (see config.PersistenceRootHash). Clients that explicitly select a
+	// non-default root use it to confirm an attached server serves that root
+	// instead of a different instance reachable on the same TCP endpoint. A
+	// client that did not select an explicit root ignores this field entirely;
+	// a client that did select one rejects any server that does not report a
+	// matching id (including an empty id from an older build).
+	PersistenceRootID string `json:"persistence_root_id,omitempty"`
 }
 
 type DiscoveryRecord struct {

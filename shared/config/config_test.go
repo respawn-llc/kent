@@ -981,3 +981,32 @@ func TestLoadReviewerOpenAIProviderOverrideInheritsMainOpenAIBaseURL(t *testing.
 		t.Fatalf("expected reviewer.openai_base_url to inherit main OpenAI base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
 }
+
+func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "tmp", "kent-root-example")
+	hash := PersistenceRootHash(root)
+	if hash == "" {
+		t.Fatal("expected non-empty hash for a non-empty root")
+	}
+	if PersistenceRootHash(root) != hash {
+		t.Fatal("hash must be deterministic for the same root")
+	}
+	if PersistenceRootHash(root+string(filepath.Separator)) != hash {
+		t.Fatal("hash must be stable across trailing-separator cleaning")
+	}
+	if PersistenceRootHash(filepath.Join(string(filepath.Separator), "tmp", "kent-root-other")) == hash {
+		t.Fatal("different roots must hash differently")
+	}
+	if PersistenceRootHash("") != "" {
+		t.Fatal("empty root must hash to empty")
+	}
+	// On platforms with a local RPC socket (unix), the socket directory is
+	// scoped by the same hash so client and server agree on the instance.
+	socketPath, ok, err := ServerLocalRPCSocketPath(App{PersistenceRoot: root})
+	if err != nil {
+		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
+	}
+	if ok && !strings.Contains(socketPath, hash) {
+		t.Fatalf("local socket path %q must be scoped by the root hash %q", socketPath, hash)
+	}
+}

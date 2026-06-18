@@ -43,6 +43,8 @@ The config+data root defaults to `~/.kent`. Set a different root with the `--per
 
 When you select a non-default root via the flag, Kent normalizes it to an absolute path and publishes it as `KENT_PERSISTENCE_ROOT` for the process, so subagents launched via `kent run` and shell tools inherit the same isolated root.
 
+Selecting a non-default root also makes client attach root-aware: a client only attaches to a server that actually serves that root. This prevents an isolated-root invocation (for example `kent run --persistence-root /tmp/root`) from silently attaching to your default `~/.kent` server when both resolve to the same host and port. If no server is serving the selected root, start one with `kent serve --persistence-root <root>` (or install the service with that root). Default-root behavior is unchanged.
+
 
 ## Example
 
