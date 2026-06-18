@@ -11,12 +11,15 @@ export const appChromeContrastScrimClassNames = [
     "inset-x-0",
     "top-0",
     "z-10",
-    "h-[calc(var(--native-titlebar-height)*2)]",
+    "h-[calc(var(--native-titlebar-height)*1.5)]",
 ] as const;
 
+// The bare `66%` between the two color stops is a color interpolation hint: it
+// places the 50% midpoint of the fade at 66% of the height, so the alpha follows
+// a smooth non-linear (power) curve rather than a straight linear ramp.
 export const appChromeContrastScrimStyle = {
     background:
-        "linear-gradient(to bottom, color-mix(in srgb, var(--background) 55%, transparent) 0%, transparent 100%)",
+        "linear-gradient(to bottom, color-mix(in srgb, var(--background) 50%, transparent) 0%, 66%, transparent 100%)",
 } satisfies CSSProperties;
 
 export const appChromeTitleClassNames = [

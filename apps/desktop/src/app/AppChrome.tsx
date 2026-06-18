@@ -37,14 +37,12 @@ export function AppChrome({ children }: AppChromeProps) {
 
   return (
     <main className="window-glass-fill grid h-screen w-screen overflow-hidden pt-[var(--native-titlebar-height)]">
-      {macOS ? null : (
-        <div
-          aria-hidden="true"
-          className={appChromeContrastScrimClassNames.join(" ")}
-          data-testid="app-chrome-contrast-scrim"
-          style={appChromeContrastScrimStyle}
-        />
-      )}
+      <div
+        aria-hidden="true"
+        className={appChromeContrastScrimClassNames.join(" ")}
+        data-testid="app-chrome-contrast-scrim"
+        style={appChromeContrastScrimStyle}
+      />
       <div
         className="app-region-drag fixed inset-x-0 top-0 z-20 h-[var(--native-titlebar-height)]"
         data-tauri-drag-region
