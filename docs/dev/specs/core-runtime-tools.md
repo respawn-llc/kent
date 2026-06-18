@@ -31,8 +31,8 @@
 - `<persistence-root>/.generated` is deterministic, destructible, overwritten on server startup, and not user-owned.
 - Generated sync runs on server startup (`kent serve` or embedded server), not in clients.
 - Generated asset integrity uses `.generated/.kent-generated.json` with schema, Kent version, and tree hash excluding the marker.
-- Edited/add/delete/rename/symlink/invalid-marker generated trees move to `~/.kent/recovered/<UTC timestamp>/.generated`, then regenerate.
-- If `~/.kent/recovered` is non-empty, every new session gets a user-facing, non-model-visible warning asking the user to clean recovered files and not edit `.generated`.
+- Edited/add/delete/rename/symlink/invalid-marker generated trees move to `<persistence-root>/recovered/<UTC timestamp>/.generated`, then regenerate.
+- If `<persistence-root>/recovered` is non-empty, every new session gets a user-facing, non-model-visible warning asking the user to clean recovered files and not edit `.generated`.
 - Generated skills are always seeded. Existing `[skills]` toggles only disable injection by normalized skill name.
 - User skills with the same normalized name shadow generated skills.
 - Initial preinstalled skill framework ships `skill-creator`; generated skill validation rejects empty files, invalid frontmatter, duplicate generated names, and symlinks/non-regular entries.

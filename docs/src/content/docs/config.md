@@ -5,7 +5,7 @@ description: Settings locations, precedence, CLI and environment overrides, and 
 
 ## Precedence
 
-Kent resolves settings in this order (higher no. = higher priority):
+Kent resolves settings in this order (ascending priority):
 
 1. Built-in defaults
 2. `~/.kent/config.toml`
@@ -13,7 +13,7 @@ Kent resolves settings in this order (higher no. = higher priority):
 4. Environment variables
 5. `kent run` CLI flags
 
-Interactive session flows resolve workspace-local config from the session workspace root. `kent serve` starts without a workspace root and applies workspace config only when a project/session selects a workspace. `kent run` is the only entrypoint that accepts the model/provider/theme override flags; the `--persistence-root` flag (config+data root) is also accepted by `kent` and `kent serve`.
+Interactive session flows resolve workspace-local config from the session workspace root. `kent serve` starts without a workspace root and applies workspace config only when a project/session selects a workspace. `kent run` is the only entrypoint that accepts the model/provider/theme override flags; the `--persistence-root` flag (config+data root) is also accepted by `kent`, `kent serve`, and `kent service`.
 
 ## Locations
 
@@ -242,12 +242,7 @@ Notes:
 
 `[subagents.<role>]` is a file-only table for named headless subagent roles. Fast is always-present, but you can add custom agents here.
 
-Subagent roles inherit the main config and then override only the keys set in that role table.
-Any effective main or reviewer context window used by a subagent role must be at least `40000`.
-Set `system_prompt_file` inside a subagent role to use a role-specific main system prompt for `kent run --agent <role>`.
-Set `description` to describe a behaviorally distinct role to other agents. Set `agent_callable = false` for roles that humans may run explicitly but agents should not call from Kent sessions.
-
-More info on the [Subagents page](../headless.md).
+More info on the [Subagents page](../headless/).
 
 ### Skills
 
@@ -262,4 +257,3 @@ Notes:
 
 - Skill toggles are only applied when Kent creates a new conversation/session.
 - Use `"quoted names"` to refer to skill keys containing spaces.
-- Preinstalled skills are seeded into `~/.kent/.generated/skills`; disable them here instead of editing generated files.

@@ -3,50 +3,49 @@ title: Sandboxing and Security
 description: Kent's default trust model, outside-workspace edit prompts, and remote/container server setup.
 ---
 
+:::warning
 Kent is YOLO by default: it does not run tools inside a built-in sandbox.
 The agent executes shell commands and file tools in the environment where the Kent server runs.
-If that environment can read secrets, reach networks, or modify files, the agent can ask tools to do the same.
+If that environment can read secrets, reach networks, or modify files, the agent can do the same.
+:::
 
 However, Kent's [client-server](../server/) architecture makes it easy to run Kent in a **completely isolated, secure container or VM**.
 
 ## Outside-Workspace Edits
 
-Kent has a small convenience guard for first-class file edit tools.
-By default, native edit tools prompt before modifying files outside the session workspace root. To disable, set config:
+By default, native edit tools prompt before modifying files outside the session workspace root. 
+
+**This is not sandboxing: the agent can easily bypass this.** It's intended for convenience, hallucination and mismatched CWD usage prevention.
+
+To disable, set config:
 
 ```toml
 allow_non_cwd_edits = true
 ```
 
-This is not sandboxing: the agent can easily bypass this with shell. It's intended for hallucination and erroneous/mismatched CWD prevention.
-
 ## Server Boundary
 
-Kent separates frontend clients from the server that owns work.
-The terminal UI, headless runs, and other surfaces connect to the configured server when one is available.
-The server owns sessions, project/workspace bindings, shell processes, tool execution, and persistence.
-
-That split makes the server environment the useful security boundary:
+Kent separates frontend clients from the server that owns all of the work. That split makes the server environment the useful security boundary:
 
 - Run `kent serve` on a VM and connect from your laptop.
 - Run `kent serve` in Docker and expose only the Kent port.
 - Run several isolated servers on different ports for different trust zones.
 
-Paths are resolved on the server.
-When you create or attach a project against a remote/container server, the workspace path must exist inside that server environment, not on the client machine.
+Consequently, when you create or attach a project against a remote/container server, the workspace path must exist inside that server environment, **not on the client machine**.
 
 ## Container Image Shape
 
 A Kent sandbox image should contain:
 
 - A `kent` binary compatible with the client version you use.
-- Runtime tools the agent may need: shell, Git, language toolchains, package managers, `rg`, `fd`, `jq`, `patch`, `curl`, `gh`, `wget`, `python` and project-specific CLIs.
-- An ideally persistent workspace directory such as `/workspace`.
+- Mandatory server dependencies: shell, `rg` and `git`, for normal operation of the server.
+- A `config.toml` file with your setup.
+- Optional tools the agent may need: language toolchains, package managers, `rg`, `fd`, `jq`, `patch`, `curl`, `gh`, `wget`, `python` and project-specific CLIs. 
+- An (ideally persistent) workspace directory such as `/workspace`.
 - A writable Kent persistence root, usually under the sandbox user's home.
-- Credentials mounted or injected only when you intend the sandbox to use them.
 - Network policy that matches the task; disable or restrict egress when needed.
 
-Avoid mounting your host home directory or broad source trees into the sandbox.
+Avoid mounting your host home directory, full ~/.kent/, or broad source trees into the sandbox.
 Mount only the workspace, caches, and credentials the task needs.
 
 ## Example Dockerfile
@@ -60,7 +59,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/home/kent
 ENV SHELL=/bin/bash
-ARG KENT_VERSION=
+ENV KENT_VERSION=
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -82,7 +81,6 @@ RUN apt-get update \
     ripgrep \
     tar \
     tini \
-    trash-cli \
     unzip \
     xz-utils \
     zip \
@@ -126,10 +124,3 @@ KENT_SERVER_HOST=127.0.0.1 KENT_SERVER_PORT=53082 kent
 ```
 
 The project path is `/workspace` because that is the path visible to the server.
-
-## Existing Repository Example
-
-The repository includes a Docker example under `scripts/sandbox`.
-Treat it as a Kent development fixture, not a recommended user image.
-It copies this repository into the image, seeds a workspace, and starts `kent serve`.
-Use it to understand one possible entrypoint shape, then build an image for your own toolchain and isolation policy.

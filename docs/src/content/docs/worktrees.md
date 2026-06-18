@@ -3,7 +3,7 @@ title: Worktrees
 description: Create, switch, and delete git worktrees from Kent.
 ---
 
-Kent manages git worktrees for the current session. Creating or switching a worktree moves that session into the selected checkout and gives the agent necessary context. Managed worktrees are created according to config.toml's `[worktrees].base_dir`, and Kent switches the session into the new worktree after create. Run `/wt` to get started. 
+Kent can manage git worktrees for you. Creating or switching a worktree moves that session into the selected checkout and gives the agent necessary context. Managed worktrees are created according to config.toml's `[worktrees].base_dir`, and Kent switches the session into the new worktree after create. Run `/wt` to get started. 
 
 ## Switch
 
@@ -17,23 +17,24 @@ Kent manages git worktrees for the current session. Creating or switching a work
 
 ## Delete
 
-If `target` is omitted, Kent opens delete confirmation for the current worktree. The main workspace worktree cannot be deleted. Deletion is blocked when another session targets that worktree or when background processes are running inside it.
+The main workspace worktree cannot be deleted. Deletion is blocked when another session targets that worktree or when background processes are running inside it.
 
-If you delete the active worktree, Kent moves the session back to the main workspace.
+:::tip
+If you delete the active worktree, Kent moves the session back to the main workspace without preserving file edits or commits.
+:::
 
 ## Configuration
 
-Since worktrees are basically raw git checkouts, you can set-up a custom worktree creation script that will prepare newly created checkouts with local data like `.env`, encryption credentials, gradle wrappers, or installed dependencies.
+Since worktrees are basically raw git checkouts, you can set-up a custom worktree creation script that will prepare newly created checkouts with local data like `.env`, encryption credentials, gradle wrappers, installed dependencies, local skills/config, etc.
 
 ```toml
 [worktrees]
-# base_dir = "~/.kent/worktrees"
+base_dir = "~/.kent/worktrees"
 # setup_script = "scripts/setup-worktree.sh"
 ```
 
 - `base_dir` sets the root directory for Kent-managed worktrees.
-- `setup_script` runs after create in the background. Relative paths resolve from the workspace root. Absolute and `~/` paths also work.
-- Create still succeeds if the setup script is missing, invalid, fails, or times out. Kent reports that as a local note.
+- `setup_script` runs after creating a worktree in the background. Relative paths resolve from the workspace root.
 
 The script receives environment variables as input:
 
