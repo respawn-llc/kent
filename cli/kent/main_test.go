@@ -802,6 +802,23 @@ func TestPublishPersistenceRootEnvNormalizesInheritedRelativeEnv(t *testing.T) {
 	}
 }
 
+func TestRootCommandNormalizesInheritedRelativeEnvBeforeDispatch(t *testing.T) {
+	// Root-checking client subcommands (project/attach/rebind/goal/workflow/task)
+	// dispatch before the interactive path's publishPersistenceRootEnv call, so
+	// rootCommand must normalize an inherited relative env at entry or those
+	// commands would hash a root resolved against the wrong directory and reject
+	// the server. --version exercises the same entry-point normalization without
+	// requiring a reachable server.
+	t.Setenv(config.PersistenceRootEnvName, "rel-root")
+	var stdout, stderr strings.Builder
+	if code := rootCommand([]string{"--version"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("rootCommand --version exit = %d: %s", code, stderr.String())
+	}
+	if got := os.Getenv(config.PersistenceRootEnvName); !filepath.IsAbs(got) {
+		t.Fatalf("inherited relative env root = %q, want normalized to absolute at dispatch entry", got)
+	}
+}
+
 func TestPublishPersistenceRootEnvFlagWinsOverEnv(t *testing.T) {
 	t.Setenv(config.PersistenceRootEnvName, "rel-root")
 	flagRoot := filepath.Join(string(filepath.Separator), "tmp", "flag-root")
