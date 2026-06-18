@@ -12,6 +12,14 @@ brew tap respawn-llc/tap
 brew install respawn-llc/tap/kent
 ```
 
+### Arch Linux (AUR)
+
+The [`kent-bin`](https://aur.archlinux.org/packages/kent-bin) AUR package is community-maintained.
+
+```bash
+yay -S kent-bin
+```
+
 ### Standalone binaries via GitHub Releases
 
 These versions are **not auto-updated**. Please keep them updated manually by re-running install scripts.
@@ -19,13 +27,13 @@ These versions are **not auto-updated**. Please keep them updated manually by re
 Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/respawn-llc/kent/main/scripts/install.sh | sh
+curl -fsSL https://kent.sh/install.sh | sh
 ```
 
 Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/respawn-llc/kent/main/scripts/install.ps1 | iex
+irm https://kent.sh/install.ps1 | iex
 ```
 
 Check the installed version with: `kent --version`

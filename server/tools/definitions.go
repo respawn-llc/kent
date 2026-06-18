@@ -148,7 +148,7 @@ var catalogEntries = []CatalogEntry{
 		ID:             toolspec.ToolTriggerHandoff,
 		Aliases:        nil,
 		Description:    "Trigger a proactive handoff to another agent. By default, this tool is disallowed even if visible. Using this tool is allowed only after a specific developer message appears in transcript that allows this tool. Do not use this tool before the reminder. The tool is private to you, so you can use 'analysis' channel content in its parameters.",
-		DefaultEnabled: false,
+		DefaultEnabled: true,
 		Contract: localContract(
 			LocalRuntimeBuilderTriggerHandoff,
 			RequestExposure{Enabled: true},

@@ -90,7 +90,7 @@ RUN apt-get update \
   && chown -R kent:kent /workspace /home/kent
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN curl -fsSL https://raw.githubusercontent.com/respawn-llc/kent/main/scripts/install.sh \
+RUN curl -fsSL https://kent.sh/install.sh \
   | KENT_PREFIX=/usr/local KENT_VERSION="${KENT_VERSION}" sh
 
 USER kent
