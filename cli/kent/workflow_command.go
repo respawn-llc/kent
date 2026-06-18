@@ -917,6 +917,38 @@ func resolveWorkflowProjectID(ctx context.Context, cfg config.App, remote workfl
 	return trimmed, nil
 }
 
+// resolveWorkflowSourceWorkspaceID resolves a --source-workspace reference to a
+// workspace id. A path-like reference (".", a path separator, or an existing
+// path) is resolved through its project binding; any other value is treated as
+// an explicit workspace id.
+func resolveWorkflowSourceWorkspaceID(ctx context.Context, cfg config.App, remote workflowCommandRemote, ref string) (string, error) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "", errors.New("source workspace is required")
+	}
+	if trimmed == "." || strings.Contains(trimmed, string(os.PathSeparator)) || pathExists(trimmed) {
+		path := trimmed
+		if trimmed == "." {
+			path = cfg.WorkspaceRoot
+		}
+		abs, err := normalizeBindingCommandPath(path)
+		if err != nil {
+			return "", err
+		}
+		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
+		defer cancel()
+		resp, err := remote.ResolveProjectPath(rpcCtx, serverapi.ProjectResolvePathRequest{Path: abs})
+		if err != nil {
+			return "", err
+		}
+		if resp.Binding == nil || strings.TrimSpace(resp.Binding.WorkspaceID) == "" {
+			return "", errWorkspaceNotRegistered
+		}
+		return strings.TrimSpace(resp.Binding.WorkspaceID), nil
+	}
+	return trimmed, nil
+}
+
 func resolveWorkflowProjectLink(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, workflowRef string) (serverapi.ProjectWorkflowLink, error) {
 	projectID, err := resolveWorkflowProjectID(ctx, cfg, remote, projectRef)
 	if err != nil {

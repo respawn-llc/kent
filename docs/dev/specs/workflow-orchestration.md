@@ -254,6 +254,8 @@
 - Row-level workflow graph RPC methods, client methods, protocol constants, and route entries are removed in the graph-save cutover instead of preserved as migration stubs.
 - CLI output must include stable IDs needed by later commands.
 - `kent task complete` accepts dynamic parameter flags, repeatable `--param name=value`, and `--json`/`--json-file` completion payload input. JSON input modes print JSON responses.
+- `kent task edit <task>` mutates an existing task's title, body, and source workspace through `UpdateWorkflowTask`. It requires at least one of `--title`/`--body`/`--body-file`/`--source-workspace`, reuses the current title when `--title` is omitted, and is available to agents like `task create` (no human-only gate). `--json` prints the update response.
+- `kent task create` and `kent task edit` accept `--source-workspace` as either a workspace id or a path; a path is resolved through its project binding. An omitted source workspace leaves it unchanged on edit.
 - Unsupported commands may fail loudly before backend semantics land rather than implementing partial behavior.
 
 ## Q/A Decisions Preserved
