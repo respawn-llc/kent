@@ -284,6 +284,27 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 	}
 }
 
+func TestResolveWithoutStartersReturnsNoServerAvailable(t *testing.T) {
+	// A pure client (no LaunchDaemon, no StartEmbedded) that cannot attach to a
+	// configured remote must surface ErrNoServerAvailable rather than panicking
+	// on a nil StartEmbedded. This backs the headless kent run pure-client path.
+	resolution, err := Resolve[string](context.Background(), Request[string]{
+		Mode: ModeHeadless,
+		Remote: testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+			return nil, errors.New("configured remote unavailable")
+		}),
+		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
+			return Target[string]{Value: "remote"}, nil
+		},
+	})
+	if !errors.Is(err, ErrNoServerAvailable) {
+		t.Fatalf("err = %v, want ErrNoServerAvailable", err)
+	}
+	if resolution.Value != "" {
+		t.Fatalf("resolution value = %q, want empty", resolution.Value)
+	}
+}
+
 func TestResolvePassesRemoteOwnershipToWrapper(t *testing.T) {
 	for _, tt := range []struct {
 		name          string

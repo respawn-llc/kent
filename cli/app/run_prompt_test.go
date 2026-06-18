@@ -21,7 +21,6 @@ import (
 	"core/shared/sessioncontract"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -144,6 +143,9 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"worktree reply"})
 	defer fakeResponses.Close()
+
+	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	defer stopServer()
 
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:             worktree,
@@ -508,28 +510,6 @@ func TestRunPromptAskHandlerReturnsError(t *testing.T) {
 	}
 }
 
-func TestRunPromptWithoutAuthReturnsErrAuthNotConfiguredWithoutReadingStdin(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	originalStdin := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe stdin: %v", err)
-	}
-	_ = w.Close()
-	os.Stdin = r
-	t.Cleanup(func() {
-		os.Stdin = originalStdin
-		_ = r.Close()
-	})
-
-	_, err = RunPrompt(context.Background(), Options{WorkspaceRoot: workspace}, "hello", 0, nil)
-	if !errors.Is(err, auth.ErrAuthNotConfigured) {
-		t.Fatalf("expected auth not configured without stdin prompt, got %v", err)
-	}
-}
-
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
@@ -567,13 +547,13 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 
 }
 
-func TestRunPromptRejectsIncompatibleConfiguredDaemonAndFallsBackToEmbedded(t *testing.T) {
+func TestRunPromptWithoutCompatibleServerRequiresRunningServer(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
-	fakeResponses, hits := newFakeResponsesServer(t, []string{"embedded fallback reply"})
-	defer fakeResponses.Close()
-
+	// A reachable but capability-incompatible server is skipped during attach.
+	// kent run is a pure client, so with no compatible server to attach to it
+	// must fail with the "server required" error rather than starting one.
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{
 		JSONRPCWebSocket: true,
 		ProjectAttach:    true,
@@ -588,69 +568,13 @@ func TestRunPromptRejectsIncompatibleConfiguredDaemonAndFallsBackToEmbedded(t *t
 	})
 	defer cleanup()
 
-	result, err := RunPrompt(context.Background(), Options{
+	_, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-		OpenAIBaseURL:         fakeResponses.URL,
-		OpenAIBaseURLExplicit: true,
-	}, "hello through fallback", 0, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if result.Result != "embedded fallback reply" {
-		t.Fatalf("result = %q, want %q", result.Result, "embedded fallback reply")
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("expected embedded fallback llm call once, got %d", hits.Load())
-	}
-}
-
-func TestStartRunPromptClientFallsBackToEmbeddedWhenDaemonLaunchFails(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if handleTestOpenAIInputTokenCount(w, r, 1) {
-			return
-		}
-		if r.URL.Path != "/responses" {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		writeTestOpenAICompletedResponseStream(w, "embedded fallback", 1, 1)
-	}))
-	defer server.Close()
-
-	originalLaunch := launchRunPromptDaemon
-	t.Cleanup(func() { launchRunPromptDaemon = originalLaunch })
-	launchRunPromptDaemon = func(context.Context, Options) (*client.Remote, func() error, bool, error) {
-		return nil, nil, false, errors.New("daemon launch failed")
-	}
-
-	runClient, closeFn, err := startRunPromptClient(context.Background(), Options{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
-		OpenAIBaseURL:         server.URL,
-		OpenAIBaseURLExplicit: true,
-	})
-	if err != nil {
-		t.Fatalf("startRunPromptClient: %v", err)
-	}
-	defer func() {
-		if closeFn != nil {
-			_ = closeFn()
-		}
-	}()
-
-	response, err := runClient.RunPrompt(context.Background(), serverapi.RunPromptRequest{
-		ClientRequestID: "req-embedded-fallback",
-		Prompt:          "hello",
-	}, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if response.Result != "embedded fallback" {
-		t.Fatalf("result = %q, want embedded fallback", response.Result)
+	}, "hello", 0, nil)
+	if !errors.Is(err, errRunRequiresServer) {
+		t.Fatalf("RunPrompt error = %v, want errRunRequiresServer", err)
 	}
 }
 
@@ -756,47 +680,17 @@ func TestTryDialMatchingConfiguredRemoteSkipsUnregisteredWorkspace(t *testing.T)
 	}
 }
 
-func TestStartLocalRunPromptDaemonAttemptsLaunchWhenRegistrationMustBeResolvedByServer(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-	configureAppTestServerPort(t)
-
-	originalResolve := resolveDaemonExecutablePath
-	t.Cleanup(func() { resolveDaemonExecutablePath = originalResolve })
-
-	lookupCalls := 0
-	resolveDaemonExecutablePath = func() (string, bool) {
-		lookupCalls++
-		return "/bin/false", true
-	}
-
-	remote, closeFn, ok, err := startLocalRunPromptDaemon(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	if err == nil {
-		t.Fatal("expected daemon launch attempt to fail for unregistered workspace probe")
-	}
-	if ok {
-		t.Fatal("expected no connected daemon client after failed launch attempt")
-	}
-	if remote != nil {
-		t.Fatalf("expected no remote client, got %v", remote)
-	}
-	if closeFn != nil {
-		t.Fatal("expected no close function when launch is skipped")
-	}
-	if lookupCalls != 1 {
-		t.Fatalf("expected daemon executable lookup once, got %d calls", lookupCalls)
-	}
-}
-
-func TestStartRunPromptClientUnregisteredWorkspaceReturnsRegistrationError(t *testing.T) {
+func TestStartRunPromptClientWithoutServerRequiresRunningServer(t *testing.T) {
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
 	saveReadyAppAuthState(t, workspace)
 
+	// kent run is a pure client: with no server running it cannot start one of
+	// its own, so it must fail with the "server required" error.
 	runClient, closeFn, err := startRunPromptClient(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-		t.Fatalf("startRunPromptClient error = %v, want ErrWorkspaceNotRegistered", err)
+	if !errors.Is(err, errRunRequiresServer) {
+		t.Fatalf("startRunPromptClient error = %v, want errRunRequiresServer", err)
 	}
 	if runClient != nil {
 		t.Fatalf("expected no run client, got %v", runClient)

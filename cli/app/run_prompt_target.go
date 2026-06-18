@@ -4,31 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 	"time"
 
-	"core/cli/app/internal/daemonlaunch"
 	"core/cli/app/internal/remoteattach"
 	"core/cli/app/internal/serverattach"
 	"core/cli/app/internal/startupconfig"
-	serverstartup "core/server/startup"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protocol"
 )
 
-var launchRunPromptDaemon = startLocalRunPromptDaemon
 var dialConfiguredRemote = client.DialConfiguredRemoteForProjectWorkspaceID
 var dialConfiguredProjectViewRemote = func(ctx context.Context, cfg config.App) (remoteattach.ProjectViewRemote, error) {
 	return client.DialConfiguredRemote(ctx, cfg)
-}
-var resolveDaemonExecutablePath = startupconfig.ServeExecutablePath
-var buildServeArgsFunc = func(_ string, _ Options) []string { return startupconfig.ServeArgs() }
-var buildServeEnvFunc = startupconfig.ServeEnv
-var releaseServeReservationFunc = func(cfg config.App) {
-	serverstartup.ReleaseTestListenReservation(net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)))
 }
 
 var configuredRemoteAttachTimeout = 500 * time.Millisecond
@@ -54,26 +44,19 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 	if err := validateRunPromptAgentRole(cfg.Settings, opts.AgentRole, kentSessionCaller, contextAgentRole); err != nil {
 		return nil, nil, err
 	}
+	// kent run is a pure client: it attaches to an already-running server and
+	// never starts one of its own (embedded or launched daemon). Omitting
+	// LaunchDaemon and StartEmbedded makes Resolve return
+	// serverattach.ErrNoServerAvailable when no server can be attached, which we
+	// translate into errRunRequiresServer below. This keeps concurrent kent run
+	// invocations safe: they share one standing server instead of each owning a
+	// daemon that gets killed when the first run exits.
 	target, err := serverattach.Resolve[serverattach.RunPromptTarget](ctx, serverattach.Request[serverattach.RunPromptTarget]{
 		Mode:   serverattach.ModeHeadless,
 		Remote: serverAttachRemotePolicy(cfg, remoteattach.SupportsRunPrompt, true),
-		LaunchDaemon: func(ctx context.Context, _ serverattach.LaunchedRemoteDialer) (serverattach.DaemonTarget[*client.Remote], bool, error) {
-			remote, closeFn, ok, err := launchRunPromptDaemon(ctx, opts)
-			if err != nil || !ok {
-				return serverattach.DaemonTarget[*client.Remote]{}, ok, err
-			}
-			return serverattach.DaemonTarget[*client.Remote]{Value: remote, Close: closeFn}, true, nil
-		},
 		WrapRemote: func(remote *client.Remote, cfg config.App, closeFn func() error, _ serverattach.OwnershipState) (serverattach.Target[serverattach.RunPromptTarget], error) {
 			target := serverattach.RunPromptRemoteWithClose(remote, cfg, closeFn)
 			return serverattach.Target[serverattach.RunPromptTarget]{Value: target.Value, Close: target.Close}, nil
-		},
-		StartEmbedded: func(ctx context.Context) (serverattach.Target[serverattach.RunPromptTarget], error) {
-			server, err := startEmbeddedServer(ctx, opts, newHeadlessAuthInteractor(), false)
-			if err != nil {
-				return serverattach.Target[serverattach.RunPromptTarget]{}, err
-			}
-			return runPromptTargetForEmbeddedAttachment(server)
 		},
 		Validate: func(ctx context.Context, resolution serverattach.Resolution[serverattach.RunPromptTarget]) (serverattach.AuthReadiness, error) {
 			if err := serverattach.ValidateRunPromptTarget(ctx, serverattach.RunPromptValidateRequest{
@@ -92,10 +75,18 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 		},
 	})
 	if err != nil {
+		if errors.Is(err, serverattach.ErrNoServerAvailable) {
+			return nil, nil, errRunRequiresServer
+		}
 		return nil, nil, err
 	}
 	return target.Value.Client, target.Close, nil
 }
+
+// errRunRequiresServer is returned when `kent run` cannot attach to a server
+// because none is running. kent run is a pure client and never starts a server
+// of its own, so a server must already be available.
+var errRunRequiresServer = errors.New("`kent run` can only be used when a server is already running. Start a server with `kent serve` or install a service with `kent service install` to prevent subagents and scripted runs from exiting abruptly if running concurrently with each other")
 
 const nonCallableSubagentRoleMessage = "User has disallowed calling this agent by other agents like you. Do not try to circumvent this, pick another suitable agent or do the work manually and let the user know your desire to use the subagent at the end of the task"
 
@@ -145,24 +136,6 @@ func validateContextAgentRoleCallable(settings config.Settings, rawRole string) 
 	return nil
 }
 
-type embeddedRunPromptAttachment interface {
-	RunPromptClient() client.RunPromptClient
-	ProjectID() string
-	Close() error
-}
-
-func runPromptTargetForEmbeddedAttachment(server embeddedRunPromptAttachment) (serverattach.Target[serverattach.RunPromptTarget], error) {
-	if server == nil {
-		return serverattach.Target[serverattach.RunPromptTarget]{}, errors.New("embedded run prompt attachment is required")
-	}
-	runPrompt := server.RunPromptClient()
-	if runPrompt == nil {
-		return serverattach.Target[serverattach.RunPromptTarget]{}, errors.New("embedded run prompt client is required")
-	}
-	target := serverattach.RunPromptEmbedded(runPrompt, server.ProjectID, server.Close)
-	return serverattach.Target[serverattach.RunPromptTarget]{Value: target.Value, Close: target.Close}, nil
-}
-
 func tryDialMatchingConfiguredRunPromptRemote(ctx context.Context, opts Options, accept func(protocol.ServerIdentity) bool) (*client.Remote, bool, error) {
 	workspaceConfig, err := resolveRunPromptWorkspaceConfig(opts)
 	if err != nil {
@@ -181,36 +154,6 @@ func tryDialMatchingConfiguredRemoteWithRequirement(ctx context.Context, opts Op
 		return nil, false
 	}
 	return remote, ok
-}
-
-func startLocalRunPromptDaemon(ctx context.Context, opts Options) (*client.Remote, func() error, bool, error) {
-	workspaceConfig, err := resolveRunPromptWorkspaceConfig(opts)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	opts = workspaceConfig.Options
-	cfg := workspaceConfig.Config
-	execPath, ok := resolveDaemonExecutablePath()
-	if !ok {
-		return nil, nil, false, nil
-	}
-	releaseServeReservationFunc(cfg)
-	return daemonlaunch.Launch[*client.Remote](ctx, daemonlaunch.Request[*client.Remote]{
-		ExecutablePath: execPath,
-		Args:           buildServeArgsFunc("", opts),
-		Env:            buildServeEnvFunc(cfg),
-		Dial: func(ctx context.Context, childPID int) (*client.Remote, bool, error) {
-			return serverattach.DialRemote(ctx, serverattach.ModeHeadless, serverAttachRemotePolicy(cfg, remoteattach.SupportsRunPrompt, true), func(identity protocol.ServerIdentity) bool {
-				return identity.PID == childPID
-			})
-		},
-		CloseTarget: func(remote *client.Remote) error {
-			if remote == nil {
-				return nil
-			}
-			return remote.Close()
-		},
-	})
 }
 
 func loadRemoteAttachConfig(opts Options) (config.App, error) {

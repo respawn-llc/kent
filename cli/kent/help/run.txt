@@ -5,6 +5,12 @@ What This Does:
   Execute one headless prompt against a workspace without starting the TUI.
   Kent creates or resumes a session, runs the prompt, prints the final answer, and exits.
 
+Requires a running server:
+  `kent run` is a client and never starts a server of its own. A server must
+  already be running. Start one with `kent serve` or install the background
+  service with `kent service install`. This lets many concurrent runs share one
+  server instead of each owning one that dies when it exits.
+
 Session Selection:
   `--session <id>` resumes an existing session.
   `--continue <id>` is the same concept, optimized for chaining follow-up runs.

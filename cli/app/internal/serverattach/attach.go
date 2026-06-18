@@ -92,6 +92,12 @@ type Resolution[T any] struct {
 	Auth                  AuthReadiness
 }
 
+// ErrNoServerAvailable is returned by Resolve when no remote server could be
+// attached and the request provides no local server starter (no LaunchDaemon
+// and no StartEmbedded). Callers translate it into a frontend-appropriate
+// message; the headless run path uses it to require a pre-existing server.
+var ErrNoServerAvailable = errors.New("no server available to attach to")
+
 type LaunchedRemoteDialer func(context.Context, remoteattach.Accept) (*client.Remote, bool, error)
 
 type Request[T any] struct {
@@ -105,9 +111,6 @@ type Request[T any] struct {
 }
 
 func Resolve[T any](ctx context.Context, req Request[T]) (Resolution[T], error) {
-	if req.StartEmbedded == nil {
-		return Resolution[T]{}, errors.New("embedded target starter is required")
-	}
 	bypass, err := callBypassRemote(ctx, req.BypassRemote)
 	if err != nil {
 		return Resolution[T]{}, err
@@ -232,6 +235,12 @@ func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() err
 }
 
 func startEmbedded[T any](ctx context.Context, req Request[T], launchErr error, capability CapabilityCompatibility) (Resolution[T], error) {
+	if req.StartEmbedded == nil {
+		if launchErr != nil {
+			return Resolution[T]{}, errors.Join(ErrNoServerAvailable, launchErr)
+		}
+		return Resolution[T]{}, ErrNoServerAvailable
+	}
 	target, err := req.StartEmbedded(ctx)
 	if err != nil {
 		if launchErr != nil {

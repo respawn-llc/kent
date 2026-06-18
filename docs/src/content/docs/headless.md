@@ -19,6 +19,17 @@ Continue an existing headless session:
 kent run --continue <session-id> "<prompt>"
 ```
 
+## Requires a running server
+
+`kent run` is a pure client. It attaches to an already-running Kent server and never starts a server of its own. If no server is reachable, the run fails immediately with a message telling you to start one:
+
+```bash
+kent serve            # foreground server for the current shell
+kent service install  # supervised background server that starts at login
+```
+
+This is what makes concurrent headless runs safe. Subagents and scripted pipelines launch many `kent run` processes at once; with a single standing server they all attach to it and share one orchestrator. Without this rule, the first run would start a private server that the other runs attached to, and that server would be torn down the moment the first run exited — dropping every other run mid-flight. Start a server once (or install the [background service](../server/)) and run as many concurrent `kent run` invocations as you like against it.
+
 ## Subagent Roles
 Roles are needed to create specialized subagent types for different tasks. Treat them like different employees or specialists.
 
