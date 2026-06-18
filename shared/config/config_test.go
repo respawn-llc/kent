@@ -1028,6 +1028,42 @@ func TestPersistenceRootHashFoldsCaseOnCaseInsensitivePlatforms(t *testing.T) {
 	}
 }
 
+func TestExplicitPersistenceRootID(t *testing.T) {
+	home := t.TempDir()
+	isoRoot := filepath.Join(string(filepath.Separator), "tmp", "iso-root-id-explicit")
+
+	t.Run("default source returns empty", func(t *testing.T) {
+		t.Setenv("HOME", home)
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "default"}}}
+		if got := ExplicitPersistenceRootID(cfg); got != "" {
+			t.Fatalf("default-source id = %q, want empty", got)
+		}
+	})
+	t.Run("explicit default root returns empty", func(t *testing.T) {
+		t.Setenv("HOME", home)
+		cfg := App{PersistenceRoot: filepath.Join(home, ConfigDirName), Source: SourceReport{Sources: map[string]string{"persistence_root": "flag"}}}
+		if got := ExplicitPersistenceRootID(cfg); got != "" {
+			t.Fatalf("explicit-default id = %q, want empty", got)
+		}
+	})
+	t.Run("explicit isolated root returns hash", func(t *testing.T) {
+		t.Setenv("HOME", home)
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "env"}}}
+		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+			t.Fatalf("explicit-iso id = %q, want %q", got, want)
+		}
+	})
+	t.Run("default comparison error pins explicit root", func(t *testing.T) {
+		// HOME unset makes IsDefaultPersistenceRoot fail to resolve the default
+		// root; the explicit root must stay pinned rather than disabling the check.
+		t.Setenv("HOME", "")
+		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]string{"persistence_root": "flag"}}}
+		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+			t.Fatalf("error-case id = %q, want %q (must pin on default-resolution failure)", got, want)
+		}
+	})
+}
+
 func TestIsDefaultPersistenceRoot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

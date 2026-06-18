@@ -47,6 +47,29 @@ func PersistenceRootHash(persistenceRoot string) string {
 	return hex.EncodeToString(hash[:8])
 }
 
+// ExplicitPersistenceRootID returns the persistence-root id an attached server
+// must report when the operator explicitly selected a non-default root (via the
+// --persistence-root flag or KENT_PERSISTENCE_ROOT). It returns "" when the root
+// was not explicitly selected, or when an explicit root resolves to the default
+// (<home>/.kent) — both leave attach behavior unchanged and stay compatible with
+// older servers that report an empty id. When the default-root comparison cannot
+// be resolved (for example HOME is unset in a stripped environment), the explicit
+// root stays pinned rather than silently disabling the check, so an isolated-root
+// client never falls back to a different server on the same TCP endpoint. The
+// source label is set by config.Load (see resolveConfigRoot): "default", "flag",
+// or "env".
+func ExplicitPersistenceRootID(cfg App) string {
+	switch cfg.Source.Sources["persistence_root"] {
+	case "flag", "env":
+		if isDefault, err := IsDefaultPersistenceRoot(cfg.PersistenceRoot); err == nil && isDefault {
+			return ""
+		}
+		return PersistenceRootHash(cfg.PersistenceRoot)
+	default:
+		return ""
+	}
+}
+
 // IsDefaultPersistenceRoot reports whether the supplied root resolves to the
 // default persistence root (<home>/.kent). An explicit --persistence-root or
 // KENT_PERSISTENCE_ROOT that points at the default carries no cross-root

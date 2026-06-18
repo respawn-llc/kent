@@ -211,28 +211,6 @@ func serverAttachRemotePolicy(cfg config.App, supports remoteattach.Supports, re
 		DialWorkspace:    dialConfiguredRemote,
 		Supports:         supports,
 		RequireBound:     requireBound,
-		RootID:           explicitPersistenceRootID(cfg),
-	}
-}
-
-// explicitPersistenceRootID returns the persistence-root id an attached server
-// must report when the operator explicitly selected a non-default root (via the
-// --persistence-root flag or KENT_PERSISTENCE_ROOT). For the default root it
-// returns "" so attach behavior is unchanged. This prevents an isolated-root
-// invocation from silently attaching to a different instance that happens to be
-// listening on the same configured TCP endpoint. The source label is set by
-// config.Load (see resolveConfigRoot): "default", "flag", or "env".
-func explicitPersistenceRootID(cfg config.App) string {
-	switch cfg.Source.Sources["persistence_root"] {
-	case "flag", "env":
-		// An explicit root that resolves to the default (<home>/.kent) has no
-		// cross-root isolation risk, so leave attach behavior unchanged and stay
-		// compatible with older servers that report an empty root id.
-		if isDefault, err := config.IsDefaultPersistenceRoot(cfg.PersistenceRoot); err != nil || isDefault {
-			return ""
-		}
-		return config.PersistenceRootHash(cfg.PersistenceRoot)
-	default:
-		return ""
+		RootID:           config.ExplicitPersistenceRootID(cfg),
 	}
 }
