@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -1008,6 +1009,22 @@ func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
 	}
 	if ok && !strings.Contains(socketPath, hash) {
 		t.Fatalf("local socket path %q must be scoped by the root hash %q", socketPath, hash)
+	}
+}
+
+func TestPersistenceRootHashFoldsCaseOnCaseInsensitivePlatforms(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "tmp", "Kent-Root-Case")
+	upper := PersistenceRootHash(root)
+	lower := PersistenceRootHash(strings.ToLower(root))
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		if upper != lower {
+			t.Fatalf("case-insensitive platform must hash %q and %q identically", root, strings.ToLower(root))
+		}
+	default:
+		if upper == lower {
+			t.Fatalf("case-sensitive platform must hash %q and %q differently", root, strings.ToLower(root))
+		}
 	}
 }
 
