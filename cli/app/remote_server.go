@@ -67,6 +67,7 @@ func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID st
 		WorkspaceID: workspaceID,
 		OwnsServer:  s.owns,
 		OwnedClose:  s.closeFn,
+		RootID:      config.ExplicitPersistenceRootID(s.cfg),
 	})
 	if err != nil {
 		return nil, err

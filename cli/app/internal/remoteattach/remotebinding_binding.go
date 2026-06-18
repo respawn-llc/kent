@@ -21,6 +21,12 @@ type ProjectWorkspaceBindingRequest struct {
 	OwnedClose        func() error
 	DialWorkspaceRoot WorkspaceRootDialer
 	DialWorkspaceID   WorkspaceIDDialer
+	// RootID, when non-empty, is pinned on the rebound remote so it keeps
+	// validating the expected persistence root on every reconnect, exactly like
+	// the initially attached remote. Without this, rebinding a workspace would
+	// hand back an unpinned remote that could silently reconnect to a different
+	// root over the fallback TCP endpoint.
+	RootID string
 }
 
 type ProjectWorkspaceBinding struct {
@@ -39,6 +45,10 @@ func BindProjectWorkspace(ctx context.Context, req ProjectWorkspaceBindingReques
 	workspaceID := strings.TrimSpace(req.WorkspaceID)
 	nextRemote, err := dialRemote(ctx, req, projectID, workspaceID)
 	if err != nil {
+		return ProjectWorkspaceBinding{}, err
+	}
+	if err := nextRemote.RequireRoot(req.RootID); err != nil {
+		_ = nextRemote.Close()
 		return ProjectWorkspaceBinding{}, err
 	}
 	_ = req.Current.Close()
