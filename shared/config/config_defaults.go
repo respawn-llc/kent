@@ -27,7 +27,7 @@ const (
 	defaultCompactionThreshold           = defaultModelContextWindow * 95 / 100
 	defaultPreSubmitCompactionLeadTokens = DefaultPreSubmitRunwayTokens
 	defaultReviewerFrequency             = "edits"
-	defaultReviewerTimeoutSec            = 60
+	defaultReviewerTimeoutSec            = 120
 	defaultCompactionMode                = "local"
 	defaultServerHost                    = "127.0.0.1"
 	defaultServerPort                    = 53082

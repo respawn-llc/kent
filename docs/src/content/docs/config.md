@@ -72,7 +72,7 @@ frequency = "edits"
 # openai_base_url = "http://127.0.0.1:11434/v1"
 # auth = "none" # or "inherit"
 # model_context_window = 64000
-timeout_seconds = 60
+timeout_seconds = 120
 verbose_output = false # show supervisor suggestions in ongoing transcript
 # system_prompt_file = "~/.kent/reviewer_system_prompt.md"
 
@@ -150,7 +150,7 @@ Configure the supervisor agent that oversees model changes ("reviewer" is the le
 | `reviewer.auth` | string | `inherit` | `KENT_REVIEWER_AUTH` | Reviewer auth policy. `inherit` uses Kent's configured auth. `none` sends no `Authorization` header; providers that require auth return their normal runtime error. |
 | `reviewer.model_context_window` | int | inherits `model_context_window` | `KENT_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. The effective value must be at least `40000`. |
 | `reviewer.system_prompt_file` | string | `""` |  | Path to a custom supervisor system prompt file. Relative paths resolve from the config file directory. Workspace config overrides global config; |
-| `reviewer.timeout_seconds` | int | `60` | `KENT_REVIEWER_TIMEOUT_SECONDS` | Reviewer HTTP timeout. Must be `> 0`. |
+| `reviewer.timeout_seconds` | int | `120` | `KENT_REVIEWER_TIMEOUT_SECONDS` | Reviewer HTTP timeout. Must be `> 0`. |
 | `reviewer.verbose_output` | bool | `false` | `KENT_REVIEWER_VERBOSE_OUTPUT` | Controls whether reviewer suggestion text is shown at all. When `false`, Kent only shows the concise reviewer result/status line. When `true`, Kent shows the full suggestion list at the moment the reviewer issues it, and the later reviewer status stays concise after the follow-up is applied or ignored. |
 
 
@@ -211,7 +211,7 @@ File-based tool toggles merge with defaults. `KENT_TOOLS` and `kent run --tools`
 | `tools.shell` | `true` | The primary shell tool. Internally this maps to `exec_command`. |
 | `tools.patch` | model-dependent | Freeform patch grammar edit tool |
 | `tools.edit` | model-dependent | JSON text replacement/create/delete edit tool. Intended for models that are not trained to apply patches. |
-| `tools.trigger_handoff` | `false` | Experimental tool the agents can use to proactively compact their own context. |
+| `tools.trigger_handoff` | `true` | Tool agents can use to proactively compact their own context. |
 | `tools.view_image` | model-dependent | Ability to view PNG, JPEG, still GIF, and PDF files (if supported) |
 | `tools.web_search` | provider-dependent | Tool to search the web |
 | `tools.write_stdin` | `true` | Interaction with background shells. |

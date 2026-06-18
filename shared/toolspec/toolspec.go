@@ -35,6 +35,7 @@ var defaultEnabledIDs = []ID{
 	ToolAskQuestion,
 	ToolExecCommand,
 	ToolPatch,
+	ToolTriggerHandoff,
 	ToolViewImage,
 	ToolWebSearch,
 	ToolWriteStdin,

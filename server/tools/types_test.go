@@ -80,7 +80,7 @@ func TestCentralDefinitionsRequireAdditionalPropertiesFalse(t *testing.T) {
 	}
 }
 
-func TestDefaultEnabledToolIDsIncludesWebSearchAndViewImage(t *testing.T) {
+func TestDefaultEnabledToolIDsIncludesStableTools(t *testing.T) {
 	enabled := map[toolspec.ID]bool{}
 	for _, id := range DefaultEnabledToolIDs() {
 		enabled[id] = true
@@ -91,8 +91,8 @@ func TestDefaultEnabledToolIDsIncludesWebSearchAndViewImage(t *testing.T) {
 	if !enabled[toolspec.ToolViewImage] {
 		t.Fatalf("expected %s to be default-enabled", toolspec.ToolViewImage)
 	}
-	if enabled[toolspec.ToolTriggerHandoff] {
-		t.Fatalf("expected %s to remain default-disabled", toolspec.ToolTriggerHandoff)
+	if !enabled[toolspec.ToolTriggerHandoff] {
+		t.Fatalf("expected %s to be default-enabled", toolspec.ToolTriggerHandoff)
 	}
 }
 

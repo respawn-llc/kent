@@ -100,8 +100,8 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if !cfg.Settings.EnabledTools[toolspec.ToolExecCommand] || !cfg.Settings.EnabledTools[toolspec.ToolViewImage] || !cfg.Settings.EnabledTools[toolspec.ToolPatch] || !cfg.Settings.EnabledTools[toolspec.ToolAskQuestion] {
 		t.Fatalf("expected all default tools enabled: %+v", cfg.Settings.EnabledTools)
 	}
-	if cfg.Settings.EnabledTools[toolspec.ToolTriggerHandoff] {
-		t.Fatalf("expected %s disabled in static defaults", toolspec.ToolTriggerHandoff)
+	if !cfg.Settings.EnabledTools[toolspec.ToolTriggerHandoff] {
+		t.Fatalf("expected %s enabled in static defaults", toolspec.ToolTriggerHandoff)
 	}
 	if got := cfg.Source.Sources["tools.trigger_handoff"]; got != "default" {
 		t.Fatalf("expected untouched %s source to remain default, got %q", toolspec.ToolTriggerHandoff, got)
@@ -157,7 +157,7 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if cfg.Settings.Reviewer.ThinkingLevel != cfg.Settings.ThinkingLevel {
 		t.Fatalf("default reviewer thinking_level mismatch: %q", cfg.Settings.Reviewer.ThinkingLevel)
 	}
-	if cfg.Settings.Reviewer.TimeoutSeconds != 60 {
+	if cfg.Settings.Reviewer.TimeoutSeconds != defaultReviewerTimeoutSec {
 		t.Fatalf("default reviewer timeout mismatch: %d", cfg.Settings.Reviewer.TimeoutSeconds)
 	}
 	if cfg.Settings.Reviewer.VerboseOutput {

@@ -7,7 +7,7 @@
 - Source layout authority is `cli/*` for CLI/frontend packages, `server/*` for authoritative runtime/persistence/tool/auth/workflow logic, and `shared/*` for boundary-safe DTOs/contracts.
 - Full-access execution is the v1 default; there is no default sandbox.
 - The working CLI name is `kent` and should remain easy to rename.
-- Public docs use Astro + Starlight from `docs/`, deploy as static GitHub Pages, mirror root `README.md` as initial home, and use Algolia DocSearch.
+- Public docs use Astro + Starlight from `docs/`, deploy as static Cloudflare Pages, mirror root `README.md` as initial home, support Cloudflare Pages `_redirects`, and use Algolia DocSearch.
 
 ## Client/Server Boundary
 
@@ -40,7 +40,7 @@
 ## Core Tools
 
 - Core tools are `exec_command`, `write_stdin`, `view_image`, `patch`, and `ask_question`.
-- Experimental agent-only `trigger_handoff` is config-gated under `[tools]`, defaults to `false`, and is always declared for a session when enabled instead of dynamically shown/hidden.
+- Agent-only `trigger_handoff` is config-gated under `[tools]`, defaults to `true`, and is always declared for a session when enabled instead of dynamically shown/hidden.
 - Goal management is CLI/runtime-owned. Kent must not add model-callable goal tools.
 
 ## Runtime Output Boundary
