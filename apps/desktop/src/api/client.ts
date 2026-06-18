@@ -167,11 +167,19 @@ export class ApiClient {
     );
   }
 
-  async updateProject(projectID: string, displayName: string): Promise<ProjectMutationResponse> {
+  async updateProject(
+    projectID: string,
+    displayName: string,
+    projectKey = "",
+  ): Promise<ProjectMutationResponse> {
     return parse(
       "project.update",
       projectMutationResponseSchema,
-      await this.transport.call("project.update", { project_id: projectID, display_name: displayName }),
+      await this.transport.call("project.update", {
+        project_id: projectID,
+        display_name: displayName,
+        project_key: projectKey,
+      }),
     );
   }
 

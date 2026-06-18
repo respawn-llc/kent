@@ -179,8 +179,8 @@
 - Project keys are uppercase, globally unique within a persistence root, 2-8 chars, and match `^[A-Z][A-Z0-9]{1,7}$`.
 - Project creation chooses a key explicitly; default suggestion can use the first three letters of project name.
 - Existing projects without a key get one from default project-name logic when task support initializes, with collision handling.
-- Project keys are immutable after a project has tasks.
-- Existing task short IDs keep their historical key forever.
+- Project keys are editable at any time, including after a project has tasks. A key change only sets the prefix for tasks created afterward and never rewrites existing task short IDs, so a project's history can contain mixed prefixes. The change is rejected only for format violations or a collision with another project's key.
+- Existing task short IDs keep their historical key forever; a rename does not cascade to them.
 - Task short IDs are stored durable product identifiers, not derived display strings.
 - Task required fields are title, short ID, and body.
 - Task metadata is designed for import/export and may include `source_url`.

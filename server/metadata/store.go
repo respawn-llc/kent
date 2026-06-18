@@ -89,7 +89,6 @@ type Store struct {
 
 var (
 	ErrInvalidProjectKey      = errors.New("invalid project key")
-	ErrProjectKeyImmutable    = errors.New("project key immutable")
 	ErrProjectKeyAlreadyInUse = errors.New("project key already in use")
 	ErrInvalidRuntimeLease    = errors.New("invalid runtime lease")
 
@@ -628,7 +627,11 @@ func (s *Store) AttachWorkspaceToProject(ctx context.Context, projectID string, 
 	return binding, nil
 }
 
-func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, displayName string) error {
+// UpdateProjectMetadata updates a project's display name and, when projectKey is
+// non-empty, its project key in a single transaction. An empty projectKey leaves
+// the existing key unchanged. Existing task short IDs are frozen at creation, so
+// changing the key only affects the prefix applied to future tasks.
+func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, displayName string, projectKey string) error {
 	if s == nil || s.queries == nil {
 		return errors.New("metadata store is required")
 	}
@@ -636,10 +639,18 @@ func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, 
 	if trimmedProjectID == "" {
 		return errors.New("project id is required")
 	}
+	var normalizedKey string
+	if strings.TrimSpace(projectKey) != "" {
+		var err error
+		normalizedKey, err = normalizeProjectKey(projectKey)
+		if err != nil {
+			return err
+		}
+	}
 	now := time.Now().UTC().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin project display name tx: %w", err)
+		return fmt.Errorf("begin project metadata tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
@@ -654,8 +665,26 @@ func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, 
 	if updated == 0 {
 		return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
 	}
+	if normalizedKey != "" {
+		state, err := q.GetProjectKeyState(ctx, trimmedProjectID)
+		if err != nil {
+			return fmt.Errorf("get project key state: %w", err)
+		}
+		if strings.TrimSpace(state.ProjectKey) != normalizedKey {
+			if _, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{
+				ProjectKey:      normalizedKey,
+				UpdatedAtUnixMs: now,
+				ProjectID:       trimmedProjectID,
+			}); err != nil {
+				if isSQLiteUniqueConstraint(err) {
+					return fmt.Errorf("%w: %q", ErrProjectKeyAlreadyInUse, normalizedKey)
+				}
+				return fmt.Errorf("set project key: %w", err)
+			}
+		}
+	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit project display name tx: %w", err)
+		return fmt.Errorf("commit project metadata tx: %w", err)
 	}
 	return nil
 }
@@ -1295,25 +1324,24 @@ func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey 
 		}
 		return fmt.Errorf("get project key state: %w", err)
 	}
-	if state.TaskCount > 0 && strings.TrimSpace(state.ProjectKey) != normalizedKey {
-		return fmt.Errorf("%w: after tasks exist", ErrProjectKeyImmutable)
-	}
+	// The key is mutable even after tasks exist: existing task short IDs are
+	// frozen at creation, so a rename only changes the prefix of future tasks.
 	if strings.TrimSpace(state.ProjectKey) == normalizedKey {
 		return nil
 	}
-	result, err := tx.ExecContext(ctx, strings.TrimSuffix(setProjectKeyQuery, "\n"), normalizedKey, time.Now().UTC().UnixMilli(), trimmedProjectID, normalizedKey, trimmedProjectID)
+	updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{
+		ProjectKey:      normalizedKey,
+		UpdatedAtUnixMs: time.Now().UTC().UnixMilli(),
+		ProjectID:       trimmedProjectID,
+	})
 	if err != nil {
 		if isSQLiteUniqueConstraint(err) {
 			return fmt.Errorf("%w: %q", ErrProjectKeyAlreadyInUse, normalizedKey)
 		}
 		return fmt.Errorf("set project key: %w", err)
 	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("set project key rows affected: %w", err)
-	}
 	if updated == 0 {
-		return fmt.Errorf("%w: after tasks exist", ErrProjectKeyImmutable)
+		return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit set project key tx: %w", err)

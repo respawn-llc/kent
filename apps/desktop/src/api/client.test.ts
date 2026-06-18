@@ -213,6 +213,7 @@ describe("ApiClient", () => {
       nextPageToken: "cursor-2",
     });
     await client.updateProject("project-1", "Renamed");
+    await client.updateProject("project-1", "Renamed", "ABC");
     await client.setDefaultWorkspace("project-1", "workspace-1");
     await expect(client.unlinkWorkspace("project-1", "workspace-1")).resolves.toMatchObject({
       unlinked: false,
@@ -225,7 +226,11 @@ describe("ApiClient", () => {
     });
     expect(transport.calls).toContainEqual({
       method: "project.update",
-      params: { project_id: "project-1", display_name: "Renamed" },
+      params: { project_id: "project-1", display_name: "Renamed", project_key: "" },
+    });
+    expect(transport.calls).toContainEqual({
+      method: "project.update",
+      params: { project_id: "project-1", display_name: "Renamed", project_key: "ABC" },
     });
     expect(transport.calls).toContainEqual({
       method: "project.defaultWorkspace.set",
