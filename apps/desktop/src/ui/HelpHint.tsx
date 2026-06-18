@@ -34,10 +34,12 @@ export type HelpHintProps = Readonly<{
 const ICON_SIZE = 14;
 
 /**
- * Faint circled help icon with a generous 40x40 hit/hover area. Hovering or
- * focusing the trigger fades the glyph to full strength and reveals the shared
- * tooltip, which repeats the icon alongside the help copy. Newlines in a string
- * `label` are preserved so multi-line hints lay out as written.
+ * Faint circled help icon whose layout footprint is just the glyph. A
+ * transparent 40x40 pseudo-element overflows the button to enlarge the
+ * hit/hover target without affecting surrounding spacing. Hovering or focusing
+ * the trigger fades the glyph to full strength and reveals the shared tooltip,
+ * which repeats the icon alongside the help copy. Newlines in a string `label`
+ * are preserved so multi-line hints lay out as written.
  */
 export function HelpHint({
   ariaLabel,
@@ -56,7 +58,7 @@ export function HelpHint({
           <button
             aria-label={accessibleName}
             className={cx(
-              "group grid size-10 shrink-0 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-muted)] transition-colors hover:text-[var(--color-on-island)] focus-visible:border-[var(--color-primary)] focus-visible:text-[var(--color-on-island)] focus-visible:outline-none",
+              "group relative inline-grid place-items-center rounded-full bg-transparent text-[var(--color-muted)] transition-colors before:absolute before:left-1/2 before:top-1/2 before:size-10 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''] hover:text-[var(--color-on-island)] focus-visible:text-[var(--color-on-island)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary)]",
               className,
             )}
             data-slot="help-hint-trigger"
@@ -65,7 +67,7 @@ export function HelpHint({
             <Icon aria-hidden="true" size={ICON_SIZE} strokeWidth={1.7} />
           </button>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs items-start gap-2" level={level} side={side} sideOffset={6}>
+        <TooltipContent className="max-w-xs items-start gap-2 text-[13px]" level={level} side={side} sideOffset={6}>
           <Icon
             aria-hidden="true"
             className="mt-px shrink-0 text-[var(--color-muted)]"
