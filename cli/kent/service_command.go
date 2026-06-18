@@ -35,6 +35,20 @@ type serviceCommandOptions struct {
 	IfInstalled bool
 }
 
+const servicePersistenceRootFlagUsage = "config and data root directory (overrides KENT_PERSISTENCE_ROOT and the default ~/.kent)"
+
+// commitServicePersistenceRoot publishes a --persistence-root flag value to
+// KENT_PERSISTENCE_ROOT so every service operation resolves the same config+data
+// root (install bakes it into the launched unit; status/start/stop target the
+// matching instance). It returns (exitCode, false) when the value is invalid.
+func commitServicePersistenceRoot(value string, stderr io.Writer) (int, bool) {
+	if err := publishPersistenceRootEnv(value); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2, false
+	}
+	return 0, true
+}
+
 func serviceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if stdout == nil {
 		stdout = io.Discard
@@ -75,12 +89,16 @@ func serviceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func serviceStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" service status", stderr, serviceStatusUsage)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	persistenceRoot := fs.String("persistence-root", "", servicePersistenceRootFlagUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service status does not accept positional arguments")
 		return 2
+	}
+	if code, ok := commitServicePersistenceRoot(*persistenceRoot, stderr); !ok {
+		return code
 	}
 	return runServiceCommandAction(context.Background(), serviceActionStatus, serviceCommandOptions{JSON: *jsonOut}, stdout, stderr)
 }
@@ -89,6 +107,7 @@ func serviceInstallSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	fs := newCommandFlagSet(config.Command+" service install", stderr, serviceInstallUsage)
 	force := fs.Bool("force", false, "rewrite existing service registration")
 	noStart := fs.Bool("no-start", false, "install service without starting it")
+	persistenceRoot := fs.String("persistence-root", "", servicePersistenceRootFlagUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -96,18 +115,25 @@ func serviceInstallSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, "service install does not accept positional arguments")
 		return 2
 	}
+	if code, ok := commitServicePersistenceRoot(*persistenceRoot, stderr); !ok {
+		return code
+	}
 	return runServiceCommandAction(context.Background(), serviceActionInstall, serviceCommandOptions{Force: *force, NoStart: *noStart}, stdout, stderr)
 }
 
 func serviceUninstallSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" service uninstall", stderr, serviceUninstallUsage)
 	keepRunning := fs.Bool("keep-running", false, "remove service registration without stopping current server process")
+	persistenceRoot := fs.String("persistence-root", "", servicePersistenceRootFlagUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service uninstall does not accept positional arguments")
 		return 2
+	}
+	if code, ok := commitServicePersistenceRoot(*persistenceRoot, stderr); !ok {
+		return code
 	}
 	return runServiceCommandAction(context.Background(), serviceActionUninstall, serviceCommandOptions{KeepRunning: *keepRunning}, stdout, stderr)
 }
@@ -117,6 +143,7 @@ func serviceLifecycleSubcommand(action serviceAction, args []string, stdout io.W
 		title: "Usage of " + config.Command + " service " + string(action) + ":",
 		lines: []string{"  " + config.Command + " service " + string(action)},
 	})
+	persistenceRoot := fs.String("persistence-root", "", servicePersistenceRootFlagUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -124,18 +151,25 @@ func serviceLifecycleSubcommand(action serviceAction, args []string, stdout io.W
 		fmt.Fprintf(stderr, "service %s does not accept positional arguments\n", action)
 		return 2
 	}
+	if code, ok := commitServicePersistenceRoot(*persistenceRoot, stderr); !ok {
+		return code
+	}
 	return runServiceCommandAction(context.Background(), action, serviceCommandOptions{}, stdout, stderr)
 }
 
 func serviceRestartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" service restart", stderr, serviceRestartUsage)
 	ifInstalled := fs.Bool("if-installed", false, "exit successfully without action when service is not installed")
+	persistenceRoot := fs.String("persistence-root", "", servicePersistenceRootFlagUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service restart does not accept positional arguments")
 		return 2
+	}
+	if code, ok := commitServicePersistenceRoot(*persistenceRoot, stderr); !ok {
+		return code
 	}
 	return runServiceCommandAction(context.Background(), serviceActionRestart, serviceCommandOptions{IfInstalled: *ifInstalled}, stdout, stderr)
 }

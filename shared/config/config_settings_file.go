@@ -113,18 +113,30 @@ func WriteDefaultSettingsFileWithTheme(selectedTheme string) (path string, creat
 	if err != nil {
 		return "", false, err
 	}
-	exists, err := settingsFileExists(path)
+	return WriteDefaultSettingsFileWithThemeAt(path, selectedTheme)
+}
+
+// WriteDefaultSettingsFileWithThemeAt writes onboarding default settings at an
+// explicit settings path so interactive first-run onboarding seeds the resolved
+// config+data root (--persistence-root / KENT_PERSISTENCE_ROOT) rather than the
+// default ~/.kent.
+func WriteDefaultSettingsFileWithThemeAt(path string, selectedTheme string) (string, bool, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", false, fmt.Errorf("settings path is required")
+	}
+	exists, err := settingsFileExists(trimmed)
 	if err != nil {
 		return "", false, err
 	}
 	if exists {
-		return path, false, nil
+		return trimmed, false, nil
 	}
-	created, err = writeSettingsFileIfMissing(path, onboardingDefaultSettingsTOML(theme.Normalize(selectedTheme)))
+	created, err := writeSettingsFileIfMissing(trimmed, onboardingDefaultSettingsTOML(theme.Normalize(selectedTheme)))
 	if err != nil {
 		return "", false, fmt.Errorf("write default settings file: %w", err)
 	}
-	return path, created, nil
+	return trimmed, created, nil
 }
 
 func WriteSettingsFileForOnboarding(settings Settings) (string, error) {
@@ -139,6 +151,17 @@ func WriteSettingsFileForOnboardingWithOptions(settings Settings, options Onboar
 	path, err := resolveSettingsFilePathInRoot("")
 	if err != nil {
 		return "", err
+	}
+	return WriteSettingsFileForOnboardingWithOptionsAt(path, settings, options)
+}
+
+// WriteSettingsFileForOnboardingWithOptionsAt persists onboarding settings at an
+// explicit settings path so interactive onboarding writes into the resolved
+// config+data root (--persistence-root / KENT_PERSISTENCE_ROOT) rather than the
+// default ~/.kent.
+func WriteSettingsFileForOnboardingWithOptionsAt(path string, settings Settings, options OnboardingWriteOptions) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("settings path is required")
 	}
 	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, nil)
 	if err != nil {

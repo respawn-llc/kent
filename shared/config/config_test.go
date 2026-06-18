@@ -377,6 +377,54 @@ func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 	}
 }
 
+func TestResolveManagedRGConfigPathHonorsPersistenceRootEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	t.Setenv(PersistenceRootEnvName, root)
+
+	path, err := ResolveManagedRGConfigPath()
+	if err != nil {
+		t.Fatalf("resolve managed rg config path: %v", err)
+	}
+	want := filepath.Join(root, managedRGConfigName)
+	if path != want {
+		t.Fatalf("managed rg config path = %q, want %q (under selected root, not home)", path, want)
+	}
+}
+
+func TestResolveManagedRGConfigPathDefaultsToHomeWithoutEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(PersistenceRootEnvName, "")
+
+	path, err := ResolveManagedRGConfigPath()
+	if err != nil {
+		t.Fatalf("resolve managed rg config path: %v", err)
+	}
+	want := filepath.Join(home, ConfigDirName, managedRGConfigName)
+	if path != want {
+		t.Fatalf("managed rg config path = %q, want %q", path, want)
+	}
+}
+
+func TestNormalizePersistenceRootExpandsTildeAndAbsolutizes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got, err := NormalizePersistenceRoot("~/nested/root")
+	if err != nil {
+		t.Fatalf("normalize persistence root: %v", err)
+	}
+	want := filepath.Join(home, "nested", "root")
+	if got != want {
+		t.Fatalf("normalized tilde root = %q, want %q", got, want)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("expected absolute path, got %q", got)
+	}
+}
+
 func TestLoadSubagentRoleFromFile(t *testing.T) {
 	home, workspace, configPath := newConfigTestFile(t)
 	contents := strings.Join([]string{

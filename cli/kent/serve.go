@@ -39,6 +39,10 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		serveFS.Usage()
 		return 2
 	}
+	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	authHandler, onboardingHandler := newServeStartupHandlers()

@@ -144,6 +144,10 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 
 	opts := app.Options{
 		WorkspaceRoot: ".",
@@ -188,6 +192,23 @@ func isTerminalWriter(w io.Writer) bool {
 		return false
 	}
 	return term.IsTerminal(int(file.Fd()))
+}
+
+// publishPersistenceRootEnv normalizes a --persistence-root flag value to an
+// absolute path and exports it as KENT_PERSISTENCE_ROOT so the resolved root
+// propagates to child processes (subagents launched via `kent run`, shell
+// ripgrep config) and any downstream re-resolution. A blank flag value leaves
+// any inherited KENT_PERSISTENCE_ROOT untouched.
+func publishPersistenceRootEnv(flagValue string) error {
+	trimmed := strings.TrimSpace(flagValue)
+	if trimmed == "" {
+		return nil
+	}
+	abs, err := config.NormalizePersistenceRoot(trimmed)
+	if err != nil {
+		return err
+	}
+	return os.Setenv(config.PersistenceRootEnvName, abs)
 }
 
 func runSubcommand(args []string) int {
@@ -250,6 +271,10 @@ func runSubcommand(args []string) int {
 	}
 	progressMode, err := parseRunProgressMode(*progressModeRaw)
 	if err != nil {
+		emitRunUsageError(outputMode, err.Error())
+		return 2
+	}
+	if err := publishPersistenceRootEnv(flags.PersistenceRoot); err != nil {
 		emitRunUsageError(outputMode, err.Error())
 		return 2
 	}

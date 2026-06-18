@@ -52,6 +52,23 @@ func expandTildePath(path string) (string, error) {
 	return trimmed, nil
 }
 
+// NormalizePersistenceRoot expands a leading tilde and resolves the path to an
+// absolute directory without touching the filesystem. It is used to publish a
+// stable KENT_PERSISTENCE_ROOT value (for example from a --persistence-root
+// flag) so child processes resolve the same root regardless of their working
+// directory.
+func NormalizePersistenceRoot(path string) (string, error) {
+	expanded, err := expandTildePath(path)
+	if err != nil {
+		return "", fmt.Errorf("expand persistence root: %w", err)
+	}
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", fmt.Errorf("resolve persistence root: %w", err)
+	}
+	return abs, nil
+}
+
 func preparePersistenceRoot(path string) (string, error) {
 	expanded, err := expandTildePath(path)
 	if err != nil {

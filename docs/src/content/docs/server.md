@@ -42,6 +42,8 @@ kent service uninstall --keep-running
 
 `install` starts the service after registration. `--no-start` only writes the service registration.
 `uninstall` stops the service before removing registration. `--keep-running` removes registration without stopping an already-running process.
+
+All service commands accept `--persistence-root` (and honor `KENT_PERSISTENCE_ROOT`). The root you install with is baked into the generated registration as `kent serve --persistence-root <root>`, so the supervised service uses the same config+data root rather than re-resolving `~/.kent` under whatever user the supervisor runs as. Use the same root on `status`/`start`/`stop`/`restart`/`uninstall` to target that instance.
 On macOS, `restart` unloads the LaunchAgent, waits for the old server endpoint to stop responding, and bootstraps the LaunchAgent again.
 Lifecycle commands that can stop or restart the service fail inside Kent shell commands, because they can halt active agent work. Ask the operator to manage the service outside the session.
 `install --no-start` and `uninstall --keep-running` are allowed from Kent shell commands because they do not start or stop the service process.

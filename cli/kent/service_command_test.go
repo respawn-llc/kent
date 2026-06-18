@@ -23,6 +23,31 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestServiceServeArgumentsBakesPersistenceRoot(t *testing.T) {
+	args := serviceServeArguments("/tmp/isolated-root")
+	want := []string{"serve", "--persistence-root", "/tmp/isolated-root"}
+	if len(args) != len(want) {
+		t.Fatalf("serve arguments = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("serve arguments = %v, want %v", args, want)
+		}
+	}
+	cmd := serviceCommand(serviceSpec{Executable: "/usr/local/bin/kent", Arguments: args})
+	wantCmd := []string{"/usr/local/bin/kent", "serve", "--persistence-root", "/tmp/isolated-root"}
+	if strings.Join(cmd, " ") != strings.Join(wantCmd, " ") {
+		t.Fatalf("service command = %v, want %v", cmd, wantCmd)
+	}
+}
+
+func TestServiceServeArgumentsOmitsEmptyRoot(t *testing.T) {
+	args := serviceServeArguments("")
+	if len(args) != 1 || args[0] != "serve" {
+		t.Fatalf("serve arguments = %v, want [serve]", args)
+	}
+}
+
 type stubServiceBackend struct {
 	status        serviceStatus
 	installStart  bool

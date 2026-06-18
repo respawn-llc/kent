@@ -173,6 +173,9 @@ fn load_settings() -> Result<Settings, String> {
     };
 
     if let Some(config) = read_config_at(&persistence_root)? {
+        if config.get("persistence_root").is_some() {
+            return Err("persistence_root is no longer a config.toml setting; set the config and data root with KENT_PERSISTENCE_ROOT.".to_string());
+        }
         if let Some(value) = config.get("server_host").and_then(toml::Value::as_str) {
             if !value.trim().is_empty() {
                 server_host = value.trim().to_string();

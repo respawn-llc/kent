@@ -37,11 +37,11 @@ Kent also installs a user-editable ripgrep config at:
 ~/.kent/rg.conf
 ```
 
-Kent creates `~/.kent/rg.conf` when missing and exports it to shell tools via `RIPGREP_CONFIG_PATH` only when you have not already set `RIPGREP_CONFIG_PATH` yourself.
+Kent creates `rg.conf` in the config+data root when missing and exports it to shell tools via `RIPGREP_CONFIG_PATH` only when you have not already set `RIPGREP_CONFIG_PATH` yourself. In an isolated root this is the root's own `rg.conf`, not the default `~/.kent/rg.conf`.
 
-The config+data root defaults to `~/.kent`. Set a different root with the `--persistence-root` flag (accepted by `kent`, `kent run`, and `kent serve`) or the `KENT_PERSISTENCE_ROOT` environment variable; the flag wins over the env var. This relocates **both** `config.toml` discovery and all persisted state (database, auth, sessions, worktrees) to that one directory — config and data are not configurable separately, and `persistence_root` is no longer a `config.toml` setting (a config file cannot relocate the directory it is read from). Workspace config is still read from `<workspace-root>/.kent/config.toml`.
+The config+data root defaults to `~/.kent`. Set a different root with the `--persistence-root` flag (accepted by `kent`, `kent run`, `kent serve`, and `kent service`) or the `KENT_PERSISTENCE_ROOT` environment variable; the flag wins over the env var. This relocates **both** `config.toml` discovery and all persisted state (database, auth, sessions, worktrees) to that one directory — config and data are not configurable separately. Workspace config is still read from `<workspace-root>/.kent/config.toml`.
 
-Migration: if an existing `config.toml` still contains `persistence_root`, Kent fails to load with a clear error. Remove the key and pass `--persistence-root`/`KENT_PERSISTENCE_ROOT` instead. Because the root now also determines where `config.toml` is read from, if you previously pointed `persistence_root` at a non-default directory you must also **move** `~/.kent/config.toml` into that directory — otherwise its model/server/tool settings stop loading. If you only ever used the default `~/.kent`, just deleting the key is enough.
+When you select a non-default root via the flag, Kent normalizes it to an absolute path and publishes it as `KENT_PERSISTENCE_ROOT` for the process, so subagents launched via `kent run` and shell tools inherit the same isolated root.
 
 
 ## Example
