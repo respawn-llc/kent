@@ -305,9 +305,9 @@ func (m *defaultMessageLifecycle) HasPendingUserInjections() bool {
 	return m != nil && m.queue != nil && m.queue.HasPending()
 }
 
-func newActiveMetaContextBuilder(meta session.Meta, model, thinkingLevel string, disabledSkills map[string]bool, now time.Time) metaContextBuilder {
+func newActiveMetaContextBuilder(meta session.Meta, model, thinkingLevel, globalConfigDir string, disabledSkills map[string]bool, now time.Time) metaContextBuilder {
 	roots := activeMetaContextRootsForMeta(meta)
-	return newMetaContextBuilder(roots.discoveryRoot, model, thinkingLevel, disabledSkills, now).withEnvironmentCWD(roots.environmentCWD)
+	return newMetaContextBuilder(roots.discoveryRoot, model, thinkingLevel, disabledSkills, now).withEnvironmentCWD(roots.environmentCWD).withGlobalConfigDir(globalConfigDir)
 }
 
 type activeMetaContextRoots struct {

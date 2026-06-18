@@ -49,7 +49,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	if err != nil {
 		return nil, fmt.Errorf("persistence bundle: root lock: %w", err)
 	}
-	generatedSupport, err := serverbootstrap.BuildGeneratedSupport(ctx)
+	generatedSupport, err := serverbootstrap.BuildGeneratedSupport(ctx, cfg.PersistenceRoot)
 	if err != nil {
 		_ = rootLease.Close()
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)

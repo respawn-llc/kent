@@ -713,7 +713,7 @@ func TestOnboardingFinalWritePersistsDisabledGeneratedSkillAndRuntimeHonorsIt(t 
 	if !disabled["kent-dogfooding"] {
 		t.Fatalf("expected disabled generated skill in loaded config, got toggles=%+v disabled=%+v", cfg.Settings.SkillToggles, disabled)
 	}
-	inspections, err := runtime.InspectSkills("", disabled)
+	inspections, err := runtime.InspectSkills("", "", disabled)
 	if err != nil {
 		t.Fatalf("inspect skills: %v", err)
 	}

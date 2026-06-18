@@ -221,7 +221,7 @@ func (Collector) CollectEnvironment(_ context.Context, req Request, _ Snapshot) 
 	} else if recovered {
 		warnings = append(warnings, prompts.RecoveredWarning())
 	}
-	inspectedSkills, skillsErr := runtime.InspectSkills(workspaceRoot, config.DisabledSkillToggles(req.Settings))
+	inspectedSkills, skillsErr := runtime.InspectSkills(workspaceRoot, req.PersistenceRoot, config.DisabledSkillToggles(req.Settings))
 	if skillsErr != nil {
 		warnings = append(warnings, "skills: "+skillsErr.Error())
 	} else {
@@ -229,7 +229,7 @@ func (Collector) CollectEnvironment(_ context.Context, req Request, _ Snapshot) 
 		result.Skills = skills
 		result.SkillTokenCounts = EstimateSkillTokens(skills)
 	}
-	agentsPaths, agentsErr := runtime.InstalledAgentsPaths(workspaceRoot)
+	agentsPaths, agentsErr := runtime.InstalledAgentsPaths(workspaceRoot, req.PersistenceRoot)
 	if agentsErr != nil {
 		warnings = append(warnings, "agents: "+agentsErr.Error())
 	} else {

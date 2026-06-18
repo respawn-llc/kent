@@ -25,9 +25,9 @@ func (e *Engine) CompactionCount() int {
 	return e.compactionRuntimeState().Count()
 }
 
-func InspectSkills(workspaceRoot string, disabledSkills map[string]bool) ([]SkillInspection, error) {
+func InspectSkills(workspaceRoot, globalConfigDir string, disabledSkills map[string]bool) ([]SkillInspection, error) {
 	disabledSkills = normalizedDisabledSkills(disabledSkills)
-	roots, err := skillDiscoveryRoots(workspaceRoot)
+	roots, err := skillDiscoveryRoots(workspaceRoot, globalConfigDir)
 	if err != nil {
 		return nil, err
 	}
@@ -163,8 +163,8 @@ func inspectSkillAtPath(fallbackName, skillPath string) SkillInspection {
 	}
 }
 
-func InstalledAgentsPaths(workspaceRoot string) ([]string, error) {
-	paths, err := agentsInjectionPaths(workspaceRoot)
+func InstalledAgentsPaths(workspaceRoot, globalConfigDir string) ([]string, error) {
+	paths, err := agentsInjectionPaths(workspaceRoot, globalConfigDir)
 	if err != nil {
 		return nil, err
 	}

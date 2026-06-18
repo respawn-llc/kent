@@ -418,3 +418,65 @@ func assertPerm(t *testing.T, path string, want os.FileMode) {
 		t.Fatalf("%s perm = %s, want %s", path, got, want)
 	}
 }
+
+func TestSyncWithConfigRootSeedsUnderRoot(t *testing.T) {
+	configRoot := filepath.Join(t.TempDir(), "isolated-root")
+	result, err := GeneratedSync(context.Background(), GeneratedSyncOptions{ConfigRoot: configRoot, FS: testGeneratedFS()})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	wantGeneratedRoot := filepath.Join(configRoot, ".generated")
+	if result.GeneratedRoot != wantGeneratedRoot {
+		t.Fatalf("generated root = %q, want %q", result.GeneratedRoot, wantGeneratedRoot)
+	}
+	wantSkillsRoot := filepath.Join(wantGeneratedRoot, "skills")
+	if result.GeneratedSkillsRoot != wantSkillsRoot {
+		t.Fatalf("generated skills root = %q, want %q", result.GeneratedSkillsRoot, wantSkillsRoot)
+	}
+	if result.RecoveryRoot != filepath.Join(configRoot, "recovered") {
+		t.Fatalf("recovery root = %q, want under config root", result.RecoveryRoot)
+	}
+	assertFile(t, filepath.Join(wantSkillsRoot, "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
+}
+
+func TestSyncConfigRootTakesPrecedenceOverHome(t *testing.T) {
+	home := t.TempDir()
+	configRoot := filepath.Join(t.TempDir(), "isolated-root")
+	if _, err := GeneratedSync(context.Background(), GeneratedSyncOptions{HomeDir: home, ConfigRoot: configRoot, FS: testGeneratedFS()}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(configRoot, ".generated", "skills")); err != nil {
+		t.Fatalf("expected generated assets under config root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, configDirName, ".generated")); !os.IsNotExist(err) {
+		t.Fatalf("expected no generated assets under home, got err=%v", err)
+	}
+}
+
+func TestGeneratedSkillsRootForResolvesUnderConfigRoot(t *testing.T) {
+	configRoot := filepath.Join(t.TempDir(), "isolated-root")
+	got, err := GeneratedSkillsRootFor(configRoot)
+	if err != nil {
+		t.Fatalf("GeneratedSkillsRootFor: %v", err)
+	}
+	want := filepath.Join(configRoot, ".generated", "skills")
+	if got != want {
+		t.Fatalf("GeneratedSkillsRootFor = %q, want %q", got, want)
+	}
+}
+
+func TestGeneratedSkillsRootForEmptyMatchesDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := GeneratedSkillsRootFor("")
+	if err != nil {
+		t.Fatalf("GeneratedSkillsRootFor: %v", err)
+	}
+	want, err := GeneratedSkillsRoot()
+	if err != nil {
+		t.Fatalf("GeneratedSkillsRoot: %v", err)
+	}
+	if got != want {
+		t.Fatalf("GeneratedSkillsRootFor(\"\") = %q, want %q", got, want)
+	}
+}

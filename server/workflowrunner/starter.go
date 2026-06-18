@@ -607,10 +607,11 @@ func (s *Starter) run(ctx context.Context, req SchedulerStartRunRequest, input w
 		return
 	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(plan.Store, plan.ActiveSettings, workflowRuntimeEnabledTools(plan.EnabledTools), input.WorktreeRoot, s.authManager, logger, s.background, runtimewire.RuntimeWiringOptions{
-		Headless: true,
-		FastMode: nil,
-		Sources:  plan.Source.Sources,
-		Client:   client,
+		Headless:        true,
+		FastMode:        nil,
+		Sources:         plan.Source.Sources,
+		Client:          client,
+		GlobalConfigDir: s.cfg.PersistenceRoot,
 		WorkflowRun: &workflowruntime.Config{
 			RunID:                        req.RunID,
 			Contract:                     workflowCompletionContract(req, input),

@@ -117,7 +117,11 @@ type Config struct {
 	ToolPreambles                 bool
 	WorkflowRun                   *workflowruntime.Config
 	TranscriptWorkingDir          string
-	OnEvent                       func(Event)
+	// GlobalConfigDir is the absolute persistence root that owns model-visible
+	// global context (global AGENTS.md, system prompt file, skills, generated
+	// assets). Empty falls back to ~/.kent so default-root behavior is preserved.
+	GlobalConfigDir string
+	OnEvent         func(Event)
 }
 
 type ReviewerConfig struct {

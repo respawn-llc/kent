@@ -46,8 +46,12 @@ const (
 
 type GeneratedSyncOptions struct {
 	HomeDir string
-	Now     func() time.Time
-	FS      fs.FS
+	// ConfigRoot is the absolute persistence root that owns generated assets.
+	// When non-empty it is used directly (generated assets live under
+	// <ConfigRoot>/.generated); empty falls back to <home>/.kent.
+	ConfigRoot string
+	Now        func() time.Time
+	FS         fs.FS
 }
 
 type GeneratedSyncResult struct {
@@ -81,7 +85,7 @@ type treeEntry struct {
 }
 
 func GeneratedSync(ctx context.Context, opts GeneratedSyncOptions) (GeneratedSyncResult, error) {
-	paths, err := resolvePaths(opts.HomeDir)
+	paths, err := resolvePathsForRoot(opts.HomeDir, opts.ConfigRoot)
 	if err != nil {
 		return GeneratedSyncResult{}, err
 	}
@@ -157,6 +161,17 @@ func GeneratedSkillsRoot() (string, error) {
 	return paths.generatedSkillsRoot, nil
 }
 
+// GeneratedSkillsRootFor resolves the generated skills root under the supplied
+// persistence config root. An empty configRoot falls back to the default
+// (<home>/.kent), matching GeneratedSkillsRoot().
+func GeneratedSkillsRootFor(configRoot string) (string, error) {
+	paths, err := resolvePathsForRoot("", configRoot)
+	if err != nil {
+		return "", err
+	}
+	return paths.generatedSkillsRoot, nil
+}
+
 func RecoveryRoot() (string, error) {
 	paths, err := resolvePaths("")
 	if err != nil {
@@ -184,23 +199,33 @@ type generatedPaths struct {
 }
 
 func resolvePaths(homeDir string) (generatedPaths, error) {
-	home := strings.TrimSpace(homeDir)
-	if home == "" {
-		resolved, err := os.UserHomeDir()
-		if err != nil {
-			return generatedPaths{}, fmt.Errorf("resolve home dir: %w", err)
+	return resolvePathsForRoot(homeDir, "")
+}
+
+// resolvePathsForRoot resolves the generated/recovery layout. When configRoot
+// is non-empty it is used directly as the persistence root; otherwise the
+// layout falls back to <home>/.kent (resolving homeDir or the OS home).
+func resolvePathsForRoot(homeDir, configRoot string) (generatedPaths, error) {
+	root := strings.TrimSpace(configRoot)
+	if root == "" {
+		home := strings.TrimSpace(homeDir)
+		if home == "" {
+			resolved, err := os.UserHomeDir()
+			if err != nil {
+				return generatedPaths{}, fmt.Errorf("resolve home dir: %w", err)
+			}
+			home = resolved
 		}
-		home = resolved
+		if strings.TrimSpace(home) == "" {
+			return generatedPaths{}, errors.New("home dir is required")
+		}
+		root = filepath.Join(home, configDirName)
 	}
-	if strings.TrimSpace(home) == "" {
-		return generatedPaths{}, errors.New("home dir is required")
-	}
-	configRoot := filepath.Join(home, configDirName)
-	generatedRoot := filepath.Join(configRoot, generatedDirName)
+	generatedRoot := filepath.Join(root, generatedDirName)
 	return generatedPaths{
 		generatedRoot:       generatedRoot,
 		generatedSkillsRoot: filepath.Join(generatedRoot, generatedSkillsDir),
-		recoveryRoot:        filepath.Join(configRoot, recoveredDirName),
+		recoveryRoot:        filepath.Join(root, recoveredDirName),
 	}, nil
 }
 

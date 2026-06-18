@@ -249,10 +249,25 @@ func (e *Engine) flushPendingUserInjections(stepID string) (int, error) {
 	return e.messageFlow.FlushPendingUserInjections(stepID)
 }
 
-func agentsInjectionPaths(workspaceRoot string) ([]string, error) {
+// resolveGlobalConfigDir returns the directory that owns model-visible global
+// context. When globalConfigDir is non-empty it is used verbatim (the selected
+// persistence root); otherwise it falls back to <home>/.kent, the default root,
+// preserving all default-root behavior.
+func resolveGlobalConfigDir(globalConfigDir string) (string, error) {
+	if trimmed := strings.TrimSpace(globalConfigDir); trimmed != "" {
+		return trimmed, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("resolve home dir: %w", err)
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, agentsGlobalDirName), nil
+}
+
+func agentsInjectionPaths(workspaceRoot, globalConfigDir string) ([]string, error) {
+	globalDir, err := resolveGlobalConfigDir(globalConfigDir)
+	if err != nil {
+		return nil, err
 	}
 
 	paths := make([]string, 0, 2)
@@ -266,7 +281,7 @@ func agentsInjectionPaths(workspaceRoot string) ([]string, error) {
 		paths = append(paths, cleaned)
 	}
 
-	addPath(filepath.Join(home, agentsGlobalDirName, agentsFileName))
+	addPath(filepath.Join(globalDir, agentsFileName))
 	addPath(filepath.Join(workspaceRoot, agentsFileName))
 	return paths, nil
 }

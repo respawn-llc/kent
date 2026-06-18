@@ -24,11 +24,11 @@
 
 ## Skills And Generated Assets
 
-- Skills are discovered from Kent-owned roots: `~/.kent/skills`, workspace `.kent/skills`, and generated embedded skills under `~/.kent/.generated/skills`.
+- Skills are discovered from Kent-owned roots: `<persistence-root>/skills` (default `~/.kent/skills`), workspace `.kent/skills`, and generated embedded skills under `<persistence-root>/.generated/skills`. The global and generated roots follow the selected persistence root; only the workspace root stays workspace-relative. Global `AGENTS.md` and the global system-prompt file resolve under the same `<persistence-root>` (runtime threads `cfg.PersistenceRoot` as `GlobalConfigDir`; an empty value falls back to `~/.kent`).
 - First-run onboarding may optionally symlink skills and slash-command roots from supported source tools into Kent's layout; runtime discovery still reads only Kent-owned directories.
 - `config.toml` supports file-only `[skills]` boolean toggles for per-skill new-session enable/disable. Disabled skills remain visible in `/status` and only affect future skills-message injection.
-- Preinstalled skills are seeded from binary-embedded deterministic assets under `prompts/skills/**` into `~/.kent/.generated/skills`.
-- `~/.kent/.generated` is deterministic, destructible, overwritten on server startup, and not user-owned.
+- Preinstalled skills are seeded from binary-embedded deterministic assets under `prompts/skills/**` into `<persistence-root>/.generated/skills` (generated sync receives the root via `GeneratedSyncOptions.ConfigRoot`).
+- `<persistence-root>/.generated` is deterministic, destructible, overwritten on server startup, and not user-owned.
 - Generated sync runs on server startup (`kent serve` or embedded server), not in clients.
 - Generated asset integrity uses `.generated/.kent-generated.json` with schema, Kent version, and tree hash excluding the marker.
 - Edited/add/delete/rename/symlink/invalid-marker generated trees move to `~/.kent/recovered/<UTC timestamp>/.generated`, then regenerate.

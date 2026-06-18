@@ -39,6 +39,10 @@ type RuntimeWiringOptions struct {
 	Sources     map[string]string
 	Client      llm.Client
 	WorkflowRun *workflowruntime.Config
+	// GlobalConfigDir is the absolute persistence root that owns model-visible
+	// global context (AGENTS.md, system prompt, skills). Empty falls back to
+	// ~/.kent inside the runtime resolvers.
+	GlobalConfigDir string
 }
 
 func NewRuntimeWiring(store *session.Store, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, mgr *auth.Manager, logger Logger, opts RuntimeWiringOptions) (*RuntimeWiring, error) {
@@ -157,6 +161,7 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		ToolPreambles:                 active.ToolPreambles,
 		WorkflowRun:                   opts.WorkflowRun,
 		TranscriptWorkingDir:          workspaceRoot,
+		GlobalConfigDir:               opts.GlobalConfigDir,
 		Reviewer: runtime.ReviewerConfig{
 			Frequency:         active.Reviewer.Frequency,
 			Model:             active.Reviewer.Model,

@@ -76,8 +76,8 @@ func skillsContextMessageWithDisabled(workspaceRoot string, disabledSkills map[s
 	return metaResult.Skills[0].Content, true, nil
 }
 
-func discoverInjectedSkills(workspaceRoot string, disabledSkills map[string]bool) ([]injectedSkill, []skillDiscoveryIssue, error) {
-	roots, err := skillDiscoveryRoots(workspaceRoot)
+func discoverInjectedSkills(workspaceRoot, globalConfigDir string, disabledSkills map[string]bool) ([]injectedSkill, []skillDiscoveryIssue, error) {
+	roots, err := skillDiscoveryRoots(workspaceRoot, globalConfigDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -194,10 +194,10 @@ func formatSkillDiscoveryWarning(issue skillDiscoveryIssue) string {
 	return fmt.Sprintf("Skipped skill %q at %s: %s", name, issue.Path, issue.Reason)
 }
 
-func skillDiscoveryRoots(workspaceRoot string) ([]skillRoot, error) {
-	home, err := os.UserHomeDir()
+func skillDiscoveryRoots(workspaceRoot, globalConfigDir string) ([]skillRoot, error) {
+	globalDir, err := resolveGlobalConfigDir(globalConfigDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve home dir: %w", err)
+		return nil, err
 	}
 
 	roots := make([]skillRoot, 0, 3)
@@ -211,11 +211,11 @@ func skillDiscoveryRoots(workspaceRoot string) ([]skillRoot, error) {
 		roots = append(roots, skillRoot{Path: cleaned, Kind: kind})
 	}
 
-	addPath(filepath.Join(home, agentsGlobalDirName, skillsDirName), skillSourceGlobal)
+	addPath(filepath.Join(globalDir, skillsDirName), skillSourceGlobal)
 	if strings.TrimSpace(workspaceRoot) != "" {
 		addPath(filepath.Join(workspaceRoot, agentsGlobalDirName, skillsDirName), skillSourceWorkspace)
 	}
-	generatedRoot, err := generatedassets.GeneratedSkillsRoot()
+	generatedRoot, err := generatedassets.GeneratedSkillsRootFor(globalConfigDir)
 	if err != nil {
 		return nil, err
 	}

@@ -46,6 +46,10 @@ type HeadlessBootstrap struct {
 	}
 	BackgroundRouter runtimewire.BackgroundRouter
 	PromptHistory    promptHistoryStore
+	// PersistenceRoot is the absolute persistence root that owns model-visible
+	// global context (AGENTS.md, system prompt, skills). Empty falls back to
+	// ~/.kent inside the runtime resolvers.
+	PersistenceRoot string
 }
 
 func NewLoopbackRunPromptClient(boot HeadlessBootstrap) client.RunPromptClient {
@@ -121,9 +125,10 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 		logger.Logf("config.source %s", line)
 	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(plan.Store, plan.ActiveSettings, plan.EnabledTools, workdir, l.boot.AuthManager, logger, l.boot.Background, runtimewire.RuntimeWiringOptions{
-		Headless: true,
-		FastMode: l.boot.FastModeState,
-		Sources:  plan.Source.Sources,
+		Headless:        true,
+		FastMode:        l.boot.FastModeState,
+		Sources:         plan.Source.Sources,
+		GlobalConfigDir: l.boot.PersistenceRoot,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", FormatRuntimeEvent(evt))
 			if transcriptdiag.Enabled(plan.ActiveSettings.Debug, os.Getenv) {
