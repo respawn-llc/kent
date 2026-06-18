@@ -250,9 +250,7 @@ func (e *Engine) flushPendingUserInjections(stepID string) (int, error) {
 }
 
 // resolveGlobalConfigDir returns the directory that owns model-visible global
-// context. When globalConfigDir is non-empty it is used verbatim (the selected
-// persistence root); otherwise it falls back to <home>/.kent, the default root,
-// preserving all default-root behavior.
+// context: the given root verbatim, or <home>/.kent when empty.
 func resolveGlobalConfigDir(globalConfigDir string) (string, error) {
 	if trimmed := strings.TrimSpace(globalConfigDir); trimmed != "" {
 		return trimmed, nil

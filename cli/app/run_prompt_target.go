@@ -44,13 +44,9 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 	if err := validateRunPromptAgentRole(cfg.Settings, opts.AgentRole, kentSessionCaller, contextAgentRole); err != nil {
 		return nil, nil, err
 	}
-	// kent run is a pure client: it attaches to an already-running server and
-	// never starts one of its own (embedded or launched daemon). Omitting
-	// LaunchDaemon and StartEmbedded makes Resolve return
-	// serverattach.ErrNoServerAvailable when no server can be attached, which we
-	// translate into errRunRequiresServer below. This keeps concurrent kent run
-	// invocations safe: they share one standing server instead of each owning a
-	// daemon that gets killed when the first run exits.
+	// Omitting LaunchDaemon and StartEmbedded keeps kent run a pure client (see
+	// docs/dev/specs/core-runtime-tools.md): Resolve returns ErrNoServerAvailable
+	// when nothing is reachable, translated into errRunRequiresServer below.
 	target, err := serverattach.Resolve[serverattach.RunPromptTarget](ctx, serverattach.Request[serverattach.RunPromptTarget]{
 		Mode:   serverattach.ModeHeadless,
 		Remote: serverAttachRemotePolicy(cfg, remoteattach.SupportsRunPrompt, true),
@@ -90,15 +86,11 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 	return target.Value.Client, target.Close, nil
 }
 
-// errRunRequiresServer is returned when `kent run` cannot attach to a server
-// because none is running. kent run is a pure client and never starts a server
-// of its own, so a server must already be available.
+// errRunRequiresServer is returned when no server is reachable for `kent run`.
 var errRunRequiresServer = errors.New("`kent run` can only be used when a server is already running. Start a server with `kent serve` or install a service with `kent service install` to prevent subagents and scripted runs from exiting abruptly if running concurrently with each other")
 
-// errRunServerIncompatible is returned when a server is reachable but too old or
-// otherwise incompatible (it failed the capability check). Starting another
-// server would conflict on the same address, so the operator must restart or
-// upgrade the running one instead.
+// errRunServerIncompatible is returned when a reachable server fails the
+// capability check.
 var errRunServerIncompatible = errors.New("a Kent server is running on the configured endpoint but is not compatible with this client. Restart or upgrade the running server (for example `kent service restart`) instead of starting another, which would conflict on the same address")
 
 const nonCallableSubagentRoleMessage = "User has disallowed calling this agent by other agents like you. Do not try to circumvent this, pick another suitable agent or do the work manually and let the user know your desire to use the subagent at the end of the task"
