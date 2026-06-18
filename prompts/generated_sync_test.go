@@ -21,7 +21,7 @@ func TestSyncSeedsMissingGeneratedRoot(t *testing.T) {
 	if result.Recovered {
 		t.Fatalf("did not expect recovery: %+v", result)
 	}
-	assertFile(t, filepath.Join(home, configDirName, ".generated", "README.md"), generatedReadme)
+	assertFile(t, filepath.Join(home, configDirName, ".generated", "README.md"), generatedReadme(filepath.Join(home, configDirName, generatedSkillsDir), filepath.Join(home, configDirName, recoveredDirName)))
 	assertFile(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
 	markerPath := filepath.Join(home, configDirName, ".generated", markerFileName)
 	if _, err := os.Stat(markerPath); err != nil {
@@ -401,13 +401,18 @@ func fixedNow() func() time.Time {
 
 func assertFile(t *testing.T, path, want string) {
 	t.Helper()
+	if got := readFile(t, path); got != want {
+		t.Fatalf("%s = %q, want %q", path, got, want)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	if string(data) != want {
-		t.Fatalf("%s = %q, want %q", path, string(data), want)
-	}
+	return string(data)
 }
 
 func assertPerm(t *testing.T, path string, want os.FileMode) {
@@ -502,6 +507,26 @@ func TestRecoveredRootNonEmptyForUsesConfigRoot(t *testing.T) {
 		t.Fatalf("RecoveredRootNonEmptyFor: %v", err)
 	} else if !nonEmpty {
 		t.Fatalf("expected populated recovered root %q to report true", recoveredDir)
+	}
+}
+
+func TestSyncRendersReadmeFromConfigRoot(t *testing.T) {
+	configRoot := t.TempDir()
+	if _, err := GeneratedSync(context.Background(), GeneratedSyncOptions{ConfigRoot: configRoot, FS: testGeneratedFS()}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	readme := readFile(t, filepath.Join(configRoot, ".generated", "README.md"))
+	wantHomeSkills := filepath.Join(configRoot, generatedSkillsDir)
+	wantRecovered := filepath.Join(configRoot, recoveredDirName)
+	if !strings.Contains(readme, wantHomeSkills) {
+		t.Fatalf("README %q must reference the selected home skills root %q", readme, wantHomeSkills)
+	}
+	if !strings.Contains(readme, wantRecovered) {
+		t.Fatalf("README %q must reference the selected recovery root %q", readme, wantRecovered)
+	}
+	// The default-root remediation paths must not leak into a non-default root README.
+	if strings.Contains(readme, generatedRootDir) || strings.Contains(readme, recoveredDir) {
+		t.Fatalf("README %q must not reference the default-root layout", readme)
 	}
 }
 
