@@ -116,6 +116,20 @@ pub fn run() {
                     eprintln!("Apply native window glass failed: {error}");
                 }
             }
+            // On Linux we paint our own window chrome (see `AppChrome`), so we
+            // request client-side decorations. This stops the compositor from
+            // drawing its own titlebar, and — critically for Wayland compositors
+            // such as Niri whose `draw-border-with-background` default fills a
+            // solid rectangle behind windows that omit CSD — keeps the focus
+            // ring/border from showing through our semi-transparent window as a
+            // full-window backdrop. The window stays transparent; only the
+            // decoration mode changes.
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.set_decorations(false) {
+                    eprintln!("Disable Linux window decorations failed: {error}");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
