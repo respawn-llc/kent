@@ -30,10 +30,7 @@ import { useWorkflowEditorGraphState } from "./useWorkflowEditorGraphState";
 import { useWorkflowEditorSave, type WorkflowEditorSave } from "./useWorkflowEditorSave";
 import { useWorkflowGraphDeleteConfirmation } from "./useWorkflowGraphDeleteConfirmation";
 import { WorkflowEditorCanvas } from "./WorkflowEditorCanvas";
-import {
-  WorkflowEditorEmbeddedInspector,
-  WorkflowEditorTopChromeBlur,
-} from "./WorkflowEditorEmbeddedInspector";
+import { WorkflowEditorEmbeddedInspector } from "./WorkflowEditorEmbeddedInspector";
 import { WorkflowEditorLegendIsland } from "./WorkflowEditorLegendIsland";
 import { WorkflowEditorStatusIsland } from "./WorkflowEditorStatusIsland";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
@@ -264,7 +261,6 @@ function WorkflowEditorReadyView(props: WorkflowEditorReadyViewProps) {
       )}
       data-testid="workflow-editor-route"
     >
-      {surface === "route" ? <WorkflowEditorTopChromeBlur /> : null}
       <WorkflowEditorCanvas
         closeDeletedNodeInspector={closeDeletedNodeInspector}
         deleteRequestIndexRef={deleteRequestIndexRef}

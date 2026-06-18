@@ -1,29 +1,9 @@
-import { type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 
 import type { WorkflowInspectorSelection } from "../../app/sidebarContext";
 import { Button, IslandSurface } from "../../ui";
 import { WorkflowInspectorSidebar } from "./WorkflowInspectorSidebar";
-
-export function WorkflowEditorTopChromeBlur() {
-  return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[calc(var(--native-titlebar-height)*2)]"
-      data-testid="workflow-editor-top-chrome-blur"
-      style={workflowEditorTopChromeBlurStyle}
-    />
-  );
-}
-
-const workflowEditorTopChromeBlurStyle = {
-  WebkitBackdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
-  WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
-  background: "color-mix(in srgb, var(--window-glass-tint) 65%, transparent)",
-  backdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
-  maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
-} satisfies CSSProperties;
 
 export function WorkflowEditorEmbeddedInspector({
   onClose,
