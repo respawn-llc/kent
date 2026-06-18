@@ -341,6 +341,57 @@ func TestServiceRestartIfInstalledTreatsRootMismatchAsNoOp(t *testing.T) {
 	}
 }
 
+func TestWindowsRegisteredTaskRunPathParsesListOutput(t *testing.T) {
+	output := strings.Join([]string{
+		"Folder: \\",
+		"HostName:                             DESKTOP",
+		"TaskName:                             \\Kent",
+		"Task To Run:                          C:\\OtherRoot\\service\\server.cmd",
+		"Start In:                             N/A",
+	}, "\n")
+	got, ok := windowsRegisteredTaskRunPath(output)
+	if !ok || got != "C:\\OtherRoot\\service\\server.cmd" {
+		t.Fatalf("windowsRegisteredTaskRunPath = (%q, %v), want the registered Task To Run path", got, ok)
+	}
+}
+
+func TestWindowsRegisteredTaskRunPathAbsentReturnsFalse(t *testing.T) {
+	if got, ok := windowsRegisteredTaskRunPath("ERROR: The system cannot find the file specified."); ok {
+		t.Fatalf("windowsRegisteredTaskRunPath = (%q, true), want not found when no Task To Run field is present", got)
+	}
+}
+
+func TestServiceStatusReportsNotInstalledForForeignRoot(t *testing.T) {
+	// A registration whose command targets a different root must be reported as
+	// not installed for the requested root, so `service status --persistence-root`
+	// never presents another root's service as installed/running for this one.
+	requestedRoot := filepath.Join(t.TempDir(), "requested")
+	installedRoot := filepath.Join(t.TempDir(), "installed")
+	backend := &stubServiceBackend{status: serviceStatus{
+		Installed: true,
+		Loaded:    true,
+		Running:   true,
+		PID:       4242,
+		Command:   []string{"/usr/local/bin/kent", "serve", "--persistence-root", installedRoot},
+	}}
+	withServiceCommandTestBackend(t, backend)
+	withServiceCommandTestSpecRoot(t, requestedRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"status", "--json", "--persistence-root", requestedRoot}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	var status serviceStatus
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatalf("decode status json: %v; stdout=%q", err, stdout.String())
+	}
+	if status.Installed || status.Running || status.Loaded || status.PID != 0 {
+		t.Fatalf("status = %+v, want not installed/running/loaded for a foreign root", status)
+	}
+}
+
 func TestServiceRestartIfInstalledSkipsMissingService(t *testing.T) {
 	backend := &stubServiceBackend{status: serviceStatus{Installed: false}}
 	withServiceCommandTestBackend(t, backend)

@@ -132,7 +132,7 @@ func (scheduledTaskServiceBackend) Status(ctx context.Context, spec serviceSpec)
 		Loaded:      taskInstalled || startupInstalled,
 		Running:     running,
 		PID:         pid,
-		Command:     readWindowsRegisteredCommand(spec),
+		Command:     readWindowsRegisteredCommand(spec, taskOutput),
 		Endpoint:    spec.Endpoint,
 		Logs:        []string{spec.StdoutLogPath, spec.StderrLogPath},
 		InstallPath: windowsTaskScriptPath(spec),
@@ -140,8 +140,16 @@ func (scheduledTaskServiceBackend) Status(ctx context.Context, spec serviceSpec)
 	}, nil
 }
 
-func readWindowsRegisteredCommand(spec serviceSpec) []string {
-	data, err := os.ReadFile(windowsTaskScriptPath(spec))
+func readWindowsRegisteredCommand(spec serviceSpec, taskQueryOutput string) []string {
+	// Prefer the script path registered with the scheduled task (root-independent)
+	// so a registration for a different persistence root is read and compared
+	// correctly; fall back to the requested-root script for the Startup-folder
+	// fallback path, which has no schtasks "Task To Run" action to parse.
+	scriptPath := windowsTaskScriptPath(spec)
+	if registered, ok := windowsRegisteredTaskRunPath(taskQueryOutput); ok {
+		scriptPath = registered
+	}
+	data, err := os.ReadFile(scriptPath)
 	if err != nil {
 		return nil
 	}
@@ -258,7 +266,9 @@ func windowsTaskScriptPIDs(ctx context.Context, spec serviceSpec) []int {
 }
 
 func windowsRegisteredCommandPIDs(ctx context.Context, spec serviceSpec) []int {
-	command := readWindowsRegisteredCommand(spec)
+	// PID matching is scoped to the requested root's server script, so resolve
+	// against the requested root (empty task output forces the script fallback).
+	command := readWindowsRegisteredCommand(spec, "")
 	if len(command) == 0 {
 		return nil
 	}

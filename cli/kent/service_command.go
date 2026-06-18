@@ -308,11 +308,15 @@ func ensureServiceRootMatch(ctx context.Context, backend serviceBackend, spec se
 }
 
 // rootMismatchError compares the persistence root baked into an installed
-// registration's command against the resolved spec root. It returns nil when
-// they match, when nothing is installed, or when the installed command does not
-// carry an explicit --persistence-root (its root is then indeterminate and we
-// fail open rather than block a legitimate operation). Every service this binary
-// installs bakes --persistence-root, so the real cross-root footgun — a default
+// registration's command against the resolved spec root. Lifecycle actions
+// target the single global OS registration, so acting on a registration that
+// serves a different root is a cross-root footgun. It returns nil when they
+// match, when nothing is installed, or when the installed command does not carry
+// an explicit --persistence-root (its root is then indeterminate and we fail
+// open rather than block a legitimate operation). Every service this binary
+// installs bakes --persistence-root, and backends report the actual registration
+// command (the Windows backend resolves it from the registered task action, not
+// a path under the requested root), so the real cross-root footgun — a default
 // or other-root registration targeted with a different --persistence-root — is
 // still caught.
 func rootMismatchError(status serviceStatus, spec serviceSpec) error {
@@ -345,6 +349,29 @@ func persistenceRootFromServiceCommand(command []string) (string, bool) {
 		if value, ok := strings.CutPrefix(arg, flag+"="); ok {
 			return value, true
 		}
+	}
+	return "", false
+}
+
+// windowsRegisteredTaskRunPath extracts the action path registered for the
+// scheduled task from `schtasks /Query /V /FO LIST` output (its "Task To Run"
+// field). That value reflects the actual global registration regardless of the
+// requested persistence root, so the resolved command can be compared against
+// the requested root instead of trusting a script path under it. Defined here
+// rather than in the build-tagged Windows backend so the parsing is unit-testable
+// on every platform.
+func windowsRegisteredTaskRunPath(taskQueryOutput string) (string, bool) {
+	const field = "task to run:"
+	for _, raw := range strings.Split(taskQueryOutput, "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(strings.ToLower(line), field) {
+			continue
+		}
+		value := strings.Trim(strings.TrimSpace(line[len(field):]), "\"")
+		if value == "" {
+			return "", false
+		}
+		return value, true
 	}
 	return "", false
 }
@@ -427,11 +454,24 @@ func readServiceStatus(ctx context.Context, backend serviceBackend, spec service
 	if err != nil {
 		return serviceStatus{}, err
 	}
+	// Evaluate the root match against the raw registration command before the
+	// substitution below replaces an empty command with the requested-root one,
+	// which would otherwise mask a registration that serves a different root.
+	mismatched := rootMismatchError(status, spec) != nil
 	status.Backend = backend.Name()
 	status.Endpoint = spec.Endpoint
 	status.Logs = []string{spec.StdoutLogPath, spec.StderrLogPath}
 	if len(status.Command) == 0 {
 		status.Command = serviceCommand(spec)
+	}
+	if mismatched {
+		// A registration for a different (or unconfirmable) root is "not
+		// installed" from the requested root's perspective, so status never
+		// reports another root's service as installed/running for this one.
+		status.Installed = false
+		status.Loaded = false
+		status.Running = false
+		status.PID = 0
 	}
 	return applyHealthProbe(ctx, status, spec), nil
 }
