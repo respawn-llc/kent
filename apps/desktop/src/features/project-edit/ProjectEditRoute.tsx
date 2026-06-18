@@ -10,7 +10,7 @@ import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { usePublishSidebarHeaderAction } from "../../app/sidebarHeaderActionContext";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
-import { Button, ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
+import { Button, ErrorState, HelpHint, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import {
   ProjectKeyField,
   ProjectNameField,
@@ -298,9 +298,12 @@ function ProjectEditListHeader({
         />
       </div>
       <div className="flex min-w-0 items-center justify-between gap-[var(--space-3)]">
-        <h1 className="m-0 text-[1.15rem] font-bold" id="workspaces-title">
-          {t("projectEdit.workspaces")}
-        </h1>
+        <span className="inline-flex min-w-0 items-center gap-[var(--space-1)]">
+          <h1 className="m-0 truncate text-[1.15rem] font-bold" id="workspaces-title">
+            {t("projectEdit.workspaces")}
+          </h1>
+          <HelpHint className="shrink-0" label={t("projectEdit.workspacesHelp")} side="bottom" />
+        </span>
         <button
           aria-label={t("projectEdit.attachWorkspace")}
           className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"

@@ -2,7 +2,7 @@ import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowValidationError } from "../../api";
-import { ErrorState, IslandSurface } from "../../ui";
+import { ErrorState, HelpHint, IslandSurface } from "../../ui";
 import { WorkflowValidationErrorDetailsLine } from "../workflow/WorkflowValidationIssues";
 
 export function DetailSection({
@@ -10,11 +10,13 @@ export function DetailSection({
   hideTitle = false,
   leading,
   title,
+  titleHelp,
 }: Readonly<{
   children: ReactNode;
   hideTitle?: boolean | undefined;
   leading?: ReactNode | undefined;
   title?: string | undefined;
+  titleHelp?: string | undefined;
 }>) {
   const titleID = useId();
   return (
@@ -25,10 +27,19 @@ export function DetailSection({
       level={1}
     >
       {leading}
-      {title === undefined ? null : (
-        <h3 className={hideTitle ? "sr-only" : "m-0 text-sm font-bold"} id={titleID}>
+      {title === undefined ? null : hideTitle ? (
+        <h3 className="sr-only" id={titleID}>
           {title}
         </h3>
+      ) : (
+        <span className="inline-flex items-center gap-[var(--space-1)]">
+          <h3 className="m-0 text-sm font-bold" id={titleID}>
+            {title}
+          </h3>
+          {titleHelp === undefined ? null : (
+            <HelpHint className="shrink-0" label={titleHelp} side="right" />
+          )}
+        </span>
       )}
       {children}
     </IslandSurface>
@@ -36,13 +47,17 @@ export function DetailSection({
 }
 
 export function DetailRow({
+  help,
   label,
   mono = false,
   value,
-}: Readonly<{ label: string; mono?: boolean; value: string }>) {
+}: Readonly<{ help?: string | undefined; label: string; mono?: boolean; value: string }>) {
   return (
     <div className="grid gap-[2px]">
-      <span className="text-sm font-bold text-[var(--color-on-island)] opacity-70">{label}</span>
+      <span className="inline-flex items-center gap-[var(--space-1)] text-sm font-bold text-[var(--color-on-island)] opacity-70">
+        {label}
+        {help === undefined ? null : <HelpHint className="shrink-0" label={help} side="right" />}
+      </span>
       <span className={mono ? "break-all font-mono text-sm" : "text-sm"}>{value}</span>
     </div>
   );

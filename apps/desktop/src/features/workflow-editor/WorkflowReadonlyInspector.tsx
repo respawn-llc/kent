@@ -103,9 +103,10 @@ export function NodeDetails({
   return (
     <InspectorStack>
       <DetailSection>
-        <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
+        <DetailRow help={t("workflowEditor.keyHelp")} label={t("workflowEditor.key")} mono value={node.key} />
         {node.kind === "agent" ? (
           <DetailRow
+            help={t("workflowEditor.assigneeHelp")}
             label={t("workflowEditor.assignee")}
             value={fallbackLabel(t("workflowEditor.none"), node.subagentRole)}
           />
@@ -138,7 +139,6 @@ export function GroupDetails({
       <DetailSection title={t("workflowEditor.inspectorIdentity")}>
         <DetailRow label={t("workflowEditor.key")} mono value={group.key} />
         <DetailRow label={t("workflowEditor.id")} mono value={group.id} />
-        <DetailRow label={t("workflowEditor.sortOrder")} value={group.sortOrder.toString()} />
       </DetailSection>
       <DetailSection title={t("workflowEditor.members")}>
         {members.length === 0 ? (
@@ -184,11 +184,17 @@ function EdgeDetails({
         }
         title={t("workflowEditor.route")}
       >
-        <DetailRow label={t("workflowEditor.key")} mono value={details.transitionID} />
+        <DetailRow
+          help={t("workflowEditor.transitionKeyHelp")}
+          label={t("workflowEditor.key")}
+          mono
+          value={details.transitionID}
+        />
         {fanOutTransition ? <DetailRow label={t("workflowEditor.branchKey")} mono value={edge.key} /> : null}
         <DetailRow label={t("workflowEditor.transitionText")} value={details.transitionGroupLabel} />
         {details.transitionDescription.length > 0 ? (
           <DetailRow
+            help={t("workflowEditor.transitionDescriptionHelp")}
             label={t("workflowEditor.transitionDescription")}
             value={details.transitionDescription}
           />
@@ -196,20 +202,32 @@ function EdgeDetails({
         {targetAgent ? (
           <>
             <DetailRow
+              help={t("workflowEditor.contextModeHelp")}
               label={t("workflowEditor.contextMode")}
               value={formatContextModeLabel(edge.contextMode, t)}
             />
-            <DetailRow label={t("workflowEditor.contextSource")} value={formatContextSourceLabel(edge, t)} />
+            <DetailRow
+              help={t("workflowEditor.contextSourceHelp")}
+              label={t("workflowEditor.contextSource")}
+              value={formatContextSourceLabel(edge, t)}
+            />
           </>
         ) : null}
         <DetailRow
+          help={t("workflowEditor.requiresApprovalHelp")}
           label={t("workflowEditor.requiresApproval")}
           value={edge.requiresApproval ? t("workflowEditor.required") : t("workflowEditor.none")}
         />
       </DetailSection>
-      {details.targetKind === "agent" ? <PromptPreview prompt={edge.promptTemplate} /> : null}
+      {details.targetKind === "agent" ? (
+        <PromptPreview help={t("workflowEditor.promptHelp")} prompt={edge.promptTemplate} />
+      ) : null}
       {details.sourceKind === "agent" ? (
-        <FieldSummary fields={parameterSummaryFields(edge.parameters)} title={t("workflowEditor.parameters")} />
+        <FieldSummary
+          fields={parameterSummaryFields(edge.parameters)}
+          title={t("workflowEditor.parameters")}
+          titleHelp={t("workflowEditor.parametersHelp")}
+        />
       ) : null}
       {details.sourceKind === "join" && details.targetKind === "agent" ? (
         <FieldSummary

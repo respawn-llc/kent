@@ -80,7 +80,7 @@ export function PromptTemplateEditor({
     [onPromptChange, promptTemplate],
   );
   return (
-    <DetailSection title={t("workflowEditor.prompt")}>
+    <DetailSection title={t("workflowEditor.prompt")} titleHelp={t("workflowEditor.promptHelp")}>
       <label className="sr-only" htmlFor={promptInputId}>
         {t("workflowEditor.prompt")}
       </label>
@@ -229,7 +229,7 @@ export function EditableEdgeParameters({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   return (
-    <DetailSection title={t("workflowEditor.parameters")}>
+    <DetailSection title={t("workflowEditor.parameters")} titleHelp={t("workflowEditor.parametersHelp")}>
       <div className="grid gap-[var(--space-3)]">
         <Button
           onClick={() => {

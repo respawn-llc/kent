@@ -14,6 +14,7 @@ export type SelectFieldOption = Readonly<{
 
 export type SelectFieldProps = Readonly<{
   label: string;
+  labelHelp?: string | undefined;
   value: string;
   options: readonly SelectFieldOption[];
   onValueChange: (value: string) => void;
@@ -28,6 +29,7 @@ export type SelectFieldProps = Readonly<{
 
 export function SelectField({
   label,
+  labelHelp,
   value,
   options,
   onValueChange,
@@ -62,7 +64,15 @@ export function SelectField({
   );
 
   return (
-    <FieldShell error={error} errorId={errorId} hint={hint} hintId={hintId} inputId={inputId} label={label}>
+    <FieldShell
+      error={error}
+      errorId={errorId}
+      hint={hint}
+      hintId={hintId}
+      inputId={inputId}
+      label={label}
+      labelHelp={labelHelp}
+    >
       {disabled && disabledReason !== undefined && disabledReason.length > 0 ? (
         <DisabledInteractionGuard disabled reason={disabledReason}>
           {control}

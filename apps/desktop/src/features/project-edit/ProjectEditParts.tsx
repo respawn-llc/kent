@@ -47,7 +47,7 @@ export function ProjectNameField({
   return (
     <div className="grid gap-[var(--space-3)]">
       <label className={fieldLabelClassName} htmlFor="project-edit-name">
-        {t("home.projectName")}
+        {t("projectEdit.name")}
       </label>
       <input
         aria-describedby="project-edit-name-error"
@@ -93,10 +93,10 @@ export function ProjectKeyField({
   return (
     <div className="grid gap-[var(--space-3)]">
       <label className={fieldLabelClassName} htmlFor="project-edit-key">
-        {t("home.projectKey")}
+        {t("projectEdit.taskKey")}
       </label>
       <input
-        aria-describedby="project-edit-key-error project-edit-key-help"
+        aria-describedby="project-edit-key-error"
         aria-invalid={keyErrors.length > 0 ? true : undefined}
         autoCapitalize="characters"
         className={fieldInputClassName}
@@ -108,9 +108,6 @@ export function ProjectKeyField({
         spellCheck={false}
         value={keyDraft}
       />
-      <span className="text-sm text-[var(--color-muted)]" id="project-edit-key-help">
-        {t("home.projectKeyHelp")}
-      </span>
       <span
         aria-live="polite"
         className="grid overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] data-[visible=true]:grid-rows-[1fr] data-[visible=true]:opacity-100 grid-rows-[0fr]"
