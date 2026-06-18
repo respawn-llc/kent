@@ -361,6 +361,46 @@ func TestWindowsRegisteredTaskRunPathAbsentReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestWindowsStartupItemScriptPathParsesLauncher(t *testing.T) {
+	launcher := "@echo off\r\nstart \"\" /min cmd.exe /d /c \"C:\\OtherRoot\\service\\server.cmd\"\r\n"
+	got, ok := windowsStartupItemScriptPath(launcher)
+	if !ok || got != "C:\\OtherRoot\\service\\server.cmd" {
+		t.Fatalf("windowsStartupItemScriptPath = (%q, %v), want the launcher's embedded script path", got, ok)
+	}
+}
+
+func TestWindowsStartupItemScriptPathAbsentReturnsFalse(t *testing.T) {
+	if got, ok := windowsStartupItemScriptPath("@echo off\r\n"); ok {
+		t.Fatalf("windowsStartupItemScriptPath = (%q, true), want not found when no launcher line is present", got)
+	}
+}
+
+func TestWindowsRegisteredScriptPathPrefersTaskActionOverStartupLauncher(t *testing.T) {
+	taskOutput := "Task To Run:                          C:\\TaskRoot\\service\\server.cmd"
+	startupLauncher := "start \"\" /min cmd.exe /d /c \"C:\\StartupRoot\\service\\server.cmd\""
+	got, ok := windowsRegisteredScriptPath(taskOutput, startupLauncher)
+	if !ok || got != "C:\\TaskRoot\\service\\server.cmd" {
+		t.Fatalf("windowsRegisteredScriptPath = (%q, %v), want the scheduled-task action path", got, ok)
+	}
+}
+
+func TestWindowsRegisteredScriptPathFallsBackToStartupLauncher(t *testing.T) {
+	startupLauncher := "start \"\" /min cmd.exe /d /c \"C:\\StartupRoot\\service\\server.cmd\""
+	got, ok := windowsRegisteredScriptPath("ERROR: no such task", startupLauncher)
+	if !ok || got != "C:\\StartupRoot\\service\\server.cmd" {
+		t.Fatalf("windowsRegisteredScriptPath = (%q, %v), want the Startup launcher path when no task action exists", got, ok)
+	}
+}
+
+func TestWindowsRegisteredScriptPathAbsentReturnsFalse(t *testing.T) {
+	// With neither an authoritative task action nor a Startup launcher, the
+	// installed root is indeterminate and callers must not substitute a
+	// requested-root path.
+	if got, ok := windowsRegisteredScriptPath("", ""); ok {
+		t.Fatalf("windowsRegisteredScriptPath = (%q, true), want indeterminate when no registration path exists", got)
+	}
+}
+
 func TestServiceStatusReportsNotInstalledForForeignRoot(t *testing.T) {
 	// A registration whose command targets a different root must be reported as
 	// not installed for the requested root, so `service status --persistence-root`

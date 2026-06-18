@@ -315,10 +315,10 @@ func ensureServiceRootMatch(ctx context.Context, backend serviceBackend, spec se
 // an explicit --persistence-root (its root is then indeterminate and we fail
 // open rather than block a legitimate operation). Every service this binary
 // installs bakes --persistence-root, and backends report the actual registration
-// command (the Windows backend resolves it from the registered task action, not
-// a path under the requested root), so the real cross-root footgun — a default
-// or other-root registration targeted with a different --persistence-root — is
-// still caught.
+// command (the Windows backend resolves it from the registered scheduled-task
+// action or the Startup-folder launcher, never a path under the requested root),
+// so the real cross-root footgun — a default or other-root registration targeted
+// with a different --persistence-root — is still caught.
 func rootMismatchError(status serviceStatus, spec serviceSpec) error {
 	if !status.Installed || len(status.Command) == 0 {
 		return nil
@@ -372,6 +372,45 @@ func windowsRegisteredTaskRunPath(taskQueryOutput string) (string, bool) {
 			return "", false
 		}
 		return value, true
+	}
+	return "", false
+}
+
+// windowsRegisteredScriptPath resolves the server.cmd path the OS actually has
+// registered, independent of any requested persistence root. It prefers the
+// scheduled task action ("Task To Run") and falls back to the script path
+// embedded in the Startup-folder launcher. It returns false when neither source
+// carries a path, in which case the installed root is indeterminate and callers
+// must not substitute a path derived from the requested root: lifecycle actions
+// target the single global registration, so a requested-root guess would either
+// fabricate a false root match or mask a real cross-root mismatch. Defined here
+// rather than in the build-tagged Windows backend so the parsing is unit-testable
+// on every platform.
+func windowsRegisteredScriptPath(taskQueryOutput string, startupLauncher string) (string, bool) {
+	if path, ok := windowsRegisteredTaskRunPath(taskQueryOutput); ok {
+		return path, true
+	}
+	return windowsStartupItemScriptPath(startupLauncher)
+}
+
+// windowsStartupItemScriptPath extracts the server.cmd path the Windows
+// Startup-folder fallback launcher invokes. The launcher line has the shape
+// `start "" /min cmd.exe /d /c "<script path>"`; the script path is the final
+// token after the `/d /c ` marker, optionally quoted. It returns false when no
+// launcher line is present, mirroring an absent scheduled-task action.
+func windowsStartupItemScriptPath(startupLauncher string) (string, bool) {
+	const marker = "/d /c "
+	for _, raw := range strings.Split(startupLauncher, "\n") {
+		line := strings.TrimSpace(raw)
+		idx := strings.LastIndex(strings.ToLower(line), marker)
+		if idx < 0 {
+			continue
+		}
+		candidate := strings.Trim(strings.TrimSpace(line[idx+len(marker):]), "\"")
+		if candidate == "" {
+			continue
+		}
+		return candidate, true
 	}
 	return "", false
 }
