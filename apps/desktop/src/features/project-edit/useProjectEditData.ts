@@ -23,11 +23,12 @@ export function useProjectEdit(projectID: string) {
   });
 }
 
-export function useProjectNameSave(projectID: string) {
+export function useProjectSave(projectID: string) {
   const { api } = useAppServices();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (displayName: string) => api.updateProject(projectID, displayName),
+    mutationFn: async (input: Readonly<{ displayName: string; projectKey: string }>) =>
+      api.updateProject(projectID, input.displayName, input.projectKey),
     onSuccess: async () => {
       await invalidateProjectEditQueries(queryClient, projectID);
     },

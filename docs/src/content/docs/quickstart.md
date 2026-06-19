@@ -48,7 +48,7 @@ kent service install
 
 It uses 20 MB of RAM when idle, lets unlimited frontends stay lightweight by connecting to **one** orchestrator, makes spawning and controlling subagents and background shells reliable. See [Kent Server](../server/) for details and service management commands.
 
-::danger[Security Warning]
+:::danger[Security Warning]
 Out of the box, Kent does not ship a sandbox, and does not enforce tool calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
 :::
 

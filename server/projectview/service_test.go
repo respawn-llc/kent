@@ -392,6 +392,51 @@ func TestMetadataServiceUpdatesProjectNameForEditPage(t *testing.T) {
 	}
 }
 
+func TestMetadataServiceUpdatesProjectKeyForEditPage(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc := newProjectViewMetadataService(t, store, "")
+
+	updated, err := svc.UpdateProject(context.Background(), serverapi.ProjectUpdateRequest{
+		ProjectID:   binding.ProjectID,
+		DisplayName: "Renamed key project",
+		ProjectKey:  "ABC",
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+	if updated.Project.ProjectKey != "ABC" {
+		t.Fatalf("updated project key = %q, want ABC", updated.Project.ProjectKey)
+	}
+
+	// An empty project key leaves the existing key unchanged.
+	unchanged, err := svc.UpdateProject(context.Background(), serverapi.ProjectUpdateRequest{
+		ProjectID:   binding.ProjectID,
+		DisplayName: "Renamed key project again",
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject without key: %v", err)
+	}
+	if unchanged.Project.ProjectKey != "ABC" {
+		t.Fatalf("project key after empty update = %q, want ABC", unchanged.Project.ProjectKey)
+	}
+}
+
+func TestMetadataServiceRejectsInvalidProjectEditKeys(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc := newProjectViewMetadataService(t, store, "")
+
+	for _, projectKey := range []string{"bad-key", "1AB", "A", strings.Repeat("A", 9)} {
+		_, err := svc.UpdateProject(context.Background(), serverapi.ProjectUpdateRequest{
+			ProjectID:   binding.ProjectID,
+			DisplayName: "Valid name",
+			ProjectKey:  projectKey,
+		})
+		if err == nil {
+			t.Fatalf("UpdateProject(key=%q) succeeded, want validation error", projectKey)
+		}
+	}
+}
+
 func TestMetadataServiceRejectsInvalidProjectEditNames(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	svc := newProjectViewMetadataService(t, store, "")

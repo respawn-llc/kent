@@ -2,7 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowDefinition, WorkflowEdge, WorkflowNode } from "../../api";
-import { Checkbox, IslandSurface, MarkdownText } from "../../ui";
+import { Checkbox, HelpHint, IslandSurface, MarkdownText } from "../../ui";
 import { cx } from "../../ui/classes";
 import { DetailRow, DetailSection } from "./WorkflowInspectorPrimitives";
 import { derivedNodeWiring, providerEdgeLabel } from "./workflowInspectorWiring";
@@ -11,11 +11,13 @@ export function ApprovalToggle({
   checked,
   disabled = false,
   label,
+  labelHelp,
   onCheckedChange,
 }: Readonly<{
   checked: boolean;
   disabled?: boolean | undefined;
   label: string;
+  labelHelp?: string | undefined;
   onCheckedChange: (checked: boolean) => void;
 }>) {
   const checkboxID = useId();
@@ -41,6 +43,7 @@ export function ApprovalToggle({
       >
         {label}
       </label>
+      {labelHelp === undefined ? null : <HelpHint className="shrink-0" label={labelHelp} side="right" />}
     </div>
   );
 }
@@ -48,10 +51,15 @@ export function ApprovalToggle({
 export function FieldSummary({
   fields,
   title,
-}: Readonly<{ fields: readonly { name: string; description: string }[]; title: string }>) {
+  titleHelp,
+}: Readonly<{
+  fields: readonly { name: string; description: string }[];
+  title: string;
+  titleHelp?: string | undefined;
+}>) {
   const { t } = useTranslation();
   return (
-    <DetailSection title={title}>
+    <DetailSection title={title} titleHelp={titleHelp}>
       {fields.length === 0 ? (
         <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
       ) : (
@@ -117,15 +125,16 @@ export function Bindings({ bindings }: Readonly<{ bindings: WorkflowEdge["inputB
   );
 }
 
-export function PromptPreview({ prompt }: Readonly<{ prompt: string }>) {
+export function PromptPreview({ help, prompt }: Readonly<{ help?: string | undefined; prompt: string }>) {
   const { t } = useTranslation();
   if (prompt.length === 0) {
-    return <DetailRow label={t("workflowEditor.prompt")} value={t("workflowEditor.none")} />;
+    return <DetailRow help={help} label={t("workflowEditor.prompt")} value={t("workflowEditor.none")} />;
   }
   return (
     <div className="grid gap-[var(--space-1)]">
-      <span className="text-sm font-bold text-[var(--color-on-island)] opacity-70">
+      <span className="inline-flex items-center gap-[var(--space-1)] text-sm font-bold text-[var(--color-on-island)] opacity-70">
         {t("workflowEditor.prompt")}
+        {help === undefined ? null : <HelpHint className="shrink-0" label={help} side="right" />}
       </span>
       <IslandSurface as="div" className="rounded-[var(--radius-m)] p-[var(--space-2)] text-sm" level={1}>
         <MarkdownText value={prompt} />

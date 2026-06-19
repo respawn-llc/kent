@@ -47,7 +47,7 @@ export function ProjectNameField({
   return (
     <div className="grid gap-[var(--space-3)]">
       <label className={fieldLabelClassName} htmlFor="project-edit-name">
-        {t("home.projectName")}
+        {t("projectEdit.name")}
       </label>
       <input
         aria-describedby="project-edit-name-error"
@@ -68,6 +68,54 @@ export function ProjectNameField({
       >
         <span className="grid min-h-0 gap-[var(--space-1)]">
           {nameErrors.map((message) => (
+            <span className="text-[var(--color-error)]" key={message}>
+              {message}
+            </span>
+          ))}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+export function ProjectKeyField({
+  disabled,
+  keyDraft,
+  keyErrors,
+  onKeyChange,
+}: Readonly<{
+  disabled: boolean;
+  keyDraft: string;
+  keyErrors: readonly string[];
+  onKeyChange: (value: string) => void;
+}>) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-[var(--space-3)]">
+      <label className={fieldLabelClassName} htmlFor="project-edit-key">
+        {t("projectEdit.taskKey")}
+      </label>
+      <input
+        aria-describedby="project-edit-key-error"
+        aria-invalid={keyErrors.length > 0 ? true : undefined}
+        autoCapitalize="characters"
+        className={fieldInputClassName}
+        disabled={disabled}
+        id="project-edit-key"
+        onChange={(event) => {
+          onKeyChange(event.target.value.toUpperCase());
+        }}
+        spellCheck={false}
+        value={keyDraft}
+      />
+      <span
+        aria-live="polite"
+        className="grid overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] data-[visible=true]:grid-rows-[1fr] data-[visible=true]:opacity-100 grid-rows-[0fr]"
+        data-visible={keyErrors.length > 0 ? "true" : "false"}
+        id="project-edit-key-error"
+      >
+        <span className="grid min-h-0 gap-[var(--space-1)]">
+          {keyErrors.map((message) => (
             <span className="text-[var(--color-error)]" key={message}>
               {message}
             </span>

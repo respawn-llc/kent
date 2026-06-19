@@ -563,31 +563,43 @@ func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
+	afterTitle := " After "
 	afterBody := " after body "
-	updated, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: " After ", Body: &afterBody, SourceWorkspaceID: source.WorkspaceID})
+	updated, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: &afterTitle, Body: &afterBody, SourceWorkspaceID: source.WorkspaceID})
 	if err != nil {
 		t.Fatalf("UpdateTask: %v", err)
 	}
 	if updated.Title != "After" || updated.Body != "after body" || updated.SourceWorkspaceID != source.WorkspaceID {
 		t.Fatalf("updated task = %+v", updated)
 	}
-	renamed, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Renamed"})
+	renamedTitle := "Renamed"
+	renamed, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: &renamedTitle})
 	if err != nil {
 		t.Fatalf("UpdateTask title only: %v", err)
 	}
 	if renamed.Title != "Renamed" || renamed.Body != "after body" || renamed.SourceWorkspaceID != source.WorkspaceID {
 		t.Fatalf("title-only update = %+v, want previous body and source workspace preserved", renamed)
 	}
+	bodyOnlyBody := "body only change"
+	bodyOnly, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Body: &bodyOnlyBody})
+	if err != nil {
+		t.Fatalf("UpdateTask body only: %v", err)
+	}
+	if bodyOnly.Title != "Renamed" || bodyOnly.Body != "body only change" || bodyOnly.SourceWorkspaceID != source.WorkspaceID {
+		t.Fatalf("body-only update = %+v, want previous title and source workspace preserved", bodyOnly)
+	}
 	startTask(t, ctx, store, task.ID)
+	startedTitle := " After start "
 	startedBody := " updated after start "
-	startedUpdate, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: " After start ", Body: &startedBody})
+	startedUpdate, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: &startedTitle, Body: &startedBody})
 	if err != nil {
 		t.Fatalf("UpdateTask after start: %v", err)
 	}
 	if startedUpdate.Title != "After start" || startedUpdate.Body != "updated after start" || startedUpdate.SourceWorkspaceID != source.WorkspaceID {
 		t.Fatalf("after-start update = %+v", startedUpdate)
 	}
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Move source", SourceWorkspaceID: binding.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceAfterAutomation) {
+	moveSourceTitle := "Move source"
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: &moveSourceTitle, SourceWorkspaceID: binding.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceAfterAutomation) {
 		t.Fatalf("UpdateTask source workspace after start error = %v", err)
 	}
 
@@ -598,15 +610,17 @@ func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
 	if err := store.CancelTask(ctx, canceled.ID, "stop"); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
+	canceledTitle := "Canceled renamed"
 	canceledBody := "canceled body"
-	canceledUpdate, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: "Canceled renamed", Body: &canceledBody})
+	canceledUpdate, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: &canceledTitle, Body: &canceledBody})
 	if err != nil {
 		t.Fatalf("UpdateTask canceled title/body: %v", err)
 	}
 	if canceledUpdate.Title != "Canceled renamed" || canceledUpdate.Body != "canceled body" {
 		t.Fatalf("canceled update = %+v", canceledUpdate)
 	}
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: "Canceled source", SourceWorkspaceID: source.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceForCanceledTask) {
+	canceledSourceTitle := "Canceled source"
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: &canceledSourceTitle, SourceWorkspaceID: source.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceForCanceledTask) {
 		t.Fatalf("UpdateTask canceled source error = %v", err)
 	}
 }
@@ -3375,8 +3389,9 @@ func TestTaskCreateAllowsInvalidWorkflowBacklogButRejectsUnlinkedWorkflow(t *tes
 	if _, err := store.StartTask(ctx, task.ID); !errors.Is(err, ErrWorkflowValidationFailed) {
 		t.Fatalf("expected invalid workflow start error, got %v", err)
 	}
+	updatedTitle := "Updated"
 	updatedBody := "Updated body"
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Updated", Body: &updatedBody, SourceWorkspaceID: binding.WorkspaceID}); err != nil {
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: &updatedTitle, Body: &updatedBody, SourceWorkspaceID: binding.WorkspaceID}); err != nil {
 		t.Fatalf("UpdateTask invalid workflow backlog: %v", err)
 	}
 	if _, err := store.AddComment(ctx, task.ID, "Comment", "user", "operator"); err != nil {

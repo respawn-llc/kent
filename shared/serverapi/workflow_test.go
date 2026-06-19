@@ -135,10 +135,15 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "", Body: "Body"}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
 		t.Fatalf("empty title error = %#v, want required on title", err)
 	}
-	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: "Task"}).Validate(); err != nil {
+	updateTitle := "Task"
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: &updateTitle}).Validate(); err != nil {
 		t.Fatalf("valid task update rejected: %v", err)
 	}
-	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: " "}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1"}).Validate(); err != nil {
+		t.Fatalf("title-omitted task update rejected: %v", err)
+	}
+	blankTitle := " "
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: &blankTitle}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
 		t.Fatalf("empty update title error = %#v, want required on title", err)
 	}
 	if err := (WorkflowTaskStartRequest{TaskID: "task-1"}).Validate(); err != nil {

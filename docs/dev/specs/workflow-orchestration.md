@@ -179,8 +179,8 @@
 - Project keys are uppercase, globally unique within a persistence root, 2-8 chars, and match `^[A-Z][A-Z0-9]{1,7}$`.
 - Project creation chooses a key explicitly; default suggestion can use the first three letters of project name.
 - Existing projects without a key get one from default project-name logic when task support initializes, with collision handling.
-- Project keys are immutable after a project has tasks.
-- Existing task short IDs keep their historical key forever.
+- Project keys are editable at any time, including after a project has tasks. A key change only sets the prefix for tasks created afterward and never rewrites existing task short IDs, so a project's history can contain mixed prefixes. The change is rejected only for format violations or a collision with another project's key.
+- Existing task short IDs keep their historical key forever; a rename does not cascade to them.
 - Task short IDs are stored durable product identifiers, not derived display strings.
 - Task required fields are title, short ID, and body.
 - Task metadata is designed for import/export and may include `source_url`.
@@ -254,13 +254,15 @@
 - Row-level workflow graph RPC methods, client methods, protocol constants, and route entries are removed in the graph-save cutover instead of preserved as migration stubs.
 - CLI output must include stable IDs needed by later commands.
 - `kent task complete` accepts dynamic parameter flags, repeatable `--param name=value`, and `--json`/`--json-file` completion payload input. JSON input modes print JSON responses.
+- `kent task edit <task>` mutates an existing task's title, body, and source workspace through `UpdateWorkflowTask`. It requires at least one of `--title`/`--body`/`--body-file`/`--source-workspace`, reuses the current title when `--title` is omitted, and is available to agents like `task create` (no human-only gate). `--json` prints the update response.
+- `kent task create` and `kent task edit` accept `--source-workspace` as either a workspace id or a path; a path is resolved through its project binding. An omitted source workspace leaves it unchanged on edit.
 - Unsupported commands may fail loudly before backend semantics land rather than implementing partial behavior.
 
 ## Q/A Decisions Preserved
 
 - Q: Should workflow definitions use a stable graph file format in v1? A: No; SQLite/API/CLI are authoritative for v1.
 - Q: Is task creation the same as starting automation? A: No; creation makes a backlog task, and task-start is explicit.
-- Q: Is completion mode per workflow/node? A: No; it is a global config with per-run effective-mode snapshots.
+- Q: Is completion mode per workflow/node? A: A global `[workflow].completion_mode` config provides the default, agent nodes may override it, and per-run effective-mode snapshots record the resolved value.
 - Q: Should workflow runs have a wall-clock cap? A: No v1 wall-clock cap.
 - Q: Should v1 auto-retry interrupted/runtime-failed runs? A: No; human resume is required.
 - Q: Are racing/first-success parallel branches in scope? A: No; joins wait for all required inputs.

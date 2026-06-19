@@ -10,11 +10,11 @@ A durable user-facing unit of work. A task owns workflow state, task metadata, n
 
 ### Task Short ID
 
-A human-facing project-scoped task identifier formed from project key plus project-local sequence, for example `KNT-123`.
+A human-facing, project-scoped task identifier formed from the project key plus a project-local sequence, e.g. `KNT-123`. Assigned at task creation and immutable thereafter.
 
 ### Project Key
 
-A short human-facing project prefix used in task short IDs. Project keys are uppercase, globally unique within a persistence root, and immutable after the project has tasks.
+A short, human-facing, uppercase project prefix applied to new task short IDs. Unique within a persistence root.
 
 ### Workflow Version
 

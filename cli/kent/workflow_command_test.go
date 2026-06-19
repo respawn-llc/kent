@@ -217,6 +217,92 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	}
 }
 
+func TestTaskCreateAcceptsSourceWorkspace(t *testing.T) {
+	cfg, binding, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowID := setupLinkedWorkflow(t, binding.ProjectID, "Source Workflow")
+	createOut, _ := runWorkflowRootCommandOK(t, "task", "create", "--title", "Sourced", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID, "--source-workspace", binding.WorkspaceID)
+	shortID := taskDetailHeadingShortID(t, createOut)
+	resp, err := remote.GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{ProjectID: binding.ProjectID, ShortID: shortID})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after create: %v", err)
+	}
+	if resp.Task.Summary.SourceWorkspaceID != binding.WorkspaceID {
+		t.Fatalf("created task source workspace = %q, want %q", resp.Task.Summary.SourceWorkspaceID, binding.WorkspaceID)
+	}
+}
+
+func TestTaskEditUpdatesFields(t *testing.T) {
+	cfg, binding, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowID := setupLinkedWorkflow(t, binding.ProjectID, "Edit Workflow")
+	createOut, _ := runWorkflowRootCommandOK(t, "task", "create", "--title", "Original", "--body", "Original body", "--workflow", workflowID, "--project", binding.ProjectID)
+	shortID := taskDetailHeadingShortID(t, createOut)
+
+	editOut, _ := runWorkflowRootCommandOK(t, "task", "edit", "--project", binding.ProjectID, "--title", "Retitled", shortID)
+	if editOut != "Edited task "+shortID+".\n" {
+		t.Fatalf("task edit output = %q, want confirmation line", editOut)
+	}
+	resp, err := remote.GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{ProjectID: binding.ProjectID, ShortID: shortID})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after title edit: %v", err)
+	}
+	if resp.Task.Summary.Title != "Retitled" || resp.Task.Body != "Original body" {
+		t.Fatalf("after title edit title=%q body=%q, want retitled with unchanged body", resp.Task.Summary.Title, resp.Task.Body)
+	}
+
+	runWorkflowRootCommandOK(t, "task", "edit", "--project", binding.ProjectID, "--body", "Edited body", shortID)
+	resp, err = remote.GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{ProjectID: binding.ProjectID, ShortID: shortID})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after body edit: %v", err)
+	}
+	if resp.Task.Summary.Title != "Retitled" || resp.Task.Body != "Edited body" {
+		t.Fatalf("after body edit title=%q body=%q, want unchanged title with edited body", resp.Task.Summary.Title, resp.Task.Body)
+	}
+
+	runWorkflowRootCommandOK(t, "task", "edit", "--project", binding.ProjectID, "--source-workspace", binding.WorkspaceID, shortID)
+	resp, err = remote.GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{ProjectID: binding.ProjectID, ShortID: shortID})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after source workspace edit: %v", err)
+	}
+	if resp.Task.Summary.SourceWorkspaceID != binding.WorkspaceID {
+		t.Fatalf("after source workspace edit source=%q, want %q", resp.Task.Summary.SourceWorkspaceID, binding.WorkspaceID)
+	}
+
+	jsonOut, _ := runWorkflowRootCommandOK(t, "task", "edit", "--project", binding.ProjectID, "--json", "--title", "JSON title", shortID)
+	var updateResp serverapi.WorkflowTaskUpdateResponse
+	if err := json.Unmarshal([]byte(jsonOut), &updateResp); err != nil {
+		t.Fatalf("task edit --json output = %q, want JSON: %v", jsonOut, err)
+	}
+	if updateResp.Task.Title != "JSON title" || updateResp.Task.ShortID != shortID {
+		t.Fatalf("task edit --json task = %+v, want updated summary", updateResp.Task)
+	}
+}
+
+func TestTaskEditValidation(t *testing.T) {
+	cfg, binding, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowID := setupLinkedWorkflow(t, binding.ProjectID, "Edit Validation Workflow")
+	createOut, _ := runWorkflowRootCommandOK(t, "task", "create", "--title", "Original", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID)
+	shortID := taskDetailHeadingShortID(t, createOut)
+
+	if _, stderr, code := runWorkflowRootCommand("task", "edit", "--project", binding.ProjectID); code != 2 || !strings.Contains(stderr, "requires <short-id-or-task-id>") {
+		t.Fatalf("task edit without id code=%d stderr=%q, want positional requirement", code, stderr)
+	}
+	if _, stderr, code := runWorkflowRootCommand("task", "edit", "--project", binding.ProjectID, shortID); code != 2 || !strings.Contains(stderr, "at least one of") {
+		t.Fatalf("task edit without fields code=%d stderr=%q, want field requirement", code, stderr)
+	}
+	if _, stderr, code := runWorkflowRootCommand("task", "edit", "--project", binding.ProjectID, "--body", "x", "--body-file", "/tmp/x", shortID); code != 2 || !strings.Contains(stderr, "--body cannot be combined with --body-file") {
+		t.Fatalf("task edit body conflict code=%d stderr=%q, want mutual exclusion error", code, stderr)
+	}
+}
+
 func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	cfg, _, remote := newWorkflowCommandLoopback(t)
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
@@ -355,6 +441,89 @@ func (r *preservingNodeUpdateRemote) GetWorkflow(context.Context, serverapi.Work
 func (r *preservingNodeUpdateRemote) UpdateWorkflowNode(_ context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
 	r.updateReq = req
 	return serverapi.WorkflowNodeUpdateResponse{Version: 2}, nil
+}
+
+func TestWorkflowNodeAddSetsCompletionMode(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &completionModeCaptureRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "add", "workflow-1", "--key", "implement", "--kind", "agent", "--completion-mode", "tool")
+	if code != 0 {
+		t.Fatalf("workflow node add exit=%d stderr=%q", code, stderr)
+	}
+	if remote.addReq.CompletionMode != "tool" {
+		t.Fatalf("add request completion mode = %q, want tool", remote.addReq.CompletionMode)
+	}
+}
+
+func TestWorkflowNodeUpdateSetsCompletionMode(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &completionModeCaptureRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "update", "workflow-1", "implement", "--completion-mode", "shell_command")
+	if code != 0 {
+		t.Fatalf("workflow node update exit=%d stderr=%q", code, stderr)
+	}
+	if remote.updateReq.CompletionMode != "shell_command" {
+		t.Fatalf("update request completion mode = %q, want shell_command", remote.updateReq.CompletionMode)
+	}
+}
+
+func TestWorkflowNodeUpdatePreservesCompletionMode(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &completionModeCaptureRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "update", "workflow-1", "implement", "--display-name", "Implement It")
+	if code != 0 {
+		t.Fatalf("workflow node update exit=%d stderr=%q", code, stderr)
+	}
+	if remote.updateReq.CompletionMode != "structured_output" {
+		t.Fatalf("update request completion mode = %q, want preserved structured_output", remote.updateReq.CompletionMode)
+	}
+}
+
+type completionModeCaptureRemote struct {
+	client.WorkflowClient
+	addReq    serverapi.WorkflowNodeAddRequest
+	updateReq serverapi.WorkflowNodeUpdateRequest
+}
+
+func (r *completionModeCaptureRemote) Close() error { return nil }
+
+func (r *completionModeCaptureRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *completionModeCaptureRemote) GetWorkflow(context.Context, serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+	return serverapi.WorkflowGetResponse{Definition: serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1", Name: "Workflow"},
+		Nodes: []serverapi.WorkflowNode{{
+			ID:             "node-implement",
+			WorkflowID:     "workflow-1",
+			Key:            "implement",
+			Kind:           "agent",
+			DisplayName:    "Implement",
+			SubagentRole:   "workflow-test",
+			PromptTemplate: "Implement.",
+			CompletionMode: "structured_output",
+		}},
+	}}, nil
+}
+
+func (r *completionModeCaptureRemote) AddWorkflowNode(_ context.Context, req serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error) {
+	r.addReq = req
+	return serverapi.WorkflowNodeAddResponse{Version: 2}, nil
+}
+
+func (r *completionModeCaptureRemote) UpdateWorkflowNode(_ context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+	r.updateReq = req
+	return serverapi.WorkflowNodeUpdateResponse{Version: 3}, nil
 }
 
 func TestWorkflowEditCommandsRejectLegacyWiringFlags(t *testing.T) {
@@ -1771,6 +1940,23 @@ func replaceWorkflowCommandRemoteOpener(t *testing.T, cfg config.App, remote wor
 		return cfg, remote, nil
 	}
 	return func() { workflowCommandRemoteOpener = original }
+}
+
+// setupLinkedWorkflow creates a minimal valid workflow (a single agent node
+// wired between the auto-created backlog and done nodes), links it to the
+// project as default, and returns its id so task create has a usable workflow.
+func setupLinkedWorkflow(t *testing.T, projectID string, name string) string {
+	t.Helper()
+	out, _ := runWorkflowRootCommandOK(t, "workflow", "create", name)
+	workflowID := labeledOutputValue(t, out, "workflow_id")
+	if workflowID == "" {
+		t.Fatalf("workflow create output = %q, want workflow id", out)
+	}
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work")
+	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Do work")
+	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
+	runWorkflowRootCommandOK(t, "workflow", "link", projectID, workflowID, "--default")
+	return workflowID
 }
 
 func runWorkflowRootCommand(args ...string) (string, string, int) {

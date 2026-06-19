@@ -78,6 +78,32 @@
   opacity: 0.72;
 }
 
+.board-column-scroll {
+  /* Cards scroll behind the text-only overlay header and dissolve into the
+     column glass via a top mask fade. The fade and the first-card offset
+     (padding-top) are both exactly the header height, so the rest gap matches a
+     plain header and nothing is faded at rest. The bare interpolation hint
+     places the 50% alpha point at ~58% of the fade — a non-linear power curve
+     (mirroring the app-chrome contrast scrim) so cards stay mostly hidden until
+     they are well clear of the header rather than fading on a weak linear
+     ramp. */
+  --board-column-fade: var(--board-column-header-height);
+
+  padding-top: var(--board-column-fade);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    calc(var(--board-column-fade) * 0.58),
+    #000 var(--board-column-fade)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    calc(var(--board-column-fade) * 0.58),
+    #000 var(--board-column-fade)
+  );
+}
+
 .board-column-collapsed-label {
   position: absolute;
   top: 0;

@@ -132,10 +132,11 @@
 - Project edit is a full main-shell page route `/projects/$projectId/edit`.
 - It is not a native child window.
 - Back uses app/browser history when available; fallback is Home.
-- Project key is read-only.
+- Project key is editable at any time, including after the project has tasks. The input uppercase-normalizes and validates like project creation (2-8 chars, starts A-Z, A-Z/0-9 only) plus uniqueness. Renaming the key only sets the prefix for future task short IDs; existing task short IDs stay frozen at creation (no cascade, no aliases — historical IDs keep resolving).
 - Project name is editable and validates like project creation: 1-80 visible chars, no edge whitespace, one line.
-- Project name and default workspace changes are saved explicitly.
-- Back/navigation discards unsaved project name/default changes silently.
+- Project name and key changes are saved explicitly together; an unchanged (including empty) persisted key never blocks a name-only save.
+- Default workspace changes are saved immediately on selection.
+- Back/navigation discards unsaved project name/key changes silently.
 - Attach/detach workspace changes are immediate.
 - Workspace list is backend cursor-paginated and frontend infinite-scrolled from first implementation.
 - Workspace list keeps default workspace first, then sorts by attach time descending, page size 100.
@@ -282,7 +283,7 @@
 - Q: What happens to drafts during disconnect? A: Keep local drafts, disable submit, refresh on reconnect, user manually saves and overwrites.
 - Q: What should the task detail CLI action do? A: Copy `kent --session=<session-id>` to clipboard and show a success toast. Do not launch terminals from the GUI.
 - Q: How does project creation map directory picker result to Kent project/workspace binding? A: Bound workspace opens existing project; unbound workspace opens project creation with editable project name and key.
-- Q: Should MVP add project-key create/edit API support? A: Yes. Project creation includes editable project key and backend validates collisions/immutability.
+- Q: Should MVP add project-key create/edit API support? A: Yes. Project creation includes an editable project key, and the key stays editable from project edit at any time (including after tasks exist). The backend validates format and collisions; renaming only changes the prefix for future task short IDs while existing short IDs stay frozen.
 - Q: Should board search become current scope? A: No; keep it deferred.
 - Q: Should GUI parity be reopened? A: Document broad future parity vision, but do not design or plan it now.
 - Q: Should accessibility become a stronger release bar now? A: No; keep best-effort until after v1.

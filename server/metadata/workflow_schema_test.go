@@ -210,7 +210,7 @@ func TestOpenBackfillsProjectKeysForExistingMetadataDB(t *testing.T) {
 	}
 }
 
-func TestProjectKeyValidationCollisionAndTaskImmutability(t *testing.T) {
+func TestProjectKeyValidationCollisionAndMutability(t *testing.T) {
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()
 	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
@@ -229,11 +229,25 @@ func TestProjectKeyValidationCollisionAndTaskImmutability(t *testing.T) {
 	}
 	seedWorkflowGraph(t, store.db, binding.ProjectID, time.Now().UTC().UnixMilli())
 	seedWorkflowTask(t, store, binding.ProjectID, "BLD-1")
-	if err := store.SetProjectKey(ctx, binding.ProjectID, "NEW"); !errors.Is(err, ErrProjectKeyImmutable) {
-		t.Fatalf("expected immutable project key error, got %v", err)
+
+	// The project key is mutable even after tasks exist: the change only affects
+	// the prefix applied to future tasks. Existing task short IDs stay frozen.
+	if err := store.SetProjectKey(ctx, binding.ProjectID, "NEW"); err != nil {
+		t.Fatalf("SetProjectKey after tasks exist: %v", err)
 	}
-	if err := store.SetProjectKey(ctx, binding.ProjectID, "BLD"); err != nil {
-		t.Fatalf("SetProjectKey same value after task: %v", err)
+	if got := projectKeysByID(t, store.db)[binding.ProjectID]; got != "NEW" {
+		t.Fatalf("project key after rename = %q, want NEW", got)
+	}
+	if got := taskShortIDByID(t, store.db, "task-1"); got != "BLD-1" {
+		t.Fatalf("existing task short id = %q, want frozen BLD-1", got)
+	}
+	// Collision is still enforced against the renamed key.
+	if err := store.SetProjectKey(ctx, other.ProjectID, "NEW"); !errors.Is(err, ErrProjectKeyAlreadyInUse) {
+		t.Fatalf("expected project key collision after rename, got %v", err)
+	}
+	// Re-applying the current value is a no-op.
+	if err := store.SetProjectKey(ctx, binding.ProjectID, "NEW"); err != nil {
+		t.Fatalf("SetProjectKey same value: %v", err)
 	}
 }
 
@@ -650,6 +664,15 @@ func projectKeysByID(t *testing.T, db *sql.DB) map[string]string {
 		t.Fatalf("iterate project keys: %v", err)
 	}
 	return out
+}
+
+func taskShortIDByID(t *testing.T, db *sql.DB, taskID string) string {
+	t.Helper()
+	var shortID string
+	if err := db.QueryRow(`SELECT short_id FROM tasks WHERE id = ?`, taskID).Scan(&shortID); err != nil {
+		t.Fatalf("query task short id %q: %v", taskID, err)
+	}
+	return shortID
 }
 
 func assertSQLiteConstraint(t *testing.T, db *sql.DB, statement string, args ...any) {

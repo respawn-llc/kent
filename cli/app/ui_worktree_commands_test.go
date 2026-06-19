@@ -23,10 +23,13 @@ type worktreeCommandTestClient struct {
 	resolveCtx      context.Context
 	resolveResp     serverapi.WorktreeCreateTargetResolveResponse
 	resolveErr      error
+	createCtx       context.Context
 	createResp      serverapi.WorktreeCreateResponse
 	createErr       error
+	deleteCtx       context.Context
 	deleteResp      serverapi.WorktreeDeleteResponse
 	deleteErr       error
+	switchCtx       context.Context
 	switchResp      serverapi.WorktreeSwitchResponse
 	switchErr       error
 	resolveRequests []serverapi.WorktreeCreateTargetResolveRequest
@@ -54,7 +57,8 @@ func (c *worktreeCommandTestClient) ResolveWorktreeCreateTarget(ctx context.Cont
 	return serverapi.WorktreeCreateTargetResolveResponse{Resolution: serverapi.WorktreeCreateTargetResolution{Input: req.Target, Kind: serverapi.WorktreeCreateTargetResolutionKindNewBranch}}, nil
 }
 
-func (c *worktreeCommandTestClient) CreateWorktree(_ context.Context, req serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
+func (c *worktreeCommandTestClient) CreateWorktree(ctx context.Context, req serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
+	c.createCtx = ctx
 	c.createRequests = append(c.createRequests, req)
 	if c.consumeLeaseFailure("create", req.ControllerLeaseID) {
 		return serverapi.WorktreeCreateResponse{}, serverapi.ErrInvalidControllerLease
@@ -62,7 +66,8 @@ func (c *worktreeCommandTestClient) CreateWorktree(_ context.Context, req server
 	return c.createResp, c.createErr
 }
 
-func (c *worktreeCommandTestClient) SwitchWorktree(_ context.Context, req serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
+func (c *worktreeCommandTestClient) SwitchWorktree(ctx context.Context, req serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
+	c.switchCtx = ctx
 	c.switchRequests = append(c.switchRequests, req)
 	if c.consumeLeaseFailure("switch", req.ControllerLeaseID) {
 		return serverapi.WorktreeSwitchResponse{}, serverapi.ErrInvalidControllerLease
@@ -70,7 +75,8 @@ func (c *worktreeCommandTestClient) SwitchWorktree(_ context.Context, req server
 	return c.switchResp, c.switchErr
 }
 
-func (c *worktreeCommandTestClient) DeleteWorktree(_ context.Context, req serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
+func (c *worktreeCommandTestClient) DeleteWorktree(ctx context.Context, req serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
+	c.deleteCtx = ctx
 	c.deleteRequests = append(c.deleteRequests, req)
 	if c.consumeLeaseFailure("delete", req.ControllerLeaseID) {
 		return serverapi.WorktreeDeleteResponse{}, serverapi.ErrInvalidControllerLease

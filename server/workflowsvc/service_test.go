@@ -125,34 +125,46 @@ func TestServiceCreatesAndUpdatesTaskSourceWorkspaceBeforeStart(t *testing.T) {
 	if created.Task.SourceWorkspaceID != source.WorkspaceID || created.Task.BodyPreview != "Details" {
 		t.Fatalf("created task = %+v", created.Task)
 	}
+	title := "Updated"
 	body := "Updated details"
-	updated, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Updated", Body: &body, SourceWorkspaceID: binding.WorkspaceID})
+	updated, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: &title, Body: &body, SourceWorkspaceID: binding.WorkspaceID})
 	if err != nil {
 		t.Fatalf("UpdateWorkflowTask: %v", err)
 	}
 	if updated.Task.Title != "Updated" || updated.Task.SourceWorkspaceID != binding.WorkspaceID || updated.Task.BodyPreview != "Updated details" {
 		t.Fatalf("updated task = %+v", updated.Task)
 	}
-	titleOnly, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Retitled"})
+	retitled := "Retitled"
+	titleOnly, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: &retitled})
 	if err != nil {
 		t.Fatalf("UpdateWorkflowTask title only: %v", err)
 	}
 	if titleOnly.Task.Title != "Retitled" || titleOnly.Task.SourceWorkspaceID != binding.WorkspaceID || titleOnly.Task.BodyPreview != "Updated details" {
 		t.Fatalf("title-only update = %+v, want previous body/source workspace preserved", titleOnly.Task)
 	}
+	bodyOnly := "Body only details"
+	bodyOnlyUpdate, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Body: &bodyOnly})
+	if err != nil {
+		t.Fatalf("UpdateWorkflowTask body only: %v", err)
+	}
+	if bodyOnlyUpdate.Task.Title != "Retitled" || bodyOnlyUpdate.Task.SourceWorkspaceID != binding.WorkspaceID || bodyOnlyUpdate.Task.BodyPreview != "Body only details" {
+		t.Fatalf("body-only update = %+v, want previous title/source workspace preserved", bodyOnlyUpdate.Task)
+	}
 	started := startWorkflowServiceTask(t, ctx, service, created.Task.ID)
 	if started.RunID == "" {
 		t.Fatalf("start response = %+v", started)
 	}
+	startedTitle := "Started title"
 	startedBody := "Started details"
-	startedUpdate, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Started title", Body: &startedBody})
+	startedUpdate, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: &startedTitle, Body: &startedBody})
 	if err != nil {
 		t.Fatalf("UpdateWorkflowTask after start: %v", err)
 	}
 	if startedUpdate.Task.Title != "Started title" || startedUpdate.Task.BodyPreview != "Started details" || startedUpdate.Task.SourceWorkspaceID != binding.WorkspaceID {
 		t.Fatalf("started update = %+v", startedUpdate.Task)
 	}
-	if _, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Too late", SourceWorkspaceID: source.WorkspaceID}); !errors.Is(err, workflowstore.ErrSourceWorkspaceAfterAutomation) {
+	tooLate := "Too late"
+	if _, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: &tooLate, SourceWorkspaceID: source.WorkspaceID}); !errors.Is(err, workflowstore.ErrSourceWorkspaceAfterAutomation) {
 		t.Fatalf("UpdateWorkflowTask source after start error = %v", err)
 	}
 	waitWorkflowProjectActions(t, sub, "task", "created", "updated", "started")

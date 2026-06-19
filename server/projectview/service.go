@@ -232,7 +232,7 @@ func (s *Service) UpdateProject(ctx context.Context, req serverapi.ProjectUpdate
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectUpdateResponse{}, err
 	}
-	if err := s.metadata.UpdateProjectDisplayName(ctx, req.ProjectID, req.DisplayName); err != nil {
+	if err := s.metadata.UpdateProjectMetadata(ctx, req.ProjectID, req.DisplayName, req.ProjectKey); err != nil {
 		return serverapi.ProjectUpdateResponse{}, err
 	}
 	project, err := s.projectHomeSummary(ctx, req.ProjectID)

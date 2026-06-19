@@ -3,11 +3,13 @@ import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type Texta
 import { cx } from "./classes";
 import { fieldInputClassName } from "./fieldInputStyles";
 import { fieldLabelClassName } from "./fieldStyles";
+import { HelpHint } from "./HelpHint";
 
 export type FieldError = string | readonly string[];
 
 type FieldShellProps = Readonly<{
   label: string;
+  labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
   inputId: string;
@@ -16,14 +18,26 @@ type FieldShellProps = Readonly<{
   children: ReactNode;
 }>;
 
-export function FieldShell({ label, error, hint, inputId, errorId, hintId, children }: FieldShellProps) {
+export function FieldShell({
+  label,
+  labelHelp,
+  error,
+  hint,
+  inputId,
+  errorId,
+  hintId,
+  children,
+}: FieldShellProps) {
   const errors = normalizeErrors(error);
 
   return (
     <div className="grid gap-[var(--space-3)]">
-      <label className={fieldLabelClassName} htmlFor={inputId}>
-        {label}
-      </label>
+      <span className="inline-flex items-center gap-[var(--space-1)]">
+        <label className={fieldLabelClassName} htmlFor={inputId}>
+          {label}
+        </label>
+        {labelHelp === undefined ? null : <HelpHint className="shrink-0" label={labelHelp} side="right" />}
+      </span>
       {children}
       {hint !== undefined ? (
         <span className="text-[var(--color-muted)]" id={hintId}>
@@ -50,19 +64,28 @@ export function FieldShell({ label, error, hint, inputId, errorId, hintId, child
 
 export type TextInputProps = Readonly<{
   label: string;
+  labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
 }> &
   InputHTMLAttributes<HTMLInputElement>;
 
-export function TextInput({ label, error, hint, className, ...props }: TextInputProps) {
+export function TextInput({ label, labelHelp, error, hint, className, ...props }: TextInputProps) {
   const generatedId = useId();
   const inputId = props.id ?? generatedId;
   const hintId = `${inputId}-hint`;
   const errorId = `${inputId}-error`;
 
   return (
-    <FieldShell error={error} errorId={errorId} hint={hint} hintId={hintId} inputId={inputId} label={label}>
+    <FieldShell
+      error={error}
+      errorId={errorId}
+      hint={hint}
+      hintId={hintId}
+      inputId={inputId}
+      label={label}
+      labelHelp={labelHelp}
+    >
       <input
         aria-describedby={`${hintId} ${errorId}`}
         aria-invalid={error === undefined ? undefined : true}
@@ -76,13 +99,14 @@ export function TextInput({ label, error, hint, className, ...props }: TextInput
 
 export type TextAreaProps = Readonly<{
   label: string;
+  labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
 }> &
   TextareaHTMLAttributes<HTMLTextAreaElement>;
 
 export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextArea(
-  { label, error, hint, className, ...props },
+  { label, labelHelp, error, hint, className, ...props },
   ref,
 ) {
   const generatedId = useId();
@@ -91,7 +115,15 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
   const errorId = `${inputId}-error`;
 
   return (
-    <FieldShell error={error} errorId={errorId} hint={hint} hintId={hintId} inputId={inputId} label={label}>
+    <FieldShell
+      error={error}
+      errorId={errorId}
+      hint={hint}
+      hintId={hintId}
+      inputId={inputId}
+      label={label}
+      labelHelp={labelHelp}
+    >
       <textarea
         aria-describedby={`${hintId} ${errorId}`}
         aria-invalid={error === undefined ? undefined : true}

@@ -1,9 +1,26 @@
-import { useCallback, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Maximize2 } from "lucide-react";
 
 import { formatRelativeTime } from "../../app/formatters";
-import { Badge, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, Spinner } from "../../ui";
+import {
+  Badge,
+  Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  Spinner,
+} from "../../ui";
 import { cx } from "../../ui/classes";
 import {
   type BoardCardDragPayload,
@@ -48,7 +65,9 @@ export function KanbanGroup({
     <section
       className={cx(
         "inline-grid h-full min-h-0 w-max align-top",
-        hideHeader ? "grid-rows-[0_minmax(0,1fr)] gap-0" : "grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-2)]",
+        hideHeader
+          ? "grid-rows-[0_minmax(0,1fr)] gap-0"
+          : "grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-2)]",
       )}
       role="listitem"
     >
@@ -59,9 +78,7 @@ export function KanbanGroup({
       >
         <h2 className="m-0 text-[1rem] font-bold">{group.name}</h2>
       </header>
-      <div className="flex h-full min-h-0 gap-[var(--space-2)]">
-        {children}
-      </div>
+      <div className="flex h-full min-h-0 gap-[var(--space-2)]">{children}</div>
     </section>
   );
 }
@@ -87,9 +104,29 @@ export function KanbanColumn({
   onResumeTask,
 }: KanbanColumnProps) {
   const { t } = useTranslation();
+  const headerRef = useRef<HTMLElement | null>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (header === null) {
+      return;
+    }
+    const measure = () => {
+      setHeaderHeight(header.getBoundingClientRect().height);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(header);
+    return () => {
+      observer?.disconnect();
+    };
+  }, [isCollapsed]);
+  const columnStyle: CSSProperties & Readonly<Record<"--board-column-header-height", string>> = {
+    "--board-column-header-height": `${headerHeight.toString()}px`,
+  };
   const columnClassName = isCollapsed
     ? `island-glass board-column-morph board-column-collapsed board-column-drop-${dropState} flex h-full min-h-0 w-[64px] shrink-0 rounded-[var(--radius-xl)] p-[var(--space-2)] align-top`
-    : `island-glass board-column-morph board-column-drop-${dropState} grid h-full min-h-0 w-[min(420px,80vw)] shrink-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top`;
+    : `island-glass board-column-morph board-column-drop-${dropState} relative h-full min-h-0 w-[min(420px,80vw)] shrink-0 overflow-hidden rounded-[var(--radius-xl)] align-top`;
   return (
     <section
       aria-label={column.name}
@@ -97,6 +134,7 @@ export function KanbanColumn({
       data-collapsed={isCollapsed ? "true" : "false"}
       data-drop-state={dropState}
       ref={columnRef}
+      style={columnStyle}
       onDragOver={(event) => {
         if (dropState === "idle" && !hasBoardCardDragData(event.dataTransfer)) {
           return;
@@ -113,26 +151,27 @@ export function KanbanColumn({
         <CollapsedColumnHeader column={column} onExpand={onExpandColumn} />
       ) : (
         <>
-          <header className="flex items-center justify-between gap-[var(--space-2)]">
+          <header
+            className="pointer-events-none absolute top-0 right-0 left-0 z-10 flex items-start justify-between gap-[var(--space-2)] px-[var(--space-3)] pt-[var(--space-3)] pb-[var(--space-3)]"
+            ref={headerRef}
+          >
             <div>
               <h2 className="m-0 text-[1rem]">{column.name}</h2>
               {column.assigneeRole.length > 0 ? (
                 <p className="m-0 font-mono text-sm text-[var(--color-muted)]">{column.assigneeRole}</p>
               ) : null}
             </div>
-            <Badge title={t("board.taskCount", { count: column.taskCount })} tone={isFirstActive ? "info" : "neutral"}>
+            <Badge
+              title={t("board.taskCount", { count: column.taskCount })}
+              tone={isFirstActive ? "info" : "neutral"}
+            >
               <span data-testid={`kanban-column-task-count-${column.id}`}>
                 {t("board.taskCount", { count: column.taskCount })}
               </span>
             </Badge>
           </header>
-          {isFirstActive ? (
-            <p className="m-0 rounded-[var(--radius-m)] border border-dashed border-[var(--color-outline)] p-[var(--space-2)] text-sm text-[var(--color-muted)]">
-              {t("board.dropToStart")}
-            </p>
-          ) : null}
           <div
-            className="min-h-0 overflow-y-auto pr-[var(--space-1)] hide-scrollbar"
+            className="board-column-scroll absolute inset-0 min-h-0 overflow-y-auto px-[var(--space-3)] hide-scrollbar"
             data-testid={`kanban-column-scroll-${column.id}`}
             onScroll={(event) => {
               if (!hasMoreCards || isLoadingMoreCards || !isNearScrollEnd(event.currentTarget)) {
@@ -141,35 +180,38 @@ export function KanbanColumn({
               onLoadMoreCards();
             }}
           >
-            {cards.map((card) => (
-              <TaskCard
-                card={card}
-                actionsDisabled={actionsDisabled}
-                key={card.id}
-                onClick={() => {
-                  onCardClick(card.id);
-                }}
-                onDragEnd={onCardDragEnd}
-                onDragStart={onCardDragStart}
-                onDelete={onDeleteTask}
-                onInterrupt={(runID) => {
-                  onInterruptTask(card.id, runID);
-                }}
-                onResume={(runID) => {
-                  onResumeTask(card.id, runID);
-                }}
-              />
-            ))}
-            {isLoadingMoreCards ? (
-              <div
-                aria-label={t("app.loadingMore")}
-                className="grid place-items-center py-[var(--space-3)]"
-                role="status"
-              >
-                <Spinner size="sm" />
-                <span className="sr-only">{t("app.loadingMore")}</span>
-              </div>
-            ) : null}
+            <div className="grid gap-[var(--space-3)] pb-[var(--space-3)]">
+              {isFirstActive ? (
+                <p className="m-0 rounded-[var(--radius-m)] border border-dashed border-[var(--color-outline)] p-[var(--space-2)] text-sm text-[var(--color-muted)]">
+                  {t("board.dropToStart")}
+                </p>
+              ) : null}
+              {cards.map((card) => (
+                <TaskCard
+                  card={card}
+                  actionsDisabled={actionsDisabled}
+                  key={card.id}
+                  onClick={() => {
+                    onCardClick(card.id);
+                  }}
+                  onDragEnd={onCardDragEnd}
+                  onDragStart={onCardDragStart}
+                  onDelete={onDeleteTask}
+                  onInterrupt={(runID) => {
+                    onInterruptTask(card.id, runID);
+                  }}
+                  onResume={(runID) => {
+                    onResumeTask(card.id, runID);
+                  }}
+                />
+              ))}
+              {isLoadingMoreCards ? (
+                <div aria-label={t("app.loadingMore")} className="grid place-items-center" role="status">
+                  <Spinner size="sm" />
+                  <span className="sr-only">{t("app.loadingMore")}</span>
+                </div>
+              ) : null}
+            </div>
           </div>
         </>
       )}
@@ -251,7 +293,7 @@ function TaskCard({
         <article
           aria-label={card.title}
           className={cx(
-            "mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
+            "grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
             cardClassName(card.id),
           )}
           data-task-card-state={waitingForAnswer ? "waiting-answer" : card.statusKind}
@@ -279,25 +321,40 @@ function TaskCard({
         >
           <div className="grid gap-[var(--space-1)] text-left text-[var(--color-on-island)]">
             <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)]">
-              <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
+              <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">
+                {card.shortID}
+              </span>
               <span className="min-w-0 truncate text-right text-sm text-[var(--color-muted)]">
                 {formatRelativeTime(card.updatedAt)}
               </span>
             </span>
             <strong data-testid="task-card-title">{card.title}</strong>
-            <span className="task-card-body-preview text-sm text-[var(--color-muted)]" data-testid="task-card-body">
+            <span
+              className="task-card-body-preview text-sm text-[var(--color-muted)]"
+              data-testid="task-card-body"
+            >
               {card.bodyPreview}
             </span>
           </div>
-          <div className="flex items-start justify-between gap-[var(--space-2)]" data-testid="task-card-footer">
+          <div
+            className="flex items-start justify-between gap-[var(--space-2)]"
+            data-testid="task-card-footer"
+          >
             <div
               className="task-card-chip-row flex min-w-0 flex-1 flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]"
               data-testid="task-card-chips"
             >
               {card.statusKind === "running" ? (
-                <Spinner className="h-[18px] w-[18px]" strokeWidth={1.5} testID="task-card-active-run-spinner" />
+                <Spinner
+                  className="h-[18px] w-[18px]"
+                  strokeWidth={1.5}
+                  testID="task-card-active-run-spinner"
+                />
               ) : null}
-              <span className="task-card-chip-slot inline-flex items-center" data-testid="task-card-chip-slot">
+              <span
+                className="task-card-chip-slot inline-flex items-center"
+                data-testid="task-card-chip-slot"
+              >
                 <Badge tone="neutral">{card.sourceWorkspaceName || t("board.workspace")}</Badge>
               </span>
             </div>

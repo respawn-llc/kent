@@ -8,22 +8,24 @@ import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { usePublishSidebarHeaderAction } from "../../app/sidebarHeaderActionContext";
+import { useSidebarHeaderOffset } from "../../app/sidebarHeaderOffset";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
-import { Button, ErrorState, LoadingState, TextInput, VirtualizedInfiniteList } from "../../ui";
+import { Button, ErrorState, HelpHint, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import {
+  ProjectKeyField,
   ProjectNameField,
   WorkspaceRow,
   WorkspaceUnlinkFallbackDialog,
   type WorkspaceUnlinkTarget,
   workspaceUnlinkDialogWidth,
 } from "./ProjectEditParts";
-import { findWorkspaceByPath, projectNameErrors } from "./ProjectEditUtils";
+import { findWorkspaceByPath, projectKeyErrors, projectNameErrors } from "./ProjectEditUtils";
 import {
   useProjectDefaultWorkspaceSave,
   useProjectWorkspaceChangedEvents,
   useProjectEdit,
-  useProjectNameSave,
+  useProjectSave,
   useProjectWorkspaceAttach,
   useProjectWorkspaceUnlinkRequests,
   useProjectWorkspaceUnlink,
@@ -84,16 +86,20 @@ function ProjectEditContent({
   const { nativeBridge } = useAppServices();
   const { push } = useStatusController();
   const connection = useConnectionSnapshot();
-  const nameSave = useProjectNameSave(project.projectID);
+  const save = useProjectSave(project.projectID);
   const defaultSave = useProjectDefaultWorkspaceSave(project.projectID);
   const attach = useProjectWorkspaceAttach(project.projectID);
   const unlink = useProjectWorkspaceUnlink(project.projectID);
   const [nameDraft, setNameDraft] = useState(project.displayName);
+  const [keyDraft, setKeyDraft] = useState(project.projectKey);
   const disabled = connection.phase !== "connected";
   const mutating =
-    disabled || nameSave.isPending || defaultSave.isPending || attach.isPending || unlink.isPending;
+    disabled || save.isPending || defaultSave.isPending || attach.isPending || unlink.isPending;
   const nameErrors = projectNameErrors(nameDraft, t);
+  const keyErrors = projectKeyErrors(keyDraft, t);
   const nameChanged = nameDraft !== project.displayName;
+  const keyChanged = keyDraft !== project.projectKey;
+  const dirty = nameChanged || keyChanged;
   const pushToast = useCallback(
     (id: string, tone: "info" | "success" | "danger", body: string, title = t("projectEdit.title")) => {
       push({ id, tone, title, body });
@@ -172,14 +178,14 @@ function ProjectEditContent({
     }
   }
 
-  const saveName = useCallback(async (): Promise<void> => {
+  const saveProject = useCallback(async (): Promise<void> => {
     try {
-      await nameSave.mutateAsync(nameDraft);
-      pushToast("project-edit-name-saved", "success", t("projectEdit.projectSaved"));
+      await save.mutateAsync({ displayName: nameDraft, projectKey: keyChanged ? keyDraft : "" });
+      pushToast("project-edit-saved", "success", t("projectEdit.projectSaved"));
     } catch (error) {
-      pushToast("project-edit-name-save-error", "danger", errorMessage(error));
+      pushToast("project-edit-save-error", "danger", errorMessage(error));
     }
-  }, [nameDraft, nameSave, pushToast, t]);
+  }, [keyChanged, keyDraft, nameDraft, save, pushToast, t]);
 
   async function saveDefaultWorkspace(workspace: WorkspaceSummary): Promise<void> {
     if (workspace.id === project.defaultWorkspaceID) {
@@ -193,18 +199,18 @@ function ProjectEditContent({
     }
   }
 
-  // Publish the name-save control into the shared sidebar header (left of delete). It only appears
-  // when the draft differs from the saved name, and is disabled while invalid or disconnected.
-  const canSaveName = nameChanged && nameErrors.length === 0 && !mutating;
+  // Publish the save control into the shared sidebar header (left of delete). It only appears when a
+  // draft (name or key) differs from the saved value, and is disabled while invalid or disconnected.
+  const canSave = dirty && nameErrors.length === 0 && keyErrors.length === 0 && !mutating;
   const headerSaveAction = useMemo<ReactNode>(() => {
-    if (!nameChanged) {
+    if (!dirty) {
       return null;
     }
     return (
       <Button
         aria-label={t("projectEdit.saveName")}
-        disabled={!canSaveName}
-        onClick={() => void saveName()}
+        disabled={!canSave}
+        onClick={() => void saveProject()}
         size="icon"
         title={t("projectEdit.saveName")}
         variant="primary"
@@ -212,17 +218,19 @@ function ProjectEditContent({
         <Save aria-hidden="true" size={18} strokeWidth={1.5} />
       </Button>
     );
-  }, [canSaveName, nameChanged, saveName, t]);
+  }, [canSave, dirty, saveProject, t]);
   usePublishSidebarHeaderAction(headerSaveAction);
 
   const header = (
     <ProjectEditListHeader
       disabled={mutating}
+      keyDraft={keyDraft}
+      keyErrors={keyErrors}
       nameDraft={nameDraft}
       nameErrors={nameErrors}
       onAttach={() => void chooseWorkspace()}
+      onKeyChange={setKeyDraft}
       onNameChange={setNameDraft}
-      project={project}
     />
   );
 
@@ -256,18 +264,22 @@ function ProjectEditContent({
 
 function ProjectEditListHeader({
   disabled,
+  keyDraft,
+  keyErrors,
   nameDraft,
   nameErrors,
   onAttach,
+  onKeyChange,
   onNameChange,
-  project,
 }: Readonly<{
   disabled: boolean;
+  keyDraft: string;
+  keyErrors: readonly string[];
   nameDraft: string;
   nameErrors: readonly string[];
   onAttach: () => void;
+  onKeyChange: (value: string) => void;
   onNameChange: (value: string) => void;
-  project: ProjectEdit;
 }>) {
   const { t } = useTranslation();
   return (
@@ -279,18 +291,20 @@ function ProjectEditListHeader({
           nameErrors={nameErrors}
           onNameChange={onNameChange}
         />
-        <TextInput
-          className="cursor-not-allowed opacity-55"
-          label={t("home.projectKey")}
-          readOnly
-          title={t("home.projectKeyImmutable")}
-          value={project.projectKey}
+        <ProjectKeyField
+          disabled={disabled}
+          keyDraft={keyDraft}
+          keyErrors={keyErrors}
+          onKeyChange={onKeyChange}
         />
       </div>
       <div className="flex min-w-0 items-center justify-between gap-[var(--space-3)]">
-        <h1 className="m-0 text-[1.15rem] font-bold" id="workspaces-title">
-          {t("projectEdit.workspaces")}
-        </h1>
+        <span className="inline-flex min-w-0 items-center gap-[var(--space-1)]">
+          <h1 className="m-0 truncate text-[1.15rem] font-bold" id="workspaces-title">
+            {t("projectEdit.workspaces")}
+          </h1>
+          <HelpHint className="shrink-0" label={t("projectEdit.workspacesHelp")} side="bottom" />
+        </span>
         <button
           aria-label={t("projectEdit.attachWorkspace")}
           className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
@@ -327,6 +341,7 @@ function ProjectWorkspaceList({
   workspaces: readonly WorkspaceSummary[];
 }>) {
   const { t } = useTranslation();
+  const headerOffset = useSidebarHeaderOffset();
   return (
     <VirtualizedInfiniteList
       className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
@@ -340,7 +355,7 @@ function ProjectWorkspaceList({
       loadingLabel={t("app.loadingMore")}
       onLoadMore={onLoadMore}
       paddingEnd={16}
-      paddingStart={16}
+      paddingStart={16 + headerOffset}
       renderItem={(workspace) => (
         <div className={`mx-auto w-full ${projectEditContentMaxWidthClassName}`}>
           <WorkspaceRow

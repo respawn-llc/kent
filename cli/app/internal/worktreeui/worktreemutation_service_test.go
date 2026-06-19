@@ -18,10 +18,13 @@ type testWorktreeClient struct {
 	resolveCtx      context.Context
 	resolveResp     serverapi.WorktreeCreateTargetResolveResponse
 	resolveRequests []serverapi.WorktreeCreateTargetResolveRequest
+	createCtx       context.Context
 	createResp      serverapi.WorktreeCreateResponse
 	createRequests  []serverapi.WorktreeCreateRequest
+	switchCtx       context.Context
 	switchResp      serverapi.WorktreeSwitchResponse
 	switchRequests  []serverapi.WorktreeSwitchRequest
+	deleteCtx       context.Context
 	deleteResp      serverapi.WorktreeDeleteResponse
 	deleteRequests  []serverapi.WorktreeDeleteRequest
 	errs            []error
@@ -39,17 +42,20 @@ func (c *testWorktreeClient) ResolveWorktreeCreateTarget(ctx context.Context, re
 	return c.resolveResp, c.nextErr()
 }
 
-func (c *testWorktreeClient) CreateWorktree(_ context.Context, req serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
+func (c *testWorktreeClient) CreateWorktree(ctx context.Context, req serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
+	c.createCtx = ctx
 	c.createRequests = append(c.createRequests, req)
 	return c.createResp, c.nextErr()
 }
 
-func (c *testWorktreeClient) SwitchWorktree(_ context.Context, req serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
+func (c *testWorktreeClient) SwitchWorktree(ctx context.Context, req serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
+	c.switchCtx = ctx
 	c.switchRequests = append(c.switchRequests, req)
 	return c.switchResp, c.nextErr()
 }
 
-func (c *testWorktreeClient) DeleteWorktree(_ context.Context, req serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
+func (c *testWorktreeClient) DeleteWorktree(ctx context.Context, req serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
+	c.deleteCtx = ctx
 	c.deleteRequests = append(c.deleteRequests, req)
 	return c.deleteResp, c.nextErr()
 }
@@ -143,6 +149,29 @@ func TestCreateSwitchDeletePopulateRequests(t *testing.T) {
 	}
 	if got := client.deleteRequests[0]; got.ClientRequestID != "request-1" || got.SessionID != "session-1" || got.ControllerLeaseID != "lease-1" || got.WorktreeID != "wt-3" || !got.DeleteBranch {
 		t.Fatalf("delete request = %+v", got)
+	}
+}
+
+func TestMutationsUseDedicatedMutationContext(t *testing.T) {
+	client := &testWorktreeClient{}
+	service := newTestService(client)
+	service.Runtime.MutationContext = func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 10*time.Second)
+	}
+
+	if _, err := service.Delete("wt-1", false); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if client.deleteCtx == nil {
+		t.Fatal("expected delete context recorded")
+	}
+	deadline, ok := client.deleteCtx.Deadline()
+	if !ok {
+		t.Fatal("expected delete context deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 8*time.Second {
+		t.Fatalf("delete context remaining = %v, want dedicated mutation timeout", remaining)
 	}
 }
 

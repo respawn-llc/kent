@@ -5,6 +5,7 @@ import {
   groupIDFromPoint,
   inspectNode,
   reconnectWorkflowGraphEdge,
+  selectionFromNode,
 } from "./workflowGraphCanvasInteractions";
 
 describe("workflowGraphCanvasInteractions", () => {
@@ -97,6 +98,22 @@ describe("workflowGraphCanvasInteractions", () => {
     expect(onNodeInspect).toHaveBeenNthCalledWith(3, "node-join");
     expect(onNodeInspect).toHaveBeenNthCalledWith(4, "node-terminal");
     expect(onGroupInspect).not.toHaveBeenCalled();
+  });
+
+  it("treats group clicks as a no-op while group inspection is disabled", () => {
+    const onGroupInspect = vi.fn();
+    const onNodeInspect = vi.fn();
+    const groupNode = {
+      data: { entityID: "group-a", entityKind: "group", kind: "group", label: "Group A" },
+      id: "group-a",
+      position: { x: 0, y: 0 },
+    };
+
+    inspectNode(groupNode, onGroupInspect, onNodeInspect);
+
+    expect(onGroupInspect).not.toHaveBeenCalled();
+    expect(onNodeInspect).not.toHaveBeenCalled();
+    expect(selectionFromNode(groupNode)).toBeNull();
   });
 });
 

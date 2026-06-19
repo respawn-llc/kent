@@ -304,8 +304,8 @@ func TestProjectWorkspaceMutationsDoNotRequireWorkflowEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
-	if err := store.UpdateProjectDisplayName(ctx, binding.ProjectID, "Events"); err != nil {
-		t.Fatalf("UpdateProjectDisplayName: %v", err)
+	if err := store.UpdateProjectMetadata(ctx, binding.ProjectID, "Events", ""); err != nil {
+		t.Fatalf("UpdateProjectMetadata: %v", err)
 	}
 	if err := store.SetProjectDefaultWorkspace(ctx, binding.ProjectID, attached.WorkspaceID); err != nil {
 		t.Fatalf("SetProjectDefaultWorkspace attached: %v", err)

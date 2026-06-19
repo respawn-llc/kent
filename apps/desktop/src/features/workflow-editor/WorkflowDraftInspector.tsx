@@ -181,6 +181,7 @@ function EdgeDraftDetails({
         />
         <TextArea
           label={t("workflowEditor.transitionDescription")}
+          labelHelp={t("workflowEditor.transitionDescriptionHelp")}
           onChange={(event) => {
             controller.dispatch({
               input: { edgeID: edge.id, transitionDescription: event.target.value },
@@ -192,6 +193,7 @@ function EdgeDraftDetails({
         <TextInput
           {...identifierInputAttributes}
           label={t("workflowEditor.key")}
+          labelHelp={t("workflowEditor.transitionKeyHelp")}
           onChange={(event) => {
             controller.dispatch({
               input: { edgeID: edge.id, transitionID: event.target.value.replaceAll("\n", " ") },
@@ -220,6 +222,7 @@ function EdgeDraftDetails({
                 <SelectField
                   disabled={contextModeDisabled}
                   label={t("workflowEditor.contextMode")}
+                  labelHelp={t("workflowEditor.contextModeHelp")}
                   onValueChange={(value) => {
                     if (value !== "new_session" && !continuationAvailable) {
                       return;
@@ -241,6 +244,7 @@ function EdgeDraftDetails({
                 <SelectField
                   disabled={contextSourceDisabled}
                   label={t("workflowEditor.contextSource")}
+                  labelHelp={t("workflowEditor.contextSourceHelp")}
                   onValueChange={(value) => {
                     controller.dispatch({
                       input: { contextSource: contextSourceFromSelectValue(definition, value), edgeID: edge.id },
@@ -258,6 +262,7 @@ function EdgeDraftDetails({
               checked={edge.requiresApproval}
               disabled={requiresApprovalDisabled}
               label={t("workflowEditor.requiresApproval")}
+              labelHelp={t("workflowEditor.requiresApprovalHelp")}
               onCheckedChange={(checked) => {
                 controller.dispatch({ input: { edgeID: edge.id, requiresApproval: checked }, type: "editEdgeRoute" });
               }}
@@ -426,6 +431,7 @@ function AgentNodeDraftDetails({
         />
         <SelectField
           label={t("workflowEditor.assignee")}
+          labelHelp={t("workflowEditor.assigneeHelp")}
           onValueChange={(value) => {
             controller.dispatch({
               nodeID: node.id,
@@ -439,6 +445,7 @@ function AgentNodeDraftDetails({
         />
         <SelectField
           label={t("workflowEditor.completionMode")}
+          labelHelp={t("workflowEditor.completionModeHelp")}
           onValueChange={(value) => {
             controller.dispatch({
               nodeID: node.id,
@@ -522,7 +529,7 @@ function JoinNodeDraftDetails({
   return (
     <InspectorStack>
       <DetailSection title={t("workflowEditor.inspectorIdentity")}>
-        <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
+        <DetailRow help={t("workflowEditor.keyHelp")} label={t("workflowEditor.key")} mono value={node.key} />
       </DetailSection>
       <EditableJoinProviders controller={controller} definition={definition} node={node} />
       <ValidationDetails errors={errors} />

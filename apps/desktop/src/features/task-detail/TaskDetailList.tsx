@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { ActivityItem, TaskComment, TaskDetail } from "../../api";
 import { errorMessage } from "../../api/errors";
+import { useSidebarHeaderOffset } from "../../app/sidebarHeaderOffset";
 import { ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { ActivityRow, CommentComposer, CommentRow } from "./TaskDetailActivity";
 import { TaskInbox } from "./TaskDetailInbox";
@@ -72,6 +73,7 @@ export function TaskDetailList({
   updatePending: boolean;
 }>) {
   const { t } = useTranslation();
+  const headerOffset = useSidebarHeaderOffset();
   const activityItems = useMemo(() => activity.data?.pages.flatMap((page) => page.items) ?? [], [activity.data]);
   const commentItems = useMemo(() => comments.data?.pages.flatMap((page) => page.comments) ?? [], [comments.data]);
   const listItems = useMemo(
@@ -113,6 +115,7 @@ export function TaskDetailList({
       loadingLabel={t("app.loadingMore")}
       loadMoreKey={paging.loadMoreKey}
       onLoadMore={paging.loadMore}
+      paddingStart={headerOffset}
       rowSpacing="compact"
       renderItem={(item) => (
         <TaskDetailListRow

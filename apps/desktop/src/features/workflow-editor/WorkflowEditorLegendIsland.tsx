@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleQuestionMark } from "lucide-react";
 
-import { FloatingNoticeIsland } from "../../ui";
+import { FloatingNoticeIsland, HelpHint } from "../../ui";
 import { cx } from "../../ui/classes";
 
 export function WorkflowEditorLegendIsland({
@@ -14,7 +14,7 @@ export function WorkflowEditorLegendIsland({
     <FloatingNoticeIsland
       collapsed={collapsed}
       collapseLabel={t("app.collapse")}
-      expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] rounded-[var(--radius-xl)] p-[var(--space-2)]"
+      expandedClassName="floating-notice-expanded grid min-h-[123px] max-h-[min(400px,calc(100vh-var(--space-2)*2))] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] rounded-[var(--radius-x)] p-[var(--space-3)]"
       expandLabel={t("app.expand")}
       icon={
         <CircleQuestionMark
@@ -31,26 +31,53 @@ export function WorkflowEditorLegendIsland({
       title={t("workflowEditor.legend")}
       tone="neutral"
     >
-      <div className="grid gap-[6px] pt-[4px] text-sm leading-none text-[var(--color-on-island)]">
-        <LegendRow label={t("workflowEditor.legendContinueSession")}>
+      {/*
+        overflow-hidden clips each row's enlarged HelpHint hit area (a 40px
+        pseudo-element overflowing ~16px rows) so it can't register as scrollable
+        overflow in the island's auto-scroll content area and force a phantom
+        scrollbar. Tooltips render in a portal, so they are unaffected.
+      */}
+      <div className="grid gap-[6px] overflow-hidden pt-[4px] text-sm leading-none text-[var(--color-on-island)]">
+        <LegendRow
+          help={t("workflowEditor.legendContinueSessionHelp")}
+          label={t("workflowEditor.legendContinueSession")}
+        >
           <EdgeLegendSwatch tone="neutral" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendFreshSession")}>
+        <LegendRow
+          help={t("workflowEditor.legendFreshSessionHelp")}
+          label={t("workflowEditor.legendFreshSession")}
+        >
           <EdgeLegendSwatch tone="primary" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendCompactSession")}>
+        <LegendRow
+          help={t("workflowEditor.legendCompactSessionHelp")}
+          label={t("workflowEditor.legendCompactSession")}
+        >
           <EdgeLegendSwatch tone="secondary" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendAgentNode")}>
+        <LegendRow
+          help={t("workflowEditor.legendAgentNodeHelp")}
+          label={t("workflowEditor.legendAgentNode")}
+        >
           <NodeLegendSwatch tone="neutral" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendTerminalState")}>
+        <LegendRow
+          help={t("workflowEditor.legendTerminalStateHelp")}
+          label={t("workflowEditor.legendTerminalState")}
+        >
           <NodeLegendSwatch tone="success" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendStartingState")}>
+        <LegendRow
+          help={t("workflowEditor.legendStartingStateHelp")}
+          label={t("workflowEditor.legendStartingState")}
+        >
           <NodeLegendSwatch tone="primary" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendMultiAgentJoin")}>
+        <LegendRow
+          help={t("workflowEditor.legendMultiAgentJoinHelp")}
+          label={t("workflowEditor.legendMultiAgentJoin")}
+        >
           <NodeLegendSwatch shape="diamond" tone="secondary" />
         </LegendRow>
       </div>
@@ -58,11 +85,14 @@ export function WorkflowEditorLegendIsland({
   );
 }
 
-function LegendRow({ children, label }: Readonly<{ children: ReactNode; label: string }>) {
+function LegendRow({ children, help, label }: Readonly<{ children: ReactNode; help: string; label: string }>) {
   return (
     <div className="grid grid-cols-[26px_minmax(0,1fr)] items-center gap-[var(--space-2)]">
       <span className="grid h-3 place-items-center">{children}</span>
-      <span className="min-w-0">{label}</span>
+      <span className="inline-flex min-w-0 items-center gap-[var(--space-1)]">
+        <span className="min-w-0 truncate">{label}</span>
+        <HelpHint className="shrink-0" label={help} side="right" />
+      </span>
     </div>
   );
 }

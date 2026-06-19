@@ -25,12 +25,6 @@ Several transitions are available, so you decide what status to move this ticket
 {{- range .Transitions }}
 - {{.ID}}{{if .DisplayName}} ({{.DisplayName}}){{end}}{{if .Description}}: {{.Description}}{{end}}
 {{- end }}
-{{- else if eq (len .Transitions) 1 }}
-### Transition
-The only available transition is inferred by the workflow runtime:
-{{- range .Transitions }}
-- {{.ID}}{{if .DisplayName}} ({{.DisplayName}}){{end}}{{if .Description}}: {{.Description}}{{end}}
-{{- end }}
 {{- end }}
 
 ## Your task:

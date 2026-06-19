@@ -79,6 +79,8 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "create":
 		return taskCreateSubcommand(args[1:], stdout, stderr)
+	case "edit":
+		return taskEditSubcommand(args[1:], stdout, stderr)
 	case "start":
 		return taskStartSubcommand(args[1:], stdout, stderr)
 	case "list":
@@ -115,6 +117,7 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	workflowRef := fs.String("workflow", "", "workflow id or exact workflow name")
 	projectRef := fs.String("project", ".", "project id or path")
 	sourceURL := fs.String("source-url", "", "external source URL")
+	sourceWorkspace := fs.String("source-workspace", "", "source workspace id or path")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -147,9 +150,17 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			return 1
 		}
 	}
+	sourceWorkspaceID := ""
+	if strings.TrimSpace(*sourceWorkspace) != "" {
+		sourceWorkspaceID, err = resolveWorkflowSourceWorkspaceID(context.Background(), cfg, remote, *sourceWorkspace)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: projectID, WorkflowID: workflowID, Title: *title, Body: taskBody, SourceURL: *sourceURL})
+	resp, err := remote.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: projectID, WorkflowID: workflowID, Title: *title, Body: taskBody, SourceURL: *sourceURL, SourceWorkspaceID: sourceWorkspaceID})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -168,6 +179,99 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 	}
 	writeTaskDetail(stdout, task)
 	return 0
+}
+
+func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := newCommandFlagSet(config.Command+" task edit", stderr, taskCommandUsage)
+	title := fs.String("title", "", "new task title")
+	body := fs.String("body", "", "new task body")
+	bodyFile := fs.String("body-file", "", "path to new task body file")
+	sourceWorkspace := fs.String("source-workspace", "", "source workspace id or path")
+	projectRef := fs.String("project", ".", "project id or path for short ids")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, flagArgs := takeLeadingPositionals(args, 1)
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
+	}
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "task edit requires <short-id-or-task-id>")
+		return 2
+	}
+	titleProvided := flagWasProvided(fs, "title")
+	bodyProvided := flagWasProvided(fs, "body")
+	bodyFileProvided := flagWasProvided(fs, "body-file")
+	workspaceProvided := flagWasProvided(fs, "source-workspace")
+	if !titleProvided && !bodyProvided && !bodyFileProvided && !workspaceProvided {
+		fmt.Fprintln(stderr, "task edit requires at least one of --title, --body, --body-file, or --source-workspace")
+		return 2
+	}
+	if bodyProvided && bodyFileProvided {
+		fmt.Fprintln(stderr, "--body cannot be combined with --body-file")
+		return 2
+	}
+	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() { _ = remote.Close() }()
+	taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, *projectRef, positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// Send title only when provided; omitting it leaves the persisted title unchanged.
+	req := serverapi.WorkflowTaskUpdateRequest{TaskID: taskID}
+	if titleProvided {
+		req.Title = title
+	}
+	if bodyProvided || bodyFileProvided {
+		newBody, err := readTaskEditBody(*body, *bodyFile, bodyFileProvided)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		req.Body = &newBody
+	}
+	if workspaceProvided {
+		workspaceID, err := resolveWorkflowSourceWorkspaceID(context.Background(), cfg, remote, *sourceWorkspace)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		req.SourceWorkspaceID = workspaceID
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
+	defer cancel()
+	resp, err := remote.UpdateWorkflowTask(ctx, req)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if *jsonOut {
+		if err := json.NewEncoder(stdout).Encode(resp); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Fprintf(stdout, "Edited task %s.\n", taskSummaryDisplayID(resp.Task))
+	return 0
+}
+
+// readTaskEditBody reads the replacement body for task edit. Unlike task create,
+// an empty value is allowed (it clears the body) since the caller opted into a
+// body change by passing the flag.
+func readTaskEditBody(body string, bodyFile string, bodyFileProvided bool) (string, error) {
+	if bodyFileProvided {
+		content, err := os.ReadFile(bodyFile)
+		if err != nil {
+			return "", fmt.Errorf("read --body-file: %w", err)
+		}
+		return string(content), nil
+	}
+	return body, nil
 }
 
 func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1667,10 +1771,14 @@ func workflowTaskPlacementByID(task serverapi.WorkflowTaskDetail, placementID st
 }
 
 func taskDisplayID(task serverapi.WorkflowTaskDetail) string {
-	if shortID := strings.TrimSpace(task.Summary.ShortID); shortID != "" {
+	return taskSummaryDisplayID(task.Summary)
+}
+
+func taskSummaryDisplayID(summary serverapi.WorkflowTaskSummary) string {
+	if shortID := strings.TrimSpace(summary.ShortID); shortID != "" {
 		return shortID
 	}
-	return strings.TrimSpace(task.Summary.ID)
+	return strings.TrimSpace(summary.ID)
 }
 
 func placementDisplayKey(placement serverapi.WorkflowPlacement, fallbackNodeID string) string {

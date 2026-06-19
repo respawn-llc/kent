@@ -1,5 +1,6 @@
 Usage of kent task:
-  kent task create --title <title> (--body <body>|--body-file <path>) [--workflow <workflow>] [--project <project>] [--source-url <url>] [--json]
+  kent task create --title <title> (--body <body>|--body-file <path>) [--workflow <workflow>] [--project <project>] [--source-url <url>] [--source-workspace <id-or-path>] [--json]
+  kent task edit <short-id-or-task-id> [--title <title>] [--body <body>|--body-file <path>] [--source-workspace <id-or-path>] [--project <project>] [--json]
   kent task start <short-id-or-task-id>
   kent task resume <short-id-or-task-id>
   kent task approve <transition-id>

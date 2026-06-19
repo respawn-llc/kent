@@ -144,6 +144,10 @@ type ProjectWorkspaceSummary struct {
 type ProjectUpdateRequest struct {
 	ProjectID   string `json:"project_id"`
 	DisplayName string `json:"display_name"`
+	// ProjectKey, when non-empty, renames the project key used as the prefix for
+	// future task short IDs. Empty leaves the existing key unchanged. Existing
+	// task short IDs are frozen at creation and are not rewritten by a rename.
+	ProjectKey string `json:"project_key,omitempty"`
 }
 
 type ProjectUpdateResponse struct {
@@ -255,7 +259,7 @@ func (r ProjectCreateRequest) Validate() error {
 		return errors.New("workspace_root is required")
 	}
 	if trimmedKey := strings.TrimSpace(r.ProjectKey); trimmedKey != "" && !isValidProjectKey(trimmedKey) {
-		return errors.New("project_key must match ^[A-Z][A-Z0-9]{1,7}$")
+		return errInvalidProjectKeyFormat
 	}
 	return nil
 }
@@ -263,6 +267,9 @@ func (r ProjectCreateRequest) Validate() error {
 func (r ProjectUpdateRequest) Validate() error {
 	if strings.TrimSpace(r.ProjectID) == "" {
 		return errors.New("project_id is required")
+	}
+	if trimmedKey := strings.TrimSpace(r.ProjectKey); trimmedKey != "" && !isValidProjectKey(trimmedKey) {
+		return errInvalidProjectKeyFormat
 	}
 	return validateProjectDisplayName(r.DisplayName)
 }
@@ -358,6 +365,10 @@ func (r SessionListByProjectRequest) Validate() error {
 	}
 	return nil
 }
+
+const projectKeyPattern = "^[A-Z][A-Z0-9]{1,7}$"
+
+var errInvalidProjectKeyFormat = errors.New("project_key must match " + projectKeyPattern)
 
 func isValidProjectKey(key string) bool {
 	if len(key) < 2 || len(key) > 8 {

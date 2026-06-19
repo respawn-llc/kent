@@ -23,7 +23,7 @@ type CreateTaskRequest struct {
 
 type UpdateTaskRequest struct {
 	TaskID            workflow.TaskID
-	Title             string
+	Title             *string
 	Body              *string
 	SourceWorkspaceID string
 }
@@ -162,11 +162,10 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 }
 
 func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskRecord, error) {
-	title := strings.TrimSpace(req.Title)
 	if strings.TrimSpace(string(req.TaskID)) == "" {
 		return TaskRecord{}, errors.New("task id is required")
 	}
-	if title == "" {
+	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
 		return TaskRecord{}, errors.New("task title is required")
 	}
 	now := s.now().UnixMilli()
@@ -179,6 +178,10 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 	task, err := q.GetTask(ctx, string(req.TaskID))
 	if err != nil {
 		return TaskRecord{}, err
+	}
+	title := task.Title
+	if req.Title != nil {
+		title = strings.TrimSpace(*req.Title)
 	}
 	body := task.Body
 	if req.Body != nil {

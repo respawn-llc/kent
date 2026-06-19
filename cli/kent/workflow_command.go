@@ -164,6 +164,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
+	completionMode := fs.String("completion-mode", "", "completion mode for agent nodes: auto|structured_output|tool|shell_command|unstructured_output")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -194,7 +195,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, DisplayName: *displayName, SubagentRole: *agent, PromptTemplate: *prompt})
+	resp, err := remote.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, DisplayName: *displayName, SubagentRole: *agent, PromptTemplate: *prompt, CompletionMode: *completionMode})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -210,6 +211,7 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
+	completionMode := fs.String("completion-mode", "", "completion mode for agent nodes: auto|structured_output|tool|shell_command|unstructured_output")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -251,6 +253,9 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	if fs.Lookup("agent") != nil && flagWasProvided(fs, "agent") {
 		updated.SubagentRole = *agent
 	}
+	if flagWasProvided(fs, "completion-mode") {
+		updated.CompletionMode = strings.TrimSpace(*completionMode)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
 	resp, err := remote.UpdateWorkflowNode(ctx, serverapi.WorkflowNodeUpdateRequest{
@@ -262,6 +267,7 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		GroupKey:           updated.GroupKey,
 		SubagentRole:       updated.SubagentRole,
 		PromptTemplate:     updated.PromptTemplate,
+		CompletionMode:     updated.CompletionMode,
 		InputFields:        updated.InputFields,
 		JoinInputProviders: updated.JoinInputProviders,
 	})
@@ -716,6 +722,9 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	fmt.Fprintln(stdout, "nodes")
 	for _, node := range def.Nodes {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", node.ID, node.Key, node.Kind, node.DisplayName, node.SubagentRole)
+		if node.CompletionMode != "" {
+			fmt.Fprintf(stdout, "completion_mode\t%s\t%s\n", node.Key, node.CompletionMode)
+		}
 		for _, field := range node.OutputFields {
 			fmt.Fprintf(stdout, "output_field\t%s\t%s\t%s\n", node.Key, field.Name, field.Description)
 		}
@@ -913,6 +922,38 @@ func resolveWorkflowProjectID(ctx context.Context, cfg config.App, remote workfl
 			return "", errWorkspaceNotRegistered
 		}
 		return strings.TrimSpace(resp.Binding.ProjectID), nil
+	}
+	return trimmed, nil
+}
+
+// resolveWorkflowSourceWorkspaceID resolves a --source-workspace reference to a
+// workspace id. A path-like reference (".", a path separator, or an existing
+// path) is resolved through its project binding; any other value is treated as
+// an explicit workspace id.
+func resolveWorkflowSourceWorkspaceID(ctx context.Context, cfg config.App, remote workflowCommandRemote, ref string) (string, error) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "", errors.New("source workspace is required")
+	}
+	if trimmed == "." || strings.Contains(trimmed, string(os.PathSeparator)) || pathExists(trimmed) {
+		path := trimmed
+		if trimmed == "." {
+			path = cfg.WorkspaceRoot
+		}
+		abs, err := normalizeBindingCommandPath(path)
+		if err != nil {
+			return "", err
+		}
+		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
+		defer cancel()
+		resp, err := remote.ResolveProjectPath(rpcCtx, serverapi.ProjectResolvePathRequest{Path: abs})
+		if err != nil {
+			return "", err
+		}
+		if resp.Binding == nil || strings.TrimSpace(resp.Binding.WorkspaceID) == "" {
+			return "", errWorkspaceNotRegistered
+		}
+		return strings.TrimSpace(resp.Binding.WorkspaceID), nil
 	}
 	return trimmed, nil
 }
