@@ -22,9 +22,7 @@ type CreateTaskRequest struct {
 }
 
 type UpdateTaskRequest struct {
-	TaskID workflow.TaskID
-	// Title is an optional partial-update field: nil keeps the persisted title,
-	// a non-nil pointer replaces it (and must be non-empty).
+	TaskID            workflow.TaskID
 	Title             *string
 	Body              *string
 	SourceWorkspaceID string

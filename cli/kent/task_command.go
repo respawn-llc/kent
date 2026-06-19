@@ -221,9 +221,7 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	// Title is an optional partial-update field, so send it only when the caller
-	// passed --title. Omitting it leaves the persisted title untouched server-side
-	// without a read-modify-write that could clobber a concurrent title edit.
+	// Send title only when provided; omitting it leaves the persisted title unchanged.
 	req := serverapi.WorkflowTaskUpdateRequest{TaskID: taskID}
 	if titleProvided {
 		req.Title = title
