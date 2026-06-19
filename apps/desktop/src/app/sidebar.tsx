@@ -264,7 +264,7 @@ export function SidebarHost() {
           tabIndex={0}
         />
         <header
-          className="absolute top-0 right-0 left-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] bg-[var(--color-island-0)] px-[var(--space-4)] py-[var(--space-3)] [backdrop-filter:blur(8px)]"
+          className="absolute top-0 right-0 left-0 z-10 grid grid-cols-[auto_minmax(0,auto)_minmax(0,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] bg-[var(--color-island-0)] px-[var(--space-4)] py-[var(--space-3)] [backdrop-filter:blur(8px)]"
           ref={headerRef}
         >
           <IconTooltipButton
@@ -278,7 +278,7 @@ export function SidebarHost() {
           <h2 className="m-0 min-w-0 truncate text-[1.05rem] font-bold" id={titleId}>
             {title}
           </h2>
-          <div className="flex items-center gap-[var(--space-2)] justify-self-end">
+          <div className="flex min-w-0 items-center justify-end gap-[var(--space-2)] justify-self-end">
             <SidebarInboxNavSlot destination={activeDestination} />
             <SidebarPopOutSlot destination={activeDestination} title={title} />
             <SidebarHeaderActionSlot />
