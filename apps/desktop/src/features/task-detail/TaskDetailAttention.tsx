@@ -39,7 +39,7 @@ export function QuestionBox({
   const recommendedOption = recommendedOptionNumber(suggestions, recommendedOptionSource);
 
   return (
-    <Island aria-label={t("task.question")} className="p-[var(--space-4)]" level={1} unpadded>
+    <Island aria-label={t("task.question")} className="p-[var(--space-4)]" level={1} radius="l" unpadded>
       <QuestionForm
         answerQuestion={mutations.answerQuestion}
         attention={attention}
@@ -234,6 +234,7 @@ export function ApprovalBox({
       aria-label={t("task.approval")}
       className="grid gap-[var(--space-2)] p-[var(--space-2)]"
       level={1}
+      radius="l"
       unpadded
     >
       {transition !== undefined ? (
