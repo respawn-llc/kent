@@ -32,14 +32,14 @@ export function DetailSection({
           {title}
         </h3>
       ) : (
-        <span className="inline-flex items-center gap-[var(--space-1)]">
+        <div className="inline-flex items-center gap-[var(--space-1)]">
           <h3 className="m-0 text-sm font-bold" id={titleID}>
             {title}
           </h3>
           {titleHelp === undefined ? null : (
             <HelpHint className="shrink-0" label={titleHelp} side="right" />
           )}
-        </span>
+        </div>
       )}
       {children}
     </IslandSurface>

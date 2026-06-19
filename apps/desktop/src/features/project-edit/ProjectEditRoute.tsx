@@ -96,9 +96,12 @@ function ProjectEditContent({
   const mutating =
     disabled || save.isPending || defaultSave.isPending || attach.isPending || unlink.isPending;
   const nameErrors = projectNameErrors(nameDraft, t);
-  const keyErrors = projectKeyErrors(keyDraft, t);
   const nameChanged = nameDraft !== project.displayName;
   const keyChanged = keyDraft !== project.projectKey;
+  // Validate the key only when the user actually changed it. A project may have an empty persisted
+  // key (the update API treats an empty key as "unchanged"), so validating an untouched empty key
+  // would wrongly keep canSave false and block name-only saves.
+  const keyErrors = keyChanged ? projectKeyErrors(keyDraft, t) : [];
   const dirty = nameChanged || keyChanged;
   const pushToast = useCallback(
     (id: string, tone: "info" | "success" | "danger", body: string, title = t("projectEdit.title")) => {

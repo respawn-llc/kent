@@ -126,13 +126,16 @@ func (s Service) contextWithLease(mutation bool) (context.Context, context.Cance
 	if s.Client == nil {
 		return nil, nil, "", ErrClientUnavailable
 	}
-	if s.Runtime.Context == nil || s.Runtime.CurrentLeaseID == nil || s.Runtime.RecoverLease == nil {
+	if s.Runtime.CurrentLeaseID == nil || s.Runtime.RecoverLease == nil {
 		return nil, nil, "", ErrControllerLeaseUnavailable
 	}
 	if mutation && s.Runtime.MutationContext != nil {
 		if ctx, cancel := s.Runtime.MutationContext(); ctx != nil && cancel != nil {
 			return ctx, cancel, s.Runtime.CurrentLeaseID(), nil
 		}
+		return nil, nil, "", ErrControllerLeaseUnavailable
+	}
+	if s.Runtime.Context == nil {
 		return nil, nil, "", ErrControllerLeaseUnavailable
 	}
 	ctx, cancel := s.Runtime.Context()

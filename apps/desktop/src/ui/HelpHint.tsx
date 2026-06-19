@@ -5,23 +5,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../com
 import { cx } from "./classes";
 import type { IslandLevel } from "./islandSurfaceStyles";
 
-export type HelpHintProps = Readonly<{
-  /**
-   * Tooltip content shown on hover/focus. Pass already-resolved copy
-   * (e.g. `t("some.key")`); the component stays i18n-agnostic so callers
-   * own translation and interpolation.
-   */
-  label: ReactNode;
+type HelpHintBaseProps = Readonly<{
   /**
    * Icon rendered in both the trigger and the tooltip. Defaults to a circled
    * question mark; pass any Lucide icon to customize.
    */
   icon?: LucideIcon | undefined;
-  /**
-   * Accessible name for the trigger button. Defaults to `label` when it is a
-   * plain string; provide explicitly when `label` is rich content.
-   */
-  ariaLabel?: string | undefined;
   /** Tooltip placement relative to the trigger. */
   side?: "top" | "right" | "bottom" | "left" | undefined;
   /** Surface depth for the tooltip background. */
@@ -29,6 +18,17 @@ export type HelpHintProps = Readonly<{
   /** Extra classes for the trigger hit area. */
   className?: string | undefined;
 }>;
+
+/**
+ * `label` is the tooltip content shown on hover/focus. Pass already-resolved
+ * copy (e.g. `t("some.key")`); the component stays i18n-agnostic so callers own
+ * translation and interpolation. A string `label` doubles as the trigger's
+ * accessible name (overridable via `ariaLabel`); when `label` is rich content
+ * the trigger has no derivable name, so `ariaLabel` becomes required.
+ */
+export type HelpHintProps =
+  | (HelpHintBaseProps & Readonly<{ label: string; ariaLabel?: string | undefined }>)
+  | (HelpHintBaseProps & Readonly<{ label: ReactNode; ariaLabel: string }>);
 
 /** Diameter of the rendered question/help glyph, per design spec. */
 const ICON_SIZE = 14;
