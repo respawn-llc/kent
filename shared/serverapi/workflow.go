@@ -641,8 +641,12 @@ type WorkflowTaskCreateResponse struct {
 }
 
 type WorkflowTaskUpdateRequest struct {
-	TaskID            string  `json:"task_id"`
-	Title             string  `json:"title"`
+	TaskID string `json:"task_id"`
+	// Title is an optional partial-update field, mirroring Body: a nil pointer
+	// leaves the persisted title unchanged, so callers editing only the body (or
+	// source workspace) need not read-modify-write the current title. A non-nil
+	// pointer must hold a non-empty title.
+	Title             *string `json:"title,omitempty"`
 	Body              *string `json:"body,omitempty"`
 	SourceWorkspaceID string  `json:"source_workspace_id,omitempty"`
 }
@@ -1577,7 +1581,15 @@ func (r WorkflowTaskCreateRequest) Validate() error {
 }
 
 func (r WorkflowTaskUpdateRequest) Validate() error {
-	return validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("title", r.Title))
+	if err := validateRequired("task_id", r.TaskID); err != nil {
+		return err
+	}
+	// Title is optional (nil keeps the current title), but a provided title must
+	// be non-empty.
+	if r.Title != nil {
+		return validateRequired("title", *r.Title)
+	}
+	return nil
 }
 
 func (r WorkflowTaskStartRequest) Validate() error {

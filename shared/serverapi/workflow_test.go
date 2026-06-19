@@ -135,10 +135,13 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "", Body: "Body"}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
 		t.Fatalf("empty title error = %#v, want required on title", err)
 	}
-	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: "Task"}).Validate(); err != nil {
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: strPtr("Task")}).Validate(); err != nil {
 		t.Fatalf("valid task update rejected: %v", err)
 	}
-	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: " "}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1"}).Validate(); err != nil {
+		t.Fatalf("title-omitted task update rejected: %v", err)
+	}
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: strPtr(" ")}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
 		t.Fatalf("empty update title error = %#v, want required on title", err)
 	}
 	if err := (WorkflowTaskStartRequest{TaskID: "task-1"}).Validate(); err != nil {
@@ -379,3 +382,5 @@ func TestWorkflowDeleteRequestValidation(t *testing.T) {
 		t.Fatalf("negative task count error = %#v, want invalid_mode on expected_task_count", err)
 	}
 }
+
+func strPtr(s string) *string { return &s }

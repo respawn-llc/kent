@@ -221,16 +221,12 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	// UpdateWorkflowTask requires a title, so reuse the current one unless the
-	// caller is changing it.
-	current, err := getWorkflowTaskByID(context.Background(), remote, taskID)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	req := serverapi.WorkflowTaskUpdateRequest{TaskID: taskID, Title: current.Summary.Title}
+	// Title is an optional partial-update field, so send it only when the caller
+	// passed --title. Omitting it leaves the persisted title untouched server-side
+	// without a read-modify-write that could clobber a concurrent title edit.
+	req := serverapi.WorkflowTaskUpdateRequest{TaskID: taskID}
 	if titleProvided {
-		req.Title = *title
+		req.Title = title
 	}
 	if bodyProvided || bodyFileProvided {
 		newBody, err := readTaskEditBody(*body, *bodyFile, bodyFileProvided)
