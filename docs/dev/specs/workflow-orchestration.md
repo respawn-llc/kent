@@ -262,7 +262,7 @@
 
 - Q: Should workflow definitions use a stable graph file format in v1? A: No; SQLite/API/CLI are authoritative for v1.
 - Q: Is task creation the same as starting automation? A: No; creation makes a backlog task, and task-start is explicit.
-- Q: Is completion mode per workflow/node? A: No; it is a global config with per-run effective-mode snapshots.
+- Q: Is completion mode per workflow/node? A: A global `[workflow].completion_mode` config provides the default, agent nodes may override it, and per-run effective-mode snapshots record the resolved value.
 - Q: Should workflow runs have a wall-clock cap? A: No v1 wall-clock cap.
 - Q: Should v1 auto-retry interrupted/runtime-failed runs? A: No; human resume is required.
 - Q: Are racing/first-success parallel branches in scope? A: No; joins wait for all required inputs.

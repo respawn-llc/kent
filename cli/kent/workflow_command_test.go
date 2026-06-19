@@ -443,6 +443,89 @@ func (r *preservingNodeUpdateRemote) UpdateWorkflowNode(_ context.Context, req s
 	return serverapi.WorkflowNodeUpdateResponse{Version: 2}, nil
 }
 
+func TestWorkflowNodeAddSetsCompletionMode(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &completionModeCaptureRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "add", "workflow-1", "--key", "implement", "--kind", "agent", "--completion-mode", "tool")
+	if code != 0 {
+		t.Fatalf("workflow node add exit=%d stderr=%q", code, stderr)
+	}
+	if remote.addReq.CompletionMode != "tool" {
+		t.Fatalf("add request completion mode = %q, want tool", remote.addReq.CompletionMode)
+	}
+}
+
+func TestWorkflowNodeUpdateSetsCompletionMode(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &completionModeCaptureRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "update", "workflow-1", "implement", "--completion-mode", "shell_command")
+	if code != 0 {
+		t.Fatalf("workflow node update exit=%d stderr=%q", code, stderr)
+	}
+	if remote.updateReq.CompletionMode != "shell_command" {
+		t.Fatalf("update request completion mode = %q, want shell_command", remote.updateReq.CompletionMode)
+	}
+}
+
+func TestWorkflowNodeUpdatePreservesCompletionMode(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &completionModeCaptureRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "update", "workflow-1", "implement", "--display-name", "Implement It")
+	if code != 0 {
+		t.Fatalf("workflow node update exit=%d stderr=%q", code, stderr)
+	}
+	if remote.updateReq.CompletionMode != "structured_output" {
+		t.Fatalf("update request completion mode = %q, want preserved structured_output", remote.updateReq.CompletionMode)
+	}
+}
+
+type completionModeCaptureRemote struct {
+	client.WorkflowClient
+	addReq    serverapi.WorkflowNodeAddRequest
+	updateReq serverapi.WorkflowNodeUpdateRequest
+}
+
+func (r *completionModeCaptureRemote) Close() error { return nil }
+
+func (r *completionModeCaptureRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *completionModeCaptureRemote) GetWorkflow(context.Context, serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+	return serverapi.WorkflowGetResponse{Definition: serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1", Name: "Workflow"},
+		Nodes: []serverapi.WorkflowNode{{
+			ID:             "node-implement",
+			WorkflowID:     "workflow-1",
+			Key:            "implement",
+			Kind:           "agent",
+			DisplayName:    "Implement",
+			SubagentRole:   "workflow-test",
+			PromptTemplate: "Implement.",
+			CompletionMode: "structured_output",
+		}},
+	}}, nil
+}
+
+func (r *completionModeCaptureRemote) AddWorkflowNode(_ context.Context, req serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error) {
+	r.addReq = req
+	return serverapi.WorkflowNodeAddResponse{Version: 2}, nil
+}
+
+func (r *completionModeCaptureRemote) UpdateWorkflowNode(_ context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+	r.updateReq = req
+	return serverapi.WorkflowNodeUpdateResponse{Version: 3}, nil
+}
+
 func TestWorkflowEditCommandsRejectLegacyWiringFlags(t *testing.T) {
 	tests := []struct {
 		name string
