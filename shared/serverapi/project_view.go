@@ -259,7 +259,7 @@ func (r ProjectCreateRequest) Validate() error {
 		return errors.New("workspace_root is required")
 	}
 	if trimmedKey := strings.TrimSpace(r.ProjectKey); trimmedKey != "" && !isValidProjectKey(trimmedKey) {
-		return errors.New("project_key must match ^[A-Z][A-Z0-9]{1,7}$")
+		return errInvalidProjectKeyFormat
 	}
 	return nil
 }
@@ -269,7 +269,7 @@ func (r ProjectUpdateRequest) Validate() error {
 		return errors.New("project_id is required")
 	}
 	if trimmedKey := strings.TrimSpace(r.ProjectKey); trimmedKey != "" && !isValidProjectKey(trimmedKey) {
-		return errors.New("project_key must match ^[A-Z][A-Z0-9]{1,7}$")
+		return errInvalidProjectKeyFormat
 	}
 	return validateProjectDisplayName(r.DisplayName)
 }
@@ -365,6 +365,10 @@ func (r SessionListByProjectRequest) Validate() error {
 	}
 	return nil
 }
+
+const projectKeyPattern = "^[A-Z][A-Z0-9]{1,7}$"
+
+var errInvalidProjectKeyFormat = errors.New("project_key must match " + projectKeyPattern)
 
 func isValidProjectKey(key string) bool {
 	if len(key) < 2 || len(key) > 8 {

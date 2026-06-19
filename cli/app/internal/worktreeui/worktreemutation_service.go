@@ -43,7 +43,7 @@ func (s Service) List(includeDirtyCount bool) (serverapi.WorktreeListResponse, e
 		// Server-side listing syncs workspace metadata under the controller lease.
 		return serverapi.WorktreeListResponse{}, ErrReadOnlyRuntime
 	}
-	ctx, cancel, leaseID, err := s.controlContextWithLease()
+	ctx, cancel, leaseID, err := s.contextWithLease(false)
 	if err != nil {
 		return serverapi.WorktreeListResponse{}, err
 	}
@@ -104,7 +104,7 @@ func runMutation[T any](s Service, call func(context.Context, string) (T, error)
 	if s.Runtime.ReadOnly != nil && s.Runtime.ReadOnly() {
 		return zero, ErrReadOnlyRuntime
 	}
-	ctx, cancel, _, err := s.mutationContextWithLease()
+	ctx, cancel, _, err := s.contextWithLease(true)
 	if err != nil {
 		return zero, err
 	}
@@ -112,14 +112,6 @@ func runMutation[T any](s Service, call func(context.Context, string) (T, error)
 	return retryControlCall(ctx, s.Runtime.CurrentLeaseID, s.Runtime.RecoverLease, s.Runtime.AppendRecoveryWarning, func(controllerLeaseID string) (T, error) {
 		return call(ctx, controllerLeaseID)
 	})
-}
-
-func (s Service) controlContextWithLease() (context.Context, context.CancelFunc, string, error) {
-	return s.contextWithLease(false)
-}
-
-func (s Service) mutationContextWithLease() (context.Context, context.CancelFunc, string, error) {
-	return s.contextWithLease(true)
 }
 
 func (s Service) contextWithLease(mutation bool) (context.Context, context.CancelFunc, string, error) {
