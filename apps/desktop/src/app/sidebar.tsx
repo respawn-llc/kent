@@ -263,8 +263,12 @@ export function SidebarHost() {
           role="separator"
           tabIndex={0}
         />
+        {/* The title column is content-sized so a long node/edge id ellipsizes inside the flexible
+            action track instead of forcing the title to truncate. The action track is floored at
+            min-content (the fixed-size buttons), so a pathologically long title truncates the title
+            rather than pushing the inbox/pop-out/delete controls off the header. */}
         <header
-          className="absolute top-0 right-0 left-0 z-10 grid grid-cols-[auto_minmax(0,auto)_minmax(0,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] bg-[var(--color-island-0)] px-[var(--space-4)] py-[var(--space-3)] [backdrop-filter:blur(8px)]"
+          className="absolute top-0 right-0 left-0 z-10 grid grid-cols-[auto_minmax(0,auto)_minmax(min-content,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] bg-[var(--color-island-0)] px-[var(--space-4)] py-[var(--space-3)] [backdrop-filter:blur(8px)]"
           ref={headerRef}
         >
           <IconTooltipButton
