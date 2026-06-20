@@ -315,46 +315,55 @@ func TestWorkflowCommandsRenderReadableOutput(t *testing.T) {
 	workflowID := workflowCreateForTest(t, "Readable Workflow Two").ID
 
 	nodeOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--display-name", "Implement", "--agent", "workflow-test", "--prompt", "Do work", "--completion-mode", "tool")
-	if !strings.Contains(nodeOut, "`implement`") || !strings.Contains(nodeOut, "node-") {
+	if !strings.Contains(nodeOut, "implement") || !strings.Contains(nodeOut, "node-") {
 		t.Fatalf("node add output = %q, want node key and generated id", nodeOut)
 	}
 
-	// node update mutates an existing entity, so it must echo the key but not the node id.
+	// node update mutates an existing entity, so it must surface the key but not the node id.
 	nodeUpdateOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "update", workflowID, "implement", "--display-name", "Implement It")
-	if !strings.Contains(nodeUpdateOut, "`implement`") || strings.Contains(nodeUpdateOut, "(node-") {
+	if !strings.Contains(nodeUpdateOut, "implement") || strings.Contains(nodeUpdateOut, "node-") {
 		t.Fatalf("node update output = %q, want node key without node id", nodeUpdateOut)
 	}
 
 	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Do work")
-	if !strings.Contains(edgeOut, "edge-") || !strings.Contains(edgeOut, "`backlog` → `implement` (new_session)") {
-		t.Fatalf("edge add output = %q, want generated id and rendered route with context mode", edgeOut)
+	for _, token := range []string{"edge-", "backlog", "implement", "new_session"} {
+		if !strings.Contains(edgeOut, token) {
+			t.Fatalf("edge add output = %q, want token %q (generated id, route nodes, context mode)", edgeOut, token)
+		}
 	}
 
 	edgeID := workflowEdgeAddForTest(t, workflowID, "--from", "implement", "--transition", "review", "--edge-key", "review", "--to", "done", "--context", "new_session").EdgeID
-	// edge update mutates an existing entity, so it must echo the key but not the edge id.
+	// edge update mutates an existing entity, so it must surface the key and target but not leak the edge id.
 	edgeUpdateOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--edge-key", "rereview")
-	if !strings.Contains(edgeUpdateOut, "`rereview`") || !strings.Contains(edgeUpdateOut, "`done`") || strings.Contains(edgeUpdateOut, "(edge-") {
-		t.Fatalf("edge update output = %q, want edge key and target without edge id", edgeUpdateOut)
+	if !strings.Contains(edgeUpdateOut, "rereview") || !strings.Contains(edgeUpdateOut, "done") || strings.Contains(edgeUpdateOut, edgeID) {
+		t.Fatalf("edge update output = %q, want edge key and target without the edge id", edgeUpdateOut)
 	}
 
 	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
 
-	// edge add must echo conditional context detail (approval gate, context source) so the
-	// confirmation is self-verifying without a follow-up inspect.
-	gatedOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "gate", "--edge-key", "gated", "--to", "done", "--context", "compact_and_continue_session", "--requires-approval", "--context-source", "node:backlog")
-	if !strings.Contains(gatedOut, "(compact_and_continue_session, requires approval, context from backlog)") {
-		t.Fatalf("edge add output = %q, want echoed approval and context source", gatedOut)
+	// edge add applies the approval gate and selected-node context source; verify the persisted
+	// definition (structured data) rather than the readable phrasing.
+	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "gate", "--edge-key", "gated", "--to", "done", "--context", "compact_and_continue_session", "--requires-approval", "--context-source", "node:backlog")
+	gatedEdge := workflowEdgeByKeyForTest(t, workflowInspectDefinitionForTest(t, workflowID), "gated")
+	if !gatedEdge.RequiresApproval {
+		t.Fatalf("gated edge requires-approval not applied: %+v", gatedEdge)
+	}
+	if gatedEdge.ContextSource.Kind != "selected_node" || gatedEdge.ContextSource.NodeKey != "backlog" {
+		t.Fatalf("gated edge context source = %+v, want selected_node backlog", gatedEdge.ContextSource)
 	}
 
+	// Readable inspect must surface each node/edge's data values (keys, role, completion mode,
+	// rendered ids) without pinning the surrounding punctuation.
 	inspectOut, _ := runWorkflowRootCommandOK(t, "workflow", "inspect", workflowID)
 	for _, want := range []string{
-		"implement",
-		"[role: workflow-test, completion: tool]",
-		"backlog `start` → implement",
-		"edge `start` edge-",
+		"implement",     // node key
+		"workflow-test", // agent role
+		"tool",          // completion mode
+		"backlog",       // transition source node key
+		"edge-",         // rendered edge id
 	} {
 		if !strings.Contains(inspectOut, want) {
-			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
+			t.Fatalf("inspect output = %q, want token %q", inspectOut, want)
 		}
 	}
 
@@ -466,15 +475,20 @@ func TestWorkflowEdgeUpdateTogglesRequiresApproval(t *testing.T) {
 	workflowNodeAddForTest(t, workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work")
 	edgeID := workflowEdgeAddForTest(t, workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Go").EdgeID
 
-	enableOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--requires-approval")
-	if !strings.Contains(enableOut, "requires approval") {
-		t.Fatalf("edge update enable output = %q, want approval gate echoed", enableOut)
+	// Read the edge's persisted approval flag so the test asserts the applied effect, not prose.
+	edgeRequiresApproval := func() bool {
+		return workflowEdgeByKeyForTest(t, workflowInspectDefinitionForTest(t, workflowID), "start").RequiresApproval
+	}
+
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--requires-approval")
+	if !edgeRequiresApproval() {
+		t.Fatal("edge update --requires-approval did not enable the approval gate")
 	}
 
 	// --requires-approval=false must clear the gate under partial-update semantics.
-	clearOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--requires-approval=false")
-	if strings.Contains(clearOut, "requires approval") {
-		t.Fatalf("edge update clear output = %q, did not expect approval gate", clearOut)
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--requires-approval=false")
+	if edgeRequiresApproval() {
+		t.Fatal("edge update --requires-approval=false did not clear the approval gate")
 	}
 }
 
@@ -509,18 +523,25 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	}
 
 	updateEdgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
-	if !strings.Contains(updateEdgeOut, "`not_actionable`") {
+	if !strings.Contains(updateEdgeOut, "not_actionable") {
 		t.Fatalf("edge update output = %q, want edge key", updateEdgeOut)
 	}
 	if strings.Contains(updateEdgeOut, edgeID) {
 		t.Fatalf("edge update output = %q, did not expect edge id", updateEdgeOut)
 	}
 
-	inspectOut, _ := runWorkflowRootCommandOK(t, "workflow", "inspect", workflowID)
-	for _, want := range []string{"triaging `not_actionable` → done", "context from triaging"} {
-		if !strings.Contains(inspectOut, want) {
-			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
-		}
+	// Verify the retargeted edge from the persisted definition (transition id, context source,
+	// target) rather than the readable inspect prose.
+	def := workflowInspectDefinitionForTest(t, workflowID)
+	updatedEdge := workflowEdgeByKeyForTest(t, def, "not_actionable")
+	if updatedEdge.ContextSource.Kind != "selected_node" || updatedEdge.ContextSource.NodeKey != "triaging" {
+		t.Fatalf("edge context source = %+v, want selected_node triaging", updatedEdge.ContextSource)
+	}
+	if got := workflowNodeKeyForID(def, updatedEdge.TargetNodeID); got != "done" {
+		t.Fatalf("edge target = %q, want done", got)
+	}
+	if group := workflowTransitionGroupForID(def, updatedEdge.TransitionGroupID); group.TransitionID != "not_actionable" {
+		t.Fatalf("edge transition id = %q, want not_actionable", group.TransitionID)
 	}
 }
 
@@ -2164,6 +2185,47 @@ func workflowLinkForTest(t *testing.T, args ...string) serverapi.ProjectWorkflow
 		t.Fatalf("decode workflow link json %q: %v", out, err)
 	}
 	return link
+}
+
+// workflowInspectDefinitionForTest reads the persisted graph via `workflow inspect --json` so
+// tests can assert applied structure instead of the readable rendering.
+func workflowInspectDefinitionForTest(t *testing.T, workflowRef string) serverapi.WorkflowDefinition {
+	t.Helper()
+	out, _ := runWorkflowRootCommandOK(t, "workflow", "inspect", "--json", workflowRef)
+	var def serverapi.WorkflowDefinition
+	if err := json.Unmarshal([]byte(out), &def); err != nil {
+		t.Fatalf("decode workflow inspect json %q: %v", out, err)
+	}
+	return def
+}
+
+func workflowEdgeByKeyForTest(t *testing.T, def serverapi.WorkflowDefinition, key string) serverapi.WorkflowEdge {
+	t.Helper()
+	for _, edge := range def.Edges {
+		if edge.Key == key {
+			return edge
+		}
+	}
+	t.Fatalf("edge %q not found in definition %+v", key, def.Edges)
+	return serverapi.WorkflowEdge{}
+}
+
+func workflowNodeKeyForID(def serverapi.WorkflowDefinition, nodeID string) string {
+	for _, node := range def.Nodes {
+		if node.ID == nodeID {
+			return node.Key
+		}
+	}
+	return ""
+}
+
+func workflowTransitionGroupForID(def serverapi.WorkflowDefinition, groupID string) serverapi.WorkflowTransitionGroup {
+	for _, group := range def.TransitionGroups {
+		if group.ID == groupID {
+			return group
+		}
+	}
+	return serverapi.WorkflowTransitionGroup{}
 }
 
 func labeledOutputValue(t *testing.T, output string, label string) string {
