@@ -80,9 +80,8 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 		t.Fatalf("workflow list output = %q, want workflow id", listOut)
 	}
 
-	validateOut, _, code := runWorkflowRootCommand("workflow", "validate", workflowID)
-	if code == 0 || !strings.Contains(validateOut, "is invalid") {
-		t.Fatalf("invalid workflow validate code=%d output=%q", code, validateOut)
+	if validation, code := workflowValidateJSONForTest(t, workflowID); code == 0 || validation.Valid {
+		t.Fatalf("invalid workflow validate code=%d valid=%v", code, validation.Valid)
 	}
 
 	if workflowNodeAddForTest(t, workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work").NodeID == "" {
@@ -114,9 +113,8 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	}
 
 	runWorkflowRootCommandOK(t, "workflow", "link", binding.ProjectID, workflowID, "--default")
-	validateOut, _ = runWorkflowRootCommandOK(t, "workflow", "validate", workflowID)
-	if !strings.Contains(validateOut, "is valid") {
-		t.Fatalf("validate output = %q, want valid", validateOut)
+	if validation, code := workflowValidateJSONForTest(t, workflowID); code != 0 || !validation.Valid {
+		t.Fatalf("validate code=%d valid=%v, want valid", code, validation.Valid)
 	}
 
 	taskOut, _ := runWorkflowRootCommandOK(t, "task", "create", "--title", "Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID)
@@ -367,10 +365,9 @@ func TestWorkflowCommandsRenderReadableOutput(t *testing.T) {
 		}
 	}
 
-	// validate exits 0 only when the graph is valid; the echoed mode confirms the readable render.
-	validOut, _ := runWorkflowRootCommandOK(t, "workflow", "validate", workflowID, "--mode", "draft")
-	if !strings.Contains(validOut, "draft") {
-		t.Fatalf("validate output = %q, want echoed mode", validOut)
+	// validate reports valid only when the graph is complete; --mode draft must be accepted.
+	if validation, code := workflowValidateJSONForTest(t, workflowID, "--mode", "draft"); code != 0 || !validation.Valid {
+		t.Fatalf("validate --mode draft code=%d valid=%v, want valid", code, validation.Valid)
 	}
 
 	// link/default/unlink confirmations must reference the operands (ids) the caller passed.
@@ -551,9 +548,8 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	}
 
 	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, startEdgeID, "--transition", "start_review")
-	validateOut, _ := runWorkflowRootCommandOK(t, "workflow", "validate", workflowID)
-	if !strings.Contains(validateOut, "is valid") {
-		t.Fatalf("validate output = %q, want start branch prompt preserved", validateOut)
+	if validation, code := workflowValidateJSONForTest(t, workflowID); code != 0 || !validation.Valid {
+		t.Fatalf("validate code=%d valid=%v, want start branch prompt preserved", code, validation.Valid)
 	}
 
 	updateEdgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
@@ -2231,6 +2227,19 @@ func workflowInspectDefinitionForTest(t *testing.T, workflowRef string) serverap
 		t.Fatalf("decode workflow inspect json %q: %v", out, err)
 	}
 	return def
+}
+
+// workflowValidateJSONForTest runs `workflow validate --json` with the given args and returns the
+// structured response plus the process exit code, so callers assert validity via the typed Valid
+// field and the exit-code contract rather than the human-readable validation prose.
+func workflowValidateJSONForTest(t *testing.T, args ...string) (serverapi.WorkflowValidateResponse, int) {
+	t.Helper()
+	out, _, code := runWorkflowRootCommand(append([]string{"workflow", "validate", "--json"}, args...)...)
+	var resp serverapi.WorkflowValidateResponse
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatalf("workflow validate --json %v = %q, want JSON: %v", args, out, err)
+	}
+	return resp, code
 }
 
 func workflowEdgeByKeyForTest(t *testing.T, def serverapi.WorkflowDefinition, key string) serverapi.WorkflowEdge {
