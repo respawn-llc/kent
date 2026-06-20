@@ -123,7 +123,7 @@ function InboxItem({
   }
   return (
     <div ref={focusTargetRef}>
-      <Island aria-label={attention.kind || t("task.inbox")} className="grid gap-[var(--space-2)]" level={1}>
+      <Island aria-label={attention.kind || t("task.inbox")} className="grid gap-[var(--space-2)]" level={1} radius="l">
         <h3 className="m-0">{attention.kind || t("task.inbox")}</h3>
         <p className="m-0">{attention.message}</p>
       </Island>

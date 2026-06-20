@@ -363,11 +363,7 @@ func TestTaskCompleteAgentCrossSessionSelectorUsesServiceOwnershipError(t *testi
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
 	defer restore()
 
-	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", "Completion Workflow")
-	if code != 0 {
-		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
-	}
-	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	workflowID := workflowCreateForTest(t, "Completion Workflow").ID
 	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work"); code != 0 {
 		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
 	}

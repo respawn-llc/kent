@@ -178,6 +178,7 @@ export function PropertiesIsland({
       aria-label={t("task.properties")}
       className="grid min-w-0 content-start gap-[var(--space-2)] p-[var(--space-4)]"
       level={1}
+      radius="l"
       unpadded
     >
       <PropertyLine label={t("task.identifier", { defaultValue: "ID" })} value={<span className="font-mono">{detail.shortID}</span>} />

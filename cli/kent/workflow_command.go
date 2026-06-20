@@ -6,6 +6,7 @@ import (
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/workflowkey"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,6 +24,41 @@ const (
 	workflowCommandTimeout              = 5 * time.Second
 	workflowCommandWorkflowListPageSize = serverapi.WorkflowListMaxPageSize
 )
+
+// workflowListOutput is the machine-readable shape of `workflow list --json`.
+type workflowListOutput struct {
+	Workflows     []serverapi.WorkflowRecord `json:"workflows"`
+	NextPageToken string                     `json:"next_page_token,omitempty"`
+}
+
+// workflowNodeOutput is the machine-readable shape of `workflow node add/update --json`.
+type workflowNodeOutput struct {
+	WorkflowID string `json:"workflow_id"`
+	NodeID     string `json:"node_id"`
+	Key        string `json:"key"`
+	Kind       string `json:"kind,omitempty"`
+	Version    int64  `json:"version"`
+}
+
+// workflowEdgeOutput is the machine-readable shape of `workflow edge add/update --json`.
+type workflowEdgeOutput struct {
+	WorkflowID        string `json:"workflow_id"`
+	EdgeID            string `json:"edge_id"`
+	TransitionGroupID string `json:"transition_group_id"`
+	Key               string `json:"key,omitempty"`
+	TransitionID      string `json:"transition_id,omitempty"`
+	Version           int64  `json:"version"`
+}
+
+// writeWorkflowJSON encodes v as a single JSON line to stdout, reporting any
+// encode failure to stderr. It returns the process exit code to use.
+func writeWorkflowJSON(stdout io.Writer, stderr io.Writer, v any) int {
+	if err := json.NewEncoder(stdout).Encode(v); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
 
 type workflowCommandRemote interface {
 	client.WorkflowClient
@@ -80,10 +116,12 @@ func workflowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow create", stderr, workflowCommandUsage)
 	description := fs.String("description", "", "workflow description")
-	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseInterspersedPositionals(fs, args)
+	if !ok {
 		return exitCode
 	}
-	name := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	name := strings.TrimSpace(strings.Join(positionals, " "))
 	if name == "" {
 		fmt.Fprintln(stderr, "workflow create requires <name>")
 		return 2
@@ -102,7 +140,10 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "workflow_id\t%s\nname\t%s\n", resp.Workflow.ID, resp.Workflow.Name)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, resp.Workflow)
+	}
+	fmt.Fprintf(stdout, "Created workflow %q (%s).\n", resp.Workflow.Name, resp.Workflow.ID)
 	return 0
 }
 
@@ -110,6 +151,7 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	fs := newCommandFlagSet(config.Command+" workflow list", stderr, workflowCommandUsage)
 	pageSize := fs.Int("page-size", workflowCommandWorkflowListPageSize, "maximum workflows to print")
 	pageToken := fs.String("page-token", "", "page token from a previous workflow list")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -128,8 +170,11 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, workflowListOutput{Workflows: workflows, NextPageToken: nextPageToken})
+	}
 	for _, workflow := range workflows {
-		fmt.Fprintf(stdout, "%s\t%s\t%d\n", workflow.ID, workflow.Name, workflow.Version)
+		fmt.Fprintf(stdout, "%s: %s (v%d)\n", workflow.ID, workflow.Name, workflow.Version)
 	}
 	if strings.TrimSpace(nextPageToken) != "" {
 		fmt.Fprintf(stderr, "Next page token: `%s`\n", nextPageToken)
@@ -165,14 +210,10 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
 	completionMode := fs.String("completion-mode", "", "completion mode for agent nodes: auto|structured_output|tool|shell_command|unstructured_output")
-	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	workflowRef, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow node add requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	workflowRef = append(workflowRef, fs.Args()...)
-	if len(workflowRef) != 1 {
-		fmt.Fprintln(stderr, "workflow node add requires <workflow>")
-		return 2
 	}
 	if strings.TrimSpace(*key) == "" || strings.TrimSpace(*kind) == "" {
 		fmt.Fprintln(stderr, "workflow node add requires --key and --kind")
@@ -200,7 +241,10 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\nversion\t%d\n", nodeID, *key, resp.Version)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, workflowNodeOutput{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, Version: resp.Version})
+	}
+	fmt.Fprintf(stdout, "Added %s node `%s` (%s).\n", *kind, *key, nodeID)
 	return 0
 }
 
@@ -212,14 +256,10 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
 	completionMode := fs.String("completion-mode", "", "completion mode for agent nodes: auto|structured_output|tool|shell_command|unstructured_output")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow node update requires <workflow> <node-key>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow node update requires <workflow> <node-key>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -275,7 +315,10 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\nversion\t%d\n", updated.ID, updated.Key, resp.Version)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, workflowNodeOutput{WorkflowID: def.Workflow.ID, NodeID: updated.ID, Key: updated.Key, Kind: updated.Kind, Version: resp.Version})
+	}
+	fmt.Fprintf(stdout, "Updated node `%s`.\n", updated.Key)
 	return 0
 }
 
@@ -312,14 +355,10 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	transitionDescription := fs.String("transition-description", "", "model-facing transition description explaining when to pick it")
 	var params repeatedStringFlag
 	fs.Var(&params, "param", "transition parameter as key=description (repeatable); declares a value the source agent must produce")
-	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	workflowRef, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow edge add requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	workflowRef = append(workflowRef, fs.Args()...)
-	if len(workflowRef) != 1 {
-		fmt.Fprintln(stderr, "workflow edge add requires <workflow>")
-		return 2
 	}
 	if strings.TrimSpace(*fromKey) == "" || strings.TrimSpace(*transitionID) == "" || strings.TrimSpace(*edgeKey) == "" || strings.TrimSpace(*toKey) == "" || strings.TrimSpace(*contextMode) == "" {
 		fmt.Fprintln(stderr, "workflow edge add requires --from, --transition, --edge-key, --to, and --context")
@@ -409,7 +448,10 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\nversion\t%d\n", edgeID, groupID, resp.Version)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TransitionID: *transitionID, Version: resp.Version})
+	}
+	fmt.Fprintf(stdout, "Added edge `%s` (%s) on transition `%s`: `%s` → `%s` (%s).\n", *edgeKey, edgeID, *transitionID, *fromKey, *toKey, workflowEdgeContextDetail(*contextMode, *requiresApproval, parsedContextSource))
 	return 0
 }
 
@@ -422,18 +464,15 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
+	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs (use --requires-approval=false to clear)")
 	prompt := fs.String("prompt", "", "branch prompt template for agent targets")
 	var params repeatedStringFlag
 	fs.Var(&params, "param", "transition parameter as key=description (repeatable); replaces all parameters when provided")
 	clearParams := fs.Bool("clear-params", false, "remove all transition parameters")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow edge update requires <workflow> <edge-id>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow edge update requires <workflow> <edge-id>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -491,6 +530,9 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		}
 		updatedEdge.ContextSource = parsedContextSource
 	}
+	if flagWasProvided(fs, "requires-approval") {
+		updatedEdge.RequiresApproval = *requiresApproval
+	}
 	if flagWasProvided(fs, "prompt") {
 		updatedEdge.PromptTemplate = *prompt
 	}
@@ -537,21 +579,20 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\nversion\t%d\n", updatedEdge.ID, updatedEdge.TransitionGroupID, resp.Version)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TransitionID: updatedGroup.TransitionID, Version: resp.Version})
+	}
+	fmt.Fprintf(stdout, "Updated edge `%s`: `%s` → `%s` (%s).\n", updatedEdge.Key, updatedGroup.TransitionID, workflowNodeKeyOrID(workflowNodeKeyByID(def), updatedEdge.TargetNodeID), workflowEdgeContextDetail(updatedEdge.ContextMode, updatedEdge.RequiresApproval, updatedEdge.ContextSource))
 	return 0
 }
 
 func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow link", stderr, workflowCommandUsage)
 	defaultLink := fs.Bool("default", false, "make workflow project default")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow link requires <project> and <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow link requires <project> and <workflow>")
-		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -576,20 +617,23 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "link_id\t%s\nproject_id\t%s\nworkflow_id\t%s\ndefault\t%t\n", resp.Link.ID, resp.Link.ProjectID, resp.Link.WorkflowID, resp.Link.Default)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, resp.Link)
+	}
+	suffix := ""
+	if resp.Link.Default {
+		suffix = " as the default workflow"
+	}
+	fmt.Fprintf(stdout, "Linked workflow %s to project %s%s.\n", positionals[1], positionals[0], suffix)
 	return 0
 }
 
 func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(config.Command+" workflow unlink", stderr, workflowUsage)
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	fs := newCommandFlagSet(config.Command+" workflow unlink", stderr, workflowCommandUsage)
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow unlink requires <project> and <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow unlink requires <project> and <workflow>")
-		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -610,23 +654,26 @@ func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	if !resp.Unlinked {
+		if *jsonOut {
+			writeWorkflowJSON(stdout, stderr, resp)
+			return 1
+		}
 		writeWorkflowUnlinkBlockers(stderr, resp.Blockers)
 		return 1
 	}
-	fmt.Fprintf(stdout, "unlinked_link_id\t%s\n", link.ID)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, resp)
+	}
+	fmt.Fprintf(stdout, "Unlinked workflow %s from project %s.\n", positionals[1], positionals[0])
 	return 0
 }
 
 func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(config.Command+" workflow default", stderr, workflowUsage)
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	fs := newCommandFlagSet(config.Command+" workflow default", stderr, workflowCommandUsage)
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow default requires <project> and <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow default requires <project> and <workflow>")
-		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -651,7 +698,10 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "default_link_id\t%s\nproject_id\t%s\nworkflow_id\t%s\n", resp.Link.ID, resp.Link.ProjectID, resp.Link.WorkflowID)
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, resp.Link)
+	}
+	fmt.Fprintf(stdout, "Set workflow %s as the default for project %s.\n", positionals[1], positionals[0])
 	return 0
 }
 
@@ -659,14 +709,10 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 	fs := newCommandFlagSet(config.Command+" workflow validate", stderr, workflowCommandUsage)
 	mode := fs.String("mode", string(serverapi.WorkflowValidationModeExecution), "validation mode: draft|task_creation|execution")
 	_ = fs.String("project", "", "reserved project id/path")
-	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow validate requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 1 {
-		fmt.Fprintln(stderr, "workflow validate requires <workflow>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -686,26 +732,54 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "valid\t%t\n", resp.Valid)
+	if *jsonOut {
+		exit := writeWorkflowJSON(stdout, stderr, resp)
+		if exit == 0 && !resp.Valid {
+			return 1
+		}
+		return exit
+	}
+	if resp.Valid {
+		fmt.Fprintf(stdout, "Workflow %s is valid in %s mode.\n", workflowID, *mode)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Workflow %s is invalid in %s mode: %d error(s).\n", workflowID, *mode, len(resp.Errors))
 	for _, validationErr := range resp.Errors {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", validationErr.Code, validationErr.Message, validationErr.NodeID, validationErr.TransitionGroupID, validationErr.EdgeID)
+		writeWorkflowValidationError(stdout, validationErr)
 	}
-	if !resp.Valid {
-		return 1
+	return 1
+}
+
+func writeWorkflowValidationError(stdout io.Writer, err serverapi.WorkflowValidationError) {
+	location := workflowValidationErrorLocation(err)
+	if location != "" {
+		fmt.Fprintf(stdout, "- [%s] %s (%s)\n", err.Code, err.Message, location)
+		return
 	}
-	return 0
+	fmt.Fprintf(stdout, "- [%s] %s\n", err.Code, err.Message)
+}
+
+// workflowValidationErrorLocation names the graph element a validation error
+// points at, preferring the most specific id present.
+func workflowValidationErrorLocation(err serverapi.WorkflowValidationError) string {
+	switch {
+	case strings.TrimSpace(err.EdgeID) != "":
+		return "edge " + strings.TrimSpace(err.EdgeID)
+	case strings.TrimSpace(err.TransitionGroupID) != "":
+		return "transition group " + strings.TrimSpace(err.TransitionGroupID)
+	case strings.TrimSpace(err.NodeID) != "":
+		return "node " + strings.TrimSpace(err.NodeID)
+	default:
+		return ""
+	}
 }
 
 func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet(config.Command+" workflow inspect", stderr, workflowUsage)
-	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	fs := newCommandFlagSet(config.Command+" workflow inspect", stderr, workflowCommandUsage)
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow inspect requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 1 {
-		fmt.Fprintln(stderr, "workflow inspect requires <workflow>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -718,34 +792,110 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "workflow_id\t%s\nname\t%s\nversion\t%d\n", def.Workflow.ID, def.Workflow.Name, def.Workflow.Version)
-	fmt.Fprintln(stdout, "nodes")
-	for _, node := range def.Nodes {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", node.ID, node.Key, node.Kind, node.DisplayName, node.SubagentRole)
-		if node.CompletionMode != "" {
-			fmt.Fprintf(stdout, "completion_mode\t%s\t%s\n", node.Key, node.CompletionMode)
-		}
-		for _, field := range node.OutputFields {
-			fmt.Fprintf(stdout, "output_field\t%s\t%s\t%s\n", node.Key, field.Name, field.Description)
-		}
+	if *jsonOut {
+		return writeWorkflowJSON(stdout, stderr, def)
 	}
-	fmt.Fprintln(stdout, "transition_groups")
-	for _, group := range def.TransitionGroups {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", group.ID, group.SourceNodeID, group.TransitionID, group.DisplayName)
-	}
-	fmt.Fprintln(stdout, "edges")
-	for _, edge := range def.Edges {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%t\n", edge.ID, edge.TransitionGroupID, edge.Key, edge.TargetNodeID, edge.ContextMode, edge.RequiresApproval)
-		source := canonicalAPIContextSource(edge.ContextSource)
-		fmt.Fprintf(stdout, "context_source\t%s\t%s\t%s\n", edge.Key, source.Kind, source.NodeKey)
-		for _, binding := range edge.InputBindings {
-			fmt.Fprintf(stdout, "input_binding\t%s\t%s\t%s\t%s\n", edge.Key, binding.Name, binding.Source, binding.Field)
-		}
-		for _, requirement := range edge.OutputRequirements {
-			fmt.Fprintf(stdout, "output_requirement\t%s\t%s\n", edge.Key, requirement.FieldName)
-		}
-	}
+	writeWorkflowDefinition(stdout, def)
 	return 0
+}
+
+func writeWorkflowDefinition(stdout io.Writer, def serverapi.WorkflowDefinition) {
+	fmt.Fprintf(stdout, "Workflow %q (%s), version %d.\n", def.Workflow.Name, def.Workflow.ID, def.Workflow.Version)
+	if description := strings.TrimSpace(def.Workflow.Description); description != "" {
+		fmt.Fprintf(stdout, "Description: %s\n", description)
+	}
+	writeWorkflowDefinitionNodes(stdout, def.Nodes)
+	writeWorkflowDefinitionTransitions(stdout, def)
+}
+
+func writeWorkflowDefinitionNodes(stdout io.Writer, nodes []serverapi.WorkflowNode) {
+	fmt.Fprintf(stdout, "\nNodes (%d):\n", len(nodes))
+	for _, node := range nodes {
+		line := fmt.Sprintf("- %s (%s): %s", node.Key, node.Kind, node.DisplayName)
+		if attrs := workflowNodeAttrs(node); attrs != "" {
+			line += "  [" + attrs + "]"
+		}
+		fmt.Fprintln(stdout, line)
+		for _, field := range node.OutputFields {
+			fmt.Fprintf(stdout, "    output `%s` — %s\n", field.Name, field.Description)
+		}
+	}
+}
+
+// workflowNodeAttrs renders the agent-only attributes worth surfacing in a node
+// listing: its subagent role and explicit completion mode.
+func workflowNodeAttrs(node serverapi.WorkflowNode) string {
+	attrs := make([]string, 0, 2)
+	if role := strings.TrimSpace(node.SubagentRole); role != "" {
+		attrs = append(attrs, "role: "+role)
+	}
+	if mode := strings.TrimSpace(node.CompletionMode); mode != "" {
+		attrs = append(attrs, "completion: "+mode)
+	}
+	return strings.Join(attrs, ", ")
+}
+
+func writeWorkflowDefinitionTransitions(stdout io.Writer, def serverapi.WorkflowDefinition) {
+	nodeKeyByID := workflowNodeKeyByID(def)
+	edgesByGroup := make(map[string][]serverapi.WorkflowEdge, len(def.TransitionGroups))
+	for _, edge := range def.Edges {
+		edgesByGroup[edge.TransitionGroupID] = append(edgesByGroup[edge.TransitionGroupID], edge)
+	}
+	fmt.Fprintf(stdout, "\nTransitions (%d):\n", len(def.TransitionGroups))
+	for _, group := range def.TransitionGroups {
+		sourceKey := workflowNodeKeyOrID(nodeKeyByID, group.SourceNodeID)
+		edges := edgesByGroup[group.ID]
+		if len(edges) == 1 {
+			writeWorkflowEdgeLine(stdout, fmt.Sprintf("- %s `%s` → ", sourceKey, group.TransitionID), edges[0], nodeKeyByID)
+		} else {
+			fmt.Fprintf(stdout, "- %s `%s` fans out (%s):\n", sourceKey, group.TransitionID, group.ID)
+			for _, edge := range edges {
+				writeWorkflowEdgeLine(stdout, "    → ", edge, nodeKeyByID)
+			}
+		}
+		if description := strings.TrimSpace(group.Description); description != "" {
+			fmt.Fprintf(stdout, "    when: %s\n", description)
+		}
+	}
+}
+
+func writeWorkflowEdgeLine(stdout io.Writer, prefix string, edge serverapi.WorkflowEdge, nodeKeyByID map[string]string) {
+	targetKey := workflowNodeKeyOrID(nodeKeyByID, edge.TargetNodeID)
+	detail := workflowEdgeContextDetail(edge.ContextMode, edge.RequiresApproval, edge.ContextSource)
+	fmt.Fprintf(stdout, "%s%s  (edge `%s` %s, %s)\n", prefix, targetKey, edge.Key, edge.ID, detail)
+	if len(edge.Parameters) > 0 {
+		keys := make([]string, 0, len(edge.Parameters))
+		for _, param := range edge.Parameters {
+			keys = append(keys, param.Key)
+		}
+		fmt.Fprintf(stdout, "    params: %s\n", strings.Join(keys, ", "))
+	}
+}
+
+func workflowEdgeContextDetail(contextMode string, requiresApproval bool, contextSource serverapi.WorkflowContextSource) string {
+	detail := contextMode
+	if requiresApproval {
+		detail += ", requires approval"
+	}
+	if source := canonicalAPIContextSource(contextSource); source.Kind == "selected_node" && strings.TrimSpace(source.NodeKey) != "" {
+		detail += ", context from " + strings.TrimSpace(source.NodeKey)
+	}
+	return detail
+}
+
+func workflowNodeKeyByID(def serverapi.WorkflowDefinition) map[string]string {
+	nodeKeyByID := make(map[string]string, len(def.Nodes))
+	for _, node := range def.Nodes {
+		nodeKeyByID[node.ID] = node.Key
+	}
+	return nodeKeyByID
+}
+
+func workflowNodeKeyOrID(nodeKeyByID map[string]string, nodeID string) string {
+	if key := strings.TrimSpace(nodeKeyByID[nodeID]); key != "" {
+		return key
+	}
+	return strings.TrimSpace(nodeID)
 }
 
 func parseWorkflowContextSourceSelector(raw string) (serverapi.WorkflowContextSource, error) {
@@ -983,17 +1133,18 @@ func resolveWorkflowProjectLink(ctx context.Context, cfg config.App, remote work
 
 func writeWorkflowUnlinkBlockers(stderr io.Writer, blockers []serverapi.WorkflowUnlinkProjectBlocker) {
 	if len(blockers) == 0 {
-		fmt.Fprintln(stderr, "workflow link was not unlinked")
+		fmt.Fprintln(stderr, "Workflow link was not removed.")
 		return
 	}
+	fmt.Fprintln(stderr, "Cannot unlink; resolve these blockers first:")
 	for _, blocker := range blockers {
 		if blocker.Count > 0 {
-			fmt.Fprintf(stderr, "%s\t%s\t%d\n", blocker.Code, blocker.Message, blocker.Count)
+			fmt.Fprintf(stderr, "- [%s] %s (%d)\n", blocker.Code, blocker.Message, blocker.Count)
 		} else {
-			fmt.Fprintf(stderr, "%s\t%s\n", blocker.Code, blocker.Message)
+			fmt.Fprintf(stderr, "- [%s] %s\n", blocker.Code, blocker.Message)
 		}
 		for _, task := range blocker.Tasks {
-			fmt.Fprintf(stderr, "task\t%s\t%s\t%s\n", task.TaskID, task.ShortID, task.Title)
+			fmt.Fprintf(stderr, "    %s: %s\n", task.ShortID, task.Title)
 		}
 	}
 }
@@ -1063,6 +1214,43 @@ func pathExists(path string) bool {
 	}
 	_, err := os.Stat(filepath.Clean(path))
 	return err == nil
+}
+
+// parseInterspersedPositionals parses fs while allowing positional arguments to appear before,
+// between, or after flags. Go's flag package stops at the first non-flag argument, so this
+// reparses the remainder after each positional, honoring flags that surround a positional in any
+// order (e.g. both `--description "x" "Name"` and a trailing `--json`). It returns the collected
+// positionals, or false with an exit code when flag parsing fails.
+func parseInterspersedPositionals(fs *flag.FlagSet, args []string) ([]string, bool, int) {
+	var positionals []string
+	rest := args
+	for {
+		if ok, code := parseCommandFlags(fs, rest); !ok {
+			return nil, false, code
+		}
+		rest = fs.Args()
+		if len(rest) == 0 {
+			return positionals, true, 0
+		}
+		positionals = append(positionals, rest[0])
+		rest = rest[1:]
+	}
+}
+
+// parseWorkflowPositionals parses fs while allowing flags (notably a leading --json) to surround
+// the positionals in any order, then enforces the expected positional count, printing usage on a
+// mismatch. It returns the positionals, or false with an exit code when parsing or the count check
+// fails.
+func parseWorkflowPositionals(fs *flag.FlagSet, args []string, count int, stderr io.Writer, usage string) ([]string, bool, int) {
+	positionals, ok, code := parseInterspersedPositionals(fs, args)
+	if !ok {
+		return nil, false, code
+	}
+	if len(positionals) != count {
+		fmt.Fprintln(stderr, usage)
+		return nil, false, 2
+	}
+	return positionals, true, 0
 }
 
 func takeLeadingPositionals(args []string, count int) ([]string, []string) {

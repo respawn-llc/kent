@@ -41,10 +41,11 @@ To understand what `--agent` roles are available (the reminder in your context m
 
 Important CLI behavior:
 
+- Every `workflow` command prints readable plaintext by default and accepts `--json` for machine-readable output. Use `--json` in scripts to read ids and versions; use the default output interactively.
 - `workflow create` auto-creates the initial backlog/start and done/terminal shape; inspect after create before adding duplicate start or terminal nodes.
 - Workflow references can be exact workflow IDs or exact workflow names. Prefer IDs in scripts and exact names in interactive work.
 - Agent roles are stored exactly as provided. Replace role placeholders with configured subagent role names instead of assuming `default` is normalized.
-- `workflow node add` returns a generated `node_id`. Edges are authored with node keys via `--from` and `--to`.
+- `workflow node add` returns the generated node id. Edges are authored with node keys via `--from` and `--to`.
 - `workflow edge add` creates or reuses the transition group for the given source node and transition ID, then adds an edge to that group.
 - Agent-targeting edges require `--prompt <text>`. Omit `--prompt` for edges targeting `start`, `join`, or `terminal` nodes.
 - Link, unlink, and set project defaults with `kent workflow link`, `kent workflow unlink`, and `kent workflow default`. This sets up bindings between a project (repo, workspace) and a workflow, and enables sharing of workflows.
