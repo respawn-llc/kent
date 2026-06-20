@@ -117,11 +117,10 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	fs := newCommandFlagSet(config.Command+" workflow create", stderr, workflowCommandUsage)
 	description := fs.String("description", "", "workflow description")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseInterspersedPositionals(fs, args)
+	if !ok {
 		return exitCode
 	}
-	positionals = append(positionals, fs.Args()...)
 	name := strings.TrimSpace(strings.Join(positionals, " "))
 	if name == "" {
 		fmt.Fprintln(stderr, "workflow create requires <name>")
@@ -1260,6 +1259,27 @@ func pathExists(path string) bool {
 	}
 	_, err := os.Stat(filepath.Clean(path))
 	return err == nil
+}
+
+// parseInterspersedPositionals parses fs while allowing positional arguments to appear before,
+// between, or after flags. Go's flag package stops at the first non-flag argument, so this
+// reparses the remainder after each positional, honoring flags that surround a positional in any
+// order (e.g. both `--description "x" "Name"` and a trailing `--json`). It returns the collected
+// positionals, or false with an exit code when flag parsing fails.
+func parseInterspersedPositionals(fs *flag.FlagSet, args []string) ([]string, bool, int) {
+	var positionals []string
+	rest := args
+	for {
+		if ok, code := parseCommandFlags(fs, rest); !ok {
+			return nil, false, code
+		}
+		rest = fs.Args()
+		if len(rest) == 0 {
+			return positionals, true, 0
+		}
+		positionals = append(positionals, rest[0])
+		rest = rest[1:]
+	}
 }
 
 func takeLeadingPositionals(args []string, count int) ([]string, []string) {

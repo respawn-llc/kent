@@ -429,18 +429,31 @@ func TestWorkflowCreateAcceptsTrailingJSONFlag(t *testing.T) {
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
 	defer restore()
 
-	// The name positional precedes the flag, so create must still honor a trailing --json
-	// rather than folding it into the workflow name.
-	out, _, code := runWorkflowRootCommand("workflow", "create", "Trailing Flag Flow", "--json")
-	if code != 0 {
-		t.Fatalf("workflow create exit=%d out=%q", code, out)
+	// Flags may surround the name positional in any order: a trailing --json after the name, and
+	// a leading --description before the name, must both be parsed as flags rather than folded
+	// into the workflow name.
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "name then json", args: []string{"workflow", "create", "Trailing Flag Flow", "--json"}, want: "Trailing Flag Flow"},
+		{name: "leading description then name then json", args: []string{"workflow", "create", "--description", "scripted", "Leading Desc Flow", "--json"}, want: "Leading Desc Flow"},
 	}
-	var record serverapi.WorkflowRecord
-	if err := json.Unmarshal([]byte(out), &record); err != nil {
-		t.Fatalf("workflow create trailing --json = %q, want JSON: %v", out, err)
-	}
-	if record.Name != "Trailing Flag Flow" {
-		t.Fatalf("workflow name = %q, want %q", record.Name, "Trailing Flag Flow")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _, code := runWorkflowRootCommand(tc.args...)
+			if code != 0 {
+				t.Fatalf("workflow create exit=%d out=%q", code, out)
+			}
+			var record serverapi.WorkflowRecord
+			if err := json.Unmarshal([]byte(out), &record); err != nil {
+				t.Fatalf("workflow create %v = %q, want JSON: %v", tc.args, out, err)
+			}
+			if record.Name != tc.want {
+				t.Fatalf("workflow name = %q, want %q", record.Name, tc.want)
+			}
+		})
 	}
 }
 
