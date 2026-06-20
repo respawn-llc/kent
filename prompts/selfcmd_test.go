@@ -13,7 +13,7 @@ func TestShortCommandMatchesWhenLookPathResolvesToSameBinary(t *testing.T) {
 		}
 		return p, nil
 	}
-	if !shortCommandMatches("/opt/kent/bin/kent", lookPath, eval) {
+	if !shortCommandResolvesToRunningBinary("/opt/kent/bin/kent", lookPath, eval) {
 		t.Fatal("expected short command to match running executable through symlink resolution")
 	}
 }
@@ -21,16 +21,32 @@ func TestShortCommandMatchesWhenLookPathResolvesToSameBinary(t *testing.T) {
 func TestShortCommandDoesNotMatchDifferentBinary(t *testing.T) {
 	lookPath := func(string) (string, error) { return "/usr/local/bin/kent", nil }
 	eval := func(p string) (string, error) { return p, nil }
-	if shortCommandMatches("/opt/other/kent", lookPath, eval) {
+	if shortCommandResolvesToRunningBinary("/opt/other/kent", lookPath, eval) {
 		t.Fatal("expected mismatch when resolved binaries differ")
 	}
 }
 
-func TestShortCommandDoesNotMatchWhenNotOnPath(t *testing.T) {
+func TestShortCommandDoesNotMatchWhenNotResolvable(t *testing.T) {
 	lookPath := func(string) (string, error) { return "", errors.New("not found") }
 	eval := func(p string) (string, error) { return p, nil }
-	if shortCommandMatches("/opt/kent/bin/kent", lookPath, eval) {
-		t.Fatal("expected mismatch when short command is not resolvable on PATH")
+	if shortCommandResolvesToRunningBinary("/opt/kent/bin/kent", lookPath, eval) {
+		t.Fatal("expected verbose path when the short command is not resolvable")
+	}
+}
+
+// Two distinct binaries can share the file name `kent`; the short command must
+// only collapse onto the one it actually resolves to, never onto any same-named
+// binary. A same-named binary at a different on-disk location must not collapse.
+func TestShortCommandDoesNotMatchSameNamedDifferentBinary(t *testing.T) {
+	lookPath := func(string) (string, error) { return "/usr/local/bin/kent", nil }
+	eval := func(p string) (string, error) {
+		if p == "/usr/local/bin/kent" {
+			return "/opt/legit/kent", nil
+		}
+		return p, nil
+	}
+	if shortCommandResolvesToRunningBinary("/opt/other/kent", lookPath, eval) {
+		t.Fatal("expected verbose path when a different binary shares the brand command name")
 	}
 }
 
