@@ -90,19 +90,25 @@ func shortCommandResolvesToRunningBinary(executablePath string, lookPath func(st
 	return canonicalResolved == canonicalExecutable
 }
 
-// loginShellLookPath resolves a command to its absolute path the same way the
-// shell tool executes injected commands: through the operator's login shell
-// (`$SHELL -lc`). This is essential because the server can run with a stripped
-// environment (e.g. macOS launchd/GUI start, PATH = /usr/bin:/bin:/usr/sbin:/sbin)
-// while the agent — and the operator — invoke `kent` through a login shell that
-// sources their profile and reconstructs the real PATH. Resolving against the
-// process PATH would otherwise both miss a perfectly valid `kent` and disagree
-// with the binary the command would actually run. Falls back to the process PATH
-// when no login shell is available.
+// loginShellLookupShell mirrors the shell tool's default execution shell
+// (server/tools/shell/exec_command_tool.go): the operator's `$SHELL`, falling
+// back to `/bin/sh` when it is unset. Keep these in sync so a collapsed short
+// command is only emitted when the shell that will run it can resolve it.
+const loginShellLookupShell = "/bin/sh"
+
+// loginShellLookPath resolves a command to its absolute path through the same
+// login shell the shell tool uses to execute injected commands (`$SHELL -lc`,
+// or `/bin/sh -lc` when $SHELL is unset). This matters because the server can run
+// with a stripped environment (e.g. macOS launchd/GUI start, PATH =
+// /usr/bin:/bin:/usr/sbin:/sbin) while that login shell sources the operator's
+// profile and reconstructs the real PATH. Resolution is deliberately scoped to the
+// execution shell rather than the process PATH: a short command must only be
+// collapsed onto when the shell that will run it can find the same binary, so any
+// resolution failure returns an error and the caller keeps the absolute path.
 func loginShellLookPath(name string) (string, error) {
 	shell := strings.TrimSpace(os.Getenv("SHELL"))
 	if shell == "" {
-		return exec.LookPath(name)
+		shell = loginShellLookupShell
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), loginShellLookupTimeout)
 	defer cancel()
@@ -110,7 +116,7 @@ func loginShellLookPath(name string) (string, error) {
 	// command text carries no untrusted data.
 	out, err := exec.CommandContext(ctx, shell, "-lc", "command -v -- "+name).Output()
 	if err != nil {
-		return exec.LookPath(name)
+		return "", err
 	}
 	resolved := strings.TrimSpace(string(out))
 	if !filepath.IsAbs(resolved) {
