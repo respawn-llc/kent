@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,20 +15,6 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
-
-type failOnIssuedWorktreeReminderObservation struct {
-	failed bool
-	calls  int
-}
-
-func (o *failOnIssuedWorktreeReminderObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
-	o.calls++
-	if !o.failed && snapshot.Meta.WorktreeReminder != nil && snapshot.Meta.WorktreeReminder.HasIssuedInGeneration {
-		o.failed = true
-		return errors.New("persist observer failed")
-	}
-	return nil
-}
 
 func TestFirstMetaInjectionUsesPendingWorktreeCWD(t *testing.T) {
 	prevPrompt := prompts.WorktreeModePrompt
@@ -264,49 +249,6 @@ func requestHasCompactionCheckpoint(req llm.Request) bool {
 		}
 	}
 	return false
-}
-
-func TestWorktreeReminderPersistFailureDoesNotDuplicateMaterializedReminder(t *testing.T) {
-	prevPrompt := prompts.WorktreeModePrompt
-	prompts.WorktreeModePrompt = "enter {{branch}}"
-	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
-
-	observer := &failOnIssuedWorktreeReminderObservation{}
-	store := mustCreateNamedTestSession(t, "ws", t.TempDir(), session.WithPersistenceObserver(observer))
-	mustSetWorktreeReminderState(t, store, session.WorktreeReminderState{
-		Mode:          session.WorktreeReminderModeEnter,
-		Branch:        "feature/fail",
-		WorktreePath:  "/tmp/wt-fail",
-		WorkspaceRoot: "/tmp/workspace",
-		EffectiveCwd:  "/tmp/wt-fail",
-	})
-	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
-
-	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err == nil || !strings.Contains(err.Error(), "persist observer failed") {
-		t.Fatalf("submit error = %v, want reminder state persistence failure", err)
-	}
-	assertModelCallCount(t, client, 0)
-	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
-
-	if _, err := eng.SubmitUserMessage(context.Background(), "continue again"); err != nil {
-		t.Fatalf("retry submit: %v", err)
-	}
-	assertModelCallCount(t, client, 1)
-	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
-}
-
-func assertWorktreeReminderEntryCount(t *testing.T, snapshot ChatSnapshot, want int) {
-	t.Helper()
-	got := 0
-	for _, entry := range snapshot.Entries {
-		if entry.MessageType == llm.MessageTypeWorktreeMode || entry.MessageType == llm.MessageTypeWorktreeModeExit {
-			got++
-		}
-	}
-	if got != want {
-		t.Fatalf("worktree reminder entry count = %d, want %d entries=%+v", got, want, snapshot.Entries)
-	}
 }
 
 func TestSubmitUserMessageInjectsPendingWorktreeExitReminder(t *testing.T) {

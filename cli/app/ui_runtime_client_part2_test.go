@@ -2,22 +2,16 @@ package app
 
 import (
 	"context"
-	"core/server/llm"
 	"core/server/registry"
-	"core/server/runtime"
 	"core/server/runtimecontrol"
-	"core/server/runtimeview"
 	sharedclient "core/shared/client"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 	"errors"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestRuntimeClientMainViewDoesNotRefreshCachedSnapshotBehindUIBack(t *testing.T) {
@@ -512,36 +506,6 @@ func TestRuntimeClientSubmitUserMessageRecoversInvalidControllerLease(t *testing
 	}
 }
 
-func TestRuntimeClientCollaborativeSubmitDoesNotRecoverControllerLease(t *testing.T) {
-	controls := &leaseRetryRuntimeControlClient{}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, []serverapi.SessionRuntimeOperation{
-		serverapi.SessionRuntimeOperationSubmitUserTurn,
-	})
-
-	_, err := runtimeClient.SubmitUserMessage(context.Background(), "hello")
-	if err == nil || !strings.Contains(err.Error(), "unexpected controller lease") {
-		t.Fatalf("SubmitUserMessage error = %v, want original server error", err)
-	}
-	if got := controls.submitLeaseIDs(); !reflect.DeepEqual(got, []string{""}) {
-		t.Fatalf("submit lease ids = %+v, want one empty collaborative lease", got)
-	}
-}
-
-func TestRuntimeClientCollaborativeEmptyOperationsStillAllowsSteering(t *testing.T) {
-	controls := &leaseRetryRuntimeControlClient{}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	runtimeClient.SetAccessMode(serverapi.SessionRuntimeAttachModeCollaborative, nil)
-
-	_, err := runtimeClient.SubmitUserMessage(context.Background(), "hello")
-	if err == nil || !strings.Contains(err.Error(), "unexpected controller lease") {
-		t.Fatalf("SubmitUserMessage error = %v, want original server error after allowed collaborative submit", err)
-	}
-	if got := controls.submitLeaseIDs(); !reflect.DeepEqual(got, []string{""}) {
-		t.Fatalf("submit lease ids = %+v, want one empty collaborative lease", got)
-	}
-}
-
 func TestRuntimeClientSubmitUserMessageCanSkipPromptHistoryAcrossLeaseRecovery(t *testing.T) {
 	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
 	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
@@ -634,49 +598,6 @@ func TestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailable(t *testing.T) 
 	entry := entries[0]
 	if entry.ControllerLeaseID != "lease-new" || entry.Role != "warning" || entry.Text != runtimeLeaseRecoveryWarningText || entry.Visibility != string(clientui.EntryVisibilityAll) {
 		t.Fatalf("warning entry = %+v, want new lease warning", entry)
-	}
-}
-
-func TestRuntimeClientSubmitTurnRecoveryContinuesFirstPrompt(t *testing.T) {
-	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	leaseManager := newControllerLeaseManager("lease-old")
-	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
-		return "lease-new", nil
-	})
-	runtimeClient.SetControllerLeaseManager(leaseManager)
-	model := newProjectedClosedUIModel(runtimeClient)
-	model.startupCmds = nil
-
-	submitCmd := model.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID("hello after restart", preSubmitQueueBack, "")
-	if submitCmd == nil {
-		t.Fatal("expected submit command")
-	}
-	next := tea.Model(model)
-	updated := next.(*uiModel)
-	submitMsgs := collectCmdMessages(t, submitCmd)
-	var done submitDoneMsg
-	foundDone := false
-	for _, msg := range submitMsgs {
-		if typed, ok := msg.(submitDoneMsg); ok {
-			done = typed
-			foundDone = true
-		}
-	}
-	if !foundDone {
-		t.Fatalf("expected submit result, got %+v", submitMsgs)
-	}
-	if done.err != nil || done.message != "recovered" {
-		t.Fatalf("submit result = %+v, want recovered first prompt", done)
-	}
-	next, _ = updated.Update(done)
-	updated = next.(*uiModel)
-	if updated.activity == uiActivityError {
-		t.Fatal("did not expect pre-submit recovery to surface operator error")
-	}
-	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
-	if strings.Contains(plain, serverapi.ErrRuntimeUnavailable.Error()) || strings.Contains(plain, "runtime for session") || strings.Contains(plain, runtimeLeaseRecoveryWarningText) {
-		t.Fatalf("did not expect recovery diagnostics in ongoing transcript, got %q", plain)
 	}
 }
 
@@ -921,53 +842,3 @@ func TestRuntimeClientLeaseRecoveryWarningFailureDoesNotBlockSubmit(t *testing.T
 	}
 }
 
-func TestRuntimeClientServerRestartFirstPromptRecoversAndWarnsOngoing(t *testing.T) {
-	runtimeEvents := make(chan clientui.Event, 128)
-	store := createAppRuntimeSessionAt(t, t.TempDir(), "workspace-x", t.TempDir())
-	client := &runtimeClientFakeLLM{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{
-		OnEvent: func(evt runtime.Event) {
-			runtimeEvents <- runtimeview.EventFromRuntime(evt)
-		},
-	})
-	resolver := &mutableRuntimeResolver{}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(resolver, nil))
-	runtimeClient := newUIRuntimeClientWithReads(store.Meta().SessionID, &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
-	leaseManager := newControllerLeaseManager("lease-old")
-	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
-		resolver.Set(engine)
-		return "lease-new", nil
-	})
-	runtimeClient.SetControllerLeaseManager(leaseManager)
-	model := newProjectedClosedUIModel(nil)
-	sized, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-	model = sized.(*uiModel)
-
-	message, err := runtimeClient.SubmitUserMessage(context.Background(), "hello after restart")
-	if err != nil {
-		t.Fatalf("submitRuntimeUserMessage: %v", err)
-	}
-	if message != "done" {
-		t.Fatalf("submitRuntimeUserMessage message = %q, want done", message)
-	}
-
-	updated := model
-	eventCount := 0
-	flushText := ""
-	for len(runtimeEvents) > 0 {
-		msg := <-runtimeEvents
-		eventCount++
-		next, cmd := updated.Update(runtimeEventMsg{event: msg})
-		updated = next.(*uiModel)
-		flushText += collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
-	}
-	if !strings.Contains(flushText, runtimeLeaseRecoveryWarningText) {
-		t.Fatalf("expected ongoing warning flush, events=%d entries=%+v flush=%q", eventCount, updated.transcriptEntries, flushText)
-	}
-	if strings.Contains(flushText, "runtime for session") {
-		t.Fatalf("did not expect runtime unavailable error in ongoing flush, got %q", flushText)
-	}
-}

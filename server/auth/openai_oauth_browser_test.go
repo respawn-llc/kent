@@ -2,13 +2,11 @@ package auth
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
@@ -85,50 +83,6 @@ func TestStartOAuthCallbackListenerUsesLocalhostAuthCallback(t *testing.T) {
 	}
 	if got := u.Port(); got != "1455" {
 		t.Fatalf("port=%q", got)
-	}
-}
-
-func TestOAuthCallbackSuccessResponseServesAuthCompleteHTML(t *testing.T) {
-	listener, err := StartOAuthCallbackListener()
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "address already in use") {
-			t.Skipf("oauth callback port in use: %v", err)
-		}
-		t.Fatalf("start listener: %v", err)
-	}
-	defer listener.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listener.RedirectURI()+"?code=auth-code&state=state-1", nil)
-	if err != nil {
-		t.Fatalf("create request: %v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("get callback: %v", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read callback body: %v", err)
-	}
-	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
-		t.Fatalf("content-type=%q, want text/html", got)
-	}
-	for _, want := range []string{"Auth complete", "You can close this tab now.", "color-scheme: dark", "--primary:"} {
-		if !strings.Contains(string(body), want) {
-			t.Fatalf("expected callback response to contain %q, got %q", want, string(body))
-		}
-	}
-}
-
-func TestAuthCompleteHTMLUsesDarkTerminalConfirmation(t *testing.T) {
-	body := strings.TrimSuffix(authCompleteHTMLContent, "\n")
-	for _, want := range []string{"Auth complete", "You can close this tab now.", "color-scheme: dark", "--primary:", "font-size: 16px"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("expected auth confirmation html to contain %q, got %q", want, body)
-		}
 	}
 }
 

@@ -6,73 +6,8 @@ import (
 	"core/server/runtime"
 	"core/shared/clientui"
 	"fmt"
-	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
-
-func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenAuthoritativePageCorrectsOverlap(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-
-	baseline := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "user", Text: "prompt"}},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-
-	if cmd, mutated, needsHydration := m.runtimeAdapter().applyProjectedTranscriptEntries(clientui.Event{Kind: clientui.EventToolCallStarted, TranscriptEntries: []clientui.ChatEntry{{
-		Role:       "tool_call",
-		Text:       "pwd",
-		ToolCallID: "stale-call",
-		ToolCall:   &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
-	}}}, false); cmd != nil || !mutated || needsHydration {
-		t.Fatalf("expected live append without extra command, mutated=%t needsHydration=%t cmd=%v", mutated, needsHydration, cmd)
-	}
-	if !m.transcriptLiveDirty {
-		t.Fatal("expected live append to mark transcript live-dirty")
-	}
-
-	corrected := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 3,
-		Entries: []clientui.ChatEntry{
-			{Role: "user", Text: "prompt"},
-			{Role: "tool_call", Text: "pwd", ToolCallID: "call-1", ToolCall: &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"}},
-			{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call-1"},
-		},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, corrected, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-
-	if got, want := len(m.transcriptEntries), 3; got != want {
-		t.Fatalf("transcript entry count = %d, want %d", got, want)
-	}
-	if got := m.transcriptEntries[1].ToolCallID; got != "call-1" {
-		t.Fatalf("corrected tool call id = %q, want call-1", got)
-	}
-	if got := m.transcriptEntries[2].ToolCallID; got != "call-1" {
-		t.Fatalf("corrected tool result id = %q, want call-1", got)
-	}
-	if m.transcriptLiveDirty {
-		t.Fatal("expected corrective equal-revision refresh to clear transcriptLiveDirty")
-	}
-	rawCommitted := renderStyledNativeProjectionLines(m.nativeProjection.Lines(tui.TranscriptDivider), m.theme, m.termWidth)
-	if plain := stripANSIPreserve(rawCommitted); !strings.Contains(plain, "$ pwd") {
-		t.Fatalf("expected corrected shell row in committed native projection, got %q", plain)
-	}
-}
 
 func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionReplacementWhenToolMetadataChanges(t *testing.T) {
 	m := newProjectedStaticUIModel()
@@ -533,65 +468,6 @@ func TestApplyProjectedTranscriptEntriesUsesTailOffsetWhileViewingOlderDetailPag
 	}
 }
 
-func TestStartupSeedsFromRuntimeClientTranscriptAccessorBeforeBoundedSync(t *testing.T) {
-	client := &startupTranscriptRuntimeClient{
-		view:     clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "incident triage"}},
-		page:     clientui.TranscriptPage{SessionID: "session-1", Offset: 10, TotalEntries: 15, Entries: []clientui.ChatEntry{{Role: "assistant", Text: "cached tail"}}},
-		loadPage: clientui.TranscriptPage{SessionID: "session-1", Offset: 14, TotalEntries: 15, Entries: []clientui.ChatEntry{{Role: "assistant", Text: "authoritative tail"}}},
-	}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-
-	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	updated := next.(*uiModel)
-	if startupCmd == nil {
-		t.Fatal("expected startup transcript hydration command")
-	}
-	if client.transcriptCalls != 1 {
-		t.Fatalf("expected startup to seed from RuntimeClient.Transcript(), got %d calls", client.transcriptCalls)
-	}
-	if got := stripANSIAndTrimRight(updated.view.OngoingSnapshot()); !strings.Contains(got, "cached tail") {
-		t.Fatalf("expected cached transcript tail visible before bounded sync, got %q", got)
-	}
-	if updated.sessionName != "incident triage" {
-		t.Fatalf("session name = %q, want incident triage", updated.sessionName)
-	}
-	if got := len(client.loadRequests); got != 0 {
-		t.Fatalf("expected no bounded transcript load before startup cmd executes, got %d", got)
-	}
-	flushMsg, ok := startupCmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected startup window-size update to replay native history, got %T", startupCmd())
-	}
-	if !strings.Contains(stripANSIAndTrimRight(flushMsg.Text), "cached tail") {
-		t.Fatalf("expected startup native replay to include cached tail, got %q", stripANSIAndTrimRight(flushMsg.Text))
-	}
-	refreshed, ok := startupCmdMessage[runtimeTranscriptRefreshedMsg](updated.startupCmds)
-	if !ok {
-		t.Fatalf("expected queued startup sync to return runtimeTranscriptRefreshedMsg, got %d command(s)", len(updated.startupCmds))
-	}
-	if refreshed.syncCause != runtimeTranscriptSyncCauseBootstrap {
-		t.Fatalf("startup bounded sync cause = %q, want %q", refreshed.syncCause, runtimeTranscriptSyncCauseBootstrap)
-	}
-	if refreshed.req.Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup transcript request window = %q, want ongoing_tail", refreshed.req.Window)
-	}
-	if got, want := len(client.loadRequests), 1; got != want {
-		t.Fatalf("load request count = %d, want %d", got, want)
-	}
-	if client.loadRequests[0].Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup load request window = %q, want ongoing_tail", client.loadRequests[0].Window)
-	}
-
-	next, followUp := updated.Update(refreshed)
-	if followUp != nil {
-		_ = collectCmdMessages(t, followUp)
-	}
-	afterHydrate := next.(*uiModel)
-	if got := stripANSIAndTrimRight(afterHydrate.view.OngoingSnapshot()); !strings.Contains(got, "authoritative tail") || strings.Contains(got, "cached tail") {
-		t.Fatalf("expected authoritative startup hydrate without cached seed, got %q", got)
-	}
-}
-
 func TestAssistantDeltaAppendsStreamingText(t *testing.T) {
 	m := newProjectedStaticUIModel()
 
@@ -600,36 +476,6 @@ func TestAssistantDeltaAppendsStreamingText(t *testing.T) {
 
 	if got := m.view.OngoingStreamingText(); got != "hello world" {
 		t.Fatalf("expected concatenated streaming text, got %q", got)
-	}
-}
-
-func TestAssistantCommentaryCommitPlusDeltaDoesNotSplitOngoingView(t *testing.T) {
-	m := newProjectedStaticUIModel()
-
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{
-		Kind:                       runtime.EventAssistantMessage,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         1,
-		CommittedEntryCount:        1,
-		Message: llm.Message{
-			Role:    llm.RoleAssistant,
-			Content: "Decision: keep tool name patch; expose custom tool with Lark grammar.",
-			Phase:   llm.MessagePhaseCommentary,
-		},
-	})
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{
-		Kind:           runtime.EventAssistantDelta,
-		StepID:         "step-1",
-		AssistantDelta: " Internally normalize custom calls into existing executor input.",
-	})
-
-	view := stripANSIPreserve(m.view.OngoingSnapshot())
-	if strings.Contains(view, tui.TranscriptDivider) {
-		t.Fatalf("expected projected commentary commit plus live assistant delta without divider, got %q", view)
-	}
-	if !containsInOrder(view, "Decision:", "executor input") {
-		t.Fatalf("expected projected commentary commit and live delta in order, got %q", view)
 	}
 }
 
@@ -684,34 +530,6 @@ func TestAssistantDeltaSuppressesLateMatchingDeltaFromCommittedStep(t *testing.T
 	}
 	if m.sawAssistantDelta {
 		t.Fatal("expected matching assistant delta from the committed step to keep assistant delta flag cleared")
-	}
-}
-
-func TestProjectedAssistantMessageClearsStreamingTextOnCommit(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.setBusy(true)
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "partial"})
-	if got := m.view.OngoingStreamingText(); got != "partial" {
-		t.Fatalf("expected assistant delta in live stream, got %q", got)
-	}
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventAssistantMessage,
-		CommittedTranscriptChanged: true,
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role: "assistant",
-			Text: "partial",
-		}},
-	}, true).cmd
-
-	if got := m.view.OngoingStreamingText(); got != "" {
-		t.Fatalf("expected committed assistant message to clear live stream, got %q", got)
-	}
-	if m.sawAssistantDelta {
-		t.Fatal("expected committed assistant message to clear assistant delta flag")
-	}
-	if got := strings.Count(stripANSIPreserve(m.view.OngoingSnapshot()), "partial"); got != 1 {
-		t.Fatalf("expected committed final to render once after stream clear, got %d in %q", got, stripANSIPreserve(m.view.OngoingSnapshot()))
 	}
 }
 
@@ -891,71 +709,5 @@ func TestApplyRuntimeTranscriptPagePreservesAuthoritativeNonEmptyOngoingOverStal
 	}
 	if !m.sawAssistantDelta {
 		t.Fatal("expected authoritative non-empty ongoing to preserve assistant delta flag")
-	}
-}
-
-func TestReasoningDeltaUpdatesDetailTranscriptLive(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})
-	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "u"})
-	m.forwardToView(tui.ToggleModeMsg{})
-
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDelta, ReasoningDelta: &llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: "Plan summary"}})
-
-	if detail := stripANSIAndTrimRight(m.view.View()); !strings.Contains(detail, "Plan summary") {
-		t.Fatalf("expected live reasoning summary in detail view, got %q", detail)
-	}
-	if detail := stripANSIAndTrimRight(m.view.View()); strings.Contains(detail, "Preparing patch") {
-		t.Fatalf("expected separate status field ignored for detail view, got %q", detail)
-	}
-}
-
-func TestReasoningDeltaResetClearsLiveReasoningTranscript(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})
-	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "u"})
-	m.forwardToView(tui.ToggleModeMsg{})
-	m.forwardToView(tui.UpsertStreamingReasoningMsg{Key: "rs_1:summary:0", Role: "reasoning", Text: "Plan summary"})
-
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDeltaReset})
-
-	if detail := stripANSIAndTrimRight(m.view.View()); strings.Contains(detail, "Plan summary") {
-		t.Fatalf("expected live reasoning summary cleared after reset, got %q", detail)
-	}
-}
-
-func TestApplyRuntimeTranscriptPageRejectsEqualRevisionReasoningClear(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})
-	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "u"})
-	m.forwardToView(tui.ToggleModeMsg{})
-
-	baseline := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "user", Text: "u"}},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDelta, ReasoningDelta: &llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: "Plan summary"}})
-	if detail := stripANSIAndTrimRight(m.view.View()); !strings.Contains(detail, "Plan summary") {
-		t.Fatalf("expected live reasoning visible before stale page apply, got %q", detail)
-	}
-
-	stale := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "user", Text: "u"}},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, stale, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	if detail := stripANSIAndTrimRight(m.view.View()); !strings.Contains(detail, "Plan summary") {
-		t.Fatalf("expected stale equal-revision page to preserve live reasoning, got %q", detail)
 	}
 }

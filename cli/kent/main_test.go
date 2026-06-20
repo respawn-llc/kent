@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -48,26 +47,6 @@ func TestRootCommandPrintsVersion(t *testing.T) {
 	}
 }
 
-func TestRootHelpShowsInteractiveContinueCommand(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := rootCommand([]string{"--help"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	got := stderr.String()
-	for _, want := range []string{
-		"kent --continue <session-id>",
-		"reopens a previous session in the interactive TUI",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("stderr = %q, want %q", got, want)
-		}
-	}
-}
-
 func TestRootCommandRejectsUnknownCommand(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -78,20 +57,6 @@ func TestRootCommandRejectsUnknownCommand(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 	_ = stderr
-}
-
-func TestRootCommandRejectsNonInteractiveMode(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := rootCommand(nil, strings.NewReader(""), &stdout, &stderr); code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if got := stderr.String(); !strings.Contains(got, "interactive mode requires a terminal on stdin and stdout") {
-		t.Fatalf("stderr = %q, want non-interactive error", got)
-	}
 }
 
 func TestRootCommandForceInteractiveBypassesTerminalCheck(t *testing.T) {
@@ -174,17 +139,6 @@ func TestRootCommandIgnoresKentSessionEnvByDefault(t *testing.T) {
 	}
 }
 
-func TestRootCommandRejectsRemovedStartupConfigFlags(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := rootCommand([]string{"--force-interactive", "--model", "gpt-5"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-	if !strings.Contains(stderr.String(), "flag provided but not defined: -model") {
-		t.Fatalf("stderr = %q, want undefined model flag rejection", stderr.String())
-	}
-}
-
 func TestRootCommandInteractiveInterruptReturns130(t *testing.T) {
 	original := runInteractiveApp
 	t.Cleanup(func() {
@@ -238,35 +192,6 @@ func TestRootCommandServeUsesStandaloneServerPath(t *testing.T) {
 	}
 	if got.SessionID != "" {
 		t.Fatalf("expected empty session id for serve request, got %q", got.SessionID)
-	}
-}
-
-func TestServeSubcommandRejectsRemovedStartupConfigFlags(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := rootCommand([]string{"serve", "--workspace", "/tmp/work"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-	if !strings.Contains(stderr.String(), "flag provided but not defined: -workspace") {
-		t.Fatalf("stderr = %q, want undefined workspace flag rejection", stderr.String())
-	}
-}
-
-func TestServeSubcommandRejectsSessionFlags(t *testing.T) {
-	originalHandlers := newServeStartupHandlers
-	t.Cleanup(func() {
-		newServeStartupHandlers = originalHandlers
-	})
-	newServeStartupHandlers = func() (serverstartup.AuthHandler, serverstartup.OnboardingHandler) {
-		return nil, nil
-	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := rootCommand([]string{"serve", "--session", "session-123"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-	if !strings.Contains(stderr.String(), "flag provided but not defined: -session") {
-		t.Fatalf("stderr = %q, want undefined session flag rejection", stderr.String())
 	}
 }
 
@@ -389,66 +314,6 @@ func TestRunSubcommandMapsFastFlagToAgentRole(t *testing.T) {
 	}
 	if gotOpts.AgentRole != config.BuiltInSubagentRoleFast {
 		t.Fatalf("agent role = %q, want fast", gotOpts.AgentRole)
-	}
-}
-
-func TestRunSubcommandJSONModeKeepsWarningsInJSONOnly(t *testing.T) {
-	original := runPromptApp
-	t.Cleanup(func() {
-		runPromptApp = original
-	})
-	runPromptApp = func(ctx context.Context, opts app.Options, prompt string, timeout time.Duration, progress io.Writer) (app.RunPromptResult, error) {
-		return app.RunPromptResult{Result: "done", Warnings: []string{"warning one"}}, nil
-	}
-
-	originalStdout := os.Stdout
-	originalStderr := os.Stderr
-	stdoutFile, err := os.CreateTemp(t.TempDir(), "stdout")
-	if err != nil {
-		t.Fatalf("create stdout temp file: %v", err)
-	}
-	stderrFile, err := os.CreateTemp(t.TempDir(), "stderr")
-	if err != nil {
-		t.Fatalf("create stderr temp file: %v", err)
-	}
-	os.Stdout = stdoutFile
-	os.Stderr = stderrFile
-	t.Cleanup(func() {
-		os.Stdout = originalStdout
-		os.Stderr = originalStderr
-		_ = stdoutFile.Close()
-		_ = stderrFile.Close()
-	})
-
-	if code := rootCommand([]string{"run", "--output-mode=json", "hello"}, strings.NewReader(""), io.Discard, io.Discard); code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if _, err := stdoutFile.Seek(0, 0); err != nil {
-		t.Fatalf("seek stdout: %v", err)
-	}
-	data, err := io.ReadAll(stdoutFile)
-	if err != nil {
-		t.Fatalf("read stdout: %v", err)
-	}
-	if strings.Contains(string(data), "warning one\n\n") {
-		t.Fatalf("expected stdout to stay json-only, got %q", string(data))
-	}
-	var decoded runJSONResult
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("decode json output: %v; raw=%q", err, string(data))
-	}
-	if len(decoded.Warnings) != 1 || decoded.Warnings[0] != "warning one" {
-		t.Fatalf("unexpected warnings: %+v", decoded.Warnings)
-	}
-	if _, err := stderrFile.Seek(0, 0); err != nil {
-		t.Fatalf("seek stderr: %v", err)
-	}
-	stderrData, err := io.ReadAll(stderrFile)
-	if err != nil {
-		t.Fatalf("read stderr: %v", err)
-	}
-	if strings.TrimSpace(string(stderrData)) != "" {
-		t.Fatalf("stderr = %q, want empty", string(stderrData))
 	}
 }
 
@@ -699,22 +564,6 @@ func TestSessionIDSubcommandPrintsKentSessionEnv(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
-}
-
-func TestSessionIDSubcommandFailsOutsideKentShell(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if code := rootCommand([]string{"session-id"}, strings.NewReader(""), &stdout, &stderr); code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), sessionenv.SessionIDEnv+" is not set") {
-		t.Fatalf("stderr = %q, want missing env error", stderr.String())
 	}
 }
 

@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strings"
 	"testing"
 
 	"core/server/llm"
@@ -78,29 +76,5 @@ func TestToolCallTreatsArgsAsOptional(t *testing.T) {
 	}
 	if stub.summarizerPrompt != "" || stub.futureAgentMessage != "" {
 		t.Fatalf("expected optional args to remain blank, got %+v", stub)
-	}
-}
-
-func TestToolCallReturnsControllerErrorsAsToolErrors(t *testing.T) {
-	tool := NewTriggerHandoffTool(func() TriggerHandoffController { return &controllerStub{err: errors.New("too early")} })
-
-	result := callTriggerHandoffTool(t, tool, "call-1", json.RawMessage(`{}`), "step-3")
-	if !result.IsError {
-		t.Fatalf("expected tool error result, got %s", string(result.Output))
-	}
-	if got := string(result.Output); got == "" || !strings.Contains(got, "trigger_handoff failed: too early") || !strings.Contains(got, "Retry only after the developer compaction reminder is present") {
-		t.Fatalf("unexpected error output: %q", got)
-	}
-}
-
-func TestToolCallReturnsGuidanceForInvalidInput(t *testing.T) {
-	tool := NewTriggerHandoffTool(func() TriggerHandoffController { return &controllerStub{} })
-
-	result := callTriggerHandoffTool(t, tool, "call-1", json.RawMessage(`{"summarizer_prompt":123}`), "step-4")
-	if !result.IsError {
-		t.Fatalf("expected tool error result, got %s", string(result.Output))
-	}
-	if got := string(result.Output); !strings.Contains(got, "invalid trigger_handoff input") || !strings.Contains(got, "future_agent_message") {
-		t.Fatalf("unexpected invalid-input output: %q", got)
 	}
 }

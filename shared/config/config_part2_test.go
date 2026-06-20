@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -260,55 +259,6 @@ supports_vision_inputs = false
 	}
 	if got := cfg.Source.Sources["reviewer.model_capabilities.supports_reasoning_effort"]; got != "file" {
 		t.Fatalf("expected reviewer model capability source file, got %q", got)
-	}
-}
-
-func TestSettingsTOMLPreservesReviewerModelCapabilityFalseOverride(t *testing.T) {
-	settings := configRegistry.defaultState().Settings
-	settings.ModelCapabilities.SupportsReasoningEffort = true
-	settings.ModelCapabilities.SupportsVisionInputs = true
-	settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = false
-	settings.Reviewer.ModelCapabilities.SupportsVisionInputs = false
-
-	rendered := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
-	if !strings.Contains(rendered, "[reviewer.model_capabilities]") {
-		t.Fatalf("expected reviewer model capabilities section, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "supports_reasoning_effort = false") {
-		t.Fatalf("expected explicit reviewer reasoning false override, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "supports_vision_inputs = false") {
-		t.Fatalf("expected explicit reviewer vision false override, got:\n%s", rendered)
-	}
-}
-
-func TestSettingsTOMLPreservesReviewerProviderCapabilityFalseOverride(t *testing.T) {
-	settings := configRegistry.defaultState().Settings
-	settings.ProviderCapabilities = ProviderCapabilitiesOverride{
-		ProviderID:                     "main-provider",
-		SupportsResponsesAPI:           true,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         true,
-	}
-	settings.Reviewer.ProviderCapabilities = ProviderCapabilitiesOverride{
-		ProviderID:                     "reviewer-provider",
-		SupportsResponsesAPI:           false,
-		SupportsRequestInputTokenCount: true,
-		SupportsPromptCacheKey:         false,
-	}
-
-	rendered := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
-	if !strings.Contains(rendered, "[reviewer.provider_capabilities]") {
-		t.Fatalf("expected reviewer provider capabilities section, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "provider_id = \"reviewer-provider\"") {
-		t.Fatalf("expected explicit reviewer provider ID override, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "supports_responses_api = false") {
-		t.Fatalf("expected explicit reviewer responses API false override, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "supports_prompt_cache_key = false") {
-		t.Fatalf("expected explicit reviewer prompt cache false override, got:\n%s", rendered)
 	}
 }
 

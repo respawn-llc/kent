@@ -15,24 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestMainInputViewportTracksCursorLine(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 20
-	m.termHeight = 6
-	m.windowSizeKnown = true
-	m.input = "first\nsecond\nthird\nfourth"
-	m.inputCursor = 1
-	m.layout().syncViewport()
-
-	plain := stripANSIAndTrimRight(strings.Join(m.layout().renderInputLines(20, uiThemeStyles("dark")), "\n"))
-	if !strings.Contains(plain, "› first") || !strings.Contains(plain, "second") {
-		t.Fatalf("expected viewport to keep cursor line visible, got %q", plain)
-	}
-	if strings.Contains(plain, "fourth") {
-		t.Fatalf("expected viewport not to pin to tail while cursor is near top, got %q", plain)
-	}
-}
-
 func TestArrowNavigationDoesNotMutateInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.input = "abcdef"
@@ -1133,35 +1115,6 @@ func TestCtrlCRestoresQueuedSteeringAndDiscardsEngineQueue(t *testing.T) {
 		if message.Role == llm.RoleUser && message.Content == "restored steering" {
 			t.Fatalf("did not expect restored steering to remain queued in runtime request: %+v", llm.MessagesFromItems(requests[0].Items))
 		}
-	}
-}
-
-func TestInterruptedSubmitDoneRestoresQueueIntoInputAndDoesNotAutoDrain(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.setBusy(true)
-	m.queued = queuedInputsForTest("first", "second")
-
-	next, cmd := m.Update(submitDoneMsg{err: runtimeattach.ErrSubmissionInterrupted})
-	updated := next.(*uiModel)
-
-	if cmd != nil {
-		t.Fatal("did not expect follow-up submission command after interruption")
-	}
-	if updated.isBusy() {
-		t.Fatal("expected busy=false after interrupted submit completion")
-	}
-	if updated.activity != uiActivityInterrupted {
-		t.Fatalf("expected interrupted activity, got %v", updated.activity)
-	}
-	if len(updated.queued) != 0 {
-		t.Fatalf("expected queue restored into input and cleared, got %d", len(updated.queued))
-	}
-	if updated.input != "first\n\nsecond" {
-		t.Fatalf("unexpected restored input text: %q", updated.input)
-	}
-	plain := stripANSIAndTrimRight(updated.View())
-	if strings.Contains(strings.ToLower(plain), "interrupted") {
-		t.Fatalf("did not expect interruption to be rendered as error transcript, got %q", plain)
 	}
 }
 

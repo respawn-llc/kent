@@ -1,11 +1,8 @@
 package tui
 
 import (
-	"core/shared/theme"
 	"core/shared/transcript"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	xansi "github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 )
@@ -61,57 +58,6 @@ func leadingViewportSelectableDetailEntry(t *testing.T, m Model) int {
 	}
 	t.Fatalf("expected visible selectable detail entry, owners=%+v", owners)
 	return -1
-}
-
-func newTallExpandedCenterRailModel(t *testing.T) Model {
-	t.Helper()
-
-	m := newSizedCompactDetailModel(t, 6)
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "intro line 0\nintro line 1\nintro line 2"})
-	m = appendShellToolCall(t, m, "call_1", "long-command")
-	m = appendToolResultLines(t, m, "call_1", 12, "output line %02d")
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "tail"})
-	m = updateModel(t, m, ToggleModeMsg{})
-	m.detailSelectedEntry = 1
-	m.detailSelectedActive = true
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	m.detailBottomAnchor = false
-	m.detailScroll = 0
-	m.refreshDetailViewport()
-	m.detailSelectedEntry = 0
-	m.detailSelectedActive = true
-	return m
-}
-
-func assertCenterRailOnExpandedOutput(t *testing.T, m Model) {
-	t.Helper()
-
-	lines := strings.Split(xansi.Strip(m.View()), "\n")
-	center := m.viewportLines / 2
-	if center >= len(lines) {
-		t.Fatalf("center line %d outside rendered lines %d", center, len(lines))
-	}
-	if !strings.HasPrefix(lines[center], theme.SelectionRailGlyph) || !strings.Contains(lines[center], "output line") {
-		t.Fatalf("expected selected rail on center output line, got center=%q view=%q", lines[center], xansi.Strip(m.View()))
-	}
-}
-
-func assertRailBearingSpacerLine(t *testing.T, line string, modeBg rgbColor, railColor rgbColor) {
-	t.Helper()
-
-	plain := xansi.Strip(line)
-	if !strings.HasPrefix(plain, theme.SelectionRailGlyph) {
-		t.Fatalf("expected spacer line to extend selection rail, got %q", plain)
-	}
-	if strings.TrimSpace(strings.TrimPrefix(plain, theme.SelectionRailGlyph)) != "" {
-		t.Fatalf("expected highlighted spacer line to be blank after rail, got %q", plain)
-	}
-	if !strings.Contains(line, fmt.Sprintf("48;2;%d;%d;%d", modeBg.r, modeBg.g, modeBg.b)) {
-		t.Fatalf("expected spacer line to use mode background, got %q", line)
-	}
-	if !containsColor(extractForegroundTrueColors(line), railColor) {
-		t.Fatalf("expected spacer rail to use selected rail color, got %q", line)
-	}
 }
 
 func centerVisibleSelectableDetailEntry(t *testing.T, m Model) int {

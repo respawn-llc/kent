@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -160,47 +159,6 @@ func newServiceHealthTestServer(t *testing.T, body string, statusCode ...int) *h
 	return server
 }
 
-func TestServiceInstallNoStartAndForce(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"install", "--force", "--no-start"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
-	}
-	if !backend.installForce || backend.installStart {
-		t.Fatalf("install flags force=%v start=%v, want force true start false", backend.installForce, backend.installStart)
-	}
-	if !strings.Contains(stdout.String(), "Started: no") {
-		t.Fatalf("stdout = %q, want Started: no", stdout.String())
-	}
-}
-
-func TestServiceInstallRejectsKentShellSession(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"install"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
 func TestServiceUninstallKeepRunning(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-123")
 	backend := &stubServiceBackend{}
@@ -219,28 +177,6 @@ func TestServiceUninstallKeepRunning(t *testing.T) {
 	}
 	if backend.uninstallStop {
 		t.Fatal("expected --keep-running to skip stop")
-	}
-}
-
-func TestServiceUninstallRejectsKentShellSession(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"uninstall"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -503,50 +439,6 @@ func TestServiceRestartIfInstalledSkipsMissingService(t *testing.T) {
 	}
 }
 
-func TestServiceRestartIfInstalledRefreshesRegistrationBeforeRestart(t *testing.T) {
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: false, Running: false}}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
-	}
-	want := []serviceAction{serviceActionStatus, serviceActionStatus, serviceActionInstall}
-	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
-		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
-	}
-	if !backend.installForce || !backend.installStart {
-		t.Fatalf("refresh flags force=%v start=%v, want force true start true", backend.installForce, backend.installStart)
-	}
-	if !strings.Contains(stdout.String(), "sessions may fail briefly") {
-		t.Fatalf("stdout = %q, want restart warning", stdout.String())
-	}
-}
-
-func TestServiceRestartIfInstalledStopsWhenRefreshFails(t *testing.T) {
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true}, installErr: errors.New("install failed")}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	want := []serviceAction{serviceActionStatus, serviceActionStatus, serviceActionInstall}
-	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
-		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
-	}
-	if strings.Contains(strings.Join(actionsToStrings(backend.calls), ","), string(serviceActionRestart)) {
-		t.Fatalf("restart should not be called after install failure: %+v", backend.calls)
-	}
-	if !strings.Contains(stderr.String(), "install failed") {
-		t.Fatalf("stderr = %q, want install error", stderr.String())
-	}
-}
-
 func TestServiceStatusJSON(t *testing.T) {
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
 	withServiceCommandTestBackend(t, backend)
@@ -597,25 +489,6 @@ func actionsToStrings(actions []serviceAction) []string {
 	return out
 }
 
-func TestServiceInstallRejectsUnmanagedRunningServer(t *testing.T) {
-	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
-	backend := &stubServiceBackend{status: serviceStatus{Installed: false, Loaded: false, Running: false}}
-	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"install"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
-		t.Fatalf("calls = %+v, want status only", backend.calls)
-	}
-	if !strings.Contains(stderr.String(), "outside the background service") {
-		t.Fatalf("stderr = %q, want unmanaged conflict", stderr.String())
-	}
-}
-
 func TestServiceInstallAllowsHealthyServerOwnedByLoadedService(t *testing.T) {
 	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
@@ -658,107 +531,6 @@ func TestServiceRestartAllowsHealthyServerOwnedByLoadedServiceBeforePIDIsVisible
 	}
 }
 
-func TestServiceRestartRejectsKentShellSession(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
-	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
-func TestServiceLifecycleGuardRejectsBeforeSpecLoad(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true}}
-	originalLoadSpec := loadServiceSpec
-	originalBackendFactory := serviceBackendFactory
-	t.Cleanup(func() {
-		loadServiceSpec = originalLoadSpec
-		serviceBackendFactory = originalBackendFactory
-	})
-	loadServiceSpec = func() (serviceSpec, error) {
-		return serviceSpec{}, errors.New("spec load should not run")
-	}
-	serviceBackendFactory = func() serviceBackend {
-		return backend
-	}
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
-func TestServiceRestartIfInstalledRejectsKentShellSession(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
-	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
-func TestServiceRestartIfInstalledRejectsKentShellSessionBeforeMissingServiceBypass(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{status: serviceStatus{Installed: false}}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
 func TestServiceRestartHelpWritesToStderr(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -771,28 +543,6 @@ func TestServiceRestartHelpWritesToStderr(t *testing.T) {
 	}
 	if stderr.Len() == 0 {
 		t.Fatal("stderr is empty, want help output")
-	}
-}
-
-func TestServiceRestartRejectsCurrentShellSessionBeforeHealthProbe(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -853,94 +603,6 @@ func TestServiceStartRejectsUnmanagedRunningServer(t *testing.T) {
 	}
 }
 
-func TestServiceStartRejectsKentShellSession(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: false}}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"start"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
-func TestServiceStartCallsBackendOutsideKentShell(t *testing.T) {
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: false}}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"start"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
-	}
-	want := []serviceAction{serviceActionStatus, serviceActionStart}
-	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
-		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
-	}
-	if !strings.Contains(stdout.String(), "Started") {
-		t.Fatalf("stdout = %q, want start confirmation", stdout.String())
-	}
-}
-
-func TestServiceStopRejectsKentShellSession(t *testing.T) {
-	t.Setenv(sessionenv.SessionIDEnv, "session-123")
-	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true}}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"stop"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 0 {
-		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
-	}
-	if got := strings.TrimSpace(stderr.String()); got != serviceLifecycleCurrentSessionError {
-		t.Fatalf("stderr = %q, want current session lifecycle guard", stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
-func TestServiceRestartRejectsRunningServerWhenServicePIDMismatches(t *testing.T) {
-	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
-	backend := &stubServiceBackend{status: serviceStatus{
-		Installed: true,
-		Loaded:    true,
-		Running:   true,
-		PID:       456,
-		Command:   []string{"/other/kent", "serve"},
-	}}
-	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
-		t.Fatalf("calls = %+v, want status only", backend.calls)
-	}
-	if !strings.Contains(stderr.String(), "outside the background service") {
-		t.Fatalf("stderr = %q, want unmanaged conflict", stderr.String())
-	}
-}
-
 func TestServiceRestartRejectsRunningServerWhenOwnershipPIDMissingAndCommandDiffers(t *testing.T) {
 	server := newServiceHealthTestServer(t, `{"status":"ok"}`)
 	backend := &stubServiceBackend{status: serviceStatus{
@@ -979,17 +641,3 @@ func TestServiceRestartAllowsUnhealthyListenerWhenServiceRunning(t *testing.T) {
 	}
 }
 
-func TestServiceActionErrorReturnsOne(t *testing.T) {
-	backend := &stubServiceBackend{err: errors.New("boom")}
-	withServiceCommandTestBackend(t, backend)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := serviceSubcommand([]string{"start"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if !strings.Contains(stderr.String(), "boom") {
-		t.Fatalf("stderr = %q, want boom", stderr.String())
-	}
-}

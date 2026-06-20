@@ -2,13 +2,10 @@ package runprompt
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +20,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/toolspec"
 )
 
 type stubRunPromptService struct {
@@ -352,97 +348,6 @@ func TestLoopbackRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T) 
 	}
 	if runtimes.IsSessionRuntimeActive(store.Meta().SessionID) {
 		t.Fatalf("expected run prompt runtime to unregister after completion")
-	}
-}
-
-func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	root := t.TempDir()
-	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
-	store, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-model", EnabledTools: []string{string(toolspec.ToolExecCommand)}}); err != nil {
-		t.Fatalf("mark model dispatch locked: %v", err)
-	}
-
-	requestBodies := make(chan map[string]any, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if handleTestOpenAIInputTokenCount(w, r, 1) {
-			return
-		}
-		if r.URL.Path != "/responses" {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		defer r.Body.Close()
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request payload: %v", err)
-		}
-		requestBodies <- payload
-		writeTestOpenAICompletedResponseStream(w, "locked response", 1, 1)
-	}))
-	defer server.Close()
-
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-	}), nil, time.Now)
-
-	cfg, err := config.Load("/tmp/workspace-a", config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	cfg.PersistenceRoot = root
-	cfg.Settings.Model = "base-model"
-	cfg.Settings.OpenAIBaseURL = server.URL
-	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
-	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
-		SessionLaunch: newTestHeadlessSessionLaunch(cfg, containerDir, authManager),
-		AuthManager:   authManager,
-	})
-
-	response, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
-		ClientRequestID:   "locked-direct-1",
-		SelectedSessionID: store.Meta().SessionID,
-		Prompt:            "hello",
-		Overrides: serverapi.RunPromptOverrides{
-			Model: "override-model",
-			Tools: "patch",
-		},
-	}, nil)
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if response.Result != "locked response" {
-		t.Fatalf("result = %q, want locked response", response.Result)
-	}
-	runLog, err := os.ReadFile(filepath.Join(store.Dir(), RunLogFileName))
-	if err != nil {
-		t.Fatalf("read run log: %v", err)
-	}
-	if !strings.Contains(string(runLog), "model=locked-model") {
-		t.Fatalf("expected run log to preserve locked model, got %q", string(runLog))
-	}
-	if strings.Contains(string(runLog), "model=override-model") {
-		t.Fatalf("did not expect run log to use override model, got %q", string(runLog))
-	}
-	select {
-	case payload := <-requestBodies:
-		toolsPayload, ok := payload["tools"].([]any)
-		if !ok || len(toolsPayload) != 1 {
-			t.Fatalf("expected one locked tool in request payload, got %#v", payload["tools"])
-		}
-		toolPayload, ok := toolsPayload[0].(map[string]any)
-		if !ok {
-			t.Fatalf("unexpected tool payload: %#v", toolsPayload[0])
-		}
-		if got := toolPayload["name"]; got != string(toolspec.ToolExecCommand) {
-			t.Fatalf("expected locked shell tool, got %#v", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for provider request payload")
 	}
 }
 

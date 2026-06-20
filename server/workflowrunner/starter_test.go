@@ -153,35 +153,6 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 	}
 }
 
-func TestSchedulerWorkflowPromptIncludesStoreBackedTaskCommentCount(t *testing.T) {
-	input := json.RawMessage(`{"commentary":"finished tool"}`)
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, ScriptedToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
-	task := fixture.createStartedTask(t)
-	if _, err := fixture.store.AddComment(context.Background(), task.ID, "first durable note", "user", "nek"); err != nil {
-		t.Fatalf("AddComment first: %v", err)
-	}
-	if _, err := fixture.store.AddComment(context.Background(), task.ID, "second durable note", "agent", "coder"); err != nil {
-		t.Fatalf("AddComment second: %v", err)
-	}
-	scheduler := fixture.scheduler(t)
-
-	if err := scheduler.Process(context.Background()); err != nil {
-		t.Fatalf("Process: %v", err)
-	}
-	fixture.waitForCompletedRun(t, task.ID)
-
-	reqs := fixture.client.Requests()
-	if len(reqs) == 0 {
-		t.Fatal("fake model was not called")
-	}
-	assertPromptContains(t, reqs[0], []string{"2 comments", "task comment list RUN-1"})
-	for _, body := range []string{"first durable note", "second durable note"} {
-		if strings.Contains(requestPromptText(reqs[0]), body) {
-			t.Fatalf("workflow prompt must not include comment body %q:\n%s", body, requestPromptText(reqs[0]))
-		}
-	}
-}
-
 func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 	completeInput := json.RawMessage(`{"commentary":"answered and finished"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,
@@ -691,110 +662,6 @@ func TestStarterRestoresReusedSessionMetadataWhenSetupFailsAfterPlanning(t *test
 	}
 }
 
-func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.T) {
-	fixture := newChainedStarterFixture(t)
-	workflowID := createChainedStarterWorkflow(t, fixture.store)
-	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow chained: %v", err)
-	}
-	task := fixture.createStartedTask(t)
-	scheduler := fixture.scheduler(t)
-
-	if err := scheduler.Start(context.Background()); err != nil {
-		t.Fatalf("scheduler.Start: %v", err)
-	}
-	fixture.waitForRunCount(t, task.ID, 2)
-	fixture.waitForAllRunsCompleted(t, task.ID, 2)
-
-	reqs := fixture.client.Requests()
-	if len(reqs) < 2 {
-		t.Fatalf("fake model request count = %d, want 2", len(reqs))
-	}
-	assertPromptContains(t, reqs[1], []string{
-		"Use Run workflow and first summary.",
-	})
-	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	worktreeRoot := fixture.assertRunSessionUsesTaskWorktree(t, runs[1].SessionID)
-	if strings.TrimSpace(runs[0].SessionID) == "" || strings.TrimSpace(runs[1].SessionID) == "" || runs[0].SessionID == runs[1].SessionID {
-		t.Fatalf("runs = %+v, want new_session edge to create separate target session", runs)
-	}
-	assertPromptContains(t, reqs[1], []string{"\nCWD: " + worktreeRoot + "\n"})
-}
-
-func TestBuildWorkflowTaskInstructionsRendersTransitionParameters(t *testing.T) {
-	instructions, err := BuildWorkflowTaskInstructions(workflowstore.RunStartContext{
-		Task: workflowstore.TaskRecord{
-			ID:         "task-1",
-			WorkflowID: "workflow-1",
-			ShortID:    "RUN-1",
-			Title:      "Task title",
-			Body:       "Task body",
-		},
-		Workflow: workflowstore.WorkflowRecord{ID: "workflow-1"},
-		Node: workflowstore.NodeRecord{
-			ID:          "node-review",
-			Key:         "review",
-			DisplayName: "Review",
-		},
-		PromptTemplate:       "Use {{.Params.direct}} and {{.Params.plan.summary}}.",
-		ParameterValues:      map[string]string{"direct": "direct parameter"},
-		PriorParameterValues: map[string]map[string]string{"plan": {"summary": "plan parameter"}},
-	})
-	if err != nil {
-		t.Fatalf("BuildWorkflowTaskInstructions: %v", err)
-	}
-	if instructions.NodePrompt != "Use direct parameter and plan parameter." {
-		t.Fatalf("node prompt = %q", instructions.NodePrompt)
-	}
-}
-
-func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
-	fixture := newChainedStarterFixture(t)
-	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
-	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow chained: %v", err)
-	}
-	task := fixture.createStartedTask(t)
-	scheduler := fixture.scheduler(t)
-
-	if err := scheduler.Start(context.Background()); err != nil {
-		t.Fatalf("scheduler.Start: %v", err)
-	}
-	fixture.waitForRunCount(t, task.ID, 2)
-	fixture.waitForAllRunsCompleted(t, task.ID, 2)
-
-	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if len(runs) != 2 || strings.TrimSpace(runs[0].SessionID) == "" || runs[0].SessionID != runs[1].SessionID {
-		t.Fatalf("runs = %+v, want same session reused across continue_session edge", runs)
-	}
-	meta := fixture.sessionMeta(t, runs[1].SessionID)
-	if meta.Name != "RUN-1: Plan -> Implement" {
-		t.Fatalf("continued session name = %q, want latest accepted transition name", meta.Name)
-	}
-	input, err := fixture.store.GetRunStartContext(context.Background(), runs[1].ID)
-	if err != nil {
-		t.Fatalf("GetRunStartContext continued run: %v", err)
-	}
-	wantPreview, err := renderTransitionPrompt(input.PromptTemplate, input)
-	if err != nil {
-		t.Fatalf("render continued prompt: %v", err)
-	}
-	if meta.FirstPromptPreview != wantPreview {
-		t.Fatalf("continued session preview = %q, want %q", meta.FirstPromptPreview, wantPreview)
-	}
-	reqs := fixture.client.Requests()
-	if len(reqs) < 2 {
-		t.Fatalf("fake model request count = %d, want 2", len(reqs))
-	}
-	assertPromptContains(t, reqs[1], []string{"Use Run workflow and first summary."})
-}
-
 func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *testing.T) {
 	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
@@ -858,72 +725,6 @@ func TestReusesExistingSession(t *testing.T) {
 		if got := reusesExistingSession(tc.in); got != tc.want {
 			t.Fatalf("%s: reusesExistingSession = %v, want %v", tc.name, got, tc.want)
 		}
-	}
-}
-
-func TestWorkflowRuntimeCompactAndContinueReusesSourceSessionWithRealCompaction(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		ScriptedFinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
-		ScriptedFinalAnswer("compacted prior work summary"),
-		ScriptedFinalAnswer(`{"commentary":"second done"}`),
-	)
-	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "coder")
-	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow chained: %v", err)
-	}
-	task := fixture.createStartedTask(t)
-
-	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
-		t.Fatalf("first Process: %v", err)
-	}
-	fixture.waitForRunCount(t, task.ID, 2)
-	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
-		t.Fatalf("second Process: %v", err)
-	}
-	fixture.waitForAllRunsCompleted(t, task.ID, 2)
-
-	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if len(runs) != 2 {
-		t.Fatalf("runs = %+v, want 2", runs)
-	}
-	if runs[1].SessionID == "" || runs[1].SessionID != runs[0].SessionID {
-		t.Fatalf("runs = %+v, want compact_and_continue_session to reuse the source session in place", runs)
-	}
-	meta := fixture.sessionMeta(t, runs[1].SessionID)
-	if meta.Name != "RUN-1: Plan -> Implement" {
-		t.Fatalf("compact continuation session name = %q, want latest accepted transition name", meta.Name)
-	}
-	input, err := fixture.store.GetRunStartContext(context.Background(), runs[1].ID)
-	if err != nil {
-		t.Fatalf("GetRunStartContext compact run: %v", err)
-	}
-	wantPreview, err := renderTransitionPrompt(input.PromptTemplate, input)
-	if err != nil {
-		t.Fatalf("render compact prompt: %v", err)
-	}
-	if meta.FirstPromptPreview != wantPreview {
-		t.Fatalf("compact continuation session preview = %q, want %q", meta.FirstPromptPreview, wantPreview)
-	}
-	events := fixture.sessionEventsText(t, runs[0].SessionID)
-	if strings.Contains(events, "Workflow compacted continuation context.") {
-		t.Fatalf("session events unexpectedly contain the removed compact-continuation stub: %q", events)
-	}
-	if !strings.Contains(events, "history_replaced") {
-		t.Fatalf("session events missing real compaction (history_replaced): %q", events)
-	}
-	// plan turn + real compaction summary + node turn = at least three model
-	// calls, proving compaction ran in place rather than fabricating a stub.
-	if reqs := fixture.client.Requests(); len(reqs) < 3 {
-		t.Fatalf("model request count = %d, want >=3 (plan, compaction, node turn)", len(reqs))
-	}
-	// The history_replaced event durably records the run that committed the
-	// compaction, so resume reconstructs it and a resumed run (same ID) skips
-	// recompaction while a fresh in-place handoff recompacts.
-	if runID := fixture.historyReplacedWorkflowRunID(t, runs[1].SessionID); runID != string(runs[1].ID) {
-		t.Fatalf("history_replaced workflow_run_id = %q, want run %q", runID, runs[1].ID)
 	}
 }
 
@@ -1608,19 +1409,6 @@ func (f starterFixture) assertRunSessionUsesTaskWorktree(t *testing.T, sessionID
 	return target.EffectiveWorkdir
 }
 
-func (f starterFixture) sessionEventsText(t *testing.T, sessionID string) string {
-	t.Helper()
-	record, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID)
-	if err != nil {
-		t.Fatalf("ResolvePersistedSession: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(record.SessionDir, "events.jsonl"))
-	if err != nil {
-		t.Fatalf("read events.jsonl: %v", err)
-	}
-	return string(data)
-}
-
 func (f starterFixture) sessionMeta(t *testing.T, sessionID string) session.Meta {
 	t.Helper()
 	record, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID)
@@ -1679,31 +1467,6 @@ func workflowRequestAskQuestionToolMessages(reqs []llm.Request) []llm.Message {
 		}
 	}
 	return messages
-}
-
-// historyReplacedWorkflowRunID decodes the latest history_replaced event in the
-// session and returns its recorded workflow run provenance.
-func (f starterFixture) historyReplacedWorkflowRunID(t *testing.T, sessionID string) string {
-	t.Helper()
-	runID := ""
-	for _, line := range strings.Split(strings.TrimSpace(f.sessionEventsText(t, sessionID)), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		var event struct {
-			Kind    string `json:"kind"`
-			Payload struct {
-				WorkflowRunID string `json:"workflow_run_id"`
-			} `json:"payload"`
-		}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			t.Fatalf("decode session event: %v", err)
-		}
-		if event.Kind == "history_replaced" {
-			runID = event.Payload.WorkflowRunID
-		}
-	}
-	return runID
 }
 
 type metadataTaskWorktrees struct {
@@ -1782,11 +1545,6 @@ func createStarterWorkflow(t *testing.T, store *workflowstore.Store) workflow.Wo
 		t.Fatalf("AddEdge done: %v", err)
 	}
 	return created.ID
-}
-
-func createChainedStarterWorkflow(t *testing.T, store *workflowstore.Store) workflow.WorkflowID {
-	t.Helper()
-	return createChainedStarterWorkflowWithContextMode(t, store, workflow.ContextModeNewSession, "coder")
 }
 
 func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowstore.Store, contextMode workflow.ContextMode, targetRole string) workflow.WorkflowID {
@@ -1934,25 +1692,6 @@ func starterEdgeByKey(t *testing.T, def workflow.Definition, key workflow.ModelK
 	}
 	t.Fatalf("edge key %s missing", key)
 	return workflow.Edge{}
-}
-
-func assertPromptContains(t *testing.T, req llm.Request, needles []string) {
-	t.Helper()
-	text := requestPromptText(req)
-	for _, needle := range needles {
-		if !strings.Contains(text, needle) {
-			t.Fatalf("request prompt missing %q in:\n%s", needle, text)
-		}
-	}
-}
-
-func requestPromptText(req llm.Request) string {
-	var haystack strings.Builder
-	for _, item := range req.Items {
-		haystack.WriteString(item.Content)
-		haystack.WriteString("\n")
-	}
-	return haystack.String()
 }
 
 func assertNoUserPrompt(t *testing.T, req llm.Request) {

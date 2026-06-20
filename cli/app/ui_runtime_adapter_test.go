@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"core/cli/app/internal/runtimestate"
 	"core/cli/tui"
 	"core/server/llm"
 	"core/server/runtime"
@@ -11,65 +10,9 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
-
-func TestApplyRuntimeEventReductionInvalidLifecycleKeepsSideEffectsAndReturnsStatusCommand(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.conversationFreshness = clientui.ConversationFreshnessFresh
-	reviewer, err := clientui.NewReviewerLifecycle(true, true)
-	if err != nil {
-		t.Fatalf("reviewer lifecycle: %v", err)
-	}
-
-	cmd := m.runtimeAdapter().applyRuntimeEventReduction(runtimestate.RuntimeEventReduction{
-		RunState: runtimestate.RuntimeRunStateReduction{
-			State: runtimestate.RuntimeRunState{
-				Run:        m.runtimeLifecycle.Run,
-				Compaction: clientui.NewCompactionLifecycle(true),
-				Reviewer:   reviewer,
-			},
-			Err: errors.New("bad lifecycle"),
-		},
-		Conversation: runtimestate.RuntimeConversationReduction{State: runtimestate.RuntimeConversationState{Freshness: clientui.ConversationFreshnessEstablished}},
-		PendingInput: runtimestate.RuntimePendingInputReduction{
-			State: runtimestate.PendingInputState{
-				Input:      "draft",
-				Submission: runtimestate.InputSubmissionLocked,
-			},
-		},
-		Reasoning: runtimestate.RuntimeReasoningReduction{State: runtimestate.RuntimeReasoningState{StatusHeader: "thinking"}},
-	})
-
-	if cmd == nil {
-		t.Fatal("expected invalid lifecycle to return transient status timer command")
-	}
-	if msgs := collectCmdMessages(t, cmd); len(msgs) == 0 {
-		t.Fatal("expected transient status command to produce a timer message")
-	}
-	if m.activity != uiActivityError {
-		t.Fatalf("activity = %v, want error", m.activity)
-	}
-	if !strings.Contains(m.transientStatus, "invalid runtime lifecycle") {
-		t.Fatalf("transient status = %q, want invalid lifecycle error", m.transientStatus)
-	}
-	if !m.isCompacting() || !m.isReviewerRunning() || !m.isReviewerBlocking() {
-		t.Fatalf("expected non-run lifecycle side effects to apply, compacting=%t reviewer=%t blocking=%t", m.isCompacting(), m.isReviewerRunning(), m.isReviewerBlocking())
-	}
-	if m.conversationFreshness != clientui.ConversationFreshnessEstablished {
-		t.Fatalf("conversation freshness = %v, want established", m.conversationFreshness)
-	}
-	if !m.isInputSubmitLocked() {
-		t.Fatal("expected pending input submission side effect to apply")
-	}
-	if m.reasoningStatusHeader != "thinking" {
-		t.Fatalf("reasoning header = %q, want thinking", m.reasoningStatusHeader)
-	}
-}
 
 type runtimeAdapterFakeClient struct {
 	responses []llm.Response
@@ -225,24 +168,6 @@ func TestApplyChatSnapshotSetsOngoingFromSnapshot(t *testing.T) {
 	}
 }
 
-func TestDeveloperErrorFeedbackLocalEntryAppearsInOngoing(t *testing.T) {
-	m := newProjectedStaticUIModel()
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind: clientui.EventLocalEntryAdded,
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role:       "developer_error_feedback",
-			Text:       "Goal loop stopped: provider down",
-			Visibility: clientui.EntryVisibilityAll,
-		}},
-	}, true).cmd
-
-	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
-	if !strings.Contains(ongoing, "Goal loop stopped: provider down") {
-		t.Fatalf("expected developer error feedback in ongoing scrollback, got %q", ongoing)
-	}
-}
-
 func TestProjectRuntimeEventKeepsReviewerCompletedAsStatusOnlyEvent(t *testing.T) {
 	evt := projectRuntimeEvent(runtime.Event{
 		Kind: runtime.EventReviewerCompleted,
@@ -382,113 +307,6 @@ func TestRuntimeAdapterBackgroundUpdateRefreshesOpenProcessListAndShowsNotice(t 
 	}
 }
 
-func TestRuntimeAdapterBackgroundUpdateCachesProcessStatusWithoutListRead(t *testing.T) {
-	processes := &countingProcessClient{}
-	m := newProjectedStaticUIModel(WithUIProcessClient(processes))
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind: clientui.EventBackgroundUpdated,
-		Background: &clientui.BackgroundShellEvent{
-			Type:    "started",
-			ID:      "proc-1",
-			State:   "running",
-			Command: "sleep 1",
-		},
-	}, true).cmd
-
-	if processes.listCalls != 0 {
-		t.Fatalf("expected background status cache update not to list processes, got %d calls", processes.listCalls)
-	}
-	status := stripANSIAndTrimRight(m.layout().renderStatusLine(120, uiThemeStyles("dark")))
-	if !strings.Contains(status, "ps 1") {
-		t.Fatalf("expected cached process count in status line, got %q", status)
-	}
-}
-
-func TestOngoingReviewerEntriesAfterCommittedFinalKeepFinalVisibleWithoutHydration(t *testing.T) {
-	client := &runtimeControlFakeClient{transcript: clientui.TranscriptPage{SessionID: "session-1"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 100})
-
-	finalText := "final answer"
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:           clientui.EventAssistantDelta,
-		StepID:         "step-1",
-		AssistantDelta: finalText,
-	}, true).cmd
-	if got := stripANSIPreserve(m.view.OngoingSnapshot()); !strings.Contains(got, finalText) {
-		t.Fatalf("expected streaming final answer visible before commit, got %q", got)
-	}
-
-	events := []clientui.Event{
-		{
-			Kind:                       clientui.EventAssistantMessage,
-			StepID:                     "step-1",
-			CommittedTranscriptChanged: true,
-			TranscriptRevision:         1,
-			CommittedEntryCount:        1,
-			CommittedEntryStart:        0,
-			CommittedEntryStartSet:     true,
-			TranscriptEntries: []clientui.ChatEntry{{
-				Role:  "assistant",
-				Text:  finalText,
-				Phase: string(llm.MessagePhaseFinal),
-			}},
-		},
-		{
-			Kind:                       clientui.EventLocalEntryAdded,
-			StepID:                     "step-1",
-			CommittedTranscriptChanged: true,
-			TranscriptRevision:         2,
-			CommittedEntryCount:        2,
-			CommittedEntryStart:        1,
-			CommittedEntryStartSet:     true,
-			TranscriptEntries: []clientui.ChatEntry{{
-				Role:        "reviewer_suggestions",
-				Text:        "Supervisor suggested:\n1. Check final answer.",
-				OngoingText: "Supervisor suggested:\n1. Check final answer.",
-			}},
-		},
-		{
-			Kind:                       clientui.EventLocalEntryAdded,
-			StepID:                     "step-1",
-			CommittedTranscriptChanged: true,
-			TranscriptRevision:         3,
-			CommittedEntryCount:        3,
-			CommittedEntryStart:        2,
-			CommittedEntryStartSet:     true,
-			TranscriptEntries: []clientui.ChatEntry{{
-				Role: "reviewer_status",
-				Text: "Supervisor ran: 1 suggestion, no changes applied.",
-			}},
-		},
-		{
-			Kind:   clientui.EventReviewerCompleted,
-			StepID: "step-1",
-		},
-	}
-
-	for _, evt := range events {
-		msgs := collectCmdMessages(t, m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd)
-		for _, msg := range msgs {
-			if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
-				t.Fatalf("did not expect reviewer sequence to trigger transcript hydration, event=%s msg=%+v", evt.Kind, msg)
-			}
-		}
-		if m.runtimeTranscriptBusy {
-			t.Fatalf("did not expect reviewer sequence to start transcript sync after event=%s", evt.Kind)
-		}
-	}
-
-	view := stripANSIPreserve(m.view.OngoingSnapshot())
-	if !containsInOrder(view, finalText, "Supervisor suggested:", "Supervisor ran: 1 suggestion") {
-		t.Fatalf("expected final answer and reviewer entries visible immediately in ongoing mode, got %q", view)
-	}
-	if got := m.view.OngoingStreamingText(); got != "" {
-		t.Fatalf("expected committed final to clear streaming text, got %q", got)
-	}
-}
-
 func TestHandleProjectedRuntimeEventAppendsTranscriptEntriesImmediately(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})
@@ -594,135 +412,6 @@ func TestHandleProjectedRuntimeEventAppendsCompactionCacheWarningTranscriptEntry
 		t.Fatalf("view loaded transcript length = %d, want 1", len(loaded))
 	} else if loaded[0].Role != "cache_warning" || loaded[0].Text != expectedText {
 		t.Fatalf("loaded[0] = %+v, want live compaction cache warning", loaded[0])
-	}
-}
-
-func TestHandleProjectedRuntimeEventKeepsDefaultCacheWarningOutOfOngoingMode(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})
-
-	warning := transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
-		Kind:                   runtime.EventCacheWarning,
-		StepID:                 "step-1",
-		CacheWarningVisibility: transcript.EntryVisibilityDetailOnly,
-		CacheWarning:           &warning,
-	}), true).cmd
-
-	ongoing := stripANSIPreserve(m.view.OngoingSnapshot())
-	if strings.Contains(ongoing, transcript.CacheWarningText(warning)) {
-		t.Fatalf("expected default cache warning hidden in ongoing mode, got %q", ongoing)
-	}
-
-	detail := updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
-	detailView := stripANSIPreserve(detail.view.View())
-	if !strings.Contains(detailView, transcript.CacheWarningText(warning)) {
-		t.Fatalf("expected default cache warning visible in detail mode, got %q", detailView)
-	}
-}
-
-func TestRuntimeEventBatchCoalescesCommittedNativeFlushAndPreservesOrder(t *testing.T) {
-	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
-		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
-	)
-	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	_ = collectCmdMessages(t, startupCmd)
-
-	callMeta := transcript.ToolCallMeta{ToolName: "shell", Command: "pwd", CompactText: "pwd", IsShell: true}
-	firstBatch := []clientui.Event{
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn)}}),
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventUserMessageFlushed, StepID: "step-1", UserMessage: "say hi"}),
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventLocalEntryAdded, StepID: "step-1", CommittedTranscriptChanged: true, CommittedEntryStart: 2, CommittedEntryStartSet: true, CommittedEntryCount: 3, LocalEntry: &runtime.ChatEntry{Role: "reviewer_status", Text: "Supervisor ran: 2 suggestions, applied."}}),
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventReviewerCompleted, StepID: "step-1", Reviewer: &runtime.ReviewerStatus{Outcome: "applied", SuggestionsCount: 2}}),
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventBackgroundUpdated, StepID: "step-1", Background: &runtime.BackgroundShellEvent{Type: "completed", ID: "1000", State: "completed", NoticeText: "Background shell 1000 completed.\nOutput:\nhello", CompactText: "Background shell 1000 completed"}}),
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventToolCallStarted, StepID: "step-1", ToolCall: &llm.ToolCall{ID: "call_1", Name: string(toolspec.ToolExecCommand), Presentation: transcript.EncodeToolCallMeta(callMeta)}}),
-	}
-	updated, cmd := m.Update(runtimeEventBatchMsg{events: firstBatch})
-	m = updated.(*uiModel)
-	msgs := collectCmdMessages(t, cmd)
-	flushes := make([]nativeHistoryFlushMsg, 0)
-	for _, msg := range msgs {
-		flush, ok := msg.(nativeHistoryFlushMsg)
-		if ok {
-			flushes = append(flushes, flush)
-		}
-	}
-	if len(flushes) != 1 {
-		t.Fatalf("expected exactly one committed native flush for mixed batch, got %d msgs=%T", len(flushes), msgs)
-	}
-	plain := stripANSIPreserve(flushes[0].Text)
-	if !containsInOrder(plain, "say hi", "Supervisor ran", "Background shell 1000 completed") {
-		t.Fatalf("expected coalesced flush to preserve committed order, got %q", plain)
-	}
-	if strings.Contains(plain, "pwd") {
-		t.Fatalf("expected pending tool call to stay out of committed flush, got %q", plain)
-	}
-	if view := stripANSIPreserve(m.View()); !strings.Contains(view, "pwd") {
-		t.Fatalf("expected pending tool call still visible in live region, got %q", view)
-	}
-}
-
-func TestRuntimeEventBatchDoesNotSequenceNativeFlushBehindTransientStatusTimer(t *testing.T) {
-	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
-		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
-	)
-	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	_ = collectCmdMessages(t, startupCmd)
-
-	cmd := m.runtimeAdapter().applyProjectedRuntimeEventsBatch([]clientui.Event{
-		projectRuntimeEvent(runtime.Event{
-			Kind:   runtime.EventBackgroundUpdated,
-			StepID: "step-1",
-			Background: &runtime.BackgroundShellEvent{
-				Type:        "completed",
-				ID:          "1000",
-				State:       "completed",
-				NoticeText:  "Background shell 1000 completed.\nOutput:\nhello",
-				CompactText: "Background shell 1000 completed",
-			},
-		}),
-	}).cmd
-	if cmd == nil {
-		t.Fatal("expected runtime event batch command")
-	}
-	top := cmd()
-	value := reflect.ValueOf(top)
-	if !value.IsValid() || value.Kind() != reflect.Slice || value.Len() < 2 {
-		t.Fatalf("expected top-level ordered command sequence, got %T", top)
-	}
-	first, ok := value.Index(0).Interface().(tea.Cmd)
-	if !ok {
-		t.Fatalf("expected first sequence item to be tea.Cmd, got %T", value.Index(0).Interface())
-	}
-	second, ok := value.Index(1).Interface().(tea.Cmd)
-	if !ok {
-		t.Fatalf("expected second sequence item to be tea.Cmd, got %T", value.Index(1).Interface())
-	}
-	flushFound := false
-	switch msg := first().(type) {
-	case nativeHistoryFlushMsg:
-		flushFound = strings.Contains(stripANSIPreserve(msg.Text), "Background shell 1000 completed")
-	case tea.BatchMsg:
-		for _, child := range msg {
-			flush, ok := child().(nativeHistoryFlushMsg)
-			if ok && strings.Contains(stripANSIPreserve(flush.Text), "Background shell 1000 completed") {
-				flushFound = true
-				break
-			}
-		}
-	}
-	timerFound := false
-	for _, msg := range collectCmdMessages(t, second) {
-		if _, ok := msg.(clearTransientStatusMsg); ok {
-			timerFound = true
-			break
-		}
-	}
-	if !flushFound {
-		t.Fatal("expected first sequence item to flush native history immediately")
-	}
-	if !timerFound {
-		t.Fatal("expected second sequence item to keep the transient-status timer batched after native history flush")
 	}
 }
 

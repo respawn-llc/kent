@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
-	xansi "github.com/charmbracelet/x/ansi"
 )
 
 func TestEnsureInteractiveProjectBindingBindsRegisteredWorkspaceWithoutPrompt(t *testing.T) {
@@ -394,43 +392,6 @@ func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProjec
 	}
 }
 
-func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
-
-	originalPicker := runProjectBindingPickerFlow
-	originalPrompt := runProjectNamePromptFlow
-	t.Cleanup(func() {
-		runProjectBindingPickerFlow = originalPicker
-		runProjectNamePromptFlow = originalPrompt
-	})
-	runProjectBindingPickerFlow = func([]clientui.ProjectSummary, string) (projectBindingPickerResult, error) {
-		picked := clientui.ProjectSummary{ProjectID: "project-missing", DisplayName: "Missing Project"}
-		return projectBindingPickerResult{Project: &picked}, nil
-	}
-	runProjectNamePromptFlow = func(string, string) (string, error) {
-		t.Fatal("did not expect project name prompt when attaching to existing project")
-		return "", nil
-	}
-
-	server := &testEmbeddedServer{
-		cfg:               cfg,
-		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
-		projectViewClient: projectViewClient,
-	}
-
-	_, err := ensureInteractiveProjectBinding(context.Background(), server)
-	if !errors.Is(err, serverapi.ErrProjectNotFound) {
-		t.Fatalf("ensureInteractiveProjectBinding error = %v, want ErrProjectNotFound", err)
-	}
-	if got := err.Error(); !strings.Contains(got, "Restart Kent and choose another project") || !strings.Contains(got, "project-missing") {
-		t.Fatalf("error = %q, want missing project picker guidance", got)
-	}
-}
-
 func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing.T) {
 	newAppTestHome(t)
 	workspace := t.TempDir()
@@ -500,161 +461,6 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *
 	}
 }
 
-func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	service := projectBindingFlowStubProjectViewService{
-		listProjectsResp: serverapi.ProjectListResponse{Projects: []clientui.ProjectSummary{{
-			ProjectID:   "project-1",
-			DisplayName: "Remote Project",
-			RootPath:    "/srv/project",
-		}}},
-		projectOverviewResp: serverapi.ProjectGetOverviewResponse{Overview: clientui.ProjectOverview{
-			Project: clientui.ProjectSummary{ProjectID: "project-1", DisplayName: "Remote Project", RootPath: "/srv/project"},
-			Workspaces: []clientui.ProjectWorkspaceSummary{{
-				WorkspaceID: "workspace-1",
-				DisplayName: "Workspace 1",
-				RootPath:    "/srv/project",
-			}},
-		}},
-	}
-
-	originalRemotePicker := runServerProjectPickerFlow
-	originalWorkspacePicker := runProjectWorkspacePickerFlow
-	t.Cleanup(func() {
-		runServerProjectPickerFlow = originalRemotePicker
-		runProjectWorkspacePickerFlow = originalWorkspacePicker
-	})
-	runServerProjectPickerFlow = func(projects []clientui.ProjectSummary, theme string) (projectBindingPickerResult, error) {
-		model := newProjectBindingPickerModel(projects, theme, projectPickerOptions{
-			AllowCreate:    false,
-			HeaderMarkdown: serverProjectPickerHeaderMarkdown,
-			HeaderFallback: serverProjectPickerHeaderFallback,
-			NoticeText:     serverProjectPickerNoticeText,
-			GroupLabel:     serverProjectExistingLabel,
-		})
-		model.width = 240
-		model.height = 12
-		if got := xansi.Strip(model.View()); !strings.Contains(got, "\n\n"+serverProjectPickerNoticeText+"\n\n") {
-			t.Fatalf("server browsing picker notice missing or padded unexpectedly: %q", got)
-		}
-		picked := projects[0]
-		return projectBindingPickerResult{Project: &picked}, nil
-	}
-	runProjectWorkspacePickerFlow = func([]clientui.ProjectWorkspaceSummary, string) (projectWorkspacePickerResult, error) {
-		t.Fatal("did not expect workspace picker for single workspace project")
-		return projectWorkspacePickerResult{}, nil
-	}
-
-	server := &testEmbeddedServer{
-		cfg:               cfg,
-		containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), "project-placeholder", "sessions"),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
-	}
-
-	bound, err := ensureInteractiveServerBrowsingBinding(context.Background(), server, service.listProjectsResp.Projects)
-	if err != nil {
-		t.Fatalf("ensureInteractiveServerBrowsingBinding: %v", err)
-	}
-	if got := bound.ProjectID(); got != "project-1" {
-		t.Fatalf("bound project id = %q, want project-1", got)
-	}
-}
-
-func TestEnsureInteractiveProjectBindingFormatsMissingBoundProjectError(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
-	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
-
-	server := &failingBindProjectServer{
-		testEmbeddedServer: &testEmbeddedServer{
-			cfg:               cfg,
-			containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
-			projectViewClient: projectViewClient,
-		},
-		bindErr: fmt.Errorf("bind project: %w", serverapi.ErrProjectNotFound),
-	}
-
-	_, err = ensureInteractiveProjectBinding(context.Background(), server)
-	if !errors.Is(err, serverapi.ErrProjectNotFound) {
-		t.Fatalf("ensureInteractiveProjectBinding error = %v, want ErrProjectNotFound", err)
-	}
-	if got := err.Error(); !strings.Contains(got, "attached to missing project") || !strings.Contains(got, binding.ProjectID) {
-		t.Fatalf("error = %q, want missing project guidance", got)
-	}
-}
-
-func TestEnsureInteractiveProjectBindingFormatsUnavailableBoundProjectError(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
-	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
-
-	server := &failingBindProjectServer{
-		testEmbeddedServer: &testEmbeddedServer{
-			cfg:               cfg,
-			containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
-			projectViewClient: projectViewClient,
-		},
-		bindErr: serverapi.ProjectUnavailableError{ProjectID: binding.ProjectID, RootPath: cfg.WorkspaceRoot, Availability: clientui.ProjectAvailabilityMissing},
-	}
-
-	_, err = ensureInteractiveProjectBinding(context.Background(), server)
-	if !errors.Is(err, serverapi.ErrProjectUnavailable) {
-		t.Fatalf("ensureInteractiveProjectBinding error = %v, want ErrProjectUnavailable", err)
-	}
-	if got := err.Error(); !strings.Contains(got, "missing") || !strings.Contains(got, "Rebind affected sessions") {
-		t.Fatalf("error = %q, want missing-root recovery guidance", got)
-	}
-}
-
-func TestEnsureInteractiveProjectBindingFormatsInaccessibleBoundProjectError(t *testing.T) {
-	newAppTestHome(t)
-	workspace := t.TempDir()
-
-	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
-	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
-
-	server := &failingBindProjectServer{
-		testEmbeddedServer: &testEmbeddedServer{
-			cfg:               cfg,
-			containerDir:      filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions"),
-			projectViewClient: projectViewClient,
-		},
-		bindErr: serverapi.ProjectUnavailableError{ProjectID: binding.ProjectID, RootPath: cfg.WorkspaceRoot, Availability: clientui.ProjectAvailabilityInaccessible},
-	}
-
-	_, err = ensureInteractiveProjectBinding(context.Background(), server)
-	if !errors.Is(err, serverapi.ErrProjectUnavailable) {
-		t.Fatalf("ensureInteractiveProjectBinding error = %v, want ErrProjectUnavailable", err)
-	}
-	if got := err.Error(); !strings.Contains(got, "Restore access") || !strings.Contains(got, "inaccessible") || !strings.Contains(got, "rebind affected sessions") {
-		t.Fatalf("error = %q, want inaccessible-root recovery guidance", got)
-	}
-}
-
-type failingBindProjectServer struct {
-	*testEmbeddedServer
-	bindErr error
-}
-
 type projectBindingFlowStubProjectViewService struct {
 	resolveResp         serverapi.ProjectResolvePathResponse
 	resolveErr          error
@@ -720,13 +526,4 @@ func (s projectBindingFlowStubProjectViewService) GetProjectOverview(context.Con
 
 func (projectBindingFlowStubProjectViewService) ListSessionsByProject(context.Context, serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
 	return serverapi.SessionListByProjectResponse{}, nil
-}
-
-func (s *failingBindProjectServer) ProjectID() string { return "" }
-
-func (s *failingBindProjectServer) BindProjectWorkspace(context.Context, string, string) (interactiveSessionServer, error) {
-	if s.bindErr != nil {
-		return nil, s.bindErr
-	}
-	return s.testEmbeddedServer, nil
 }

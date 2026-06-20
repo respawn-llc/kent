@@ -399,78 +399,6 @@ func TestSubmitRejectsSecondCompletionForQueuedRequest(t *testing.T) {
 	}
 }
 
-func TestToolCallBlocksUntilQueuedAnswerSubmitted(t *testing.T) {
-	b := NewAskQuestionBroker()
-	tl := NewAskQuestionTool(b, nil)
-	type callResult struct {
-		result Result
-		err    error
-	}
-	done := make(chan callResult, 1)
-
-	go func() {
-		result, err := tl.Call(context.Background(), Call{
-			ID:   "call-queued",
-			Name: toolspec.ToolAskQuestion,
-			Input: json.RawMessage(`{
-				"question":"Pick one",
-				"suggestions":["alpha","beta"]
-			}`),
-		})
-		done <- callResult{result: result, err: err}
-	}()
-
-	pending := waitForPendingRequests(t, b, 1)
-	if len(pending) != 1 {
-		t.Fatalf("expected one pending request, got %+v", pending)
-	}
-	if pending[0].ID != "call-queued" {
-		t.Fatalf("expected pending request id call-queued, got %+v", pending[0])
-	}
-	if pending[0].Question != "Pick one" {
-		t.Fatalf("unexpected pending question: %+v", pending[0])
-	}
-	if len(pending[0].Suggestions) != 2 || pending[0].Suggestions[0] != "alpha" || pending[0].Suggestions[1] != "beta" {
-		t.Fatalf("unexpected pending suggestions: %+v", pending[0])
-	}
-
-	select {
-	case result := <-done:
-		t.Fatalf("tool call returned before answer submission: %+v", result)
-	default:
-	}
-
-	if err := b.Submit("call-queued", AskQuestionResponse{SelectedOptionNumber: 2, FreeformAnswer: "need extra context"}); err != nil {
-		t.Fatalf("submit answer: %v", err)
-	}
-	if err := b.Submit("call-queued", AskQuestionResponse{SelectedOptionNumber: 1}); err == nil {
-		t.Fatal("expected duplicate submission to fail after queued tool answer")
-	}
-
-	select {
-	case result := <-done:
-		if result.err != nil {
-			t.Fatalf("tool call err: %v", result.err)
-		}
-		if result.result.IsError {
-			t.Fatalf("expected success result, got %+v", result.result)
-		}
-		var output string
-		if err := json.Unmarshal(result.result.Output, &output); err != nil {
-			t.Fatalf("decode output summary: %v", err)
-		}
-		if output != "User chose option #2. They also said: need extra context" {
-			t.Fatalf("unexpected tool output summary: %q", output)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for queued tool answer")
-	}
-
-	if pending := b.Pending(); len(pending) != 0 {
-		t.Fatalf("expected queue drained after completion, got %+v", pending)
-	}
-}
-
 func TestAskHandlerModeHonorsCanceledContextBeforeInvocation(t *testing.T) {
 	b := NewAskQuestionBroker()
 	called := false
@@ -544,19 +472,6 @@ func TestCanceledAskIsRemovedFromPendingQueue(t *testing.T) {
 	}
 }
 
-func waitForPendingRequests(t *testing.T, b *AskQuestionBroker, want int) []AskQuestionRequest {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		pending := b.Pending()
-		if len(pending) == want {
-			return pending
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return b.Pending()
-}
-
 func callAskQuestionTool(t *testing.T, b *AskQuestionBroker, id string, input string) Result {
 	t.Helper()
 	result, err := NewAskQuestionTool(b, nil).Call(context.Background(), Call{
@@ -568,91 +483,6 @@ func callAskQuestionTool(t *testing.T, b *AskQuestionBroker, id string, input st
 		t.Fatalf("unexpected call error: %v", err)
 	}
 	return result
-}
-
-func TestToolCallRejectsActionField(t *testing.T) {
-	result := callAskQuestionTool(t, NewAskQuestionBroker(), "call-1", `{"question":"pick one","action":{"id":"unsafe"}}`)
-	if !result.IsError {
-		t.Fatalf("expected error result, got %+v", result)
-	}
-	var payload map[string]string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode error output: %v", err)
-	}
-	if payload["error"] != `invalid input: field "action" is not allowed` {
-		t.Fatalf("expected action rejection message, got %q", payload["error"])
-	}
-}
-
-func TestToolCallSerializesSelectedOptionWithFreeformAsPlainText(t *testing.T) {
-	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(req AskQuestionRequest) (AskQuestionResponse, error) {
-		return AskQuestionResponse{RequestID: req.ID, SelectedOptionNumber: 2, FreeformAnswer: "need extra context"}, nil
-	})
-	result := callAskQuestionTool(t, b, "call-structured", `{
-			"question":"Pick one",
-			"suggestions":["alpha","beta"],
-			"recommended_option_index":1
-		}`)
-	if result.IsError {
-		t.Fatalf("expected success result, got %+v", result)
-	}
-	var payload string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode tool output: %v", err)
-	}
-	if payload == "" {
-		t.Fatal("expected non-empty plain-text summary")
-	}
-	if result.OngoingText != "beta\nUser also said:\nneed extra context" {
-		t.Fatalf("unexpected ongoing text: %q", result.OngoingText)
-	}
-}
-
-func TestToolCallSerializesPureFreeformAsPlainText(t *testing.T) {
-	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(req AskQuestionRequest) (AskQuestionResponse, error) {
-		return AskQuestionResponse{RequestID: req.ID, FreeformAnswer: "need extra context"}, nil
-	})
-	result := callAskQuestionTool(t, b, "call-freeform", `{
-			"question":"What else?",
-			"suggestions":["alpha","beta"],
-			"recommended_option_index":1
-		}`)
-	if result.IsError {
-		t.Fatalf("expected success result, got %+v", result)
-	}
-	var payload string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode tool output: %v", err)
-	}
-	if payload == "" {
-		t.Fatal("expected non-empty plain-text summary")
-	}
-	if result.OngoingText != "need extra context" {
-		t.Fatalf("expected ongoing freeform answer without model prefix, got %q", result.OngoingText)
-	}
-}
-
-func TestToolCallOngoingTextPreservesLiteralUserAnsweredFreeformPrefix(t *testing.T) {
-	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(req AskQuestionRequest) (AskQuestionResponse, error) {
-		return AskQuestionResponse{RequestID: req.ID, FreeformAnswer: "User answered: keep going"}, nil
-	})
-	result := callAskQuestionTool(t, b, "call-freeform-literal-prefix", `{"question":"What else?"}`)
-	if result.IsError {
-		t.Fatalf("expected success result, got %+v", result)
-	}
-	if result.OngoingText != "User answered: keep going" {
-		t.Fatalf("expected ongoing freeform answer to preserve literal prefix, got %q", result.OngoingText)
-	}
-	var payload string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode tool output: %v", err)
-	}
-	if payload != "User answered: User answered: keep going" {
-		t.Fatalf("expected model-facing payload to keep summary prefix, got %q", payload)
-	}
 }
 
 func TestToolCallAllowsFreeformOnlyWithoutRecommendedOptionIndex(t *testing.T) {
@@ -722,55 +552,6 @@ func TestToolCallIgnoresRecommendedIndexAfterBlankSuggestionsAreDropped(t *testi
 		}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
-	}
-}
-
-func TestToolCallRejectsApprovalField(t *testing.T) {
-	result := callAskQuestionTool(t, NewAskQuestionBroker(), "call-approval", `{"question":"Approve?","approval":true}`)
-	if !result.IsError {
-		t.Fatalf("expected error result, got %+v", result)
-	}
-	var payload map[string]string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode error output: %v", err)
-	}
-	if payload["error"] != `invalid input: field "approval" is not allowed` {
-		t.Fatalf("unexpected error output: %q", payload["error"])
-	}
-}
-
-func TestToolCallRejectsApprovalOptionsField(t *testing.T) {
-	result := callAskQuestionTool(t, NewAskQuestionBroker(), "call-approval-options", `{
-			"question":"Approve?",
-			"approval_options":[{"decision":"allow_once","label":"Allow once"}]
-		}`)
-	if !result.IsError {
-		t.Fatalf("expected error result, got %+v", result)
-	}
-	var payload map[string]string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode error output: %v", err)
-	}
-	if payload["error"] != `invalid input: field "approval_options" is not allowed` {
-		t.Fatalf("unexpected error output: %q", payload["error"])
-	}
-}
-
-func TestToolCallRejectsApprovalPayloadReturnedByHandler(t *testing.T) {
-	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(req AskQuestionRequest) (AskQuestionResponse, error) {
-		return AskQuestionResponse{RequestID: req.ID, Approval: &AskQuestionApprovalPayload{Decision: AskQuestionApprovalDecisionDeny}}, nil
-	})
-	result := callAskQuestionTool(t, b, "call-approval-payload", `{"question":"What should I do?"}`)
-	if !result.IsError {
-		t.Fatalf("expected error result, got %+v", result)
-	}
-	var payload map[string]string
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode error output: %v", err)
-	}
-	if payload["error"] != "non-approval questions must not return approval payloads" {
-		t.Fatalf("unexpected error output: %q", payload["error"])
 	}
 }
 

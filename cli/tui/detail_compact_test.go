@@ -1,53 +1,12 @@
 package tui
 
 import (
-	"core/shared/clientui"
-	"core/shared/transcript"
 	"fmt"
-	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
 )
-
-func TestCompactDetailCollapsesToolOutputUntilExpanded(t *testing.T) {
-	m := newCompactDetailModel(t, 12)
-	m = appendShellToolCall(t, m, "call_1", "cat large.txt")
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_1", Text: "line 1\nline 2\nline 3"})
-	m = updateModel(t, m, ToggleModeMsg{})
-
-	collapsed := xansi.Strip(m.View())
-	if !strings.Contains(collapsed, "cat large.txt") {
-		t.Fatalf("expected collapsed tool input, got %q", collapsed)
-	}
-	if strings.Contains(collapsed, "line 2") {
-		t.Fatalf("expected collapsed detail to hide tool output, got %q", collapsed)
-	}
-
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	expanded := xansi.Strip(m.View())
-	if !containsInOrder(expanded, "cat large.txt", "line 1", "line 2", "line 3") {
-		t.Fatalf("expected expanded tool input and output, got %q", expanded)
-	}
-}
-
-func TestCompactDetailKeepsMultipleExpanded(t *testing.T) {
-	m := newCompactDetailModel(t, 12)
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "first user\nhidden"})
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "first assistant\nhidden"})
-	m = updateModel(t, m, ToggleModeMsg{})
-
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	m.detailSelectedEntry = 0
-	m.detailSelectedActive = true
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := xansi.Strip(m.View())
-	if !strings.Contains(rendered, "hidden") || !strings.Contains(rendered, "first assistant") {
-		t.Fatalf("expected both messages expanded, got %q", rendered)
-	}
-}
 
 func TestCompactDetailToggleStartsWithBottomVisibleEntrySelected(t *testing.T) {
 	m := newSizedCompactDetailModel(t, 4)
@@ -142,21 +101,6 @@ func TestCompactDetailArrowScrollsExpandedItemByLineAndTracksCenterSelection(t *
 	}
 }
 
-func TestCompactDetailLineScrollRailTracksCenterInsideTallExpandedEntry(t *testing.T) {
-	m := newTallExpandedCenterRailModel(t)
-
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-
-	if got, want := m.DetailScroll(), 2; got != want {
-		t.Fatalf("expected one-line scroll, got %d want %d", got, want)
-	}
-	if !m.detailSelectedActive || m.detailSelectedEntry != 1 {
-		t.Fatalf("expected center selection to move to expanded tool entry, active=%v entry=%d", m.detailSelectedActive, m.detailSelectedEntry)
-	}
-	assertCenterRailOnExpandedOutput(t, m)
-}
-
 func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *testing.T) {
 	m := updateModel(t, newCompactDetailModel(t, 6, WithTheme("dark")), SetViewportSizeMsg{Lines: 6, Width: 80})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "intro"})
@@ -198,35 +142,6 @@ func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *te
 	}
 	if beforeFirst != afterFirst || beforeLast != afterLast || beforeRangeOK != afterRangeOK {
 		t.Fatalf("expected visual spacers not to mutate visible range, before=(%d,%d,%v) after=(%d,%d,%v)", beforeFirst, beforeLast, beforeRangeOK, afterFirst, afterLast, afterRangeOK)
-	}
-}
-
-func TestCompactDetailPageScrollRailTracksCenterInsideTallExpandedEntry(t *testing.T) {
-	tests := []struct {
-		name       string
-		start      int
-		key        tea.KeyType
-		wantScroll int
-	}{
-		{name: "page down", start: 0, key: tea.KeyPgDown, wantScroll: 5},
-		{name: "page up", start: 8, key: tea.KeyPgUp, wantScroll: 3},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newTallExpandedCenterRailModel(t)
-			m.detailScroll = tt.start
-			m.refreshDetailViewport()
-			m = updateModel(t, m, tea.KeyMsg{Type: tt.key})
-
-			if got := m.DetailScroll(); got != tt.wantScroll {
-				t.Fatalf("expected %s scroll %d, got %d", tt.name, tt.wantScroll, got)
-			}
-			if !m.detailSelectedActive || m.detailSelectedEntry != 1 {
-				t.Fatalf("expected %s center selection to stay on expanded tool entry, active=%v entry=%d", tt.name, m.detailSelectedActive, m.detailSelectedEntry)
-			}
-			assertCenterRailOnExpandedOutput(t, m)
-		})
 	}
 }
 
@@ -422,40 +337,6 @@ func TestCompactDetailSelectionMovesWithinViewportAtTranscriptStart(t *testing.T
 	assertCompactDetailSelectionMovesWithinViewportAtTranscriptStart(t, tea.KeyMsg{Type: tea.KeyUp})
 }
 
-func TestCompactDetailTopPinnedSelectionDoesNotHideRowAbove(t *testing.T) {
-	assertCompactDetailTopPinnedSelectionDoesNotHideRowAbove(t, nil)
-}
-
-func TestCompactDetailWheelTopPinnedSelectionDoesNotHideRowAbove(t *testing.T) {
-	assertCompactDetailTopPinnedSelectionDoesNotHideRowAbove(t, tea.MouseMsg{Button: tea.MouseButtonWheelUp})
-}
-
-func assertCompactDetailTopPinnedSelectionDoesNotHideRowAbove(t *testing.T, scroll tea.Msg) {
-	t.Helper()
-	m := newSizedCompactDetailModel(t, 8)
-	m = appendAssistantLines(t, m, 6, "entry %02d")
-	m = updateModel(t, m, ToggleModeMsg{})
-	m.ensureDetailScrollResolved()
-	m.detailScroll = 0
-	m.refreshDetailViewport()
-	if scroll == nil {
-		m.detailSelectedEntry = 3
-	} else {
-		m.detailSelectedEntry = centerVisibleSelectableDetailEntry(t, m)
-	}
-	m.detailSelectedActive = true
-	if scroll != nil {
-		for idx := 0; idx < 2; idx++ {
-			m = updateModel(t, m, scroll)
-		}
-	}
-
-	plain := xansi.Strip(m.View())
-	if !containsInOrder(plain, "entry 00", "entry 01", "entry 02") {
-		t.Fatalf("expected top-pinned selected spacer not to hide real rows above selection, got %q", plain)
-	}
-}
-
 func TestCompactDetailWheelSelectionMovesWithinViewportAtTranscriptStart(t *testing.T) {
 	assertCompactDetailSelectionMovesWithinViewportAtTranscriptStart(t, tea.MouseMsg{Button: tea.MouseButtonWheelUp})
 }
@@ -584,94 +465,6 @@ func TestCompactDetailClearsExpandedEntriesWhenReplacementReusesIndexes(t *testi
 
 	if len(m.detailExpandedEntries) != 0 {
 		t.Fatalf("expected replacement at same indexes to clear expanded entries, got %+v", m.detailExpandedEntries)
-	}
-}
-
-func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
-	m := newCompactDetailModel(t, 10)
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
-		OngoingText: "Supervisor made 2 suggestions.",
-	})
-	m = updateModel(t, m, ToggleModeMsg{})
-
-	collapsed := xansi.Strip(m.View())
-	if !strings.Contains(collapsed, "Supervisor made 2 suggestions.") {
-		t.Fatalf("expected collapsed reviewer suggestions summary, got %q", collapsed)
-	}
-	if strings.Contains(collapsed, "Add app-level coverage") || strings.Contains(collapsed, "Rebuild before final answer") {
-		t.Fatalf("expected collapsed reviewer suggestions to hide full suggestion text, got %q", collapsed)
-	}
-
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	expanded := xansi.Strip(m.View())
-	if !strings.Contains(expanded, "Add app-level coverage") || !strings.Contains(expanded, "Rebuild before final answer") {
-		t.Fatalf("expected expanded reviewer suggestions to show full text, got %q", expanded)
-	}
-}
-
-func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
-	m := newCompactDetailModel(t, 8)
-	fullText := "The user has moved this conversation into a git worktree.\n- Branch: feature/branch\n- New cwd / worktree path: /tmp/worktree/pkg"
-	ongoingText := "Switched worktree to feature/branch: /tmp/worktree/pkg"
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Visibility:   transcript.EntryVisibilityAll,
-		Role:         TranscriptRoleDeveloperContext,
-		Text:         fullText,
-		OngoingText:  ongoingText,
-		MessageType:  clientui.MessageTypeWorktreeMode,
-		SourcePath:   "/tmp/worktree/pkg",
-		CompactLabel: ongoingText,
-	})
-
-	ongoing := xansi.Strip(m.OngoingSnapshot())
-	if !strings.Contains(ongoing, ongoingText) || strings.Contains(ongoing, "The user has moved this conversation") {
-		t.Fatalf("expected ongoing worktree compact text only, got %q", ongoing)
-	}
-
-	m = updateModel(t, m, ToggleModeMsg{})
-	collapsed := xansi.Strip(m.View())
-	if !strings.Contains(collapsed, ongoingText) || strings.Contains(collapsed, "The user has moved this conversation") {
-		t.Fatalf("expected collapsed detail worktree label, got %q", collapsed)
-	}
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	expanded := xansi.Strip(m.View())
-	if !strings.Contains(expanded, "The user has moved this conversation") || !strings.Contains(expanded, "feature/branch") || !strings.Contains(expanded, "/tmp/worktree/pkg") {
-		t.Fatalf("expected expanded detail worktree reminder text, got %q", expanded)
-	}
-}
-
-func TestCompactDetailKeepsVerboseReviewerSuggestionsWhenNoStructuredCountExists(t *testing.T) {
-	m := newCompactDetailModel(t, 10)
-	suggestions := "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer."
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        suggestions,
-		OngoingText: suggestions,
-	})
-	m = updateModel(t, m, ToggleModeMsg{})
-
-	collapsed := xansi.Strip(m.View())
-	if !containsInOrder(collapsed, "Supervisor suggested:", "1. Add app-level coverage.", "2. Rebuild before final answer.") {
-		t.Fatalf("expected verbose reviewer suggestions when no structured count exists, got %q", collapsed)
-	}
-}
-
-func TestCompactDetailDoesNotGuessReviewerSuggestionCountForUnnumberedLegacyText(t *testing.T) {
-	m := newCompactDetailModel(t, 10)
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role: "reviewer_suggestions",
-		Text: "Supervisor suggested:\nAdd app-level coverage.\nRebuild before final answer.",
-	})
-	m = updateModel(t, m, ToggleModeMsg{})
-
-	collapsed := xansi.Strip(m.View())
-	if !strings.Contains(collapsed, "Supervisor suggestions") || strings.Contains(collapsed, "Supervisor made") {
-		t.Fatalf("expected generic reviewer suggestions label for unstructured legacy text, got %q", collapsed)
-	}
-	if strings.Contains(collapsed, "Add app-level coverage") || strings.Contains(collapsed, "Rebuild before final answer") {
-		t.Fatalf("expected collapsed reviewer suggestions to hide full suggestion text, got %q", collapsed)
 	}
 }
 

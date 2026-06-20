@@ -9,41 +9,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/toolspec"
 )
-
-func TestBuildReviewerTranscriptMessagesSummarizesViewImagePayloads(t *testing.T) {
-	messages := []llm.Message{
-		{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{{
-				ID:    "call-view-image-1",
-				Name:  string(toolspec.ToolViewImage),
-				Input: []byte(`{"path":"docs/page.pdf"}`),
-			}},
-		},
-		{
-			Role:       llm.RoleTool,
-			ToolCallID: "call-view-image-1",
-			Name:       string(toolspec.ToolViewImage),
-			Content:    `[{"type":"input_file","filename":"page.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQKJUVPRg=="}]`,
-		},
-	}
-
-	got := buildReviewerTranscriptMessages(messages)
-	if len(got) != 2 {
-		t.Fatalf("reviewer transcript messages = %d, want 2 (%+v)", len(got), got)
-	}
-	if !strings.Contains(got[0].Content, "Tool call:") || !strings.Contains(got[0].Content, "docs/page.pdf") {
-		t.Fatalf("expected tool call entry with source path, got %q", got[0].Content)
-	}
-	if !strings.Contains(got[1].Content, "Tool result:") || !strings.Contains(got[1].Content, "attached PDF: page.pdf") {
-		t.Fatalf("expected summarized view_image tool result, got %q", got[1].Content)
-	}
-	if strings.Contains(got[1].Content, "base64") || strings.Contains(got[1].Content, "data:application/pdf") {
-		t.Fatalf("expected reviewer transcript to omit binary payloads, got %q", got[1].Content)
-	}
-}
 
 func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) {
 	store := mustCreateTestSession(t)

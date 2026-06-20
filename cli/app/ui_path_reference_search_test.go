@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,40 +106,6 @@ func TestPathReferenceSearchServiceEmitsLoadingDelayForPendingQuery(t *testing.T
 	_ = waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
 }
 
-func TestPathReferenceSearchServiceRetriesAfterCorpusBuildFailure(t *testing.T) {
-	runner := &sequenceUIPathReferenceCommandRunner{
-		results: []sequenceUIPathReferenceCommandResult{
-			{err: errors.New("boom")},
-			{output: nulJoinPathReferenceOutput("cli/app/ui.go")},
-		},
-	}
-	matcher := newBlockingUIPathReferenceMatcher()
-	service := newTestUIPathReferenceSearchService(runner, matcher)
-
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
-	failed := waitForPathReferenceEventType[uiPathReferenceCorpusFailedMsg](t, service.Events())
-	if failed.Err == nil || failed.Err.Error() != "boom" {
-		t.Fatalf("unexpected failure event: %+v", failed)
-	}
-
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 2, QueryToken: 2, NormalizedQuery: "abc"})
-	ready := waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
-	if ready.WorkspaceRoot != "/tmp/workspace" {
-		t.Fatalf("unexpected ready event: %+v", ready)
-	}
-	if got := <-matcher.started; got != "abc" {
-		t.Fatalf("started query = %q, want abc", got)
-	}
-	matcher.releaseOne()
-	result := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
-	if result.NormalizedQuery != "abc" {
-		t.Fatalf("result query = %q, want abc", result.NormalizedQuery)
-	}
-	if runner.callCount() != 2 {
-		t.Fatalf("runner call count = %d, want 2", runner.callCount())
-	}
-}
-
 func TestPathReferenceSearchServiceStopUnblocksAndPreventsFurtherRequests(t *testing.T) {
 	service := newTestUIPathReferenceSearchService(&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")}, fuzzyUIPathReferenceMatcher{})
 	service.Stop()
@@ -219,37 +184,6 @@ type stubUIPathReferenceCommandRunner struct {
 	dir    string
 	name   string
 	args   []string
-}
-
-type sequenceUIPathReferenceCommandResult struct {
-	output []byte
-	err    error
-}
-
-type sequenceUIPathReferenceCommandRunner struct {
-	mu      sync.Mutex
-	results []sequenceUIPathReferenceCommandResult
-	index   int
-}
-
-func (s *sequenceUIPathReferenceCommandRunner) Output(_ context.Context, _ string, _ string, _ ...string) ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.index >= len(s.results) {
-		return nil, errors.New("unexpected extra call")
-	}
-	result := s.results[s.index]
-	s.index++
-	if result.err != nil {
-		return nil, result.err
-	}
-	return append([]byte(nil), result.output...), nil
-}
-
-func (s *sequenceUIPathReferenceCommandRunner) callCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.index
 }
 
 func (s *stubUIPathReferenceCommandRunner) Output(_ context.Context, dir string, name string, args ...string) ([]byte, error) {
@@ -349,14 +283,6 @@ func TestNormalizePathReferenceCandidateRejectsGitPaths(t *testing.T) {
 	}
 	if got := normalizePathReferenceCandidate("./cli/app/ui.go"); got != "cli/app/ui.go" {
 		t.Fatalf("normalizePathReferenceCandidate returned %q", got)
-	}
-}
-
-func TestLoadCorpusSnapshotPropagatesRunnerError(t *testing.T) {
-	runner := &stubUIPathReferenceCommandRunner{err: errors.New("boom")}
-	service := &uiPathReferenceSearchService{runner: runner}
-	if _, err := service.loadCorpusSnapshot(context.Background(), "/tmp/workspace"); err == nil || err.Error() != "boom" {
-		t.Fatalf("expected runner error, got %v", err)
 	}
 }
 

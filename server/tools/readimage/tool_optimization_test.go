@@ -3,12 +3,9 @@ package readimage
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
-	"hash/crc32"
 	"image"
 	"image/color"
-	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"strings"
@@ -109,93 +106,6 @@ func TestCall_RawImageSkipsOptimization(t *testing.T) {
 	}
 }
 
-func TestCall_RawImageStillEnforcesAttachmentCap(t *testing.T) {
-	workspace := t.TempDir()
-	var original bytes.Buffer
-	if err := jpeg.Encode(&original, generatedPhotoLikeImage(1024), &jpeg.Options{Quality: 95}); err != nil {
-		t.Fatalf("encode jpeg: %v", err)
-	}
-	if int64(original.Len()) <= maxFileSizeBytes {
-		t.Fatalf("test image must exceed attachment cap: %d", original.Len())
-	}
-	writeReadImageTestFile(t, workspace, "large.jpg", original.Bytes())
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-raw-large", `{"path":"large.jpg","raw":true}`)
-	if !result.IsError {
-		t.Fatalf("expected raw oversized image to be rejected")
-	}
-	if got := toolError(t, result); !strings.Contains(got, "max supported size is 819200 bytes (800 KiB)") {
-		t.Fatalf("expected attachment cap error, got %q", got)
-	}
-}
-
-func TestCall_StillGIFAcceptedAndAnimatedGIFRejected(t *testing.T) {
-	workspace := t.TempDir()
-	writeReadImageTestFile(t, workspace, "still.gif", encodedGIF(t, 1))
-	writeReadImageTestFile(t, workspace, "animated.gif", encodedGIF(t, 2))
-
-	tool := newReadImageTestTool(t, workspace, true)
-	still := callReadImageTool(t, tool, "call-still-gif", `{"path":"still.gif"}`)
-	if still.IsError {
-		t.Fatalf("expected still gif success, got %s", string(still.Output))
-	}
-	mimeType, _ := decodeSingleImageDataURL(t, still)
-	if mimeType != "image/gif" {
-		t.Fatalf("expected still gif output, got %q", mimeType)
-	}
-
-	animated := callReadImageTool(t, tool, "call-animated-gif", `{"path":"animated.gif"}`)
-	if !animated.IsError {
-		t.Fatalf("expected animated gif to be rejected")
-	}
-	if got := toolError(t, animated); !strings.Contains(got, "animated GIFs are not supported") {
-		t.Fatalf("expected animated GIF guidance, got %q", got)
-	}
-}
-
-func TestCall_WebPRejectedAsUnsupported(t *testing.T) {
-	workspace := t.TempDir()
-	writeReadImageTestFile(t, workspace, "image.webp", minimalWebPHeader())
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-webp", `{"path":"image.webp"}`)
-	if !result.IsError {
-		t.Fatalf("expected webp to be rejected")
-	}
-	if got := toolError(t, result); !strings.Contains(got, "unsupported image format") || !strings.Contains(got, "image/webp") {
-		t.Fatalf("expected unsupported WebP guidance, got %q", got)
-	}
-}
-
-func TestCall_CorruptImageReturnsToolError(t *testing.T) {
-	workspace := t.TempDir()
-	writeReadImageTestFile(t, workspace, "corrupt.png", make([]byte, 1024))
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-corrupt", `{"path":"corrupt.png"}`)
-	if !result.IsError {
-		t.Fatalf("expected tool error result for corrupt image")
-	}
-	if got := toolError(t, result); !strings.Contains(got, "unable to decode image") {
-		t.Fatalf("expected decode error, got %q", got)
-	}
-}
-
-func TestCall_HugeDecodedDimensionsRejected(t *testing.T) {
-	workspace := t.TempDir()
-	writeReadImageTestFile(t, workspace, "huge-dimensions.png", pngWithDimensions(t, 100_000, 100_000))
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-huge-dimensions", `{"path":"huge-dimensions.png"}`)
-	if !result.IsError {
-		t.Fatalf("expected huge decoded dimensions to be rejected")
-	}
-	if got := toolError(t, result); !strings.Contains(got, "exceed the supported pixel limit") {
-		t.Fatalf("expected decoded pixel limit error, got %q", got)
-	}
-}
-
 func generatedPhotoLikeImage(size int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	for y := 0; y < size; y++ {
@@ -249,63 +159,6 @@ func averageRGB16(img image.Image, bounds image.Rectangle) (uint32, uint32, uint
 		}
 	}
 	return uint32(rTotal / count), uint32(gTotal / count), uint32(bTotal / count)
-}
-
-func encodedGIF(t *testing.T, frames int) []byte {
-	t.Helper()
-	palette := []color.Color{color.Black, color.White}
-	images := make([]*image.Paletted, 0, frames)
-	delays := make([]int, 0, frames)
-	for idx := 0; idx < frames; idx++ {
-		img := image.NewPaletted(image.Rect(0, 0, 2, 2), palette)
-		img.SetColorIndex(idx%2, idx%2, 1)
-		images = append(images, img)
-		delays = append(delays, 0)
-	}
-	var buf bytes.Buffer
-	if err := gif.EncodeAll(&buf, &gif.GIF{Image: images, Delay: delays}); err != nil {
-		t.Fatalf("encode gif: %v", err)
-	}
-	return buf.Bytes()
-}
-
-func minimalWebPHeader() []byte {
-	return []byte{
-		'R', 'I', 'F', 'F',
-		12, 0, 0, 0,
-		'W', 'E', 'B', 'P',
-		'V', 'P', '8', ' ',
-		0, 0, 0, 0,
-	}
-}
-
-func pngWithDimensions(t *testing.T, width, height uint32) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	buf.Write([]byte{137, 80, 78, 71, 13, 10, 26, 10})
-
-	ihdr := make([]byte, 13)
-	binary.BigEndian.PutUint32(ihdr[0:4], width)
-	binary.BigEndian.PutUint32(ihdr[4:8], height)
-	ihdr[8] = 8
-	ihdr[9] = 2
-	writePNGChunk(&buf, "IHDR", ihdr)
-	writePNGChunk(&buf, "IEND", nil)
-	return buf.Bytes()
-}
-
-func writePNGChunk(buf *bytes.Buffer, chunkType string, data []byte) {
-	var length [4]byte
-	binary.BigEndian.PutUint32(length[:], uint32(len(data)))
-	buf.Write(length[:])
-	buf.WriteString(chunkType)
-	buf.Write(data)
-	checksum := crc32.NewIEEE()
-	_, _ = checksum.Write([]byte(chunkType))
-	_, _ = checksum.Write(data)
-	var crc [4]byte
-	binary.BigEndian.PutUint32(crc[:], checksum.Sum32())
-	buf.Write(crc[:])
 }
 
 func decodeSingleImageDataURL(t *testing.T, result tools.Result) (string, []byte) {

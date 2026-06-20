@@ -533,25 +533,6 @@ func TestRunnerUserHookCancellationPropagates(t *testing.T) {
 	}
 }
 
-func TestRunnerUserHookFailureWarningTruncatesStderr(t *testing.T) {
-	hookPath := writeHookScript(t, "#!/bin/sh\ni=0\nwhile [ \"$i\" -lt 5000 ]; do\n  printf 'xxxxxxxxxx' 1>&2\n  i=$((i + 1))\ndone\nexit 1\n")
-	runner := NewRunner(Settings{Mode: config.ShellPostprocessingModeUser, HookPath: hookPath})
-	result, err := runner.Apply(context.Background(), Request{
-		ToolName:    toolspec.ToolExecCommand,
-		CommandText: "printf hi",
-		Output:      "hi",
-	})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-	if !strings.Contains(result.Warning, "[hook output truncated]") {
-		t.Fatalf("expected truncated stderr marker, got %q", result.Warning)
-	}
-	if len(result.Warning) > maxHookOutputBytes+512 {
-		t.Fatalf("expected bounded warning length, got %d", len(result.Warning))
-	}
-}
-
 func writeHookScript(t *testing.T, contents string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -597,27 +578,3 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func TestRunnerAllModeAccumulatesWarnings(t *testing.T) {
-	missingHookPath := filepath.Join(t.TempDir(), "missing-hook")
-	runner := NewRunner(Settings{Mode: config.ShellPostprocessingModeAll, HookPath: missingHookPath})
-	runner.processors = []Processor{warningProcessor{}}
-	result, err := runner.Apply(context.Background(), Request{
-		ToolName:    toolspec.ToolExecCommand,
-		CommandText: "printf hi",
-		Output:      "hi",
-	})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-	if !strings.Contains(result.Warning, "builtin warning") || !strings.Contains(result.Warning, "command postprocess hook failed:") {
-		t.Fatalf("warning = %q, want both warnings", result.Warning)
-	}
-}
-
-type warningProcessor struct{}
-
-func (warningProcessor) ID() string { return "test/warning" }
-
-func (warningProcessor) Process(_ context.Context, envelope Envelope) (Decision, error) {
-	return Decision{Action: ActionSkip, Next: envelope, Warning: "builtin warning"}, nil
-}

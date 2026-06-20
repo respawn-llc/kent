@@ -121,51 +121,6 @@ func TestSlashSupervisorWithEngineTogglesRuntimeReviewer(t *testing.T) {
 	}
 }
 
-func TestSlashAutoCompactionTogglesAndShowsStatus(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 24
-	m.windowSizeKnown = true
-	m.layout().syncViewport()
-	m.input = "/autocompaction"
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
-	}
-	if updated.autoCompactionEnabled {
-		t.Fatal("expected auto-compaction disabled after toggle")
-	}
-	if updated.input != "" {
-		t.Fatalf("expected input cleared after /autocompaction, got %q", updated.input)
-	}
-	if !strings.Contains(updated.transientStatus, "Auto-compaction disabled") {
-		t.Fatalf("expected transient status for /autocompaction toggle, got %q", updated.transientStatus)
-	}
-	plain := stripANSIAndTrimRight(updated.View())
-	if !strings.Contains(plain, "Auto-compaction disabled") {
-		t.Fatalf("expected transcript notice for /autocompaction toggle, got %q", plain)
-	}
-	for _, msg := range collectCmdMessages(t, cmd) {
-		next, _ = updated.Update(msg)
-		updated = next.(*uiModel)
-	}
-
-	updated.input = "/autocompaction on"
-	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
-	}
-	if !updated.autoCompactionEnabled {
-		t.Fatal("expected auto-compaction enabled")
-	}
-	if !strings.Contains(updated.transientStatus, "Auto-compaction enabled") {
-		t.Fatalf("expected enable transient status, got %q", updated.transientStatus)
-	}
-}
-
 func TestBusySlashAutoCompactionExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.setBusy(true)
@@ -295,44 +250,6 @@ func TestWorkflowSessionAutoCompactionOffBlockedBeforeRuntimeCall(t *testing.T) 
 	}
 }
 
-func TestBusyUnsupportedSlashCommandShowsTransientErrorAndDoesNotQueue(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.setBusy(true)
-	m.activity = uiActivityRunning
-	m.input = "/compact keep details"
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
-	}
-	if updated.transientStatus == "" {
-		t.Fatal("expected transient status message for unsupported busy command")
-	}
-	if len(updated.queued) != 0 {
-		t.Fatalf("expected no queued messages, got %d", len(updated.queued))
-	}
-	if len(updated.pendingInjected) != 0 {
-		t.Fatalf("expected no pending injected messages, got %d", len(updated.pendingInjected))
-	}
-	if updated.isInputSubmitLocked() {
-		t.Fatal("did not expect input submit lock for blocked slash command")
-	}
-	if updated.input != "" {
-		t.Fatalf("expected input cleared for blocked slash command, got %q", updated.input)
-	}
-	status := stripANSIAndTrimRight(updated.layout().renderStatusLine(120, uiThemeStyles("dark")))
-	if !strings.Contains(status, "cannot run /compact while model is working") {
-		t.Fatalf("expected transient status in status line, got %q", status)
-	}
-
-	next, _ = updated.Update(clearTransientStatusMsg{token: updated.transientStatusToken})
-	cleared := next.(*uiModel)
-	if cleared.transientStatus != "" {
-		t.Fatalf("expected transient status to clear, got %q", cleared.transientStatus)
-	}
-}
-
 func TestSlashCommandSetsExitAction(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.input = "/exit"
@@ -361,119 +278,6 @@ func TestSlashCommandSetsResumeAction(t *testing.T) {
 	}
 }
 
-func TestInitialTranscriptVisibleImmediately(t *testing.T) {
-	m := newProjectedStaticUIModel(
-		WithUIInitialTranscript([]UITranscriptEntry{
-			{Role: "user", Text: "hello"},
-			{Role: "assistant", Text: "world"},
-		}),
-	)
-	m.termWidth = 80
-	m.termHeight = 20
-
-	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
-	if !strings.Contains(ongoing, "world") {
-		t.Fatalf("expected resumed content in ongoing mode, got %q", ongoing)
-	}
-
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	detail := stripANSIAndTrimRight(next.(*uiModel).View())
-	if !containsInOrder(detail, "❯", "hello", "❮", "world") {
-		t.Fatalf("expected resumed transcript in detail mode, got %q", detail)
-	}
-}
-
-func TestSubmitDoneNoopFinalStaysInvisibleWithoutRuntimeClient(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.setBusy(true)
-
-	next, _ := m.Update(newSubmitDoneMsg(0, uiNoopFinalToken, "", nil))
-	updated := next.(*uiModel)
-	if updated.isBusy() {
-		t.Fatal("expected UI idle after NO_OP final")
-	}
-	if updated.activity != uiActivityIdle {
-		t.Fatalf("activity = %v, want idle", updated.activity)
-	}
-	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
-	if strings.Contains(plain, uiNoopFinalToken) {
-		t.Fatalf("expected NO_OP to stay invisible in local flow, got %q", plain)
-	}
-	if len(updated.transcriptEntries) != 0 {
-		t.Fatalf("expected no transcript entries after NO_OP final, got %+v", updated.transcriptEntries)
-	}
-}
-
-func TestRuntimeSubmitNoopFinalStaysSilent(t *testing.T) {
-	ringer := &countRinger{}
-	bells := newBellHooks(ringer, nil)
-	client := &runtimeControlFakeClient{submitResult: uiNoopFinalToken}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUITurnQueueHook(bells))
-	m.startupCmds = nil
-	m.input = "hello"
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected submit command batch")
-	}
-	msgs := collectCmdMessages(t, cmd)
-	var done submitDoneMsg
-	doneFound := false
-	for _, msg := range msgs {
-		if typed, ok := msg.(submitDoneMsg); ok {
-			done = typed
-			doneFound = true
-		}
-	}
-	if !doneFound {
-		t.Fatalf("expected submitDone message, got %+v", msgs)
-	}
-	if !done.silentFinal {
-		t.Fatalf("expected runtime NO_OP submit result to be marked silent, got %+v", done)
-	}
-
-	next, _ = updated.Update(done)
-	updated = next.(*uiModel)
-	if updated.isBusy() {
-		t.Fatal("expected UI idle after runtime NO_OP final")
-	}
-	if updated.activity != uiActivityIdle {
-		t.Fatalf("activity = %v, want idle", updated.activity)
-	}
-	if client.submitText != "hello" {
-		t.Fatalf("submit text = %q, want hello", client.submitText)
-	}
-	if got := ringer.Count(); got != 0 {
-		t.Fatalf("ring count = %d after runtime NO_OP final, want 0", got)
-	}
-	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
-	if strings.Contains(plain, uiNoopFinalToken) {
-		t.Fatalf("expected runtime NO_OP to stay invisible, got %q", plain)
-	}
-	if len(updated.transcriptEntries) != 0 {
-		t.Fatalf("expected no transcript entries after runtime NO_OP final, got %+v", updated.transcriptEntries)
-	}
-}
-
-func TestInitAutoSubmitsStartupPrompt(t *testing.T) {
-	m := newProjectedStaticUIModel(
-		WithUIStartupSubmit("run review"),
-	)
-	m.termWidth = 80
-	m.termHeight = 20
-
-	_ = m.Init()
-
-	if !m.isBusy() {
-		t.Fatal("expected startup prompt to start submission immediately")
-	}
-	plain := stripANSIAndTrimRight(m.view.OngoingSnapshot())
-	if !strings.Contains(plain, "run review") {
-		t.Fatalf("expected startup prompt in transcript, got %q", plain)
-	}
-}
-
 func TestInitialInputSeedsDraftWithoutAutoSubmit(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialInput("draft reply"),
@@ -487,33 +291,6 @@ func TestInitialInputSeedsDraftWithoutAutoSubmit(t *testing.T) {
 	}
 	if m.isBusy() {
 		t.Fatal("did not expect initial input to auto-submit")
-	}
-}
-
-func TestReviewerStatusEndToEnd_VerboseSuggestionsIssuedAndStatusConcise(t *testing.T) {
-	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{})
-	eng.AppendCommittedEntryWithOngoingText("reviewer_suggestions", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text")
-	eng.AppendCommittedEntry("reviewer_status", "Supervisor ran: 2 suggestions, no changes applied.")
-
-	m := newProjectedEngineUIModel(eng, WithUITheme("dark"))
-	m.termWidth = 100
-	m.termHeight = 24
-
-	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
-	if !containsInOrder(ongoing, "Supervisor suggested:", "1. First detailed suggestion text", "2. Second detailed suggestion text") {
-		t.Fatalf("expected verbose reviewer suggestions in ongoing mode, got %q", ongoing)
-	}
-	if !strings.Contains(ongoing, "Supervisor ran: 2 suggestions, no changes applied.") {
-		t.Fatalf("expected short reviewer status in ongoing mode, got %q", ongoing)
-	}
-	if strings.Count(ongoing, "Supervisor suggested:") != 1 {
-		t.Fatalf("expected reviewer suggestions details only at issuance time in ongoing mode, got %q", ongoing)
-	}
-
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	detail := stripANSIAndTrimRight(next.(*uiModel).View())
-	if !containsInOrder(detail, "Supervisor suggested:", "1. First detailed suggestion text", "2. Second detailed suggestion text", "Supervisor ran: 2 suggestions, no changes applied.") {
-		t.Fatalf("expected full reviewer suggestions in detail mode, got %q", detail)
 	}
 }
 

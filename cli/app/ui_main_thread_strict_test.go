@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,28 +11,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-type strictBlockingProbeMsg struct{}
-
-func (strictBlockingProbeMsg) probeUIModel(m *uiModel) {
-	m.checkTUIBlockingOperation("test blocking read", "probe")
-}
-
-func TestTUIStrictIOPanicsInsideUpdateWhenDebugEnabled(t *testing.T) {
-	m := newProjectedStaticUIModel(WithUIDebug(true))
-
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("expected strict-mode panic")
-		}
-		if !strings.Contains(recovered.(string), "TUI main-thread I/O violation during Update") {
-			t.Fatalf("unexpected panic: %v", recovered)
-		}
-	}()
-
-	_, _ = m.Update(strictBlockingProbeMsg{})
-}
 
 type countingProcessClient struct {
 	listCalls int

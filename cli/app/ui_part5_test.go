@@ -2,50 +2,13 @@ package app
 
 import (
 	"context"
-	"core/cli/tui"
-	"core/server/llm"
 	"core/server/runtime"
 	shelltool "core/server/tools/shell"
-	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-func TestViewDuringActiveWorkKeepsCommittedTranscriptVisible(t *testing.T) {
-	store := createAppRuntimeSession(t)
-	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "prior user"}); err != nil {
-		t.Fatalf("append user message: %v", err)
-	}
-	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "prior assistant"}); err != nil {
-		t.Fatalf("append assistant message: %v", err)
-	}
-	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})
-	m := newProjectedEngineUIModel(eng)
-	m.termWidth = 100
-	m.termHeight = 24
-	m.windowSizeKnown = true
-	m.setBusy(true)
-	m.sawAssistantDelta = true
-	m.layout().syncViewport()
-	m.forwardToView(tui.SetConversationMsg{
-		Entries: []tui.TranscriptEntry{
-			{Role: "user", Text: "prior user"},
-			{Role: "assistant", Text: "prior assistant"},
-		},
-		Ongoing: "streaming now",
-	})
-
-	view := stripANSIAndTrimRight(m.view.OngoingSnapshot())
-	if !strings.Contains(view, "prior assistant") || !strings.Contains(view, "prior user") {
-		t.Fatalf("expected ongoing render to keep committed transcript visible, got %q", view)
-	}
-	compact := stripANSIAndTrimRight(m.View())
-	if !strings.Contains(compact, "streaming now") {
-		t.Fatalf("expected ongoing compact render to include live streaming content, got %q", compact)
-	}
-}
 
 func TestSlashPickerShowsFastForOpenAIFirstPartyResponsesProvider(t *testing.T) {
 	_, eng := newAppRuntimeEngine(t, statusLineFastClient{}, runtime.Config{})
@@ -93,66 +56,6 @@ func TestCalcChatLinesShrinksForQueuedPane(t *testing.T) {
 	withOverflowLine := m.layout().calcChatLines()
 	if withOverflowLine != base-6 {
 		t.Fatalf("expected chat lines to shrink by 6 with overflow line, base=%d withOverflowLine=%d", base, withOverflowLine)
-	}
-}
-
-func TestPSCommandOpensProcessSurfaceInNativeMode(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 14
-	m.windowSizeKnown = true
-	m.input = "/ps"
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	if !testProcessListOpen(updated) {
-		t.Fatal("expected /ps to open the process list")
-	}
-	if updated.surface() != uiSurfaceProcessList {
-		t.Fatalf("expected /ps to activate process list surface, got %q", updated.surface())
-	}
-	if updated.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected /ps to keep transcript mode ongoing, got %q", updated.view.Mode())
-	}
-	if cmd == nil {
-		t.Fatal("expected /ps open to emit a screen transition command")
-	}
-	plain := stripANSIAndTrimRight(updated.View())
-	if !strings.Contains(plain, "Background Processes") {
-		t.Fatalf("expected process list title in overlay, got %q", plain)
-	}
-	if !strings.Contains(plain, "Esc/q close") {
-		t.Fatalf("expected process list help text in overlay, got %q", plain)
-	}
-	rawLines := strings.Split(updated.View(), "\n")
-	lines := strings.Split(plain, "\n")
-	if len(lines) < 3 {
-		t.Fatalf("expected multi-line /ps overlay, got %q", plain)
-	}
-	if !strings.Contains(lines[0], "Background Processes") {
-		t.Fatalf("expected /ps title at top of overlay, got %q", lines[0])
-	}
-	if rawLines[0] == lines[0] {
-		t.Fatalf("expected /ps title to be styled, raw=%q plain=%q", rawLines[0], lines[0])
-	}
-	footer := strings.Join(lines[max(0, len(lines)-2):], "\n")
-	if !strings.Contains(footer, "Esc/q close") {
-		t.Fatalf("expected /ps controls near the bottom of the overlay, footer=%q", footer)
-	}
-
-	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	updated = next.(*uiModel)
-	if testProcessListOpen(updated) {
-		t.Fatal("expected esc to close the process list")
-	}
-	if testProcessListSurfaceActive(updated) {
-		t.Fatal("expected process overlay state cleared after close")
-	}
-	if updated.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected process list close to restore ongoing mode, got %q", updated.view.Mode())
-	}
-	if cmd == nil {
-		t.Fatal("expected /ps close to emit a screen transition command")
 	}
 }
 

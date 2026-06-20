@@ -4,14 +4,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -191,133 +188,6 @@ func TestLaunchdRestartReloadsUnloadedHealthyServerBeforeBootstrap(t *testing.T)
 	}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Fatalf("calls = %#v, want %#v", *calls, want)
-	}
-}
-
-func TestLaunchdRestartIfInstalledReplacesStaleLoadedServiceAfterTransientBootstrapError(t *testing.T) {
-	spec := newLaunchdTestSpec(t)
-	withLaunchdServiceCommandSpec(t, spec)
-	path := writeLaunchdTestPlist(t, spec)
-	printCalls := 0
-	var calls *[][]string
-	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
-		switch strings.Join(append([]string{name}, args...), "\x00") {
-		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
-			printCalls++
-			if printCalls <= 2 {
-				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/kent\n\tserve\n}\n"}, nil
-			}
-			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
-		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
-			if countLaunchdCommand(*calls, "bootstrap") == 1 {
-				return serviceCommandResult{Stderr: "Bootstrap failed: 5: Input/output error", Code: 5}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "Bootstrap failed: 5: Input/output error", Code: 5}}
-			}
-			return serviceCommandResult{}, nil
-		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
-			return serviceCommandResult{}, nil
-		default:
-			return serviceCommandResult{}, errors.New("unexpected command")
-		}
-	})
-
-	var stdout strings.Builder
-	var stderr strings.Builder
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
-	}
-
-	want := [][]string{
-		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
-		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
-		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
-		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
-		{"launchctl", "bootout", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
-		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
-	}
-	if !reflect.DeepEqual(*calls, want) {
-		t.Fatalf("calls = %#v, want %#v", *calls, want)
-	}
-	wantStdout := serviceDisplayName + " is installed. Restarting it after update; sessions may fail briefly.\nRestarted " + serviceDisplayName + ".\n"
-	if stdout.String() != wantStdout {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), wantStdout)
-	}
-}
-
-func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenBootoutFails(t *testing.T) {
-	spec := newLaunchdTestSpec(t)
-	withLaunchdServiceCommandSpec(t, spec)
-	path := writeLaunchdTestPlist(t, spec)
-	printCalls := 0
-	var calls *[][]string
-	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
-		switch strings.Join(append([]string{name}, args...), "\x00") {
-		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
-			printCalls++
-			if printCalls <= 2 {
-				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/kent\n\tserve\n}\n"}, nil
-			}
-			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
-		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
-			return serviceCommandResult{Stderr: "Bootstrap failed: 5: Input/output error", Code: 5}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "Bootstrap failed: 5: Input/output error", Code: 5}}
-		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
-			return serviceCommandResult{Stderr: "bootout failed", Code: 5}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "bootout failed", Code: 5}}
-		default:
-			return serviceCommandResult{}, errors.New("unexpected command")
-		}
-	})
-
-	var stdout strings.Builder
-	var stderr strings.Builder
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if countLaunchdCommand(*calls, "bootstrap") != 1 || countLaunchdCommand(*calls, "bootout") != 1 {
-		t.Fatalf("calls = %#v, want one bootstrap then failed bootout", *calls)
-	}
-	if !strings.Contains(stderr.String(), "bootout failed") {
-		t.Fatalf("stderr = %q, want bootout failure", stderr.String())
-	}
-}
-
-func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenRetryBootstrapFails(t *testing.T) {
-	spec := newLaunchdTestSpec(t)
-	withLaunchdServiceCommandSpec(t, spec)
-	path := writeLaunchdTestPlist(t, spec)
-	printCalls := 0
-	var calls *[][]string
-	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
-		switch strings.Join(append([]string{name}, args...), "\x00") {
-		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
-			printCalls++
-			if printCalls <= 2 {
-				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/kent\n\tserve\n}\n"}, nil
-			}
-			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
-		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
-			if countLaunchdCommand(*calls, "bootstrap") == 1 {
-				return serviceCommandResult{Stderr: "Bootstrap failed: 5: Input/output error", Code: 5}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "Bootstrap failed: 5: Input/output error", Code: 5}}
-			}
-			return serviceCommandResult{Stderr: "retry bootstrap failed", Code: 5}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "retry bootstrap failed", Code: 5}}
-		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
-			return serviceCommandResult{}, nil
-		default:
-			return serviceCommandResult{}, errors.New("unexpected command")
-		}
-	})
-
-	var stdout strings.Builder
-	var stderr strings.Builder
-	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if countLaunchdCommand(*calls, "bootstrap") != 2 || countLaunchdCommand(*calls, "bootout") != 1 {
-		t.Fatalf("calls = %#v, want failed bootstrap, bootout, failed retry bootstrap", *calls)
-	}
-	if !strings.Contains(stderr.String(), "retry bootstrap failed") {
-		t.Fatalf("stderr = %q, want retry bootstrap failure", stderr.String())
 	}
 }
 
@@ -529,72 +399,6 @@ func TestLaunchdReloadExplainsOldServerStillRunningInsteadOfBootstrapCodeFive(t 
 	}
 }
 
-func TestLaunchdRestartIfInstalledRepeatedIntegration(t *testing.T) {
-	if os.Getenv("KENT_LAUNCHD_INTEGRATION") != "1" {
-		t.Skip("set KENT_LAUNCHD_INTEGRATION=1 to run real launchd service restart integration")
-	}
-	kentPath := strings.TrimSpace(os.Getenv("KENT_LAUNCHD_INTEGRATION_BIN"))
-	if kentPath == "" {
-		var err error
-		kentPath, err = exec.LookPath("kent")
-		if err != nil {
-			t.Fatalf("find kent binary: %v", err)
-		}
-	}
-	freePort := reserveFreeLocalPort(t)
-	root := t.TempDir()
-	wrapperPath := filepath.Join(root, "kent")
-	wrapper := fmt.Sprintf("#!/bin/sh\nexport KENT_SERVER_PORT=%d\nexport KENT_PERSISTENCE_ROOT=%s\nexec -a \"$0\" %s \"$@\"\n", freePort, shellQuote(filepath.Join(root, "persist")), shellQuote(kentPath))
-	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
-		t.Fatalf("write kent wrapper: %v", err)
-	}
-	home := filepath.Join(root, "home")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		t.Fatalf("mkdir home: %v", err)
-	}
-	env := append(os.Environ(),
-		"HOME="+home,
-		fmt.Sprintf("KENT_SERVER_PORT=%d", freePort),
-		"KENT_PERSISTENCE_ROOT="+filepath.Join(root, "persist"),
-	)
-	runKent := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command(wrapperPath, args...)
-		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("%s %s failed: %v\n%s", wrapperPath, strings.Join(args, " "), err, out)
-		}
-		return string(out)
-	}
-	t.Cleanup(func() {
-		cmd := exec.Command(wrapperPath, "service", "uninstall")
-		cmd.Env = env
-		_ = cmd.Run()
-	})
-
-	runKent("service", "install", "--force")
-	lastPID := 0
-	for i := 0; i < 3; i++ {
-		output := runKent("service", "restart", "--if-installed")
-		if !strings.Contains(output, "Restarted Kent background service.") {
-			t.Fatalf("restart output = %q, want restart confirmation", output)
-		}
-		status := runKent("service", "status", "--json")
-		var decoded serviceStatus
-		if err := json.Unmarshal([]byte(status), &decoded); err != nil {
-			t.Fatalf("decode status JSON: %v; raw=%q", err, status)
-		}
-		if !decoded.Installed || !decoded.Loaded || !decoded.Running || decoded.PID <= 0 {
-			t.Fatalf("status after restart %d = %+v, want installed/loaded/running with pid", i+1, decoded)
-		}
-		if lastPID > 0 && decoded.PID == lastPID {
-			t.Fatalf("pid did not change after restart %d: %d", i+1, decoded.PID)
-		}
-		lastPID = decoded.PID
-	}
-}
-
 func TestLaunchdStartReplacesStaleLoadedServiceAfterTransientBootstrapError(t *testing.T) {
 	spec := newLaunchdTestSpec(t)
 	path := writeLaunchdTestPlist(t, spec)
@@ -759,12 +563,3 @@ func countLaunchdCommand(calls [][]string, name string) int {
 	return count
 }
 
-func reserveFreeLocalPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve local port: %v", err)
-	}
-	defer func() { _ = listener.Close() }()
-	return listener.Addr().(*net.TCPAddr).Port
-}

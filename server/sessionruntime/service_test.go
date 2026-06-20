@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,8 +22,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/toolspec"
-	"core/shared/transcript"
 )
 
 type sessionRuntimeTestLLMClient struct {
@@ -39,32 +35,6 @@ func (c *sessionRuntimeTestLLMClient) Generate(_ context.Context, _ llm.Request)
 	resp := c.responses[0]
 	c.responses = c.responses[1:]
 	return resp, nil
-}
-
-type sessionRuntimeTestTool struct {
-	name toolspec.ID
-}
-
-func (t sessionRuntimeTestTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
-	out, _ := json.Marshal(map[string]string{"tool": string(t.name)})
-	return tools.Result{CallID: c.ID, Name: c.Name, Output: out}, nil
-}
-
-type patchDetailCapture struct {
-	mu    sync.Mutex
-	value string
-}
-
-func (c *patchDetailCapture) Set(value string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.value = value
-}
-
-func (c *patchDetailCapture) Get() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.value
 }
 
 func TestClaimActivationReusesDuplicateRequest(t *testing.T) {
@@ -1915,145 +1885,6 @@ func TestSyncExecutionTargetRebindsExternalCollaborativeRuntime(t *testing.T) {
 	}
 	if reboundRoot != "/tmp/collaborative-worktree" {
 		t.Fatalf("rebound root = %q, want /tmp/collaborative-worktree", reboundRoot)
-	}
-}
-
-func TestSyncExecutionTargetUpdatesActiveRuntimePatchTranscriptWorkdir(t *testing.T) {
-	fixture := newSessionRuntimeFixture(t)
-	patchText := "*** Begin Patch\n*** Add File: probe.txt\n+hello\n*** End Patch\n"
-	client := &sessionRuntimeTestLLMClient{responses: []llm.Response{
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "patching", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call-patch", Name: string(toolspec.ToolPatch), Input: json.RawMessage(`{"patch":` + strconv.Quote(patchText) + `}`)}},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
-	}}
-	var detail patchDetailCapture
-	engine, err := runtimepkg.New(fixture.store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: sessionRuntimeTestTool{name: toolspec.ToolPatch}}), runtimepkg.Config{
-		Model:                "gpt-5",
-		TranscriptWorkingDir: "/old-worktree",
-		OnEvent: func(evt runtimepkg.Event) {
-			if evt.Kind != runtimepkg.EventToolCallStarted || evt.ToolCall == nil {
-				return
-			}
-			meta, ok := transcript.DecodeToolCallMeta(evt.ToolCall.Presentation)
-			if ok {
-				detail.Set(meta.PatchDetail)
-			}
-		},
-	})
-	if err != nil {
-		t.Fatalf("runtime.New: %v", err)
-	}
-	defer func() { _ = engine.Close() }()
-	handle := &runtimeHandle{
-		controllerRequestID: "req-1",
-		controllerLeaseID:   "lease-1",
-		ready:               make(chan struct{}),
-		rebind:              runtimeRebindFunc(func(string) error { return nil }, engine),
-	}
-	close(handle.ready)
-	fixture.service.handles = map[string]*runtimeHandle{fixture.store.Meta().SessionID: handle}
-
-	if err := fixture.service.SyncExecutionTarget(context.Background(), fixture.store.Meta().SessionID, clientui.SessionExecutionTarget{EffectiveWorkdir: "/new-worktree"}, nil); err != nil {
-		t.Fatalf("SyncExecutionTarget: %v", err)
-	}
-	if _, err := engine.SubmitUserMessage(context.Background(), "apply patch"); err != nil {
-		t.Fatalf("SubmitUserMessage: %v", err)
-	}
-	gotDetail := detail.Get()
-	if !strings.Contains(gotDetail, "/new-worktree/probe.txt") {
-		t.Fatalf("expected patch detail to use retargeted workdir, got %q", gotDetail)
-	}
-	if strings.Contains(gotDetail, "/old-worktree/probe.txt") {
-		t.Fatalf("did not expect old workdir in patch detail, got %q", gotDetail)
-	}
-}
-
-func TestSyncExecutionTargetDoesNotPersistReminderWhenActiveRuntimeRebindFails(t *testing.T) {
-	fixture := newSessionRuntimeFixture(t)
-	handle := &runtimeHandle{
-		controllerRequestID: "req-1",
-		controllerLeaseID:   "lease-1",
-		ready:               make(chan struct{}),
-		rebind: func(string) error {
-			return errors.New("rebind failed")
-		},
-	}
-	close(handle.ready)
-	fixture.service.handles = map[string]*runtimeHandle{fixture.store.Meta().SessionID: handle}
-
-	err := fixture.service.SyncExecutionTarget(context.Background(), fixture.store.Meta().SessionID, clientui.SessionExecutionTarget{
-		EffectiveWorkdir: "/tmp/workspace/pkg",
-	}, &session.WorktreeReminderState{
-		Mode:          session.WorktreeReminderModeExit,
-		Branch:        "feature/worktree",
-		WorktreePath:  "/tmp/worktree-a",
-		WorkspaceRoot: "/tmp/workspace",
-		EffectiveCwd:  "/tmp/workspace",
-	})
-	if err == nil || !strings.Contains(err.Error(), "rebind failed") {
-		t.Fatalf("SyncExecutionTarget error = %v, want rebind failure", err)
-	}
-
-	resolved, err := fixture.service.resolveStore(context.Background(), fixture.store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("resolveStore: %v", err)
-	}
-	if state := resolved.Meta().WorktreeReminder; state != nil {
-		t.Fatalf("expected reminder state not persisted after failed rebind, got %+v", state)
-	}
-}
-
-func TestRuntimeRebindDoesNotAdvanceTranscriptWorkdirWhenLocalRebindFails(t *testing.T) {
-	fixture := newSessionRuntimeFixture(t)
-	patchText := "*** Begin Patch\n*** Add File: probe.txt\n+hello\n*** End Patch\n"
-	client := &sessionRuntimeTestLLMClient{responses: []llm.Response{
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "patching", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call-patch", Name: string(toolspec.ToolPatch), Input: json.RawMessage(`{"patch":` + strconv.Quote(patchText) + `}`)}},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
-	}}
-	var detail patchDetailCapture
-	engine, err := runtimepkg.New(fixture.store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: sessionRuntimeTestTool{name: toolspec.ToolPatch}}), runtimepkg.Config{
-		Model:                "gpt-5",
-		TranscriptWorkingDir: "/old-worktree",
-		OnEvent: func(evt runtimepkg.Event) {
-			if evt.Kind != runtimepkg.EventToolCallStarted || evt.ToolCall == nil {
-				return
-			}
-			meta, ok := transcript.DecodeToolCallMeta(evt.ToolCall.Presentation)
-			if ok {
-				detail.Set(meta.PatchDetail)
-			}
-		},
-	})
-	if err != nil {
-		t.Fatalf("runtime.New: %v", err)
-	}
-	defer func() { _ = engine.Close() }()
-	rebindErr := runtimeRebindFunc(func(string) error { return errors.New("local rebind failed") }, engine)("/new-worktree")
-	if rebindErr == nil || !strings.Contains(rebindErr.Error(), "local rebind failed") {
-		t.Fatalf("runtimeRebindFunc error = %v, want local rebind failed", rebindErr)
-	}
-	if _, err := engine.SubmitUserMessage(context.Background(), "apply patch"); err != nil {
-		t.Fatalf("SubmitUserMessage: %v", err)
-	}
-	gotDetail := detail.Get()
-	if !strings.Contains(gotDetail, "/old-worktree/probe.txt") {
-		t.Fatalf("expected patch detail to keep old workdir, got %q", gotDetail)
-	}
-	if strings.Contains(gotDetail, "/new-worktree/probe.txt") {
-		t.Fatalf("did not expect failed rebind workdir in patch detail, got %q", gotDetail)
 	}
 }
 

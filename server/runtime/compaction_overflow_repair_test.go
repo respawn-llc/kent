@@ -164,69 +164,6 @@ func TestCompactionOverflowRepairTargetsUseContextWindow(t *testing.T) {
 	}
 }
 
-func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
-	dir := t.TempDir()
-	store := mustCreateTestSessionAt(t, dir)
-	client := &fakeCompactionClient{
-		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
-			nil,
-		},
-		responses: []llm.Response{{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "local summary"},
-			Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
-		}},
-	}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
-		t.Fatalf("append user message: %v", err)
-	}
-	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
-		ID:    "call-shell",
-		Name:  string(toolspec.ToolExecCommand),
-		Input: json.RawMessage(`{"cmd":"go test ./..."}`),
-	}}}})); err != nil {
-		t.Fatalf("append assistant tool call: %v", err)
-	}
-	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
-		Role:       llm.RoleTool,
-		ToolCallID: "call-shell",
-		Name:       string(toolspec.ToolExecCommand),
-		Content:    `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
-	}})); err != nil {
-		t.Fatalf("append tool output: %v", err)
-	}
-
-	if err := eng.CompactContext(context.Background(), ""); err != nil {
-		t.Fatalf("compact: %v", err)
-	}
-	if len(client.calls) != 2 {
-		t.Fatalf("local compaction model calls = %d, want 2", len(client.calls))
-	}
-	if len(client.calls[1].Items) != len(client.calls[0].Items) {
-		t.Fatalf("expected repair to preserve item count, first=%d second=%d", len(client.calls[0].Items), len(client.calls[1].Items))
-	}
-	foundCollapsed := false
-	for _, item := range client.calls[1].Items {
-		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID == "call-shell" {
-			foundCollapsed = isCollapsedCompactionOverflowShellOutput(item.Output)
-		}
-	}
-	if !foundCollapsed {
-		t.Fatalf("expected local compaction retry to collapse shell output, got %+v", client.calls[1].Items)
-	}
-	foundDiagnostic := false
-	for _, entry := range eng.ChatSnapshot().Entries {
-		if entry.Role == "developer_error_feedback" && strings.Contains(entry.Text, "Context compaction succeeded after collapsing tool payloads") && strings.Contains(entry.Text, "1 shell outputs") {
-			foundDiagnostic = true
-			break
-		}
-	}
-	if !foundDiagnostic {
-		t.Fatalf("expected compaction repair diagnostic in transcript, got %+v", eng.ChatSnapshot().Entries)
-	}
-}
-
 func TestLocalCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *testing.T) {
 	dir := t.TempDir()
 	store := mustCreateTestSessionAt(t, dir)

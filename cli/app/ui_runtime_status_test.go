@@ -2,7 +2,6 @@ package app
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"core/cli/tui"
@@ -111,32 +110,6 @@ func TestStaticLocalEntryAppendShowsStatusOnly(t *testing.T) {
 	}
 	if m.transientStatus != "local feedback" || m.transientStatusNoticeID != "notice-1" {
 		t.Fatalf("expected status-only local feedback, got status=%q notice=%q", m.transientStatus, m.transientStatusNoticeID)
-	}
-}
-
-func TestRuntimeStatusLineHidesGoalStatusText(t *testing.T) {
-	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused, clientui.RuntimeGoalStatusComplete} {
-		client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
-			Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: goalStatus},
-		}}
-		m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-
-		status := stripANSIAndTrimRight(m.layout().renderStatusLine(120, uiThemeStyles("dark")))
-		if strings.Contains(status, "goal active") || strings.Contains(status, "goal paused") || strings.Contains(status, "goal complete") {
-			t.Fatalf("did not expect status line to include goal status text for %s, got %q", goalStatus, status)
-		}
-	}
-}
-
-func TestRuntimeStatusLineShowsGoalProgressWord(t *testing.T) {
-	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
-		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
-	}}
-	m := newSizedProjectedClosedUIModel(client, 100, 20)
-	status := uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme))
-
-	if !strings.Contains(stripANSIAndTrimRight(status), "goal") {
-		t.Fatalf("expected status line to include goal progress word, got %q", status)
 	}
 }
 

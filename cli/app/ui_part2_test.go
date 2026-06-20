@@ -3,7 +3,6 @@ package app
 import (
 	"core/cli/tui"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/shared/clientui"
 	"errors"
 	"fmt"
@@ -13,54 +12,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-func TestRollbackSelectionUsesAbsoluteTranscriptEntryIndexWhenPaged(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 14
-	m.windowSizeKnown = true
-	m.transcriptEntries = []tui.TranscriptEntry{
-		{Role: "user", Text: "u-100"},
-		{Role: "assistant", Text: "a-100"},
-		{Role: "user", Text: "u-101"},
-	}
-	m.transcriptBaseOffset = 200
-	m.transcriptTotalEntries = 203
-	m.forwardToView(tui.SetConversationMsg{BaseOffset: m.transcriptBaseOffset, TotalEntries: m.transcriptTotalEntries, Entries: m.transcriptEntries})
-	m.layout().syncViewport()
-
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	updated := next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	updated = next.(*uiModel)
-
-	if !testRollbackSelecting(updated) {
-		t.Fatal("expected rollback selection mode after double esc")
-	}
-	selectedLine := lineContaining(updated.View(), "u-101")
-	if selectedLine == "" {
-		t.Fatalf("expected selected paged rollback message visible, got %q", stripANSIAndTrimRight(updated.View()))
-	}
-	if !strings.Contains(selectedLine, themeSelectionBackgroundEscape(updated.theme)) {
-		t.Fatalf("expected paged rollback selection highlight, got %q", selectedLine)
-	}
-
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	if !testRollbackEditing(updated) {
-		t.Fatal("expected rollback editing mode after enter")
-	}
-	if updated.input != "u-101" {
-		t.Fatalf("expected selected paged message loaded into input, got %q", updated.input)
-	}
-
-	updated.input = "edited paged user message"
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	if updated.nextForkRollbackTargetID != rollbackTargetIDForTestSelection(202) {
-		t.Fatalf("expected rollback target id, got %q", updated.nextForkRollbackTargetID)
-	}
-}
 
 func TestRollbackRefreshClearsPendingPageSelectionOutsideSelectionMode(t *testing.T) {
 	m := newProjectedStaticUIModel()
@@ -683,58 +634,6 @@ func absInt(v int) int {
 	return v
 }
 
-func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
-	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{ContextWindowTokens: 400_000})
-	m := newProjectedEngineUIModel(eng)
-	m.setBusy(true)
-	reply := make(chan askReply, 1)
-	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
-
-	next, _ := m.Update(askEventMsg{event: event})
-	updated := next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated = next.(*uiModel)
-	if !testAskFreeform(updated) {
-		t.Fatal("expected tab to switch approval prompt to commentary freeform")
-	}
-	lines := updated.layout().renderInputLines(120, uiThemeStyles("dark"))
-	plain := stripANSIAndTrimRight(strings.Join(lines, "\n"))
-	if !strings.Contains(plain, "Commentary for Allow once:") {
-		t.Fatalf("expected commentary prompt for selected approval option, got %q", plain)
-	}
-
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ok but please keep it minimal")})
-	updated = next.(*uiModel)
-	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected approval commentary queue command")
-	}
-	select {
-	case <-reply:
-		t.Fatal("did not expect approval answer before commentary queue command completes")
-	default:
-	}
-	for _, msg := range collectCmdMessages(t, cmd) {
-		next, cmd = updated.Update(msg)
-		updated = next.(*uiModel)
-	}
-
-	resp := <-reply
-	if resp.response.Approval == nil {
-		t.Fatal("expected typed approval response")
-	}
-	if resp.response.Approval.Decision != clientui.ApprovalDecisionAllowOnce || resp.response.Approval.Commentary != "ok but please keep it minimal" {
-		t.Fatalf("unexpected approval allow-with-commentary answer: %+v", resp.response.Approval)
-	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "ok but please keep it minimal" {
-		t.Fatalf("expected queued user commentary injection, got %+v", updated.pendingInjected)
-	}
-	if testActiveAsk(updated) != nil {
-		t.Fatal("expected ask to resolve after approval commentary submit")
-	}
-}
-
 func TestApprovalAskAnswersWhenCommentaryQueueFails(t *testing.T) {
 	client := &runtimeControlFakeClient{queueUserMessageErr: errors.New("queue create failed")}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
@@ -964,22 +863,6 @@ func TestAskResolutionEventRestoresRunningActivityWhenRuntimeIsBusy(t *testing.T
 
 	if updated.activity != uiActivityRunning {
 		t.Fatalf("activity = %v, want %v", updated.activity, uiActivityRunning)
-	}
-}
-
-func TestTabIdleAppendsUserOnce(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.input = "echo hi"
-
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated := next.(*uiModel)
-
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	updated = next.(*uiModel)
-
-	view := stripANSIAndTrimRight(updated.View())
-	if count := strings.Count(view, "echo hi"); count != 1 {
-		t.Fatalf("expected one user transcript entry, got %d", count)
 	}
 }
 

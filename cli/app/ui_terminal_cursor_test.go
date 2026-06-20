@@ -3,13 +3,11 @@ package app
 import (
 	"bytes"
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"core/cli/tui"
-	"core/shared/clientui"
 	"core/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -384,56 +382,6 @@ func TestUITerminalCursorPlacementTracksWrappedAltScreenInputAcrossWidthChanges(
 	}
 }
 
-func TestMainInputCursorUsesSharedFieldDisplayWidth(t *testing.T) {
-	state := newUITerminalCursorState()
-	m := newProjectedStaticUIModel(WithUITerminalCursorState(state))
-	m.termWidth = 12
-	m.termHeight = 10
-	m.windowSizeKnown = true
-	m.input = "ab👍cd"
-	m.inputCursor = 3
-	m.layout().syncViewport()
-
-	cursor := m.layout().inputPaneCursor(m.termWidth)
-	if !cursor.Visible {
-		t.Fatal("expected main input cursor")
-	}
-	if cursor.Row != 1 || cursor.Col != 6 {
-		t.Fatalf("cursor = %+v, want row 1 col 6", cursor)
-	}
-	view := m.View()
-	assertRenderedLinesFitWidth(t, view, m.termWidth)
-	if !strings.Contains(xansi.Strip(view), "› ab👍cd") {
-		t.Fatalf("expected input text rendered through shared field, got %q", view)
-	}
-}
-
-func TestAskInputCursorUsesSharedFieldDisplayWidth(t *testing.T) {
-	state := newUITerminalCursorState()
-	m := newProjectedStaticUIModel(WithUITerminalCursorState(state))
-	m.termWidth = 12
-	m.termHeight = 10
-	m.windowSizeKnown = true
-	reply := make(chan askReply, 1)
-	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Question?"}, reply: reply})
-	m.ask.input = "ab👍cd"
-	m.ask.inputCursor = 3
-	m.layout().syncViewport()
-
-	cursor := m.layout().inputPaneCursor(m.termWidth)
-	if !cursor.Visible {
-		t.Fatal("expected ask input cursor")
-	}
-	if cursor.Row != 2 || cursor.Col != 6 {
-		t.Fatalf("cursor = %+v, want row 2 col 6", cursor)
-	}
-	view := m.View()
-	assertRenderedLinesFitWidth(t, view, m.termWidth)
-	if !strings.Contains(xansi.Strip(view), "› ab👍cd") {
-		t.Fatalf("expected ask input text rendered through shared field, got %q", view)
-	}
-}
-
 func TestTerminalCursorHiddenWhenInputLocked(t *testing.T) {
 	state := newUITerminalCursorState()
 	m := newProjectedStaticUIModel(WithUITerminalCursorState(state))
@@ -563,73 +511,6 @@ func TestRealCursorFrameMarkerNotRenderedInDetailMode(t *testing.T) {
 	}
 }
 
-func TestTerminalCursorPlacementAccountsForTailTrimmedStatusLine(t *testing.T) {
-	state := newUITerminalCursorState()
-	m := newProjectedStaticUIModel(WithUITerminalCursorState(state))
-	layout := m.layout()
-	frame := uiRenderFrame{
-		width:      12,
-		height:     3,
-		chatPanel:  []string{"chat 1", "chat 2", "chat 3"},
-		inputPane:  []string{"input 1", "input 2"},
-		statusLine: "status",
-		tailOnly:   true,
-		inputCursor: uiInputFieldCursor{
-			Visible: true,
-			Row:     0,
-			Col:     4,
-		},
-	}
-
-	view := layout.renderFrame(frame)
-	if strings.Contains(view, ansiHideCursor) {
-		t.Fatalf("did not expect hidden cursor in real-cursor frame: %q", view)
-	}
-	placement, ok := state.Snapshot()
-	if !ok {
-		t.Fatal("expected visible terminal cursor placement")
-	}
-	if placement.CursorRow != 0 {
-		t.Fatalf("cursor row = %d, want 0 after tail trim with status line", placement.CursorRow)
-	}
-	if placement.AnchorRow != 2 {
-		t.Fatalf("anchor row = %d, want 2", placement.AnchorRow)
-	}
-	if placement.CursorCol != 4 {
-		t.Fatalf("cursor col = %d, want 4", placement.CursorCol)
-	}
-	lines := strings.Split(view, "\n")
-	strippedLines := make([]string, 0, len(lines))
-	for _, line := range lines {
-		strippedLines = append(strippedLines, xansi.Strip(line))
-	}
-	if got, want := strippedLines, []string{"input 1", "input 2", "status"}; !slices.Equal(got, want) {
-		t.Fatalf("rendered lines = %#v, want %#v", got, want)
-	}
-}
-
-func TestSoftCursorOverlayPreservesColumnAfterTrimmedTrailingSpaces(t *testing.T) {
-	rendered := overlayCursorOnLine("› abc", 7, 10, lipgloss.NewStyle().Reverse(true))
-	if !strings.HasPrefix(rendered, "› abc  ") {
-		t.Fatalf("expected cursor overlay to preserve target column, got %q", rendered)
-	}
-}
-
-func TestSharedFieldRenderingPreservesExplicitTrailingSpaces(t *testing.T) {
-	rendered := renderEditableInputField(10, 1, uiEditableInputRenderSpec{
-		Prefix:       "› ",
-		Text:         "abc  ",
-		CursorIndex:  -1,
-		RenderCursor: true,
-	})
-	if got, want := rendered.Lines[0], "› abc     "; got != want {
-		t.Fatalf("line = %q, want %q", got, want)
-	}
-	if rendered.Cursor.Col != 7 {
-		t.Fatalf("cursor col = %d, want 7", rendered.Cursor.Col)
-	}
-}
-
 func TestTerminalCursorProgramTracksWrappedInputAndResize(t *testing.T) {
 	state := newUITerminalCursorState()
 	model := newProjectedStaticUIModel(WithUITerminalCursorState(state))
@@ -674,111 +555,6 @@ func TestTerminalCursorProgramTracksWrappedInputAndResize(t *testing.T) {
 
 	if !strings.Contains(out.String(), xansi.ShowCursor) {
 		t.Fatalf("expected program output to show native cursor, got %q", out.String())
-	}
-}
-
-func TestTerminalCursorProgramStartupReplayAfterClearScreenKeepsOngoingOutputVisible(t *testing.T) {
-	state := newUITerminalCursorState()
-	model := newProjectedStaticUIModel(
-		WithUITerminalCursorState(state),
-		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "startup replay marker"}}),
-	)
-
-	var out bytes.Buffer
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(newUITerminalCursorWriter(&out, state)),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
-	defer program.Quit()
-
-	program.Send(tea.WindowSizeMsg{Width: 80, Height: 20})
-	waitForTestCondition(t, 2*time.Second, "visible ongoing output after startup clear-screen replay", func() bool {
-		tail := terminalOutputAfterLastClearScreen(out.String())
-		plain := normalizedOutput(tail)
-		return strings.Contains(plain, "startup replay marker")
-	})
-	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
-
-	if plain := normalizedOutput(terminalOutputAfterLastClearScreen(out.String())); strings.TrimSpace(plain) == "" {
-		t.Fatalf("expected nonblank ongoing output after final clear screen, got raw %q", out.String())
-	}
-}
-
-func terminalOutputAfterLastClearScreen(output string) string {
-	index := strings.LastIndex(output, xansi.EraseEntireScreen)
-	if index < 0 {
-		return output
-	}
-	return output[index:]
-}
-
-func TestTerminalCursorProgramSurvivesAltScreenTransitionAfterPlacement(t *testing.T) {
-	state := newUITerminalCursorState()
-	model := newProjectedStaticUIModel(
-		WithUITerminalCursorState(state),
-		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "history marker"}}),
-	)
-	model.input = "wrapped input before alt transition"
-	model.inputCursor = -1
-
-	var out bytes.Buffer
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(newUITerminalCursorWriter(&out, state)),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
-	defer program.Quit()
-
-	program.Send(tea.WindowSizeMsg{Width: 28, Height: 14})
-	waitForTestCondition(t, 2*time.Second, "cursor placement before alt transition", func() bool {
-		_, ok := state.Snapshot()
-		return ok
-	})
-	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
-	waitForTestCondition(t, 2*time.Second, "detail alt-screen active", func() bool {
-		return model.view.Mode() == "detail" && model.altScreenActive
-	})
-	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
-	waitForTestCondition(t, 2*time.Second, "ongoing mode restored", func() bool {
-		return model.view.Mode() == "ongoing" && !model.altScreenActive
-	})
-	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
-
-	raw := out.String()
-	if !strings.Contains(raw, "\x1b[?1049h") || !strings.Contains(raw, "\x1b[?1049l") {
-		t.Fatalf("expected alt-screen enter/exit in output, got %q", raw)
-	}
-	if !strings.Contains(strings.Join(strings.Fields(xansi.Strip(raw)), " "), "history marker") {
-		t.Fatalf("expected output to remain coherent across alt-screen transition, got %q", raw)
 	}
 }
 

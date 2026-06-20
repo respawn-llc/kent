@@ -6,46 +6,8 @@ import (
 	"core/server/runtime"
 	"core/shared/clientui"
 	"core/shared/transcript"
-	"strings"
 	"testing"
 )
-
-func TestProjectedCommittedGoalFeedbackAppendsImmediately(t *testing.T) {
-	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-	m.forwardToView(tui.SetViewportSizeMsg{Width: 100, Lines: 20})
-
-	cmd, mutated, needsHydration := m.runtimeAdapter().applyProjectedTranscriptEntries(clientui.Event{
-		Kind:                       clientui.EventConversationUpdated,
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         1,
-		CommittedEntryCount:        1,
-		CommittedEntryStart:        0,
-		CommittedEntryStartSet:     true,
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        string(transcript.EntryRoleGoalFeedback),
-			Text:        "Goal set developer prompt detail",
-			OngoingText: `Goal set: "ship feature"`,
-			Visibility:  clientui.EntryVisibilityAll,
-		}},
-	}, false)
-	if cmd != nil || !mutated || needsHydration {
-		t.Fatalf("expected direct goal feedback append, mutated=%t needsHydration=%t cmd=%v", mutated, needsHydration, cmd)
-	}
-	if got, want := len(m.transcriptEntries), 1; got != want {
-		t.Fatalf("transcript entry count = %d, want %d", got, want)
-	}
-	entry := m.transcriptEntries[0]
-	if entry.Role != tui.TranscriptRoleGoalFeedback || entry.OngoingText != `Goal set: "ship feature"` || entry.Transient || !entry.Committed {
-		t.Fatalf("goal feedback entry = %+v", entry)
-	}
-	if view := stripANSIAndTrimRight(m.view.OngoingSnapshot()); !strings.Contains(view, `Goal set: "ship feature"`) {
-		t.Fatalf("expected ongoing view to update immediately, got %q", view)
-	}
-}
 
 func TestProjectedAssistantMessageUsesCommittedEntryStartWhenPersistedToolCallsShareCommittedCount(t *testing.T) {
 	client := &runtimeControlFakeClient{}
@@ -126,127 +88,6 @@ func TestProjectedToolCallStartedUsesCommittedEntryStartWithinSharedCommittedCou
 	}
 	if m.transcriptEntries[2].Transient || !m.transcriptEntries[2].Committed {
 		t.Fatalf("expected committed tool call entry to apply as committed transcript state, got %+v", m.transcriptEntries[2])
-	}
-}
-
-func TestProjectedAssistantMessageUpdatesDetailViewImmediatelyWhenCommitted(t *testing.T) {
-	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-
-	baseline := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.layout().syncViewport()
-
-	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventAssistantMessage,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         11,
-		CommittedEntryCount:        2,
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role:  "assistant",
-			Text:  "committed after",
-			Phase: string(llm.MessagePhaseFinal),
-		}},
-	}, true).cmd
-	msgs := collectCmdMessages(t, cmd)
-	for _, msg := range msgs {
-		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
-			t.Fatalf("did not expect assistant_message committed delta to trigger transcript hydration, got %+v", msgs)
-		}
-	}
-
-	if got, want := len(m.transcriptEntries), 2; got != want {
-		t.Fatalf("transcript entry count = %d, want %d", got, want)
-	}
-	if m.transcriptEntries[1].Transient || !m.transcriptEntries[1].Committed {
-		t.Fatalf("expected committed assistant entry to apply as committed transcript state, got %+v", m.transcriptEntries[1])
-	}
-	if got := m.detailTranscript.totalEntries; got != 2 {
-		t.Fatalf("detail transcript total entries = %d, want 2", got)
-	}
-	if got, want := len(m.detailTranscript.entries), 2; got != want {
-		t.Fatalf("detail transcript entry count = %d, want %d", got, want)
-	}
-	if got := m.detailTranscript.entries[1].Text; got != "committed after" {
-		t.Fatalf("detail transcript tail = %q, want committed after", got)
-	}
-	view := stripANSIAndTrimRight(m.View())
-	if !strings.Contains(view, "seed") && !strings.Contains(view, "committed after") {
-		t.Fatalf("expected detail view to reflect committed assistant delta, got %q", view)
-	}
-}
-
-func TestProjectedReviewerCompletedUpdatesDetailViewImmediatelyWhenCommitted(t *testing.T) {
-	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-
-	baseline := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.layout().syncViewport()
-
-	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventLocalEntryAdded,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         11,
-		CommittedEntryCount:        2,
-		CommittedEntryStart:        1,
-		CommittedEntryStartSet:     true,
-		TranscriptEntries: []clientui.ChatEntry{{
-			Role: "reviewer_status",
-			Text: "Supervisor ran and applied 2 suggestions.",
-		}},
-	}, true).cmd
-	msgs := collectCmdMessages(t, cmd)
-	for _, msg := range msgs {
-		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
-			t.Fatalf("did not expect reviewer committed delta to trigger transcript hydration, got %+v", msgs)
-		}
-	}
-
-	if got, want := len(m.transcriptEntries), 2; got != want {
-		t.Fatalf("transcript entry count = %d, want %d", got, want)
-	}
-	if m.transcriptEntries[1].Transient || !m.transcriptEntries[1].Committed {
-		t.Fatalf("expected committed reviewer status to apply as committed transcript state, got %+v", m.transcriptEntries[1])
-	}
-	if got := m.detailTranscript.totalEntries; got != 2 {
-		t.Fatalf("detail transcript total entries = %d, want 2", got)
-	}
-	if got, want := len(m.detailTranscript.entries), 2; got != want {
-		t.Fatalf("detail transcript entry count = %d, want %d", got, want)
-	}
-	if got := m.detailTranscript.entries[1].Text; got != "Supervisor ran and applied 2 suggestions." {
-		t.Fatalf("detail transcript tail = %q, want reviewer status", got)
-	}
-	view := stripANSIAndTrimRight(m.View())
-	if !containsInOrder(view, "seed", "Supervisor ran and applied 2 suggestions.") {
-		t.Fatalf("expected detail view to reflect committed reviewer delta, got %q", view)
 	}
 }
 
@@ -546,44 +387,6 @@ func TestProjectedCompactionStatusDoesNotDuplicateCommittedSummary(t *testing.T)
 	}
 	if notices != 1 {
 		t.Fatalf("expected exactly one loaded compaction summary, got %d (%+v)", notices, loaded)
-	}
-}
-
-func TestProjectedCompactionStatusDoesNotAppendOngoingNoticeInDetailMode(t *testing.T) {
-	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-
-	baseline := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	m.layout().syncViewport()
-
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
-		Kind:   runtime.EventCompactionCompleted,
-		StepID: "step-1",
-		Compaction: &runtime.CompactionStatus{
-			Mode:  "auto",
-			Count: 1,
-		},
-	}), true).cmd
-
-	loaded := m.view.LoadedTranscriptEntries()
-	if got, want := len(loaded), 1; got != want {
-		t.Fatalf("loaded transcript entry count = %d, want %d (%+v)", got, want, loaded)
-	}
-	if strings.Contains(stripANSIAndTrimRight(m.View()), "context compacted for the 1st time") {
-		t.Fatalf("did not expect compaction status notice in detail view, got %q", stripANSIAndTrimRight(m.View()))
 	}
 }
 

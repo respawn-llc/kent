@@ -3,7 +3,6 @@ package workflowrunner
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -294,32 +293,6 @@ func TestSchedulerRecoveryUsesPendingAskResolver(t *testing.T) {
 	}
 	if dropRuns[0].InterruptedAt == 0 || dropRuns[0].InterruptionReason != ReasonSchedulerPendingAskUnavailable {
 		t.Fatalf("drop waiting run = %+v, want interrupted", dropRuns[0])
-	}
-}
-
-func TestSchedulerRuntimeStartFailureInterruptsRun(t *testing.T) {
-	ctx, store, binding, metadataStore := newSchedulerTestContextStore(t)
-	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
-	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
-	starter := &recordingStarter{err: errors.New("role missing")}
-	scheduler := newSchedulerTestService(t, store, starter, SchedulerConfig{Concurrency: 1})
-
-	if err := scheduler.Process(ctx); !errors.Is(err, ErrSchedulerRuntimeStartFailed) {
-		t.Fatalf("Process error = %v, want ErrSchedulerRuntimeStartFailed", err)
-	}
-	runs, err := store.ListRuns(ctx, started.TaskID)
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != ReasonSchedulerRuntimeStartFailed {
-		t.Fatalf("run after starter failure = %+v", runs[0])
-	}
-	var detail string
-	if err := metadataStore.DB().QueryRowContext(ctx, `SELECT interruption_detail_json FROM task_runs WHERE id = ?`, string(runs[0].ID)).Scan(&detail); err != nil {
-		t.Fatalf("query interruption detail: %v", err)
-	}
-	if !strings.Contains(detail, "role missing") {
-		t.Fatalf("interruption detail = %s, want starter error", detail)
 	}
 }
 

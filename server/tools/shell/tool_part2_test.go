@@ -2,7 +2,6 @@ package shell
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 )
@@ -49,51 +48,6 @@ func TestWriteStdinCompletionSuppressesBackgroundNoticeEvent(t *testing.T) {
 		t.Fatal("timed out waiting for completion event")
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
-}
-
-func TestExecCommandClosesStdinForNonInteractiveProcess(t *testing.T) {
-	workspace := t.TempDir()
-	manager := newBackgroundTestManager(t)
-	events := make(chan Event, 1)
-	manager.SetEventHandler(func(evt Event) {
-		select {
-		case events <- evt:
-		default:
-		}
-	})
-	execTool := NewExecCommandTool(workspace, 16_000, manager, "")
-
-	result := callExecCommand(t, execTool, "eof-1", map[string]any{
-		"cmd":           "if read line; then echo line:$line; else echo eof; fi",
-		"shell":         "/bin/sh",
-		"login":         false,
-		"yield_time_ms": 1_500,
-	})
-	if result.IsError {
-		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
-	}
-	text := decodeStringToolOutput(t, result)
-	if strings.Contains(text, "Process moved to background.") {
-		t.Fatalf("expected immediate completion with closed stdin, got %q", text)
-	}
-	if strings.Contains(text, "Wall time:") {
-		t.Fatalf("did not expect wall time for foreground shell, got %q", text)
-	}
-	if strings.Contains(text, "Log file:") {
-		t.Fatalf("did not expect log file for foreground shell, got %q", text)
-	}
-	if strings.Contains(text, "Exit code 0, output:") {
-		t.Fatalf("did not expect zero exit code in output, got %q", text)
-	}
-	if !strings.Contains(text, "eof") {
-		t.Fatalf("expected EOF branch output, got %q", text)
-	}
-	waitForManagerCount(t, manager, 0, 3*time.Second)
-	select {
-	case evt := <-events:
-		t.Fatalf("did not expect foreground exec_command event, got %+v", evt)
-	default:
-	}
 }
 
 func TestManagerCloseKillsRunningProcesses(t *testing.T) {

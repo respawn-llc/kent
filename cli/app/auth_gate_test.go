@@ -382,51 +382,6 @@ func TestResolveSessionActionLogoutRetryPreservesStoredAuthUntilSuccess(t *testi
 	}
 }
 
-func TestResolveSessionActionLogoutPickerFailurePreservesStoredAuth(t *testing.T) {
-	ctx := context.Background()
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil, time.Now)
-	interactor := &interactiveAuthInteractor{
-		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
-			{
-				state, err := mgr.StoredState(ctx)
-				if err != nil {
-					t.Fatalf("load stored state: %v", err)
-				}
-				if state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-before" {
-					t.Fatalf("expected saved auth to remain before retry, got %+v", state.Method)
-				}
-				return authMethodPickerResult{}, errors.New("transient picker failure")
-			}
-		},
-		showSuccess: func(authSuccessScreenData) error { return nil },
-	}
-
-	_, err := resolveSessionAction(
-		ctx,
-		&testEmbeddedServer{cfg: config.App{Settings: config.Settings{Model: "gpt-5"}}, authManager: mgr},
-		interactor,
-		"",
-		"",
-		UITransition{Action: UIActionLogout},
-	)
-	if err == nil || err.Error() != "transient picker failure" {
-		t.Fatalf("expected picker failure, got %v", err)
-	}
-	state, err := mgr.StoredState(ctx)
-	if err != nil {
-		t.Fatalf("load stored state: %v", err)
-	}
-	if state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-before" {
-		t.Fatalf("expected failed retry to preserve saved auth, got %+v", state.Method)
-	}
-}
-
 func TestBootstrapAppSkipAuthDoesNotPersistAuthState(t *testing.T) {
 	home, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "")

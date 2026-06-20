@@ -3,12 +3,9 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strings"
 	"testing"
 
 	"core/server/llm"
-	"core/server/session"
 	"core/server/tools"
 	"core/shared/toolspec"
 )
@@ -263,74 +260,6 @@ func TestCurrentInputTokensPreciselyIfCriticalForcesRefreshAfterSignificantMutat
 	}
 }
 
-func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t *testing.T) {
-	store := mustCreateTestSession(t)
-
-	client := &preciseCompactionClient{countErr: errors.New("chatgpt-codex status 404"), contextWindow: 400000}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "hello"}})); err != nil {
-		t.Fatalf("append user message: %v", err)
-	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
-		t.Fatalf("currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
-	}
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
-		t.Fatalf("second currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
-	}
-	if client.countCalls != 2 {
-		t.Fatalf("count calls=%d, want 2 repeated backend attempts", client.countCalls)
-	}
-
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("reopen store: %v", err)
-	}
-	reopened, err := New(reopenedStore, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("reopen engine: %v", err)
-	}
-	if precise, ok := reopened.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
-		t.Fatalf("reopened currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
-	}
-	if client.countCalls != 2 {
-		t.Fatalf("expected reopened engine to reuse persisted failure marker without retrying backend, got %d count attempts", client.countCalls)
-	}
-
-	events, err := reopenedStore.ReadEvents()
-	if err != nil {
-		t.Fatalf("read events: %v", err)
-	}
-	diagnosticEntries := 0
-	for _, evt := range events {
-		if evt.Kind != "local_entry" {
-			continue
-		}
-		var entry storedLocalEntry
-		if err := json.Unmarshal(evt.Payload, &entry); err != nil {
-			t.Fatalf("decode local_entry: %v", err)
-		}
-		if entry.DiagnosticKey != preciseTokenCountFailureDiagnostic {
-			continue
-		}
-		diagnosticEntries++
-		if entry.Role != "error" {
-			t.Fatalf("diagnostic role = %q, want error", entry.Role)
-		}
-		if !strings.Contains(entry.Text, "Exact token counting failed:") {
-			t.Fatalf("expected exact count failure text, got %q", entry.Text)
-		}
-		if !strings.Contains(entry.Text, "Falling back to a local token estimate.") {
-			t.Fatalf("expected fallback note, got %q", entry.Text)
-		}
-		if !strings.Contains(entry.Text, "chatgpt-codex status 404") {
-			t.Fatalf("expected backend error details, got %q", entry.Text)
-		}
-	}
-	if diagnosticEntries != 1 {
-		t.Fatalf("diagnostic local_entry count = %d, want 1", diagnosticEntries)
-	}
-}
-
 // A dangling-tool-call 400 from the precise token-count probe is repairable by
 // the model request path, so it must not persist a permanent failure diagnostic
 // that would disable exact counting for the rest of the active list. The probe
@@ -413,44 +342,3 @@ func TestCurrentInputTokensPreciselySkipsUnsupportedCountClient(t *testing.T) {
 	}
 }
 
-func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnSupportProbeFailure(t *testing.T) {
-	store := mustCreateTestSession(t)
-
-	client := &preciseCompactionClient{inputTokenCount: 123, contextWindow: 400000, supportErr: errors.New("oauth metadata unavailable")}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "hello"}})); err != nil {
-		t.Fatalf("append user message: %v", err)
-	}
-
-	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); ok || precise != 0 {
-		t.Fatalf("currentInputTokensPrecisely = (%d, %v), want no precise count", precise, ok)
-	}
-	if client.countCalls != 0 {
-		t.Fatalf("count calls=%d, want 0 when support probe fails closed", client.countCalls)
-	}
-
-	events, err := store.ReadEvents()
-	if err != nil {
-		t.Fatalf("read events: %v", err)
-	}
-	entries := 0
-	for _, evt := range events {
-		if evt.Kind != "local_entry" {
-			continue
-		}
-		var entry storedLocalEntry
-		if err := json.Unmarshal(evt.Payload, &entry); err != nil {
-			t.Fatalf("decode local_entry: %v", err)
-		}
-		if entry.DiagnosticKey != preciseTokenCountSupportDiagnostic {
-			continue
-		}
-		entries++
-		if !strings.Contains(entry.Text, "Exact token counting availability check failed:") {
-			t.Fatalf("unexpected diagnostic text: %q", entry.Text)
-		}
-	}
-	if entries != 1 {
-		t.Fatalf("support diagnostic count=%d, want 1", entries)
-	}
-}

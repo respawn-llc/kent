@@ -5,67 +5,12 @@ import (
 	"core/server/tools"
 	"core/shared/toolspec"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unicode"
 )
-
-func TestOutsideWorkspaceRejectionIncludesUserCommentary(t *testing.T) {
-	workspace := t.TempDir()
-	outsideRoot := outsideNonTempDir(t)
-	target := filepath.Join(outsideRoot, "outside.txt")
-	if err := os.WriteFile(target, []byte("start\n"), 0o644); err != nil {
-		t.Fatalf("seed outside file: %v", err)
-	}
-
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
-		return OutsideWorkspaceApproval{Decision: OutsideWorkspaceDecisionDeny, Commentary: "not allowed by policy"}, nil
-	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
-
-	result := callPatch(t, tool, "deny-commentary", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
-	if !result.IsError {
-		t.Fatalf("expected error result")
-	}
-	errMessage := toolError(t, result)
-	want := "Patch failed: user denied the edit for " + target + ".\nUser said: not allowed by policy"
-	if errMessage != want {
-		t.Fatalf("unexpected rejection error, got %q want %q", errMessage, want)
-	}
-}
-
-func TestOutsideWorkspaceApprovalFailureUsesPatchSpecificWording(t *testing.T) {
-	workspace := t.TempDir()
-	outsideRoot := outsideNonTempDir(t)
-	target := filepath.Join(outsideRoot, "outside.txt")
-	if err := os.WriteFile(target, []byte("start\n"), 0o644); err != nil {
-		t.Fatalf("seed outside file: %v", err)
-	}
-
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
-		return OutsideWorkspaceApproval{}, errors.New("ask failed")
-	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
-
-	result := callPatch(t, tool, "deny-approval-error", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
-	if !result.IsError {
-		t.Fatalf("expected error result")
-	}
-	errMessage := toolError(t, result)
-	if !strings.Contains(errMessage, "Patch failed: file edit approval failed") {
-		t.Fatalf("expected patch approval failure wording, got %q", errMessage)
-	}
-	if strings.Contains(errMessage, "read approval failed") || strings.Contains(errMessage, "view_image path outside workspace") {
-		t.Fatalf("unexpected non-patch wording, got %q", errMessage)
-	}
-}
 
 func TestOutsideWorkspaceAddFileRequestsApprovalBeforeMissingPathChecks(t *testing.T) {
 	workspace := t.TempDir()

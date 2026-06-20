@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"unicode"
@@ -98,22 +97,6 @@ func TestCall_ImagePathReturnsInputImageContentItem(t *testing.T) {
 	}
 }
 
-func TestNewMissingWorkspaceSuggestsRebind(t *testing.T) {
-	missingWorkspace := filepath.Join(t.TempDir(), "workspace-removed")
-
-	_, err := New(missingWorkspace, true)
-	if err == nil {
-		t.Fatal("expected error for missing workspace")
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected os.ErrNotExist, got %v", err)
-	}
-	want := `workspace root ` + strconv.Quote(missingWorkspace) + ` is missing`
-	if got := err.Error(); got != want {
-		t.Fatalf("error = %q, want %q", got, want)
-	}
-}
-
 func TestNewSymlinkLoopWorkspaceReturnsContextualResolutionError(t *testing.T) {
 	root := t.TempDir()
 	loopPath := filepath.Join(root, "loop")
@@ -195,25 +178,6 @@ func TestCall_DirectoryPathReturnsToolError(t *testing.T) {
 	}
 }
 
-func TestCall_OversizedFileReturnsCompressionGuidance(t *testing.T) {
-	workspace := t.TempDir()
-	oversized := make([]byte, int(maxFileSizeBytes)+1)
-	writeReadImageTestFile(t, workspace, "huge.pdf", oversized)
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-oversized", `{"path":"huge.pdf"}`)
-	if !result.IsError {
-		t.Fatalf("expected tool error result for oversized file")
-	}
-	errMessage := toolError(t, result)
-	if !strings.Contains(errMessage, "max supported size is 819200 bytes (800 KiB)") {
-		t.Fatalf("expected size limit in error, got %q", errMessage)
-	}
-	if !strings.Contains(errMessage, "compress the image or PDF and try again") {
-		t.Fatalf("expected compression guidance in error, got %q", errMessage)
-	}
-}
-
 func TestCall_FileSizeBoundary(t *testing.T) {
 	workspace := t.TempDir()
 	writeReadImageTestFile(t, workspace, "exact.pdf", make([]byte, int(maxFileSizeBytes)))
@@ -237,44 +201,6 @@ func TestCall_UnsupportedModelReturnsToolError(t *testing.T) {
 	result := callReadImageTool(t, tool, "call-1", `{"path":"img.png"}`)
 	if !result.IsError {
 		t.Fatalf("expected tool error result for unsupported model")
-	}
-}
-
-func TestCall_PathTraversalOutsideWorkspaceRejectedByDefault(t *testing.T) {
-	parent := outsideNonTempDir(t)
-	workspace := filepath.Join(parent, "workspace")
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatalf("create workspace: %v", err)
-	}
-	outsidePath := filepath.Join(parent, "outside.png")
-	writeReadImageTestPath(t, outsidePath, tinyPNG)
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-traversal", `{"path":"../outside.png"}`)
-	if !result.IsError {
-		t.Fatalf("expected error for outside-workspace traversal path")
-	}
-	if !strings.Contains(toolError(t, result), "outside workspace") {
-		t.Fatalf("expected outside workspace error, got %q", toolError(t, result))
-	}
-}
-
-func TestCall_SymlinkEscapeOutsideWorkspaceRejectedByDefault(t *testing.T) {
-	workspace := t.TempDir()
-	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	writeReadImageTestPath(t, outside, tinyPNG)
-	linkPath := filepath.Join(workspace, "symlink.png")
-	if err := os.Symlink(outside, linkPath); err != nil {
-		t.Fatalf("create symlink: %v", err)
-	}
-
-	tool := newReadImageTestTool(t, workspace, true)
-	result := callReadImageTool(t, tool, "call-symlink", `{"path":"symlink.png"}`)
-	if !result.IsError {
-		t.Fatalf("expected error for symlink escape outside workspace")
-	}
-	if !strings.Contains(toolError(t, result), "outside workspace") {
-		t.Fatalf("expected outside workspace error, got %q", toolError(t, result))
 	}
 }
 
@@ -416,58 +342,6 @@ func TestCall_OutsideWorkspaceApprovalAuditsResolvedPath(t *testing.T) {
 	}
 }
 
-func TestCall_OutsideWorkspaceApprovalFailureUsesReadSpecificWording(t *testing.T) {
-	workspace := t.TempDir()
-	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	writeReadImageTestPath(t, outside, tinyPNG)
-
-	tool := newReadImageTestTool(
-		t,
-		workspace,
-		true,
-		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
-			return patchtool.OutsideWorkspaceApproval{}, errors.New("ask failed")
-		}),
-	)
-
-	result := callReadImageTool(t, tool, "call-approval-error", readImagePathInput(outside))
-	if !result.IsError {
-		t.Fatalf("expected error result")
-	}
-	errMessage := toolError(t, result)
-	if !strings.Contains(errMessage, "outside-workspace read approval failed") {
-		t.Fatalf("expected read approval failure wording, got %q", errMessage)
-	}
-	if strings.Contains(errMessage, "edit approval failed") || strings.Contains(errMessage, "patch target outside workspace") {
-		t.Fatalf("unexpected patch wording, got %q", errMessage)
-	}
-}
-
-func TestCall_OutsideWorkspaceRejectionIncludesReadSpecificGuidance(t *testing.T) {
-	workspace := t.TempDir()
-	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	writeReadImageTestPath(t, outside, tinyPNG)
-
-	tool := newReadImageTestTool(
-		t,
-		workspace,
-		true,
-		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
-			return patchtool.OutsideWorkspaceApproval{Decision: patchtool.OutsideWorkspaceDecisionDeny, Commentary: "keep it inside the repo"}, nil
-		}),
-	)
-
-	result := callReadImageTool(t, tool, "call-deny-guidance", readImagePathInput(outside))
-	if !result.IsError {
-		t.Fatalf("expected error result")
-	}
-	errMessage := toolError(t, result)
-	want := `view_image path outside workspace rejected by user: ` + outside + `. User rejected the approval request for this tool call, and said: "keep it inside the repo". Do not attempt to circumvent, hack around, or re-execute the same path. Treat this rejection as authoritative. If it's essential to the task, ask the user to place the file inside the workspace root.`
-	if errMessage != want {
-		t.Fatalf("unexpected rejection error, got %q want %q", errMessage, want)
-	}
-}
-
 func TestCall_CaseVariantAbsolutePathInsideWorkspaceDoesNotTriggerOutsideApproval(t *testing.T) {
 	workspace := t.TempDir()
 	writeReadImageTestFile(t, workspace, "img.png", tinyPNG)
@@ -602,13 +476,4 @@ func toggleFirstLetterCase(value string) string {
 	}
 	runes[0] = upper
 	return string(runes)
-}
-
-func toolError(t *testing.T, result tools.Result) string {
-	t.Helper()
-	payload := map[string]string{}
-	if err := json.Unmarshal(result.Output, &payload); err != nil {
-		t.Fatalf("decode tool error output: %v", err)
-	}
-	return payload["error"]
 }

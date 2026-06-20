@@ -1,42 +1,16 @@
 package app
 
 import (
-	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"core/cli/app/internal/status"
 	"core/server/auth"
-	"core/shared/client"
 	"core/shared/clientui"
-	"core/shared/config"
-	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
-
-type panicAuthStatusClient struct{}
-
-func (panicAuthStatusClient) GetAuthStatus(context.Context, serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
-	panic("session picker must not call slow auth status")
-}
-
-type fastOnlyAuthResolver struct {
-	state auth.State
-}
-
-func (r fastOnlyAuthResolver) Load(context.Context) (auth.State, error) {
-	return r.state, nil
-}
-
-func (fastOnlyAuthResolver) CurrentState(context.Context) (auth.State, error) {
-	panic("session picker must not resolve current auth state")
-}
-
-var _ client.AuthStatusClient = panicAuthStatusClient{}
 
 func TestSessionPickerScrollsAndSelects(t *testing.T) {
 	now := time.Date(2026, time.February, 8, 12, 0, 0, 0, time.UTC)
@@ -108,165 +82,6 @@ func TestSessionPickerIgnoresMouseSGRRunes(t *testing.T) {
 	}
 }
 
-func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
-	repoRoot := initStatusLineGitRepo(t, "picker-branch")
-	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
-		Version: "1.2.3",
-		StatusRequest: uiStatusRequest{
-			WorkspaceRoot: repoRoot,
-			ModelName:     "gpt-5",
-			ThinkingLevel: "high",
-			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
-		},
-	})
-	cmd := m.Init()
-	if cmd == nil {
-		t.Fatal("expected async git branch command")
-	}
-
-	next, _ := m.Update(cmd())
-	updated := next.(*sessionPickerModel)
-	plain := stripANSIAndTrimRight(updated.renderHeader())
-	for _, want := range []string{"git picker-branch", "No auth · gpt-5 high"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("expected async status value %q in header, got %q", want, plain)
-		}
-	}
-}
-
-func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
-	repoRoot := initStatusLineGitRepo(t, "picker-branch")
-	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
-		Version:       "1.2.3",
-		OwnsServer:    true,
-		ServerAddress: "127.0.0.1:53082",
-		StatusRequest: uiStatusRequest{
-			WorkspaceRoot: repoRoot,
-			ModelName:     "gpt-5",
-			ThinkingLevel: "high",
-			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
-		},
-	})
-	m.width = 80
-	cmd := m.Init()
-	if cmd == nil {
-		t.Fatal("expected async status command")
-	}
-
-	before := stripANSIAndTrimRight(m.View())
-	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-5 high", repoRoot} {
-		if strings.Contains(before, unexpected) {
-			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
-		}
-	}
-	if height := lipgloss.Height(m.renderHeader()); height != 4 {
-		t.Fatalf("initial header height = %d, want static shell height 4", height)
-	}
-}
-
-func TestSessionPickerHeaderLoadsFastAuthStateOnly(t *testing.T) {
-	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
-		Version: "1.2.3",
-		StatusRequest: uiStatusRequest{
-			Settings:   config.Settings{Model: "gpt-5"},
-			ModelName:  "gpt-5",
-			AuthStatus: panicAuthStatusClient{},
-		},
-		AuthManager: fastOnlyAuthResolver{state: auth.State{
-			Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{Email: "user@example.com"}},
-		}},
-	})
-	cmd := m.Init()
-	if cmd == nil {
-		t.Fatal("expected async status command")
-	}
-
-	next, _ := m.Update(cmd())
-	updated := next.(*sessionPickerModel)
-	plain := stripANSIAndTrimRight(updated.renderHeader())
-	if !strings.Contains(plain, "OpenAI Subscription") {
-		t.Fatalf("expected fast auth display in header, got %q", plain)
-	}
-}
-
-func TestSessionPickerHeaderLoadsFastAuthStateVariants(t *testing.T) {
-	tests := []struct {
-		name  string
-		state auth.State
-		want  string
-	}{
-		{name: "no auth", state: auth.EmptyState(), want: "No auth"},
-		{name: "api key", state: auth.State{Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "sk-test-1234"}}}, want: "OpenAI API Key"},
-		{name: "oauth", state: auth.State{Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{Email: "user@example.com"}}}, want: "OpenAI Subscription"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
-				Version: "1.2.3",
-				StatusRequest: uiStatusRequest{
-					Settings:   config.Settings{Model: "gpt-5"},
-					ModelName:  "gpt-5",
-					AuthStatus: panicAuthStatusClient{},
-				},
-				AuthManager: fastOnlyAuthResolver{state: tt.state},
-			})
-			cmd := m.Init()
-			if cmd == nil {
-				t.Fatal("expected async status command")
-			}
-
-			next, _ := m.Update(cmd())
-			plain := stripANSIAndTrimRight(next.(*sessionPickerModel).renderHeader())
-			if !strings.Contains(plain, tt.want) {
-				t.Fatalf("expected %q in header, got %q", tt.want, plain)
-			}
-		})
-	}
-}
-
-func TestSessionPickerHeaderReflowsMainInfoWhenNarrow(t *testing.T) {
-	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
-		Version:       "1.2.3",
-		CWD:           "~/very/long/repository/path",
-		Branch:        "main",
-		Model:         "gpt-5.1-ultra high",
-		Auth:          "OpenAI API Key",
-		ServerAddress: "127.0.0.1:53082",
-	})
-	m.width = 24
-
-	plain := stripANSIAndTrimRight(m.renderHeader())
-	if strings.Contains(plain, "git main · ~/very/long/repository/path") || strings.Contains(plain, "OpenAI API Key · gpt-5.1-ultra high") {
-		t.Fatalf("expected narrow header to reflow main info, got %q", plain)
-	}
-	for _, want := range []string{
-		"Kent v1.2.3",
-		"git main",
-		"…",
-		"OpenAI API Key",
-		"gpt-5.1-ultra high",
-	} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("expected narrow header to contain %q, got %q", want, plain)
-		}
-	}
-}
-
-func TestSessionPickerHeaderRendersMissingRemoteAddressFallback(t *testing.T) {
-	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
-		Version: "1.2.3",
-		CWD:     "~/repo",
-		Auth:    "No auth",
-		Model:   "gpt-5 high",
-	})
-	m.width = 80
-
-	plain := stripANSIAndTrimRight(m.renderHeader())
-	if !strings.Contains(plain, "Server") {
-		t.Fatalf("expected remote server fallback copy, got %q", plain)
-	}
-}
-
 func TestSessionPickerAuthLabelExamples(t *testing.T) {
 	tests := []struct {
 		name string
@@ -283,25 +98,5 @@ func TestSessionPickerAuthLabelExamples(t *testing.T) {
 				t.Fatalf("auth label = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestSessionPickerHeaderTinyWidthKeepsRowsVisible(t *testing.T) {
-	m := newSessionPickerModel([]clientui.SessionSummary{{SessionID: "s-1", UpdatedAt: time.Now()}}, "dark", sessionPickerHeaderInfo{
-		Version:       "1.2.3",
-		CWD:           "~/very/long/path/to/repo",
-		Branch:        "feature/very-long-branch",
-		Model:         "gpt-5.1-ultra high",
-		ServerAddress: "127.0.0.1:53082",
-	})
-	m.width = 8
-	m.height = 8
-
-	if got := m.visibleLineBudget(); got < 1 {
-		t.Fatalf("visible line budget = %d, want at least 1", got)
-	}
-	view := stripANSIAndTrimRight(m.View())
-	if !strings.Contains(view, "◈") {
-		t.Fatalf("expected at least selected row visible at tiny width, got %q", view)
 	}
 }

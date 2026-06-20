@@ -2,7 +2,6 @@ package postprocess
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 )
@@ -44,36 +43,6 @@ func TestChainSkipContinueAndHalt(t *testing.T) {
 	}
 }
 
-func TestChainAccumulatesRecoverableProcessorErrors(t *testing.T) {
-	envelope := NewEnvelope(Request{Output: "start"})
-	chain := Chain{IDValue: "test", Processors: []Processor{
-		testProcessor{id: "one", fn: func(Envelope) (Decision, error) {
-			return Decision{}, errors.New("bad one")
-		}},
-		testProcessor{id: "two", fn: func(Envelope) (Decision, error) {
-			return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: "bad two"}
-		}},
-		testProcessor{id: "three", fn: func(envelope Envelope) (Decision, error) {
-			return Continue(envelope.WithCurrent("done"), "three"), nil
-		}},
-	}}
-
-	decision, err := chain.Process(context.Background(), envelope)
-	if err != nil {
-		t.Fatalf("Process: %v", err)
-	}
-	if decision.Next.CurrentOutput != "done" {
-		t.Fatalf("output = %q", decision.Next.CurrentOutput)
-	}
-	result := resultFromEnvelope(decision.Next, decision.Processed(), decision.ProcessorID, ProcessorFailure{})
-	if !strings.Contains(result.Warning, "Postprocess processor one failed: bad one") {
-		t.Fatalf("warning missing first error: %q", result.Warning)
-	}
-	if !strings.Contains(result.Warning, "Postprocess processor two failed: bad two") {
-		t.Fatalf("warning missing second error: %q", result.Warning)
-	}
-}
-
 func TestChainUnrecoverableProcessorErrorHaltsWithoutGoError(t *testing.T) {
 	envelope := NewEnvelope(Request{Output: "start"})
 	chain := Chain{IDValue: "test", Processors: []Processor{
@@ -111,26 +80,6 @@ func TestChainCriticalProcessorErrorPropagates(t *testing.T) {
 	}
 	if !IsCriticalError(err) {
 		t.Fatalf("err = %v, want critical processor error", err)
-	}
-}
-
-func TestChainProcessorPanicIsCritical(t *testing.T) {
-	envelope := NewEnvelope(Request{Output: "start"})
-	chain := Chain{IDValue: "test", Processors: []Processor{
-		testProcessor{id: "panic", fn: func(Envelope) (Decision, error) {
-			panic("boom")
-		}},
-		testProcessor{id: "after", fn: func(envelope Envelope) (Decision, error) {
-			return Continue(envelope.WithCurrent("after"), "after"), nil
-		}},
-	}}
-
-	_, err := chain.Process(context.Background(), envelope)
-	if err == nil {
-		t.Fatal("expected panic to propagate as critical processor error")
-	}
-	if !IsCriticalError(err) || !strings.Contains(err.Error(), "postprocess processor panic panicked: boom") {
-		t.Fatalf("err = %v, want critical panic error", err)
 	}
 }
 

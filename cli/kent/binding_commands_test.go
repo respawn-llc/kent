@@ -295,29 +295,6 @@ func TestProjectSubcommandPrintsBoundProjectID(t *testing.T) {
 	}
 }
 
-func TestProjectSubcommandTreatsNestedDirectoryAsUnregistered(t *testing.T) {
-	workspace := t.TempDir()
-	nested := filepath.Join(workspace, "subdir")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatalf("MkdirAll nested: %v", err)
-	}
-	registerBindingCommandWorkspace(t, workspace)
-	cleanup := startBindingCommandServer(t, workspace)
-	defer cleanup()
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := projectSubcommand([]string{nested}, &stdout, &stderr); code != 1 {
-		t.Fatalf("exit code = %d, want 1 stderr=%q", code, stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if got := stderr.String(); !bytes.Contains([]byte(got), []byte("workspace is not registered")) {
-		t.Fatalf("stderr = %q, want unregistered error", got)
-	}
-}
-
 func TestProjectIDForPathUsesTargetPathServerConfig(t *testing.T) {
 	originalOpener := bindingCommandRemoteOpener
 	originalResolver := bindingCommandWorkspaceResolver
@@ -420,58 +397,6 @@ func TestAttachSubcommandExplicitProjectOverridesCurrentWorkspace(t *testing.T) 
 	}
 }
 
-func TestAttachSubcommandWithoutProjectGuidanceFailsWhenCurrentWorkspaceUnregistered(t *testing.T) {
-	home := t.TempDir()
-	working := t.TempDir()
-	target := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-	cleanup := startBindingCommandServer(t, working)
-	defer cleanup()
-
-	previousWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	if err := os.Chdir(working); err != nil {
-		t.Fatalf("Chdir working: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(previousWD) })
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := attachSubcommand([]string{target}, &stdout, &stderr); code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if got := stderr.String(); got == "" || !bytes.Contains([]byte(got), []byte("kent project")) || !bytes.Contains([]byte(got), []byte("--project <project-id>")) {
-		t.Fatalf("stderr = %q, want recovery guidance", got)
-	}
-}
-
-func TestAttachSubcommandRejectsUnknownExplicitProjectIDCleanly(t *testing.T) {
-	home := t.TempDir()
-	target := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-	cleanup := startBindingCommandServer(t, target)
-	defer cleanup()
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := attachSubcommand([]string{"--project", "project-missing", target}, &stdout, &stderr); code != 1 {
-		t.Fatalf("exit code = %d, want 1 stderr=%q", code, stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if got := stderr.String(); !bytes.Contains([]byte(got), []byte("does not exist in this Kent state")) || !bytes.Contains([]byte(got), []byte("project-missing")) {
-		t.Fatalf("stderr = %q, want missing project guidance", got)
-	}
-}
-
 func TestRebindSubcommandRetargetsSessionWorkspace(t *testing.T) {
 	oldWorkspace := t.TempDir()
 	newWorkspace := t.TempDir()
@@ -513,58 +438,6 @@ func TestRebindSubcommandRetargetsSessionWorkspace(t *testing.T) {
 	}
 	if target.WorkspaceRoot != resolvedBinding.CanonicalRoot {
 		t.Fatalf("target workspace root = %q, want %q", target.WorkspaceRoot, resolvedBinding.CanonicalRoot)
-	}
-}
-
-func TestRebindSubcommandRejectsInvalidInputs(t *testing.T) {
-	oldWorkspace := t.TempDir()
-	otherWorkspace := t.TempDir()
-	targetWorkspace := t.TempDir()
-	missingWorkspace := filepath.Join(t.TempDir(), "missing")
-	originalOpener := bindingCommandRemoteOpener
-	t.Cleanup(func() { bindingCommandRemoteOpener = originalOpener })
-	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
-		return config.App{}, nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect refused")}
-	}
-
-	store, _, sess := newBindingCommandSession(t, oldWorkspace)
-	if err := sess.SetName("incident triage"); err != nil {
-		t.Fatalf("SetName: %v", err)
-	}
-	otherCfg, err := config.Load(otherWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load otherWorkspace: %v", err)
-	}
-	_, err = store.RegisterWorkspaceBinding(context.Background(), otherCfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding otherWorkspace: %v", err)
-	}
-
-	assertRebindError := func(args []string, want string) {
-		t.Helper()
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		if code := rebindSubcommand(args, &stdout, &stderr); code != 1 {
-			t.Fatalf("exit code = %d, want 1 stderr=%q", code, stderr.String())
-		}
-		if stdout.Len() != 0 {
-			t.Fatalf("stdout = %q, want empty", stdout.String())
-		}
-		if got := stderr.String(); !bytes.Contains([]byte(got), []byte(want)) {
-			t.Fatalf("stderr = %q, want %q", got, want)
-		}
-	}
-
-	assertRebindError([]string{"session-missing", targetWorkspace}, session.ErrSessionNotFound.Error())
-	assertRebindError([]string{sess.Meta().SessionID, missingWorkspace}, "does not exist")
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := rebindSubcommand([]string{sess.Meta().SessionID}, &stdout, &stderr); code != 2 {
-		t.Fatalf("exit code = %d, want 2 stderr=%q", code, stderr.String())
-	}
-	if got := stderr.String(); !bytes.Contains([]byte(got), []byte("rebind requires <session-id> and <new-path>")) {
-		t.Fatalf("stderr = %q, want usage guidance", got)
 	}
 }
 

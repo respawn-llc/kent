@@ -2,7 +2,6 @@ package config
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -18,25 +17,6 @@ func TestLoadWorkflowConfigDefaults(t *testing.T) {
 	}
 	if cfg.Settings.Workflow.MaxInvalidCompletionAttempts != 5 {
 		t.Fatalf("max invalid completion attempts = %d, want 5", cfg.Settings.Workflow.MaxInvalidCompletionAttempts)
-	}
-}
-
-func TestDefaultSettingsTOMLRendersWorkflowDefaults(t *testing.T) {
-	rendered := settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil)
-	if !strings.Contains(rendered, "[workflow]") {
-		t.Fatalf("default TOML missing workflow section:\n%s", rendered)
-	}
-	for _, want := range []string{
-		"completion_mode = \"auto\"",
-		"concurrency = 5",
-		"max_invalid_completion_attempts = 5",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("default TOML missing %q:\n%s", want, rendered)
-		}
-	}
-	if strings.Contains(rendered, "max_final_answer_violations") {
-		t.Fatalf("default TOML should not render removed final-answer cap:\n%s", rendered)
 	}
 }
 

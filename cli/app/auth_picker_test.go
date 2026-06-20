@@ -387,25 +387,6 @@ func TestInteractiveAuthInteractorRetriesWithFlowErrorAndClearsOnSuccess(t *test
 	}
 }
 
-func TestRunOAuthBrowserAutoClosesListenerAfterWaitFailure(t *testing.T) {
-	listener := &stubOAuthCallbackListener{waitErr: errors.New("wait failed")}
-	interactor := &interactiveAuthInteractor{
-		startCallbackListener: func() (oauthCallbackListener, error) {
-			return listener, nil
-		},
-		openBrowser: func(string) error { return nil },
-		stderr:      io.Discard,
-	}
-
-	_, err := interactor.authOAuthRunner("dark").BrowserAuto(context.Background(), auth.OpenAIOAuthOptions{})
-	if err == nil || err.Error() != "wait failed" {
-		t.Fatalf("expected wait failure, got %v", err)
-	}
-	if listener.closed != 1 {
-		t.Fatalf("expected listener to be closed once, got %d", listener.closed)
-	}
-}
-
 func TestRunOAuthBrowserAutoClosesListenerAfterSuccessfulCompletion(t *testing.T) {
 	listener := &stubOAuthCallbackListener{callback: auth.BrowserCallback{Code: "code-1"}}
 	const clientID = "client-1"

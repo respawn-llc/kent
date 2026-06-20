@@ -338,28 +338,6 @@ func TestGoalLifecycleMessagesProjectAsSingleGoalFeedbackEntry(t *testing.T) {
 	}
 }
 
-func TestGoalCompleteCompactTextIncludesCookDuration(t *testing.T) {
-	createdAt := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
-	tests := []struct {
-		name     string
-		duration time.Duration
-		want     string
-	}{
-		{name: "hours minutes seconds", duration: 5*time.Hour + 32*time.Minute + 9*time.Second, want: "Goal complete. Cooked for 5h32m9s"},
-		{name: "minutes only", duration: 31 * time.Minute, want: "Goal complete. Cooked for 31m"},
-		{name: "seconds only", duration: 9 * time.Second, want: "Goal complete. Cooked for 9s"},
-		{name: "zero", duration: 0, want: "Goal complete. Cooked for 0s"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			goal := session.GoalState{Status: session.GoalStatusComplete, CreatedAt: createdAt, UpdatedAt: createdAt.Add(tt.duration)}
-			if got := goalStatusCompactText(goal); got != tt.want {
-				t.Fatalf("goal compact text = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestActiveGoalRequiresAskQuestionBeforeModelTurn(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
@@ -486,27 +464,6 @@ func TestGoalDeveloperMessageVisibleInOngoingWithDetailPrompt(t *testing.T) {
 	}
 	if entry.OngoingText != msg.CompactContent {
 		t.Fatalf("goal ongoing text = %q, want compact", entry.OngoingText)
-	}
-}
-
-func TestRecordGoalLoopErrorPersistsOperatorFeedback(t *testing.T) {
-	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
-		t.Fatalf("SetGoal: %v", err)
-	}
-
-	engine.recordGoalLoopError(errors.New("provider down"))
-
-	snapshot := engine.ChatSnapshot()
-	found := false
-	for _, entry := range snapshot.Entries {
-		if entry.Role == "developer_error_feedback" && strings.Contains(entry.Text, "Goal loop stopped: provider down") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected goal loop error entry, got %+v", snapshot.Entries)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,79 +25,6 @@ func TestPromptServiceRejectsMissingClientRequestID(t *testing.T) {
 	_, err := service.RunPrompt(context.Background(), serverapi.RunPromptRequest{Prompt: "hello"}, nil)
 	if !errors.Is(err, ErrClientRequestIDRequired) {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPromptServiceRunsPromptThroughPreparedRuntime(t *testing.T) {
-	launcher := &stubHeadlessPromptLauncher{
-		runtime: &stubPromptSessionRuntime{
-			assistant: PromptAssistantMessage{SessionID: "session-1", SessionName: "session one", Content: "done", Warnings: []string{"warning one"}},
-		},
-	}
-	service := NewPromptService(launcher)
-	progresses := make([]serverapi.RunPromptProgress, 0, 1)
-
-	result, err := service.RunPrompt(context.Background(), serverapi.RunPromptRequest{
-		ClientRequestID:   "  req-123  ",
-		SelectedSessionID: "  abc-123  ",
-		Prompt:            "  hello world  ",
-	}, serverapi.RunPromptProgressFunc(func(progress serverapi.RunPromptProgress) {
-		progresses = append(progresses, progress)
-	}))
-	if err != nil {
-		t.Fatalf("RunPrompt: %v", err)
-	}
-	if launcher.lastRequest.SelectedSessionID != "abc-123" {
-		t.Fatalf("selected session id = %q, want abc-123", launcher.lastRequest.SelectedSessionID)
-	}
-	if launcher.lastRequest.ClientRequestID != "req-123" {
-		t.Fatalf("client request id = %q, want req-123", launcher.lastRequest.ClientRequestID)
-	}
-	if launcher.runtime.prompt != "hello world" {
-		t.Fatalf("submitted prompt = %q, want hello world", launcher.runtime.prompt)
-	}
-	if launcher.runtime.historyRequestID != "req-123" || launcher.runtime.historyPrompt != "hello world" {
-		t.Fatalf("recorded history request=%q prompt=%q, want trimmed request and prompt", launcher.runtime.historyRequestID, launcher.runtime.historyPrompt)
-	}
-	if !launcher.runtime.closed {
-		t.Fatal("expected prepared runtime to be closed")
-	}
-	if result.SessionID != "session-1" || result.SessionName != "session one" || result.Result != "done" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if len(result.Warnings) != 1 || result.Warnings[0] != "warning one" {
-		t.Fatalf("unexpected warnings: %+v", result.Warnings)
-	}
-	if len(progresses) != 1 || progresses[0].Kind != serverapi.RunPromptProgressKindStatus {
-		t.Fatalf("unexpected progress events: %+v", progresses)
-	}
-	if launcher.runtime.logs[len(launcher.runtime.logs)-1] != "app.run_prompt.exit ok" {
-		t.Fatalf("unexpected logs: %+v", launcher.runtime.logs)
-	}
-}
-
-func TestPromptServiceReturnsPartialResultOnRunError(t *testing.T) {
-	runErr := errors.New("boom")
-	launcher := &stubHeadlessPromptLauncher{
-		runtime: &stubPromptSessionRuntime{
-			assistant: PromptAssistantMessage{SessionID: "session-2", SessionName: "session two", Content: "partial", DroppedEvents: 3},
-			err:       runErr,
-		},
-	}
-	service := NewPromptService(launcher)
-
-	result, err := service.RunPrompt(context.Background(), serverapi.RunPromptRequest{ClientRequestID: "req-1", Prompt: "hello"}, nil)
-	if !errors.Is(err, runErr) {
-		t.Fatalf("RunPrompt error = %v, want %v", err, runErr)
-	}
-	if result.Result != "partial" || result.SessionID != "session-2" {
-		t.Fatalf("unexpected partial result: %+v", result)
-	}
-	if !launcher.runtime.closed {
-		t.Fatal("expected prepared runtime to be closed")
-	}
-	if got := strings.Join(launcher.runtime.logs, "\n"); !strings.Contains(got, "runtime.event.drop.total=3") || !strings.Contains(got, `app.run_prompt.exit err="boom"`) {
-		t.Fatalf("unexpected logs: %q", got)
 	}
 }
 

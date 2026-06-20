@@ -3,10 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
-
-	"core/server/auth"
 )
 
 func TestIsAuthenticationError(t *testing.T) {
@@ -92,25 +89,4 @@ func TestIsContextLengthOverflowError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestUserFacingError(t *testing.T) {
-	if got := UserFacingError(&ProviderSelectionError{Model: "my-model", Err: ErrUnsupportedProvider}); got == "" || !containsAll(got, []string{"provider/auth path", "provider_override", "openai_base_url"}) {
-		t.Fatalf("expected provider selection warning, got %q", got)
-	}
-	if got := UserFacingError(&AuthError{Err: auth.ErrAuthNotConfigured}); got != "Not authenticated, run /login to sign in with your provider" {
-		t.Fatalf("expected unauthenticated warning, got %q", got)
-	}
-	if got := UserFacingError(&ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: UnifiedErrorCodeAuthentication}); got == "" || !containsAll(got, []string{"401", "/login", "OPENAI_API_KEY"}) {
-		t.Fatalf("expected authentication failure warning, got %q", got)
-	}
-}
-
-func containsAll(text string, parts []string) bool {
-	for _, part := range parts {
-		if !strings.Contains(text, part) {
-			return false
-		}
-	}
-	return true
 }

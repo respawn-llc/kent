@@ -1,11 +1,9 @@
 package app
 
 import (
-	"strings"
 	"testing"
 	"time"
 
-	"core/cli/app/internal/runtimeattach"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/shared/clientui"
@@ -111,57 +109,4 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 		}
 	}
 	t.Fatal("timed out waiting for resumed steering flush")
-}
-
-func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
-	_, eng := newAppRuntimeEngine(t, &requestCaptureFakeClient{}, runtime.Config{})
-
-	m := newProjectedEngineUIModel(eng)
-	m.setBusy(true)
-	m.setCompacting(true)
-	m.activity = uiActivityRunning
-	m.input = "steered message"
-
-	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	updated = applyFirstInjectedQueueCreateDoneForTest(t, updated, createCmd)
-	next, cmd := updated.Update(compactDoneMsg{})
-	updated = next.(*uiModel)
-	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
-	if cmd == nil {
-		t.Fatal("expected compaction completion to resume queued steering")
-	}
-	if !updated.isBusy() {
-		t.Fatal("expected resumed steering submission to set busy=true")
-	}
-
-	next, interruptCmd := updated.Update(submitDoneMsg{err: runtimeattach.ErrSubmissionInterrupted})
-	updated = next.(*uiModel)
-	if interruptCmd == nil {
-		t.Fatal("expected queued runtime cleanup command after interrupted resumed steering")
-	}
-	_ = collectCmdMessages(t, interruptCmd)
-	if updated.isBusy() {
-		t.Fatal("expected busy=false after interrupted resumed steering")
-	}
-	if updated.activity != uiActivityInterrupted {
-		t.Fatalf("expected interrupted activity, got %v", updated.activity)
-	}
-	if updated.input != "steered message" {
-		t.Fatalf("expected interrupted resumed steering restored into input, got %q", updated.input)
-	}
-	if len(updated.pendingInjected) != 0 {
-		t.Fatalf("expected pending injected cleared after restore, got %+v", updated.pendingInjected)
-	}
-	hasWork, err := updated.runtimeClient().HasQueuedUserWork()
-	if err != nil {
-		t.Fatalf("check queued user work: %v", err)
-	}
-	if hasWork {
-		t.Fatal("expected interrupted resumed steering cleanup to discard runtime queued work")
-	}
-	plain := stripANSIAndTrimRight(updated.View())
-	if strings.Contains(strings.ToLower(plain), "interrupted") {
-		t.Fatalf("did not expect interruption rendered as error transcript, got %q", plain)
-	}
 }

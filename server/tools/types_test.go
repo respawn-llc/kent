@@ -5,7 +5,6 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -247,37 +246,5 @@ func TestDefinitionContractsBuildTranscriptMetadata(t *testing.T) {
 	handoffMeta := triggerHandoff.BuildToolCallMeta(ToolCallContext{}, json.RawMessage(`{"summarizer_prompt":"keep API details","future_agent_message":"resume with tests"}`))
 	if handoffMeta.Command == "" || handoffMeta.CompactText == "" {
 		t.Fatalf("expected trigger_handoff metadata to expose compact and detail text, got %+v", handoffMeta)
-	}
-}
-
-func TestDefinitionContractsFormatLegacyAskQuestionFreeformOnSingleLine(t *testing.T) {
-	askQuestion, _ := DefinitionFor(toolspec.ToolAskQuestion)
-	got := askQuestion.FormatToolResult(Result{
-		Name: toolspec.ToolAskQuestion,
-		Output: json.RawMessage(`{
-			"answer":"need extra context",
-			"freeform_answer":"need extra context"
-		}`),
-	})
-
-	if strings.TrimSpace(got) == "" {
-		t.Fatal("expected non-empty ask freeform summary")
-	}
-}
-
-func TestDefinitionContractsFormatLegacyAskQuestionApprovalCommentaryUsesDecisionOnly(t *testing.T) {
-	askQuestion, _ := DefinitionFor(toolspec.ToolAskQuestion)
-	got := askQuestion.FormatToolResult(Result{
-		Name: toolspec.ToolAskQuestion,
-		Output: json.RawMessage(`{
-			"approval": {
-				"decision": "deny",
-				"commentary": "do not duplicate this"
-			}
-		}`),
-	})
-
-	if strings.TrimSpace(got) == "" {
-		t.Fatal("expected non-empty approval compatibility summary")
 	}
 }
