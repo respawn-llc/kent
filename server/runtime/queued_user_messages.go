@@ -73,6 +73,25 @@ func (s *queuedUserMessageStore) Drain() []queuedUserSteeringIntent {
 	return pending
 }
 
+func (s *queuedUserMessageStore) DrainByID(ids map[string]struct{}) []queuedUserSteeringIntent {
+	if s == nil || len(ids) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	matched := make([]queuedUserSteeringIntent, 0, len(ids))
+	remaining := s.pending[:0]
+	for _, pending := range s.pending {
+		if _, ok := ids[strings.TrimSpace(pending.message.ID)]; ok {
+			matched = append(matched, pending)
+			continue
+		}
+		remaining = append(remaining, pending)
+	}
+	s.pending = remaining
+	return matched
+}
+
 func (s *queuedUserMessageStore) RestoreFront(items []queuedUserSteeringIntent) {
 	if s == nil || len(items) == 0 {
 		return

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"core/prompts"
 	"core/server/llm"
@@ -677,6 +678,180 @@ func TestWorkflowUnstructuredTerminalCompletionFailsQueuedSteeringDuringCloseDra
 	}
 	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-after-complete" || statuses[1].RestoreText != "do not submit after completion" || statuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
 		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", statuses[1], queued.ID)
+	}
+}
+
+func TestWorkflowTerminalCompletionFailsQueuedSteeringAtRunRelease(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	client := &hookClient{
+		response: structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
+		beforeReturn: func() error {
+			close(started)
+			<-release
+			return nil
+		},
+	}
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	submitDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "run")
+		submitDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for workflow turn")
+	}
+	queued := eng.QueueUserMessageWithClientRequestID("do not submit after run release", "req-after-release")
+	close(release)
+	if err := <-submitDone; err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := hookClientCallCount(client); got != 1 {
+		t.Fatalf("model calls = %d, want terminal completion to avoid queued turn", got)
+	}
+	if len(statuses) != 2 || statuses[0].Status != QueuedUserMessageAccepted || statuses[1].Status != QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	}
+	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-after-release" || statuses[1].RestoreText != "do not submit after run release" || statuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
+		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", statuses[1], queued.ID)
+	}
+}
+
+func hookClientCallCount(client *hookClient) int {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return len(client.calls)
+}
+
+func TestQueuedSubmitRetryFailsQueuedSteeringWhenWorkflowCompletesWhileBusy(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	client := &hookClient{
+		response: structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
+		beforeReturn: func() error {
+			close(started)
+			<-release
+			return nil
+		},
+	}
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "run")
+		firstDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for workflow turn")
+	}
+	queued := eng.QueueUserMessageWithClientRequestID("do not submit after terminal retry", "req-terminal-retry")
+	submitDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitQueuedUserMessages(context.Background())
+		submitDone <- err
+	}()
+
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if err := <-submitDone; err != nil {
+		t.Fatalf("SubmitQueuedUserMessages: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := hookClientCallCount(client); got != 1 {
+		t.Fatalf("model calls = %d, want queued retry not to call model after terminal completion", got)
+	}
+	if len(statuses) != 2 || statuses[0].Status != QueuedUserMessageAccepted || statuses[1].Status != QueuedUserMessageFailed {
+		t.Fatalf("queued statuses = %+v, want accepted then failed", statuses)
+	}
+	if statuses[1].QueueItemID != queued.ID || statuses[1].ClientRequestID != "req-terminal-retry" || statuses[1].RestoreText != "do not submit after terminal retry" || statuses[1].FailureReason != QueuedUserMessageFailureTerminalWorkflowCompletion {
+		t.Fatalf("failed queue status = %+v, want terminal completion failure for %q", statuses[1], queued.ID)
+	}
+}
+
+func TestWorkflowAutoDrainTerminalCompletionFailsLaterIdleQueuedSteering(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := newBlockingThenQueuedResponseClient(structuredFinalResponse(`{"commentary":"complete","summary":"done"}`))
+	var statuses []QueuedUserMessageStatusEvent
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeUnstructured), Config{
+		OnEvent: func(evt Event) {
+			if evt.QueuedUserMessageStatus != nil {
+				statuses = append(statuses, *evt.QueuedUserMessageStatus)
+			}
+		},
+	})
+	blockingMessages := &blockingQueueMessageLifecycle{
+		wrapped:      eng.messageFlow,
+		queueEntered: make(chan struct{}),
+		releaseQueue: make(chan struct{}),
+	}
+	eng.messageFlow = blockingMessages
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	queueDone := make(chan struct{})
+	go func() {
+		eng.QueueUserMessageWithClientRequestID("busy marked queue", "req-busy")
+		close(queueDone)
+	}()
+	blockingMessages.waitQueueEntered(t)
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	explicit := eng.QueueUserMessageWithClientRequestID("idle explicit queue", "req-idle")
+	blockingMessages.release()
+	select {
+	case <-queueDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for queued steering call to return")
+	}
+	waitEngineLifecycleTasks(t, eng)
+	if got := client.callCount(); got != 2 {
+		t.Fatalf("model calls = %d, want interrupted run plus auto drain", got)
+	}
+	if eng.HasQueuedUserWork() {
+		t.Fatal("queued user work remained after terminal auto drain")
+	}
+	foundExplicitFailure := false
+	for _, status := range statuses {
+		if status.QueueItemID == explicit.ID && status.Status == QueuedUserMessageFailed && status.FailureReason == QueuedUserMessageFailureTerminalWorkflowCompletion {
+			foundExplicitFailure = true
+		}
+	}
+	if !foundExplicitFailure {
+		t.Fatalf("queued statuses = %+v, want terminal failure for explicit idle queue %q", statuses, explicit.ID)
 	}
 }
 

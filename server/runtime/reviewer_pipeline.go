@@ -29,7 +29,7 @@ func (r *defaultReviewerPipeline) ShouldRunTurn(frequency string, reviewerClient
 	}
 }
 
-func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error) {
+func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client, pendingUserInjectionIDs map[string]struct{}) (reviewerFollowUpResult, error) {
 	e := r.engine
 	_ = e.steer(stepID, steerEventIntent(Event{Kind: EventReviewerStarted, StepID: stepID}))
 	reviewerResult, err := r.RunSuggestions(ctx, stepID, reviewerClient)
@@ -75,6 +75,7 @@ func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string
 		ReviewerClient:                 nil,
 		EmitAssistantEvent:             false,
 		RefreshReviewerConfigOnResolve: false,
+		PendingUserInjectionIDs:        cloneStringSet(pendingUserInjectionIDs),
 	})
 	if err != nil {
 		status := ReviewerStatus{

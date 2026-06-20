@@ -42,6 +42,7 @@ type stepLoopOptions struct {
 	ReviewerClient                 llm.Client
 	EmitAssistantEvent             bool
 	RefreshReviewerConfigOnResolve bool
+	PendingUserInjectionIDs        map[string]struct{}
 }
 
 type stepLoopResult struct {
@@ -67,6 +68,7 @@ type toolExecutor interface {
 type messageLifecycle interface {
 	RestoreMessages() error
 	FlushPendingUserInjections(stepID string) (int, error)
+	FlushPendingUserInjectionsByID(stepID string, queueItemIDs map[string]struct{}) (int, error)
 	DrainPendingUserInjections() []QueuedUserMessage
 	QueueUserMessage(text string, clientRequestID string) QueuedUserMessage
 	DiscardQueuedUserMessage(queueItemID string) (QueuedUserMessage, bool)
@@ -75,7 +77,7 @@ type messageLifecycle interface {
 
 type reviewerPipeline interface {
 	ShouldRunTurn(frequency string, reviewerClient llm.Client, patchEditsApplied bool) bool
-	RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error)
+	RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client, pendingUserInjectionIDs map[string]struct{}) (reviewerFollowUpResult, error)
 	RunSuggestions(ctx context.Context, stepID string, reviewerClient llm.Client) (reviewerSuggestionsResult, error)
 }
 

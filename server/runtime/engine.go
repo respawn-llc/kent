@@ -163,6 +163,11 @@ type Engine struct {
 	// outputMutationMu keeps durable transcript writes, runtime projections, and
 	// event emission in one order for concurrent steering producers.
 	outputMutationMu sync.Mutex
+	// queuedUserWorkMu serializes the server-owned continuation that drains
+	// pending steering/user injections once a busy run releases.
+	queuedUserWorkMu           sync.Mutex
+	queuedUserWorkScheduled    bool
+	queuedUserWorkAutoDrainIDs map[string]struct{}
 
 	diagnostics    *diagnosticDedupeStore
 	toolCallStarts *pendingToolCallStartStore
@@ -396,8 +401,13 @@ func (e *Engine) QueueUserMessage(text string) QueuedUserMessage {
 
 func (e *Engine) QueueUserMessageWithClientRequestID(text string, clientRequestID string) QueuedUserMessage {
 	e.ensureOrchestrationCollaborators()
+	wasBusy := e.stepLifecycle != nil && e.stepLifecycle.IsBusy()
 	item := e.messageFlow.QueueUserMessage(text, clientRequestID)
 	e.emitQueuedUserMessageStatus(item, QueuedUserMessageAccepted, "", false)
+	if wasBusy {
+		e.markQueuedUserInjectionForAutoDrain(item.ID)
+		e.scheduleQueuedUserInjectionsIfIdle()
+	}
 	return item
 }
 
@@ -405,6 +415,7 @@ func (e *Engine) DiscardQueuedUserMessage(queueItemID string) bool {
 	e.ensureOrchestrationCollaborators()
 	item, discarded := e.messageFlow.DiscardQueuedUserMessage(queueItemID)
 	if discarded {
+		e.unmarkQueuedUserInjectionForAutoDrain(item.ID)
 		e.emitQueuedUserMessageStatus(item, QueuedUserMessageDiscarded, "", false)
 	}
 	return discarded
@@ -516,9 +527,13 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 }
 
 func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, error) {
+	return e.runStepLoopWithPendingUserInjectionIDs(ctx, stepID, nil)
+}
+
+func (e *Engine) runStepLoopWithPendingUserInjectionIDs(ctx context.Context, stepID string, queueItemIDs map[string]struct{}) (llm.Message, error) {
 	reviewerFrequency := e.ReviewerFrequency()
 	reviewerClient := e.reviewerRuntimeState().Client()
-	result, err := e.runStepLoopWithOptions(ctx, stepID, reviewerFrequency, reviewerClient, true, true)
+	result, err := e.runStepLoopWithOptions(ctx, stepID, reviewerFrequency, reviewerClient, true, true, queueItemIDs)
 	if result.NoopFinalAnswer {
 		return llm.Message{}, err
 	}
@@ -530,19 +545,20 @@ func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, e
 // this run. When refreshReviewerConfigOnResolve is true, the final assistant
 // resolution re-reads current runtime reviewer config so busy-time toggles (for
 // example from /supervisor) affect the currently running step at completion.
-func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient llm.Client, emitAssistantEvent bool, refreshReviewerConfigOnResolve bool) (stepLoopResult, error) {
+func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient llm.Client, emitAssistantEvent bool, refreshReviewerConfigOnResolve bool, queueItemIDs map[string]struct{}) (stepLoopResult, error) {
 	e.ensureOrchestrationCollaborators()
 	return e.stepFlow.RunStepLoopWithOptions(ctx, stepID, stepLoopOptions{
 		ReviewerFrequency:              reviewerFrequency,
 		ReviewerClient:                 reviewerClient,
 		EmitAssistantEvent:             emitAssistantEvent,
 		RefreshReviewerConfigOnResolve: refreshReviewerConfigOnResolve,
+		PendingUserInjectionIDs:        cloneStringSet(queueItemIDs),
 	})
 }
 
 func (e *Engine) runReviewerFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error) {
 	e.ensureOrchestrationCollaborators()
-	return e.reviewerFlow.RunFollowUp(ctx, stepID, original, originalCommittedStart, originalCommittedStartSet, reviewerClient)
+	return e.reviewerFlow.RunFollowUp(ctx, stepID, original, originalCommittedStart, originalCommittedStartSet, reviewerClient, nil)
 }
 
 func (e *Engine) ensureLocked() (session.LockedContract, error) {
