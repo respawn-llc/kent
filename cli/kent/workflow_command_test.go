@@ -2351,15 +2351,19 @@ func TestWorkflowListPaginatesAndResolutionDoesNotDrainPages(t *testing.T) {
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
 	defer restore()
 
-	stdout, stderr, code := runWorkflowRootCommand("workflow", "list")
+	stdout, stderr, code := runWorkflowRootCommand("workflow", "list", "--json")
 	if code != 0 {
 		t.Fatalf("workflow list exit=%d stderr=%q", code, stderr)
 	}
-	if !strings.Contains(stdout, "workflow-1: First (v1)") || strings.Contains(stdout, "workflow-2: Second (v2)") {
-		t.Fatalf("workflow list output = %q, want only first page records", stdout)
+	var listed workflowListOutput
+	if err := json.Unmarshal([]byte(stdout), &listed); err != nil {
+		t.Fatalf("workflow list --json = %q, want JSON: %v", stdout, err)
 	}
-	if !strings.Contains(stderr, "Next page token: `next`") {
-		t.Fatalf("workflow list stderr = %q, want next page token", stderr)
+	if len(listed.Workflows) != 1 || listed.Workflows[0].ID != "workflow-1" {
+		t.Fatalf("workflow list --json workflows = %+v, want only first-page workflow-1", listed.Workflows)
+	}
+	if listed.NextPageToken != "next" {
+		t.Fatalf("workflow list --json next page token = %q, want %q", listed.NextPageToken, "next")
 	}
 	if len(remote.requests) != 1 || remote.requests[0].PageToken != "" || remote.requests[0].PageSize != serverapi.WorkflowListMaxPageSize {
 		t.Fatalf("workflow list requests = %+v, want single default-sized first page", remote.requests)
