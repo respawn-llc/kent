@@ -117,10 +117,12 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	fs := newCommandFlagSet(config.Command+" workflow create", stderr, workflowCommandUsage)
 	description := fs.String("description", "", "workflow description")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+	positionals, flagArgs := takeLeadingPositionals(args, 1)
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
 	}
-	name := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	positionals = append(positionals, fs.Args()...)
+	name := strings.TrimSpace(strings.Join(positionals, " "))
 	if name == "" {
 		fmt.Fprintln(stderr, "workflow create requires <name>")
 		return 2
@@ -478,6 +480,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
+	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs (use --requires-approval=false to clear)")
 	prompt := fs.String("prompt", "", "branch prompt template for agent targets")
 	var params repeatedStringFlag
 	fs.Var(&params, "param", "transition parameter as key=description (repeatable); replaces all parameters when provided")
@@ -547,6 +550,9 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			return 2
 		}
 		updatedEdge.ContextSource = parsedContextSource
+	}
+	if flagWasProvided(fs, "requires-approval") {
+		updatedEdge.RequiresApproval = *requiresApproval
 	}
 	if flagWasProvided(fs, "prompt") {
 		updatedEdge.PromptTemplate = *prompt

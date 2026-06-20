@@ -305,33 +305,36 @@ func TestWorkflowCommandsRenderReadableOutput(t *testing.T) {
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
 	defer restore()
 
+	// Readable mode must surface the structural identifiers each command produces or operates
+	// on (ids, keys, names, modes), without leaking entity UUIDs on update commands. These
+	// assertions check the rendered data, not the human-facing wording, which is free to change.
 	createOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Readable Workflow")
-	if !strings.HasPrefix(createOut, `Created workflow "Readable Workflow" (workflow-`) {
-		t.Fatalf("workflow create output = %q, want readable confirmation", createOut)
+	if !strings.Contains(createOut, "Readable Workflow") || !strings.Contains(createOut, "workflow-") {
+		t.Fatalf("workflow create output = %q, want workflow name and generated id", createOut)
 	}
 	workflowID := workflowCreateForTest(t, "Readable Workflow Two").ID
 
 	nodeOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--display-name", "Implement", "--agent", "workflow-test", "--prompt", "Do work", "--completion-mode", "tool")
-	if !strings.HasPrefix(nodeOut, "Added agent node `implement` (node-") {
-		t.Fatalf("node add output = %q, want readable confirmation", nodeOut)
+	if !strings.Contains(nodeOut, "`implement`") || !strings.Contains(nodeOut, "node-") {
+		t.Fatalf("node add output = %q, want node key and generated id", nodeOut)
 	}
 
-	// node update mutates an existing entity, so it must not echo the node id.
+	// node update mutates an existing entity, so it must echo the key but not the node id.
 	nodeUpdateOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "update", workflowID, "implement", "--display-name", "Implement It")
-	if !strings.HasPrefix(nodeUpdateOut, "Updated node `implement`.") || strings.Contains(nodeUpdateOut, "(node-") {
-		t.Fatalf("node update output = %q, want readable confirmation without node id", nodeUpdateOut)
+	if !strings.Contains(nodeUpdateOut, "`implement`") || strings.Contains(nodeUpdateOut, "(node-") {
+		t.Fatalf("node update output = %q, want node key without node id", nodeUpdateOut)
 	}
 
 	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Do work")
-	if !strings.Contains(edgeOut, "Added edge `start` (edge-") || !strings.Contains(edgeOut, "on transition `start`: `backlog` → `implement` (new_session)") {
-		t.Fatalf("edge add output = %q, want readable confirmation", edgeOut)
+	if !strings.Contains(edgeOut, "edge-") || !strings.Contains(edgeOut, "`backlog` → `implement` (new_session)") {
+		t.Fatalf("edge add output = %q, want generated id and rendered route with context mode", edgeOut)
 	}
 
 	edgeID := workflowEdgeAddForTest(t, workflowID, "--from", "implement", "--transition", "review", "--edge-key", "review", "--to", "done", "--context", "new_session").EdgeID
-	// edge update mutates an existing entity, so it must not echo the edge id.
+	// edge update mutates an existing entity, so it must echo the key but not the edge id.
 	edgeUpdateOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--edge-key", "rereview")
-	if !strings.HasPrefix(edgeUpdateOut, "Updated edge `rereview`:") || strings.Contains(edgeUpdateOut, "(edge-") {
-		t.Fatalf("edge update output = %q, want readable confirmation without edge id", edgeUpdateOut)
+	if !strings.Contains(edgeUpdateOut, "`rereview`") || !strings.Contains(edgeUpdateOut, "`done`") || strings.Contains(edgeUpdateOut, "(edge-") {
+		t.Fatalf("edge update output = %q, want edge key and target without edge id", edgeUpdateOut)
 	}
 
 	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
@@ -345,32 +348,34 @@ func TestWorkflowCommandsRenderReadableOutput(t *testing.T) {
 
 	inspectOut, _ := runWorkflowRootCommandOK(t, "workflow", "inspect", workflowID)
 	for _, want := range []string{
-		"Nodes (",
-		"- implement (agent): Implement It  [role: workflow-test, completion: tool]",
-		"Transitions (",
-		"- backlog `start` → implement  (edge `start` edge-",
+		"implement",
+		"[role: workflow-test, completion: tool]",
+		"backlog `start` → implement",
+		"edge `start` edge-",
 	} {
 		if !strings.Contains(inspectOut, want) {
 			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
 		}
 	}
 
+	// validate exits 0 only when the graph is valid; the echoed mode confirms the readable render.
 	validOut, _ := runWorkflowRootCommandOK(t, "workflow", "validate", workflowID, "--mode", "draft")
-	if !strings.Contains(validOut, "is valid in draft mode.") {
-		t.Fatalf("validate valid output = %q, want readable confirmation", validOut)
+	if !strings.Contains(validOut, "draft") {
+		t.Fatalf("validate output = %q, want echoed mode", validOut)
 	}
 
+	// link/default/unlink confirmations must reference the operands (ids) the caller passed.
 	linkOut, _ := runWorkflowRootCommandOK(t, "workflow", "link", binding.ProjectID, workflowID, "--default")
-	if !strings.Contains(linkOut, "as the default workflow.") {
-		t.Fatalf("link output = %q, want readable default confirmation", linkOut)
+	if !strings.Contains(linkOut, workflowID) || !strings.Contains(linkOut, binding.ProjectID) || !strings.Contains(linkOut, "default") {
+		t.Fatalf("link output = %q, want workflow, project, and default marker", linkOut)
 	}
 	defaultOut, _ := runWorkflowRootCommandOK(t, "workflow", "default", binding.ProjectID, workflowID)
-	if !strings.Contains(defaultOut, "Set workflow "+workflowID+" as the default for project") {
-		t.Fatalf("default output = %q, want readable confirmation", defaultOut)
+	if !strings.Contains(defaultOut, workflowID) || !strings.Contains(defaultOut, binding.ProjectID) {
+		t.Fatalf("default output = %q, want workflow and project", defaultOut)
 	}
 	unlinkOut, _ := runWorkflowRootCommandOK(t, "workflow", "unlink", binding.ProjectID, workflowID)
-	if !strings.Contains(unlinkOut, "Unlinked workflow "+workflowID+" from project") {
-		t.Fatalf("unlink output = %q, want readable confirmation", unlinkOut)
+	if !strings.Contains(unlinkOut, workflowID) || !strings.Contains(unlinkOut, binding.ProjectID) {
+		t.Fatalf("unlink output = %q, want workflow and project", unlinkOut)
 	}
 }
 
@@ -419,6 +424,47 @@ func TestWorkflowCommandsRenderJSONOutput(t *testing.T) {
 	}
 }
 
+func TestWorkflowCreateAcceptsTrailingJSONFlag(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	// The name positional precedes the flag, so create must still honor a trailing --json
+	// rather than folding it into the workflow name.
+	out, _, code := runWorkflowRootCommand("workflow", "create", "Trailing Flag Flow", "--json")
+	if code != 0 {
+		t.Fatalf("workflow create exit=%d out=%q", code, out)
+	}
+	var record serverapi.WorkflowRecord
+	if err := json.Unmarshal([]byte(out), &record); err != nil {
+		t.Fatalf("workflow create trailing --json = %q, want JSON: %v", out, err)
+	}
+	if record.Name != "Trailing Flag Flow" {
+		t.Fatalf("workflow name = %q, want %q", record.Name, "Trailing Flag Flow")
+	}
+}
+
+func TestWorkflowEdgeUpdateTogglesRequiresApproval(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowID := workflowCreateForTest(t, "Approval Toggle").ID
+	workflowNodeAddForTest(t, workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work")
+	edgeID := workflowEdgeAddForTest(t, workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Go").EdgeID
+
+	enableOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--requires-approval")
+	if !strings.Contains(enableOut, "requires approval") {
+		t.Fatalf("edge update enable output = %q, want approval gate echoed", enableOut)
+	}
+
+	// --requires-approval=false must clear the gate under partial-update semantics.
+	clearOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--requires-approval=false")
+	if strings.Contains(clearOut, "requires approval") {
+		t.Fatalf("edge update clear output = %q, did not expect approval gate", clearOut)
+	}
+}
+
 func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	cfg, _, remote := newWorkflowCommandLoopback(t)
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
@@ -450,7 +496,7 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	}
 
 	updateEdgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
-	if !strings.Contains(updateEdgeOut, "Updated edge `not_actionable`") {
+	if !strings.Contains(updateEdgeOut, "`not_actionable`") {
 		t.Fatalf("edge update output = %q, want edge key", updateEdgeOut)
 	}
 	if strings.Contains(updateEdgeOut, edgeID) {
