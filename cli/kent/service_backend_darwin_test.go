@@ -39,15 +39,23 @@ func newLaunchdHealthTestServer(t *testing.T, health func() (string, int)) *http
 }
 
 func TestLaunchdInstallReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
+	withFastLaunchdShutdownPolling(t)
 	spec := newLaunchdTestSpec(t)
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
+			// launchd reports the job loaded until bootout has fully evicted it.
+			if countLaunchdCommand(*calls, "bootout") > 0 {
+				return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
+			}
 			return serviceCommandResult{Stdout: "state = running\npid = 42\n"}, nil
 		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
 			return serviceCommandResult{}, nil
 		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + mustLaunchdPlistPath(t):
+			if countLaunchdCommand(*calls, "print") < 2 {
+				t.Fatalf("bootstrap happened before launchd evicted the old job, calls=%#v", *calls)
+			}
 			return serviceCommandResult{}, nil
 		default:
 			return serviceCommandResult{}, errors.New("unexpected command")
@@ -61,6 +69,7 @@ func TestLaunchdInstallReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
 	want := [][]string{
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootout", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), mustLaunchdPlistPath(t)},
 	}
 	if !reflect.DeepEqual(*calls, want) {
@@ -97,15 +106,25 @@ func TestLaunchdStartBootstrapsUnloadedServiceWithoutKickstart(t *testing.T) {
 }
 
 func TestLaunchdRestartReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
+	withFastLaunchdShutdownPolling(t)
 	spec := newLaunchdTestSpec(t)
 	path := writeLaunchdTestPlist(t, spec)
-	calls := captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
+	var calls *[][]string
+	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
+			// launchd keeps reporting the job loaded until bootout has fully
+			// evicted it; the reload must not bootstrap before that.
+			if countLaunchdCommand(*calls, "bootout") > 0 {
+				return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
+			}
 			return serviceCommandResult{Stdout: "state = running\npid = 42\n"}, nil
 		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
 			return serviceCommandResult{}, nil
 		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
+			if countLaunchdCommand(*calls, "bootout") == 0 {
+				t.Fatalf("bootstrap happened before bootout, calls=%#v", *calls)
+			}
 			return serviceCommandResult{}, nil
 		default:
 			return serviceCommandResult{}, errors.New("unexpected command")
@@ -120,6 +139,7 @@ func TestLaunchdRestartReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootout", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 	}
 	if !reflect.DeepEqual(*calls, want) {
@@ -186,6 +206,7 @@ func TestLaunchdRestartReloadsUnloadedHealthyServerBeforeBootstrap(t *testing.T)
 	want := [][]string{
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 	}
@@ -233,6 +254,7 @@ func TestLaunchdRestartIfInstalledReplacesStaleLoadedServiceAfterTransientBootst
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 		{"launchctl", "bootout", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 	}
 	if !reflect.DeepEqual(*calls, want) {
@@ -322,6 +344,7 @@ func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenRetryBootstrapFails(
 }
 
 func TestLaunchdReloadWaitsForOldServerBeforeBootstrap(t *testing.T) {
+	withFastLaunchdShutdownPolling(t)
 	serverRequests := 0
 	server := newLaunchdHealthTestServer(t, func() (string, int) {
 		serverRequests++
@@ -333,9 +356,13 @@ func TestLaunchdReloadWaitsForOldServerBeforeBootstrap(t *testing.T) {
 	spec := newLaunchdTestSpec(t)
 	spec.Endpoint = server.URL
 	path := mustLaunchdPlistPath(t)
-	calls := captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
+	var calls *[][]string
+	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
+			if countLaunchdCommand(*calls, "bootout") > 0 {
+				return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
+			}
 			return serviceCommandResult{Stdout: "state = running\npid = 42\n"}, nil
 		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
 			return serviceCommandResult{}, nil
@@ -357,10 +384,55 @@ func TestLaunchdReloadWaitsForOldServerBeforeBootstrap(t *testing.T) {
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootout", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 	}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Fatalf("calls = %#v, want %#v", *calls, want)
+	}
+}
+
+func TestLaunchdReloadWaitsForLaunchdEvictionBeforeBootstrap(t *testing.T) {
+	// Regression: launchctl bootout is asynchronous, so launchd keeps reporting
+	// the label loaded for a short window after the HTTP server stops
+	// responding. Bootstrapping in that window fails with the generic
+	// "Bootstrap error 5: Input/output error". The reload must poll until
+	// launchd has evicted the label, no matter how fast health drops.
+	withFastLaunchdShutdownPolling(t)
+	spec := newLaunchdTestSpec(t)
+	path := writeLaunchdTestPlist(t, spec)
+	postBootoutPrints := 0
+	var calls *[][]string
+	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
+		switch strings.Join(append([]string{name}, args...), "\x00") {
+		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
+			if countLaunchdCommand(*calls, "bootout") == 0 {
+				return serviceCommandResult{Stdout: "state = running\npid = 42\n"}, nil
+			}
+			// Stay "loaded" for the first few post-bootout polls to emulate a
+			// slow teardown, then report the label gone.
+			postBootoutPrints++
+			if postBootoutPrints <= 3 {
+				return serviceCommandResult{Stdout: "state = running\npid = 42\n"}, nil
+			}
+			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
+		case "launchctl\x00bootout\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
+			return serviceCommandResult{}, nil
+		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
+			if postBootoutPrints <= 3 {
+				t.Fatalf("bootstrap ran while launchd still reported the label loaded (after %d post-bootout prints)", postBootoutPrints)
+			}
+			return serviceCommandResult{}, nil
+		default:
+			return serviceCommandResult{}, errors.New("unexpected command")
+		}
+	})
+
+	if err := (launchdServiceBackend{}).Restart(context.Background(), spec); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if countLaunchdCommand(*calls, "bootstrap") != 1 {
+		t.Fatalf("expected exactly one bootstrap after eviction, calls=%#v", *calls)
 	}
 }
 
@@ -421,6 +493,7 @@ func TestLaunchdReloadStopsUnloadedHealthyServerBeforeBootstrap(t *testing.T) {
 		t.Fatalf("signaled pid = %d, want 42", signaledPID)
 	}
 	want := [][]string{
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
@@ -623,6 +696,7 @@ func TestLaunchdStartReplacesStaleLoadedServiceAfterTransientBootstrapError(t *t
 		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 		{"launchctl", "bootout", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
+		{"launchctl", "print", "gui/" + currentUIDText() + "/" + serviceLaunchdLabel},
 		{"launchctl", "bootstrap", "gui/" + currentUIDText(), path},
 	}
 	if !reflect.DeepEqual(*calls, want) {
@@ -710,6 +784,18 @@ func testLaunchdServiceSpec(t *testing.T) serviceSpec {
 		StderrLogPath: filepath.Join(root, "logs", "server.err.log"),
 		Endpoint:      "http://127.0.0.1:1",
 	}
+}
+
+func withFastLaunchdShutdownPolling(t *testing.T) {
+	t.Helper()
+	originalTimeout := launchdServiceShutdownTimeout
+	originalInterval := launchdServiceShutdownPollInterval
+	launchdServiceShutdownTimeout = 100 * time.Millisecond
+	launchdServiceShutdownPollInterval = time.Millisecond
+	t.Cleanup(func() {
+		launchdServiceShutdownTimeout = originalTimeout
+		launchdServiceShutdownPollInterval = originalInterval
+	})
 }
 
 func captureLaunchdServiceCommands(t *testing.T, fn func(context.Context, string, ...string) (serviceCommandResult, error)) *[][]string {
