@@ -211,14 +211,9 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	agent := fs.String("agent", "", "subagent role for agent nodes")
 	completionMode := fs.String("completion-mode", "", "completion mode for agent nodes: auto|structured_output|tool|shell_command|unstructured_output")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	workflowRef, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow node add requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	workflowRef = append(workflowRef, fs.Args()...)
-	if len(workflowRef) != 1 {
-		fmt.Fprintln(stderr, "workflow node add requires <workflow>")
-		return 2
 	}
 	if strings.TrimSpace(*key) == "" || strings.TrimSpace(*kind) == "" {
 		fmt.Fprintln(stderr, "workflow node add requires --key and --kind")
@@ -262,14 +257,9 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	agent := fs.String("agent", "", "subagent role for agent nodes")
 	completionMode := fs.String("completion-mode", "", "completion mode for agent nodes: auto|structured_output|tool|shell_command|unstructured_output")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow node update requires <workflow> <node-key>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow node update requires <workflow> <node-key>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -366,14 +356,9 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	var params repeatedStringFlag
 	fs.Var(&params, "param", "transition parameter as key=description (repeatable); declares a value the source agent must produce")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	workflowRef, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow edge add requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	workflowRef = append(workflowRef, fs.Args()...)
-	if len(workflowRef) != 1 {
-		fmt.Fprintln(stderr, "workflow edge add requires <workflow>")
-		return 2
 	}
 	if strings.TrimSpace(*fromKey) == "" || strings.TrimSpace(*transitionID) == "" || strings.TrimSpace(*edgeKey) == "" || strings.TrimSpace(*toKey) == "" || strings.TrimSpace(*contextMode) == "" {
 		fmt.Fprintln(stderr, "workflow edge add requires --from, --transition, --edge-key, --to, and --context")
@@ -485,14 +470,9 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	fs.Var(&params, "param", "transition parameter as key=description (repeatable); replaces all parameters when provided")
 	clearParams := fs.Bool("clear-params", false, "remove all transition parameters")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow edge update requires <workflow> <edge-id>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow edge update requires <workflow> <edge-id>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -610,14 +590,9 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	fs := newCommandFlagSet(config.Command+" workflow link", stderr, workflowCommandUsage)
 	defaultLink := fs.Bool("default", false, "make workflow project default")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow link requires <project> and <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow link requires <project> and <workflow>")
-		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -656,14 +631,9 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow unlink", stderr, workflowCommandUsage)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow unlink requires <project> and <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow unlink requires <project> and <workflow>")
-		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -701,14 +671,9 @@ func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow default", stderr, workflowCommandUsage)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 2, stderr, "workflow default requires <project> and <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 2 {
-		fmt.Fprintln(stderr, "workflow default requires <project> and <workflow>")
-		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -745,14 +710,9 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 	mode := fs.String("mode", string(serverapi.WorkflowValidationModeExecution), "validation mode: draft|task_creation|execution")
 	_ = fs.String("project", "", "reserved project id/path")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow validate requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 1 {
-		fmt.Fprintln(stderr, "workflow validate requires <workflow>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -817,14 +777,9 @@ func workflowValidationErrorLocation(err serverapi.WorkflowValidationError) stri
 func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" workflow inspect", stderr, workflowCommandUsage)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+	positionals, ok, exitCode := parseWorkflowPositionals(fs, args, 1, stderr, "workflow inspect requires <workflow>")
+	if !ok {
 		return exitCode
-	}
-	positionals = append(positionals, fs.Args()...)
-	if len(positionals) != 1 {
-		fmt.Fprintln(stderr, "workflow inspect requires <workflow>")
-		return 2
 	}
 	_, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
@@ -1280,6 +1235,22 @@ func parseInterspersedPositionals(fs *flag.FlagSet, args []string) ([]string, bo
 		positionals = append(positionals, rest[0])
 		rest = rest[1:]
 	}
+}
+
+// parseWorkflowPositionals parses fs while allowing flags (notably a leading --json) to surround
+// the positionals in any order, then enforces the expected positional count, printing usage on a
+// mismatch. It returns the positionals, or false with an exit code when parsing or the count check
+// fails.
+func parseWorkflowPositionals(fs *flag.FlagSet, args []string, count int, stderr io.Writer, usage string) ([]string, bool, int) {
+	positionals, ok, code := parseInterspersedPositionals(fs, args)
+	if !ok {
+		return nil, false, code
+	}
+	if len(positionals) != count {
+		fmt.Fprintln(stderr, usage)
+		return nil, false, 2
+	}
+	return positionals, true, 0
 }
 
 func takeLeadingPositionals(args []string, count int) ([]string, []string) {

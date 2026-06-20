@@ -466,6 +466,40 @@ func TestWorkflowCreateAcceptsTrailingJSONFlag(t *testing.T) {
 	}
 }
 
+func TestWorkflowSubcommandsAcceptLeadingJSONFlag(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowID := workflowCreateForTest(t, "Leading JSON Flow").ID
+
+	// --json placed before the workflow ref, with the node flags after it, must still parse.
+	nodeOut, _, code := runWorkflowRootCommand("workflow", "node", "add", "--json", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work")
+	if code != 0 {
+		t.Fatalf("node add --json (leading) exit=%d out=%q", code, nodeOut)
+	}
+	var node workflowNodeOutput
+	if err := json.Unmarshal([]byte(nodeOut), &node); err != nil {
+		t.Fatalf("node add --json (leading) = %q, want JSON: %v", nodeOut, err)
+	}
+	if node.Key != "implement" {
+		t.Fatalf("node key = %q, want implement", node.Key)
+	}
+
+	// A read command with --json before its positional must behave the same way.
+	inspectOut, _, code := runWorkflowRootCommand("workflow", "inspect", "--json", workflowID)
+	if code != 0 {
+		t.Fatalf("inspect --json (leading) exit=%d out=%q", code, inspectOut)
+	}
+	var def serverapi.WorkflowDefinition
+	if err := json.Unmarshal([]byte(inspectOut), &def); err != nil {
+		t.Fatalf("inspect --json (leading) = %q, want JSON: %v", inspectOut, err)
+	}
+	if def.Workflow.ID != workflowID {
+		t.Fatalf("inspect workflow id = %q, want %q", def.Workflow.ID, workflowID)
+	}
+}
+
 func TestWorkflowEdgeUpdateTogglesRequiresApproval(t *testing.T) {
 	cfg, _, remote := newWorkflowCommandLoopback(t)
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
