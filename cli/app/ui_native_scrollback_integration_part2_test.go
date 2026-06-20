@@ -51,8 +51,12 @@ func TestNativePSOverlayEscBalancesAltScreenAndAlternateScroll(t *testing.T) {
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 	time.Sleep(20 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitForTestCondition(t, 2*time.Second, "/ps overlay to enable alternate-scroll", func() bool {
-		return strings.Contains(sequenceLogSnapshot(), "\x1b[?1007h")
+	// Wait for the overlay body to actually render before closing it: detecting only the
+	// alternate-scroll enable sequence can race ahead of the painted frame, letting the renderer
+	// coalesce the open+close and never emit the overlay content into the captured output.
+	waitForTestCondition(t, 2*time.Second, "/ps overlay to open with alternate-scroll and rendered content", func() bool {
+		return strings.Contains(sequenceLogSnapshot(), "\x1b[?1007h") &&
+			strings.Contains(normalizedOutput(out.String()), "Background Processes")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	waitForTestCondition(t, 2*time.Second, "/ps overlay to close and disable alternate-scroll", func() bool {
@@ -113,8 +117,12 @@ func TestNativePSOverlayUsesFixedAltScreen(t *testing.T) {
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 	time.Sleep(20 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitForTestCondition(t, 2*time.Second, "/ps overlay to enable alternate-scroll", func() bool {
-		return strings.Contains(sequenceLogSnapshot(), "\x1b[?1007h")
+	// Wait for the overlay body to actually render before closing it: detecting only the
+	// alternate-scroll enable sequence can race ahead of the painted frame, letting the renderer
+	// coalesce the open+close and never emit the overlay content into the captured output.
+	waitForTestCondition(t, 2*time.Second, "/ps overlay to open with alternate-scroll and rendered content", func() bool {
+		return strings.Contains(sequenceLogSnapshot(), "\x1b[?1007h") &&
+			strings.Contains(normalizedOutput(out.String()), "Background Processes")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	waitForTestCondition(t, 2*time.Second, "/ps overlay to disable alternate-scroll", func() bool {
