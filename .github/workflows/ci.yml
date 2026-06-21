@@ -314,10 +314,13 @@ jobs:
         run: pnpm --dir apps install --frozen-lockfile
 
       # build-desktop.sh signs updater artifacts (createUpdaterArtifacts is on). PRs
-      # (incl. forks) have no secret, so mint a throwaway key at the path
-      # build-desktop.sh falls back to; the signed debug artifacts are discarded.
+      # (incl. forks) have no secret, so mint a throwaway key and pass it by content.
+      # The signer runs under pnpm --dir apps/desktop, so the key path must be
+      # absolute ($RUNNER_TEMP); the signed debug artifacts are discarded.
       - name: Build desktop bundle (unsigned, debug)
         run: |
-          mkdir -p .tauri
-          pnpm --dir apps/desktop exec tauri signer generate -f -w .tauri/kent-desktop-updater.key -p ""
+          pnpm --dir apps/desktop exec tauri signer generate -f -w "$RUNNER_TEMP/ci-updater.key" -p ""
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/ci-updater.key")"
+          export TAURI_SIGNING_PRIVATE_KEY
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
           bash scripts/build-desktop.sh --skip-install -- --debug
