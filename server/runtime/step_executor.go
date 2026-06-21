@@ -415,25 +415,26 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 	if !e.workflowRunActive() || e.cfg.WorkflowRun.Controller == nil {
 		return false, false, nil
 	}
+	outcome, err := s.workflowCompletionAdapter().Evaluate(ctx, assistantMsg)
+	if err != nil {
+		return false, false, err
+	}
+	if outcome.Applicable {
+		if !outcome.Done {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, outcome.Continue)
+			return true, terminal, nudgeErr
+		}
+		if completeErr := outcome.Complete(ctx); completeErr != nil {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
+			return true, terminal, nudgeErr
+		}
+		return true, true, nil
+	}
 	mode, err := e.workflowCompletionMode(ctx)
 	if err != nil {
 		return false, false, err
 	}
 	content := strings.TrimSpace(assistantMsg.Content)
-	if assistantMsg.Phase == llm.MessagePhaseFinal {
-		if eval, ok := evaluateWorkflowOutputCompletion(mode, e.cfg.WorkflowRun.Contract, content); ok {
-			if eval.Invalid != nil {
-				terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, eval.Invalid)
-				return true, terminal, nudgeErr
-			}
-			if completeErr := s.completeWorkflowRunFromParsed(ctx, eval.Parsed); completeErr != nil {
-				terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
-				return true, terminal, nudgeErr
-			}
-			e.setWorkflowTerminalState(eval.Source)
-			return true, true, nil
-		}
-	}
 	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {
 		terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, errors.New("normal final answers do not complete shell-command workflow nodes"))
 		return true, terminal, nudgeErr
@@ -487,7 +488,7 @@ func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.C
 	if strings.TrimSpace(instructions) != "" {
 		content += "\n\n" + strings.TrimSpace(instructions)
 	}
-	if reminder, ok := e.activeGoalNudgeReminder(); ok {
+	if reminder, ok := e.goalContinuation().reminderText(); ok {
 		content += "\n\n" + reminder
 	}
 	return false, e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: content}}))

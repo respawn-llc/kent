@@ -112,18 +112,6 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion() {
 	}
 }
 
-// activeGoalNudgeReminder returns the goal continuation reminder for an ACTIVE self-set goal,
-// reporting false when no goal is active (paused/complete/none). It enriches the workflow
-// invalid-completion nudge so the model keeps the foreground objective in view while it works
-// toward a valid completion.
-func (e *Engine) activeGoalNudgeReminder() (string, bool) {
-	goal := e.Goal()
-	if goal == nil || goal.Status != session.GoalStatusActive {
-		return "", false
-	}
-	return strings.TrimSpace(prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status))), true
-}
-
 func goalStatusUpdateFromState(goal session.GoalState) GoalStatusUpdate {
 	return GoalStatusUpdate{State: goal}
 }
@@ -190,7 +178,7 @@ func (e *Engine) finishGoalLoop() {
 func (e *Engine) runGoalLoop(ctx context.Context, firstTurnAlreadyPrompted bool) {
 	appendNudge := !firstTurnAlreadyPrompted
 	for {
-		if !e.shouldContinueGoalLoop() {
+		if !e.shouldContinueGoalLoop(ctx) {
 			return
 		}
 		if _, err := e.runGoalTurn(ctx, appendNudge); err != nil {
@@ -213,12 +201,12 @@ func (e *Engine) runGoalTurn(ctx context.Context, appendNudge bool) (assistant l
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		goal := e.Goal()
-		if goal == nil || goal.Status != session.GoalStatusActive {
+		nudge, active := e.goalContinuation().nudgeMessage()
+		if !active {
 			return errGoalLoopInactive
 		}
 		if appendNudge {
-			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status)), CompactContent: goalNudgeCompactText(*goal)}, e.transcriptWorkingDir())})); err != nil {
+			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{nudge})); err != nil {
 				return err
 			}
 		}
@@ -262,11 +250,20 @@ func (e *Engine) recordGoalLoopError(err error) {
 	e.SetOngoingError(message)
 }
 
-func (e *Engine) shouldContinueGoalLoop() bool {
+func (e *Engine) shouldContinueGoalLoop(ctx context.Context) bool {
 	if e == nil {
 		return false
 	}
-	return !e.goalLoopState().Suspended() && e.goalActive()
+	if e.goalLoopState().Suspended() {
+		return false
+	}
+	// Completion of the goal objective is decided by its CompletionAdapter (state-based: the goal is
+	// done once no longer active), the same seam the workflow driver consults for its objective.
+	outcome, err := e.goalContinuation().Evaluate(ctx, llm.Message{})
+	if err != nil {
+		return false
+	}
+	return !outcome.Done
 }
 
 func (e *Engine) goalActive() bool {
