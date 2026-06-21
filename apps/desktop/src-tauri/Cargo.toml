@@ -27,3 +27,12 @@ toml = "0.9"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSGlassEffectView", "NSResponder", "NSView", "NSVisualEffectView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
+
+# Release profile tuned for distributable bundle size: full LTO, a single
+# codegen unit, size-optimized codegen, abort-on-panic, and stripped symbols.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
