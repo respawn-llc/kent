@@ -49,8 +49,6 @@ export const englishResources = {
       loadingBody: "Checking readiness and authentication state.",
       readyTitle: "Kent service ready",
       errorTitle: "Startup blocked",
-      unreachableTitle: "Kent service unreachable",
-      unreachableBody: "Run `kent service install`, then retry.",
       updateTitle: "Update Kent",
       unknownTitle: "Unexpected startup failure",
       unknownBody: "Check local GUI logs and retry after the service is healthy.",
@@ -59,6 +57,13 @@ export const englishResources = {
       clientProtocol: "Client protocol {{protocol}}.",
       serverProtocol: "Server protocol {{protocol}}.",
       updateSameBuild: "Update Kent CLI/service and desktop app from the same build.",
+    },
+    serverSetup: {
+      title: "Kent needs a running server",
+      body: "The desktop app connects to the Kent server, which installs separately. Follow the setup guide to install and start it, then check again.",
+      checkAgain: "Check again",
+      openDocs: "Open setup guide",
+      detailLabel: "Connection error",
     },
     home: {
       title: "Projects",

@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { ErrorState, LoadingState } from "../../ui";
+import { ServerSetupGuide } from "./ServerSetupGuide";
 import { useStartup } from "./useStartup";
 
 export type StartupGateProps = Readonly<{
@@ -49,6 +50,10 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
     return <LoadingState body={t("startup.loadingBody")} chromePadding reveal={false} title={t("startup.loadingTitle")} />;
   }
 
+  if (startup.kind === "server-missing") {
+    return <ServerSetupGuide detail={startup.detail} onCheckAgain={startup.retry} />;
+  }
+
   if (startup.kind === "error") {
     return (
       <ErrorState
@@ -58,9 +63,7 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
         reveal={false}
         retryLabel={t("app.retry")}
         title={t(startup.titleKey)}
-      >
-        {startup.titleKey === "startup.unreachableTitle" ? <p>{t("startup.unreachableBody")}</p> : null}
-      </ErrorState>
+      />
     );
   }
 

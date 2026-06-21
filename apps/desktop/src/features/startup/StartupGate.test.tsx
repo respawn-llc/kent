@@ -1,12 +1,14 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createBrowserNativeBridge } from "@app/native-bridge";
 
 import { App } from "../../App";
 import { StartupConfigurationError } from "../../api/errors";
 import { protocolVersion } from "../../api/jsonRpcSocket";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
+import { serverSetupDocsUrl } from "./serverSetup";
 
 describe("StartupGate", () => {
-  it("surfaces unavailable server errors before showing app content", async () => {
+  it("guides server setup instead of erroring when the server is unreachable", async () => {
     render(
       <App
         services={createTestServices([
@@ -15,8 +17,52 @@ describe("StartupGate", () => {
       />,
     );
 
-    expect(await screen.findByTestId("error-state", undefined, { timeout: 4_000 })).toBeInTheDocument();
+    expect(await screen.findByTestId("server-setup-guide", undefined, { timeout: 4_000 })).toBeInTheDocument();
+    expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
     expect(screen.queryByTestId("home-route-root")).not.toBeInTheDocument();
+  });
+
+  it("rechecks readiness when the setup guide check-again button is used", async () => {
+    const services = createTestServices([
+      { method: "server.readiness.get", result: {}, error: new Error("connection refused") },
+    ]);
+    render(<App services={services} />);
+
+    await screen.findByTestId("server-setup-guide", undefined, { timeout: 4_000 });
+    const before = services.transport.calls.filter((call) => call.method === "server.readiness.get").length;
+
+    fireEvent.click(screen.getByTestId("server-setup-check-again"));
+
+    await waitFor(() => {
+      expect(services.transport.calls.filter((call) => call.method === "server.readiness.get").length).toBeGreaterThan(
+        before,
+      );
+    });
+  });
+
+  it("opens the server setup documentation from the guide", async () => {
+    const opened: string[] = [];
+    const bridge = {
+      ...createBrowserNativeBridge(),
+      links: {
+        async openExternal(url: string): Promise<void> {
+          opened.push(url);
+        },
+      },
+    };
+    render(
+      <App
+        services={createTestServices(
+          [{ method: "server.readiness.get", result: {}, error: new Error("connection refused") }],
+          bridge,
+        )}
+      />,
+    );
+
+    await screen.findByTestId("server-setup-guide", undefined, { timeout: 4_000 });
+    fireEvent.click(screen.getByTestId("server-setup-open-docs"));
+
+    expect(opened).toEqual([serverSetupDocsUrl]);
   });
 
   it("surfaces not-ready auth and startup causes", async () => {
@@ -65,6 +111,7 @@ describe("StartupGate", () => {
     );
 
     expect(await screen.findByTestId("error-state", undefined, { timeout: 4_000 })).toBeInTheDocument();
+    expect(screen.queryByTestId("server-setup-guide")).not.toBeInTheDocument();
   });
 
   it("does not call removed backend capabilities route before showing app content", async () => {
