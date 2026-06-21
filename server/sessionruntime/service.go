@@ -385,11 +385,11 @@ func (s *Service) externalSessionRuntimeActive(sessionID string) bool {
 
 func (s *Service) WithCollaborativeRuntime(ctx context.Context, sessionID string, op serverapi.SessionRuntimeOperation, fn func(CollaborativeRuntimeGuard) error) error {
 	if s == nil || s.runtimes == nil {
-		return fmt.Errorf("collaborative runtime %q is unavailable", strings.TrimSpace(sessionID))
+		return runtimeUnavailableErr(sessionID)
 	}
 	id := strings.TrimSpace(sessionID)
 	if !s.externalSessionRuntimeActive(id) {
-		return fmt.Errorf("collaborative runtime %q is unavailable", id)
+		return runtimeUnavailableErr(id)
 	}
 	guard, err := s.runtimes.BeginRuntimeGuard(ctx, id)
 	if err != nil {
@@ -397,10 +397,10 @@ func (s *Service) WithCollaborativeRuntime(ctx context.Context, sessionID string
 	}
 	defer guard.Release()
 	if !s.externalSessionRuntimeActive(id) {
-		return fmt.Errorf("collaborative runtime %q is unavailable", id)
+		return runtimeUnavailableErr(id)
 	}
 	if !collaborativeOperationAllowed(op, guard.Engine()) {
-		return fmt.Errorf("collaborative operation %q is unavailable for session %q", op, id)
+		return controlUnavailableErr(op, id)
 	}
 	return fn(guard)
 }
@@ -416,11 +416,11 @@ func (s *Service) BeginCollaborativeRuntimeGuard(ctx context.Context, sessionID 
 	Rebind(workdir string) error
 }, error) {
 	if s == nil || s.runtimes == nil {
-		return nil, fmt.Errorf("collaborative runtime %q is unavailable", strings.TrimSpace(sessionID))
+		return nil, runtimeUnavailableErr(sessionID)
 	}
 	id := strings.TrimSpace(sessionID)
 	if !s.externalSessionRuntimeActive(id) {
-		return nil, fmt.Errorf("collaborative runtime %q is unavailable", id)
+		return nil, runtimeUnavailableErr(id)
 	}
 	guard, err := s.runtimes.BeginRuntimeGuard(ctx, id)
 	if err != nil {
@@ -428,11 +428,11 @@ func (s *Service) BeginCollaborativeRuntimeGuard(ctx context.Context, sessionID 
 	}
 	if !s.externalSessionRuntimeActive(id) {
 		guard.Release()
-		return nil, fmt.Errorf("collaborative runtime %q is unavailable", id)
+		return nil, runtimeUnavailableErr(id)
 	}
 	if !collaborativeOperationAllowed(op, guard.Engine()) {
 		guard.Release()
-		return nil, fmt.Errorf("collaborative operation %q is unavailable for session %q", op, id)
+		return nil, controlUnavailableErr(op, id)
 	}
 	return guard, nil
 }
@@ -441,10 +441,25 @@ func (s *Service) WithCollaborativePromptResponder(ctx context.Context, sessionI
 	return s.WithCollaborativeRuntime(ctx, sessionID, op, func(guard CollaborativeRuntimeGuard) error {
 		responder, ok := guard.(registry.GuardedPromptResponder)
 		if !ok {
-			return fmt.Errorf("collaborative prompt responder for session %q is unavailable", strings.TrimSpace(sessionID))
+			return runtimeUnavailableErr(sessionID)
 		}
 		return fn(responder)
 	})
+}
+
+// runtimeUnavailableErr reports that a session has no active runtime reachable for a
+// limited-control attach. It wraps the typed serverapi.ErrRuntimeUnavailable sentinel so
+// callers (and the gateway/client protocol layer) can match it, and surfaces a
+// vocabulary-aligned message instead of internal "collaborative runtime" wording.
+func runtimeUnavailableErr(sessionID string) error {
+	return errors.Join(serverapi.ErrRuntimeUnavailable, fmt.Errorf("session %q has no active runtime available", strings.TrimSpace(sessionID)))
+}
+
+// controlUnavailableErr reports that a control is not permitted for a session from a
+// limited-control attach (operation absent from the attach's allowed set). It also wraps
+// ErrRuntimeUnavailable so it maps through the protocol layer with a clear message.
+func controlUnavailableErr(op serverapi.SessionRuntimeOperation, sessionID string) error {
+	return errors.Join(serverapi.ErrRuntimeUnavailable, fmt.Errorf("control %q is not available for session %q from a limited-control attach", op, strings.TrimSpace(sessionID)))
 }
 
 func collaborativeOperationAllowed(op serverapi.SessionRuntimeOperation, engine *runtime.Engine) bool {

@@ -399,9 +399,6 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 	if completeOutput != "" {
 		t.Fatalf("goal complete stdout = %q, want empty", completeOutput)
 	}
-	if !strings.Contains(completeErr, "collaborative runtime") || !strings.Contains(completeErr, "unavailable") {
-		t.Fatalf("goal complete stderr = %q, want collaborative runtime unavailable", completeErr)
-	}
 
 	setOutput, setErr, setRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
 	if setRunErr == nil {

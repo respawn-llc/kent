@@ -852,8 +852,8 @@ func TestWithCollaborativeRuntimeRequiresExternalActiveRuntime(t *testing.T) {
 		t.Fatal("unexpected callback for controller-owned handle")
 		return nil
 	})
-	if err == nil {
-		t.Fatal("expected controller-owned session to reject collaborative access")
+	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("controller-owned collaborative access error = %v, want ErrRuntimeUnavailable", err)
 	}
 }
 
