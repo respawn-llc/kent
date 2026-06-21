@@ -69,3 +69,6 @@ docs/tmp/
 .builder/
 # Private, machine-local QA harness skill (references omlx + user dirs)
 .kent/skills/qa-harness/
+
+# Generated from icons/Kent.icon by scripts/build-desktop.sh (tauri-apps/tauri#15315)
+apps/desktop/src-tauri/icons/Assets.car

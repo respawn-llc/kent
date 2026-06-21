@@ -33,6 +33,56 @@ read_version() {
 	printf '%s' "${version#v}"
 }
 
+# Compile the Icon Composer .icon (the macOS 26 liquid-glass app icon source)
+# into an Assets.car that bundle.icon references directly. We do this instead of
+# letting the Tauri bundler invoke actool itself because its in-bundler actool
+# call crashes on .icon inputs (tauri-apps/tauri#15315); the bundler copies a
+# pre-built .car verbatim and still reads CFBundleIconName from it. macOS-only;
+# Linux bundles use the PNG icons and ignore the .car.
+compile_app_icon() {
+	[ "$(uname -s)" = "Darwin" ] || return 0
+
+	local icon_dir="apps/desktop/src-tauri/icons/Kent.icon"
+	local out_car="apps/desktop/src-tauri/icons/Assets.car"
+	[ -d "$icon_dir" ] || return 0
+
+	if ! command -v actool >/dev/null 2>&1; then
+		echo "actool not found; the macOS glass app icon needs Xcode 26 or newer (with Icon Composer)." >&2
+		return 1
+	fi
+
+	local tmp attempt out
+	tmp="$(mktemp -d)"
+	cp -R "$icon_dir" "$tmp/Icon.icon"
+
+	for attempt in 1 2 3; do
+		# actool talks to the ibtoold asset-catalog daemon, which wedges after the
+		# first glass-icon compile and crashes subsequent ones; forcing a fresh
+		# daemon per attempt makes the compile reliable (tauri-apps/tauri#15315).
+		killall -9 ibtoold >/dev/null 2>&1 || true
+		out="$tmp/out_${attempt}"
+		mkdir -p "$out"
+		if actool "$tmp/Icon.icon" \
+			--compile "$out" \
+			--output-format human-readable-text --notices --warnings \
+			--output-partial-info-plist "$out/assetcatalog_generated_info.plist" \
+			--app-icon Icon --include-all-app-icons \
+			--accent-color AccentColor \
+			--enable-on-demand-resources NO \
+			--development-region en \
+			--target-device mac \
+			--minimum-deployment-target 26.0 \
+			--platform macosx >/dev/null 2>&1 && [ -f "$out/Assets.car" ]; then
+			cp "$out/Assets.car" "$out_car"
+			echo "Compiled liquid-glass app icon -> ${out_car}" >&2
+			return 0
+		fi
+	done
+
+	echo "Failed to compile ${icon_dir} into Assets.car after 3 attempts." >&2
+	return 1
+}
+
 version=""
 skip_install=0
 tauri_args=()
@@ -84,6 +134,8 @@ if [ "$skip_install" != "1" ]; then
 fi
 
 echo "Building Kent desktop bundle version ${version}" >&2
+
+compile_app_icon
 
 pnpm --dir apps/desktop exec tauri build \
 	--config "{\"version\":\"${version}\"}" \

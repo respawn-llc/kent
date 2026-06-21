@@ -11,13 +11,13 @@
           "blend-mode-specializations" : [
             {
               "appearance" : "tinted",
-              "value" : "hard-light"
+              "value" : "normal"
             }
           ],
           "fill-specializations" : [
             {
               "appearance" : "tinted",
-              "value" : "none"
+              "value" : "automatic"
             }
           ],
           "glass-specializations" : [
@@ -34,7 +34,7 @@
           "opacity-specializations" : [
             {
               "appearance" : "tinted",
-              "value" : 0.3
+              "value" : 1
             }
           ],
           "position-specializations" : [
