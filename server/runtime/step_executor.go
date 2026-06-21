@@ -420,33 +420,19 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 		return false, false, err
 	}
 	content := strings.TrimSpace(assistantMsg.Content)
-	if mode == workflowruntime.CompletionModeStructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
-		parsed, parseErr := workflowruntime.DecodeCompletion([]byte(content), e.cfg.WorkflowRun.Contract)
-		if parseErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
-			return true, terminal, nudgeErr
+	if assistantMsg.Phase == llm.MessagePhaseFinal {
+		if eval, ok := evaluateWorkflowOutputCompletion(mode, e.cfg.WorkflowRun.Contract, content); ok {
+			if eval.Invalid != nil {
+				terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, eval.Invalid)
+				return true, terminal, nudgeErr
+			}
+			if completeErr := s.completeWorkflowRunFromParsed(ctx, eval.Parsed); completeErr != nil {
+				terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
+				return true, terminal, nudgeErr
+			}
+			e.setWorkflowTerminalState(eval.Source)
+			return true, true, nil
 		}
-		completeErr := s.completeWorkflowRunFromParsed(ctx, parsed)
-		if completeErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
-			return true, terminal, nudgeErr
-		}
-		e.setWorkflowTerminalState(WorkflowCompletionSourceStructuredOutput)
-		return true, true, nil
-	}
-	if mode == workflowruntime.CompletionModeUnstructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
-		parsed, parseErr := workflowruntime.DecodeUnstructuredCompletion(content, e.cfg.WorkflowRun.Contract)
-		if parseErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
-			return true, terminal, nudgeErr
-		}
-		completeErr := s.completeWorkflowRunFromParsed(ctx, parsed)
-		if completeErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
-			return true, terminal, nudgeErr
-		}
-		e.setWorkflowTerminalState(WorkflowCompletionSourceUnstructured)
-		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {
 		terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, errors.New("normal final answers do not complete shell-command workflow nodes"))
