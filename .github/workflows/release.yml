@@ -268,10 +268,117 @@ jobs:
           body: ${{ needs.prepare_release.outputs.changelog }}
           files: dist/*
 
+  build_desktop:
+    needs: prepare_release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-26 is Apple Silicon (arm64) with Xcode 26 — required for the
+          # liquid-glass icon's actool compile and the aarch64-apple-darwin target.
+          # Pinned (not macos-latest) while GitHub migrates the latest label to
+          # macOS 26 (June 15 - July 15, 2026). Revisit ~2026-07-22: respawn-llc/kent#407.
+          - runs_on: macos-26
+            platform: macos
+          - runs_on: ubuntu-22.04
+            platform: linux
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install Linux bundling dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libfuse2 file build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
+
+      - name: Build desktop bundles
+        env:
+          KENT_VERSION: ${{ needs.prepare_release.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS Developer ID signing. tauri build imports APPLE_CERTIFICATE into an
+          # ephemeral keychain and signs with APPLE_SIGNING_IDENTITY. Notarization is
+          # OFF for v1, so the APPLE_API_* notarization keys are intentionally NOT
+          # exported here (flip them on later to enable notarization).
+          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+        run: bash scripts/desktop-release.sh build --version "$KENT_VERSION" --dist-dir dist/desktop
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: desktop-assets-${{ matrix.platform }}-${{ needs.prepare_release.outputs.tag }}
+          path: dist/desktop/*
+          if-no-files-found: error
+
+  publish_desktop:
+    needs:
+      - prepare_release
+      - publish_release
+      - build_desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      # Both platforms' staged bundles merge into one dist dir so assemble sees all
+      # updater .sig files and emits a single latest.json covering both platforms.
+      - name: Download macOS desktop artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: desktop-assets-macos-${{ needs.prepare_release.outputs.tag }}
+          path: dist/desktop
+
+      - name: Download Linux desktop artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: desktop-assets-linux-${{ needs.prepare_release.outputs.tag }}
+          path: dist/desktop
+
+      - name: Assemble updater manifest + checksums
+        env:
+          KENT_VERSION: ${{ needs.prepare_release.outputs.version }}
+          TAG: ${{ needs.prepare_release.outputs.tag }}
+        run: |
+          bash scripts/desktop-release.sh assemble \
+            --version "$KENT_VERSION" \
+            --dist-dir dist/desktop \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${TAG}"
+
+      - name: Upload desktop assets to release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: ${{ needs.prepare_release.outputs.tag }}
+          files: dist/desktop/*
+
   update_brew_tap:
     needs:
       - prepare_release
       - publish_release
+      - publish_desktop
     runs-on: ubuntu-latest
     env:
       BREW_FORMULA_NAME: kent
@@ -291,10 +398,18 @@ jobs:
           git -C homebrew-tap config user.name "github-actions[bot]"
           git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Update tap formula
+      # The desktop .dmg is published by publish_desktop (a dependency of this job),
+      # so its release asset URL resolves and update-brew-tap.sh regenerates the
+      # kent-desktop cask alongside the formula.
+      - name: Update tap formula and cask
         env:
           KENT_VERSION: ${{ needs.prepare_release.outputs.tag }}
-        run: bash scripts/update-brew-tap.sh --tap "$GITHUB_WORKSPACE/homebrew-tap" --formula "$BREW_FORMULA_NAME"
+          DESKTOP_DMG_URL: https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare_release.outputs.tag }}/Kent_${{ needs.prepare_release.outputs.version }}_aarch64.dmg
+        run: |
+          bash scripts/update-brew-tap.sh \
+            --tap "$GITHUB_WORKSPACE/homebrew-tap" \
+            --formula "$BREW_FORMULA_NAME" \
+            --desktop-url "$DESKTOP_DMG_URL"
 
       - name: Ensure pr-pull label exists
         uses: actions/github-script@v9
