@@ -62,6 +62,8 @@ docs/tmp/
 
 # Local runtime state
 .env
+# Tauri updater signing keys — private key must NEVER be committed (CI secret only)
+.tauri/
 .kent/config.toml
 .kent/plans/
 .kent/qa/

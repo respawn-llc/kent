@@ -156,6 +156,22 @@ else
 	build_config="{\"version\":\"${version}\"}"
 fi
 
+# Updater artifact signing. tauri.conf.json sets bundle.createUpdaterArtifacts, so
+# `tauri build` signs the updater artifacts and fails without the updater private
+# key. Prefer an already-exported TAURI_SIGNING_PRIVATE_KEY (CI secret); otherwise
+# fall back to the gitignored local key. Fail clearly when neither is available.
+updater_key="$repo_root/.tauri/kent-desktop-updater.key"
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+	if [ -f "$updater_key" ]; then
+		TAURI_SIGNING_PRIVATE_KEY="$(cat "$updater_key")"
+		export TAURI_SIGNING_PRIVATE_KEY
+		export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+	else
+		echo "Updater signing key missing. Set TAURI_SIGNING_PRIVATE_KEY (CI secret) or place the private key at .tauri/kent-desktop-updater.key." >&2
+		exit 2
+	fi
+fi
+
 pnpm --dir apps/desktop exec tauri build \
 	--config "$build_config" \
 	${tauri_args[@]+"${tauri_args[@]}"}

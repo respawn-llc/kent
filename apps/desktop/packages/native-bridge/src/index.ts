@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 
 import {
   fitCurrentWindowToContent,
@@ -42,6 +44,24 @@ export type NativeCapabilityState = Readonly<{
 
 export type NativePlatform = "browser" | "linux" | "macos" | "unknown" | "windows";
 
+export type NativeUpdateAvailability = Readonly<{
+  available: boolean;
+  // Target version of the available update; empty string when none is available.
+  version: string;
+  // Version currently running.
+  currentVersion: string;
+  // Release notes body for the update; empty string when none was published.
+  notes: string;
+  // RFC3339 publish timestamp for the update; empty string when unknown.
+  publishedAt: string;
+}>;
+
+export type NativeUpdateDownloadProgress = Readonly<{
+  downloadedBytes: number;
+  // Total bytes to download; null when the update server sent no Content-Length.
+  totalBytes: number | null;
+}>;
+
 export type NativeBridge = Readonly<{
   capabilities: NativeCapabilityState;
   clipboard: Readonly<{
@@ -59,6 +79,13 @@ export type NativeBridge = Readonly<{
   }>;
   logging: Readonly<{
     append(entry: NativeLogEntry): Promise<void>;
+  }>;
+  updates: Readonly<{
+    check(): Promise<NativeUpdateAvailability>;
+    downloadAndInstall(
+      onProgress?: (progress: NativeUpdateDownloadProgress) => void,
+    ): Promise<void>;
+    relaunch(): Promise<void>;
   }>;
   app: Readonly<{
     resolvePlatform(): Promise<NativePlatform>;
@@ -206,6 +233,14 @@ const unavailableCapabilities: NativeCapabilityState = {
   macosVibrancy: false,
 };
 
+const unavailableUpdate: NativeUpdateAvailability = {
+  available: false,
+  version: "",
+  currentVersion: "",
+  notes: "",
+  publishedAt: "",
+};
+
 export const nativeDialogWindowHorizontalInsetPx = 16;
 const projectDeletedEvent = "app://project-deleted";
 const workspaceUnlinkRequestEvent = "app://workspace-unlink-request";
@@ -255,6 +290,17 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
     logging: {
       async append(): Promise<void> {
         return Promise.resolve();
+      },
+    },
+    updates: {
+      async check(): Promise<NativeUpdateAvailability> {
+        return unavailableUpdate;
+      },
+      async downloadAndInstall(): Promise<void> {
+        throw new Error("Application updates are unavailable in this shell.");
+      },
+      async relaunch(): Promise<void> {
+        throw new Error("Application relaunch is unavailable in this shell.");
       },
     },
     app: {
@@ -358,6 +404,10 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
 
 export function createTauriNativeBridge(platform: NativePlatform = "unknown"): NativeBridge {
   const capabilities = createTauriCapabilities(platform);
+  // The Update handle returned by check() carries the connection used to download
+  // and install; we hold it so downloadAndInstall() operates on the last check
+  // result without leaking the plugin's Update type across the bridge boundary.
+  let pendingUpdate: Update | null = null;
   return {
     capabilities,
     clipboard: {
@@ -387,6 +437,43 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
     logging: {
       async append(entry: NativeLogEntry): Promise<void> {
         await invoke("append_gui_log", { entry: JSON.stringify(entry) });
+      },
+    },
+    updates: {
+      async check(): Promise<NativeUpdateAvailability> {
+        const update = await checkForUpdate();
+        pendingUpdate = update;
+        if (update === null) {
+          return unavailableUpdate;
+        }
+        return {
+          available: true,
+          version: update.version,
+          currentVersion: update.currentVersion,
+          notes: update.body ?? "",
+          publishedAt: update.date ?? "",
+        };
+      },
+      async downloadAndInstall(
+        onProgress?: (progress: NativeUpdateDownloadProgress) => void,
+      ): Promise<void> {
+        if (pendingUpdate === null) {
+          throw new Error("No update is pending; call updates.check() first.");
+        }
+        let downloadedBytes = 0;
+        let totalBytes: number | null = null;
+        await pendingUpdate.downloadAndInstall((event) => {
+          if (event.event === "Started") {
+            totalBytes = event.data.contentLength ?? null;
+            downloadedBytes = 0;
+          } else if (event.event === "Progress") {
+            downloadedBytes += event.data.chunkLength;
+          }
+          onProgress?.({ downloadedBytes, totalBytes });
+        });
+      },
+      async relaunch(): Promise<void> {
+        await relaunch();
       },
     },
     app: {
@@ -557,7 +644,7 @@ function createTauriCapabilities(platform: NativePlatform): NativeCapabilityStat
     },
     tray: false,
     appMenu: false,
-    updater: false,
+    updater: true,
     windowControls: false,
     windowDrag: true,
     dialogWindows: true,

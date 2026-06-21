@@ -37,7 +37,7 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.notifications.basic).toBe(false);
     expect(bridge.capabilities.tray).toBe(false);
     expect(bridge.capabilities.appMenu).toBe(false);
-    expect(bridge.capabilities.updater).toBe(false);
+    expect(bridge.capabilities.updater).toBe(true);
     expect(bridge.capabilities.macosVibrancy).toBe(false);
   });
 
@@ -46,6 +46,8 @@ describe("native bridge capabilities", () => {
 
     expect(tauriDefaultCapability.windows).toContain("native-dialog-*");
     [
+      "updater:default",
+      "process:allow-restart",
       "clipboard-manager:allow-read-text",
       "clipboard-manager:allow-write-text",
       "core:event:allow-emit",
