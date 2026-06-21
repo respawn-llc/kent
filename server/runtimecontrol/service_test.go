@@ -624,6 +624,32 @@ func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
 	}
 }
 
+func TestServiceSetGoalRejectsAgentOverwriteWhenCollaborativeRuntimeUnavailable(t *testing.T) {
+	store, engine := newRuntimeControlTestEngine(t, &blockingRuntimeControlClient{}, nil, runtime.Config{})
+	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
+	service := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine, err: errors.New("collaborative runtime \"" + store.Meta().SessionID + "\" is unavailable")}
+	service.WithCollaborativeRuntimeResolver(collaborative)
+
+	if _, err := engine.SetGoal("existing goal", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal initial: %v", err)
+	}
+
+	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "agent-goal-overwrite-collab-unavailable",
+		SessionID:       store.Meta().SessionID,
+		Objective:       "agent replacement",
+		Actor:           "agent",
+	})
+	var denied goalAgentOverwriteDeniedError
+	if !errors.As(err, &denied) {
+		t.Fatalf("agent overwrite error = %v, want goalAgentOverwriteDeniedError", err)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0 (overwrite denied before runtime access)", collaborative.calls)
+	}
+}
+
 func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
 	store, engine, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	completed, err := engine.SetGoal("completed goal", session.GoalActorUser)

@@ -384,14 +384,6 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 	if overwriteOutput != "" {
 		t.Fatalf("goal set overwrite stdout = %q, want empty", overwriteOutput)
 	}
-	for _, want := range []string{
-		"collaborative runtime",
-		"unavailable",
-	} {
-		if !strings.Contains(overwriteErr, want) {
-			t.Fatalf("goal set overwrite stderr missing %q: %q", want, overwriteErr)
-		}
-	}
 	record, err = metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession after rejected overwrite: %v", err)
