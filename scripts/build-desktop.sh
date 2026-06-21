@@ -137,6 +137,25 @@ echo "Building Kent desktop bundle version ${version}" >&2
 
 compile_app_icon
 
+# Inject the macOS liquid-glass Assets.car into bundle.icon when it was generated
+# above. It is intentionally absent from the committed bundle.icon so Linux/Windows
+# builds — which neither generate nor consume the gitignored .car — don't choke on
+# a missing/non-image icon path.
+icon_car="apps/desktop/src-tauri/icons/Assets.car"
+conf="apps/desktop/src-tauri/tauri.conf.json"
+if [ -f "$icon_car" ]; then
+	if ! command -v jq >/dev/null 2>&1; then
+		echo "jq is required to inject the macOS app icon into the build config." >&2
+		exit 2
+	fi
+	build_config="$(jq -cn \
+		--arg v "$version" \
+		--argjson icon "$(jq -c '.bundle.icon + ["icons/Assets.car"]' "$conf")" \
+		'{version: $v, bundle: {icon: $icon}}')"
+else
+	build_config="{\"version\":\"${version}\"}"
+fi
+
 pnpm --dir apps/desktop exec tauri build \
-	--config "{\"version\":\"${version}\"}" \
+	--config "$build_config" \
 	${tauri_args[@]+"${tauri_args[@]}"}

@@ -34,17 +34,28 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg", "appimage", "deb"],
+    "category": "DeveloperTool",
+    "shortDescription": "Desktop client for the Kent coding agent.",
+    "longDescription": "Kent Desktop is a GUI remote-control client for a running Kent coding-agent server — boards, task detail, and the workflow editor. It connects to a local Kent service over loopback; install and start the Kent CLI/service first.",
+    "homepage": "https://github.com/respawn-llc/kent",
+    "publisher": "Respawn LLC",
     "icon": [
       "icons/32x32.png",
+      "icons/64x64.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/Assets.car",
+      "icons/icon.png",
       "icons/icon.ico"
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
       "entitlements": "entitlements.plist"
+    },
+    "linux": {
+      "deb": {
+        "section": "devel"
+      }
     }
   }
 }
