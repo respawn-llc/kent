@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -10,6 +11,36 @@ import (
 	"core/shared/config"
 	"core/shared/toolspec"
 )
+
+// Tool-mode (complete_node) is also a valid terminal completion and must cascade-complete an
+// active goal — the cascade lives in setWorkflowTerminalState so every completion source is
+// covered, not just structured/unstructured output.
+func TestWorkflowToolModeTerminalCompletionCascadeCompletesActiveGoal(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("complete", completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	if _, err := eng.SetGoal("finish via tool completion", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("SubmitWorkflowTurn: %v", err)
+	}
+	if got := controller.completed.Load(); got != 1 {
+		t.Fatalf("completions = %d, want 1", got)
+	}
+	if terminal := eng.WorkflowTerminalState(); !terminal.Completed || terminal.Source != WorkflowCompletionSourceTool {
+		t.Fatalf("terminal state = %+v, want tool completion", terminal)
+	}
+	goal := eng.Goal()
+	if goal == nil || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("goal after tool-mode completion = %+v, want auto-completed", goal)
+	}
+}
 
 // A valid workflow completion submitted while a self-set goal is still active must
 // complete the workflow AND auto-complete the active goal in the same step (soft cascade,

@@ -432,7 +432,6 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			return true, terminal, nudgeErr
 		}
 		e.setWorkflowTerminalState(WorkflowCompletionSourceStructuredOutput)
-		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeUnstructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
@@ -447,7 +446,6 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			return true, terminal, nudgeErr
 		}
 		e.setWorkflowTerminalState(WorkflowCompletionSourceUnstructured)
-		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {

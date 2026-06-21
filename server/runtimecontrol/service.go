@@ -817,15 +817,13 @@ func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, 
 		if err != nil {
 			return err
 		}
-		// A workflow run owns the primary-run lease for its whole duration, so acquiring it here
-		// would block the model's own goal mutation mid-task with ErrActivePrimaryRun. Goal
+		// An active workflow run owns the primary-run lease for its whole duration, so acquiring it
+		// here would block the model's own goal mutation mid-task with ErrActivePrimaryRun. Goal
 		// mutation is serialized by the engine's controlMutationMu and needs no step exclusivity,
-		// so workflow-task sessions skip the lease and mutate through the limited-control guard.
-		workflowSession, err := s.workflowTaskSession(ctx, sessionID, engine)
-		if err != nil {
-			return err
-		}
-		if !workflowSession {
+		// so an engine that is currently running a workflow skips the lease and mutates through the
+		// limited-control guard. Idle sessions (incl. durable workflow markers with no active run)
+		// keep acquiring the free lease, unchanged.
+		if !engine.WorkflowRunConfigured() {
 			lease, err := s.acquirePrimaryRun(sessionID)
 			if err != nil {
 				return err
