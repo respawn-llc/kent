@@ -313,18 +313,11 @@ jobs:
       - name: Install GUI dependencies
         run: pnpm --dir apps install --frozen-lockfile
 
-      # build-desktop.sh requires an updater signing key (createUpdaterArtifacts is
-      # on). PRs (incl. forks) have no secret, so mint a throwaway keypair purely to
-      # exercise packaging; the signed artifacts are discarded.
-      - name: Generate throwaway updater signing key
-        run: |
-          pnpm --dir apps/desktop exec tauri signer generate -w "$RUNNER_TEMP/ci-updater.key" -p ""
-          {
-            echo "TAURI_SIGNING_PRIVATE_KEY<<KEY_EOF"
-            cat "$RUNNER_TEMP/ci-updater.key"
-            echo "KEY_EOF"
-            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD="
-          } >> "$GITHUB_ENV"
-
+      # build-desktop.sh signs updater artifacts (createUpdaterArtifacts is on). PRs
+      # (incl. forks) have no secret, so mint a throwaway key at the path
+      # build-desktop.sh falls back to; the signed debug artifacts are discarded.
       - name: Build desktop bundle (unsigned, debug)
-        run: bash scripts/build-desktop.sh --skip-install -- --debug
+        run: |
+          mkdir -p .tauri
+          pnpm --dir apps/desktop exec tauri signer generate -f -w .tauri/kent-desktop-updater.key -p ""
+          bash scripts/build-desktop.sh --skip-install -- --debug
