@@ -41,6 +41,9 @@
     "longDescription": "Kent Desktop is a GUI remote-control client for a running Kent coding-agent server — boards, task detail, and the workflow editor. It connects to a local Kent service over loopback; install and start the Kent CLI/service first.",
     "homepage": "https://github.com/respawn-llc/kent",
     "publisher": "Respawn LLC",
+    "copyright": "© 2026 Respawn LLC",
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../../../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",
