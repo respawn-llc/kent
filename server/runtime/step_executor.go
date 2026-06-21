@@ -432,6 +432,7 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			return true, terminal, nudgeErr
 		}
 		e.setWorkflowTerminalState(WorkflowCompletionSourceStructuredOutput)
+		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeUnstructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
@@ -446,6 +447,7 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 			return true, terminal, nudgeErr
 		}
 		e.setWorkflowTerminalState(WorkflowCompletionSourceUnstructured)
+		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 		return true, true, nil
 	}
 	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {
@@ -500,6 +502,9 @@ func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.C
 	}
 	if strings.TrimSpace(instructions) != "" {
 		content += "\n\n" + strings.TrimSpace(instructions)
+	}
+	if reminder, ok := e.activeGoalNudgeReminder(); ok {
+		content += "\n\n" + reminder
 	}
 	return false, e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: content}}))
 }

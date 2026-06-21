@@ -52,8 +52,13 @@ const (
 	SessionRuntimeOperationGoalManage               SessionRuntimeOperation = "goal.manage"
 )
 
-func CollaborativeSessionRuntimeOperations(workflowSession bool) []SessionRuntimeOperation {
-	operations := []SessionRuntimeOperation{
+// CollaborativeSessionRuntimeOperations is the set of controls a limited-control attach may
+// drive on an active session runtime owned by a run. Workflow-task sessions steer as usual
+// (issue #364): goal control is included for every limited-control attach. The only workflow
+// limit lives elsewhere — the model cannot submit a structured-output final answer that is
+// invalid for the node — which is not a runtime operation and so is not gated here.
+func CollaborativeSessionRuntimeOperations() []SessionRuntimeOperation {
+	return []SessionRuntimeOperation{
 		SessionRuntimeOperationSubmitUserTurn,
 		SessionRuntimeOperationQueueUserMessage,
 		SessionRuntimeOperationSubmitQueuedUserMessages,
@@ -69,11 +74,8 @@ func CollaborativeSessionRuntimeOperations(workflowSession bool) []SessionRuntim
 		SessionRuntimeOperationCompactPreSubmit,
 		SessionRuntimeOperationWorktreeManage,
 		SessionRuntimeOperationProcessView,
+		SessionRuntimeOperationGoalManage,
 	}
-	if !workflowSession {
-		operations = append(operations, SessionRuntimeOperationGoalManage)
-	}
-	return operations
 }
 
 type SessionRuntimeReleaseRequest struct {

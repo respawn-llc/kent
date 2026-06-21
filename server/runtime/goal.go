@@ -94,6 +94,36 @@ func (e *Engine) ClearGoal(actor session.GoalActor) (session.GoalState, error) {
 	return goal, nil
 }
 
+// cascadeCompleteActiveGoalOnWorkflowCompletion auto-completes an ACTIVE self-set goal when the
+// workflow run reaches terminal completion in the same step (soft cascade, actor=system). Paused
+// goals are left untouched. It MUST be called AFTER setWorkflowTerminalState returns so e.mu is
+// released before SetGoalStatus takes controlMutationMu/steer — otherwise the lock order
+// e.mu -> controlMutationMu -> outputMutationMu would deadlock against concurrent goal mutation.
+func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion() {
+	if e == nil || !e.goalActive() {
+		return
+	}
+	if _, err := e.SetGoalStatus(session.GoalStatusComplete, session.GoalActorSystem); err != nil {
+		_ = e.steer("", steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto,
+			Role:       string(transcript.EntryRoleDeveloperErrorFeedback),
+			Text:       "Failed to auto-complete active goal on workflow completion: " + err.Error(),
+		}))
+	}
+}
+
+// activeGoalNudgeReminder returns the goal continuation reminder for an ACTIVE self-set goal,
+// reporting false when no goal is active (paused/complete/none). It enriches the workflow
+// invalid-completion nudge so the model keeps the foreground objective in view while it works
+// toward a valid completion.
+func (e *Engine) activeGoalNudgeReminder() (string, bool) {
+	goal := e.Goal()
+	if goal == nil || goal.Status != session.GoalStatusActive {
+		return "", false
+	}
+	return strings.TrimSpace(prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status))), true
+}
+
 func goalStatusUpdateFromState(goal session.GoalState) GoalStatusUpdate {
 	return GoalStatusUpdate{State: goal}
 }
@@ -116,6 +146,15 @@ func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 	}
 	e.ensureOrchestrationCollaborators()
 	if !e.goalActive() {
+		return nil
+	}
+	if e.workflowRunActive() {
+		// A workflow run is the single continuation driver for its engine: it owns the exclusive
+		// step for the whole run and the engine is torn down when the run ends. A self-set goal
+		// stays passive — folded into the workflow's invalid-completion nudge and cascade-completed
+		// on a valid terminal output. Launching a competing goal loop here would only busy-spin
+		// against the workflow's step, so suppress it. (Durable workflow-task sessions with no
+		// active run are ordinary idle sessions and are not suppressed.)
 		return nil
 	}
 	if err := e.requireAskQuestionForGoalLoopStart(); err != nil {

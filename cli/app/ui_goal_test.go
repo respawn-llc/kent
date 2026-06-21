@@ -297,19 +297,17 @@ func TestGoalCommandWithoutGoalShowsLocalHint(t *testing.T) {
 	}
 }
 
-func TestWorkflowSessionGoalCommandIsBlockedBeforeRuntimeCall(t *testing.T) {
+// Issue #364: a workflow-task session must steer as usual, so /goal is no longer blocked
+// client-side — the command reaches the runtime goal-set path like any other session.
+func TestWorkflowSessionGoalCommandReachesRuntime(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{WorkflowSession: &clientui.WorkflowSessionStatus{RunID: "run-1"}}}
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal ship workflow"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if client.setGoalArg != "" || client.showGoalCalls != 0 {
-		t.Fatalf("goal runtime calls should be blocked, set=%q show=%d", client.setGoalArg, client.showGoalCalls)
-	}
-	if updated.transientStatus != workflowGoalUnavailableMessage {
-		t.Fatalf("transient status = %q, want workflow goal block", updated.transientStatus)
+	if client.setGoalArg != "ship workflow" {
+		t.Fatalf("set goal arg = %q, want ship workflow (no client-side workflow block)", client.setGoalArg)
 	}
 }
 

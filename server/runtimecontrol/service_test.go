@@ -471,40 +471,104 @@ func TestRuntimeControlProtectedShellCommandStillRequiresLease(t *testing.T) {
 	}
 }
 
-func TestServiceWorkflowRuntimeRejectsGoalControl(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{
+// Issue #364: a self-set goal is allowed inside an active workflow run.
+func TestServiceWorkflowRuntimeAllowsGoalControl(t *testing.T) {
+	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{
 		WorkflowRun: &workflowruntime.Config{
 			Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("run-1")},
 		},
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
-	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
 		ClientRequestID: "req-goal-workflow",
 		SessionID:       store.Meta().SessionID,
-		Objective:       "competing goal",
+		Objective:       "steer the workflow",
 		Actor:           "user",
 	})
-	if !errors.Is(err, errWorkflowTaskSessionGoalControl) {
-		t.Fatalf("SetGoal error = %v, want workflow goal rejection", err)
+	if err != nil {
+		t.Fatalf("SetGoal in workflow run = %v, want allowed", err)
+	}
+	if resp.Goal == nil || resp.Goal.Status != string(session.GoalStatusActive) {
+		t.Fatalf("goal response = %+v, want active goal", resp.Goal)
+	}
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("engine goal = %+v, want active", goal)
 	}
 }
 
-func TestServiceDurableWorkflowSessionRejectsGoalControl(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+// R4: goal mutation inside a workflow run must not acquire the primary-run lease (the
+// workflow run already owns it), so it succeeds even when the gate reports the run active.
+func TestServiceWorkflowSessionGoalMutationSkipsPrimaryRunLease(t *testing.T) {
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{
+		WorkflowRun: &workflowruntime.Config{
+			Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("run-1")},
+		},
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).
+		WithCollaborativeRuntimeResolver(&stubCollaborativeRuntimeResolver{engine: engine})
+
+	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "req-goal-workflow-busy-gate",
+		SessionID:       store.Meta().SessionID,
+		Objective:       "steer despite the held lease",
+		Actor:           "user",
+	})
+	if err != nil {
+		t.Fatalf("SetGoal in workflow with busy primary-run gate = %v, want allowed", err)
+	}
+	if resp.Goal == nil || resp.Goal.Status != string(session.GoalStatusActive) {
+		t.Fatalf("goal response = %+v, want active goal", resp.Goal)
+	}
+	if gate.acquire != 0 {
+		t.Fatalf("primary-run lease acquired %d times for workflow goal mutation, want 0", gate.acquire)
+	}
+}
+
+// Issue #364: pause/resume/complete goal controls work inside a workflow run.
+func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
+	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{
+		WorkflowRun: &workflowruntime.Config{
+			Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("run-1")},
+		},
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	sessionID := store.Meta().SessionID
+	if _, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{ClientRequestID: "set", SessionID: sessionID, Objective: "workflow goal", Actor: "user"}); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := service.PauseGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "pause", SessionID: sessionID, Actor: "user"}); err != nil {
+		t.Fatalf("PauseGoal: %v", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusPaused {
+		t.Fatalf("goal after pause = %+v, want paused", goal)
+	}
+	if _, err := service.ResumeGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "resume", SessionID: sessionID, Actor: "user"}); err != nil {
+		t.Fatalf("ResumeGoal: %v", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("goal after resume = %+v, want active", goal)
+	}
+	if _, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "complete", SessionID: sessionID, Actor: "user"}); err != nil {
+		t.Fatalf("CompleteGoal: %v", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("goal after complete = %+v, want complete", goal)
+	}
+}
+
+// Issue #364: ShowGoal is no longer rejected for a durable workflow-task session (the
+// previous errWorkflowTaskSessionGoalControl rejection is removed). A durable marker without
+// an active workflow run is an ordinary idle session for goal control.
+func TestServiceDurableWorkflowSessionAllowsGoalControl(t *testing.T) {
+	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if err := store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {
 		t.Fatalf("SetWorkflowSessionState: %v", err)
 	}
 	service = service.WithWorkflowSessionResolver(staticRuntimeControlSessionResolver{store: store})
-	if _, err := service.ShowGoal(context.Background(), serverapi.RuntimeGoalShowRequest{SessionID: store.Meta().SessionID}); !errors.Is(err, errWorkflowTaskSessionGoalControl) {
-		t.Fatalf("ShowGoal error = %v, want workflow goal rejection", err)
-	}
-	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
-		ClientRequestID: "req-goal-durable-workflow",
-		SessionID:       store.Meta().SessionID,
-		Objective:       "competing goal",
-		Actor:           "user",
-	})
-	if !errors.Is(err, errWorkflowTaskSessionGoalControl) {
-		t.Fatalf("SetGoal error = %v, want workflow goal rejection", err)
+	if _, err := service.ShowGoal(context.Background(), serverapi.RuntimeGoalShowRequest{SessionID: store.Meta().SessionID}); err != nil {
+		t.Fatalf("ShowGoal for durable workflow session = %v, want allowed", err)
 	}
 }
 

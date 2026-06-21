@@ -193,10 +193,10 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 	var startupPrimaryLease primaryrun.Lease
 	var err error
 	for {
-		if engine, ok := s.confirmExternalSessionRuntimeActive(ctx, sessionID); ok {
+		if _, ok := s.confirmExternalSessionRuntimeActive(ctx, sessionID); ok {
 			return serverapi.SessionRuntimeActivateResponse{
 				Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
-				AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)),
+				AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(),
 				ReadOnly:          true,
 			}, nil
 		}
@@ -219,12 +219,12 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 			if err != nil {
 				return serverapi.SessionRuntimeActivateResponse{}, err
 			}
-			if engine, ok := s.confirmExternalSessionRuntimeActive(ctx, sessionID); ok {
+			if _, ok := s.confirmExternalSessionRuntimeActive(ctx, sessionID); ok {
 				startupPrimaryLease.Release()
 				startupPrimaryLease = nil
 				return serverapi.SessionRuntimeActivateResponse{
 					Mode:              serverapi.SessionRuntimeAttachModeCollaborative,
-					AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)),
+					AllowedOperations: serverapi.CollaborativeSessionRuntimeOperations(),
 					ReadOnly:          true,
 				}, nil
 			}
@@ -399,7 +399,7 @@ func (s *Service) WithCollaborativeRuntime(ctx context.Context, sessionID string
 	if !s.externalSessionRuntimeActive(id) {
 		return runtimeUnavailableErr(id)
 	}
-	if !collaborativeOperationAllowed(op, guard.Engine()) {
+	if !collaborativeOperationAllowed(op) {
 		return controlUnavailableErr(op, id)
 	}
 	return fn(guard)
@@ -430,7 +430,7 @@ func (s *Service) BeginCollaborativeRuntimeGuard(ctx context.Context, sessionID 
 		guard.Release()
 		return nil, runtimeUnavailableErr(id)
 	}
-	if !collaborativeOperationAllowed(op, guard.Engine()) {
+	if !collaborativeOperationAllowed(op) {
 		guard.Release()
 		return nil, controlUnavailableErr(op, id)
 	}
@@ -462,20 +462,13 @@ func controlUnavailableErr(op serverapi.SessionRuntimeOperation, sessionID strin
 	return errors.Join(serverapi.ErrRuntimeUnavailable, fmt.Errorf("control %q is not available for session %q from a limited-control attach", op, strings.TrimSpace(sessionID)))
 }
 
-func collaborativeOperationAllowed(op serverapi.SessionRuntimeOperation, engine *runtime.Engine) bool {
-	for _, allowed := range serverapi.CollaborativeSessionRuntimeOperations(workflowCollaborativeSession(engine)) {
+func collaborativeOperationAllowed(op serverapi.SessionRuntimeOperation) bool {
+	for _, allowed := range serverapi.CollaborativeSessionRuntimeOperations() {
 		if allowed == op {
 			return true
 		}
 	}
 	return false
-}
-
-func workflowCollaborativeSession(engine *runtime.Engine) bool {
-	if engine == nil {
-		return false
-	}
-	return engine.WorkflowRunConfigured() || strings.TrimSpace(engine.WorkflowSessionState().RunID) != ""
 }
 
 func (s *Service) confirmExternalSessionRuntimeActive(ctx context.Context, sessionID string) (*runtime.Engine, bool) {
