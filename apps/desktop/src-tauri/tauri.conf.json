@@ -62,7 +62,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "26.0",
       "entitlements": "entitlements.plist"
     },
     "linux": {

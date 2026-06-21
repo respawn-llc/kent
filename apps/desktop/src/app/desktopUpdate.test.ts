@@ -21,25 +21,65 @@ function fakeLogger(): GuiLogger {
   return { entries: () => [], append: vi.fn(async () => undefined) };
 }
 
-function fakeBridge(updates: Partial<NativeBridge["updates"]>, updater = true): NativeBridge {
+function fakeBridge(
+  updates: Partial<NativeBridge["updates"]>,
+  options: { updater?: boolean; settings?: Partial<NativeBridge["settings"]> } = {},
+): NativeBridge {
   const base = createBrowserNativeBridge();
   return {
     ...base,
-    capabilities: { ...base.capabilities, updater },
+    capabilities: { ...base.capabilities, updater: options.updater ?? true },
     updates: { ...base.updates, ...updates },
+    settings: { ...base.settings, ...options.settings },
   };
 }
 
 describe("checkForDesktopUpdate", () => {
   it("skips the check when the shell cannot update", async () => {
     const check = vi.fn(async () => noUpdate);
-    const bridge = fakeBridge({ check }, false);
+    const bridge = fakeBridge({ check }, { updater: false });
 
     await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
       available: false,
       version: "",
     });
     expect(check).not.toHaveBeenCalled();
+  });
+
+  it("skips the check when self-update is disabled (e.g. a Homebrew install)", async () => {
+    const check = vi.fn(async () => noUpdate);
+    const bridge = fakeBridge(
+      { check },
+      { settings: { read: async () => ({ version: 1, selfUpdate: "disabled" }) } },
+    );
+
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
+      available: false,
+      version: "",
+    });
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("still checks when a settings read fails so updates are not silently suppressed", async () => {
+    const bridge = fakeBridge(
+      {
+        async check() {
+          return { ...noUpdate, available: true, version: "2.3.0" };
+        },
+      },
+      {
+        settings: {
+          read: async () => {
+            throw new Error("store unavailable");
+          },
+        },
+      },
+    );
+
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
+      available: true,
+      version: "2.3.0",
+    });
   });
 
   it("reports an available update with its version", async () => {

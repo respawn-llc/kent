@@ -7,6 +7,7 @@
     "opener:default",
     "updater:default",
     "process:allow-restart",
+    "store:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "core:event:allow-emit",

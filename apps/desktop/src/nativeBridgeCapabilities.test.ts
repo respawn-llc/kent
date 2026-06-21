@@ -14,6 +14,7 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.clipboard).toEqual({ readText: false, writeText: false });
     expect(bridge.capabilities.directories.select).toBe(false);
     expect(bridge.capabilities.links.openExternal).toBe(false);
+    expect(bridge.capabilities.settings).toBe(true);
     expect(bridge.capabilities.dialogWindows).toBe(false);
     expect(bridge.capabilities.projectCreationWindow).toBe(false);
     await expect(bridge.app.resolvePlatform()).resolves.toBe("browser");
@@ -38,6 +39,7 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.tray).toBe(false);
     expect(bridge.capabilities.appMenu).toBe(false);
     expect(bridge.capabilities.updater).toBe(true);
+    expect(bridge.capabilities.settings).toBe(true);
     expect(bridge.capabilities.macosVibrancy).toBe(false);
   });
 
@@ -48,6 +50,7 @@ describe("native bridge capabilities", () => {
     [
       "updater:default",
       "process:allow-restart",
+      "store:default",
       "clipboard-manager:allow-read-text",
       "clipboard-manager:allow-write-text",
       "core:event:allow-emit",

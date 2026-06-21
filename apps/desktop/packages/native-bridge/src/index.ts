@@ -11,8 +11,22 @@ import {
   type NativeDialogContentSize,
   type NativeDialogWindowOptions,
 } from "./dialogs";
+import {
+  readBrowserDesktopSettings,
+  readTauriDesktopSettings,
+  writeBrowserDesktopSettings,
+  writeTauriDesktopSettings,
+  type DesktopSettings,
+} from "./desktopSettings";
 
 export type { NativeDialogContentSize, NativeDialogTheme, NativeDialogWindowOptions } from "./dialogs";
+export {
+  defaultDesktopSettings,
+  desktopSettingsVersion,
+  parseDesktopSettings,
+  type DesktopSelfUpdate,
+  type DesktopSettings,
+} from "./desktopSettings";
 
 export type NativeCapabilityState = Readonly<{
   platform: NativePlatform;
@@ -35,6 +49,7 @@ export type NativeCapabilityState = Readonly<{
   tray: boolean;
   appMenu: boolean;
   updater: boolean;
+  settings: boolean;
   windowControls: boolean;
   windowDrag: boolean;
   dialogWindows: boolean;
@@ -86,6 +101,10 @@ export type NativeBridge = Readonly<{
       onProgress?: (progress: NativeUpdateDownloadProgress) => void,
     ): Promise<void>;
     relaunch(): Promise<void>;
+  }>;
+  settings: Readonly<{
+    read(): Promise<DesktopSettings>;
+    write(next: DesktopSettings): Promise<void>;
   }>;
   app: Readonly<{
     resolvePlatform(): Promise<NativePlatform>;
@@ -226,6 +245,7 @@ const unavailableCapabilities: NativeCapabilityState = {
   tray: false,
   appMenu: false,
   updater: false,
+  settings: false,
   windowControls: false,
   windowDrag: false,
   dialogWindows: false,
@@ -259,7 +279,10 @@ export type BrowserNativeBridgeOptions = Readonly<{
 }>;
 
 export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = {}): NativeBridge {
-  const capabilities = { ...unavailableCapabilities, platform: options.platform ?? "browser" };
+  // Settings persist via localStorage so the browser QA shell (dev:browser) can
+  // exercise settings-driven UI; the self-update gate never relies on this since
+  // the browser shell is not updater-capable.
+  const capabilities = { ...unavailableCapabilities, platform: options.platform ?? "browser", settings: true };
   const projectDeletionHandlers = new Set<(event: NativeProjectDeleted) => void>();
   const workflowDeletionHandlers = new Set<(event: NativeWorkflowDeleted) => void>();
   return {
@@ -301,6 +324,14 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
       async relaunch(): Promise<void> {
         throw new Error("Application relaunch is unavailable in this shell.");
+      },
+    },
+    settings: {
+      async read(): Promise<DesktopSettings> {
+        return readBrowserDesktopSettings();
+      },
+      async write(next: DesktopSettings): Promise<void> {
+        writeBrowserDesktopSettings(next);
       },
     },
     app: {
@@ -476,6 +507,10 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         await relaunch();
       },
     },
+    settings: {
+      read: readTauriDesktopSettings,
+      write: writeTauriDesktopSettings,
+    },
     app: {
       async resolvePlatform(): Promise<NativePlatform> {
         return normalizeNativePlatform(await invoke<string>("resolve_native_platform"));
@@ -645,6 +680,7 @@ function createTauriCapabilities(platform: NativePlatform): NativeCapabilityStat
     tray: false,
     appMenu: false,
     updater: true,
+    settings: true,
     windowControls: false,
     windowDrag: true,
     dialogWindows: true,
