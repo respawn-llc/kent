@@ -2,7 +2,7 @@
 name = "app-desktop"
 version = "0.0.0"
 description = "Kent desktop client"
-authors = ["Kent contributors"]
+authors = ["Respawn LLC <support@respawn.pro>"]
 edition = "2021"
 license = "AGPL-3.0-only"
 
