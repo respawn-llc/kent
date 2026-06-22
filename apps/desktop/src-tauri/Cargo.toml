@@ -34,11 +34,12 @@ objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSGlassEffectView", "NSResponder", "NSView", "NSVisualEffectView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
 
-# Release profile tuned for distributable bundle size: full LTO, a single
-# codegen unit, size-optimized codegen, abort-on-panic, and stripped symbols.
+# Release profile tuned for runtime speed: max optimization (opt-level 3), full
+# LTO and a single codegen unit for cross-function inlining, abort-on-panic, and
+# stripped symbols. LTO + codegen-units=1 keep the binary small as a side effect.
 [profile.release]
 codegen-units = 1
 lto = true
-opt-level = "s"
+opt-level = 3
 panic = "abort"
 strip = true
