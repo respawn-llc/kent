@@ -53,9 +53,6 @@ func buildSystemPromptSnapshotFromConfig(locked session.LockedContract, workspac
 		return "", err
 	}
 	if hasCustom {
-		if !strings.Contains(template, "{{") {
-			return prompts.WithToolPreambles(template, includeToolPreambles), nil
-		}
 		rendered, err := prompts.RenderCustomSystemPrompt(template, includeToolPreambles, args)
 		if err != nil {
 			return "", fmt.Errorf("render system prompt file %q: %w", sourcePath, err)
