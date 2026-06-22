@@ -98,6 +98,9 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion() {
 	if e == nil || e.store == nil {
 		return
 	}
+	if !e.WorkflowTerminalState().Completed {
+		return
+	}
 	goal := e.Goal()
 	if goal == nil || goal.Status != session.GoalStatusActive {
 		return

@@ -215,3 +215,55 @@ func TestWorkflowToolModeCascadeSkipsGoalPausedDuringRace(t *testing.T) {
 		t.Fatalf("paused goal after workflow completion = %+v, want left paused", goal)
 	}
 }
+
+func TestWorkflowToolModeCascadeEmitsGoalCompletionAfterHostedToolResult(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	completion := json.RawMessage(`{"commentary":"complete","summary":"done"}`)
+	client := &fakeClient{responses: []llm.Response{
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal, ToolCalls: []llm.ToolCall{completeNodeCall("call_complete", completion)}},
+			ToolCalls: []llm.ToolCall{completeNodeCall("call_complete", completion)},
+			OutputItems: []llm.ResponseItem{
+				{Type: llm.ResponseItemTypeOther, Raw: json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli"}}`)},
+				{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "done"},
+			},
+			Usage: llm.Usage{WindowTokens: 200000},
+		},
+	}}
+	client.caps = llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeWebSearch: true, IsOpenAIFirstParty: true}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
+		Model:         "gpt-5",
+		WebSearchMode: "native",
+		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch, toolspec.ToolAskQuestion},
+	})
+	if _, err := eng.SetGoal("finish via tool completion with web search", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("SubmitWorkflowTurn: %v", err)
+	}
+	if goal := eng.Goal(); goal == nil || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("goal after hosted+tool completion = %+v, want auto-completed", goal)
+	}
+
+	entries := eng.ChatSnapshot().Entries
+	hostedResultIdx, completeResultIdx, goalCompleteIdx := -1, -1, -1
+	for i, entry := range entries {
+		if entry.ToolCallID == "ws_1" {
+			hostedResultIdx = i
+		}
+		if entry.ToolCallID == "call_complete" {
+			completeResultIdx = i
+		}
+		if entry.MessageType == llm.MessageTypeGoal {
+			goalCompleteIdx = i
+		}
+	}
+	if hostedResultIdx < 0 || completeResultIdx < 0 || goalCompleteIdx < 0 {
+		t.Fatalf("missing entries: hosted=%d complete=%d goal=%d entries=%+v", hostedResultIdx, completeResultIdx, goalCompleteIdx, entries)
+	}
+	if goalCompleteIdx < hostedResultIdx || goalCompleteIdx < completeResultIdx {
+		t.Fatalf("goal-completion (idx %d) precedes a tool result (hosted=%d complete=%d); interleaves tool outputs", goalCompleteIdx, hostedResultIdx, completeResultIdx)
+	}
+}

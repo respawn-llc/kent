@@ -302,6 +302,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 		}
 		patchEditsApplied = patchEditsApplied || applied
 		if terminal {
+			e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 			return stepLoopResult{Message: assistantMsg, ExecutedToolCall: true}, nil
 		}
 		if _, err := s.flushPendingUserInjections(stepID, options); err != nil {
@@ -348,6 +349,7 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 		if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
 			return false, false, err
 		}
+		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 		return patchEditsApplied, true, nil
 	}
 	if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
@@ -377,9 +379,6 @@ func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.
 		if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{msg})); err != nil {
 			return false, false, err
 		}
-	}
-	if terminal {
-		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 	}
 	durableTerminal, err := s.workflowDurableCompletionTerminal(ctx, stepID)
 	if err != nil {
