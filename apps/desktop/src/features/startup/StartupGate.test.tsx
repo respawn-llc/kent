@@ -5,7 +5,7 @@ import { App } from "../../App";
 import { StartupConfigurationError } from "../../api/errors";
 import { protocolVersion } from "../../api/jsonRpcSocket";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
-import { serverSetupDocsUrl } from "./serverSetup";
+import { serverSetupDocsUrl } from "../../appLinks";
 
 describe("StartupGate", () => {
   it("guides server setup instead of erroring when the server is unreachable", async () => {

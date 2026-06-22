@@ -4,7 +4,7 @@ import { Server } from "lucide-react";
 
 import { useOpenExternalLink } from "../../app/nativeHooks";
 import { Button, EmptyState } from "../../ui";
-import { serverSetupDocsUrl } from "./serverSetup";
+import { serverSetupDocsUrl } from "../../appLinks";
 
 export type ServerSetupGuideProps = Readonly<{
   detail: string;
