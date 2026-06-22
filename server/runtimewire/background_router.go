@@ -91,7 +91,7 @@ func (r *BackgroundEventRouter) handle(evt shelltool.Event) {
 		Workdir:           evt.Snapshot.Workdir,
 		LogPath:           evt.Snapshot.LogPath,
 		NoticeText:        summary.DetailText,
-		CompactText:       summary.OngoingText,
+		CompactText:       summary.CondensedText,
 		Preview:           evt.Preview,
 		Removed:           evt.Removed,
 		ExitCode:          cloneIntPtr(evt.Snapshot.ExitCode),

@@ -89,7 +89,7 @@ func (p *TranscriptProjector) CommittedEntryCount() int {
 	return p.chat.committedEntryCount()
 }
 
-func (p *TranscriptProjector) OngoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
+func (p *TranscriptProjector) RecentTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
 	if p == nil || p.chat == nil {
 		return TranscriptWindowSnapshot{}
 	}

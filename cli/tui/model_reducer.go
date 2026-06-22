@@ -192,7 +192,7 @@ func (m *Model) reduceAppendTranscriptMsg(msg AppendTranscriptMsg, result *model
 		Committed:         msg.Committed,
 		Role:              role,
 		Text:              msg.Text,
-		OngoingText:       msg.OngoingText,
+		CondensedText:       msg.CondensedText,
 		Phase:             msg.Phase,
 		MessageType:       msg.MessageType,
 		SourcePath:        strings.TrimSpace(msg.SourcePath),
@@ -304,7 +304,7 @@ func detailExpansionEntryMatches(left TranscriptEntry, right TranscriptEntry) bo
 		left.Committed == right.Committed &&
 		left.Role == right.Role &&
 		left.Text == right.Text &&
-		left.OngoingText == right.OngoingText &&
+		left.CondensedText == right.CondensedText &&
 		left.Phase == right.Phase &&
 		left.MessageType == right.MessageType &&
 		left.SourcePath == right.SourcePath &&

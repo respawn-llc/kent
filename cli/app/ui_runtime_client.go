@@ -343,7 +343,7 @@ func (c *sessionRuntimeClient) Transcript() clientui.TranscriptPage {
 }
 
 func (c *sessionRuntimeClient) RefreshTranscript() (clientui.TranscriptPage, error) {
-	return c.refreshTranscriptPageSync(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, uiRuntimeHydrationReadTimeout)
+	return c.refreshTranscriptPageSync(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, uiRuntimeHydrationReadTimeout)
 }
 
 func (c *sessionRuntimeClient) RefreshTranscriptPage(req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
@@ -534,7 +534,7 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 			Revision:            page.Revision,
 			CommittedEntryCount: page.TotalEntries,
 		}
-		if isOngoingTailTranscriptRequest(req) {
+		if isRecentTailTranscriptRequest(req) {
 			view.Session.Chat = clientui.ChatSnapshot{
 				Entries:      cloneTranscriptEntries(page.Entries),
 				Ongoing:      page.Ongoing,
@@ -653,8 +653,8 @@ func (c *sessionRuntimeClient) logTranscriptDiag(line string) {
 	logf(strings.TrimSpace(line))
 }
 
-func isOngoingTailTranscriptRequest(req clientui.TranscriptPageRequest) bool {
-	return req == (clientui.TranscriptPageRequest{}) || req.Window == clientui.TranscriptWindowOngoingTail
+func isRecentTailTranscriptRequest(req clientui.TranscriptPageRequest) bool {
+	return req == (clientui.TranscriptPageRequest{}) || req.Window == clientui.TranscriptWindowRecentTail
 }
 
 func transcriptPageFromSessionView(view clientui.RuntimeSessionView) clientui.TranscriptPage {

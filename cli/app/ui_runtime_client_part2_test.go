@@ -701,7 +701,7 @@ func TestRuntimeClientHydrationRecoversRuntimeUnavailableSilently(t *testing.T) 
 	})
 	runtimeClient.SetControllerLeaseManager(leaseManager)
 
-	page, err := runtimeClient.RefreshTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail})
+	page, err := runtimeClient.RefreshTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail})
 	if err != nil {
 		t.Fatalf("RefreshTranscriptPage: %v", err)
 	}
@@ -780,7 +780,7 @@ func TestRuntimeUnavailableHydrationRecoveryResumesOngoingEventFence(t *testing.
 	model.startupCmds = nil
 	model.waitRuntimeEventAfterHydration = true
 
-	cmd := model.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, false, runtimeTranscriptSyncCauseContinuityRecovery, clientui.TranscriptRecoveryCauseStreamGap)).cmd
+	cmd := model.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, false, runtimeTranscriptSyncCauseContinuityRecovery, clientui.TranscriptRecoveryCauseStreamGap)).cmd
 	if cmd == nil {
 		t.Fatal("expected hydration command")
 	}

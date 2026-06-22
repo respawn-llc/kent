@@ -304,8 +304,8 @@ func (r RuntimeAppendCommittedEntryRequest) Validate() error {
 	if err := validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
 		return err
 	}
-	if visibility := transcript.NormalizeEntryVisibility(transcript.EntryVisibility(r.Visibility)); visibility != "" && visibility != transcript.EntryVisibilityAll && visibility != transcript.EntryVisibilityDetailOnly {
-		return errors.New("visibility must be all or detail_only")
+	if visibility := transcript.NormalizeEntryVisibility(transcript.EntryVisibility(r.Visibility)); visibility != "" && visibility != transcript.EntryVisibilityAll && visibility != transcript.EntryVisibilityVerbose {
+		return errors.New("visibility must be all or verbose")
 	}
 	return nil
 }

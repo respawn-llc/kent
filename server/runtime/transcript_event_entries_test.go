@@ -66,7 +66,7 @@ func TestTranscriptEntriesFromEventEmitsVisibleToolCompletionEntriesForOrdinaryA
 				CallID:      "call-shell-1",
 				Name:        toolspec.ToolExecCommand,
 				Output:      json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`),
-				OngoingText: "compact shell result",
+				CondensedText: "compact shell result",
 			},
 		},
 		{
@@ -95,8 +95,8 @@ func TestTranscriptEntriesFromEventEmitsVisibleToolCompletionEntriesForOrdinaryA
 			if entry.ToolCallID != tc.result.CallID {
 				t.Fatalf("entry tool call id = %q, want %q", entry.ToolCallID, tc.result.CallID)
 			}
-			if entry.OngoingText != strings.TrimSpace(tc.result.OngoingText) {
-				t.Fatalf("entry ongoing text = %q, want %q", entry.OngoingText, tc.result.OngoingText)
+			if entry.CondensedText != strings.TrimSpace(tc.result.CondensedText) {
+				t.Fatalf("entry ongoing text = %q, want %q", entry.CondensedText, tc.result.CondensedText)
 			}
 		})
 	}

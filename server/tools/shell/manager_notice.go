@@ -65,7 +65,7 @@ func SummarizeBackgroundEvent(evt Event, opts BackgroundNoticeOptions) Backgroun
 	}
 	return BackgroundNoticeSummary{
 		DetailText:  strings.Join(detail, "\n"),
-		OngoingText: ongoing,
+		CondensedText: ongoing,
 		LineCount:   lineCount,
 		Truncated:   truncated,
 		LogPath:     evt.Snapshot.LogPath,

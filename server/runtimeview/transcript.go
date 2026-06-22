@@ -5,21 +5,21 @@ import (
 	"core/shared/clientui"
 )
 
-const OngoingTailEntryLimit = 500
-const OngoingTailIncrementalOverlapEntries = 32
+const RecentTailEntryLimit = 500
+const RecentTailIncrementalOverlapEntries = 32
 
 func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPageRequest) clientui.TranscriptPage {
 	if engine == nil {
 		return clientui.TranscriptPage{}
 	}
 	req = NormalizeDefaultTranscriptRequest(req)
-	if req.Window == clientui.TranscriptWindowOngoingTail {
-		return TranscriptPageFromOngoingTailWindow(
+	if req.Window == clientui.TranscriptWindowRecentTail {
+		return TranscriptPageFromRecentTailWindow(
 			engine.SessionID(),
 			engine.SessionName(),
 			ConversationFreshnessFromSession(engine.ConversationFreshness()),
 			engine.TranscriptRevision(),
-			engine.OngoingTailTranscriptWindow(OngoingTailEntryLimit),
+			engine.RecentTailTranscriptWindow(RecentTailEntryLimit),
 			req,
 		)
 	}
@@ -55,7 +55,7 @@ func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, req clientui.C
 	)
 }
 
-func TranscriptPageFromOngoingTailWindow(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, window runtime.TranscriptWindowSnapshot, req clientui.TranscriptPageRequest) clientui.TranscriptPage {
+func TranscriptPageFromRecentTailWindow(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, window runtime.TranscriptWindowSnapshot, req clientui.TranscriptPageRequest) clientui.TranscriptPage {
 	req = NormalizeDefaultTranscriptRequest(req)
 	pageReq := ongoingTailTranscriptRequest(req, revision, window)
 	return TranscriptPageFromCollectedChat(
@@ -72,7 +72,7 @@ func TranscriptPageFromOngoingTailWindow(sessionID, sessionName string, freshnes
 
 func NormalizeDefaultTranscriptRequest(req clientui.TranscriptPageRequest) clientui.TranscriptPageRequest {
 	if req == (clientui.TranscriptPageRequest{}) {
-		return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}
+		return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}
 	}
 	return req
 }
@@ -98,7 +98,7 @@ func transcriptOffsetAndLimit(req clientui.TranscriptPageRequest) (int, int) {
 
 func ongoingTailTranscriptRequest(req clientui.TranscriptPageRequest, revision int64, window runtime.TranscriptWindowSnapshot) clientui.TranscriptPageRequest {
 	pageReq := clientui.TranscriptPageRequest{Offset: window.Offset, Limit: window.TotalEntries - window.Offset}
-	if req.Window != clientui.TranscriptWindowOngoingTail {
+	if req.Window != clientui.TranscriptWindowRecentTail {
 		return pageReq
 	}
 	if req.KnownRevision <= 0 || req.KnownCommittedEntryCount <= 0 {
@@ -113,7 +113,7 @@ func ongoingTailTranscriptRequest(req clientui.TranscriptPageRequest, revision i
 	if req.KnownCommittedEntryCount < window.Offset {
 		return pageReq
 	}
-	offset := req.KnownCommittedEntryCount - OngoingTailIncrementalOverlapEntries
+	offset := req.KnownCommittedEntryCount - RecentTailIncrementalOverlapEntries
 	if offset < window.Offset {
 		offset = window.Offset
 	}

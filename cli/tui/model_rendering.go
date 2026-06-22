@@ -312,8 +312,8 @@ func (m Model) askQuestionBlock(entryIndex int, entry TranscriptEntry, consumed 
 			answer = strings.TrimSpace(resultEntry.Text)
 			if opts.mode == transcriptBlockModeOngoing {
 				resultText := resultEntry.Text
-				if strings.TrimSpace(resultEntry.OngoingText) != "" {
-					resultText = resultEntry.OngoingText
+				if strings.TrimSpace(resultEntry.CondensedText) != "" {
+					resultText = resultEntry.CondensedText
 				}
 				answer = strings.TrimSpace(resultText)
 			}
@@ -418,8 +418,8 @@ func (m Model) standardEntryBlock(entryIndex int, entry TranscriptEntry, role Re
 	}
 	text := entry.Text
 	if opts.mode == transcriptBlockModeOngoing {
-		if strings.TrimSpace(entry.OngoingText) != "" {
-			text = entry.OngoingText
+		if strings.TrimSpace(entry.CondensedText) != "" {
+			text = entry.CondensedText
 		}
 		if role == RenderIntentReviewerStatus {
 			text = compactReviewerStatusForOngoing(text)

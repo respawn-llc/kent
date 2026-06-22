@@ -604,8 +604,8 @@ func TestToolCallSerializesSelectedOptionWithFreeformAsPlainText(t *testing.T) {
 	if payload == "" {
 		t.Fatal("expected non-empty plain-text summary")
 	}
-	if result.OngoingText != "beta\nUser also said:\nneed extra context" {
-		t.Fatalf("unexpected ongoing text: %q", result.OngoingText)
+	if result.CondensedText != "beta\nUser also said:\nneed extra context" {
+		t.Fatalf("unexpected ongoing text: %q", result.CondensedText)
 	}
 }
 
@@ -629,12 +629,12 @@ func TestToolCallSerializesPureFreeformAsPlainText(t *testing.T) {
 	if payload == "" {
 		t.Fatal("expected non-empty plain-text summary")
 	}
-	if result.OngoingText != "need extra context" {
-		t.Fatalf("expected ongoing freeform answer without model prefix, got %q", result.OngoingText)
+	if result.CondensedText != "need extra context" {
+		t.Fatalf("expected ongoing freeform answer without model prefix, got %q", result.CondensedText)
 	}
 }
 
-func TestToolCallOngoingTextPreservesLiteralUserAnsweredFreeformPrefix(t *testing.T) {
+func TestToolCallCondensedTextPreservesLiteralUserAnsweredFreeformPrefix(t *testing.T) {
 	b := NewAskQuestionBroker()
 	b.SetAskHandler(func(req AskQuestionRequest) (AskQuestionResponse, error) {
 		return AskQuestionResponse{RequestID: req.ID, FreeformAnswer: "User answered: keep going"}, nil
@@ -643,8 +643,8 @@ func TestToolCallOngoingTextPreservesLiteralUserAnsweredFreeformPrefix(t *testin
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
-	if result.OngoingText != "User answered: keep going" {
-		t.Fatalf("expected ongoing freeform answer to preserve literal prefix, got %q", result.OngoingText)
+	if result.CondensedText != "User answered: keep going" {
+		t.Fatalf("expected ongoing freeform answer to preserve literal prefix, got %q", result.CondensedText)
 	}
 	var payload string
 	if err := json.Unmarshal(result.Output, &payload); err != nil {

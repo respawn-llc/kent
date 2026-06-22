@@ -131,12 +131,12 @@ func (m Model) detailCollapsedStandardLinesWithSymbol(entry TranscriptEntry, rol
 		if label := reviewerSuggestionsCollapsedLabel(entry); label != "" {
 			return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, label, false, nil, symbolOverride), false, symbolOverride)
 		}
-		if label := strings.TrimSpace(entry.OngoingText); label != "" && strings.Contains(label, "\n") {
+		if label := strings.TrimSpace(entry.CondensedText); label != "" && strings.Contains(label, "\n") {
 			return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, label, false, nil, symbolOverride), true, symbolOverride)
 		}
 		return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, "Supervisor suggestions", false, nil, symbolOverride), false, symbolOverride)
 	}
-	if label := strings.TrimSpace(entry.OngoingText); label != "" {
+	if label := strings.TrimSpace(entry.CondensedText); label != "" {
 		if role == RenderIntentGoalFeedback {
 			return m.detailWithTreeGuideWithSymbol(role, m.flattenPlainEntryWithIntents(role, label, PrimaryForeground, symbolOverride), false, symbolOverride)
 		}
@@ -166,12 +166,12 @@ func (m Model) detailStandardExpandable(entry TranscriptEntry, role RenderIntent
 		if label := reviewerSuggestionsCollapsedLabel(entry); label != "" {
 			return label != trimmedText
 		}
-		if label := strings.TrimSpace(entry.OngoingText); label != "" && strings.Contains(label, "\n") {
+		if label := strings.TrimSpace(entry.CondensedText); label != "" && strings.Contains(label, "\n") {
 			return false
 		}
 		return trimmedText != "Supervisor suggestions"
 	}
-	if label := strings.TrimSpace(entry.OngoingText); label != "" {
+	if label := strings.TrimSpace(entry.CondensedText); label != "" {
 		return label != trimmedText
 	}
 	if isThreeLinePreviewRole(role) {
@@ -185,7 +185,7 @@ func (m Model) detailStandardExpandable(entry TranscriptEntry, role RenderIntent
 }
 
 func reviewerSuggestionsCollapsedLabel(entry TranscriptEntry) string {
-	if label := strings.TrimSpace(entry.OngoingText); label != "" && !strings.Contains(label, "\n") {
+	if label := strings.TrimSpace(entry.CondensedText); label != "" && !strings.Contains(label, "\n") {
 		return label
 	}
 	return ""

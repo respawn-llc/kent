@@ -76,7 +76,7 @@ func TestProductionRuntimeOutputMutationsUseSteeringBoundary(t *testing.T) {
 		"appendPersistedDiagnosticEntry":             true,
 		"appendPersistedLocalEntry":                  true,
 		"appendPersistedLocalEntryRecord":            true,
-		"appendPersistedLocalEntryWithOngoingText":   true,
+		"appendPersistedLocalEntryWithCondensedText":   true,
 		"appendReasoningEntries":                     true,
 		"appendUserMessage":                          true,
 		"appendUserMessageWithoutConversationUpdate": true,
@@ -117,7 +117,7 @@ func TestTranscriptProjectionMutationsStayInsideOutputBoundary(t *testing.T) {
 	bannedCalls := map[string]bool{
 		"AppendMessage":                       true,
 		"AppendLocalEntryRecord":              true,
-		"AppendCommittedEntryWithOngoingText": true,
+		"AppendCommittedEntryWithCondensedText": true,
 		"AppendCommittedEntryWithVisibility":  true,
 		"AppendOngoingDelta":                  true,
 		"ClearStreamingAssistantState":        true,

@@ -50,7 +50,7 @@ func EntriesDigest(entries []clientui.ChatEntry) string {
 			entry.ToolCallID,
 			toolName,
 			entry.Text,
-			entry.OngoingText,
+			entry.CondensedText,
 		}, "\x1f"))
 	}
 	return digest(parts)

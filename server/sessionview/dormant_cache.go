@@ -122,8 +122,8 @@ func dormantTranscriptCacheKey(sessionDir, sessionID string) string {
 func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store) (dormantTranscriptCacheEntry, error) {
 	meta := store.Meta()
 	scan, err := scanDormantTranscript(ctx, store, runtime.PersistedTranscriptScanRequest{
-		TrackOngoingTail: true,
-		TailLimit:        runtimeview.OngoingTailEntryLimit,
+		TrackRecentTail: true,
+		TailLimit:        runtimeview.RecentTailEntryLimit,
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
 	if err != nil {
@@ -143,7 +143,7 @@ func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store)
 		revision:                     meta.LastSequence,
 		totalEntries:                 scan.TotalEntries(),
 		lastCommittedAssistantAnswer: scan.LastCommittedAssistantFinalAnswer(),
-		ongoingTail:                  scan.OngoingTailSnapshot(),
+		ongoingTail:                  scan.RecentTailSnapshot(),
 		activeRun:                    activeRun,
 	}, nil
 }

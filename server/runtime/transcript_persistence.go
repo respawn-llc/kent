@@ -31,9 +31,9 @@ func (p transcriptPersistenceCoordinator) AppendLocalEntryRecord(entry ChatEntry
 	}
 }
 
-func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithOngoingText(role, text, ongoingText string) {
+func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithCondensedText(role, text, ongoingText string) {
 	if chat := p.chatProjection(); chat != nil {
-		chat.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: role, Text: text, OngoingText: ongoingText})
+		chat.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: role, Text: text, CondensedText: ongoingText})
 	}
 }
 
@@ -57,7 +57,7 @@ func (p transcriptPersistenceCoordinator) RecordStoredToolCompletion(completion 
 			IsError:      completion.IsError,
 			Output:       completion.Output,
 			Summary:      completion.Summary,
-			OngoingText:  completion.OngoingText,
+			CondensedText:  completion.CondensedText,
 			Presentation: completion.Presentation,
 		}, completion.ProviderItems)
 	}

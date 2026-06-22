@@ -476,7 +476,7 @@ func TestApplyProjectedTranscriptEntriesUsesTailOffsetWhileViewingOlderDetailPag
 	for i := 0; i < 200; i++ {
 		ongoingTail.Entries = append(ongoingTail.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
 	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, ongoingTail, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, ongoingTail, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 
@@ -572,14 +572,14 @@ func TestStartupSeedsFromRuntimeClientTranscriptAccessorBeforeBoundedSync(t *tes
 	if refreshed.syncCause != runtimeTranscriptSyncCauseBootstrap {
 		t.Fatalf("startup bounded sync cause = %q, want %q", refreshed.syncCause, runtimeTranscriptSyncCauseBootstrap)
 	}
-	if refreshed.req.Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup transcript request window = %q, want ongoing_tail", refreshed.req.Window)
+	if refreshed.req.Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("startup transcript request window = %q, want recent_tail", refreshed.req.Window)
 	}
 	if got, want := len(client.loadRequests), 1; got != want {
 		t.Fatalf("load request count = %d, want %d", got, want)
 	}
-	if client.loadRequests[0].Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup load request window = %q, want ongoing_tail", client.loadRequests[0].Window)
+	if client.loadRequests[0].Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("startup load request window = %q, want recent_tail", client.loadRequests[0].Window)
 	}
 
 	next, followUp := updated.Update(refreshed)

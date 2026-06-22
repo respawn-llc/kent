@@ -112,29 +112,29 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 }
 
 func normalizeRuntimeTranscriptPageRequest(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage) clientui.TranscriptPageRequest {
-	if req.Window == clientui.TranscriptWindowDefault && transcriptPageLooksLikeOngoingTail(page) && state.viewMode == tui.ModeOngoing {
-		req.Window = clientui.TranscriptWindowOngoingTail
+	if req.Window == clientui.TranscriptWindowDefault && transcriptPageLooksLikeRecentTail(page) && state.viewMode == tui.ModeOngoing {
+		req.Window = clientui.TranscriptWindowRecentTail
 	}
 	return req
 }
 
 func shouldSyncNativeHistoryForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return req.Window == clientui.TranscriptWindowOngoingTail || req == (clientui.TranscriptPageRequest{})
+	return req.Window == clientui.TranscriptWindowRecentTail || req == (clientui.TranscriptPageRequest{})
 }
 
-func replacesOngoingTailForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return req.Window == clientui.TranscriptWindowOngoingTail || (req == (clientui.TranscriptPageRequest{}) && state.viewMode != tui.ModeDetail)
+func replacesRecentTailForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
+	return req.Window == clientui.TranscriptWindowRecentTail || (req == (clientui.TranscriptPageRequest{}) && state.viewMode != tui.ModeDetail)
 }
 
 func runtimeTranscriptPageApplyBranch(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) string {
-	if replacesOngoingTailForRuntimeTranscriptPage(state, req) {
-		return "ongoing_tail_replace"
+	if replacesRecentTailForRuntimeTranscriptPage(state, req) {
+		return "recent_tail_replace"
 	}
 	return "detail_merge"
 }
 
 func shouldPreserveLiveAssistantOngoingForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage) bool {
-	if replacesOngoingTailForRuntimeTranscriptPage(state, req) {
+	if replacesRecentTailForRuntimeTranscriptPage(state, req) {
 		return false
 	}
 	effectiveRevision, _ := state.effectiveCommittedState()
@@ -147,7 +147,7 @@ func shouldPreserveLiveAssistantOngoingForRuntimeTranscriptPage(state runtimeTra
 	}
 	for idx := len(page.Entries) - 1; idx >= 0; idx-- {
 		entry := page.Entries[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
@@ -179,7 +179,7 @@ func runtimeTranscriptPageReplacementRejectReason(state runtimeTranscriptPageSta
 	if page.Revision < effectiveRevision {
 		return "stale_revision"
 	}
-	if !replacesOngoingTailForRuntimeTranscriptPage(state, req) {
+	if !replacesRecentTailForRuntimeTranscriptPage(state, req) {
 		return ""
 	}
 	if page.Revision == effectiveRevision && page.TotalEntries < effectiveCommittedCount {
@@ -230,7 +230,7 @@ func authoritativePageCommitsLiveAssistantOngoing(state runtimeTranscriptPageSta
 	currentEnd := currentStart + len(state.entries)
 	for idx := len(page.Entries) - 1; idx >= 0; idx-- {
 		entry := page.Entries[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
@@ -259,7 +259,7 @@ func committedTranscriptAlreadyMatchesAssistantOngoing(entries []tui.TranscriptE
 	committed := committedTranscriptEntriesForApp(entries)
 	for idx := len(committed) - 1; idx >= 0; idx-- {
 		entry := committed[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if entry.Role != tui.TranscriptRoleAssistant {

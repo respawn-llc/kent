@@ -145,7 +145,7 @@ type ChatEntry struct {
 	RollbackTargetID  string
 	Role              string
 	Text              string
-	OngoingText       string
+	CondensedText       string
 	Phase             string
 	MessageType       string
 	SourcePath        string
@@ -168,7 +168,7 @@ type TranscriptWindow string
 
 const (
 	TranscriptWindowDefault     TranscriptWindow = ""
-	TranscriptWindowOngoingTail TranscriptWindow = "ongoing_tail"
+	TranscriptWindowRecentTail TranscriptWindow = "recent_tail"
 )
 
 type TranscriptPageRequest struct {

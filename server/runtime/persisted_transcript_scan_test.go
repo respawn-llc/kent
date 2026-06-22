@@ -39,8 +39,8 @@ func TestPersistedTranscriptScanCollectsRequestedPageOnly(t *testing.T) {
 	}
 }
 
-func TestPersistedTranscriptScanTracksDormantOngoingTailWindow(t *testing.T) {
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackOngoingTail: true, TailLimit: 3})
+func TestPersistedTranscriptScanTracksDormantRecentTailWindow(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 3})
 	for i := 0; i < 5; i++ {
 		if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "before-" + strconv.Itoa(i)})); err != nil {
 			t.Fatalf("ApplyPersistedEvent before %d: %v", i, err)
@@ -55,7 +55,7 @@ func TestPersistedTranscriptScanTracksDormantOngoingTailWindow(t *testing.T) {
 		}
 	}
 
-	window := scan.OngoingTailSnapshot()
+	window := scan.RecentTailSnapshot()
 	if window.TotalEntries != 8 {
 		t.Fatalf("window.TotalEntries = %d, want 8", window.TotalEntries)
 	}
@@ -70,8 +70,8 @@ func TestPersistedTranscriptScanTracksDormantOngoingTailWindow(t *testing.T) {
 	}
 }
 
-func TestPersistedTranscriptScanKeepsLatestCompactionSegmentInDormantOngoingTail(t *testing.T) {
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackOngoingTail: true, TailLimit: 2})
+func TestPersistedTranscriptScanKeepsLatestCompactionSegmentInDormantRecentTail(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 2})
 	events := []session.Event{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "before"}),
 		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})}),
@@ -85,7 +85,7 @@ func TestPersistedTranscriptScanKeepsLatestCompactionSegmentInDormantOngoingTail
 		}
 	}
 
-	window := scan.OngoingTailSnapshot()
+	window := scan.RecentTailSnapshot()
 	if got := window.Offset; got != 1 {
 		t.Fatalf("window.Offset = %d, want 1", got)
 	}
@@ -180,7 +180,7 @@ func TestPersistedTranscriptScanProjectsUnknownDeveloperAndToolSummaryMetadata(t
 	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 0, Limit: 10})
 	events := []session.Event{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageType("custom_internal"), Content: "Internal developer note"}),
-		mustPersistedScanEvent(t, "tool_completed", map[string]any{"call_id": "call-1", "name": string(toolspec.ToolExecCommand), "is_error": true, "summary": "permission denied", "ongoing_text": "permission denied compact", "output": json.RawMessage(`{"error":"permission denied"}`)}),
+		mustPersistedScanEvent(t, "tool_completed", map[string]any{"call_id": "call-1", "name": string(toolspec.ToolExecCommand), "is_error": true, "summary": "permission denied", "condensed_text": "permission denied compact", "output": json.RawMessage(`{"error":"permission denied"}`)}),
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"cat secret"}`)}}}),
 	}
 	for _, evt := range events {
@@ -194,11 +194,11 @@ func TestPersistedTranscriptScanProjectsUnknownDeveloperAndToolSummaryMetadata(t
 		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", got, page.Entries)
 	}
 	developer := page.Entries[0]
-	if developer.Role != string(transcript.EntryRoleDeveloperContext) || developer.Visibility != transcript.EntryVisibilityDetailOnly || developer.MessageType != llm.MessageType("custom_internal") || developer.CompactLabel != "Developer context: custom_internal" {
+	if developer.Role != string(transcript.EntryRoleDeveloperContext) || developer.Visibility != transcript.EntryVisibilityVerbose || developer.MessageType != llm.MessageType("custom_internal") || developer.CompactLabel != "Developer context: custom_internal" {
 		t.Fatalf("unexpected unknown developer projection: %+v", developer)
 	}
 	result := page.Entries[2]
-	if result.Role != "tool_result_error" || result.ToolResultSummary != "permission denied" || result.OngoingText != "permission denied compact" {
+	if result.Role != "tool_result_error" || result.ToolResultSummary != "permission denied" || result.CondensedText != "permission denied compact" {
 		t.Fatalf("unexpected tool result summary projection: %+v", result)
 	}
 }
@@ -345,7 +345,7 @@ func TestPersistedTranscriptScanProjectsCarryoverFromPersistedMessage(t *testing
 	if page.Entries[3].Role != "manual_compaction_carryover" || page.Entries[3].Text != "Last user message before handoff\n\ncarry this forward" {
 		t.Fatalf("expected manual compaction carryover entry, got %+v", page.Entries[3])
 	}
-	if page.Entries[3].Visibility != transcript.EntryVisibilityDetailOnly {
+	if page.Entries[3].Visibility != transcript.EntryVisibilityVerbose {
 		t.Fatalf("expected carryover entry to stay detail-only, got %+v", page.Entries[3])
 	}
 }
@@ -380,7 +380,7 @@ func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPag
 	if got := page.Entries[2]; got.Role != "developer_context" || got.Text != "environment info" {
 		t.Fatalf("entry[2] = %+v, want compacted developer context", got)
 	}
-	if got := page.Entries[3]; got.Role != "compaction_summary" || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.OngoingText != "Context compacted" {
+	if got := page.Entries[3]; got.Role != "compaction_summary" || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.CondensedText != "Context compacted" {
 		t.Fatalf("entry[3] = %+v, want compacted summary", got)
 	}
 	if got := page.Entries[4]; got.Role != "compaction_notice" || got.Text != "after replace notice" {
@@ -412,7 +412,7 @@ func TestPersistedTranscriptScanUsesCacheWarningModeVisibility(t *testing.T) {
 		mode config.CacheWarningMode
 		want transcript.EntryVisibility
 	}{
-		{name: "default", mode: config.CacheWarningModeDefault, want: transcript.EntryVisibilityDetailOnly},
+		{name: "default", mode: config.CacheWarningModeDefault, want: transcript.EntryVisibilityVerbose},
 		{name: "verbose", mode: config.CacheWarningModeVerbose, want: transcript.EntryVisibilityAll},
 	}
 	for _, tt := range tests {

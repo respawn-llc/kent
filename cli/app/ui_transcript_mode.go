@@ -11,7 +11,7 @@ func (m *uiModel) transcriptRequestForCurrentMode() clientui.TranscriptPageReque
 	if m.view.Mode() == tui.ModeDetail {
 		return m.detailTranscript.requestedPageForDetailEntry()
 	}
-	return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}
+	return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}
 }
 
 func (m *uiModel) maybeRequestDetailTranscriptPage() tea.Cmd {
@@ -83,7 +83,7 @@ func (m *uiModel) currentDetailTailPage() clientui.TranscriptPage {
 			Visibility:        entry.Visibility,
 			Role:              string(entry.Role),
 			Text:              entry.Text,
-			OngoingText:       entry.OngoingText,
+			CondensedText:       entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,

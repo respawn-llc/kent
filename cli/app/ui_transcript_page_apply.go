@@ -127,9 +127,9 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	if reduction.shouldSyncNativeHistory {
 		m.armNativeHistoryReplayPermit(reduction.nativeReplayPermit)
 		m.clearDeferredCommittedTail("authoritative_hydrate")
-		a.applyAuthoritativeOngoingTailPage(page, entries, reduction.preserveLiveReasoning)
+		a.applyAuthoritativeRecentTailPage(page, entries, reduction.preserveLiveReasoning)
 	}
-	if pageReq.Window == clientui.TranscriptWindowOngoingTail || (pageReq == (clientui.TranscriptPageRequest{}) && m.view.Mode() != tui.ModeDetail) {
+	if pageReq.Window == clientui.TranscriptWindowRecentTail || (pageReq == (clientui.TranscriptPageRequest{}) && m.view.Mode() != tui.ModeDetail) {
 		m.detailTranscript.syncTail(page)
 		if m.view.Mode() != tui.ModeDetail {
 			if !reduction.preserveLiveReasoning {
@@ -200,7 +200,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	return sequenceCmds(cmds...)
 }
 
-func (a uiRuntimeAdapter) applyAuthoritativeOngoingTailPage(page clientui.TranscriptPage, entries []tui.TranscriptEntry, preserveLiveReasoning bool) {
+func (a uiRuntimeAdapter) applyAuthoritativeRecentTailPage(page clientui.TranscriptPage, entries []tui.TranscriptEntry, preserveLiveReasoning bool) {
 	m := a.model
 	if m == nil {
 		return

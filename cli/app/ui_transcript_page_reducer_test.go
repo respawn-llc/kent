@@ -138,7 +138,7 @@ func TestReduceRuntimeTranscriptPageAcceptsEqualRevisionTailCorrection(t *testin
 	if reduction.nativeReplayPermit != nativeHistoryReplayPermitContinuityRecovery {
 		t.Fatalf("native permit = %v, want continuity recovery", reduction.nativeReplayPermit)
 	}
-	if reduction.branch != "ongoing_tail_replace" {
+	if reduction.branch != "recent_tail_replace" {
 		t.Fatalf("branch = %q", reduction.branch)
 	}
 }

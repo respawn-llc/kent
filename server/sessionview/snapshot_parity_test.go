@@ -302,7 +302,7 @@ type comparableChatEntry struct {
 	Visibility   clientui.EntryVisibility
 	Role         string
 	Text         string
-	OngoingText  string
+	CondensedText  string
 	Phase        string
 	MessageType  string
 	CompactLabel string
@@ -315,7 +315,7 @@ func normalizedChatEntries(entries []clientui.ChatEntry) []comparableChatEntry {
 			Visibility:   entry.Visibility,
 			Role:         entry.Role,
 			Text:         entry.Text,
-			OngoingText:  entry.OngoingText,
+			CondensedText:  entry.CondensedText,
 			Phase:        entry.Phase,
 			MessageType:  entry.MessageType,
 			CompactLabel: entry.CompactLabel,

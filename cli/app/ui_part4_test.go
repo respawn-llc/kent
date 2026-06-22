@@ -1299,7 +1299,7 @@ func TestVerboseReviewerSuggestionsStaySingleAfterInterruptAndNextSubmit(t *test
 			TranscriptEntries: []clientui.ChatEntry{{
 				Role:        "reviewer_suggestions",
 				Text:        suggestions,
-				OngoingText: "Supervisor made 1 suggestion.",
+				CondensedText: "Supervisor made 1 suggestion.",
 			}},
 		},
 		{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "applying suggestion"},

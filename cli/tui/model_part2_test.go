@@ -79,7 +79,7 @@ func TestDetailRefreshesForLiveStreamingReasoning(t *testing.T) {
 	}
 }
 
-func TestDeveloperContextRendersDetailOnly(t *testing.T) {
+func TestDeveloperContextRendersVerbose(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: roleDeveloperContext, Text: "AGENTS context block"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "done"})
@@ -138,7 +138,7 @@ func TestDeveloperErrorFeedbackRendersInOngoing(t *testing.T) {
 	}
 }
 
-func TestCompactionSoonReminderRendersDetailOnly(t *testing.T) {
+func TestCompactionSoonReminderRendersVerbose(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "warning", Text: "warning marker"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "done"})
@@ -158,7 +158,7 @@ func TestCompactionSoonReminderRendersDetailOnly(t *testing.T) {
 	}
 }
 
-func TestHeadlessModeContextVariantsRenderDetailOnly(t *testing.T) {
+func TestHeadlessModeContextVariantsRenderVerbose(t *testing.T) {
 	m := NewModel(WithPreviewLines(30))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: roleDeveloperContext, Text: "headless mode instructions"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: roleDeveloperContext, Text: "interactive mode instructions"})

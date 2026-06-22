@@ -136,8 +136,8 @@ func TestSubmitUserMessageInjectsPendingWorktreeEnterReminder(t *testing.T) {
 	if entry.Visibility != transcript.EntryVisibilityAll {
 		t.Fatalf("worktree reminder visibility = %q, want all", entry.Visibility)
 	}
-	if entry.OngoingText != "Switched worktree to feature/enter: /tmp/wt-enter/pkg" || entry.CompactLabel != entry.OngoingText {
-		t.Fatalf("ongoing=%q compact=%q, want branch-based switch label", entry.OngoingText, entry.CompactLabel)
+	if entry.CondensedText != "Switched worktree to feature/enter: /tmp/wt-enter/pkg" || entry.CompactLabel != entry.CondensedText {
+		t.Fatalf("ongoing=%q compact=%q, want branch-based switch label", entry.CondensedText, entry.CompactLabel)
 	}
 	if entry.SourcePath != "/tmp/wt-enter/pkg" {
 		t.Fatalf("source path = %q, want effective cwd", entry.SourcePath)

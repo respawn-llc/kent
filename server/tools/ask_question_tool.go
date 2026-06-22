@@ -317,7 +317,7 @@ func selectedOptionToolOutputSummary(optionNumber int, freeform string) string {
 	return base + " They also said: " + freeform
 }
 
-func buildOngoingToolOutputText(req AskQuestionRequest, resp AskQuestionResponse) string {
+func buildCondensedToolOutputText(req AskQuestionRequest, resp AskQuestionResponse) string {
 	freeform := normalizedFreeformAnswer(resp)
 	if resp.SelectedOptionNumber <= 0 {
 		return freeform
@@ -419,5 +419,5 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 	if marshalErr != nil {
 		return Result{}, marshalErr
 	}
-	return Result{CallID: c.ID, Name: c.Name, Output: body, OngoingText: buildOngoingToolOutputText(req, resp)}, nil
+	return Result{CallID: c.ID, Name: c.Name, Output: body, CondensedText: buildCondensedToolOutputText(req, resp)}, nil
 }

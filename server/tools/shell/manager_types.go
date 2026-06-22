@@ -99,7 +99,7 @@ type ExecResult struct {
 
 type BackgroundNoticeSummary struct {
 	DetailText  string
-	OngoingText string
+	CondensedText string
 	LineCount   int
 	Truncated   bool
 	LogPath     string

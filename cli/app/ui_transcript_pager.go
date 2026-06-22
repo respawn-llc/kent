@@ -32,7 +32,7 @@ func (w uiDetailTranscriptWindow) page() clientui.TranscriptPage {
 			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              string(entry.Role),
 			Text:              entry.Text,
-			OngoingText:       entry.OngoingText,
+			CondensedText:       entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,
@@ -253,7 +253,7 @@ func (w uiDetailTranscriptWindow) pageAfter() (clientui.TranscriptPageRequest, b
 	return clientui.TranscriptPageRequest{Offset: nextOffset, Limit: limit}, true
 }
 
-func transcriptPageLooksLikeOngoingTail(page clientui.TranscriptPage) bool {
+func transcriptPageLooksLikeRecentTail(page clientui.TranscriptPage) bool {
 	if page.TotalEntries <= 0 {
 		return true
 	}

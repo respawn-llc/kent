@@ -219,7 +219,7 @@ func TestEventFromRuntimeProjectsLocalEntry(t *testing.T) {
 			Visibility:  transcript.EntryVisibilityAll,
 			Role:        "reviewer_suggestions",
 			Text:        "Supervisor suggested:\n1. Add verification notes.",
-			OngoingText: "Supervisor made 1 suggestion.",
+			CondensedText: "Supervisor made 1 suggestion.",
 		},
 	})
 
@@ -230,7 +230,7 @@ func TestEventFromRuntimeProjectsLocalEntry(t *testing.T) {
 		t.Fatalf("expected one projected local entry, got %+v", view.TranscriptEntries)
 	}
 	entry := view.TranscriptEntries[0]
-	if entry.Role != "reviewer_suggestions" || entry.Text != "Supervisor suggested:\n1. Add verification notes." || entry.OngoingText != "Supervisor made 1 suggestion." {
+	if entry.Role != "reviewer_suggestions" || entry.Text != "Supervisor suggested:\n1. Add verification notes." || entry.CondensedText != "Supervisor made 1 suggestion." {
 		t.Fatalf("unexpected projected local entry transcript: %+v", entry)
 	}
 	if entry.Visibility != clientui.EntryVisibilityAll {
@@ -406,7 +406,7 @@ func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
 	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "system", "text": "local note", "ongoing_text": ""}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "system", "text": "local note", "condensed_text": ""}); err != nil {
 		t.Fatalf("append local entry: %v", err)
 	}
 	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: "warn"}); err != nil {
@@ -493,22 +493,22 @@ func TestEventFromRuntimeCopiesCacheWarningLostInputTokens(t *testing.T) {
 	}
 }
 
-func TestEventFromRuntimeProjectsDefaultCacheWarningAsDetailOnly(t *testing.T) {
+func TestEventFromRuntimeProjectsDefaultCacheWarningAsVerbose(t *testing.T) {
 	event := EventFromRuntime(runtime.Event{
 		Kind:                   runtime.EventCacheWarning,
-		CacheWarningVisibility: transcript.EntryVisibilityDetailOnly,
+		CacheWarningVisibility: transcript.EntryVisibilityVerbose,
 		CacheWarning: &transcript.CacheWarning{
 			Scope:  transcript.CacheWarningScopeConversation,
 			Reason: transcript.CacheWarningReasonNonPostfix,
 		},
 	})
-	if event.CacheWarningVisibility != clientui.EntryVisibilityDetailOnly {
-		t.Fatalf("cache warning visibility = %q, want %q", event.CacheWarningVisibility, clientui.EntryVisibilityDetailOnly)
+	if event.CacheWarningVisibility != clientui.EntryVisibilityVerbose {
+		t.Fatalf("cache warning visibility = %q, want %q", event.CacheWarningVisibility, clientui.EntryVisibilityVerbose)
 	}
 	if len(event.TranscriptEntries) != 1 {
 		t.Fatalf("expected one projected transcript entry, got %d", len(event.TranscriptEntries))
 	}
-	if entry := event.TranscriptEntries[0]; entry.Role != "cache_warning" || entry.Visibility != clientui.EntryVisibilityDetailOnly {
+	if entry := event.TranscriptEntries[0]; entry.Role != "cache_warning" || entry.Visibility != clientui.EntryVisibilityVerbose {
 		t.Fatalf("unexpected projected cache warning entry: %+v", entry)
 	}
 }
@@ -520,10 +520,10 @@ func TestChatSnapshotFromRuntimeCopiesEntries(t *testing.T) {
 	}
 	snapshot := ChatSnapshotFromRuntime(runtime.ChatSnapshot{
 		Entries: []runtime.ChatEntry{{
-			Visibility:        transcript.EntryVisibilityDetailOnly,
+			Visibility:        transcript.EntryVisibilityVerbose,
 			Role:              "assistant",
 			Text:              "hello",
-			OngoingText:       "hel",
+			CondensedText:       "hel",
 			Phase:             llm.MessagePhaseFinal,
 			MessageType:       llm.MessageTypeEnvironment,
 			SourcePath:        "/tmp/source",
@@ -542,8 +542,8 @@ func TestChatSnapshotFromRuntimeCopiesEntries(t *testing.T) {
 	if entry.Phase != string(llm.MessagePhaseFinal) || entry.ToolCall == nil || entry.ToolCall.ToolName != "shell" {
 		t.Fatalf("unexpected projected entry: %+v", entry)
 	}
-	if entry.Visibility != clientui.EntryVisibilityDetailOnly {
-		t.Fatalf("entry visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityDetailOnly)
+	if entry.Visibility != clientui.EntryVisibilityVerbose {
+		t.Fatalf("entry visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityVerbose)
 	}
 	if entry.MessageType != string(llm.MessageTypeEnvironment) || entry.SourcePath != "/tmp/source" || entry.CompactLabel != "compact" || entry.ToolResultSummary != "summary" {
 		t.Fatalf("metadata was not projected: %+v", entry)
@@ -625,12 +625,12 @@ func TestTranscriptPageFromChatSupportsPageNumberPagination(t *testing.T) {
 	}
 }
 
-func TestTranscriptPageFromRuntimeUsesOngoingTailWindow(t *testing.T) {
+func TestTranscriptPageFromRuntimeUsesRecentTailWindow(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail})
+	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail})
 	if page.TotalEntries != 600 {
 		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
 	}
@@ -645,7 +645,7 @@ func TestTranscriptPageFromRuntimeUsesOngoingTailWindow(t *testing.T) {
 	}
 }
 
-func TestTranscriptPageFromRuntimeUsesOngoingTailWindowByDefault(t *testing.T) {
+func TestTranscriptPageFromRuntimeUsesRecentTailWindowByDefault(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
@@ -665,13 +665,13 @@ func TestTranscriptPageFromRuntimeUsesOngoingTailWindowByDefault(t *testing.T) {
 	}
 }
 
-func TestTranscriptPageFromRuntimeUsesIncrementalOngoingTailWhenClientKnowsRecentRevision(t *testing.T) {
+func TestTranscriptPageFromRuntimeUsesIncrementalRecentTailWhenClientKnowsRecentRevision(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
 	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{
-		Window:                   clientui.TranscriptWindowOngoingTail,
+		Window:                   clientui.TranscriptWindowRecentTail,
 		KnownRevision:            599,
 		KnownCommittedEntryCount: 590,
 	})

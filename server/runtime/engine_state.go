@@ -18,11 +18,11 @@ func (e *Engine) ChatSnapshot() ChatSnapshot {
 	return e.transcriptRuntimeState().Snapshot()
 }
 
-func (e *Engine) OngoingTailTranscriptWindow(maxEntries int) TranscriptWindowSnapshot {
+func (e *Engine) RecentTailTranscriptWindow(maxEntries int) TranscriptWindowSnapshot {
 	if e == nil {
 		return TranscriptWindowSnapshot{}
 	}
-	return e.transcriptRuntimeState().OngoingTailSnapshot(maxEntries)
+	return e.transcriptRuntimeState().RecentTailSnapshot(maxEntries)
 }
 
 func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
@@ -91,7 +91,7 @@ func (e *Engine) ContextUsage() ContextUsage {
 }
 
 func (e *Engine) AppendCommittedEntry(role, text string) error {
-	return e.AppendCommittedEntryWithOngoingText(role, text, "")
+	return e.AppendCommittedEntryWithCondensedText(role, text, "")
 }
 
 func (e *Engine) AppendCommittedEntryWithVisibility(role, text string, visibility transcript.EntryVisibility) error {
@@ -111,12 +111,12 @@ func (e *Engine) AppendCommittedEntryWithNoticeID(role, text, noticeID string) e
 	})
 }
 
-func (e *Engine) AppendCommittedEntryWithOngoingText(role, text, ongoingText string) error {
+func (e *Engine) AppendCommittedEntryWithCondensedText(role, text, ongoingText string) error {
 	return e.appendCommittedEntry(storedLocalEntry{
 		Visibility:  transcript.EntryVisibilityAuto,
 		Role:        strings.TrimSpace(role),
 		Text:        strings.TrimSpace(text),
-		OngoingText: strings.TrimSpace(ongoingText),
+		CondensedText: strings.TrimSpace(ongoingText),
 	})
 }
 
@@ -562,7 +562,7 @@ type storedLocalEntry struct {
 	Visibility    transcript.EntryVisibility `json:"visibility,omitempty"`
 	Role          string                     `json:"role"`
 	Text          string                     `json:"text"`
-	OngoingText   string                     `json:"ongoing_text,omitempty"`
+	CondensedText   string                     `json:"condensed_text,omitempty"`
 	DiagnosticKey string                     `json:"diagnostic_key,omitempty"`
 	NoticeID      string                     `json:"notice_id,omitempty"`
 }

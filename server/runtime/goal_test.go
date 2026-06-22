@@ -85,7 +85,7 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 		t.Fatalf("event transcript entries len = %d, want 1", len(entries))
 	}
 	entry := entries[0]
-	if entry.Role != string(transcript.EntryRoleGoalFeedback) || entry.OngoingText != `Goal set: "ship goal mode"` {
+	if entry.Role != string(transcript.EntryRoleGoalFeedback) || entry.CondensedText != `Goal set: "ship goal mode"` {
 		t.Fatalf("event transcript entry = %+v, want goal feedback", entry)
 	}
 	if !evt.CommittedEntryStartSet || evt.CommittedEntryStart != 0 || evt.CommittedEntryCount != 1 {
@@ -331,8 +331,8 @@ func TestGoalLifecycleMessagesProjectAsSingleGoalFeedbackEntry(t *testing.T) {
 			if entry.Role != string(transcript.EntryRoleGoalFeedback) {
 				t.Fatalf("role = %q, want %q", entry.Role, transcript.EntryRoleGoalFeedback)
 			}
-			if entry.OngoingText != tt.ongoing {
-				t.Fatalf("ongoing text = %q, want %q", entry.OngoingText, tt.ongoing)
+			if entry.CondensedText != tt.ongoing {
+				t.Fatalf("ongoing text = %q, want %q", entry.CondensedText, tt.ongoing)
 			}
 		})
 	}
@@ -484,8 +484,8 @@ func TestGoalDeveloperMessageVisibleInOngoingWithDetailPrompt(t *testing.T) {
 	if entry.Text != msg.Content {
 		t.Fatalf("goal detail text = %q, want full prompt", entry.Text)
 	}
-	if entry.OngoingText != msg.CompactContent {
-		t.Fatalf("goal ongoing text = %q, want compact", entry.OngoingText)
+	if entry.CondensedText != msg.CompactContent {
+		t.Fatalf("goal ongoing text = %q, want compact", entry.CondensedText)
 	}
 }
 

@@ -169,7 +169,7 @@ func TestGoalSetRendersCommittedGoalFeedbackBeforeLaterRuntimeEvents(t *testing.
 		TranscriptEntries: []clientui.ChatEntry{{
 			Role:        string(transcript.EntryRoleGoalFeedback),
 			Text:        "goal detail",
-			OngoingText: `Goal set: "ship feature"`,
+			CondensedText: `Goal set: "ship feature"`,
 			Visibility:  clientui.EntryVisibilityAll,
 		}},
 	}

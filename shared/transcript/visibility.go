@@ -7,7 +7,7 @@ type EntryVisibility string
 const (
 	EntryVisibilityAuto       EntryVisibility = ""
 	EntryVisibilityAll        EntryVisibility = "all"
-	EntryVisibilityDetailOnly EntryVisibility = "detail_only"
+	EntryVisibilityVerbose EntryVisibility = "verbose"
 )
 
 func NormalizeEntryVisibility(visibility EntryVisibility) EntryVisibility {
@@ -16,8 +16,8 @@ func NormalizeEntryVisibility(visibility EntryVisibility) EntryVisibility {
 		return EntryVisibilityAuto
 	case string(EntryVisibilityAll):
 		return EntryVisibilityAll
-	case string(EntryVisibilityDetailOnly):
-		return EntryVisibilityDetailOnly
+	case string(EntryVisibilityVerbose):
+		return EntryVisibilityVerbose
 	default:
 		return EntryVisibility(strings.TrimSpace(string(visibility)))
 	}

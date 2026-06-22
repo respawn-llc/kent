@@ -15,7 +15,7 @@ type EntryPayload struct {
 	RollbackTargetID  string
 	Role              string
 	Text              string
-	OngoingText       string
+	CondensedText       string
 	Phase             string
 	MessageType       string
 	SourcePath        string
@@ -33,7 +33,7 @@ func EntryPayloadEqual(left, right EntryPayload) bool {
 		strings.TrimSpace(left.RollbackTargetID) == strings.TrimSpace(right.RollbackTargetID) &&
 		strings.ToLower(strings.TrimSpace(left.Role)) == strings.ToLower(strings.TrimSpace(right.Role)) &&
 		left.Text == right.Text &&
-		left.OngoingText == right.OngoingText &&
+		left.CondensedText == right.CondensedText &&
 		strings.TrimSpace(left.Phase) == strings.TrimSpace(right.Phase) &&
 		strings.TrimSpace(left.MessageType) == strings.TrimSpace(right.MessageType) &&
 		strings.TrimSpace(left.SourcePath) == strings.TrimSpace(right.SourcePath) &&

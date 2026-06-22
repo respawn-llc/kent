@@ -453,7 +453,7 @@ func TestReturningFromDetailPreservesTransientTailAndNextLiveAppendInOngoingView
 		Transient: true,
 	})
 	m.transcriptTotalEntries = 3
-	m.syncOngoingTailViewFromRuntimeState()
+	m.syncRecentTailViewFromRuntimeState()
 
 	got := stripANSIAndTrimRight(m.view.OngoingSnapshot())
 	if !strings.Contains(got, "echo live") || !strings.Contains(got, "post-restore live append") {

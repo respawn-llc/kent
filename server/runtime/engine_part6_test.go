@@ -131,7 +131,7 @@ func TestAppendCommittedEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
 		},
 	})
 
-	if err := eng.steer("step-1", steerLocalEntryIntent(storedLocalEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", OngoingText: "Supervisor made 1 suggestion."})); err != nil {
+	if err := eng.steer("step-1", steerLocalEntryIntent(storedLocalEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", CondensedText: "Supervisor made 1 suggestion."})); err != nil {
 		t.Fatalf("append persisted local entry: %v", err)
 	}
 	if got := len(events); got != 1 {
@@ -146,7 +146,7 @@ func TestAppendCommittedEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
 	if got := events[0].LocalEntry.Role; got != "reviewer_suggestions" {
 		t.Fatalf("local entry role = %q, want reviewer_suggestions", got)
 	}
-	if got := events[0].LocalEntry.OngoingText; got != "Supervisor made 1 suggestion." {
+	if got := events[0].LocalEntry.CondensedText; got != "Supervisor made 1 suggestion." {
 		t.Fatalf("local entry ongoing text = %q, want supervisor summary", got)
 	}
 }
@@ -348,7 +348,7 @@ func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
 	if _, _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
 		Role:        "reviewer_suggestions",
 		Text:        "Supervisor suggested:\n1. Add final verification notes.",
-		OngoingText: "Supervisor made 1 suggestion.",
+		CondensedText: "Supervisor made 1 suggestion.",
 	}); err != nil {
 		t.Fatalf("append legacy reviewer_suggestions: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
 	if len(snapshot.Entries) != 2 {
 		t.Fatalf("expected 2 restored entries, got %+v", snapshot.Entries)
 	}
-	if snapshot.Entries[0].Role != "reviewer_suggestions" || snapshot.Entries[0].OngoingText != "Supervisor made 1 suggestion." {
+	if snapshot.Entries[0].Role != "reviewer_suggestions" || snapshot.Entries[0].CondensedText != "Supervisor made 1 suggestion." {
 		t.Fatalf("expected stored reviewer_suggestions entry, got %+v", snapshot.Entries[0])
 	}
 	if snapshot.Entries[1].Role != "reviewer_status" || snapshot.Entries[1].Text != "Supervisor ran, applied 1 suggestion:\n1. Add final verification notes." {
@@ -414,7 +414,7 @@ func TestAppendCommittedEntryRecordDoesNotMutateChatOnAppendFailure(t *testing.T
 	}
 }
 
-func TestAppendCommittedEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
+func TestAppendCommittedEntryWithCondensedTextSkipsBlankEntries(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var events []Event
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
@@ -422,7 +422,7 @@ func TestAppendCommittedEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 
-	eng.AppendCommittedEntryWithOngoingText("user", "   ", "ignored")
+	eng.AppendCommittedEntryWithCondensedText("user", "   ", "ignored")
 	if len(events) != 0 {
 		t.Fatalf("expected blank local entry to emit no events, got %+v", events)
 	}
@@ -645,9 +645,9 @@ func TestReviewerVerboseOutputShowsSuggestionsWhenIssuedAndKeepsFinalStatusConci
 	snapshot := eng.ChatSnapshot()
 	foundVerboseSuggestions := false
 	foundConciseStatus := false
-	wantSuggestionsOngoingText := "Supervisor suggested:\n1. Add final verification notes."
+	wantSuggestionsCondensedText := "Supervisor suggested:\n1. Add final verification notes."
 	for _, entry := range snapshot.Entries {
-		if entry.Role == "reviewer_suggestions" && entry.OngoingText == wantSuggestionsOngoingText {
+		if entry.Role == "reviewer_suggestions" && entry.CondensedText == wantSuggestionsCondensedText {
 			foundVerboseSuggestions = true
 		}
 		if entry.Role == "reviewer_status" && entry.Text == "Supervisor ran: 1 suggestion, applied." {
@@ -666,7 +666,7 @@ func TestReviewerVerboseOutputShowsSuggestionsWhenIssuedAndKeepsFinalStatusConci
 	foundRestoredVerboseSuggestions := false
 	foundRestoredConciseStatus := false
 	for _, entry := range restoredSnapshot.Entries {
-		if entry.Role == "reviewer_suggestions" && entry.OngoingText == wantSuggestionsOngoingText {
+		if entry.Role == "reviewer_suggestions" && entry.CondensedText == wantSuggestionsCondensedText {
 			foundRestoredVerboseSuggestions = true
 		}
 		if entry.Role == "reviewer_status" && entry.Text == "Supervisor ran: 1 suggestion, applied." {

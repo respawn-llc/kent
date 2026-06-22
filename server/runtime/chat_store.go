@@ -17,7 +17,7 @@ type ChatEntry struct {
 	RollbackTargetID  string
 	Role              string
 	Text              string
-	OngoingText       string
+	CondensedText       string
 	Phase             llm.MessagePhase
 	MessageType       llm.MessageType
 	SourcePath        string
@@ -46,7 +46,7 @@ type storedToolCompletion struct {
 	IsError       bool                     `json:"is_error"`
 	Output        json.RawMessage          `json:"output"`
 	Summary       string                   `json:"summary,omitempty"`
-	OngoingText   string                   `json:"ongoing_text,omitempty"`
+	CondensedText   string                   `json:"condensed_text,omitempty"`
 	Presentation  *transcript.ToolCallMeta `json:"presentation,omitempty"`
 	ProviderItems []llm.ResponseItem       `json:"provider_items,omitempty"`
 }
@@ -165,7 +165,7 @@ func (s *chatStore) restoreToolCompletionPayload(payload []byte) error {
 		IsError:      completion.IsError,
 		Output:       completion.Output,
 		Summary:      completion.Summary,
-		OngoingText:  completion.OngoingText,
+		CondensedText:  completion.CondensedText,
 		Presentation: completion.Presentation,
 	}, completion.ProviderItems)
 	return nil
@@ -227,7 +227,7 @@ func (s *chatStore) appendLocalEntryRecord(entry ChatEntry) {
 		return
 	}
 	entry.Visibility = transcript.NormalizeEntryVisibility(entry.Visibility)
-	entry.OngoingText = strings.TrimSpace(entry.OngoingText)
+	entry.CondensedText = strings.TrimSpace(entry.CondensedText)
 	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -466,7 +466,7 @@ func (s *chatStore) ongoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot
 	items, localEntries := llm.CloneResponseItems(s.items), append([]localChatEntry(nil), s.local...)
 	materializedToolResults := collectMaterializedToolCalls(items)
 	scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{
-		TrackOngoingTail: true,
+		TrackRecentTail: true,
 		TailLimit:        maxEntries,
 	}, s.toolCompletions, materializedToolResults)
 	localIndex := 0
@@ -500,7 +500,7 @@ func (s *chatStore) ongoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot
 	}
 	walker.Flush()
 	appendLocalEntries(processedMessages)
-	window := scan.OngoingTailSnapshot()
+	window := scan.RecentTailSnapshot()
 	window.Snapshot.Ongoing = s.ongoing
 	window.Snapshot.OngoingError = s.ongoingError
 	return window

@@ -58,7 +58,7 @@ func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 			"RollbackTargetID",
 			"Role",
 			"Text",
-			"OngoingText",
+			"CondensedText",
 			"Phase",
 			"MessageType",
 			"SourcePath",

@@ -149,7 +149,7 @@ func TestChatStoreSnapshotSynthesizesCompletedToolResultBeforeToolMessage(t *tes
 	}
 }
 
-func TestChatStoreRestoreToolCompletionPreservesOngoingText(t *testing.T) {
+func TestChatStoreRestoreToolCompletionPreservesCondensedText(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{
 		Role: llm.RoleAssistant,
@@ -163,7 +163,7 @@ func TestChatStoreRestoreToolCompletionPreservesOngoingText(t *testing.T) {
 		CallID:      "call_ask",
 		Name:        string(toolspec.ToolAskQuestion),
 		Output:      json.RawMessage(`"User chose option #2. They also said: include tests"`),
-		OngoingText: "fast\nUser also said:\ninclude tests",
+		CondensedText: "fast\nUser also said:\ninclude tests",
 	})
 	if err != nil {
 		t.Fatalf("marshal completion: %v", err)
@@ -180,7 +180,7 @@ func TestChatStoreRestoreToolCompletionPreservesOngoingText(t *testing.T) {
 	if result.Role != "tool_result_ok" || result.ToolCallID != "call_ask" {
 		t.Fatalf("unexpected restored result entry: %+v", result)
 	}
-	if !strings.Contains(result.Text, "User chose option #2. They also said: include tests") || result.OngoingText != "fast\nUser also said:\ninclude tests" {
+	if !strings.Contains(result.Text, "User chose option #2. They also said: include tests") || result.CondensedText != "fast\nUser also said:\ninclude tests" {
 		t.Fatalf("unexpected restored result text: %+v", result)
 	}
 }
@@ -196,15 +196,15 @@ func TestChatStoreSnapshotKeepsSubstantiveCommentaryInTranscript(t *testing.T) {
 	}
 }
 
-func TestChatStoreSnapshotPreservesLocalEntryOngoingText(t *testing.T) {
+func TestChatStoreSnapshotPreservesLocalEntryCondensedText(t *testing.T) {
 	s := newChatStore()
-	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. First", OngoingText: "Supervisor made 1 suggestion."})
+	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. First", CondensedText: "Supervisor made 1 suggestion."})
 
 	snap := s.snapshotWithMetadata().Snapshot
 	if len(snap.Entries) != 1 {
 		t.Fatalf("expected one entry, got %+v", snap.Entries)
 	}
-	if snap.Entries[0].Role != "reviewer_suggestions" || snap.Entries[0].Text != "Supervisor suggested:\n1. First" || snap.Entries[0].OngoingText != "Supervisor made 1 suggestion." {
+	if snap.Entries[0].Role != "reviewer_suggestions" || snap.Entries[0].Text != "Supervisor suggested:\n1. First" || snap.Entries[0].CondensedText != "Supervisor made 1 suggestion." {
 		t.Fatalf("unexpected local entry snapshot: %+v", snap.Entries[0])
 	}
 }
@@ -288,7 +288,7 @@ func TestChatStoreTranscriptPageSnapshotPreservesHistoryAcrossCompaction(t *test
 	if got := page.Snapshot.Entries[2]; got.Role != string(transcript.EntryRoleDeveloperContext) || got.Text != "environment info" {
 		t.Fatalf("entry[2] = %+v, want compacted developer context", got)
 	}
-	if got := page.Snapshot.Entries[3]; got.Role != string(transcript.EntryRoleCompactionSummary) || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.OngoingText != "Context compacted" {
+	if got := page.Snapshot.Entries[3]; got.Role != string(transcript.EntryRoleCompactionSummary) || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.CondensedText != "Context compacted" {
 		t.Fatalf("entry[3] = %+v, want compacted summary", got)
 	}
 	if got := page.Snapshot.Entries[4]; got.Role != "compaction_notice" || got.Text != "after replace notice" {
@@ -296,7 +296,7 @@ func TestChatStoreTranscriptPageSnapshotPreservesHistoryAcrossCompaction(t *test
 	}
 }
 
-func TestChatStoreOngoingTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
+func TestChatStoreRecentTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "before compaction"})
 	s.replaceHistory(llm.ItemsFromMessages([]llm.Message{
@@ -318,7 +318,7 @@ func TestChatStoreOngoingTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
 	if got := window.Snapshot.Entries[0]; got.Role != string(transcript.EntryRoleDeveloperContext) || got.Text != "environment info" {
 		t.Fatalf("entry[0] = %+v, want compacted developer context", got)
 	}
-	if got := window.Snapshot.Entries[1]; got.Role != string(transcript.EntryRoleCompactionSummary) || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.OngoingText != "Context compacted" {
+	if got := window.Snapshot.Entries[1]; got.Role != string(transcript.EntryRoleCompactionSummary) || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.CondensedText != "Context compacted" {
 		t.Fatalf("entry[1] = %+v, want compacted summary", got)
 	}
 	if got := window.Snapshot.Entries[2]; got.Role != "compaction_notice" || got.Text != "after replace notice" {
@@ -326,7 +326,7 @@ func TestChatStoreOngoingTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
 	}
 }
 
-func TestChatStoreOngoingTailUsesMostRecentCompactionBoundary(t *testing.T) {
+func TestChatStoreRecentTailUsesMostRecentCompactionBoundary(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "before"})
 	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-1"}})
@@ -692,7 +692,7 @@ func TestChatStoreShowsCompactionSummaryMessage(t *testing.T) {
 	if len(snap.Entries) != 2 {
 		t.Fatalf("expected 2 visible entries, got %d (%+v)", len(snap.Entries), snap.Entries)
 	}
-	if snap.Entries[0].Role != string(transcript.EntryRoleCompactionSummary) || snap.Entries[0].Text != "summary" || snap.Entries[0].OngoingText == "" || snap.Entries[0].OngoingText != snap.Entries[0].CompactLabel {
+	if snap.Entries[0].Role != string(transcript.EntryRoleCompactionSummary) || snap.Entries[0].Text != "summary" || snap.Entries[0].CondensedText == "" || snap.Entries[0].CondensedText != snap.Entries[0].CompactLabel {
 		t.Fatalf("unexpected compaction summary entry: %+v", snap.Entries[0])
 	}
 	if snap.Entries[1].Role != "user" || snap.Entries[1].Text != "real user input" {
@@ -718,7 +718,7 @@ func TestChatStoreSnapshotIncludesDeveloperErrorFeedbackAsOngoingVisibleRole(t *
 	}
 }
 
-func TestChatStoreSnapshotIncludesDeveloperContextAsDetailOnlyRole(t *testing.T) {
+func TestChatStoreSnapshotIncludesDeveloperContextAsVerboseRole(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeAgentsMD, Content: "AGENTS context"})
 	s.appendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeEnvironment, Content: "Environment context"})
@@ -733,12 +733,12 @@ func TestChatStoreSnapshotIncludesDeveloperContextAsDetailOnlyRole(t *testing.T)
 	if snap.Entries[1].Role != string(transcript.EntryRoleDeveloperContext) || snap.Entries[1].Text != "Environment context" {
 		t.Fatalf("unexpected environment context entry: %+v", snap.Entries[1])
 	}
-	if snap.Entries[0].Visibility != transcript.EntryVisibilityDetailOnly || snap.Entries[1].Visibility != transcript.EntryVisibilityDetailOnly {
+	if snap.Entries[0].Visibility != transcript.EntryVisibilityVerbose || snap.Entries[1].Visibility != transcript.EntryVisibilityVerbose {
 		t.Fatalf("expected developer context visibility to be detail-only, got %+v", snap.Entries)
 	}
 }
 
-func TestChatStoreSnapshotIncludesUnknownDeveloperMessagesAsDetailOnlyContext(t *testing.T) {
+func TestChatStoreSnapshotIncludesUnknownDeveloperMessagesAsVerboseContext(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageType("custom_internal"), Content: "Internal developer note"})
 
@@ -746,12 +746,12 @@ func TestChatStoreSnapshotIncludesUnknownDeveloperMessagesAsDetailOnlyContext(t 
 	if len(snap.Entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d (%+v)", len(snap.Entries), snap.Entries)
 	}
-	if got := snap.Entries[0]; got.Role != string(transcript.EntryRoleDeveloperContext) || got.Text != "Internal developer note" || got.Visibility != transcript.EntryVisibilityDetailOnly || got.MessageType != llm.MessageType("custom_internal") || got.CompactLabel != "Developer context: custom_internal" {
+	if got := snap.Entries[0]; got.Role != string(transcript.EntryRoleDeveloperContext) || got.Text != "Internal developer note" || got.Visibility != transcript.EntryVisibilityVerbose || got.MessageType != llm.MessageType("custom_internal") || got.CompactLabel != "Developer context: custom_internal" {
 		t.Fatalf("unexpected unknown developer context entry: %+v", got)
 	}
 }
 
-func TestChatStoreSnapshotIncludesInterruptionAsDetailOnlyRole(t *testing.T) {
+func TestChatStoreSnapshotIncludesInterruptionAsVerboseRole(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: "Interrupted by user."})
 
@@ -762,7 +762,7 @@ func TestChatStoreSnapshotIncludesInterruptionAsDetailOnlyRole(t *testing.T) {
 	if snap.Entries[0].Role != string(transcript.EntryRoleInterruption) || snap.Entries[0].Text != "Interrupted by user." {
 		t.Fatalf("unexpected interruption entry: %+v", snap.Entries[0])
 	}
-	if snap.Entries[0].Visibility != transcript.EntryVisibilityDetailOnly {
+	if snap.Entries[0].Visibility != transcript.EntryVisibilityVerbose {
 		t.Fatalf("expected interruption detail-only visibility, got %+v", snap.Entries[0])
 	}
 }
@@ -819,7 +819,7 @@ func TestChatStoreSnapshotOmitsRawReviewerFeedbackDeveloperMessages(t *testing.T
 	s := newChatStore()
 	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "task"})
 	s.appendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeReviewerFeedback, Content: "reviewer internal prompt"})
-	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. First", OngoingText: "Supervisor made 1 suggestion."})
+	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. First", CondensedText: "Supervisor made 1 suggestion."})
 	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_status", Text: "Supervisor ran: 1 suggestion, applied."})
 
 	snap := s.snapshotWithMetadata().Snapshot
@@ -855,12 +855,12 @@ func TestChatStoreSnapshotIncludesCompactTextForBackgroundNotice(t *testing.T) {
 	if snap.Entries[0].Text != "Background shell 1000 completed.\nExit code: 0\nOutput:\nlong output" {
 		t.Fatalf("unexpected detail text: %+v", snap.Entries[0])
 	}
-	if snap.Entries[0].OngoingText != "Background shell 1000 completed (exit 0)" {
+	if snap.Entries[0].CondensedText != "Background shell 1000 completed (exit 0)" {
 		t.Fatalf("unexpected ongoing text: %+v", snap.Entries[0])
 	}
 }
 
-func TestChatStoreSnapshotShowsManualCompactionCarryoverAsDetailOnlyMessage(t *testing.T) {
+func TestChatStoreSnapshotShowsManualCompactionCarryoverAsVerboseMessage(t *testing.T) {
 	s := newChatStore()
 	s.appendMessage(llm.Message{
 		Role:        llm.RoleDeveloper,
@@ -872,7 +872,7 @@ func TestChatStoreSnapshotShowsManualCompactionCarryoverAsDetailOnlyMessage(t *t
 	if len(snap.Entries) != 1 {
 		t.Fatalf("expected carryover message to project once into transcript, got %+v", snap.Entries)
 	}
-	if got := snap.Entries[0]; got.Role != string(transcript.EntryRoleManualCompactionCarryover) || got.Text != "# Last user message before manual compaction\n\nplease keep tests green" || got.Visibility != transcript.EntryVisibilityDetailOnly {
+	if got := snap.Entries[0]; got.Role != string(transcript.EntryRoleManualCompactionCarryover) || got.Text != "# Last user message before manual compaction\n\nplease keep tests green" || got.Visibility != transcript.EntryVisibilityVerbose {
 		t.Fatalf("unexpected carryover transcript entry: %+v", got)
 	}
 }

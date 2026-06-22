@@ -592,7 +592,7 @@ func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role:        "reviewer_suggestions",
 		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
-		OngoingText: "Supervisor made 2 suggestions.",
+		CondensedText: "Supervisor made 2 suggestions.",
 	})
 	m = updateModel(t, m, ToggleModeMsg{})
 
@@ -611,7 +611,7 @@ func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
 	}
 }
 
-func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
+func TestWorktreeReminderUsesCondensedTextAndKeepsDetailText(t *testing.T) {
 	m := newCompactDetailModel(t, 8)
 	fullText := "The user has moved this conversation into a git worktree.\n- Branch: feature/branch\n- New cwd / worktree path: /tmp/worktree/pkg"
 	ongoingText := "Switched worktree to feature/branch: /tmp/worktree/pkg"
@@ -619,7 +619,7 @@ func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
 		Visibility:   transcript.EntryVisibilityAll,
 		Role:         TranscriptRoleDeveloperContext,
 		Text:         fullText,
-		OngoingText:  ongoingText,
+		CondensedText:  ongoingText,
 		MessageType:  clientui.MessageTypeWorktreeMode,
 		SourcePath:   "/tmp/worktree/pkg",
 		CompactLabel: ongoingText,
@@ -648,7 +648,7 @@ func TestCompactDetailKeepsVerboseReviewerSuggestionsWhenNoStructuredCountExists
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role:        "reviewer_suggestions",
 		Text:        suggestions,
-		OngoingText: suggestions,
+		CondensedText: suggestions,
 	})
 	m = updateModel(t, m, ToggleModeMsg{})
 
