@@ -251,14 +251,14 @@ func newRuntimeClientReadOnlyTest(reads sharedclient.SessionViewClient) clientui
 	)
 }
 
-func TestRuntimeClientRefreshTranscriptRequestsOngoingTail(t *testing.T) {
+func TestRuntimeClientRefreshTranscriptRequestsRecentTail(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1"}}
 	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
 	}
-	if reads.lastTranscriptReq.Window != clientui.TranscriptWindowOngoingTail {
+	if reads.lastTranscriptReq.Window != clientui.TranscriptWindowRecentTail {
 		t.Fatalf("window = %q, want ongoing tail", reads.lastTranscriptReq.Window)
 	}
 }
@@ -849,7 +849,7 @@ func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) 
 		NextEntryCount:      3,
 		Entries: []clientui.ChatEntry{
 			{Role: "assistant", Text: "original final", Phase: string(llm.MessagePhaseFinal)},
-			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Tighten final answer.", OngoingText: "Supervisor made 1 suggestion."},
+			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Tighten final answer.", CondensedText: "Supervisor made 1 suggestion."},
 			{Role: "assistant", Text: "updated final after review", Phase: string(llm.MessagePhaseFinal)},
 		},
 	})
@@ -1365,7 +1365,7 @@ func TestRuntimeClientRefreshTranscriptBypassesFreshCachedPage(t *testing.T) {
 func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *testing.T) {
 	reads := &countingSessionViewClient{
 		pageForRequest: func(req serverapi.SessionTranscriptPageRequest) clientui.TranscriptPage {
-			if req.Window == clientui.TranscriptWindowOngoingTail {
+			if req.Window == clientui.TranscriptWindowRecentTail {
 				return clientui.TranscriptPage{
 					SessionID:    "session-1",
 					Offset:       0,
@@ -1401,7 +1401,7 @@ func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *tes
 func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 	reads := &countingSessionViewClient{
 		pageForRequest: func(req serverapi.SessionTranscriptPageRequest) clientui.TranscriptPage {
-			if req.Window == clientui.TranscriptWindowOngoingTail {
+			if req.Window == clientui.TranscriptWindowRecentTail {
 				return clientui.TranscriptPage{
 					SessionID:    "session-1",
 					Offset:       490,
@@ -1662,15 +1662,15 @@ func TestRuntimeClientMainViewBootstrapDoesNotSeedStreamingOngoingState(t *testi
 			CommittedEntryCount: 1,
 		},
 		Chat: clientui.ChatSnapshot{
-			Entries: []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-			Ongoing: "NO_OP",
+			Entries:   []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+			Streaming: "NO_OP",
 		},
 	}}}
 	runtimeClient := newRuntimeClientReadTest(reads)
 
 	_ = runtimeClient.MainView()
 	page := runtimeClient.Transcript()
-	if got := page.Ongoing; got != "" {
+	if got := page.Streaming; got != "" {
 		t.Fatalf("bootstrap ongoing text = %q, want empty", got)
 	}
 }
@@ -1722,7 +1722,7 @@ func TestRuntimeClientRefreshMainViewDoesNotDowngradeCachedTranscriptTail(t *tes
 	}
 }
 
-func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedOngoingTail(t *testing.T) {
+func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedRecentTail(t *testing.T) {
 	reads := &countingSessionViewClient{
 		page: clientui.TranscriptPage{
 			SessionID:    "session-1",
@@ -1731,7 +1731,7 @@ func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedOngoingTail
 			TotalEntries: 500,
 			HasMore:      true,
 			Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "windowed tail"}},
-			Ongoing:      "streaming",
+			Streaming:    "streaming",
 		},
 	}
 	runtimeClient := newRuntimeClientReadTest(reads)
@@ -1746,7 +1746,7 @@ func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedOngoingTail
 	if got := view.Session.Chat.Entries[0].Text; got != "windowed tail" {
 		t.Fatalf("main view chat text = %q, want windowed tail", got)
 	}
-	if got := view.Session.Chat.Ongoing; got != "streaming" {
+	if got := view.Session.Chat.Streaming; got != "streaming" {
 		t.Fatalf("main view ongoing = %q, want streaming", got)
 	}
 }

@@ -302,9 +302,9 @@ func TestDetailModeReviewerSuggestionsCollapseAndExpandThroughUIModel(t *testing
 	m.termHeight = 12
 	m.layout().syncViewport()
 	m.forwardToView(tui.AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
-		OngoingText: "Supervisor made 2 suggestions.",
+		Role:          "reviewer_suggestions",
+		Text:          "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
+		CondensedText: "Supervisor made 2 suggestions.",
 	})
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})

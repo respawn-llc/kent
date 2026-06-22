@@ -266,7 +266,7 @@ func (e *Engine) recordGoalLoopError(err error) {
 			Text:       "Failed to persist goal loop error: " + appendErr.Error(),
 		}))
 	}
-	e.SetOngoingError(message)
+	e.SetStreamingError(message)
 }
 
 func (e *Engine) shouldContinueGoalLoop(ctx context.Context) bool {

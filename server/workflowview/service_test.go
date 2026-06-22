@@ -1568,7 +1568,7 @@ func TestAttentionListFillsPagePastDroppedCandidatesAndScopesTokenToProject(t *t
 	}
 }
 
-func TestPendingQuestionResolverSearchesBeforeOngoingTail(t *testing.T) {
+func TestPendingQuestionResolverSearchesBeforeRecentTail(t *testing.T) {
 	entries := make([]clientui.ChatEntry, 0, 650)
 	for i := 0; i < 650; i++ {
 		entry := clientui.ChatEntry{Role: "assistant", Text: "entry"}
@@ -1850,7 +1850,7 @@ func (p staticTranscriptProvider) GetSessionTranscriptPage(_ context.Context, re
 	total := len(entries)
 	offset := req.Offset
 	limit := req.Limit
-	if req.Window == clientui.TranscriptWindowOngoingTail {
+	if req.Window == clientui.TranscriptWindowRecentTail {
 		offset = total - 500
 		if offset < 0 {
 			offset = 0

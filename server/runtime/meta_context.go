@@ -507,7 +507,7 @@ func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, 
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
-	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorktreeMode, Content: content, CompactContent: worktreeReminderOngoingText(state), SourcePath: strings.TrimSpace(state.EffectiveCwd)}, true
+	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorktreeMode, Content: content, CompactContent: worktreeReminderCondensedText(state), SourcePath: strings.TrimSpace(state.EffectiveCwd)}, true
 }
 
 func worktreeModeExitMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {
@@ -515,10 +515,10 @@ func worktreeModeExitMetaMessage(state session.WorktreeReminderState) (llm.Messa
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
-	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorktreeModeExit, Content: content, CompactContent: worktreeReminderOngoingText(state), SourcePath: strings.TrimSpace(state.EffectiveCwd)}, true
+	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorktreeModeExit, Content: content, CompactContent: worktreeReminderCondensedText(state), SourcePath: strings.TrimSpace(state.EffectiveCwd)}, true
 }
 
-func worktreeReminderOngoingText(state session.WorktreeReminderState) string {
+func worktreeReminderCondensedText(state session.WorktreeReminderState) string {
 	effectiveCwd := strings.TrimSpace(state.EffectiveCwd)
 	if effectiveCwd == "" {
 		effectiveCwd = strings.TrimSpace(state.WorktreePath)

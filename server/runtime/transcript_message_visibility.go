@@ -31,15 +31,15 @@ func visibleDeveloperChatEntry(msg llm.Message) (ChatEntry, bool) {
 		llm.MessageTypeHeadlessMode,
 		llm.MessageTypeHeadlessModeExit,
 		llm.MessageTypeWorkflowMode:
-		return developerContextEntry(msg, transcript.EntryVisibilityDetailOnly), true
+		return developerContextEntry(msg, transcript.EntryVisibilityVerbose), true
 	case llm.MessageTypeWorktreeMode, llm.MessageTypeWorktreeModeExit:
 		return developerContextEntry(msg, transcript.EntryVisibilityAll), true
 	case llm.MessageTypeCompactionSummary:
 		return compactionSummaryChatEntry(msg), true
 	case llm.MessageTypeInterruption:
-		return ChatEntry{Visibility: transcript.EntryVisibilityDetailOnly, Role: string(transcript.EntryRoleInterruption), Text: msg.Content, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
+		return ChatEntry{Visibility: transcript.EntryVisibilityVerbose, Role: string(transcript.EntryRoleInterruption), Text: msg.Content, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
 	case llm.MessageTypeGoal:
-		return ChatEntry{Visibility: transcript.EntryVisibilityAll, Role: string(transcript.EntryRoleGoalFeedback), Text: msg.Content, OngoingText: msg.CompactContent, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
+		return ChatEntry{Visibility: transcript.EntryVisibilityAll, Role: string(transcript.EntryRoleGoalFeedback), Text: msg.Content, CondensedText: msg.CompactContent, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
 	case llm.MessageTypeErrorFeedback:
 		return ChatEntry{Role: string(transcript.EntryRoleDeveloperFeedback), Text: msg.Content, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
 	case llm.MessageTypeReviewerFeedback:
@@ -47,38 +47,38 @@ func visibleDeveloperChatEntry(msg llm.Message) (ChatEntry, bool) {
 	case llm.MessageTypeCompactionSoonReminder:
 		return ChatEntry{Role: "warning", Text: msg.Content, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
 	case llm.MessageTypeBackgroundNotice:
-		return ChatEntry{Role: "system", Text: msg.Content, OngoingText: msg.CompactContent, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
+		return ChatEntry{Role: "system", Text: msg.Content, CondensedText: msg.CompactContent, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
 	case llm.MessageTypeHandoffFutureMessage:
-		return developerContextEntry(msg, transcript.EntryVisibilityDetailOnly), true
+		return developerContextEntry(msg, transcript.EntryVisibilityVerbose), true
 	case llm.MessageTypeManualCompactionCarryover:
-		return ChatEntry{Visibility: transcript.EntryVisibilityDetailOnly, Role: string(transcript.EntryRoleManualCompactionCarryover), Text: msg.Content, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
+		return ChatEntry{Visibility: transcript.EntryVisibilityVerbose, Role: string(transcript.EntryRoleManualCompactionCarryover), Text: msg.Content, MessageType: msg.MessageType, CompactLabel: compactLabelForMessage(msg)}, true
 	default:
-		return developerContextEntry(msg, transcript.EntryVisibilityDetailOnly), true
+		return developerContextEntry(msg, transcript.EntryVisibilityVerbose), true
 	}
 }
 
 func compactionSummaryChatEntry(msg llm.Message) ChatEntry {
 	label := compactLabelForMessage(msg)
 	return ChatEntry{
-		Visibility:   transcript.EntryVisibilityAll,
-		Role:         string(transcript.EntryRoleCompactionSummary),
-		Text:         msg.Content,
-		OngoingText:  label,
-		MessageType:  msg.MessageType,
-		SourcePath:   strings.TrimSpace(msg.SourcePath),
-		CompactLabel: label,
+		Visibility:    transcript.EntryVisibilityAll,
+		Role:          string(transcript.EntryRoleCompactionSummary),
+		Text:          msg.Content,
+		CondensedText: label,
+		MessageType:   msg.MessageType,
+		SourcePath:    strings.TrimSpace(msg.SourcePath),
+		CompactLabel:  label,
 	}
 }
 
 func developerContextEntry(msg llm.Message, visibility transcript.EntryVisibility) ChatEntry {
 	return ChatEntry{
-		Visibility:   visibility,
-		Role:         string(transcript.EntryRoleDeveloperContext),
-		Text:         msg.Content,
-		OngoingText:  strings.TrimSpace(msg.CompactContent),
-		MessageType:  msg.MessageType,
-		SourcePath:   strings.TrimSpace(msg.SourcePath),
-		CompactLabel: compactLabelForMessage(msg),
+		Visibility:    visibility,
+		Role:          string(transcript.EntryRoleDeveloperContext),
+		Text:          msg.Content,
+		CondensedText: strings.TrimSpace(msg.CompactContent),
+		MessageType:   msg.MessageType,
+		SourcePath:    strings.TrimSpace(msg.SourcePath),
+		CompactLabel:  compactLabelForMessage(msg),
 	}
 }
 

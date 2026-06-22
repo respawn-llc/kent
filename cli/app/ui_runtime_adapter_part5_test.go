@@ -144,7 +144,7 @@ func TestConversationSnapshotCommitClearsSawAssistantDelta(t *testing.T) {
 		t.Fatal("expected sawAssistantDelta true after assistant delta")
 	}
 
-	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{Role: "assistant", Text: "partial"}}, Ongoing: ""})
+	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{Role: "assistant", Text: "partial"}}, Streaming: ""})
 	m.setBusy(false)
 	m.layout().syncViewport()
 
@@ -318,11 +318,11 @@ func TestWorktreeReminderBeforeUserFlushRendersOnceInOngoing(t *testing.T) {
 		TranscriptRevision:         10,
 		CommittedEntryCount:        1,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Visibility:  transcript.EntryVisibilityAll,
-			Role:        string(transcript.EntryRoleDeveloperContext),
-			Text:        "The user has moved this conversation into a git worktree.",
-			OngoingText: "Switched worktree to fixes-1.2-part-3: /tmp/fixes-1.2-part-3",
-			MessageType: string(llm.MessageTypeWorktreeMode),
+			Visibility:    transcript.EntryVisibilityAll,
+			Role:          string(transcript.EntryRoleDeveloperContext),
+			Text:          "The user has moved this conversation into a git worktree.",
+			CondensedText: "Switched worktree to fixes-1.2-part-3: /tmp/fixes-1.2-part-3",
+			MessageType:   string(llm.MessageTypeWorktreeMode),
 		}},
 	}, true).cmd
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
@@ -340,7 +340,7 @@ func TestWorktreeReminderBeforeUserFlushRendersOnceInOngoing(t *testing.T) {
 	if len(m.transcriptEntries) != 2 {
 		t.Fatalf("transcript entries = %+v, want worktree reminder then user", m.transcriptEntries)
 	}
-	if got := strings.TrimSpace(m.transcriptEntries[0].OngoingText); got != "Switched worktree to fixes-1.2-part-3: /tmp/fixes-1.2-part-3" {
+	if got := strings.TrimSpace(m.transcriptEntries[0].CondensedText); got != "Switched worktree to fixes-1.2-part-3: /tmp/fixes-1.2-part-3" {
 		t.Fatalf("worktree ongoing text = %q", got)
 	}
 	if got := m.transcriptEntries[1].Text; got != "typed after switch" {
@@ -830,8 +830,8 @@ func TestProjectedCommittedConversationUpdatedRequestsHydrationOnlyOnContinuityL
 	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedConversation {
 		t.Fatalf("committed conversation sync cause = %q, want %q", refresh.syncCause, runtimeTranscriptSyncCauseCommittedConversation)
 	}
-	if refresh.req.Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("committed conversation request window = %q, want ongoing_tail", refresh.req.Window)
+	if refresh.req.Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("committed conversation request window = %q, want recent_tail", refresh.req.Window)
 	}
 }
 
@@ -961,8 +961,8 @@ func TestProjectedCommittedGapRequestsExplicitCommittedGapHydration(t *testing.T
 	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedGap {
 		t.Fatalf("committed gap sync cause = %q, want %q", refresh.syncCause, runtimeTranscriptSyncCauseCommittedGap)
 	}
-	if refresh.req.Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("committed gap request window = %q, want ongoing_tail", refresh.req.Window)
+	if refresh.req.Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("committed gap request window = %q, want recent_tail", refresh.req.Window)
 	}
 }
 

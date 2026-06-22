@@ -22,23 +22,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
 - [x] `TD-010` [P1] `shared/serverapi` mixes wire DTOs with server-owned service interfaces and headless runtime execution.
 
-  `shared/serverapi` defines request/response DTOs, validation, errors, 18 `*Service` interfaces, and concrete service behavior in one shared package. Examples include `shared/serverapi/runtime_control.go` defining `RuntimeControlService`, `shared/serverapi/session_view.go` defining `SessionViewService`, and `shared/serverapi/project_view.go` defining `ProjectViewService`. `shared/serverapi/run_prompt.go` goes further by defining `PromptSessionRuntime`, `HeadlessPromptLauncher`, concrete `PromptService`, `NewPromptService`, and `(*PromptService).RunPrompt`, which trims request input, prepares a runtime, applies timeout policy, submits the prompt, logs dropped runtime events, closes the runtime handle, and returns partial results on run errors. `shared/client` mirrors `shared/serverapi` with 16 matching non-test filenames such as `runtime_control.go`, `session_view.go`, `project_view.go`, and `worktree.go`.
-
-  Shared API contracts carry server execution policy and runtime lifecycle seams instead of staying as boundary-safe wire contracts. This makes loopback/embedded mechanics influence the shared protocol layer, lets server-owned behavior bypass server package ownership, and makes it harder to tell whether a change belongs to transport DTOs, server services, or client bindings.
-
-  Remediation task: split shared wire contracts from server-owned service composition. Keep serializable request/response structs, validation helpers, typed wire errors, and route metadata in `shared/serverapi` or a generated contract package. Move service implementations such as `PromptService` and runtime-facing interfaces such as `PromptSessionRuntime` and `HeadlessPromptLauncher` into server-owned packages. If loopback clients need in-process service interfaces, generate or declare those interfaces from the authoritative route contract in a dedicated boundary package that contains no execution policy.
-
-  Regression prevention must include package-boundary tests that fail when concrete service implementations, runtime handles, lifecycle orchestration, logging policy, timeout policy, or close semantics are added to `shared/serverapi`. Route-contract tests must still prove every shared request/response pair has matching remote and loopback bindings, so removing server-owned behavior from `shared/serverapi` does not reintroduce endpoint drift.
-
 - [x] `TD-011` [P1] `shared/clientui` contained frontend reducer behavior instead of only client-facing DTOs.
-
-  Resolved by deleting `shared/clientui/runtime_events.go` and moving mutable frontend state, reducer result types, input-submission lifecycle, transcript-sync commands, assistant/reasoning stream commands, background notice shaping, and reducer behavior into CLI-owned `cli/app/internal/runtimestate`.
-
-  `shared/clientui` now remains a wire-safe DTO/read-model package for events, lifecycles, transcript/page requests, snapshots, and normalization helpers. `cli/app` consumes `runtimestate` for pending-input mutation, draft clearing, pending injected messages, prompt history updates, reasoning stream/header presentation, activity transitions, transcript sync reasons, background process refreshes, and transient background notices.
-
-  Regression prevention lives in `shared/architecture.TestSharedClientUIRemainsDTOOnly`, which rejects reducer functions, known frontend state/presentation type names, reducer result types, presentation command types, unapproved `*State` holders, runtime-event policy helpers, and stateful helper names in production `shared/clientui`.
-
-  Reducer tests moved to `cli/app/internal/runtimestate` and cover user-message flush, input-submission lock/unlock, run state start/stop/goal/invalid transitions, stream gaps/recovery syncs, assistant append/reset, reasoning delta/reset/run-stop clears, compaction completion, and background process completion/notice generation. `cli/app/internal/runtimestate.TestPackageImportsOnlyClientUIDTOs` keeps the reducer package dependency narrow to stdlib plus `core/shared/clientui`.
 
 - [x] `TD-012` [P1] Session read models branch between live runtime and dormant persistence in each query.
 
@@ -52,15 +36,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
   Regression prevention must include table tests for interactive and headless startup across configured remote available/unavailable, incompatible capabilities, unregistered workspace, remote workspace selection, daemon launch success/failure, embedded fallback, auth bootstrap required, and cleanup on partial failures. Tests must assert the same target-resolution policy is used by both entrypoints where product decisions require parity, and import-boundary checks must prevent UI files from reaching directly into server composition to bypass the attachment service.
 
-- [ ] `TD-014` [P1] Legacy compatibility branches are permanent runtime behavior without schema-version ownership or sunset criteria.
-
-  Compatibility logic is spread across runtime, session, tools, and cache-warning code. `server/runtime/history_replacement.go` defines `legacyHistoryReplacementEngineReviewerRollback = "reviewer_rollback"` and `decodePersistedHistoryReplacementPayload` treats those `history_replaced` events as ignored legacy no-ops. The same decoder is invoked by `server/runtime/transcript_projector.go`, `server/runtime/persisted_event_entries.go`, and `server/runtime/message_lifecycle.go`. `server/session/prompt_history.go` rebuilds prompt history from legacy `message` events until the first `prompt_history` event. `shared/transcript/cache_warning.go` retains `CacheWarningReasonCompaction` for persisted legacy warnings. `server/tools/contract.go` uses `fallbackToolCallMeta` when persisted or runtime tool names cannot be resolved. Tests exercise these branches in files including `server/runtime/engine_part6_test.go`, `server/runtime/engine_part12_test.go`, `server/runtime/persisted_transcript_scan_test.go`, `server/session/store_test.go`, and `cli/tui/detail_compact_test.go`. `docs/dev/specs/tui-transcript.md` explicitly allows some legacy no-ops, while `docs/dev/specs/core-runtime-tools.md` states that incomplete migration paths should be removed rather than preserved with compatibility shims.
-
-  Legacy compatibility is not isolated behind a persistence-version adapter, so active runtime replay, dormant transcript projection, fork logic, prompt history, cache warning rendering, and tool transcript rendering all carry permanent special cases. New transcript or persistence changes must preserve undocumented legacy paths by convention, increasing regression risk and making it hard to tell whether a branch is still required for real user data or only for old tests.
-
-  Remediation task: define explicit persisted schema/version ownership for session events, transcript entries, tool-call metadata, cache warnings, prompt history, and history replacement. Move legacy decoding into versioned migration/read adapters with documented support policy and operator-visible migration notes. For each existing legacy branch, either migrate affected persisted data to the current shape, keep a narrowly scoped versioned adapter because current specs require runtime tolerance, or delete the branch after a documented breaking-change decision. Runtime hot paths and current-format projection code must consume normalized current-format structures, not carry legacy string checks inline.
-
-  Regression prevention must include tests that fail when new compatibility branches are added outside versioned migration/read adapters, when legacy events are accepted without a documented schema version and support policy, or when current-format replay/projection depends on legacy string constants. Migration tests must cover representative old sessions for reviewer rollback no-ops, prompt history reconstruction, cache warnings, and tool metadata fallback, and must prove either successful normalized migration or an explicit diagnostic for unsupported legacy data.
+- [x] `TD-014` [P1] Legacy compatibility branches are permanent runtime behavior without schema-version ownership or sunset criteria.
 
 - [x] `TD-015` [P0] Runtime and UI lifecycle states are encoded as parallel booleans that permit invalid combinations.
 
@@ -249,6 +225,66 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
   Remediation task: add an authoritative Go-to-TypeScript GUI contract drift check. Options include generated JSON fixtures from Go DTO examples consumed by Vitest, generated schemas from the shared route contract, or a small contract manifest that enumerates GUI-used methods and validates request/response shapes in both languages. Keep GUI feature components consuming adapted view models rather than raw DTOs.
 
   Regression prevention must include CI freshness checks that fail on dirty generated fixtures/schemas, coverage for every GUI-used RPC method, negative tests for missing/extra/renamed fields, and architecture lint preserving the adapter boundary.
+
+- [ ] `TD-042` [P1] Workflow subsystem files concentrate graph, lifecycle, view, and DTO responsibilities.
+
+  The workflow stack carries several oversized multi-responsibility files. `server/workflowview/service.go` is 2216 LoC and exposes nine projection methods on one `Service` covering definition reading, board rendering, attention list assembly, transcript pagination, and run-state projection. `shared/serverapi/workflow.go` is 1916 LoC and defines 147 structs with 48 `Validate() error` methods in one package, mixing wire DTOs, request validation, and workflow domain entities such as nodes, edges, and transition groups. `server/workflowstore/store.go` is 1231 LoC and guards graph mutations (`AddNode`, `UpdateNode`, `AddNodeGroup`, `AddEdge`), run/task lifecycle, and event publishing (`PublishWorkflowEvent`) behind one `eventMu sync.RWMutex`. `server/workflowsvc/service.go` is 1278 LoC and threads collaborators `taskWorktreeEnsurer`, `taskRuntimeCanceler`, `schedulerNotifier`, `pendingPromptResponder`, and `transitionApprover` through one request-routing service. `server/workflowrunner/starter.go` is 1025 LoC and owns per-run goroutine lifecycle through a cancel map, task map, and wait group.
+
+  Workflow changes require synchronized edits across DTO/validation, graph store, lifecycle store, view projections, and run execution, and the single-file concentration makes graph mutation, run lifecycle, and read-model rendering hard to test or reason about independently. Wire types, validation, and domain entities sharing one package also blurs the transport boundary the rest of the server keeps separate.
+
+  Remediation task: decompose the workflow subsystem along its existing seams. Split `serverapi/workflow.go` into wire request/response types, request validation, and a domain entity package so transport types stop carrying domain modeling. Split `workflowstore/store.go` into a graph store (node/edge/group mutations) and a run store (run/task/event lifecycle) with explicit ownership of event publishing. Split `workflowsvc/service.go` into CRUD, run execution, and attention/approval services consuming narrow collaborator interfaces. Split `workflowview/service.go` into definition, board, attention, and transcript projection services. Keep `workflowrunner` goroutine ownership behind one run-lifecycle coordinator.
+
+  Regression prevention must include behavior-preserving tests for graph mutation, run/task lifecycle, attention assembly, transcript pagination, and run-state projection that survive the split unchanged, plus a size/coupling guard for the workflow packages. Validation tests must prove request invariants are enforced after wire/domain separation, and import-boundary checks must fail if wire DTO packages re-absorb domain entities or view projection logic.
+
+- [ ] `TD-043` [P1] `server/metadata/store.go` mixes workspace, worktree, session, project, and sequence domains in one store.
+
+  `server/metadata/store.go` is 2283 LoC and the largest production file. One `Store` exposes 51 methods spanning workspace binding (`EnsureWorkspaceBinding`, `ResolveWorkspacePath`, `RegisterWorkspaceBinding`, `RebindWorkspace`), worktree records (`UpsertWorktreeRecord`, `GetWorktreeRecordByID`, `DeleteWorktreeRecordByID`, `ListWorktreeRecordsByWorkspaceID`), session execution targeting (`UpdateSessionExecutionTargetByID`, `RetargetSessionWorkspace`, `DeleteSessionRecordByID`), project lifecycle (`CreateProjectForWorkspace`, `DeleteProject`, `UnlinkProjectWorkspace`, `AttachWorkspaceToProject`), task sequence allocation (`AllocateProjectTaskSequence`), and project read-model listings (`ListProjects`, `ListProjectWorkspaces`, `GetProjectOverview`). Helper closures and binding-recovery logic such as `registerWorkspaceBindingConverged` and `recoverWorkspaceBindingAfterCanonicalRootConflict` share the same file.
+
+  Every metadata change touches one dense file that owns unrelated transactional concerns, so workspace binding, worktree records, session targeting, project lifecycle, and read-model assembly cannot be reviewed, tested, or evolved in isolation. Adding a new metadata domain extends an already-overloaded store rather than a focused boundary.
+
+  Remediation task: split the store into domain-scoped files or sub-stores for workspace binding, worktree records, session execution targets, project lifecycle, and sequence allocation, keeping only `Open`/`Close`/`DB`/`Queries` accessors and shared transaction wiring in the root store as thin routing. Preserve current transaction boundaries and binding-recovery semantics during extraction.
+
+  Regression prevention must include behavior-preserving tests for binding resolution, worktree record CRUD, session retargeting, project create/delete/unlink/rebind, and task sequence allocation that pass unchanged after the split, plus a size/coupling guard for `server/metadata`. Tests must fail if a domain operation regresses its transaction or recovery behavior during decomposition.
+
+- [ ] `TD-044` [P1] `server/worktree/service.go` concentrates git, locking, targeting, and lifecycle responsibilities.
+
+  `server/worktree/service.go` is 1770 LoC. One `Service` owns a `GitInspector`, two mutexes (`workspaceMu sync.Mutex` and `mu sync.Mutex`), git worktree operations through `s.git.ResolveCreateTarget`/`Add`/`Prune`/`Remove`/`DirtyFileCount`/`deleteBranch`, execution-target syncing, and worktree creation/removal/deletability through `EnsureTaskWorktree`, `DeleteTaskWorktree`, and `EnsureTaskWorktreeDeletable`. Git inspection, workspace mutation locking, target synchronization, and lifecycle management are interleaved in one type.
+
+  The service is a central worktree authority, so combining git subprocess behavior, coarse workspace locking, and lifecycle orchestration in one file makes lock scope and failure handling hard to reason about and raises the risk that a git or locking change silently affects unrelated lifecycle paths.
+
+  Remediation task: separate git inspection, workspace-mutation locking, execution-target synchronization, and worktree lifecycle into focused collaborators with explicit lock ownership, keeping the public service as orchestration over those components. Preserve current creation/removal semantics and locking order during extraction.
+
+  Regression prevention must include behavior-preserving tests for worktree create, remove, deletability, and target sync against fake git runners, plus concurrency tests proving lock scope does not serialize unrelated operations. A size/coupling guard must flag regrowth of the service file.
+
+- [ ] `TD-045` [P1] `server/sessionruntime/service.go` guards multiple lifecycles under one mutex and mixes activation concerns.
+
+  `server/sessionruntime/service.go` is 1461 LoC. One `mu sync.Mutex` guards `handles`, `idleTimers`, `runningTimers`, and `recoveredWarning`, even though these have different lifetimes: handles live for the runtime session, idle timers for seconds, and the recovered warning is set once. `runtimeHandle` additionally owns `controllerLeaseID` and a `*runtimeTakeover`, and `ActivateSessionRuntime` interleaves existing-activation claim, primary-run lease acquisition (`acquirePrimaryRunLease`), new-activation claim, takeover semantics, and best-effort lease release in one method.
+
+  Holding one lock across runtime handle lifecycle, idle-timer churn, lease tracking, and startup warning state makes lock ownership opaque and couples unrelated control flows, so activation, takeover, and idle-unload behavior are hard to test or evolve without risking cross-flow regressions.
+
+  Remediation task: split runtime handle lifecycle, lease tracking, takeover semantics, and idle-timer management into focused components with their own synchronization, and decompose `ActivateSessionRuntime` into claim/lease/takeover stages with explicit ownership. Preserve current activation, takeover, and lease-release semantics during extraction.
+
+  Regression prevention must include tests for activation, takeover, lease release, and idle unload under concurrency that prove finer-grained synchronization preserves behavior, plus lock-scope or size guards that fail if one mutex again guards unrelated lifecycles.
+
+- [ ] `TD-046` [P1] Compaction combines threshold policy, token counting, and request execution in one engine subsystem.
+
+  `server/runtime/compaction.go` (772 LoC) and `server/runtime/compaction_utils.go` (264 LoC) attach compaction policy and execution directly to `Engine`. The same subsystem owns threshold policy (`shouldAutoCompactWithContext`, `ShouldCompactBeforeUserMessage`, `autoCompactPrecisionMarginForLimit`), token counting and caching (`currentInputTokensPrecisely`, `requestInputTokensPreciselyTracked`, `estimateTokensFromBytes`, `storePreciseTokenCount`), provider capability checks (`providerCapabilities`, `preciseInputTokenCountSupported`), request construction (`buildRequestWithoutPromptRefresh`), and remote-output handling (`sanitizeRemoteCompactionOutput`).
+
+  Compaction policy cannot be tested without model execution because thresholds, token estimation, provider capability checks, and request assembly all live on the engine. This couples policy decisions to live model calls and makes it harder to evolve compaction triggering independently of execution.
+
+  Remediation task: introduce an explicit compaction planner/executor boundary so threshold policy can be exercised without model execution, and move token estimation, provider-capability resolution, and request construction into separate components consumed by the planner. Keep the existing steer/queue compaction integration (see TD-019) and persisted status emission intact.
+
+  Regression prevention must include planner tests that exercise threshold and pre-message decisions with fake token counts and provider capabilities, plus executor tests for request construction and remote-output handling, proving policy and execution can be tested in isolation.
+
+- [ ] `TD-047` [P1] Reviewer pipeline lives in engine helpers and classifies responses by message content.
+
+  `server/runtime/engine_reviewer_helpers.go` (445 LoC) owns reviewer request building, meta-context classification, transcript formatting, and response parsing on `Engine`. It classifies and formats responses from content rather than typed protocol: `sanitizeReviewerSuggestions` matches `reviewerNoopToken` via `strings.EqualFold`, `parseReviewerSuggestionsObject` parses suggestion text, `reviewerStatusText` builds operator-facing status from literal phrases such as "Supervisor ran:", and `splitMetaContextItems`/`buildReviewerRequestItemsWithBuilder` reshape transcript items for the reviewer pass.
+
+  Concentrating reviewer orchestration, classification, and formatting in one engine helper makes the reviewer pipeline hard to test in isolation, and content-based classification violates the repository rule against deriving information from substring/string matching, so reviewer protocol changes risk silent misclassification.
+
+  Remediation task: extract reviewer logic into a `server/runtime/reviewer/` subpackage with a typed pipeline: orchestration, request/response formatting, meta-context classification, and transcript formatting as separate units. Replace content-based suggestion and status detection with a typed reviewer protocol response, coordinating with the legacy-shim sunset in TD-014 so no permanent string-based fallback remains.
+
+  Regression prevention must include unit tests for the reviewer pipeline stages and typed protocol parsing that do not depend on literal phrasing, and a guard that fails if reviewer classification reintroduces substring-based detection of suggestions, no-op tokens, or status.
 
 ## P2 Findings
 

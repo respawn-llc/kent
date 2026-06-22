@@ -310,12 +310,12 @@ func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenOngoin
 	m.transcriptLiveDirty = true
 
 	runtimeOnly := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-		OngoingError: "background continuation failed",
+		SessionID:      "session-1",
+		Revision:       10,
+		Offset:         0,
+		TotalEntries:   1,
+		Entries:        []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+		StreamingError: "background continuation failed",
 	}
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, runtimeOnly, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
@@ -336,12 +336,12 @@ func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenOngoin
 	m.windowSizeKnown = true
 
 	baseline := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-		OngoingError: "background continuation failed",
+		SessionID:      "session-1",
+		Revision:       10,
+		Offset:         0,
+		TotalEntries:   1,
+		Entries:        []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+		StreamingError: "background continuation failed",
 	}
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
@@ -349,12 +349,12 @@ func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenOngoin
 	m.transcriptLiveDirty = true
 
 	cleared := clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		Offset:       0,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-		OngoingError: "",
+		SessionID:      "session-1",
+		Revision:       10,
+		Offset:         0,
+		TotalEntries:   1,
+		Entries:        []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+		StreamingError: "",
 	}
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, cleared, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
@@ -472,11 +472,11 @@ func TestApplyProjectedTranscriptEntriesUsesTailOffsetWhileViewingOlderDetailPag
 	m.termHeight = 20
 	m.windowSizeKnown = true
 
-	ongoingTail := clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}
+	recentTail := clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}
 	for i := 0; i < 200; i++ {
-		ongoingTail.Entries = append(ongoingTail.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
+		recentTail.Entries = append(recentTail.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
 	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, ongoingTail, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, recentTail, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 
@@ -492,8 +492,8 @@ func TestApplyProjectedTranscriptEntriesUsesTailOffsetWhileViewingOlderDetailPag
 	if m.view.TranscriptBaseOffset() != 0 {
 		t.Fatalf("expected detail view to remain on older page, got base=%d", m.view.TranscriptBaseOffset())
 	}
-	if got := m.transcriptBaseOffset; got != ongoingTail.Offset {
-		t.Fatalf("live tail base offset = %d, want %d", got, ongoingTail.Offset)
+	if got := m.transcriptBaseOffset; got != recentTail.Offset {
+		t.Fatalf("live tail base offset = %d, want %d", got, recentTail.Offset)
 	}
 
 	appended := []clientui.ChatEntry{{Role: "assistant", Text: "tail 500"}, {Role: "assistant", Text: "tail 501"}}
@@ -572,14 +572,14 @@ func TestStartupSeedsFromRuntimeClientTranscriptAccessorBeforeBoundedSync(t *tes
 	if refreshed.syncCause != runtimeTranscriptSyncCauseBootstrap {
 		t.Fatalf("startup bounded sync cause = %q, want %q", refreshed.syncCause, runtimeTranscriptSyncCauseBootstrap)
 	}
-	if refreshed.req.Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup transcript request window = %q, want ongoing_tail", refreshed.req.Window)
+	if refreshed.req.Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("startup transcript request window = %q, want recent_tail", refreshed.req.Window)
 	}
 	if got, want := len(client.loadRequests), 1; got != want {
 		t.Fatalf("load request count = %d, want %d", got, want)
 	}
-	if client.loadRequests[0].Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup load request window = %q, want ongoing_tail", client.loadRequests[0].Window)
+	if client.loadRequests[0].Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("startup load request window = %q, want recent_tail", client.loadRequests[0].Window)
 	}
 
 	next, followUp := updated.Update(refreshed)
@@ -809,7 +809,7 @@ func TestApplyRuntimeTranscriptPagePreservesNonEmptyAuthoritativeOngoingEvenWhen
 			Text:  "final",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-		Ongoing: "final",
+		Streaming: "final",
 	}
 
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone); cmd != nil {
@@ -846,7 +846,7 @@ func TestApplyRuntimeTranscriptPageAllowsEqualRevisionToClearDuplicateCommittedA
 			Text:  "final",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-		Ongoing: "",
+		Streaming: "",
 	}
 
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone); cmd != nil {
@@ -880,7 +880,7 @@ func TestApplyRuntimeTranscriptPagePreservesAuthoritativeNonEmptyOngoingOverStal
 			Text:  "final",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-		Ongoing: "final continuation",
+		Streaming: "final continuation",
 	}
 
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone); cmd != nil {

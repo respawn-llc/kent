@@ -13,7 +13,7 @@ const interruptionUserVisibleText = "You interrupted"
 
 func isVisibleInOngoing(entry TranscriptEntry) bool {
 	switch entryVisibility(entry) {
-	case transcript.EntryVisibilityDetailOnly:
+	case transcript.EntryVisibilityVerbose:
 		return false
 	default:
 		return true
@@ -30,10 +30,10 @@ func entryVisibility(entry TranscriptEntry) transcript.EntryVisibility {
 func defaultEntryVisibilityForRole(role TranscriptRole) transcript.EntryVisibility {
 	switch role {
 	case TranscriptRoleThinking, TranscriptRoleThinkingTrace, TranscriptRoleReasoning, TranscriptRoleCompactionSummary, TranscriptRoleDeveloperContext, TranscriptRoleManualCompactionCarryover, TranscriptRoleInterruption, TranscriptRoleError, TranscriptRoleWarning, TranscriptRoleCacheWarning:
-		return transcript.EntryVisibilityDetailOnly
+		return transcript.EntryVisibilityVerbose
 	default:
 		if transcriptMessageStyleForIntent(role.DisplayIntent("")) == transcriptMessageStyleWarning {
-			return transcript.EntryVisibilityDetailOnly
+			return transcript.EntryVisibilityVerbose
 		}
 		return transcript.EntryVisibilityAll
 	}

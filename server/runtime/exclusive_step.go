@@ -78,6 +78,9 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 			status = RunStatusFailed
 		}
 		snapshot := s.snapshotWithFinishedAt(finishedAt, status)
+		if status != RunStatusCompleted {
+			_ = s.engine.steer(stepID, steerClearStreamingStateIntent())
+		}
 		s.end()
 		if options.EmitRunState {
 			state := &RunState{Lifecycle: IdleRunLifecycle()}

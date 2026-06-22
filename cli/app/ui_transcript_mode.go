@@ -11,7 +11,7 @@ func (m *uiModel) transcriptRequestForCurrentMode() clientui.TranscriptPageReque
 	if m.view.Mode() == tui.ModeDetail {
 		return m.detailTranscript.requestedPageForDetailEntry()
 	}
-	return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}
+	return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}
 }
 
 func (m *uiModel) maybeRequestDetailTranscriptPage() tea.Cmd {
@@ -57,8 +57,8 @@ func (m *uiModel) primeDetailTranscriptFromCurrentTail() {
 	if m.detailTranscript.loaded {
 		if m.shouldPreserveLoadedDetailWindowOnPrime(page) {
 			m.detailTranscript.totalEntries = max(m.detailTranscript.totalEntries, page.TotalEntries)
-			m.detailTranscript.ongoing = page.Ongoing
-			m.detailTranscript.ongoingError = page.OngoingError
+			m.detailTranscript.ongoing = page.Streaming
+			m.detailTranscript.ongoingError = page.StreamingError
 			return
 		}
 		m.detailTranscript.syncTail(page)
@@ -73,17 +73,17 @@ func (m *uiModel) shouldPreserveLoadedDetailWindowOnPrime(page clientui.Transcri
 
 func (m *uiModel) currentDetailTailPage() clientui.TranscriptPage {
 	page := clientui.TranscriptPage{
-		Offset:       m.transcriptBaseOffset,
-		TotalEntries: m.transcriptTotalEntries,
-		Ongoing:      m.view.OngoingStreamingText(),
-		OngoingError: m.view.OngoingErrorText(),
+		Offset:         m.transcriptBaseOffset,
+		TotalEntries:   m.transcriptTotalEntries,
+		Streaming:      m.view.OngoingStreamingText(),
+		StreamingError: m.view.OngoingErrorText(),
 	}
 	for _, entry := range committedTranscriptEntriesForApp(m.transcriptEntries) {
 		page.Entries = append(page.Entries, clientui.ChatEntry{
 			Visibility:        entry.Visibility,
 			Role:              string(entry.Role),
 			Text:              entry.Text,
-			OngoingText:       entry.OngoingText,
+			CondensedText:     entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,

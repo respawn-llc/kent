@@ -492,7 +492,7 @@ func TestInitialInputSeedsDraftWithoutAutoSubmit(t *testing.T) {
 
 func TestReviewerStatusEndToEnd_VerboseSuggestionsIssuedAndStatusConcise(t *testing.T) {
 	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{})
-	eng.AppendCommittedEntryWithOngoingText("reviewer_suggestions", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text")
+	eng.AppendCommittedEntryWithCondensedText("reviewer_suggestions", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text")
 	eng.AppendCommittedEntry("reviewer_status", "Supervisor ran: 2 suggestions, no changes applied.")
 
 	m := newProjectedEngineUIModel(eng, WithUITheme("dark"))

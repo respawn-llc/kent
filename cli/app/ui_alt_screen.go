@@ -57,7 +57,7 @@ func (m *uiModel) transitionTranscriptModeWithOptions(options transcriptModeTran
 		m.restorePrimaryInputMode()
 	}
 	if prevMode != nextMode && nextMode == tui.ModeOngoing {
-		m.syncOngoingTailViewFromRuntimeState()
+		m.syncRecentTailViewFromRuntimeState()
 	}
 	if prevMode != nextMode {
 		m.invalidateNativeResizeReplay()
@@ -78,7 +78,7 @@ func (m *uiModel) transitionTranscriptModeWithOptions(options transcriptModeTran
 	return sequenceCmds(clearCmd, transitionCmd, nativeReplayCmd, detailLoadCmd)
 }
 
-func (m *uiModel) syncOngoingTailViewFromRuntimeState() {
+func (m *uiModel) syncRecentTailViewFromRuntimeState() {
 	if m == nil || !m.hasRuntimeClient() {
 		return
 	}

@@ -18,8 +18,8 @@ func (m *uiModel) localRuntimeSessionView() clientui.RuntimeSessionView {
 			CommittedEntryCount: transcript.TotalEntries,
 		},
 		Chat: clientui.ChatSnapshot{
-			Entries: transcript.Entries,
-			Ongoing: transcript.Ongoing,
+			Entries:   transcript.Entries,
+			Streaming: transcript.Streaming,
 		},
 	}
 }

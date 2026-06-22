@@ -452,7 +452,7 @@ func TestDeferredNativeReplayFlushesBackgroundNoticeOnDetailExit(t *testing.T) {
 			cmd := m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{
 				Entries: []runtime.ChatEntry{
 					{Role: "assistant", Text: "seed"},
-					{Role: "system", Text: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone", OngoingText: "Background shell 1000 completed (exit 0)"},
+					{Role: "system", Text: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone", CondensedText: "Background shell 1000 completed (exit 0)"},
 				},
 			})
 			if cmd != nil {

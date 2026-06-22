@@ -34,7 +34,7 @@ func TestDormantTranscriptCacheReusesEntryForUnchangedRevision(t *testing.T) {
 			revision:                     meta.LastSequence,
 			totalEntries:                 7,
 			lastCommittedAssistantAnswer: "done",
-			ongoingTail:                  dormantTailWindow(meta.SessionID, 2, 7, []string{"tail-1", "tail-2"}),
+			recentTail:                   dormantTailWindow(meta.SessionID, 2, 7, []string{"tail-1", "tail-2"}),
 		}, nil
 	})
 
@@ -221,7 +221,7 @@ func TestServiceUsesDormantCacheForMainViewAndTailCoveredPages(t *testing.T) {
 			revision:                     meta.LastSequence,
 			totalEntries:                 600,
 			lastCommittedAssistantAnswer: "done",
-			ongoingTail:                  dormantTailWindow(meta.SessionID, 100, 600, buildTailTexts(100, 500)),
+			recentTail:                   dormantTailWindow(meta.SessionID, 100, 600, buildTailTexts(100, 500)),
 		}, nil
 	})
 

@@ -98,7 +98,7 @@ func loadedTranscriptTailEnd(m *uiModel) int {
 	return end
 }
 
-func (m *uiModel) truncatePendingOngoingTailBeforeSuffix(startEntryCount int) {
+func (m *uiModel) truncatePendingRecentTailBeforeSuffix(startEntryCount int) {
 	if m == nil {
 		return
 	}
@@ -147,14 +147,14 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 		if page.Offset > expectedStart {
 			return m.requestRuntimeCommittedGapSync()
 		}
-		m.runtimeAdapter().applyAuthoritativeOngoingTailPage(page, entries, false)
+		m.runtimeAdapter().applyAuthoritativeRecentTailPage(page, entries, false)
 		if m.view.Mode() == tui.ModeOngoing {
 			m.forwardToView(tui.SetConversationMsg{
 				BaseOffset:   page.Offset,
 				TotalEntries: page.TotalEntries,
 				Entries:      entries,
-				Ongoing:      page.Ongoing,
-				OngoingError: page.OngoingError,
+				Ongoing:      page.Streaming,
+				OngoingError: page.StreamingError,
 			})
 		}
 		return m.syncNativeHistoryFromTranscript()
@@ -170,7 +170,7 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 		}
 		return nil
 	}
-	m.truncatePendingOngoingTailBeforeSuffix(expectedStart)
+	m.truncatePendingRecentTailBeforeSuffix(expectedStart)
 	if shouldClearAssistantStreamForCommittedTranscriptEntries(entries, m.view.OngoingStreamingText()) {
 		m.clearAssistantStreamForCommittedAppend()
 	}

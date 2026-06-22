@@ -411,7 +411,7 @@ func TestApplyRuntimeTranscriptPagePromotesHydratedStreamingStableLinesWithoutPr
 			Role: "user",
 			Text: "try again",
 		}},
-		Ongoing: streamText,
+		Streaming: streamText,
 	}, clientui.TranscriptRecoveryCauseNone)
 	if cmd == nil {
 		t.Fatal("expected runtime transcript page apply to promote hydrated streaming stable lines")

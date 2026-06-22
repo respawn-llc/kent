@@ -112,7 +112,7 @@ func TestSyncConversationFromEngineRetriesAfterRefreshError(t *testing.T) {
 	}
 }
 
-func TestApplyProjectedTranscriptPageReplacesOngoingTailWindow(t *testing.T) {
+func TestApplyProjectedTranscriptPageReplacesRecentTailWindow(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	seed := []tui.TranscriptEntry{
 		{Role: "user", Text: "prompt"},
@@ -207,7 +207,7 @@ func TestApplyRuntimeTranscriptPageInDetailModeDoesNotRebuildNativeHistoryState(
 	for i := 0; i < 200; i++ {
 		ongoingPage.Entries = append(ongoingPage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
 	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, ongoingPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, ongoingPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 	baselineProjection := m.nativeProjection
@@ -291,7 +291,7 @@ func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenCommittedT
 		Offset:       0,
 		TotalEntries: 1,
 		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "done", Phase: string(llm.MessagePhaseFinal)}},
-		Ongoing:      "",
+		Streaming:    "",
 	}
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 	if got := m.view.OngoingStreamingText(); got != "" {
@@ -327,7 +327,7 @@ func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenPageCommit
 			{Role: "assistant", Text: "done", Phase: string(llm.MessagePhaseFinal)},
 			{Role: "reviewer_status", Text: "Supervisor ran: no changes."},
 		},
-		Ongoing: "",
+		Streaming: "",
 	}
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 	if got := m.view.OngoingStreamingText(); got != "" {
@@ -371,7 +371,7 @@ func TestApplyRuntimeTranscriptPageRejectsSameRevisionEmptyOngoingWhenOnlyOlderA
 			{Role: "assistant", Text: "done", Phase: string(llm.MessagePhaseFinal)},
 			{Role: "assistant", Text: "different", Phase: string(llm.MessagePhaseFinal)},
 		},
-		Ongoing: "",
+		Streaming: "",
 	}
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 	if got := m.view.OngoingStreamingText(); got != "done" {

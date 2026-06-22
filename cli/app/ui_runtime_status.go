@@ -322,7 +322,7 @@ func (m *uiModel) localRuntimeTranscript() clientui.TranscriptPage {
 			Visibility:        entry.Visibility,
 			Role:              string(entry.Role),
 			Text:              entry.Text,
-			OngoingText:       entry.OngoingText,
+			CondensedText:     entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,
@@ -343,6 +343,6 @@ func (m *uiModel) localRuntimeTranscript() clientui.TranscriptPage {
 		TotalEntries:          totalEntries,
 		Offset:                m.transcriptBaseOffset,
 		Entries:               entries,
-		Ongoing:               m.view.OngoingStreamingText(),
+		Streaming:             m.view.OngoingStreamingText(),
 	}
 }

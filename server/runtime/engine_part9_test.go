@@ -531,7 +531,7 @@ func TestStreamingNoopFinalClearsLiveAssistantDelta(t *testing.T) {
 	if msg.Content != "" {
 		t.Fatalf("assistant content = %q, want empty", msg.Content)
 	}
-	if ongoing := strings.TrimSpace(eng.ChatSnapshot().Ongoing); ongoing != "" {
+	if ongoing := strings.TrimSpace(eng.ChatSnapshot().Streaming); ongoing != "" {
 		t.Fatalf("expected ongoing cleared after noop final, got %q", ongoing)
 	}
 
@@ -585,7 +585,7 @@ func TestStreamingDeltasDoNotEmitConversationSnapshotEvents(t *testing.T) {
 			defer mu.Unlock()
 			events = append(events, evt)
 			if evt.Kind == EventConversationUpdated && eng != nil {
-				if strings.TrimSpace(eng.ChatSnapshot().Ongoing) != "" {
+				if strings.TrimSpace(eng.ChatSnapshot().Streaming) != "" {
 					conversationWithLive++
 				}
 			}
@@ -622,7 +622,7 @@ func TestChatSnapshotOngoingTracksStreamingAndClearsOnCommit(t *testing.T) {
 				return
 			}
 			mu.Lock()
-			deltaSnapshots = append(deltaSnapshots, eng.ChatSnapshot().Ongoing)
+			deltaSnapshots = append(deltaSnapshots, eng.ChatSnapshot().Streaming)
 			mu.Unlock()
 		},
 	})
@@ -643,7 +643,7 @@ func TestChatSnapshotOngoingTracksStreamingAndClearsOnCommit(t *testing.T) {
 	}
 	mu.Unlock()
 
-	if ongoing := strings.TrimSpace(eng.ChatSnapshot().Ongoing); ongoing != "" {
+	if ongoing := strings.TrimSpace(eng.ChatSnapshot().Streaming); ongoing != "" {
 		t.Fatalf("expected ongoing cleared after commit, got %q", ongoing)
 	}
 }

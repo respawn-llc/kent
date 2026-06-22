@@ -306,10 +306,10 @@ func seedPromptCacheContinuityConversation(t *testing.T, engine *Engine) {
 		t.Fatalf("append developer entry: %v", err)
 	}
 	if err := engine.steer("turn-1", steerLocalEntryIntent(storedLocalEntry{
-		Visibility:  transcript.EntryVisibilityAuto,
-		Role:        "warning",
-		Text:        "Prompt cache continuity probe is still running.",
-		OngoingText: "Prompt cache continuity probe is still running.",
+		Visibility:    transcript.EntryVisibilityAuto,
+		Role:          "warning",
+		Text:          "Prompt cache continuity probe is still running.",
+		CondensedText: "Prompt cache continuity probe is still running.",
 	})); err != nil {
 		t.Fatalf("append local entry: %v", err)
 	}
@@ -382,7 +382,7 @@ func captureRuntimeProjection(t *testing.T, engine *Engine) promptCacheProjectio
 	t.Helper()
 	return promptCacheProjection{
 		MainViewJSON:   mustMarshalCanonicalJSON(t, runtimeMainViewComparable(engine)),
-		TranscriptJSON: mustMarshalCanonicalJSON(t, engine.OngoingTailTranscriptWindow(500)),
+		TranscriptJSON: mustMarshalCanonicalJSON(t, engine.RecentTailTranscriptWindow(500)),
 	}
 }
 
@@ -393,7 +393,7 @@ func capturePersistedProjectionFromStore(t *testing.T, store *session.Store) pro
 	scan := mustScanPersistedTranscript(t, store)
 	return promptCacheProjection{
 		MainViewJSON:   mustMarshalCanonicalJSON(t, persistedMainViewComparable(t, store, scan)),
-		TranscriptJSON: mustMarshalCanonicalJSON(t, scan.OngoingTailSnapshot()),
+		TranscriptJSON: mustMarshalCanonicalJSON(t, scan.RecentTailSnapshot()),
 	}
 }
 
@@ -463,7 +463,7 @@ func persistedMainViewComparable(t *testing.T, store *session.Store, scan *Persi
 
 func mustScanPersistedTranscript(t *testing.T, store *session.Store) *PersistedTranscriptScan {
 	t.Helper()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackOngoingTail: true, TailLimit: 500})
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 500})
 	if err := store.WalkEvents(func(evt session.Event) error {
 		return scan.ApplyPersistedEvent(evt)
 	}); err != nil {

@@ -8,12 +8,13 @@ import { safeExternalUrl } from "./externalLinks";
 export type MarkdownTextProps = Readonly<{
   value: string;
   onOpenLink?: (url: string) => void;
+  inline?: boolean;
 }>;
 
-export function MarkdownText({ value, onOpenLink }: MarkdownTextProps) {
+export function MarkdownText({ value, onOpenLink, inline = false }: MarkdownTextProps) {
   return (
     <ReactMarkdown
-      components={markdownComponents(onOpenLink)}
+      components={markdownComponents(onOpenLink, inline)}
       rehypePlugins={[rehypeSanitize]}
       remarkPlugins={[remarkGfm]}
       skipHtml
@@ -23,8 +24,15 @@ export function MarkdownText({ value, onOpenLink }: MarkdownTextProps) {
   );
 }
 
-function markdownComponents(onOpenLink: MarkdownTextProps["onOpenLink"]): Components {
+function markdownComponents(onOpenLink: MarkdownTextProps["onOpenLink"], inline: boolean): Components {
   return {
+    ...(inline
+      ? {
+          p({ children }) {
+            return <span>{children}</span>;
+          },
+        }
+      : {}),
     a({ children, href }) {
       const safeHref = safeExternalUrl(href);
       if (safeHref === undefined) {
@@ -38,6 +46,7 @@ function markdownComponents(onOpenLink: MarkdownTextProps["onOpenLink"]): Compon
               return;
             }
             event.preventDefault();
+            event.stopPropagation();
             onOpenLink(safeHref);
           }}
           rel="noreferrer"

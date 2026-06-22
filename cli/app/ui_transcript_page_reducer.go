@@ -76,14 +76,14 @@ func newRuntimeTranscriptPageState(snapshot runtimeTranscriptPageSnapshot) runti
 func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage, recoveryCause clientui.TranscriptRecoveryCause) runtimeTranscriptPageReduction {
 	pageReq := normalizeRuntimeTranscriptPageRequest(state, req, page)
 	if shouldPreserveLiveAssistantOngoingForRuntimeTranscriptPage(state, pageReq, page) {
-		page.Ongoing = state.liveOngoing
-		page.OngoingError = state.liveOngoingError
+		page.Streaming = state.liveOngoing
+		page.StreamingError = state.liveOngoingError
 	}
 	entries := transcriptEntriesFromPage(page)
-	duplicateCommittedAssistantEnd := authoritativePageDuplicatesCommittedAssistantOngoing(entries, page.Ongoing, state.liveOngoing)
+	duplicateCommittedAssistantEnd := authoritativePageDuplicatesCommittedAssistantOngoing(entries, page.Streaming, state.liveOngoing)
 	if duplicateCommittedAssistantEnd {
-		page.Ongoing = ""
-		page.OngoingError = ""
+		page.Streaming = ""
+		page.StreamingError = ""
 	}
 	preserveLiveReasoning := shouldPreserveLiveReasoningForRuntimeTranscriptPage(state, page)
 	shouldSyncNativeHistory := shouldSyncNativeHistoryForRuntimeTranscriptPage(state, pageReq)
@@ -93,7 +93,7 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 		page:                           page,
 		entries:                        entries,
 		branch:                         runtimeTranscriptPageApplyBranch(state, pageReq),
-		preserveLiveAssistantOngoing:   page.Ongoing == state.liveOngoing && strings.TrimSpace(state.liveOngoing) != "",
+		preserveLiveAssistantOngoing:   page.Streaming == state.liveOngoing && strings.TrimSpace(state.liveOngoing) != "",
 		duplicateCommittedAssistantEnd: duplicateCommittedAssistantEnd,
 		preserveLiveReasoning:          preserveLiveReasoning,
 		shouldSyncNativeHistory:        shouldSyncNativeHistory,
@@ -112,29 +112,29 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 }
 
 func normalizeRuntimeTranscriptPageRequest(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage) clientui.TranscriptPageRequest {
-	if req.Window == clientui.TranscriptWindowDefault && transcriptPageLooksLikeOngoingTail(page) && state.viewMode == tui.ModeOngoing {
-		req.Window = clientui.TranscriptWindowOngoingTail
+	if req.Window == clientui.TranscriptWindowDefault && transcriptPageLooksLikeRecentTail(page) && state.viewMode == tui.ModeOngoing {
+		req.Window = clientui.TranscriptWindowRecentTail
 	}
 	return req
 }
 
 func shouldSyncNativeHistoryForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return req.Window == clientui.TranscriptWindowOngoingTail || req == (clientui.TranscriptPageRequest{})
+	return req.Window == clientui.TranscriptWindowRecentTail || req == (clientui.TranscriptPageRequest{})
 }
 
-func replacesOngoingTailForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return req.Window == clientui.TranscriptWindowOngoingTail || (req == (clientui.TranscriptPageRequest{}) && state.viewMode != tui.ModeDetail)
+func replacesRecentTailForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
+	return req.Window == clientui.TranscriptWindowRecentTail || (req == (clientui.TranscriptPageRequest{}) && state.viewMode != tui.ModeDetail)
 }
 
 func runtimeTranscriptPageApplyBranch(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) string {
-	if replacesOngoingTailForRuntimeTranscriptPage(state, req) {
-		return "ongoing_tail_replace"
+	if replacesRecentTailForRuntimeTranscriptPage(state, req) {
+		return "recent_tail_replace"
 	}
 	return "detail_merge"
 }
 
 func shouldPreserveLiveAssistantOngoingForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage) bool {
-	if replacesOngoingTailForRuntimeTranscriptPage(state, req) {
+	if replacesRecentTailForRuntimeTranscriptPage(state, req) {
 		return false
 	}
 	effectiveRevision, _ := state.effectiveCommittedState()
@@ -142,12 +142,12 @@ func shouldPreserveLiveAssistantOngoingForRuntimeTranscriptPage(state runtimeTra
 		return false
 	}
 	trimmedLiveOngoing := strings.TrimSpace(state.liveOngoing)
-	if trimmedLiveOngoing == "" || strings.TrimSpace(page.Ongoing) != "" {
+	if trimmedLiveOngoing == "" || strings.TrimSpace(page.Streaming) != "" {
 		return false
 	}
 	for idx := len(page.Entries) - 1; idx >= 0; idx-- {
 		entry := page.Entries[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
@@ -179,17 +179,17 @@ func runtimeTranscriptPageReplacementRejectReason(state runtimeTranscriptPageSta
 	if page.Revision < effectiveRevision {
 		return "stale_revision"
 	}
-	if !replacesOngoingTailForRuntimeTranscriptPage(state, req) {
+	if !replacesRecentTailForRuntimeTranscriptPage(state, req) {
 		return ""
 	}
 	if page.Revision == effectiveRevision && page.TotalEntries < effectiveCommittedCount {
 		return "stale_total_entries"
 	}
-	if page.Revision == effectiveRevision && strings.TrimSpace(state.liveOngoing) != "" && strings.TrimSpace(page.Ongoing) == "" {
+	if page.Revision == effectiveRevision && strings.TrimSpace(state.liveOngoing) != "" && strings.TrimSpace(page.Streaming) == "" {
 		if authoritativePageCommitsLiveAssistantOngoing(state, page) {
 			return ""
 		}
-		if authoritativePageDuplicatesCommittedAssistantOngoing(transcriptEntriesFromPage(page), page.Ongoing, state.liveOngoing) {
+		if authoritativePageDuplicatesCommittedAssistantOngoing(transcriptEntriesFromPage(page), page.Streaming, state.liveOngoing) {
 			return ""
 		}
 		if committedTranscriptAlreadyMatchesAssistantOngoing(state.entries, state.liveOngoing) {
@@ -220,7 +220,7 @@ func (state runtimeTranscriptPageState) effectiveCommittedState() (int64, int) {
 
 func authoritativePageCommitsLiveAssistantOngoing(state runtimeTranscriptPageState, page clientui.TranscriptPage) bool {
 	trimmedLiveOngoing := strings.TrimSpace(state.liveOngoing)
-	if trimmedLiveOngoing == "" || strings.TrimSpace(page.Ongoing) != "" {
+	if trimmedLiveOngoing == "" || strings.TrimSpace(page.Streaming) != "" {
 		return false
 	}
 	if len(page.Entries) == 0 {
@@ -230,7 +230,7 @@ func authoritativePageCommitsLiveAssistantOngoing(state runtimeTranscriptPageSta
 	currentEnd := currentStart + len(state.entries)
 	for idx := len(page.Entries) - 1; idx >= 0; idx-- {
 		entry := page.Entries[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
@@ -259,7 +259,7 @@ func committedTranscriptAlreadyMatchesAssistantOngoing(entries []tui.TranscriptE
 	committed := committedTranscriptEntriesForApp(entries)
 	for idx := len(committed) - 1; idx >= 0; idx-- {
 		entry := committed[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if entry.Role != tui.TranscriptRoleAssistant {
@@ -281,7 +281,7 @@ func shouldAcceptEqualRevisionTailReplacement(state runtimeTranscriptPageState, 
 	overlapStart := max(currentStart, pageStart)
 	overlapEnd := min(currentEnd, pageEnd)
 	if overlapStart >= overlapEnd {
-		return pageEnd > currentEnd || state.liveOngoing != page.Ongoing || state.liveOngoingError != page.OngoingError
+		return pageEnd > currentEnd || state.liveOngoing != page.Streaming || state.liveOngoingError != page.StreamingError
 	}
 	hasOverlapDiff := false
 	for absolute := overlapStart; absolute < overlapEnd; absolute++ {
@@ -298,10 +298,10 @@ func shouldAcceptEqualRevisionTailReplacement(state runtimeTranscriptPageState, 
 	if pageEnd > currentEnd {
 		return true
 	}
-	if state.liveOngoing != page.Ongoing {
+	if state.liveOngoing != page.Streaming {
 		return true
 	}
-	if state.liveOngoingError != page.OngoingError {
+	if state.liveOngoingError != page.StreamingError {
 		return true
 	}
 	return false

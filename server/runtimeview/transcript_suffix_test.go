@@ -108,7 +108,7 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.AppendCommittedEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityDetailOnly)
+	eng.AppendCommittedEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityVerbose)
 
 	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})
 
@@ -119,8 +119,8 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	if entry.Role != "developer_context" || entry.Text != "internal note" {
 		t.Fatalf("unexpected entry: %+v", entry)
 	}
-	if entry.Visibility != clientui.EntryVisibilityDetailOnly {
-		t.Fatalf("visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityDetailOnly)
+	if entry.Visibility != clientui.EntryVisibilityVerbose {
+		t.Fatalf("visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityVerbose)
 	}
 	entry.Text = "mutated"
 	second := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})

@@ -175,8 +175,8 @@ func TestNativeProgramRendersMixedRuntimeEventsFromChannelInRealtime(t *testing.
 		for _, entry := range model.transcriptEntries {
 			transcriptText.WriteString(entry.Text)
 			transcriptText.WriteString("\n")
-			if strings.TrimSpace(entry.OngoingText) != "" {
-				transcriptText.WriteString(entry.OngoingText)
+			if strings.TrimSpace(entry.CondensedText) != "" {
+				transcriptText.WriteString(entry.CondensedText)
 				transcriptText.WriteString("\n")
 			}
 		}
@@ -218,8 +218,8 @@ func TestNativeProgramRendersMixedRuntimeEventsFromChannelInRealtime(t *testing.
 	for _, entry := range model.transcriptEntries {
 		transcriptText.WriteString(entry.Text)
 		transcriptText.WriteString("\n")
-		if strings.TrimSpace(entry.OngoingText) != "" {
-			transcriptText.WriteString(entry.OngoingText)
+		if strings.TrimSpace(entry.CondensedText) != "" {
+			transcriptText.WriteString(entry.CondensedText)
 			transcriptText.WriteString("\n")
 		}
 	}
@@ -327,7 +327,7 @@ func TestNativeProgramDoesNotReemitOverlappedTailRowsWhenAuthoritativeTailSlides
 	model.transcriptEntries = []tui.TranscriptEntry{
 		{Role: "assistant", Text: "seed"},
 		{Role: "cache_warning", Visibility: transcript.EntryVisibilityAll, Text: "Cache miss: postfix-compatible supervisor cache reuse disappeared, -79k tokens"},
-		{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", OngoingText: "Supervisor suggested:\n1. Add verification notes."},
+		{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", CondensedText: "Supervisor suggested:\n1. Add verification notes."},
 		{Role: "assistant", Text: "previous answer"},
 	}
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries})
@@ -352,7 +352,7 @@ func TestNativeProgramDoesNotReemitOverlappedTailRowsWhenAuthoritativeTailSlides
 		TotalEntries: 5,
 		Entries: []clientui.ChatEntry{
 			{Role: "cache_warning", Visibility: clientui.EntryVisibilityAll, Text: "Cache miss: postfix-compatible supervisor cache reuse disappeared, -79k tokens"},
-			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", OngoingText: "Supervisor suggested:\n1. Add verification notes."},
+			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", CondensedText: "Supervisor suggested:\n1. Add verification notes."},
 			{Role: "assistant", Text: "previous answer"},
 			{Role: "user", Text: "did you fix the actual transcript bugs, or only reporting/observability?"},
 		},

@@ -218,7 +218,7 @@ func (f *runtimeAdapterFakeClient) ProviderCapabilities(context.Context) (llm.Pr
 func TestApplyChatSnapshotSetsOngoingFromSnapshot(t *testing.T) {
 	m := newProjectedStaticUIModel()
 
-	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Ongoing: "hello"})
+	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Streaming: "hello"})
 
 	if got := m.view.OngoingStreamingText(); got != "hello" {
 		t.Fatalf("expected snapshot ongoing text, got %q", got)
@@ -279,8 +279,8 @@ func TestProjectRuntimeEventIncludesBackgroundSystemTranscriptEntry(t *testing.T
 	if !strings.Contains(entry.Text, "Background shell 1000 completed") {
 		t.Fatalf("background transcript text = %q", entry.Text)
 	}
-	if entry.OngoingText != "Background shell 1000 completed" {
-		t.Fatalf("background transcript ongoing = %q", entry.OngoingText)
+	if entry.CondensedText != "Background shell 1000 completed" {
+		t.Fatalf("background transcript ongoing = %q", entry.CondensedText)
 	}
 }
 
@@ -444,9 +444,9 @@ func TestOngoingReviewerEntriesAfterCommittedFinalKeepFinalVisibleWithoutHydrati
 			CommittedEntryStart:        1,
 			CommittedEntryStartSet:     true,
 			TranscriptEntries: []clientui.ChatEntry{{
-				Role:        "reviewer_suggestions",
-				Text:        "Supervisor suggested:\n1. Check final answer.",
-				OngoingText: "Supervisor suggested:\n1. Check final answer.",
+				Role:          "reviewer_suggestions",
+				Text:          "Supervisor suggested:\n1. Check final answer.",
+				CondensedText: "Supervisor suggested:\n1. Check final answer.",
 			}},
 		},
 		{
@@ -605,7 +605,7 @@ func TestHandleProjectedRuntimeEventKeepsDefaultCacheWarningOutOfOngoingMode(t *
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind:                   runtime.EventCacheWarning,
 		StepID:                 "step-1",
-		CacheWarningVisibility: transcript.EntryVisibilityDetailOnly,
+		CacheWarningVisibility: transcript.EntryVisibilityVerbose,
 		CacheWarning:           &warning,
 	}), true).cmd
 
@@ -876,10 +876,10 @@ func TestApplyProjectedTranscriptEntriesForwardsCompactMetadataToLiveView(t *tes
 
 func TestAppendTranscriptMsgFromEntryPreservesTransientCompactMetadata(t *testing.T) {
 	entry := transcriptEntryFromProjectedChatEntry(clientui.ChatEntry{
-		Visibility:        transcript.EntryVisibilityDetailOnly,
+		Visibility:        transcript.EntryVisibilityVerbose,
 		Role:              "warning",
 		Text:              "transient warning body",
-		OngoingText:       "transient warning",
+		CondensedText:     "transient warning",
 		Phase:             string(llm.MessagePhaseFinal),
 		MessageType:       string(llm.MessageTypeCompactionSoonReminder),
 		SourcePath:        "  testdata/compact-source.md  ",
@@ -889,7 +889,7 @@ func TestAppendTranscriptMsgFromEntryPreservesTransientCompactMetadata(t *testin
 	}, true, false)
 
 	got := appendTranscriptMsgFromEntry(entry)
-	if !got.Transient || got.Committed || got.Visibility != transcript.EntryVisibilityDetailOnly || got.Role != "warning" || got.OngoingText != "transient warning" || got.Phase != llm.MessagePhaseFinal {
+	if !got.Transient || got.Committed || got.Visibility != transcript.EntryVisibilityVerbose || got.Role != "warning" || got.CondensedText != "transient warning" || got.Phase != llm.MessagePhaseFinal {
 		t.Fatalf("expected transient append state preserved, got %+v", got)
 	}
 	if got.MessageType != llm.MessageTypeCompactionSoonReminder || got.SourcePath != "testdata/compact-source.md" || got.CompactLabel != "Compaction reminder" || got.ToolResultSummary != "summary text" || got.ToolCallID != "call-1" {

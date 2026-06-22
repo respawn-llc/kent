@@ -47,7 +47,7 @@ func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string
 	}
 	if e.cfg.Reviewer.VerboseOutput {
 		suggestionsText := reviewerSuggestionsText(suggestions)
-		_ = e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "reviewer_suggestions", Text: suggestionsText, OngoingText: suggestionsText}))
+		_ = e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "reviewer_suggestions", Text: suggestionsText, CondensedText: suggestionsText}))
 	}
 
 	instruction := formatReviewerDeveloperInstruction(suggestions)

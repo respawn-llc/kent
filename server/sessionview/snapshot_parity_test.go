@@ -299,26 +299,26 @@ func normalizedCommittedSuffix(suffix clientui.CommittedTranscriptSuffix) compar
 }
 
 type comparableChatEntry struct {
-	Visibility   clientui.EntryVisibility
-	Role         string
-	Text         string
-	OngoingText  string
-	Phase        string
-	MessageType  string
-	CompactLabel string
+	Visibility    clientui.EntryVisibility
+	Role          string
+	Text          string
+	CondensedText string
+	Phase         string
+	MessageType   string
+	CompactLabel  string
 }
 
 func normalizedChatEntries(entries []clientui.ChatEntry) []comparableChatEntry {
 	out := make([]comparableChatEntry, 0, len(entries))
 	for _, entry := range entries {
 		out = append(out, comparableChatEntry{
-			Visibility:   entry.Visibility,
-			Role:         entry.Role,
-			Text:         entry.Text,
-			OngoingText:  entry.OngoingText,
-			Phase:        entry.Phase,
-			MessageType:  entry.MessageType,
-			CompactLabel: entry.CompactLabel,
+			Visibility:    entry.Visibility,
+			Role:          entry.Role,
+			Text:          entry.Text,
+			CondensedText: entry.CondensedText,
+			Phase:         entry.Phase,
+			MessageType:   entry.MessageType,
+			CompactLabel:  entry.CompactLabel,
 		})
 	}
 	return out

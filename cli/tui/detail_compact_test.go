@@ -590,9 +590,9 @@ func TestCompactDetailClearsExpandedEntriesWhenReplacementReusesIndexes(t *testi
 func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
 	m := newCompactDetailModel(t, 10)
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
-		OngoingText: "Supervisor made 2 suggestions.",
+		Role:          "reviewer_suggestions",
+		Text:          "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
+		CondensedText: "Supervisor made 2 suggestions.",
 	})
 	m = updateModel(t, m, ToggleModeMsg{})
 
@@ -611,28 +611,28 @@ func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
 	}
 }
 
-func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
+func TestWorktreeReminderUsesCondensedTextAndKeepsDetailText(t *testing.T) {
 	m := newCompactDetailModel(t, 8)
 	fullText := "The user has moved this conversation into a git worktree.\n- Branch: feature/branch\n- New cwd / worktree path: /tmp/worktree/pkg"
-	ongoingText := "Switched worktree to feature/branch: /tmp/worktree/pkg"
+	condensedText := "Switched worktree to feature/branch: /tmp/worktree/pkg"
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Visibility:   transcript.EntryVisibilityAll,
-		Role:         TranscriptRoleDeveloperContext,
-		Text:         fullText,
-		OngoingText:  ongoingText,
-		MessageType:  clientui.MessageTypeWorktreeMode,
-		SourcePath:   "/tmp/worktree/pkg",
-		CompactLabel: ongoingText,
+		Visibility:    transcript.EntryVisibilityAll,
+		Role:          TranscriptRoleDeveloperContext,
+		Text:          fullText,
+		CondensedText: condensedText,
+		MessageType:   clientui.MessageTypeWorktreeMode,
+		SourcePath:    "/tmp/worktree/pkg",
+		CompactLabel:  condensedText,
 	})
 
 	ongoing := xansi.Strip(m.OngoingSnapshot())
-	if !strings.Contains(ongoing, ongoingText) || strings.Contains(ongoing, "The user has moved this conversation") {
+	if !strings.Contains(ongoing, condensedText) || strings.Contains(ongoing, "The user has moved this conversation") {
 		t.Fatalf("expected ongoing worktree compact text only, got %q", ongoing)
 	}
 
 	m = updateModel(t, m, ToggleModeMsg{})
 	collapsed := xansi.Strip(m.View())
-	if !strings.Contains(collapsed, ongoingText) || strings.Contains(collapsed, "The user has moved this conversation") {
+	if !strings.Contains(collapsed, condensedText) || strings.Contains(collapsed, "The user has moved this conversation") {
 		t.Fatalf("expected collapsed detail worktree label, got %q", collapsed)
 	}
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -646,9 +646,9 @@ func TestCompactDetailKeepsVerboseReviewerSuggestionsWhenNoStructuredCountExists
 	m := newCompactDetailModel(t, 10)
 	suggestions := "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer."
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        suggestions,
-		OngoingText: suggestions,
+		Role:          "reviewer_suggestions",
+		Text:          suggestions,
+		CondensedText: suggestions,
 	})
 	m = updateModel(t, m, ToggleModeMsg{})
 

@@ -183,7 +183,7 @@ func cacheWarningEntryVisibility(mode config.CacheWarningMode) transcript.EntryV
 	if normalized, ok := normalizeCacheWarningMode(mode); ok && normalized == config.CacheWarningModeVerbose {
 		return transcript.EntryVisibilityAll
 	}
-	return transcript.EntryVisibilityDetailOnly
+	return transcript.EntryVisibilityVerbose
 }
 
 func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCacheRequestObservation, usage llm.Usage) error {

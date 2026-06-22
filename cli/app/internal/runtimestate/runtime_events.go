@@ -50,11 +50,11 @@ type BackgroundNotice struct {
 type RuntimeTranscriptSyncReason string
 
 const (
-	RuntimeTranscriptSyncNone                RuntimeTranscriptSyncReason = ""
-	RuntimeTranscriptSyncStreamGap           RuntimeTranscriptSyncReason = "stream_gap"
-	RuntimeTranscriptSyncCommittedAdvance    RuntimeTranscriptSyncReason = "committed_advance"
-	RuntimeTranscriptSyncRecovery            RuntimeTranscriptSyncReason = "recovery"
-	RuntimeTranscriptSyncOngoingErrorUpdated RuntimeTranscriptSyncReason = "ongoing_error_updated"
+	RuntimeTranscriptSyncNone                  RuntimeTranscriptSyncReason = ""
+	RuntimeTranscriptSyncStreamGap             RuntimeTranscriptSyncReason = "stream_gap"
+	RuntimeTranscriptSyncCommittedAdvance      RuntimeTranscriptSyncReason = "committed_advance"
+	RuntimeTranscriptSyncRecovery              RuntimeTranscriptSyncReason = "recovery"
+	RuntimeTranscriptSyncStreamingErrorUpdated RuntimeTranscriptSyncReason = "streaming_error_updated"
 )
 
 type RuntimeTranscriptSyncCommand struct {
@@ -194,8 +194,8 @@ func ReduceRuntimeTranscriptEvent(evt clientui.Event) RuntimeTranscriptReduction
 		if evt.CommittedTranscriptChanged {
 			return RuntimeTranscriptReduction{Sync: RuntimeTranscriptSyncCommand{Reason: RuntimeTranscriptSyncCommittedAdvance}}
 		}
-	case clientui.EventOngoingErrorUpdated:
-		return RuntimeTranscriptReduction{Sync: RuntimeTranscriptSyncCommand{Reason: RuntimeTranscriptSyncOngoingErrorUpdated}}
+	case clientui.EventStreamingErrorUpdated:
+		return RuntimeTranscriptReduction{Sync: RuntimeTranscriptSyncCommand{Reason: RuntimeTranscriptSyncStreamingErrorUpdated}}
 	case clientui.EventAssistantDelta:
 		return RuntimeTranscriptReduction{AssistantStream: []RuntimeAssistantStreamCommand{{Kind: RuntimeAssistantStreamAppend, Delta: evt.AssistantDelta, StepID: evt.StepID}}}
 	case clientui.EventAssistantDeltaReset:

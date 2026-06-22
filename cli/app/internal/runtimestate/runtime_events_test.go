@@ -379,17 +379,17 @@ func TestReduceRuntimeEvent_AssistantDeltaStreamsAppendAndReset(t *testing.T) {
 	}
 }
 
-func TestReduceRuntimeEvent_OngoingErrorUpdatedRequestsSessionSync(t *testing.T) {
+func TestReduceRuntimeEvent_StreamingErrorUpdatedRequestsSessionSync(t *testing.T) {
 	update := ReduceRuntimeEvent(
 		RuntimeRunState{},
 		RuntimeConversationState{},
 		PendingInputState{},
 		RuntimeReasoningState{},
 		false,
-		clientui.Event{Kind: clientui.EventOngoingErrorUpdated},
+		clientui.Event{Kind: clientui.EventStreamingErrorUpdated},
 	)
-	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncOngoingErrorUpdated {
-		t.Fatal("expected ongoing_error_updated to request transcript sync")
+	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncStreamingErrorUpdated {
+		t.Fatal("expected streaming_error_updated to request transcript sync")
 	}
 }
 

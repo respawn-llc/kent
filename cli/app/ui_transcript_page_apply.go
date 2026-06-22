@@ -18,8 +18,8 @@ func (a uiRuntimeAdapter) applyProjectedChatSnapshot(snapshot clientui.ChatSnaps
 	page.Offset = 0
 	page.NextOffset = 0
 	page.HasMore = false
-	page.Ongoing = snapshot.Ongoing
-	page.OngoingError = snapshot.OngoingError
+	page.Streaming = snapshot.Streaming
+	page.StreamingError = snapshot.StreamingError
 	return a.applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 }
 
@@ -127,9 +127,9 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	if reduction.shouldSyncNativeHistory {
 		m.armNativeHistoryReplayPermit(reduction.nativeReplayPermit)
 		m.clearDeferredCommittedTail("authoritative_hydrate")
-		a.applyAuthoritativeOngoingTailPage(page, entries, reduction.preserveLiveReasoning)
+		a.applyAuthoritativeRecentTailPage(page, entries, reduction.preserveLiveReasoning)
 	}
-	if pageReq.Window == clientui.TranscriptWindowOngoingTail || (pageReq == (clientui.TranscriptPageRequest{}) && m.view.Mode() != tui.ModeDetail) {
+	if pageReq.Window == clientui.TranscriptWindowRecentTail || (pageReq == (clientui.TranscriptPageRequest{}) && m.view.Mode() != tui.ModeDetail) {
 		m.detailTranscript.syncTail(page)
 		if m.view.Mode() != tui.ModeDetail {
 			if !reduction.preserveLiveReasoning {
@@ -139,8 +139,8 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 				BaseOffset:   page.Offset,
 				TotalEntries: page.TotalEntries,
 				Entries:      entries,
-				Ongoing:      page.Ongoing,
-				OngoingError: page.OngoingError,
+				Ongoing:      page.Streaming,
+				OngoingError: page.StreamingError,
 			})
 		}
 	} else {
@@ -169,8 +169,8 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 				BaseOffset:   detailPage.Offset,
 				TotalEntries: detailPage.TotalEntries,
 				Entries:      transcriptEntriesFromPage(detailPage),
-				Ongoing:      detailPage.Ongoing,
-				OngoingError: detailPage.OngoingError,
+				Ongoing:      detailPage.Streaming,
+				OngoingError: detailPage.StreamingError,
 			})
 			m.refreshRollbackCandidates()
 		}
@@ -178,7 +178,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	if m.view.Mode() == tui.ModeOngoing {
 		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
 	}
-	if strings.TrimSpace(page.Ongoing) == "" {
+	if strings.TrimSpace(page.Streaming) == "" {
 		m.sawAssistantDelta = false
 	}
 	cmds := make([]tea.Cmd, 0, 2)
@@ -200,7 +200,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	return sequenceCmds(cmds...)
 }
 
-func (a uiRuntimeAdapter) applyAuthoritativeOngoingTailPage(page clientui.TranscriptPage, entries []tui.TranscriptEntry, preserveLiveReasoning bool) {
+func (a uiRuntimeAdapter) applyAuthoritativeRecentTailPage(page clientui.TranscriptPage, entries []tui.TranscriptEntry, preserveLiveReasoning bool) {
 	m := a.model
 	if m == nil {
 		return

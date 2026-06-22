@@ -74,8 +74,8 @@ func TestReduceRuntimeTranscriptPagePreservesLiveOngoingForEqualRevisionDetailPa
 	if !reduction.preserveLiveAssistantOngoing {
 		t.Fatalf("expected preserve live assistant ongoing")
 	}
-	if reduction.page.Ongoing != "working" || reduction.page.OngoingError != "boom" {
-		t.Fatalf("ongoing = %q/%q, want working/boom", reduction.page.Ongoing, reduction.page.OngoingError)
+	if reduction.page.Streaming != "working" || reduction.page.StreamingError != "boom" {
+		t.Fatalf("ongoing = %q/%q, want working/boom", reduction.page.Streaming, reduction.page.StreamingError)
 	}
 	if reduction.shouldSyncNativeHistory {
 		t.Fatal("detail page should not sync native history")
@@ -138,7 +138,7 @@ func TestReduceRuntimeTranscriptPageAcceptsEqualRevisionTailCorrection(t *testin
 	if reduction.nativeReplayPermit != nativeHistoryReplayPermitContinuityRecovery {
 		t.Fatalf("native permit = %v, want continuity recovery", reduction.nativeReplayPermit)
 	}
-	if reduction.branch != "ongoing_tail_replace" {
+	if reduction.branch != "recent_tail_replace" {
 		t.Fatalf("branch = %q", reduction.branch)
 	}
 }

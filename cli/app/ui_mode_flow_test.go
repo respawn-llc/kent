@@ -34,7 +34,7 @@ func (c *recordingTranscriptRuntimeClient) RefreshTranscriptPage(req clientui.Tr
 	return c.LoadTranscriptPage(req)
 }
 
-func TestScenarioDetailWhileAgentWorksReturnsToLatestOngoingTail(t *testing.T) {
+func TestScenarioDetailWhileAgentWorksReturnsToLatestRecentTail(t *testing.T) {
 	m := setTestUITerminalSize(newProjectedStaticUIModel(), 100, 18)
 	m.input = "/"
 	m.refreshSlashCommandFilterFromInputWithAuth(true)
@@ -261,7 +261,7 @@ func TestCtrlTDeferredDetailLoadSkipsDuplicateSeededPageRequest(t *testing.T) {
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed, clientui.TranscriptRecoveryCauseNone)
+	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone)
 	m.layout().syncViewport()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -305,7 +305,7 @@ func TestCtrlTDeferredDetailLoadSkippedKeepsDetailMetricsLazyEndToEnd(t *testing
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed, clientui.TranscriptRecoveryCauseNone)
+	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone)
 	m.layout().syncViewport()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -340,7 +340,7 @@ func TestDeferredDetailLoadRefreshesWhenTranscriptDirty(t *testing.T) {
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed, clientui.TranscriptRecoveryCauseNone)
+	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone)
 	m.layout().syncViewport()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -386,7 +386,7 @@ func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: detailPage}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.layout().syncViewport()
@@ -479,9 +479,9 @@ func TestScenarioSessionResumeNormalizesLegacyReviewerEntriesInOngoingMode(t *te
 	workspace := t.TempDir()
 	store := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
 	if _, _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
-		"role":         "reviewer_suggestions",
-		"text":         "Supervisor suggested:\n1. Add final verification notes.",
-		"ongoing_text": "Supervisor made 1 suggestion.",
+		"role":           "reviewer_suggestions",
+		"text":           "Supervisor suggested:\n1. Add final verification notes.",
+		"condensed_text": "Supervisor made 1 suggestion.",
 	}); err != nil {
 		t.Fatalf("append legacy reviewer_suggestions: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestMainUIStartsInNormalBuffer(t *testing.T) {
 	}
 }
 
-func TestStartupHydrationKeepsCompactionSummaryDetailOnly(t *testing.T) {
+func TestStartupHydrationKeepsCompactionSummaryVerbose(t *testing.T) {
 	client := &startupTranscriptRuntimeClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "incident triage"}},
 		page: clientui.TranscriptPage{
@@ -650,12 +650,12 @@ func TestStartupHydrationKeepsCompactionSummaryDetailOnly(t *testing.T) {
 	if got, want := len(client.loadRequests), 1; got != want {
 		t.Fatalf("load request count = %d, want %d", got, want)
 	}
-	if client.loadRequests[0].Window != clientui.TranscriptWindowOngoingTail {
-		t.Fatalf("startup hydration window = %q, want ongoing_tail", client.loadRequests[0].Window)
+	if client.loadRequests[0].Window != clientui.TranscriptWindowRecentTail {
+		t.Fatalf("startup hydration window = %q, want recent_tail", client.loadRequests[0].Window)
 	}
 }
 
-func TestStartupHydrationKeepsDefaultCacheWarningDetailOnly(t *testing.T) {
+func TestStartupHydrationKeepsDefaultCacheWarningVerbose(t *testing.T) {
 	warningText := transcript.CacheWarningText(transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})
 	client := &startupTranscriptRuntimeClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "incident triage"}},
@@ -665,7 +665,7 @@ func TestStartupHydrationKeepsDefaultCacheWarningDetailOnly(t *testing.T) {
 			TotalEntries: 2,
 			Entries: []clientui.ChatEntry{
 				{Role: "assistant", Text: "latest answer"},
-				{Role: "cache_warning", Text: warningText, Visibility: clientui.EntryVisibilityDetailOnly},
+				{Role: "cache_warning", Text: warningText, Visibility: clientui.EntryVisibilityVerbose},
 			},
 		},
 	}

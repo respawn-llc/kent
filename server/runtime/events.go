@@ -14,7 +14,7 @@ const (
 	EventConversationUpdated     EventKind = "conversation_updated"
 	EventAssistantDelta          EventKind = "assistant_delta"
 	EventAssistantDeltaReset     EventKind = "assistant_delta_reset"
-	EventOngoingErrorUpdated     EventKind = "ongoing_error_updated"
+	EventStreamingErrorUpdated   EventKind = "streaming_error_updated"
 	EventReasoningDelta          EventKind = "reasoning_delta"
 	EventReasoningDeltaReset     EventKind = "reasoning_delta_reset"
 	EventAssistantMessage        EventKind = "assistant_message"

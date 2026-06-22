@@ -168,14 +168,14 @@ func (m *uiModel) applyCommittedTranscriptSuffixForNativeReplay(suffix clientui.
 	}
 	page := transcriptPageFromCommittedTranscriptSuffix(suffix)
 	entries := transcriptEntriesFromPage(page)
-	m.runtimeAdapter().applyAuthoritativeOngoingTailPage(page, entries, false)
+	m.runtimeAdapter().applyAuthoritativeRecentTailPage(page, entries, false)
 	m.detailTranscript.syncTail(page)
 	m.forwardToView(tui.SetConversationMsg{
 		BaseOffset:   page.Offset,
 		TotalEntries: page.TotalEntries,
 		Entries:      entries,
-		Ongoing:      page.Ongoing,
-		OngoingError: page.OngoingError,
+		Ongoing:      page.Streaming,
+		OngoingError: page.StreamingError,
 	})
 	committedEntries := committedTranscriptEntriesForApp(m.transcriptEntries)
 	if len(committedEntries) == 0 {

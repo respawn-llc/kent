@@ -50,7 +50,7 @@ func EntriesDigest(entries []clientui.ChatEntry) string {
 			entry.ToolCallID,
 			toolName,
 			entry.Text,
-			entry.OngoingText,
+			entry.CondensedText,
 		}, "\x1f"))
 	}
 	return digest(parts)
@@ -90,8 +90,8 @@ func PageDigest(page clientui.TranscriptPage) string {
 		strconv.Itoa(page.Offset),
 		strconv.Itoa(page.TotalEntries),
 		EntriesDigest(page.Entries),
-		page.Ongoing,
-		page.OngoingError,
+		page.Streaming,
+		page.StreamingError,
 	}
 	return digest(parts)
 }
@@ -138,7 +138,7 @@ func AddPageFields(fields map[string]string, page clientui.TranscriptPage) map[s
 	fields["revision"] = strconv.FormatInt(page.Revision, 10)
 	fields["offset"] = strconv.Itoa(page.Offset)
 	fields["total_entries"] = strconv.Itoa(page.TotalEntries)
-	fields["ongoing_chars"] = strconv.Itoa(len(page.Ongoing))
+	fields["streaming_chars"] = strconv.Itoa(len(page.Streaming))
 	fields["page_digest"] = PageDigest(page)
 	return AddEntriesFields(fields, page.Entries)
 }

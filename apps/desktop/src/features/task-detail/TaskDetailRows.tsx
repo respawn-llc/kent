@@ -9,6 +9,7 @@ import { useOpenExternalLink } from "../../app/nativeHooks";
 import {
   Button,
   Island,
+  MarkdownText,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -104,27 +105,53 @@ export function DescriptionIsland({
   onDraftChange: (draft: TaskDraft) => void;
 }>) {
   const { t } = useTranslation();
+  const openExternalLink = useOpenExternalLink();
+  const [editing, setEditing] = useState(false);
   const descriptionId = useId();
   const descriptionErrorId = `${descriptionId}-error`;
   const descriptionError = error == null ? "" : errorMessage(error);
+  const body = draft.body;
+  const hasBody = body.trim().length > 0;
+  const sharedClassName = cx(fieldIslandInputClassName(1), "block min-h-[220px] min-w-0 p-[var(--space-2)]");
   return (
     <div className="grid min-h-0 min-w-0 gap-[var(--space-2)]" data-testid="task-description-input-frame">
-      <textarea
-        aria-describedby={descriptionError.length > 0 ? descriptionErrorId : undefined}
-        aria-invalid={descriptionError.length > 0 ? true : undefined}
-        aria-label={t("task.description")}
-        className={cx(
-          fieldIslandInputClassName(1),
-          "block min-h-[220px] min-w-0 resize-none p-[var(--space-2)]",
-        )}
-        disabled={disabled}
-        id={descriptionId}
-        onChange={(event) => {
-          onDraftChange({ ...draft, body: event.target.value });
-        }}
-        placeholder={t("task.bodyPlaceholder")}
-        value={draft.body}
-      />
+      {editing && !disabled ? (
+        <textarea
+          aria-describedby={descriptionError.length > 0 ? descriptionErrorId : undefined}
+          aria-invalid={descriptionError.length > 0 ? true : undefined}
+          aria-label={t("task.description")}
+          autoFocus
+          className={cx(sharedClassName, "resize-none font-mono")}
+          id={descriptionId}
+          onBlur={() => {
+            setEditing(false);
+          }}
+          onChange={(event) => {
+            onDraftChange({ ...draft, body: event.target.value });
+          }}
+          placeholder={t("task.bodyPlaceholder")}
+          value={body}
+        />
+      ) : (
+        <div
+          aria-label={t("task.description")}
+          aria-readonly
+          className={cx(sharedClassName, !disabled && "cursor-text", "overflow-auto")}
+          onFocus={(event) => {
+            if (!disabled && event.target === event.currentTarget) {
+              setEditing(true);
+            }
+          }}
+          role="textbox"
+          tabIndex={disabled ? -1 : 0}
+        >
+          {hasBody ? (
+            <MarkdownText onOpenLink={openExternalLink} value={body} />
+          ) : (
+            <span className="text-[var(--color-muted)]">{t("task.bodyPlaceholder")}</span>
+          )}
+        </div>
+      )}
       {descriptionError.length > 0 ? (
         <span className="text-[var(--color-error)]" id={descriptionErrorId}>
           {descriptionError}

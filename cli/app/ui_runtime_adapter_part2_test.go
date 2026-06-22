@@ -26,10 +26,10 @@ func TestProjectedCommittedGoalFeedbackAppendsImmediately(t *testing.T) {
 		CommittedEntryStart:        0,
 		CommittedEntryStartSet:     true,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        string(transcript.EntryRoleGoalFeedback),
-			Text:        "Goal set developer prompt detail",
-			OngoingText: `Goal set: "ship feature"`,
-			Visibility:  clientui.EntryVisibilityAll,
+			Role:          string(transcript.EntryRoleGoalFeedback),
+			Text:          "Goal set developer prompt detail",
+			CondensedText: `Goal set: "ship feature"`,
+			Visibility:    clientui.EntryVisibilityAll,
 		}},
 	}, false)
 	if cmd != nil || !mutated || needsHydration {
@@ -39,7 +39,7 @@ func TestProjectedCommittedGoalFeedbackAppendsImmediately(t *testing.T) {
 		t.Fatalf("transcript entry count = %d, want %d", got, want)
 	}
 	entry := m.transcriptEntries[0]
-	if entry.Role != tui.TranscriptRoleGoalFeedback || entry.OngoingText != `Goal set: "ship feature"` || entry.Transient || !entry.Committed {
+	if entry.Role != tui.TranscriptRoleGoalFeedback || entry.CondensedText != `Goal set: "ship feature"` || entry.Transient || !entry.Committed {
 		t.Fatalf("goal feedback entry = %+v", entry)
 	}
 	if view := stripANSIAndTrimRight(m.view.OngoingSnapshot()); !strings.Contains(view, `Goal set: "ship feature"`) {
@@ -518,7 +518,7 @@ func TestProjectedCompactionStatusDoesNotDuplicateCommittedSummary(t *testing.T)
 		TotalEntries: 2,
 		Entries: []clientui.ChatEntry{
 			{Role: "assistant", Text: "seed"},
-			{Role: "compaction_summary", Text: "summary", OngoingText: "context compacted for the 1st time", CompactLabel: "context compacted for the 1st time"},
+			{Role: "compaction_summary", Text: "summary", CondensedText: "context compacted for the 1st time", CompactLabel: "context compacted for the 1st time"},
 		},
 	}
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, baseline, clientui.TranscriptRecoveryCauseNone); cmd != nil {
@@ -685,7 +685,7 @@ func TestProjectedCompactionReplacementEntriesAndNoticeAppendWithoutHydration(t 
 			TranscriptEntries: []clientui.ChatEntry{{
 				Role:       "developer_context",
 				Text:       "environment info",
-				Visibility: clientui.EntryVisibilityDetailOnly,
+				Visibility: clientui.EntryVisibilityVerbose,
 			}},
 		},
 		{
@@ -749,9 +749,9 @@ func TestHandleProjectedRuntimeEventAppendsLocalEntryImmediately(t *testing.T) {
 		TranscriptRevision:         10,
 		CommittedEntryCount:        1,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        "reviewer_suggestions",
-			Text:        "Supervisor suggested:\n1. Add verification notes.",
-			OngoingText: "Supervisor made 1 suggestion.",
+			Role:          "reviewer_suggestions",
+			Text:          "Supervisor suggested:\n1. Add verification notes.",
+			CondensedText: "Supervisor made 1 suggestion.",
 		}},
 	}, true).cmd
 
@@ -791,9 +791,9 @@ func TestLocalEntryAddedRemainsVisibleAfterHydrationSync(t *testing.T) {
 		TranscriptRevision:         10,
 		CommittedEntryCount:        2,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        "reviewer_suggestions",
-			Text:        "Supervisor suggested:\n1. Add verification notes.",
-			OngoingText: "Supervisor made 1 suggestion.",
+			Role:          "reviewer_suggestions",
+			Text:          "Supervisor suggested:\n1. Add verification notes.",
+			CondensedText: "Supervisor made 1 suggestion.",
 		}},
 	}, true).cmd
 
@@ -804,7 +804,7 @@ func TestLocalEntryAddedRemainsVisibleAfterHydrationSync(t *testing.T) {
 		TotalEntries: 2,
 		Entries: []clientui.ChatEntry{
 			{Role: "assistant", Text: "seed", Phase: string(llm.MessagePhaseFinal)},
-			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", OngoingText: "Supervisor made 1 suggestion."},
+			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", CondensedText: "Supervisor made 1 suggestion."},
 		},
 	}
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, hydrated, clientui.TranscriptRecoveryCauseNone); cmd != nil {
@@ -902,7 +902,7 @@ func TestHandleProjectedRuntimeEventAppendsCleanupAndBackgroundEntriesImmediatel
 	if got := m.transcriptEntries[1].Role; got != "system" {
 		t.Fatalf("entry[1].Role = %q, want system", got)
 	}
-	if got := m.transcriptEntries[1].OngoingText; got != "Background shell 1000 completed" {
+	if got := m.transcriptEntries[1].CondensedText; got != "Background shell 1000 completed" {
 		t.Fatalf("background ongoing text = %q", got)
 	}
 }
@@ -929,7 +929,7 @@ func TestRuntimeSessionViewUsesLocalFallbackWhenRuntimeClientMissing(t *testing.
 	if len(view.Chat.Entries) != 1 || view.Chat.Entries[0].Text != "hello" {
 		t.Fatalf("unexpected fallback chat entries: %+v", view.Chat.Entries)
 	}
-	if view.Chat.Ongoing != "streaming" {
-		t.Fatalf("ongoing = %q, want streaming", view.Chat.Ongoing)
+	if view.Chat.Streaming != "streaming" {
+		t.Fatalf("ongoing = %q, want streaming", view.Chat.Streaming)
 	}
 }

@@ -19,7 +19,7 @@ type inMemoryTranscriptScanRequest struct {
 	Offset int
 	Limit  int
 
-	TrackOngoingTail     bool
+	TrackRecentTail      bool
 	TailLimit            int
 	CompactionItemCutoff int
 }
@@ -81,7 +81,7 @@ func (s *inMemoryTranscriptScan) PageSnapshot() transcriptPageSnapshot {
 	}
 }
 
-func (s *inMemoryTranscriptScan) OngoingTailSnapshot() TranscriptWindowSnapshot {
+func (s *inMemoryTranscriptScan) RecentTailSnapshot() TranscriptWindowSnapshot {
 	if s == nil {
 		return TranscriptWindowSnapshot{}
 	}
@@ -98,7 +98,7 @@ func (s *inMemoryTranscriptScan) MarkCompactionBoundary() {
 	}
 	s.hasCompactionCheckpoint = true
 	s.compactionEntryStart = s.totalEntries
-	if !s.request.TrackOngoingTail || s.request.TailLimit <= 0 {
+	if !s.request.TrackRecentTail || s.request.TailLimit <= 0 {
 		return
 	}
 	if s.compactionEntryStart > s.tailStart {
@@ -149,7 +149,7 @@ func (s *inMemoryTranscriptScan) visibleEntriesFromMessage(msg llm.Message) []Ch
 			}
 			result.IsError = completion.IsError
 			result.Summary = completion.Summary
-			result.OngoingText = completion.OngoingText
+			result.CondensedText = completion.CondensedText
 			result.Presentation = completion.Presentation
 		}
 		if result.Name == "" {
@@ -188,7 +188,7 @@ func (s *inMemoryTranscriptScan) appendEntry(entry ChatEntry) {
 		s.pageEntries = append(s.pageEntries, clonePersistedChatEntry(entry))
 	}
 	s.totalEntries++
-	if s.request.TrackOngoingTail && s.request.TailLimit > 0 {
+	if s.request.TrackRecentTail && s.request.TailLimit > 0 {
 		startLastN := s.totalEntries - s.request.TailLimit
 		if startLastN < 0 {
 			startLastN = 0

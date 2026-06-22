@@ -175,7 +175,7 @@ func (a uiRuntimeAdapter) syncConversationFromRuntimeTranscriptCommand(sync runt
 	switch sync.Reason {
 	case runtimestate.RuntimeTranscriptSyncRecovery, runtimestate.RuntimeTranscriptSyncStreamGap:
 		return a.model.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(a.model.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseContinuityRecovery, sync.RecoveryCause))
-	case runtimestate.RuntimeTranscriptSyncCommittedAdvance, runtimestate.RuntimeTranscriptSyncOngoingErrorUpdated:
+	case runtimestate.RuntimeTranscriptSyncCommittedAdvance, runtimestate.RuntimeTranscriptSyncStreamingErrorUpdated:
 		return a.syncConversationFromEngine()
 	default:
 		return runtimeTranscriptSyncDecision{}

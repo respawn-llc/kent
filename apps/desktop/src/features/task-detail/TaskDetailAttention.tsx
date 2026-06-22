@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import type { AttentionItem, TaskTransition } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
-import { Button, Island, RadioGroup, RadioGroupItem, showStatusToast } from "../../ui";
+import { useOpenExternalLink } from "../../app/nativeHooks";
+import { Button, Island, MarkdownText, RadioGroup, RadioGroupItem, showStatusToast } from "../../ui";
 import { fieldInputClassName } from "../../ui/fieldInputStyles";
 import { cx } from "../../ui/classes";
 import { WorkflowEdgeRouteGraphic } from "../workflow-editor/WorkflowEdgeRouteGraphic";
@@ -77,6 +78,7 @@ function QuestionForm({
   taskId: string;
 }>) {
   const { t } = useTranslation();
+  const openLink = useOpenExternalLink();
   const selection = selectionForAsk(selectionState, attention.askID);
   const selectedOption = selection.userSelected ? selection.selectedOption : recommendedOption;
   const answer = selection.answer;
@@ -112,7 +114,11 @@ function QuestionForm({
         }
       }}
     >
-      {question !== undefined && question.length > 0 ? <p className="m-0">{question}</p> : null}
+      {question !== undefined && question.length > 0 ? (
+        <div className="min-w-0 text-[var(--color-on-island)]">
+          <MarkdownText onOpenLink={openLink} value={question} />
+        </div>
+      ) : null}
       <fieldset className="m-0 border-0 p-0">
         <legend className="sr-only">{t("task.optionNumber")}</legend>
         <RadioGroup
@@ -134,6 +140,7 @@ function QuestionForm({
             <QuestionOption
               disabled={interactionDisabled}
               key={`${optionIndex.toString()}:${suggestion}`}
+              onOpenLink={openLink}
               recommended={recommendedOption === optionIndex + 1}
               text={suggestion}
               value={(optionIndex + 1).toString()}
@@ -141,6 +148,7 @@ function QuestionForm({
           ))}
           <QuestionOption
             disabled={interactionDisabled}
+            onOpenLink={openLink}
             recommended={false}
             text={t("task.neitherOption")}
             value="0"
@@ -174,11 +182,13 @@ function QuestionForm({
 
 function QuestionOption({
   disabled,
+  onOpenLink,
   recommended,
   text,
   value,
 }: Readonly<{
   disabled: boolean;
+  onOpenLink: (url: string) => void;
   recommended: boolean;
   text: string;
   value: string;
@@ -197,7 +207,7 @@ function QuestionOption({
         className={cx("min-w-0 flex-1 cursor-pointer", recommended && "font-bold text-[var(--color-primary)]")}
         htmlFor={id}
       >
-        {text}
+        <MarkdownText inline onOpenLink={onOpenLink} value={text} />
         {recommended ? <span className="ml-[var(--space-2)] text-xs font-bold">({t("task.recommended")})</span> : null}
       </label>
     </div>

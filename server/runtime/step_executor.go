@@ -595,7 +595,7 @@ func sameVisibleChatEntryContent(a, b ChatEntry) bool {
 	return a.Visibility == b.Visibility &&
 		a.Role == b.Role &&
 		a.Text == b.Text &&
-		a.OngoingText == b.OngoingText &&
+		a.CondensedText == b.CondensedText &&
 		a.Phase == b.Phase &&
 		strings.TrimSpace(a.ToolCallID) == strings.TrimSpace(b.ToolCallID)
 }

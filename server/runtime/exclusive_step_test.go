@@ -362,6 +362,68 @@ func TestExclusiveStepLifecycleInterruptAppendsMessageAndClearsInFlight(t *testi
 	}
 }
 
+func TestExclusiveStepLifecycleDiscardsStreamingMessageOnInterrupt(t *testing.T) {
+	store := mustCreateTestSession(t)
+	var (
+		mu     sync.Mutex
+		events []Event
+	)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model: "gpt-5",
+		OnEvent: func(evt Event) {
+			mu.Lock()
+			events = append(events, evt)
+			mu.Unlock()
+		},
+	})
+
+	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- lifecycle.Run(context.Background(), exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
+			_ = eng.steer(stepID, steerAssistantDeltaIntent("partial streamed answer"))
+			close(started)
+			<-stepCtx.Done()
+			return stepCtx.Err()
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for streaming step")
+	}
+
+	if got := eng.RecentTailTranscriptWindow(1).Snapshot.Streaming; got == "" {
+		t.Fatal("expected streaming message populated before interrupt")
+	}
+
+	if err := lifecycle.Interrupt(); err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled run, got %v", err)
+	}
+
+	if got := eng.RecentTailTranscriptWindow(1).Snapshot.Streaming; got != "" {
+		t.Fatalf("expected streaming message discarded after interrupt, got %q", got)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	sawReset := false
+	for _, evt := range events {
+		if evt.Kind == EventAssistantDeltaReset {
+			sawReset = true
+			break
+		}
+	}
+	if !sawReset {
+		t.Fatal("expected assistant delta reset event after interrupting a streaming step")
+	}
+}
+
 func TestExclusiveStepLifecycleCanEmitRunStateWithoutPersistingDurableRun(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var events []Event

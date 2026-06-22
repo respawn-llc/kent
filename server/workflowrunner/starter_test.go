@@ -71,9 +71,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 	}
 	assertNoUserPrompt(t, first)
 	fixture.assertRunSessionUsesTaskWorktree(t, runs[0].SessionID)
-	if scheduler.ActiveCount() != 0 {
-		t.Fatalf("scheduler active count = %d, want 0 after runtime finish", scheduler.ActiveCount())
-	}
+	fixture.waitForActiveCountZero(t, scheduler)
 }
 
 func TestSchedulerNamesFreshWorkflowSessionFromAcceptedTransition(t *testing.T) {
@@ -1579,14 +1577,24 @@ func (f starterFixture) waitForInterruptedRun(t *testing.T, scheduler *Scheduler
 			if runs[0].InterruptionReason != reason {
 				t.Fatalf("interruption reason = %q, want %q", runs[0].InterruptionReason, reason)
 			}
-			if scheduler.ActiveCount() != 0 {
-				t.Fatalf("scheduler active count = %d, want 0", scheduler.ActiveCount())
-			}
+			f.waitForActiveCountZero(t, scheduler)
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for workflow run interruption")
+}
+
+func (f starterFixture) waitForActiveCountZero(t *testing.T, scheduler *SchedulerService) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if scheduler.ActiveCount() == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("scheduler active count = %d, want 0 after runtime finish", scheduler.ActiveCount())
 }
 
 func (f starterFixture) assertRunSessionUsesTaskWorktree(t *testing.T, sessionID string) string {

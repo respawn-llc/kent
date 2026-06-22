@@ -325,7 +325,7 @@ func TestServiceGetSessionTranscriptPageUsesLiveRuntimeWhenAttached(t *testing.T
 	}
 }
 
-func TestServiceGetSessionTranscriptPageUsesIncrementalOngoingTailForDormantSession(t *testing.T) {
+func TestServiceGetSessionTranscriptPageUsesIncrementalRecentTailForDormantSession(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -340,7 +340,7 @@ func TestServiceGetSessionTranscriptPageUsesIncrementalOngoingTailForDormantSess
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{
 		SessionID:                store.Meta().SessionID,
-		Window:                   clientui.TranscriptWindowOngoingTail,
+		Window:                   clientui.TranscriptWindowRecentTail,
 		KnownRevision:            store.Meta().LastSequence - 1,
 		KnownCommittedEntryCount: 590,
 	})
@@ -373,13 +373,13 @@ func TestServiceGetSessionTranscriptPageUsesConfiguredCacheWarningModeForDormant
 		mode config.CacheWarningMode
 		want clientui.EntryVisibility
 	}{
-		{name: "default", mode: config.CacheWarningModeDefault, want: clientui.EntryVisibilityDetailOnly},
+		{name: "default", mode: config.CacheWarningModeDefault, want: clientui.EntryVisibilityVerbose},
 		{name: "verbose", mode: config.CacheWarningModeVerbose, want: clientui.EntryVisibilityAll},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(NewStaticSessionResolver(store), nil, nil).WithCacheWarningMode(tt.mode)
-			resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowOngoingTail})
+			resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
 			if err != nil {
 				t.Fatalf("get dormant transcript page: %v", err)
 			}
@@ -404,19 +404,19 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowOngoingTail})
+	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
 	if err != nil {
 		t.Fatalf("get dormant transcript page default: %v", err)
 	}
-	if got := first.Transcript.Entries[0].Visibility; got != clientui.EntryVisibilityDetailOnly {
-		t.Fatalf("default cache warning visibility = %q, want %q", got, clientui.EntryVisibilityDetailOnly)
+	if got := first.Transcript.Entries[0].Visibility; got != clientui.EntryVisibilityVerbose {
+		t.Fatalf("default cache warning visibility = %q, want %q", got, clientui.EntryVisibilityVerbose)
 	}
 
 	secondSvc := svc.WithCacheWarningMode(config.CacheWarningModeVerbose)
 	if secondSvc != svc {
 		t.Fatal("expected WithCacheWarningMode to mutate service in place")
 	}
-	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowOngoingTail})
+	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
 	if err != nil {
 		t.Fatalf("get dormant transcript page verbose: %v", err)
 	}
@@ -539,13 +539,13 @@ func appendDormantTranscriptMessages(store *session.Store, count int) error {
 	return nil
 }
 
-func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailByDefault(t *testing.T) {
+func TestServiceGetSessionTranscriptPageUsesDormantRecentTailByDefault(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	for i := 0; i < runtimeview.OngoingTailEntryLimit+20; i++ {
+	for i := 0; i < runtimeview.RecentTailEntryLimit+20; i++ {
 		entry := llm.Message{Role: llm.RoleUser, Content: "u" + strconv.Itoa(i)}
 		if _, _, err := store.AppendEvent("step-1", "message", entry); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
@@ -557,14 +557,14 @@ func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailByDefault(t *testi
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if resp.Transcript.TotalEntries != runtimeview.OngoingTailEntryLimit+20 {
-		t.Fatalf("total entries = %d, want %d", resp.Transcript.TotalEntries, runtimeview.OngoingTailEntryLimit+20)
+	if resp.Transcript.TotalEntries != runtimeview.RecentTailEntryLimit+20 {
+		t.Fatalf("total entries = %d, want %d", resp.Transcript.TotalEntries, runtimeview.RecentTailEntryLimit+20)
 	}
 	if resp.Transcript.Offset != 20 {
 		t.Fatalf("offset = %d, want 20", resp.Transcript.Offset)
 	}
-	if len(resp.Transcript.Entries) != runtimeview.OngoingTailEntryLimit {
-		t.Fatalf("entries = %d, want %d", len(resp.Transcript.Entries), runtimeview.OngoingTailEntryLimit)
+	if len(resp.Transcript.Entries) != runtimeview.RecentTailEntryLimit {
+		t.Fatalf("entries = %d, want %d", len(resp.Transcript.Entries), runtimeview.RecentTailEntryLimit)
 	}
 	if resp.Transcript.HasMore || resp.Transcript.NextOffset != 0 {
 		t.Fatalf("unexpected pagination metadata: %+v", resp.Transcript)
@@ -572,7 +572,7 @@ func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailByDefault(t *testi
 	if first := resp.Transcript.Entries[0].Text; first != "u20" {
 		t.Fatalf("first dormant tail entry = %q, want u20", first)
 	}
-	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != fmt.Sprintf("u%d", runtimeview.OngoingTailEntryLimit+19) {
+	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != fmt.Sprintf("u%d", runtimeview.RecentTailEntryLimit+19) {
 		t.Fatalf("last dormant tail entry = %q", last)
 	}
 }
@@ -715,7 +715,7 @@ func TestServiceGetSessionTranscriptPagePreservesHistoryAcrossActiveCompaction(t
 	if resp.Transcript.Entries[0].Role != "user" || resp.Transcript.Entries[0].Text != "before compaction" {
 		t.Fatalf("expected preserved pre-compaction entry, got %+v", resp.Transcript.Entries[0])
 	}
-	if resp.Transcript.Entries[1].Role != "compaction_summary" || resp.Transcript.Entries[1].Text != "condensed provider summary" || resp.Transcript.Entries[1].CompactLabel != "Context compacted" || resp.Transcript.Entries[1].OngoingText != "Context compacted" {
+	if resp.Transcript.Entries[1].Role != "compaction_summary" || resp.Transcript.Entries[1].Text != "condensed provider summary" || resp.Transcript.Entries[1].CompactLabel != "Context compacted" || resp.Transcript.Entries[1].CondensedText != "Context compacted" {
 		t.Fatalf("expected projected compaction summary, got %+v", resp.Transcript.Entries[1])
 	}
 	if resp.Transcript.Entries[2].Role != "compaction_notice" || resp.Transcript.Entries[2].Text != "after replace notice" {
@@ -773,13 +773,13 @@ func TestServiceGetSessionTranscriptPagePaginatesBeforeActiveCompactionBoundary(
 	}
 }
 
-func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailWindow(t *testing.T) {
+func TestServiceGetSessionTranscriptPageUsesDormantRecentTailWindow(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	for i := 0; i < runtimeview.OngoingTailEntryLimit+20; i++ {
+	for i := 0; i < runtimeview.RecentTailEntryLimit+20; i++ {
 		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u" + strconv.Itoa(i)}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
@@ -788,19 +788,19 @@ func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailWindow(t *testing.
 
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{
 		SessionID: store.Meta().SessionID,
-		Window:    "ongoing_tail",
+		Window:    "recent_tail",
 	})
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if resp.Transcript.TotalEntries != runtimeview.OngoingTailEntryLimit+20 {
-		t.Fatalf("total entries = %d, want %d", resp.Transcript.TotalEntries, runtimeview.OngoingTailEntryLimit+20)
+	if resp.Transcript.TotalEntries != runtimeview.RecentTailEntryLimit+20 {
+		t.Fatalf("total entries = %d, want %d", resp.Transcript.TotalEntries, runtimeview.RecentTailEntryLimit+20)
 	}
 	if resp.Transcript.Offset != 20 {
 		t.Fatalf("offset = %d, want 20", resp.Transcript.Offset)
 	}
-	if len(resp.Transcript.Entries) != runtimeview.OngoingTailEntryLimit {
-		t.Fatalf("entries = %d, want %d", len(resp.Transcript.Entries), runtimeview.OngoingTailEntryLimit)
+	if len(resp.Transcript.Entries) != runtimeview.RecentTailEntryLimit {
+		t.Fatalf("entries = %d, want %d", len(resp.Transcript.Entries), runtimeview.RecentTailEntryLimit)
 	}
 	if first := resp.Transcript.Entries[0].Text; first != "u20" {
 		t.Fatalf("first tail entry = %q, want u20", first)

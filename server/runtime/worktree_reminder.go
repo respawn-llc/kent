@@ -69,7 +69,7 @@ func latestMaterializedWorktreeReminderEntryMatches(entries []ChatEntry, message
 		}
 		return entry.MessageType == message.MessageType &&
 			strings.TrimSpace(entry.Text) == strings.TrimSpace(message.Content) &&
-			strings.TrimSpace(entry.OngoingText) == strings.TrimSpace(message.CompactContent) &&
+			strings.TrimSpace(entry.CondensedText) == strings.TrimSpace(message.CompactContent) &&
 			strings.TrimSpace(entry.SourcePath) == strings.TrimSpace(message.SourcePath)
 	}
 	return false

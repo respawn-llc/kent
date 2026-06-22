@@ -530,8 +530,8 @@ func TestNativePostCommitRedrawStableWithoutExtraBlankBeforeDivider(t *testing.T
 	}
 
 	cmd := m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{
-		Entries: []runtime.ChatEntry{{Role: "user", Text: "try again"}, {Role: "assistant", Text: "Second Stream Check"}},
-		Ongoing: "",
+		Entries:   []runtime.ChatEntry{{Role: "user", Text: "try again"}, {Role: "assistant", Text: "Second Stream Check"}},
+		Streaming: "",
 	})
 	if cmd == nil {
 		t.Fatal("expected native history flush command on commit snapshot")
@@ -1045,15 +1045,15 @@ func TestDefaultDetailTranscriptHydrationSyncsNativeProjectionWithoutTailReplace
 	_ = collectCmdMessages(t, enterCmd)
 
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     2,
-		Offset:       0,
-		TotalEntries: 2,
-		NextOffset:   2,
-		HasMore:      false,
-		Entries:      []clientui.ChatEntry{{Role: "user", Text: "fresh root"}, {Role: "assistant", Text: "rewritten tail"}},
-		Ongoing:      "",
-		OngoingError: "",
+		SessionID:      "session-1",
+		Revision:       2,
+		Offset:         0,
+		TotalEntries:   2,
+		NextOffset:     2,
+		HasMore:        false,
+		Entries:        []clientui.ChatEntry{{Role: "user", Text: "fresh root"}, {Role: "assistant", Text: "rewritten tail"}},
+		Streaming:      "",
+		StreamingError: "",
 	}, clientui.TranscriptRecoveryCauseNone)
 	for _, msg := range collectCmdMessages(t, cmd) {
 		if flush, ok := msg.(nativeHistoryFlushMsg); ok {

@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func TestModeToggleReturnsToLatestOngoingTail(t *testing.T) {
+func TestModeToggleReturnsToLatestRecentTail(t *testing.T) {
 	m := NewModel(WithPreviewLines(2))
 	m = updateModel(t, m, StreamAssistantMsg{Delta: "l1\nl2\nl3\nl4"})
 	m = updateModel(t, m, ScrollOngoingMsg{Delta: -1})
@@ -741,10 +741,10 @@ func TestOngoingAskQuestionRendersSelectedOptionText(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "User chose option #2. They also said: include tests",
-		OngoingText: "Recursive scan\nUser also said:\ninclude tests",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "User chose option #2. They also said: include tests",
+		CondensedText: "Recursive scan\nUser also said:\ninclude tests",
 	})
 
 	plain := plainTranscript(m.View())
@@ -768,10 +768,10 @@ func TestOngoingAskQuestionPreservesLiteralUserAnsweredPrefix(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "User answered: keep going",
-		OngoingText: "User answered: keep going",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "User answered: keep going",
+		CondensedText: "User answered: keep going",
 	})
 
 	plain := plainTranscript(m.View())
@@ -810,9 +810,9 @@ func TestOngoingAskQuestionsKeepModelOrderAndSeparateToolGroup(t *testing.T) {
 				Question: "Second question?",
 			},
 		},
-		{Role: "tool_result_ok", ToolCallID: "call_second", Text: "second answer", OngoingText: "second answer"},
-		{Role: "tool_result_ok", ToolCallID: "call_shell", Text: "/tmp", OngoingText: "/tmp"},
-		{Role: "tool_result_ok", ToolCallID: "call_first", Text: "first answer", OngoingText: "first answer"},
+		{Role: "tool_result_ok", ToolCallID: "call_second", Text: "second answer", CondensedText: "second answer"},
+		{Role: "tool_result_ok", ToolCallID: "call_shell", Text: "/tmp", CondensedText: "/tmp"},
+		{Role: "tool_result_ok", ToolCallID: "call_first", Text: "first answer", CondensedText: "first answer"},
 	}
 
 	rendered := ProjectCommittedOngoingTranscript(entries, "dark", 80).Render(TranscriptDivider)
@@ -838,10 +838,10 @@ func TestOngoingAskQuestionQuestionTextWrapsWithoutEllipsis(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "yes",
-		OngoingText: "yes",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "yes",
+		CondensedText: "yes",
 	})
 
 	rendered := m.View()
@@ -882,10 +882,10 @@ func TestOngoingAskQuestionMarkdownWrapsWithinViewport(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "approved",
-		OngoingText: "approved",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "approved",
+		CondensedText: "approved",
 	})
 
 	rendered := m.View()
@@ -1136,7 +1136,7 @@ func TestPendingOngoingMultilineToolBlockRendersTreeGuidesWithSpinner(t *testing
 	}
 }
 
-func TestDetailAskQuestionKeepsToolResultTextWhenOngoingTextDiffers(t *testing.T) {
+func TestDetailAskQuestionKeepsToolResultTextWhenCondensedTextDiffers(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role:       "tool_call",
@@ -1149,10 +1149,10 @@ func TestDetailAskQuestionKeepsToolResultTextWhenOngoingTextDiffers(t *testing.T
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "User chose option #2. They also said: include tests",
-		OngoingText: "Recursive scan\nUser also said:\ninclude tests",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "User chose option #2. They also said: include tests",
+		CondensedText: "Recursive scan\nUser also said:\ninclude tests",
 	})
 	m = updateModel(t, m, ToggleModeMsg{})
 

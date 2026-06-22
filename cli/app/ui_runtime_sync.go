@@ -322,7 +322,7 @@ func shouldReplacePendingRuntimeTranscriptSync(current, next runtimeTranscriptSy
 		return next.priority > current.priority
 	}
 	if next.page.Window != current.page.Window {
-		return next.page.Window == clientui.TranscriptWindowOngoingTail
+		return next.page.Window == clientui.TranscriptWindowRecentTail
 	}
 	if next.page.Limit != current.page.Limit {
 		return next.page.Limit > current.page.Limit
@@ -396,7 +396,7 @@ func (m *uiModel) logRuntimeTranscriptPolicyDecision(outcome string, req runtime
 }
 
 func (m *uiModel) transcriptHydrationRequest(request clientui.TranscriptPageRequest, allowDuplicateSkip bool) clientui.TranscriptPageRequest {
-	if m == nil || allowDuplicateSkip || request.Window != clientui.TranscriptWindowOngoingTail {
+	if m == nil || allowDuplicateSkip || request.Window != clientui.TranscriptWindowRecentTail {
 		return request
 	}
 	request.KnownRevision, request.KnownCommittedEntryCount = committedTranscriptStateIncludingDeferredTail(m)

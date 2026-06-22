@@ -1034,8 +1034,8 @@ func PendingToolEntries(entries []TranscriptEntry) []TranscriptEntry {
 			continue
 		}
 		text := entry.Text
-		if strings.TrimSpace(entry.OngoingText) != "" {
-			text = entry.OngoingText
+		if strings.TrimSpace(entry.CondensedText) != "" {
+			text = entry.CondensedText
 		}
 		if strings.TrimSpace(text) == "" {
 			continue
@@ -1063,14 +1063,14 @@ func nonEmptyTranscriptEntries(entries []TranscriptEntry) []TranscriptEntry {
 	for _, entry := range entries {
 		if TranscriptRoleFromWire(string(entry.Role)).IsToolResult() &&
 			strings.TrimSpace(entry.Text) == "" &&
-			strings.TrimSpace(entry.OngoingText) == "" {
+			strings.TrimSpace(entry.CondensedText) == "" {
 			// Successful patch/edit calls intentionally emit an empty tool_result
 			// body. Preserve the entry as a structural status marker so merged
 			// tool blocks can still resolve to their final success/error role.
 			filtered = append(filtered, entry)
 			continue
 		}
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -1089,8 +1089,8 @@ func committedOngoingPrefixEnd(entries []TranscriptEntry) int {
 			continue
 		}
 		text := entry.Text
-		if strings.TrimSpace(entry.OngoingText) != "" {
-			text = entry.OngoingText
+		if strings.TrimSpace(entry.CondensedText) != "" {
+			text = entry.CondensedText
 		}
 		if strings.TrimSpace(text) == "" {
 			continue
@@ -1112,8 +1112,8 @@ func committedOngoingPrefixEndBefore(entries []TranscriptEntry, boundary int, re
 			continue
 		}
 		text := entry.Text
-		if strings.TrimSpace(entry.OngoingText) != "" {
-			text = entry.OngoingText
+		if strings.TrimSpace(entry.CondensedText) != "" {
+			text = entry.CondensedText
 		}
 		if strings.TrimSpace(text) == "" {
 			continue

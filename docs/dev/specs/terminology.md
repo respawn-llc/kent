@@ -196,9 +196,13 @@ A transient or persistent global notification surfaced by the desktop app. Toast
 
 ## TUI And Transcript
 
+### Streaming Message
+
+The in-progress assistant turn while the model is generating, modeled server-side as a single provisional message (`chatStore.streaming`) that grows as deltas arrive. It is held outside provider history and is never persisted; it is exposed to clients as a sibling of the committed transcript (the trailing message), not as a committed entry. On finalize it is superseded by the authoritative committed assistant message; on interrupt or any abnormal run termination it is discarded. "Ongoing"/"detail" are TUI render postures only and must never appear in server/shared domain naming; the server has no knowledge of how clients render the streaming message.
+
 ### Ongoing Mode
 
-Primary long-running TUI mode backed by normal-buffer terminal scrollback. Ongoing mode appends committed transcript history and live overlays without owning a scrollable viewport or rewriting emitted lines.
+Primary long-running TUI mode backed by normal-buffer terminal scrollback. Ongoing mode appends committed transcript history and live overlays without owning a scrollable viewport or rewriting emitted lines. This is a client-only render posture; the server is unaware of it.
 
 ### Detail Mode
 

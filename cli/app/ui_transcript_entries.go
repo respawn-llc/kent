@@ -17,7 +17,7 @@ func authoritativePageDuplicatesCommittedAssistantOngoing(entries []tui.Transcri
 	}
 	for idx := len(entries) - 1; idx >= 0; idx-- {
 		entry := entries[idx]
-		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.OngoingText) == "" {
+		if strings.TrimSpace(entry.Text) == "" && strings.TrimSpace(entry.CondensedText) == "" {
 			continue
 		}
 		if entry.Role != tui.TranscriptRoleAssistant {
@@ -60,7 +60,7 @@ func transcriptEntryFromProjectedChatEntry(entry clientui.ChatEntry, transient b
 		Committed:         committed,
 		Role:              tui.TranscriptRoleFromWire(entry.Role),
 		Text:              entry.Text,
-		OngoingText:       entry.OngoingText,
+		CondensedText:     entry.CondensedText,
 		Phase:             clientui.MessagePhase(entry.Phase),
 		MessageType:       clientui.MessageType(entry.MessageType),
 		SourcePath:        strings.TrimSpace(entry.SourcePath),
@@ -79,7 +79,7 @@ func appendTranscriptMsgFromEntry(entry tui.TranscriptEntry) tui.AppendTranscrip
 		Committed:         entry.Committed,
 		Role:              entry.Role,
 		Text:              entry.Text,
-		OngoingText:       entry.OngoingText,
+		CondensedText:     entry.CondensedText,
 		Phase:             entry.Phase,
 		MessageType:       entry.MessageType,
 		SourcePath:        strings.TrimSpace(entry.SourcePath),
@@ -165,7 +165,7 @@ func transcriptPayloadFromTUIEntry(entry tui.TranscriptEntry) transcript.EntryPa
 		RollbackTargetID:  entry.RollbackTargetID,
 		Role:              string(entry.Role),
 		Text:              entry.Text,
-		OngoingText:       entry.OngoingText,
+		CondensedText:     entry.CondensedText,
 		Phase:             string(entry.Phase),
 		MessageType:       string(entry.MessageType),
 		SourcePath:        entry.SourcePath,
@@ -183,7 +183,7 @@ func transcriptPayloadFromClientEntry(entry clientui.ChatEntry) transcript.Entry
 		RollbackTargetID:  entry.RollbackTargetID,
 		Role:              entry.Role,
 		Text:              entry.Text,
-		OngoingText:       entry.OngoingText,
+		CondensedText:     entry.CondensedText,
 		Phase:             entry.Phase,
 		MessageType:       entry.MessageType,
 		SourcePath:        entry.SourcePath,

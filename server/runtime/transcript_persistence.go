@@ -31,9 +31,9 @@ func (p transcriptPersistenceCoordinator) AppendLocalEntryRecord(entry ChatEntry
 	}
 }
 
-func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithOngoingText(role, text, ongoingText string) {
+func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithCondensedText(role, text, condensedText string) {
 	if chat := p.chatProjection(); chat != nil {
-		chat.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: role, Text: text, OngoingText: ongoingText})
+		chat.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: role, Text: text, CondensedText: condensedText})
 	}
 }
 
@@ -43,22 +43,22 @@ func (p transcriptPersistenceCoordinator) AppendCommittedEntryWithVisibility(rol
 	}
 }
 
-func (p transcriptPersistenceCoordinator) AppendOngoingDelta(delta string) {
+func (p transcriptPersistenceCoordinator) AppendStreamingDelta(delta string) {
 	if chat := p.chatProjection(); chat != nil {
-		chat.appendOngoingDelta(delta)
+		chat.appendStreamingDelta(delta)
 	}
 }
 
 func (p transcriptPersistenceCoordinator) RecordStoredToolCompletion(completion storedToolCompletion) {
 	if chat := p.chatProjection(); chat != nil {
 		chat.recordToolCompletionWithProviderItems(tools.Result{
-			CallID:       completion.CallID,
-			Name:         toolspec.ID(completion.Name),
-			IsError:      completion.IsError,
-			Output:       completion.Output,
-			Summary:      completion.Summary,
-			OngoingText:  completion.OngoingText,
-			Presentation: completion.Presentation,
+			CallID:        completion.CallID,
+			Name:          toolspec.ID(completion.Name),
+			IsError:       completion.IsError,
+			Output:        completion.Output,
+			Summary:       completion.Summary,
+			CondensedText: completion.CondensedText,
+			Presentation:  completion.Presentation,
 		}, completion.ProviderItems)
 	}
 }
@@ -78,20 +78,20 @@ func (p transcriptPersistenceCoordinator) ReplaceHistory(items []llm.ResponseIte
 
 func (p transcriptPersistenceCoordinator) ClearStreamingAssistantState() {
 	if chat := p.chatProjection(); chat != nil {
-		chat.clearOngoing()
-		chat.clearOngoingError()
+		chat.discardStreaming()
+		chat.clearStreamingError()
 	}
 }
 
-func (p transcriptPersistenceCoordinator) SetOngoingError(text string) {
+func (p transcriptPersistenceCoordinator) SetStreamingError(text string) {
 	if chat := p.chatProjection(); chat != nil {
-		chat.setOngoingError(text)
+		chat.setStreamingError(text)
 	}
 }
 
-func (p transcriptPersistenceCoordinator) ClearOngoingError() {
+func (p transcriptPersistenceCoordinator) ClearStreamingError() {
 	if chat := p.chatProjection(); chat != nil {
-		chat.clearOngoingError()
+		chat.clearStreamingError()
 	}
 }
 

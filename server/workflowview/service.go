@@ -1542,7 +1542,7 @@ func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string
 }
 
 func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
-	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Window: clientui.TranscriptWindowOngoingTail})
+	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Window: clientui.TranscriptWindowRecentTail})
 	if err != nil {
 		return pendingQuestion{}, fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
 	}
