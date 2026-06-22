@@ -657,10 +657,21 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 	memoReq := goalSetMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Objective: trimmedObjective, Actor: strings.TrimSpace(req.Actor)}
 	return s.goals.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalSetMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		var response serverapi.RuntimeGoalShowResponse
-		if err := s.rejectAgentGoalSet(ctx, req); err != nil {
+		// Evaluate the deterministic agent goal-overwrite denial against the resolved
+		// engine before acquiring runtime access, so callers receive the precise denial
+		// instead of a misleading runtime-availability error when the collaborative
+		// guard is unavailable. The authoritative check inside the mutation closure
+		// below remains as defense in depth.
+		rejectEngine, err := s.resolve(ctx, req.SessionID)
+		if err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
-		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
+		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
+			if currentGoal := rejectEngine.Goal(); goalBlocksAgentSet(currentGoal) {
+				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
+			}
+		}
+		err = s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
 			if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 				currentGoal := engine.Goal()
 				if goalBlocksAgentSet(currentGoal) {
@@ -693,21 +704,6 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		})
 		return response, err
 	})
-}
-
-func (s *Service) rejectAgentGoalSet(ctx context.Context, req serverapi.RuntimeGoalSetRequest) error {
-	engine, err := s.resolve(ctx, req.SessionID)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(req.Actor) != string(session.GoalActorAgent) {
-		return nil
-	}
-	currentGoal := engine.Goal()
-	if goalBlocksAgentSet(currentGoal) {
-		return goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
-	}
-	return nil
 }
 
 func goalBlocksAgentSet(goal *session.GoalState) bool {
