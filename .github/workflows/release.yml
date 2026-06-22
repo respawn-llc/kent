@@ -259,12 +259,15 @@ jobs:
           name: ${{ needs.prepare_release.outputs.artifact_name }}
           path: dist
 
+      # Stays a draft until publish_desktop uploads the desktop bundles and flips it
+      # public, so a failed desktop build leaves a re-runnable draft (reused by
+      # prepare_release) instead of a public release missing desktop assets.
       - name: Create or update release
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ needs.prepare_release.outputs.tag }}
           name: ${{ needs.prepare_release.outputs.tag }}
-          draft: false
+          draft: true
           body: ${{ needs.prepare_release.outputs.changelog }}
           files: dist/*
 
@@ -368,10 +371,13 @@ jobs:
             --dist-dir dist/desktop \
             --base-url "https://github.com/${{ github.repository }}/releases/download/${TAG}"
 
-      - name: Upload desktop assets to release
+      # Uploads the desktop bundles and flips the release public (draft: false) — the
+      # last step, so the release only goes live once every platform's assets exist.
+      - name: Upload desktop assets and publish release
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ needs.prepare_release.outputs.tag }}
+          draft: false
           files: dist/desktop/*
 
   update_brew_tap:
