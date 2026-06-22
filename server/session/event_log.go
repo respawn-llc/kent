@@ -293,6 +293,88 @@ func walkEventsFromReader(reader *bufio.Reader, visit func(Event) error) (parsed
 	return parsedEvents{totalBytes: totalBytes, lastSequence: lastSequence, droppedTrailingEOF: droppedTrailingEOF}, nil
 }
 
+const activeTailReverseChunkBytes = int64(1 << 20)
+
+func parseEventBytes(region []byte) ([]Event, error) {
+	collected := make([]Event, 0)
+	if _, err := walkEventsFromReader(bufio.NewReader(bytes.NewReader(region)), func(evt Event) error {
+		collected = append(collected, evt)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return collected, nil
+}
+
+func readEventsBackwardUntilFile(path string, chunkBytes int64, match func(Event) bool) ([]Event, error) {
+	if chunkBytes <= 0 {
+		chunkBytes = activeTailReverseChunkBytes
+	}
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return nil, fmt.Errorf("open events file: %w", err)
+	}
+	defer fp.Close()
+	size, err := fp.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("seek events file: %w", err)
+	}
+	if size == 0 {
+		return nil, nil
+	}
+	var buffer []byte
+	pos := size
+	for pos > 0 {
+		chunk := chunkBytes
+		if chunk > pos {
+			chunk = pos
+		}
+		pos -= chunk
+		tmp := make([]byte, chunk)
+		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("read events file: %w", err)
+		}
+		buffer = append(tmp, buffer...)
+		events, resolved, err := activeTailFromBuffer(buffer, pos == 0, match)
+		if err != nil {
+			return nil, err
+		}
+		if resolved {
+			return events, nil
+		}
+	}
+	events, _, err := activeTailFromBuffer(buffer, true, match)
+	return events, err
+}
+
+func activeTailFromBuffer(buffer []byte, atStart bool, match func(Event) bool) ([]Event, bool, error) {
+	region := buffer
+	if !atStart {
+		nl := bytes.IndexByte(buffer, '\n')
+		if nl < 0 {
+			return nil, false, nil
+		}
+		region = buffer[nl+1:]
+	}
+	events, err := parseEventBytes(region)
+	if err != nil {
+		return nil, false, err
+	}
+	last := -1
+	for i := range events {
+		if match != nil && match(events[i]) {
+			last = i
+		}
+	}
+	if last >= 0 {
+		return events[last:], true, nil
+	}
+	if atStart {
+		return events, true, nil
+	}
+	return nil, false, nil
+}
+
 func encodeEventLines(events []Event, hasExistingContent bool) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	if hasExistingContent {

@@ -61,6 +61,11 @@ func (e *Engine) RecentTailTranscriptWindow(maxEntries int) TranscriptWindowSnap
 		return TranscriptWindowSnapshot{}
 	}
 	window := e.cachedRecentTailWindow(maxEntries)
+	total := e.CommittedTranscriptEntryCount()
+	window.TotalEntries = total
+	if offset := total - len(window.Snapshot.Entries); offset >= 0 {
+		window.Offset = offset
+	}
 	e.overlayLiveStreaming(&window.Snapshot)
 	return window
 }
@@ -70,13 +75,30 @@ func (e *Engine) cachedRecentTailWindow(maxEntries int) TranscriptWindowSnapshot
 	if cached, ok := e.recentTailCache.get(revision, maxEntries); ok {
 		return cached
 	}
-	window := e.scanPersistedTranscript(PersistedTranscriptScanRequest{
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{
 		TrackRecentTail:  true,
 		TailLimit:        maxEntries,
 		CacheWarningMode: e.cfg.CacheWarningMode,
-	}).RecentTailSnapshot()
+	})
+	for _, evt := range e.activeListEvents() {
+		_ = scan.ApplyPersistedEvent(evt)
+	}
+	window := scan.RecentTailSnapshot()
 	e.recentTailCache.store(revision, maxEntries, window)
 	return window
+}
+
+func (e *Engine) activeListEvents() []session.Event {
+	if e == nil || e.store == nil {
+		return nil
+	}
+	events, err := e.store.ReadEventsBackwardUntil(func(evt session.Event) bool {
+		return evt.Kind == sessionEventHistoryReplaced
+	})
+	if err != nil {
+		return nil
+	}
+	return events
 }
 
 func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {

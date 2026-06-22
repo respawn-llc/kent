@@ -878,6 +878,15 @@ type EventInput struct {
 	Payload any
 }
 
+func (s *Store) ReadEventsBackwardUntil(match func(Event) bool) ([]Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return nil, nil
+	}
+	return readEventsBackwardUntilFile(s.eventsFP, activeTailReverseChunkBytes, match)
+}
+
 func (s *Store) WalkEvents(visit func(Event) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
