@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { createBrowserNativeBridge } from "@app/native-bridge";
 
 import { App } from "../../App";
-import { StartupConfigurationError } from "../../api/errors";
+import { ServerRootMismatchError, StartupConfigurationError, TransportError } from "../../api/errors";
 import { protocolVersion } from "../../api/jsonRpcSocket";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
 import { serverSetupDocsUrl } from "../../appLinks";
@@ -12,7 +12,7 @@ describe("StartupGate", () => {
     render(
       <App
         services={createTestServices([
-          { method: "server.readiness.get", result: {}, error: new Error("connection refused") },
+          { method: "server.readiness.get", result: {}, error: new TransportError("connection refused") },
         ])}
       />,
     );
@@ -24,7 +24,7 @@ describe("StartupGate", () => {
 
   it("rechecks readiness when the setup guide check-again button is used", async () => {
     const services = createTestServices([
-      { method: "server.readiness.get", result: {}, error: new Error("connection refused") },
+      { method: "server.readiness.get", result: {}, error: new TransportError("connection refused") },
     ]);
     render(<App services={services} />);
 
@@ -53,7 +53,7 @@ describe("StartupGate", () => {
     render(
       <App
         services={createTestServices(
-          [{ method: "server.readiness.get", result: {}, error: new Error("connection refused") }],
+          [{ method: "server.readiness.get", result: {}, error: new TransportError("connection refused") }],
           bridge,
         )}
       />,
@@ -105,6 +105,23 @@ describe("StartupGate", () => {
             method: "server.readiness.get",
             result: {},
             error: new StartupConfigurationError("invalid Kent config"),
+          },
+        ])}
+      />,
+    );
+
+    expect(await screen.findByTestId("error-state", undefined, { timeout: 4_000 })).toBeInTheDocument();
+    expect(screen.queryByTestId("server-setup-guide")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a server root mismatch as a startup error, not the setup guide", async () => {
+    render(
+      <App
+        services={createTestServices([
+          {
+            method: "server.readiness.get",
+            result: {},
+            error: new ServerRootMismatchError("server serves a different persistence root"),
           },
         ])}
       />,
