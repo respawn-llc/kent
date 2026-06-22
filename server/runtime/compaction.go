@@ -284,6 +284,52 @@ func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
 	return e.requestInputTokensPreciselyTracked(ctx, req, true)
 }
 
+func (e *Engine) currentInputTokensPreciselyWithoutPromptRefresh(ctx context.Context) (int, bool) {
+	req, err := e.buildRequestWithoutPromptRefresh(ctx)
+	if err != nil {
+		return 0, false
+	}
+	return e.requestInputTokensPreciselyTracked(ctx, req, true)
+}
+
+func (e *Engine) buildRequestWithoutPromptRefresh(ctx context.Context) (llm.Request, error) {
+	locked, err := e.ensureLocked()
+	if err != nil {
+		return llm.Request{}, err
+	}
+	workflowMode, err := e.workflowCompletionMode(ctx)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	requestTools, err := e.requestTools(ctx, workflowMode)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	systemPrompt, err := e.systemPromptWithoutBackfill(locked)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	req, err := llm.RequestFromLockedContract(locked, systemPrompt, e.transcriptRuntimeState().SnapshotItems(), requestTools)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	req.ReasoningEffort = e.ThinkingLevel()
+	req.FastMode = e.FastModeEnabled()
+	req.SessionID = e.SessionID()
+	if e.supportsPromptCacheKey(ctx) {
+		if cacheKey := conversationPromptCacheKey(e.SessionID(), e.compactionRuntimeState().Count()); cacheKey != "" {
+			req.PromptCacheKey = cacheKey
+			req.PromptCacheScope = transcript.CacheWarningScopeConversation
+		}
+	}
+	nativeWebSearch, nativeErr := e.enableNativeWebSearch(ctx)
+	if nativeErr != nil {
+		return llm.Request{}, nativeErr
+	}
+	req.EnableNativeWebSearch = nativeWebSearch
+	return req, nil
+}
+
 func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Context, limit int, critical bool) (int, bool) {
 	if precise, ok := e.lookupCurrentPreciseInputTokens(); ok {
 		if !e.shouldRefreshCurrentPreciseInputTokens(limit, critical) {
@@ -590,7 +636,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
 	inputTokens := estimateItemsTokens(e.transcriptRuntimeState().SnapshotItems())
-	if preciseInput, ok := e.currentInputTokensPrecisely(ctx); ok {
+	if preciseInput, ok := e.currentInputTokensPreciselyWithoutPromptRefresh(ctx); ok {
 		inputTokens = preciseInput
 	}
 	if err := e.recordLastUsage(llm.Usage{
@@ -599,6 +645,14 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		WindowTokens: windowTokens,
 	}); err != nil {
 		return compactionResult{}, err
+	}
+	staleResult, staleErr := e.store.MarkLockedPromptFacingSnapshotsStale()
+	if staleResult.Committed && staleResult.Locked != nil {
+		e.lockedContractState().Set(*staleResult.Locked)
+	}
+	if staleErr != nil && !staleResult.Committed {
+		statusErr := newCompactionPersistence(e).emitStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, compactionNumber, staleErr.Error())
+		return compactionResult{}, errors.Join(staleErr, statusErr)
 	}
 
 	if err := newCompactionPersistence(e).emitStatus(stepID, EventCompactionCompleted, mode, result.engine, providerID, result.trimmedItemsCount, compactionNumber, ""); err != nil {

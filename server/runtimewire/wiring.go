@@ -1,10 +1,12 @@
 package runtimewire
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
@@ -33,12 +35,14 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
-	OnEvent     func(evt runtime.Event)
-	Headless    bool
-	FastMode    *runtime.FastModeState
-	Sources     map[string]string
-	Client      llm.Client
-	WorkflowRun *workflowruntime.Config
+	OnEvent                             func(evt runtime.Event)
+	Headless                            bool
+	FastMode                            *runtime.FastModeState
+	Sources                             map[string]string
+	Client                              llm.Client
+	WorkflowRun                         *workflowruntime.Config
+	PromptFacingSnapshotReloader        runtime.PromptFacingSnapshotReloader
+	SkipContinuationAgentRoleValidation bool
 	// GlobalConfigDir is the absolute persistence root that owns model-visible
 	// global context (AGENTS.md, system prompt, skills). Empty falls back to
 	// ~/.kent inside the runtime resolvers.
@@ -134,6 +138,15 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 			logger.Logf("runtime.event.drop count=%d kind=%s step_id=%s", total, evt.Kind, evt.StepID)
 		}
 	})
+	promptReloader := opts.PromptFacingSnapshotReloader
+	if promptReloader == nil {
+		promptReloader = launchPromptFacingSnapshotReloader{
+			store:                               store,
+			workspaceRoot:                       workspaceRoot,
+			configRoot:                          opts.GlobalConfigDir,
+			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
+		}
+	}
 	eng, err = runtime.New(store, client, toolRegistry, runtime.Config{
 		Model:                         active.Model,
 		Temperature:                   1,
@@ -143,6 +156,7 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		FastModeEnabled:               active.PriorityRequestMode,
 		FastModeState:                 opts.FastMode,
 		WebSearchMode:                 active.WebSearch,
+		PromptFacingSnapshotReloader:  promptReloader,
 		ProviderCapabilitiesOverride:  mainProvider.ProviderCapabilitiesOverride,
 		EnabledTools:                  enabledTools,
 		DisabledSkills:                config.DisabledSkillToggles(active),
@@ -188,6 +202,30 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		EventBridge: eventBridge,
 		Background:  background,
 		LocalTools:  localTools,
+	}, nil
+}
+
+type launchPromptFacingSnapshotReloader struct {
+	store                               *session.Store
+	workspaceRoot                       string
+	configRoot                          string
+	skipContinuationAgentRoleValidation bool
+}
+
+func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
+	app, err := config.Load(r.workspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	resolved, err := launch.ResolvePromptFacingSnapshotConfig(app, r.store, r.skipContinuationAgentRoleValidation)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
+	return runtime.PromptFacingSnapshotConfig{
+		Settings:      resolved.Settings,
+		Source:        resolved.Source,
+		ActiveToolIDs: append([]toolspec.ID(nil), resolved.ActiveToolIDs...),
+		WebSearchMode: resolved.WebSearchMode,
 	}, nil
 }
 

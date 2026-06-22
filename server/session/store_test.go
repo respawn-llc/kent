@@ -207,6 +207,144 @@ func TestLockedContractPersistenceIncludesSystemPromptButNotToolSchema(t *testin
 	}
 }
 
+func TestLockedContractPersistenceIncludesExplicitZeroToolsAndWebSearchMode(t *testing.T) {
+	store := newSessionTestStore(t)
+	if err := store.MarkModelDispatchLocked(LockedContract{
+		Model:             "gpt-5",
+		SystemPrompt:      "prompt",
+		HasSystemPrompt:   true,
+		EnabledTools:      nil,
+		HasEnabledTools:   true,
+		WebSearchMode:     "native",
+		ReviewerPrompt:    "reviewer",
+		HasReviewerPrompt: true,
+	}); err != nil {
+		t.Fatalf("mark model dispatch locked: %v", err)
+	}
+	opened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	locked := opened.Meta().Locked
+	if locked == nil || !locked.HasEnabledTools || len(locked.EnabledTools) != 0 || locked.WebSearchMode != "native" {
+		t.Fatalf("locked request shape = %+v, want explicit zero tools and native web search", locked)
+	}
+}
+
+func TestLockedPromptFacingMutationsPreserveLifetimeFields(t *testing.T) {
+	store := newSessionTestStore(t)
+	toolPreambles := true
+	lockedAt := store.Meta().CreatedAt
+	if err := store.MarkModelDispatchLocked(LockedContract{
+		Model:             "gpt-5",
+		Temperature:       0.7,
+		MaxOutputToken:    1000,
+		SystemPrompt:      "prompt A",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "reviewer A",
+		HasReviewerPrompt: true,
+		ContextWindow:     100,
+		ContextPercent:    50,
+		EnabledTools:      []string{"shell"},
+		HasEnabledTools:   true,
+		WebSearchMode:     "native",
+		ToolPreambles:     &toolPreambles,
+		LockedAt:          lockedAt,
+	}); err != nil {
+		t.Fatalf("mark model dispatch locked: %v", err)
+	}
+	stale, err := store.MarkLockedPromptFacingSnapshotsStale()
+	if err != nil {
+		t.Fatalf("mark stale: %v", err)
+	}
+	if !stale.Committed || stale.Locked == nil {
+		t.Fatalf("stale result = %+v, want committed lock", stale)
+	}
+	if stale.Locked.SystemPrompt != "" || stale.Locked.HasSystemPrompt || stale.Locked.ReviewerPrompt != "" || stale.Locked.HasReviewerPrompt {
+		t.Fatalf("stale locked prompts = %+v, want cleared", stale.Locked)
+	}
+	if stale.Locked.Model != "gpt-5" || stale.Locked.WebSearchMode != "native" || len(stale.Locked.EnabledTools) != 1 || !stale.Locked.HasEnabledTools {
+		t.Fatalf("stale lifetime fields = %+v", stale.Locked)
+	}
+	refreshed, err := store.RefreshLockedMainPromptSnapshot(LockedMainPromptSnapshot{
+		SystemPrompt:    "prompt B",
+		HasSystemPrompt: true,
+		ToolPreambles:   &toolPreambles,
+		ContextWindow:   200,
+		ContextPercent:  60,
+	})
+	if err != nil {
+		t.Fatalf("refresh main: %v", err)
+	}
+	if refreshed.Locked.SystemPrompt != "prompt B" || !refreshed.Locked.HasSystemPrompt || refreshed.Locked.ReviewerPrompt != "" {
+		t.Fatalf("main refresh lock = %+v", refreshed.Locked)
+	}
+	reviewer, err := store.RefreshLockedReviewerPromptSnapshot(LockedReviewerPromptSnapshot{ReviewerPrompt: "reviewer B", HasReviewerPrompt: true})
+	if err != nil {
+		t.Fatalf("refresh reviewer: %v", err)
+	}
+	if reviewer.Locked.ReviewerPrompt != "reviewer B" || !reviewer.Locked.HasReviewerPrompt || reviewer.Locked.SystemPrompt != "prompt B" {
+		t.Fatalf("reviewer refresh lock = %+v", reviewer.Locked)
+	}
+}
+
+func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
+	store := newSessionTestStore(t)
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+		t.Fatalf("mark model dispatch locked: %v", err)
+	}
+	result, err := store.BackfillLockedRequestShape(LockedRequestShapeBackfill{
+		EnabledTools:    []string{"shell", "patch"},
+		HasEnabledTools: true,
+		WebSearchMode:   "native",
+	})
+	if err != nil {
+		t.Fatalf("backfill request shape: %v", err)
+	}
+	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "shell,patch" || result.Locked.WebSearchMode != "native" {
+		t.Fatalf("request shape result = %+v", result)
+	}
+	opened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 2 {
+		t.Fatalf("persisted request shape = %+v", locked)
+	}
+}
+
+func TestLockedContractMutationObserverCommitSemantics(t *testing.T) {
+	fileObserver := &recordingPersistenceObserver{err: os.ErrPermission}
+	fileStore, err := Create(t.TempDir(), "ws", t.TempDir(), WithPersistenceObserver(fileObserver))
+	if err != nil {
+		t.Fatalf("create file store: %v", err)
+	}
+	if err := fileStore.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt A", HasSystemPrompt: true}); err == nil {
+		t.Fatal("expected observer error on initial lock")
+	}
+	result, err := fileStore.MarkLockedPromptFacingSnapshotsStale()
+	if err == nil || !result.Committed || result.Locked == nil || result.Locked.HasSystemPrompt {
+		t.Fatalf("file-backed observer result=%+v err=%v, want committed observer warning", result, err)
+	}
+
+	filelessObserver := &recordingPersistenceObserver{err: os.ErrPermission}
+	filelessStore, err := Create(t.TempDir(), "ws", t.TempDir(), WithFilelessMetadataPersistence(), WithPersistenceObserver(filelessObserver))
+	if err != nil {
+		t.Fatalf("create fileless store: %v", err)
+	}
+	if err := filelessStore.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt A", HasSystemPrompt: true}); err == nil {
+		t.Fatal("expected observer error on initial fileless lock")
+	}
+	before := filelessStore.Meta().Locked
+	result, err = filelessStore.MarkLockedPromptFacingSnapshotsStale()
+	if err == nil || result.Committed {
+		t.Fatalf("fileless observer result=%+v err=%v, want uncommitted failure", result, err)
+	}
+	if after := filelessStore.Meta().Locked; before == nil || after == nil || after.SystemPrompt != before.SystemPrompt || !after.HasSystemPrompt {
+		t.Fatalf("fileless lock after failed mutation = %+v, before %+v", after, before)
+	}
+}
+
 func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
 	store := newSessionTestStore(t)
 

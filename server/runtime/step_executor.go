@@ -70,7 +70,11 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 		}
 
 		localToolCalls := append([]llm.ToolCall(nil), resp.ToolCalls...)
-		hostedToolExecutions := hostedToolExecutionsFromOutputItems(resp.OutputItems, tools.DefinitionsFor(e.cfg.EnabledTools))
+		shape, shapeErr := e.lockedRequestShape()
+		if shapeErr != nil {
+			return stepLoopResult{}, shapeErr
+		}
+		hostedToolExecutions := hostedToolExecutionsFromOutputItems(resp.OutputItems, tools.DefinitionsFor(shape.EnabledTools))
 		if len(localToolCalls) > 0 || len(hostedToolExecutions) > 0 {
 			executedToolCall = true
 		}

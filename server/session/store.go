@@ -272,6 +272,45 @@ func (s *Store) unlockAndObservePersistence(observation *persistenceObservation,
 	return s.observePersistence(observation)
 }
 
+func (s *Store) mutateLockedContractWithCommitStatus(mutator func(*LockedContract)) (LockedContractMutationResult, error) {
+	if mutator == nil {
+		return LockedContractMutationResult{}, nil
+	}
+	s.mu.Lock()
+	if s.meta.Locked == nil {
+		s.mu.Unlock()
+		return LockedContractMutationResult{}, nil
+	}
+	previousMeta := s.meta
+	previousMetadataVersion := s.metadataVersion
+	previousPersistedMetaVersion := s.persistedMetaVersion
+	next := *s.meta.Locked
+	mutator(&next)
+	s.meta.Locked = &next
+	s.meta.UpdatedAt = time.Now().UTC()
+	observation, persistErr := s.persistMetaLocked()
+	if persistErr != nil {
+		s.meta = previousMeta
+		s.metadataVersion = previousMetadataVersion
+		s.persistedMetaVersion = previousPersistedMetaVersion
+		s.mu.Unlock()
+		return LockedContractMutationResult{Committed: false, Locked: cloneLockedContract(previousMeta.Locked)}, persistErr
+	}
+	committed := cloneLockedContract(s.meta.Locked)
+	fileless := s.options.filelessMeta
+	s.mu.Unlock()
+	observeErr := s.observePersistence(observation)
+	if observeErr != nil && fileless {
+		s.mu.Lock()
+		s.meta = previousMeta
+		s.metadataVersion = previousMetadataVersion
+		s.persistedMetaVersion = previousPersistedMetaVersion
+		s.mu.Unlock()
+		return LockedContractMutationResult{Committed: false, Locked: cloneLockedContract(previousMeta.Locked)}, observeErr
+	}
+	return LockedContractMutationResult{Committed: true, Locked: committed}, observeErr
+}
+
 func (s *Store) EnsureDurable() error {
 	return s.mutateAndPersist(func() error { return nil })
 }
@@ -592,6 +631,8 @@ func (s *Store) MarkModelDispatchLocked(contract LockedContract) error {
 	return s.mutateAndPersist(func() error {
 		s.meta.ModelRequestCount++
 		if s.meta.Locked == nil {
+			contract.EnabledTools = append([]string(nil), contract.EnabledTools...)
+			contract.HasEnabledTools = true
 			contract.LockedAt = time.Now().UTC()
 			s.meta.Locked = &contract
 		}
@@ -664,6 +705,52 @@ func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
 	s.meta.Locked.HasReviewerPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
 	return s.unlockAndObservePersistence(s.persistMetaLocked())
+}
+
+func (s *Store) MarkLockedPromptFacingSnapshotsStale() (LockedContractMutationResult, error) {
+	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
+		locked.SystemPrompt = ""
+		locked.HasSystemPrompt = false
+		locked.ReviewerPrompt = ""
+		locked.HasReviewerPrompt = false
+	})
+}
+
+func (s *Store) RefreshLockedMainPromptSnapshot(snapshot LockedMainPromptSnapshot) (LockedContractMutationResult, error) {
+	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
+		locked.SystemPrompt = strings.TrimSpace(snapshot.SystemPrompt)
+		locked.HasSystemPrompt = snapshot.HasSystemPrompt
+		locked.ToolPreambles = cloneBoolPtr(snapshot.ToolPreambles)
+		if snapshot.ContextWindow > 0 {
+			locked.ContextWindow = snapshot.ContextWindow
+		}
+		if snapshot.ContextPercent > 0 {
+			locked.ContextPercent = snapshot.ContextPercent
+		}
+	})
+}
+
+func (s *Store) RefreshLockedReviewerPromptSnapshot(snapshot LockedReviewerPromptSnapshot) (LockedContractMutationResult, error) {
+	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
+		locked.ReviewerPrompt = strings.TrimSpace(snapshot.ReviewerPrompt)
+		locked.HasReviewerPrompt = snapshot.HasReviewerPrompt
+	})
+}
+
+func (s *Store) BackfillLockedRequestShape(fields LockedRequestShapeBackfill) (LockedContractMutationResult, error) {
+	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
+		locked.EnabledTools = append([]string(nil), fields.EnabledTools...)
+		locked.HasEnabledTools = fields.HasEnabledTools
+		locked.WebSearchMode = strings.TrimSpace(fields.WebSearchMode)
+	})
+}
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
 }
 
 func (s *Store) AppendEvent(stepID, kind string, payload any) (Event, bool, error) {

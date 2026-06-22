@@ -23,7 +23,7 @@ System prompt files replace Kent's built-in default "product engineer" / SWE-foc
 
 `system_prompt_file` paths are resolved relative to the containing `config.toml` directory unless absolute.
 
-The system prompt is snapshot and cannot be changed after the session starts to prevent cache invalidation and misbehaving models. Start a new session for changes to take effect.
+Kent snapshots the rendered system prompt for each compaction generation. Edits to system prompt files take effect after a successful compaction and the next model request. Model/provider settings, enabled tool IDs, and native web search mode stay locked for the session.
 
 ## Placeholders
 
@@ -62,4 +62,4 @@ Additionally, if `tool_preambles = true` in the [config](../config/), another bl
 - `~/.kent/config.toml`
 - `<workspace-root>/.kent/config.toml`
 
-The workspace config value takes priority. Editing the file affects only sessions that have not run the supervisor with that override yet.
+The workspace config value takes priority. Kent snapshots the rendered supervisor prompt independently when a supervisor request is built; edits take effect for supervisor requests after successful compaction. Developer context already written into the transcript is not reloaded by prompt snapshot refresh.

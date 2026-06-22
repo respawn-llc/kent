@@ -188,7 +188,7 @@ func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request 
 		return llm.Request{}, false, err
 	}
 	items := compactionConversationWithPromptItems(request.InputItems, request.Instructions)
-	systemPrompt, err := e.systemPrompt(locked)
+	systemPrompt, err := e.systemPromptWithoutBackfill(locked)
 	if err != nil {
 		return llm.Request{}, false, err
 	}
@@ -196,7 +196,11 @@ func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request 
 	if err != nil {
 		return llm.Request{}, false, err
 	}
-	req, err := llm.RequestFromLockedContract(locked, systemPrompt, items, e.requestTools(ctx, workflowMode))
+	requestTools, err := e.requestTools(ctx, workflowMode)
+	if err != nil {
+		return llm.Request{}, false, err
+	}
+	req, err := llm.RequestFromLockedContract(locked, systemPrompt, items, requestTools)
 	if err != nil {
 		return llm.Request{}, false, err
 	}
@@ -245,7 +249,7 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	if err != nil {
 		return "", compactionOverflowRepairStats{}, err
 	}
-	systemPrompt, err := e.systemPrompt(locked)
+	systemPrompt, err := e.systemPromptWithoutBackfill(locked)
 	if err != nil {
 		return "", compactionOverflowRepairStats{}, err
 	}
@@ -253,7 +257,10 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	if err != nil {
 		return "", compactionOverflowRepairStats{}, err
 	}
-	requestTools := e.requestTools(ctx, workflowMode)
+	requestTools, err := e.requestTools(ctx, workflowMode)
+	if err != nil {
+		return "", compactionOverflowRepairStats{}, err
+	}
 	window := localCompactionWindow(input)
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())

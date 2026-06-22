@@ -130,7 +130,7 @@ A run stopped before producing a valid transition result. Its session and worktr
 
 ### Session Contract
 
-The immutable execution setup captured by a Kent session after its first model request: model/provider setup, generation parameters, tool schema snapshot, and system/developer prompt snapshot.
+The execution setup captured by a Kent session for one compaction generation. Model/provider setup, generation parameters, active enabled tool IDs, and native web-search mode stay locked for the session lifetime. System and reviewer prompt snapshots are immutable within a generation and can be lazily refreshed from current config/source truth after successful compaction. Developer meta context messages are transcript entries, not lazy-refreshed session-contract snapshots. Tool declarations for locked tool IDs are runtime-defined and are not persisted as session snapshots.
 
 ### Runtime Parameter Contract
 

@@ -260,7 +260,11 @@ func (e *Engine) RequireGoalLoopStartAllowed() error {
 }
 
 func (e *Engine) requireAskQuestionForGoalLoopStart() error {
-	for _, id := range e.cfg.EnabledTools {
+	shape, err := e.lockedRequestShape()
+	if err != nil {
+		return err
+	}
+	for _, id := range shape.EnabledTools {
 		if id == toolspec.ToolAskQuestion {
 			return nil
 		}

@@ -6,6 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/toolspec"
 	"encoding/json"
 	"errors"
@@ -861,6 +862,220 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 	}
 	if got := reopened.Meta().Locked.SystemPrompt; got != firstPrompt {
 		t.Fatalf("locked system prompt mismatch\ngot: %q\nwant: %q", got, firstPrompt)
+	}
+}
+
+func TestSystemPromptSnapshotRefreshesAfterCompaction(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	systemDir := filepath.Join(workspace, agentsGlobalDirName)
+	if err := os.MkdirAll(systemDir, 0o755); err != nil {
+		t.Fatalf("mkdir system dir: %v", err)
+	}
+	systemPath := filepath.Join(systemDir, systemPromptFileName)
+	writeTestFile(t, systemPath, "prompt A")
+	autoCompactionEnabled := false
+	store := mustCreateNamedTestSession(t, "ws", workspace)
+	client := &fakeClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "second"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "third"}, Usage: llm.Usage{WindowTokens: 200000}},
+	}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:                 "gpt-5",
+		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand},
+		CompactionMode:        "local",
+		AutoCompactionEnabled: &autoCompactionEnabled,
+		ToolPreambles:         false,
+		TranscriptWorkingDir:  workspace,
+	})
+	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	if got := client.calls[0].SystemPrompt; got != "prompt A" {
+		t.Fatalf("first system prompt = %q, want prompt A", got)
+	}
+	firstCacheKey := client.calls[0].PromptCacheKey
+	writeTestFile(t, systemPath, "prompt B")
+	if _, err := eng.SubmitUserMessage(context.Background(), "second"); err != nil {
+		t.Fatalf("submit second: %v", err)
+	}
+	if got := client.calls[1].SystemPrompt; got != "prompt A" {
+		t.Fatalf("pre-compaction system prompt = %q, want prompt A", got)
+	}
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if got := client.calls[2].SystemPrompt; got != "prompt A" {
+		t.Fatalf("compaction system prompt = %q, want prompt A", got)
+	}
+	if _, err := eng.SubmitUserMessage(context.Background(), "third"); err != nil {
+		t.Fatalf("submit third: %v", err)
+	}
+	if got := client.calls[3].SystemPrompt; got != "prompt B" {
+		t.Fatalf("post-compaction system prompt = %q, want prompt B", got)
+	}
+	if got := client.calls[3].PromptCacheKey; got == "" || got == firstCacheKey {
+		t.Fatalf("post-compaction cache key = %q, want rotated from %q", got, firstCacheKey)
+	}
+	if locked := store.Meta().Locked; locked == nil || !locked.HasSystemPrompt || locked.SystemPrompt != "prompt B" {
+		t.Fatalf("locked prompt after refresh = %+v, want prompt B", locked)
+	}
+}
+
+func TestSystemPromptRefreshFailureKeepsStaleLockAndRetries(t *testing.T) {
+	workspace := t.TempDir()
+	systemPath := filepath.Join(workspace, "system.md")
+	writeTestFile(t, systemPath, "prompt A")
+	autoCompactionEnabled := false
+	store := mustCreateTestSession(t, workspace)
+	client := &fakeClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "second"}, Usage: llm.Usage{WindowTokens: 200000}},
+	}}
+	eng := mustNewExecTestEngine(t, store, client, Config{
+		CompactionMode:        "local",
+		AutoCompactionEnabled: &autoCompactionEnabled,
+		ToolPreambles:         false,
+		SystemPromptFiles: []config.SystemPromptFile{
+			{Path: systemPath, Scope: config.SystemPromptFileScopeWorkspaceConfig},
+		},
+	})
+	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	writeTestFile(t, systemPath, "prompt B {{")
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if _, err := eng.SubmitUserMessage(context.Background(), "fails"); err == nil {
+		t.Fatal("expected invalid prompt refresh to fail")
+	}
+	if locked := store.Meta().Locked; locked == nil || locked.HasSystemPrompt || strings.TrimSpace(locked.SystemPrompt) != "" {
+		t.Fatalf("locked prompt after failed refresh = %+v, want stale cleared lock", locked)
+	}
+	writeTestFile(t, systemPath, "prompt B")
+	if _, err := eng.SubmitUserMessage(context.Background(), "second"); err != nil {
+		t.Fatalf("submit after prompt fix: %v", err)
+	}
+	if got := client.calls[len(client.calls)-1].SystemPrompt; got != "prompt B" {
+		t.Fatalf("system prompt after retry = %q, want prompt B", got)
+	}
+}
+
+func TestPendingSystemPromptRefreshRunsAfterReopen(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	systemDir := filepath.Join(workspace, agentsGlobalDirName)
+	if err := os.MkdirAll(systemDir, 0o755); err != nil {
+		t.Fatalf("mkdir system dir: %v", err)
+	}
+	systemPath := filepath.Join(systemDir, systemPromptFileName)
+	writeTestFile(t, systemPath, "prompt A")
+	autoCompactionEnabled := false
+	store := mustCreateTestSession(t, workspace)
+	client := &fakeClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}, Usage: llm.Usage{WindowTokens: 200000}},
+	}}
+	eng := mustNewExecTestEngine(t, store, client, Config{
+		CompactionMode:        "local",
+		AutoCompactionEnabled: &autoCompactionEnabled,
+		ToolPreambles:         false,
+		TranscriptWorkingDir:  workspace,
+	})
+	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	writeTestFile(t, systemPath, "prompt B")
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if locked := store.Meta().Locked; locked == nil || locked.HasSystemPrompt || locked.SystemPrompt != "" {
+		t.Fatalf("locked prompt after compaction = %+v, want stale", locked)
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("close engine: %v", err)
+	}
+	reopenedStore, err := session.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	reopenedClient := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "second"}, Usage: llm.Usage{WindowTokens: 200000}}}}
+	reopened := mustNewExecTestEngine(t, reopenedStore, reopenedClient, Config{
+		ToolPreambles:        false,
+		TranscriptWorkingDir: workspace,
+	})
+	if _, err := reopened.SubmitUserMessage(context.Background(), "second"); err != nil {
+		t.Fatalf("submit after reopen: %v", err)
+	}
+	if got := reopenedClient.calls[0].SystemPrompt; got != "prompt B" {
+		t.Fatalf("reopened system prompt = %q, want prompt B", got)
+	}
+	if got, want := reopenedClient.calls[0].PromptCacheKey, conversationPromptCacheKey(reopened.SessionID(), 1); got != want {
+		t.Fatalf("reopened cache key = %q, want %q", got, want)
+	}
+}
+
+func TestLegacyNonBooleanSystemPromptSnapshotIsNotRefreshed(t *testing.T) {
+	store := mustCreateTestSession(t)
+	if err := store.MarkModelDispatchLocked(session.LockedContract{
+		Model:           "gpt-5",
+		SystemPrompt:    "legacy prompt",
+		HasSystemPrompt: false,
+	}); err != nil {
+		t.Fatalf("mark locked: %v", err)
+	}
+	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"}, Usage: llm.Usage{WindowTokens: 200000}}}}
+	eng := mustNewExecTestEngine(t, store, client, Config{SystemPromptFiles: []config.SystemPromptFile{{Path: filepath.Join(t.TempDir(), "new.md"), Scope: config.SystemPromptFileScopeWorkspaceConfig}}})
+	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := client.calls[0].SystemPrompt; got != "legacy prompt" {
+		t.Fatalf("system prompt = %q, want legacy prompt", got)
+	}
+}
+
+func TestLockedRequestShapeSurvivesRuntimeConfigToolAndWebSearchToggles(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(
+		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
+		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: fakeTool{name: toolspec.ToolAskQuestion}},
+		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
+	), Config{
+		Model:         "gpt-5",
+		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
+		WebSearchMode: "native",
+		ToolPreambles: false,
+	})
+	if _, err := eng.ensureLocked(); err != nil {
+		t.Fatalf("ensureLocked: %v", err)
+	}
+	eng.cfg.EnabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
+	eng.cfg.WebSearchMode = "off"
+
+	requestTools, err := eng.requestTools(context.Background(), "")
+	if err != nil {
+		t.Fatalf("requestTools: %v", err)
+	}
+	names := make([]string, 0, len(requestTools))
+	for _, tool := range requestTools {
+		names = append(names, tool.Name)
+	}
+	if strings.Join(names, ",") != string(toolspec.ToolExecCommand) {
+		t.Fatalf("request tool names = %v, want locked exec_command only", names)
+	}
+	native, err := eng.enableNativeWebSearch(context.Background())
+	if err != nil {
+		t.Fatalf("enable native web search: %v", err)
+	}
+	if !native {
+		t.Fatal("expected locked native web search to remain enabled")
 	}
 }
 

@@ -177,7 +177,10 @@ func TestRequestToolsExposePatchAsCustomToolOnlyForFirstPartyResponsesProvider(t
 				t.Fatalf("ensureLocked: %v", err)
 			}
 
-			requestTools := eng.requestTools(context.Background(), "")
+			requestTools, err := eng.requestTools(context.Background(), "")
+			if err != nil {
+				t.Fatalf("requestTools: %v", err)
+			}
 			if len(requestTools) != 1 {
 				t.Fatalf("request tools = %+v, want one patch tool", requestTools)
 			}
@@ -213,7 +216,10 @@ func TestRequestToolsUseActiveProviderCapsForCustomPatchTool(t *testing.T) {
 		ProviderCapabilitiesOverride: &activeCaps,
 	})
 
-	requestTools := eng.requestTools(context.Background(), "")
+	requestTools, err := eng.requestTools(context.Background(), "")
+	if err != nil {
+		t.Fatalf("requestTools: %v", err)
+	}
 	if len(requestTools) != 1 {
 		t.Fatalf("request tools = %+v, want one patch tool", requestTools)
 	}

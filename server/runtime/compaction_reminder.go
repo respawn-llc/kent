@@ -69,7 +69,11 @@ func (e *Engine) persistCompactionSoonReminderIssued(issued bool) error {
 }
 
 func (e *Engine) triggerHandoffConfigured() bool {
-	for _, id := range e.cfg.EnabledTools {
+	shape, err := e.lockedRequestShape()
+	if err != nil {
+		return false
+	}
+	for _, id := range shape.EnabledTools {
 		if id == toolspec.ToolTriggerHandoff {
 			return true
 		}

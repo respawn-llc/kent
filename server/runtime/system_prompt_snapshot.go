@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -20,19 +21,34 @@ type systemPromptSnapshotOptions struct {
 }
 
 func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract, workspaceRoot string) (string, error) {
+	fallback := promptContextBudget{window: e.cfg.ContextWindowTokens, percent: e.cfg.EffectiveContextWindowPercent}
+	enabledTools := toolIDsFromNames(locked.EnabledTools)
+	if len(enabledTools) == 0 && !locked.HasEnabledTools {
+		enabledTools = e.cfg.EnabledTools
+	}
+	return buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, systemPromptSnapshotOptions{
+		WorkspaceRoot:     workspaceRoot,
+		GlobalConfigDir:   e.cfg.GlobalConfigDir,
+		SystemPromptFiles: e.cfg.SystemPromptFiles,
+	}, enabledTools, fallback)
+}
+
+func (e *Engine) buildSystemPromptSnapshotFromConfig(locked session.LockedContract, workspaceRoot string, opts systemPromptSnapshotOptions, enabledTools []toolspec.ID) (string, error) {
+	fallback := promptContextBudget{window: e.cfg.ContextWindowTokens, percent: e.cfg.EffectiveContextWindowPercent}
+	return buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, opts, enabledTools, fallback)
+}
+
+func buildSystemPromptSnapshotFromConfig(locked session.LockedContract, workspaceRoot string, opts systemPromptSnapshotOptions, enabledTools []toolspec.ID, fallback promptContextBudget) (string, error) {
 	includeToolPreambles := true
 	if locked.ToolPreambles != nil {
 		includeToolPreambles = *locked.ToolPreambles
 	}
 	args := prompts.SystemPromptTemplateArgs{
-		EstimatedToolCallsForContext: e.estimatedToolCallsForLockedContext(locked),
-		EditingToolName:              editingToolName(e.cfg.EnabledTools),
+		EstimatedToolCallsForContext: estimatedToolCallsForLockedContextWithFallback(locked, fallback),
+		EditingToolName:              editingToolName(enabledTools),
 	}
-	template, sourcePath, hasCustom, err := readSystemPromptTemplate(systemPromptSnapshotOptions{
-		WorkspaceRoot:     workspaceRoot,
-		GlobalConfigDir:   e.cfg.GlobalConfigDir,
-		SystemPromptFiles: e.cfg.SystemPromptFiles,
-	})
+	opts.WorkspaceRoot = workspaceRoot
+	template, sourcePath, hasCustom, err := readSystemPromptTemplate(opts)
 	if err != nil {
 		return "", err
 	}
@@ -44,6 +60,18 @@ func (e *Engine) buildSystemPromptSnapshotForRoot(locked session.LockedContract,
 		return rendered, nil
 	}
 	return prompts.WithToolPreambles(prompts.BaseSystemPrompt(args), includeToolPreambles), nil
+}
+
+func estimatedToolCallsForLockedContextWithFallback(locked session.LockedContract, fallback promptContextBudget) int {
+	window := fallback.window
+	percent := fallback.percent
+	if locked.ContextWindow > 0 {
+		window = locked.ContextWindow
+	}
+	if locked.ContextPercent > 0 {
+		percent = locked.ContextPercent
+	}
+	return config.EstimatedToolCallsForContextWindow(window, percent)
 }
 
 func editingToolName(enabled []toolspec.ID) string {
@@ -159,7 +187,12 @@ func pathWithinRoot(path string, root string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-func (e *Engine) reviewerSystemPrompt() (string, error) {
+func (e *Engine) reviewerSystemPrompt(ctx context.Context) (string, error) {
+	if prompt, ok, err := e.ensureReviewerPromptFresh(ctx); err != nil {
+		return "", err
+	} else if ok {
+		return prompt, nil
+	}
 	if prompt, ok := e.lockedReviewerPromptSnapshot(); ok {
 		return prompt, nil
 	}
@@ -203,6 +236,10 @@ func (e *Engine) buildReviewerPromptSnapshot() (string, error) {
 	if path == "" {
 		return prompts.ReviewerSystemPrompt, nil
 	}
+	return buildReviewerPromptSnapshotFromFile(path)
+}
+
+func buildReviewerPromptSnapshotFromFile(path string) (string, error) {
 	resolved, err := resolveConfiguredPromptFile(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve reviewer.system_prompt_file %q: %w", path, err)

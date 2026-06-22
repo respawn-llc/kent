@@ -72,6 +72,56 @@ type SessionPlan struct {
 	BaseSource          config.SourceReport
 }
 
+type PromptFacingSnapshotResolution struct {
+	Settings      config.Settings
+	Source        config.SourceReport
+	ActiveToolIDs []toolspec.ID
+	WebSearchMode string
+}
+
+func ResolvePromptFacingSnapshotConfig(app config.App, store *session.Store, skipContinuationAgentRoleValidation bool) (PromptFacingSnapshotResolution, error) {
+	if store == nil {
+		return PromptFacingSnapshotResolution{}, errors.New("session store is required")
+	}
+	meta := store.Meta()
+	baseActive := EffectiveSettings(app.Settings, meta.Locked)
+	baseSource := app.Source
+	active, source := baseActive, baseSource
+	if meta.Continuation != nil {
+		role := strings.TrimSpace(meta.Continuation.AgentRole)
+		var err error
+		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, role, meta.Locked == nil, !skipContinuationAgentRoleValidation)
+		if err != nil {
+			return PromptFacingSnapshotResolution{}, err
+		}
+		if shouldApplyPersistedContinuationBaseURL(baseActive, role) {
+			if baseURL := strings.TrimSpace(meta.Continuation.OpenAIBaseURL); baseURL != "" {
+				active.OpenAIBaseURL = baseURL
+			}
+		}
+	}
+	enabledTools, err := ActiveToolIDsForPlan(active, source, meta.Locked)
+	if err != nil {
+		return PromptFacingSnapshotResolution{}, err
+	}
+	if meta.Locked != nil && (!meta.Locked.HasEnabledTools || strings.TrimSpace(meta.Locked.WebSearchMode) == "") {
+		backfill, backfillErr := store.BackfillLockedRequestShape(session.LockedRequestShapeBackfill{
+			EnabledTools:    toolIDNames(enabledTools),
+			HasEnabledTools: true,
+			WebSearchMode:   strings.TrimSpace(active.WebSearch),
+		})
+		if backfillErr != nil && !backfill.Committed {
+			return PromptFacingSnapshotResolution{}, backfillErr
+		}
+	}
+	return PromptFacingSnapshotResolution{
+		Settings:      active,
+		Source:        source,
+		ActiveToolIDs: enabledTools,
+		WebSearchMode: strings.TrimSpace(active.WebSearch),
+	}, nil
+}
+
 func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPlan, error) {
 	if p.ReloadConfig != nil {
 		cfg, err := p.ReloadConfig()
@@ -118,6 +168,19 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	enabledTools, err := ActiveToolIDsForPlan(active, source, meta.Locked)
 	if err != nil {
 		return SessionPlan{}, err
+	}
+	if meta.Locked != nil && (!meta.Locked.HasEnabledTools || strings.TrimSpace(meta.Locked.WebSearchMode) == "") {
+		backfill, backfillErr := store.BackfillLockedRequestShape(session.LockedRequestShapeBackfill{
+			EnabledTools:    toolIDNames(enabledTools),
+			HasEnabledTools: true,
+			WebSearchMode:   strings.TrimSpace(active.WebSearch),
+		})
+		if backfillErr != nil && !backfill.Committed {
+			return SessionPlan{}, backfillErr
+		}
+		if backfill.Committed && backfill.Locked != nil {
+			meta.Locked = backfill.Locked
+		}
 	}
 	configuredModelName := p.Config.Settings.Model
 	if meta.Locked == nil {
@@ -589,7 +652,7 @@ func EffectiveSettings(base config.Settings, locked *session.LockedContract) con
 }
 
 func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, locked *session.LockedContract) ([]toolspec.ID, error) {
-	if locked != nil {
+	if locked != nil && (locked.HasEnabledTools || len(locked.EnabledTools) > 0) {
 		ids := make([]toolspec.ID, 0, len(locked.EnabledTools))
 		for _, raw := range locked.EnabledTools {
 			if id, ok := toolspec.ParseID(raw); ok {
@@ -612,6 +675,17 @@ func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, 
 		return nil, ErrPatchEditToolsConflict
 	}
 	return DedupeSortToolIDs(enabledToolIDs(enabled)), nil
+}
+
+func toolIDNames(ids []toolspec.ID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		out = append(out, string(id))
+	}
+	return out
 }
 
 func bothEditToolSourcesDefault(source config.SourceReport) bool {

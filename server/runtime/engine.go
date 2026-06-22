@@ -98,6 +98,7 @@ type Config struct {
 	FastModeEnabled               bool
 	FastModeState                 *FastModeState
 	WebSearchMode                 string
+	PromptFacingSnapshotReloader  PromptFacingSnapshotReloader
 	ProviderCapabilitiesOverride  *llm.ProviderCapabilities
 	EnabledTools                  []toolspec.ID
 	DisabledSkills                map[string]bool
@@ -569,6 +570,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		ContextWindow:     contextBudget.window,
 		ContextPercent:    contextBudget.percent,
 		EnabledTools:      toToolNames(e.cfg.EnabledTools),
+		WebSearchMode:     strings.TrimSpace(e.cfg.WebSearchMode),
 		ModelCapabilities: e.cfg.ModelCapabilities,
 		ToolPreambles: func() *bool {
 			enabled := !e.cfg.HeadlessMode && e.cfg.ToolPreambles
