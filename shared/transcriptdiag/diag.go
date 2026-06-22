@@ -138,7 +138,7 @@ func AddPageFields(fields map[string]string, page clientui.TranscriptPage) map[s
 	fields["revision"] = strconv.FormatInt(page.Revision, 10)
 	fields["offset"] = strconv.Itoa(page.Offset)
 	fields["total_entries"] = strconv.Itoa(page.TotalEntries)
-	fields["ongoing_chars"] = strconv.Itoa(len(page.Streaming))
+	fields["streaming_chars"] = strconv.Itoa(len(page.Streaming))
 	fields["page_digest"] = PageDigest(page)
 	return AddEntriesFields(fields, page.Entries)
 }

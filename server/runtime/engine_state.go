@@ -111,12 +111,12 @@ func (e *Engine) AppendCommittedEntryWithNoticeID(role, text, noticeID string) e
 	})
 }
 
-func (e *Engine) AppendCommittedEntryWithCondensedText(role, text, ongoingText string) error {
+func (e *Engine) AppendCommittedEntryWithCondensedText(role, text, condensedText string) error {
 	return e.appendCommittedEntry(storedLocalEntry{
 		Visibility:    transcript.EntryVisibilityAuto,
 		Role:          strings.TrimSpace(role),
 		Text:          strings.TrimSpace(text),
-		CondensedText: strings.TrimSpace(ongoingText),
+		CondensedText: strings.TrimSpace(condensedText),
 	})
 }
 
