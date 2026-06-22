@@ -46,7 +46,7 @@
   - `Kent_<ver>_aarch64.app.tar.gz` (+`.sig`) — macOS updater artifact (Tauri emits
     it as `Kent.app.tar.gz`; the build step renames it to this versioned asset),
   - `Kent_<ver>_amd64.AppImage` (+`.sig`) — Linux updater artifact,
-  - `kent-desktop_<ver>_amd64.deb` (Linux, apt/manual updates).
+  - `Kent_<ver>_amd64.deb` (Linux, apt/manual updates).
 - `latest.json` is the Tauri updater manifest (`scripts/desktop-release.sh assemble`
   builds it from the `.sig` files), with `darwin-aarch64` and `linux-x86_64` entries
   pointing at the `.app.tar.gz` / `.AppImage` updater artifacts. It is the

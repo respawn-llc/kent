@@ -24,7 +24,7 @@ Stable staged names (arm64 macOS + x86_64 Linux only, per release-distribution.m
   Kent_<ver>_aarch64.dmg
   Kent_<ver>_aarch64.app.tar.gz(.sig)     macOS updater artifact
   Kent_<ver>_amd64.AppImage(.sig)         Linux updater artifact
-  kent-desktop_<ver>_amd64.deb
+  Kent_<ver>_amd64.deb
 
 Defaults:
   --dist-dir : dist/desktop
@@ -101,7 +101,7 @@ cmd_build() {
 	Linux)
 		stage_required "$bundle/appimage/Kent_${version}_amd64.AppImage" "$dist_abs/Kent_${version}_amd64.AppImage"
 		stage_required "$bundle/appimage/Kent_${version}_amd64.AppImage.sig" "$dist_abs/Kent_${version}_amd64.AppImage.sig"
-		stage_required "$bundle/deb/kent-desktop_${version}_amd64.deb" "$dist_abs/kent-desktop_${version}_amd64.deb"
+		stage_required "$bundle/deb/Kent_${version}_amd64.deb" "$dist_abs/Kent_${version}_amd64.deb"
 		;;
 	*)
 		echo "Unsupported host platform for desktop build: $(uname -s)" >&2
