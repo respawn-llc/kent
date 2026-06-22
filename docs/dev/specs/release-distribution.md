@@ -69,9 +69,14 @@ The update channel is a property of how the app was installed, not a user settin
 Each install has exactly **one** update channel; the channels are mutually
 exclusive so brew and the in-app updater never fight over the same bundle.
 
-- **Direct download** (`.dmg` / AppImage / `.deb` from the GH release): the Tauri
+- **Direct download** (`.dmg` / AppImage from the GH release): the Tauri
   self-updater is the channel. The app checks on startup and surfaces the update
   chip in the chrome.
+- **Linux `.deb` / plain binary**: the system package manager (apt/manual) is the
+  channel. The Tauri Linux updater only services AppImage bundles, so the in-app
+  self-updater is gated **off** for these installs. The desktop detects this at
+  runtime via the `APPIMAGE` env var (`self_update_supported` Tauri command): on
+  Linux, self-update is enabled only when running from an AppImage.
 - **Homebrew** (`kent-desktop` cask alongside the `kent` formula): **brew** is the
   channel. `brew upgrade` moves the `kent` server formula and the `kent-desktop`
   cask together, keeping client and server in lockstep. The in-app self-updater is

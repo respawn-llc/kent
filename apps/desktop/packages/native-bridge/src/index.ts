@@ -94,6 +94,10 @@ export type NativeBridge = Readonly<{
     append(entry: NativeLogEntry): Promise<void>;
   }>;
   updates: Readonly<{
+    // Reports whether the running install can self-update. The Tauri Linux updater
+    // only services AppImage bundles, so deb/plain-binary launches return false
+    // even though the updater capability is present.
+    supported(): Promise<boolean>;
     check(): Promise<NativeUpdateAvailability>;
     downloadAndInstall(
       onProgress?: (progress: NativeUpdateDownloadProgress) => void,
@@ -316,6 +320,9 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
     },
     updates: {
+      async supported(): Promise<boolean> {
+        return false;
+      },
       async check(): Promise<NativeUpdateAvailability> {
         return unavailableUpdate;
       },
@@ -471,6 +478,9 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
     },
     updates: {
+      async supported(): Promise<boolean> {
+        return invoke<boolean>("self_update_supported");
+      },
       async check(): Promise<NativeUpdateAvailability> {
         const update = await checkForUpdate();
         pendingUpdate = update;

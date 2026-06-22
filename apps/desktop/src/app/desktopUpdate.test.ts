@@ -27,7 +27,7 @@ function fakeBridge(
   return {
     ...base,
     capabilities: { ...base.capabilities, updater: options.updater ?? true },
-    updates: { ...base.updates, ...updates },
+    updates: { ...base.updates, supported: async () => true, ...updates },
     settings: { ...base.settings, ...options.settings },
   };
 }
@@ -36,6 +36,14 @@ describe("checkForDesktopUpdate", () => {
   it("skips the check when the shell cannot update", async () => {
     const check = vi.fn(async () => noUpdate);
     const bridge = fakeBridge({ check }, { updater: false });
+
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({ available: false });
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("skips the check when the platform updater cannot service the install (e.g. a Linux deb)", async () => {
+    const check = vi.fn(async () => noUpdate);
+    const bridge = fakeBridge({ check, supported: async () => false });
 
     await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({ available: false });
     expect(check).not.toHaveBeenCalled();

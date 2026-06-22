@@ -6,14 +6,18 @@ export type DesktopUpdateAvailability =
   | Readonly<{ available: false }>
   | Readonly<{ available: true; version: string }>;
 
-// Self-update is gated off on Homebrew installs (brew owns updates) and on shells
-// without the updater capability; transient check failures stay silent so the next
-// launch retries instead of surfacing an error chip.
+// Self-update is gated off on Homebrew installs (brew owns updates), on installs the
+// platform updater cannot service (Linux deb/plain-binary, where only AppImage
+// self-updates), and on shells without the updater capability; transient check
+// failures stay silent so the next launch retries instead of surfacing an error chip.
 export async function checkForDesktopUpdate(
   nativeBridge: NativeBridge,
   logger: GuiLogger,
 ): Promise<DesktopUpdateAvailability> {
   if (!nativeBridge.capabilities.updater) {
+    return { available: false };
+  }
+  if (!(await nativeBridge.updates.supported())) {
     return { available: false };
   }
   if (await isSelfUpdateDisabled(nativeBridge, logger)) {
