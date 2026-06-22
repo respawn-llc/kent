@@ -59,17 +59,15 @@ export type NativeCapabilityState = Readonly<{
 
 export type NativePlatform = "browser" | "linux" | "macos" | "unknown" | "windows";
 
-export type NativeUpdateAvailability = Readonly<{
-  available: boolean;
-  // Target version of the available update; empty string when none is available.
-  version: string;
-  // Version currently running.
-  currentVersion: string;
-  // Release notes body for the update; empty string when none was published.
-  notes: string;
-  // RFC3339 publish timestamp for the update; empty string when unknown.
-  publishedAt: string;
-}>;
+export type NativeUpdateAvailability =
+  | Readonly<{ available: false }>
+  | Readonly<{
+      available: true;
+      version: string;
+      currentVersion: string;
+      notes: string | null;
+      publishedAt: Date | null;
+    }>;
 
 export type NativeUpdateDownloadProgress = Readonly<{
   downloadedBytes: number;
@@ -253,13 +251,15 @@ const unavailableCapabilities: NativeCapabilityState = {
   macosVibrancy: false,
 };
 
-const unavailableUpdate: NativeUpdateAvailability = {
-  available: false,
-  version: "",
-  currentVersion: "",
-  notes: "",
-  publishedAt: "",
-};
+const unavailableUpdate: NativeUpdateAvailability = { available: false };
+
+function parseUpdateDate(value: string | undefined): Date | null {
+  if (value === undefined) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 export const nativeDialogWindowHorizontalInsetPx = 16;
 const projectDeletedEvent = "app://project-deleted";
@@ -481,8 +481,8 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
           available: true,
           version: update.version,
           currentVersion: update.currentVersion,
-          notes: update.body ?? "",
-          publishedAt: update.date ?? "",
+          notes: update.body ?? null,
+          publishedAt: parseUpdateDate(update.date),
         };
       },
       async downloadAndInstall(

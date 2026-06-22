@@ -9,13 +9,11 @@ import { vi } from "vitest";
 import { checkForDesktopUpdate, installDesktopUpdate } from "./desktopUpdate";
 import type { GuiLogger } from "./logging";
 
-const noUpdate: NativeUpdateAvailability = {
-  available: false,
-  version: "",
-  currentVersion: "",
-  notes: "",
-  publishedAt: "",
-};
+const noUpdate: NativeUpdateAvailability = { available: false };
+
+function availableUpdate(version: string): NativeUpdateAvailability {
+  return { available: true, version, currentVersion: "2.0.0", notes: null, publishedAt: null };
+}
 
 function fakeLogger(): GuiLogger {
   return { entries: () => [], append: vi.fn(async () => undefined) };
@@ -39,10 +37,7 @@ describe("checkForDesktopUpdate", () => {
     const check = vi.fn(async () => noUpdate);
     const bridge = fakeBridge({ check }, { updater: false });
 
-    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
-      available: false,
-      version: "",
-    });
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({ available: false });
     expect(check).not.toHaveBeenCalled();
   });
 
@@ -53,10 +48,7 @@ describe("checkForDesktopUpdate", () => {
       { settings: { read: async () => ({ version: 1, selfUpdate: "disabled" }) } },
     );
 
-    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
-      available: false,
-      version: "",
-    });
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({ available: false });
     expect(check).not.toHaveBeenCalled();
   });
 
@@ -64,7 +56,7 @@ describe("checkForDesktopUpdate", () => {
     const bridge = fakeBridge(
       {
         async check() {
-          return { ...noUpdate, available: true, version: "2.3.0" };
+          return availableUpdate("2.3.0");
         },
       },
       {
@@ -76,23 +68,17 @@ describe("checkForDesktopUpdate", () => {
       },
     );
 
-    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
-      available: true,
-      version: "2.3.0",
-    });
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({ available: true, version: "2.3.0" });
   });
 
   it("reports an available update with its version", async () => {
     const bridge = fakeBridge({
       async check() {
-        return { ...noUpdate, available: true, version: "2.2.0" };
+        return availableUpdate("2.2.0");
       },
     });
 
-    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({
-      available: true,
-      version: "2.2.0",
-    });
+    await expect(checkForDesktopUpdate(bridge, fakeLogger())).resolves.toEqual({ available: true, version: "2.2.0" });
   });
 
   it("stays silent and logs when the check fails", async () => {
@@ -103,10 +89,7 @@ describe("checkForDesktopUpdate", () => {
       },
     });
 
-    await expect(checkForDesktopUpdate(bridge, logger)).resolves.toEqual({
-      available: false,
-      version: "",
-    });
+    await expect(checkForDesktopUpdate(bridge, logger)).resolves.toEqual({ available: false });
     expect(logger.append).toHaveBeenCalled();
   });
 });

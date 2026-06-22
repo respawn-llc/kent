@@ -2,32 +2,29 @@ import type { NativeBridge, NativeUpdateDownloadProgress } from "@app/native-bri
 
 import type { GuiLogger } from "./logging";
 
-export type DesktopUpdateAvailability = Readonly<{
-  available: boolean;
-  version: string;
-}>;
+export type DesktopUpdateAvailability =
+  | Readonly<{ available: false }>
+  | Readonly<{ available: true; version: string }>;
 
-// Checks for an available update, guarding on the updater capability and the
-// install-local self-update setting, and swallowing transient check failures. A
-// failed check stays silent (no error chip): the next launch retries. Returns
-// available:false when the shell can't update, self-update is disabled (e.g. a
-// Homebrew install, where brew owns updates), or the check failed.
+// Self-update is gated off on Homebrew installs (brew owns updates) and on shells
+// without the updater capability; transient check failures stay silent so the next
+// launch retries instead of surfacing an error chip.
 export async function checkForDesktopUpdate(
   nativeBridge: NativeBridge,
   logger: GuiLogger,
 ): Promise<DesktopUpdateAvailability> {
   if (!nativeBridge.capabilities.updater) {
-    return { available: false, version: "" };
+    return { available: false };
   }
   if (await isSelfUpdateDisabled(nativeBridge, logger)) {
-    return { available: false, version: "" };
+    return { available: false };
   }
   try {
     const result = await nativeBridge.updates.check();
-    return { available: result.available, version: result.version };
+    return result.available ? { available: true, version: result.version } : { available: false };
   } catch (error) {
     await logger.append("warn", "Desktop update check failed.", { error: errorText(error) });
-    return { available: false, version: "" };
+    return { available: false };
   }
 }
 
