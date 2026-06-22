@@ -16,7 +16,7 @@ export const englishResources = {
         installingPercent: "Updating… {{percent}}%",
         retry: "Retry",
         installAria: "Install the available update and restart",
-        dismiss: "Dismiss until next launch",
+        dismiss: "Not now",
       },
       version: "Version",
       auth: "Auth",

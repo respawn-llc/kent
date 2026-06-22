@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
 	cat <<'USAGE'
-Usage: scripts/update-brew-tap.sh [--version vX.Y.Z] [--tap /path/to/homebrew-tap] [--repo owner/name] [--formula name] [--desktop-url URL] [--desktop-cask name] [--commit] [--push]
+Usage: scripts/update-brew-tap.sh [--version vX.Y.Z] [--tap /path/to/homebrew-tap] [--repo owner/name] [--formula name] [--desktop-url URL] [--commit] [--push]
 
 Updates the Homebrew tap formula for kent with a new tag tarball + sha256, and
 optionally the kent-desktop cask from a published .dmg asset.
@@ -13,7 +13,6 @@ Defaults:
   --repo    : respawn-llc/kent
   --formula : kent
   --tap     : $KENT_TAP_PATH, $HOMEBREW_TAP_PATH, else ../homebrew-tap (relative to repo root)
-  --desktop-cask : kent-desktop
 
 Flags:
   --desktop-url : published macOS .dmg URL; when set, also (re)generate the cask
@@ -53,6 +52,7 @@ tap_dir=""
 do_commit="false"
 do_push="false"
 desktop_url=""
+# Constant cask name; never varies, so it is not a CLI flag.
 desktop_cask="kent-desktop"
 
 unset_git_local_env() {
@@ -110,11 +110,6 @@ while [[ $# -gt 0 ]]; do
 	--desktop-url)
 		require_option_value "--desktop-url" "${2:-}"
 		desktop_url="$2"
-		shift 2
-		;;
-	--desktop-cask)
-		require_option_value "--desktop-cask" "${2:-}"
-		desktop_cask="$2"
 		shift 2
 		;;
 	--tap)

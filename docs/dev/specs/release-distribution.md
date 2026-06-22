@@ -113,12 +113,3 @@ The desktop verifies server/client version compatibility on the loopback
 connection and degrades gracefully on mismatch (a clear "update your Kent server"
 state), never a hang or cryptic error page. This is a no-regrets boundary check for
 a remote-control client regardless of update strategy.
-
-### Why not "ship both" like the Codex desktop app
-
-The Codex desktop app (`codex-app` cask) sets `auto_updates true` and self-updates
-via Sparkle, but makes that coherent by **bundling its own app-server** inside the
-`.app`; the leftover skew between the bundled app and a separately-brew-upgraded CLI
-is a live hang bug (openai/codex #23695). Kent keeps the thin-client / server-
-authoritative architecture instead of bundling, so it couples via brew + the
-handshake rather than shipping two competing update channels per install.
