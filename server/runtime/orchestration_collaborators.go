@@ -77,7 +77,7 @@ type messageLifecycle interface {
 
 type reviewerPipeline interface {
 	ShouldRunTurn(frequency string, reviewerClient llm.Client, patchEditsApplied bool) bool
-	RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client, pendingUserInjectionIDs map[string]struct{}) (reviewerFollowUpResult, error)
+	RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error)
 	RunSuggestions(ctx context.Context, stepID string, reviewerClient llm.Client) (reviewerSuggestionsResult, error)
 }
 

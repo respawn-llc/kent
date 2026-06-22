@@ -168,6 +168,12 @@ type Engine struct {
 	queuedUserWorkMu           sync.Mutex
 	queuedUserWorkScheduled    bool
 	queuedUserWorkAutoDrainIDs map[string]struct{}
+	// userInjectionScopeMu guards activeUserInjectionScope, the queued
+	// user-injection IDs the in-flight top-level step should flush. The engine
+	// owns this scope so the step executor derives it directly and reviewer
+	// follow-ups inherit it, instead of the supervisor threading injection IDs.
+	userInjectionScopeMu     sync.Mutex
+	activeUserInjectionScope map[string]struct{}
 
 	diagnostics    *diagnosticDedupeStore
 	toolCallStarts *pendingToolCallStartStore
@@ -531,9 +537,11 @@ func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, e
 }
 
 func (e *Engine) runStepLoopWithPendingUserInjectionIDs(ctx context.Context, stepID string, queueItemIDs map[string]struct{}) (llm.Message, error) {
+	restore := e.pushActiveUserInjectionScope(queueItemIDs)
+	defer restore()
 	reviewerFrequency := e.ReviewerFrequency()
 	reviewerClient := e.reviewerRuntimeState().Client()
-	result, err := e.runStepLoopWithOptions(ctx, stepID, reviewerFrequency, reviewerClient, true, true, queueItemIDs)
+	result, err := e.runStepLoopWithOptions(ctx, stepID, reviewerFrequency, reviewerClient, true, true)
 	if result.NoopFinalAnswer {
 		return llm.Message{}, err
 	}
@@ -545,20 +553,19 @@ func (e *Engine) runStepLoopWithPendingUserInjectionIDs(ctx context.Context, ste
 // this run. When refreshReviewerConfigOnResolve is true, the final assistant
 // resolution re-reads current runtime reviewer config so busy-time toggles (for
 // example from /supervisor) affect the currently running step at completion.
-func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient llm.Client, emitAssistantEvent bool, refreshReviewerConfigOnResolve bool, queueItemIDs map[string]struct{}) (stepLoopResult, error) {
+func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient llm.Client, emitAssistantEvent bool, refreshReviewerConfigOnResolve bool) (stepLoopResult, error) {
 	e.ensureOrchestrationCollaborators()
 	return e.stepFlow.RunStepLoopWithOptions(ctx, stepID, stepLoopOptions{
 		ReviewerFrequency:              reviewerFrequency,
 		ReviewerClient:                 reviewerClient,
 		EmitAssistantEvent:             emitAssistantEvent,
 		RefreshReviewerConfigOnResolve: refreshReviewerConfigOnResolve,
-		PendingUserInjectionIDs:        cloneStringSet(queueItemIDs),
 	})
 }
 
 func (e *Engine) runReviewerFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error) {
 	e.ensureOrchestrationCollaborators()
-	return e.reviewerFlow.RunFollowUp(ctx, stepID, original, originalCommittedStart, originalCommittedStartSet, reviewerClient, nil)
+	return e.reviewerFlow.RunFollowUp(ctx, stepID, original, originalCommittedStart, originalCommittedStartSet, reviewerClient)
 }
 
 func (e *Engine) ensureLocked() (session.LockedContract, error) {

@@ -63,6 +63,19 @@ func (e *Engine) WorkflowTerminalState() WorkflowTerminalState {
 	return e.workflowTerminal
 }
 
+// failQueuedUserWorkIfTerminal abandons queued user steering once the run has
+// terminally completed, reporting whether it did so. It is the single place that
+// ties workflow completion to queued-user-work failure, so scheduling and
+// submission code can gate on terminal completion without inspecting workflow
+// state directly.
+func (e *Engine) failQueuedUserWorkIfTerminal() bool {
+	if e == nil || !e.WorkflowTerminalState().Completed {
+		return false
+	}
+	e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+	return true
+}
+
 func (e *Engine) setWorkflowTerminalState(source WorkflowCompletionSource) {
 	if e == nil || !e.workflowRunActive() {
 		return

@@ -22,6 +22,10 @@ type defaultStepExecutor struct {
 
 func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID string, options stepLoopOptions) (stepLoopResult, error) {
 	e := s.engine
+	// The engine owns the queued user-injection scope for the in-flight top-level
+	// step; derive it here so reviewer follow-ups inherit it without the supervisor
+	// threading injection IDs through stepLoopOptions.
+	options.PendingUserInjectionIDs = e.activeUserInjectionScopeSnapshot()
 	executedToolCall := false
 	patchEditsApplied := false
 	deferredFinal := llm.Message{}
@@ -277,7 +281,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 					assistantEventEmitted = true
 				}
 				preReviewMessage := resolved
-				reviewed, err := s.reviewer.RunFollowUp(ctx, stepID, resolved, resolvedCommittedStart, resolvedCommittedStartSet, effectiveReviewerClient, options.PendingUserInjectionIDs)
+				reviewed, err := s.reviewer.RunFollowUp(ctx, stepID, resolved, resolvedCommittedStart, resolvedCommittedStartSet, effectiveReviewerClient)
 				if err == nil {
 					resolved = reviewed.Message
 					reviewerCompletion = reviewed.Completion

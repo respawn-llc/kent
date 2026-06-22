@@ -22,13 +22,11 @@ func (e *Engine) SubmitQueuedUserMessages(ctx context.Context) (assistant llm.Me
 func (e *Engine) submitQueuedUserMessages(ctx context.Context, queueItemIDs map[string]struct{}) (assistant llm.Message, err error) {
 	e.ensureOrchestrationCollaborators()
 	for {
-		if e.WorkflowTerminalState().Completed {
-			e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+		if e.failQueuedUserWorkIfTerminal() {
 			return llm.Message{}, nil
 		}
 		err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
-			if e.WorkflowTerminalState().Completed {
-				e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+			if e.failQueuedUserWorkIfTerminal() {
 				return nil
 			}
 			if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
@@ -110,8 +108,7 @@ func (e *Engine) scheduleQueuedUserInjectionsIfIdle() bool {
 	if !e.messageFlow.HasPendingUserInjections() {
 		return false
 	}
-	if e.WorkflowTerminalState().Completed {
-		e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+	if e.failQueuedUserWorkIfTerminal() {
 		return false
 	}
 	e.queuedUserWorkMu.Lock()
@@ -186,6 +183,31 @@ func (e *Engine) queuedUserAutoDrainIDSnapshot() map[string]struct{} {
 	return out
 }
 
+// pushActiveUserInjectionScope records the queued user-injection IDs the in-flight
+// step (and its nested reviewer follow-up) should flush, returning a restore func
+// that reinstates the prior scope. The step executor reads this scope so reviewer
+// follow-ups inherit it without the supervisor carrying injection IDs.
+func (e *Engine) pushActiveUserInjectionScope(ids map[string]struct{}) func() {
+	e.userInjectionScopeMu.Lock()
+	previous := e.activeUserInjectionScope
+	e.activeUserInjectionScope = cloneStringSet(ids)
+	e.userInjectionScopeMu.Unlock()
+	return func() {
+		e.userInjectionScopeMu.Lock()
+		e.activeUserInjectionScope = previous
+		e.userInjectionScopeMu.Unlock()
+	}
+}
+
+func (e *Engine) activeUserInjectionScopeSnapshot() map[string]struct{} {
+	if e == nil {
+		return nil
+	}
+	e.userInjectionScopeMu.Lock()
+	defer e.userInjectionScopeMu.Unlock()
+	return cloneStringSet(e.activeUserInjectionScope)
+}
+
 func cloneStringSet(in map[string]struct{}) map[string]struct{} {
 	if len(in) == 0 {
 		return nil
@@ -201,8 +223,7 @@ func (e *Engine) DrainQueuedUserMessagesBeforeClose(ctx context.Context) error {
 	if e == nil {
 		return nil
 	}
-	if e.WorkflowTerminalState().Completed {
-		e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+	if e.failQueuedUserWorkIfTerminal() {
 		return nil
 	}
 	if !e.HasQueuedUserWork() {
@@ -210,8 +231,7 @@ func (e *Engine) DrainQueuedUserMessagesBeforeClose(ctx context.Context) error {
 	}
 	_, err := e.SubmitQueuedUserMessages(ctx)
 	if err != nil {
-		if e.WorkflowTerminalState().Completed {
-			e.FailQueuedUserMessages(QueuedUserMessageFailureTerminalWorkflowCompletion)
+		if e.failQueuedUserWorkIfTerminal() {
 			return nil
 		}
 		e.FailQueuedUserMessages(QueuedUserMessageFailureClosing)
