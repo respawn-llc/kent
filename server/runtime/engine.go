@@ -191,6 +191,8 @@ type Engine struct {
 	compactionPlanner  *compactionPlanner
 	collaboratorsOnce  sync.Once
 
+	recentTailCache recentTailReadCache
+
 	phaseProtocol  phaseProtocolEnforcer
 	stepLifecycle  exclusiveStepLifecycle
 	backgroundFlow backgroundNoticeScheduler

@@ -60,12 +60,22 @@ func (e *Engine) RecentTailTranscriptWindow(maxEntries int) TranscriptWindowSnap
 	if e == nil {
 		return TranscriptWindowSnapshot{}
 	}
+	window := e.cachedRecentTailWindow(maxEntries)
+	e.overlayLiveStreaming(&window.Snapshot)
+	return window
+}
+
+func (e *Engine) cachedRecentTailWindow(maxEntries int) TranscriptWindowSnapshot {
+	revision := e.TranscriptRevision()
+	if cached, ok := e.recentTailCache.get(revision, maxEntries); ok {
+		return cached
+	}
 	window := e.scanPersistedTranscript(PersistedTranscriptScanRequest{
 		TrackRecentTail:  true,
 		TailLimit:        maxEntries,
 		CacheWarningMode: e.cfg.CacheWarningMode,
 	}).RecentTailSnapshot()
-	e.overlayLiveStreaming(&window.Snapshot)
+	e.recentTailCache.store(revision, maxEntries, window)
 	return window
 }
 
