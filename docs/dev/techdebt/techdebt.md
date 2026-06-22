@@ -226,6 +226,66 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
   Regression prevention must include CI freshness checks that fail on dirty generated fixtures/schemas, coverage for every GUI-used RPC method, negative tests for missing/extra/renamed fields, and architecture lint preserving the adapter boundary.
 
+- [ ] `TD-042` [P1] Workflow subsystem files concentrate graph, lifecycle, view, and DTO responsibilities.
+
+  The workflow stack carries several oversized multi-responsibility files. `server/workflowview/service.go` is 2216 LoC and exposes nine projection methods on one `Service` covering definition reading, board rendering, attention list assembly, transcript pagination, and run-state projection. `shared/serverapi/workflow.go` is 1916 LoC and defines 147 structs with 48 `Validate() error` methods in one package, mixing wire DTOs, request validation, and workflow domain entities such as nodes, edges, and transition groups. `server/workflowstore/store.go` is 1231 LoC and guards graph mutations (`AddNode`, `UpdateNode`, `AddNodeGroup`, `AddEdge`), run/task lifecycle, and event publishing (`PublishWorkflowEvent`) behind one `eventMu sync.RWMutex`. `server/workflowsvc/service.go` is 1278 LoC and threads collaborators `taskWorktreeEnsurer`, `taskRuntimeCanceler`, `schedulerNotifier`, `pendingPromptResponder`, and `transitionApprover` through one request-routing service. `server/workflowrunner/starter.go` is 1025 LoC and owns per-run goroutine lifecycle through a cancel map, task map, and wait group.
+
+  Workflow changes require synchronized edits across DTO/validation, graph store, lifecycle store, view projections, and run execution, and the single-file concentration makes graph mutation, run lifecycle, and read-model rendering hard to test or reason about independently. Wire types, validation, and domain entities sharing one package also blurs the transport boundary the rest of the server keeps separate.
+
+  Remediation task: decompose the workflow subsystem along its existing seams. Split `serverapi/workflow.go` into wire request/response types, request validation, and a domain entity package so transport types stop carrying domain modeling. Split `workflowstore/store.go` into a graph store (node/edge/group mutations) and a run store (run/task/event lifecycle) with explicit ownership of event publishing. Split `workflowsvc/service.go` into CRUD, run execution, and attention/approval services consuming narrow collaborator interfaces. Split `workflowview/service.go` into definition, board, attention, and transcript projection services. Keep `workflowrunner` goroutine ownership behind one run-lifecycle coordinator.
+
+  Regression prevention must include behavior-preserving tests for graph mutation, run/task lifecycle, attention assembly, transcript pagination, and run-state projection that survive the split unchanged, plus a size/coupling guard for the workflow packages. Validation tests must prove request invariants are enforced after wire/domain separation, and import-boundary checks must fail if wire DTO packages re-absorb domain entities or view projection logic.
+
+- [ ] `TD-043` [P1] `server/metadata/store.go` mixes workspace, worktree, session, project, and sequence domains in one store.
+
+  `server/metadata/store.go` is 2283 LoC and the largest production file. One `Store` exposes 51 methods spanning workspace binding (`EnsureWorkspaceBinding`, `ResolveWorkspacePath`, `RegisterWorkspaceBinding`, `RebindWorkspace`), worktree records (`UpsertWorktreeRecord`, `GetWorktreeRecordByID`, `DeleteWorktreeRecordByID`, `ListWorktreeRecordsByWorkspaceID`), session execution targeting (`UpdateSessionExecutionTargetByID`, `RetargetSessionWorkspace`, `DeleteSessionRecordByID`), project lifecycle (`CreateProjectForWorkspace`, `DeleteProject`, `UnlinkProjectWorkspace`, `AttachWorkspaceToProject`), task sequence allocation (`AllocateProjectTaskSequence`), and project read-model listings (`ListProjects`, `ListProjectWorkspaces`, `GetProjectOverview`). Helper closures and binding-recovery logic such as `registerWorkspaceBindingConverged` and `recoverWorkspaceBindingAfterCanonicalRootConflict` share the same file.
+
+  Every metadata change touches one dense file that owns unrelated transactional concerns, so workspace binding, worktree records, session targeting, project lifecycle, and read-model assembly cannot be reviewed, tested, or evolved in isolation. Adding a new metadata domain extends an already-overloaded store rather than a focused boundary.
+
+  Remediation task: split the store into domain-scoped files or sub-stores for workspace binding, worktree records, session execution targets, project lifecycle, and sequence allocation, keeping only `Open`/`Close`/`DB`/`Queries` accessors and shared transaction wiring in the root store as thin routing. Preserve current transaction boundaries and binding-recovery semantics during extraction.
+
+  Regression prevention must include behavior-preserving tests for binding resolution, worktree record CRUD, session retargeting, project create/delete/unlink/rebind, and task sequence allocation that pass unchanged after the split, plus a size/coupling guard for `server/metadata`. Tests must fail if a domain operation regresses its transaction or recovery behavior during decomposition.
+
+- [ ] `TD-044` [P1] `server/worktree/service.go` concentrates git, locking, targeting, and lifecycle responsibilities.
+
+  `server/worktree/service.go` is 1770 LoC. One `Service` owns a `GitInspector`, two mutexes (`workspaceMu sync.Mutex` and `mu sync.Mutex`), git worktree operations through `s.git.ResolveCreateTarget`/`Add`/`Prune`/`Remove`/`DirtyFileCount`/`deleteBranch`, execution-target syncing, and worktree creation/removal/deletability through `EnsureTaskWorktree`, `DeleteTaskWorktree`, and `EnsureTaskWorktreeDeletable`. Git inspection, workspace mutation locking, target synchronization, and lifecycle management are interleaved in one type.
+
+  The service is a central worktree authority, so combining git subprocess behavior, coarse workspace locking, and lifecycle orchestration in one file makes lock scope and failure handling hard to reason about and raises the risk that a git or locking change silently affects unrelated lifecycle paths.
+
+  Remediation task: separate git inspection, workspace-mutation locking, execution-target synchronization, and worktree lifecycle into focused collaborators with explicit lock ownership, keeping the public service as orchestration over those components. Preserve current creation/removal semantics and locking order during extraction.
+
+  Regression prevention must include behavior-preserving tests for worktree create, remove, deletability, and target sync against fake git runners, plus concurrency tests proving lock scope does not serialize unrelated operations. A size/coupling guard must flag regrowth of the service file.
+
+- [ ] `TD-045` [P1] `server/sessionruntime/service.go` guards multiple lifecycles under one mutex and mixes activation concerns.
+
+  `server/sessionruntime/service.go` is 1461 LoC. One `mu sync.Mutex` guards `handles`, `idleTimers`, `runningTimers`, and `recoveredWarning`, even though these have different lifetimes: handles live for the runtime session, idle timers for seconds, and the recovered warning is set once. `runtimeHandle` additionally owns `controllerLeaseID` and a `*runtimeTakeover`, and `ActivateSessionRuntime` interleaves existing-activation claim, primary-run lease acquisition (`acquirePrimaryRunLease`), new-activation claim, takeover semantics, and best-effort lease release in one method.
+
+  Holding one lock across runtime handle lifecycle, idle-timer churn, lease tracking, and startup warning state makes lock ownership opaque and couples unrelated control flows, so activation, takeover, and idle-unload behavior are hard to test or evolve without risking cross-flow regressions.
+
+  Remediation task: split runtime handle lifecycle, lease tracking, takeover semantics, and idle-timer management into focused components with their own synchronization, and decompose `ActivateSessionRuntime` into claim/lease/takeover stages with explicit ownership. Preserve current activation, takeover, and lease-release semantics during extraction.
+
+  Regression prevention must include tests for activation, takeover, lease release, and idle unload under concurrency that prove finer-grained synchronization preserves behavior, plus lock-scope or size guards that fail if one mutex again guards unrelated lifecycles.
+
+- [ ] `TD-046` [P1] Compaction combines threshold policy, token counting, and request execution in one engine subsystem.
+
+  `server/runtime/compaction.go` (772 LoC) and `server/runtime/compaction_utils.go` (264 LoC) attach compaction policy and execution directly to `Engine`. The same subsystem owns threshold policy (`shouldAutoCompactWithContext`, `ShouldCompactBeforeUserMessage`, `autoCompactPrecisionMarginForLimit`), token counting and caching (`currentInputTokensPrecisely`, `requestInputTokensPreciselyTracked`, `estimateTokensFromBytes`, `storePreciseTokenCount`), provider capability checks (`providerCapabilities`, `preciseInputTokenCountSupported`), request construction (`buildRequestWithoutPromptRefresh`), and remote-output handling (`sanitizeRemoteCompactionOutput`).
+
+  Compaction policy cannot be tested without model execution because thresholds, token estimation, provider capability checks, and request assembly all live on the engine. This couples policy decisions to live model calls and makes it harder to evolve compaction triggering independently of execution.
+
+  Remediation task: introduce an explicit compaction planner/executor boundary so threshold policy can be exercised without model execution, and move token estimation, provider-capability resolution, and request construction into separate components consumed by the planner. Keep the existing steer/queue compaction integration (see TD-019) and persisted status emission intact.
+
+  Regression prevention must include planner tests that exercise threshold and pre-message decisions with fake token counts and provider capabilities, plus executor tests for request construction and remote-output handling, proving policy and execution can be tested in isolation.
+
+- [ ] `TD-047` [P1] Reviewer pipeline lives in engine helpers and classifies responses by message content.
+
+  `server/runtime/engine_reviewer_helpers.go` (445 LoC) owns reviewer request building, meta-context classification, transcript formatting, and response parsing on `Engine`. It classifies and formats responses from content rather than typed protocol: `sanitizeReviewerSuggestions` matches `reviewerNoopToken` via `strings.EqualFold`, `parseReviewerSuggestionsObject` parses suggestion text, `reviewerStatusText` builds operator-facing status from literal phrases such as "Supervisor ran:", and `splitMetaContextItems`/`buildReviewerRequestItemsWithBuilder` reshape transcript items for the reviewer pass.
+
+  Concentrating reviewer orchestration, classification, and formatting in one engine helper makes the reviewer pipeline hard to test in isolation, and content-based classification violates the repository rule against deriving information from substring/string matching, so reviewer protocol changes risk silent misclassification.
+
+  Remediation task: extract reviewer logic into a `server/runtime/reviewer/` subpackage with a typed pipeline: orchestration, request/response formatting, meta-context classification, and transcript formatting as separate units. Replace content-based suggestion and status detection with a typed reviewer protocol response, coordinating with the legacy-shim sunset in TD-014 so no permanent string-based fallback remains.
+
+  Regression prevention must include unit tests for the reviewer pipeline stages and typed protocol parsing that do not depend on literal phrasing, and a guard that fails if reviewer classification reintroduces substring-based detection of suggestions, no-op tokens, or status.
+
 ## P2 Findings
 
 - [ ] `TD-007` [P2] `shared/config/config_registry.go` centralizes too many setting responsibilities.
