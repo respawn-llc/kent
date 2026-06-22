@@ -106,12 +106,12 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	}
 	if m.detailTranscript.loaded && !allTranscriptEntriesTransient(convertedEntries) {
 		page := clientui.TranscriptPage{
-			Revision:     m.transcriptRevision,
-			Offset:       startOffset,
-			TotalEntries: m.transcriptTotalEntries,
-			Entries:      cloneChatEntries(entries),
-			Ongoing:      m.view.OngoingStreamingText(),
-			OngoingError: m.view.OngoingErrorText(),
+			Revision:       m.transcriptRevision,
+			Offset:         startOffset,
+			TotalEntries:   m.transcriptTotalEntries,
+			Entries:        cloneChatEntries(entries),
+			Streaming:      m.view.OngoingStreamingText(),
+			StreamingError: m.view.OngoingErrorText(),
 		}
 		m.detailTranscript.apply(page)
 	}

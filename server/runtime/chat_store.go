@@ -17,7 +17,7 @@ type ChatEntry struct {
 	RollbackTargetID  string
 	Role              string
 	Text              string
-	CondensedText       string
+	CondensedText     string
 	Phase             llm.MessagePhase
 	MessageType       llm.MessageType
 	SourcePath        string
@@ -29,9 +29,9 @@ type ChatEntry struct {
 }
 
 type ChatSnapshot struct {
-	Entries      []ChatEntry
-	Ongoing      string
-	OngoingError string
+	Entries        []ChatEntry
+	Streaming      string
+	StreamingError string
 }
 
 type TranscriptWindowSnapshot struct {
@@ -46,7 +46,7 @@ type storedToolCompletion struct {
 	IsError       bool                     `json:"is_error"`
 	Output        json.RawMessage          `json:"output"`
 	Summary       string                   `json:"summary,omitempty"`
-	CondensedText   string                   `json:"condensed_text,omitempty"`
+	CondensedText string                   `json:"condensed_text,omitempty"`
 	Presentation  *transcript.ToolCallMeta `json:"presentation,omitempty"`
 	ProviderItems []llm.ResponseItem       `json:"provider_items,omitempty"`
 }
@@ -63,8 +63,8 @@ type chatStore struct {
 	assistantToolCalls                map[string]struct{}
 	materializedToolResults           map[string]struct{}
 	synthesizedToolResults            map[string]struct{}
-	ongoing                           string
-	ongoingError                      string
+	streaming                         string
+	streamingError                    string
 	cwd                               string
 	lastCommittedAssistantFinalAnswer string
 	messageCount                      int
@@ -109,8 +109,8 @@ func (s *chatStore) appendMessage(msg llm.Message) {
 	defer s.mu.Unlock()
 	msg = normalizeMessageForTranscript(msg, s.cwd)
 	if msg.Role == llm.RoleAssistant && strings.TrimSpace(msg.Content) != "" {
-		s.ongoing = ""
-		s.ongoingError = ""
+		s.streaming = ""
+		s.streamingError = ""
 	}
 	s.items = append(s.items, llm.ItemsFromMessages([]llm.Message{msg})...)
 	s.applyMessageStatsLocked(msg)
@@ -160,13 +160,13 @@ func (s *chatStore) restoreToolCompletionPayload(payload []byte) error {
 		return fmt.Errorf("decode tool_completed event: %w", err)
 	}
 	s.recordToolCompletionWithProviderItems(tools.Result{
-		CallID:       completion.CallID,
-		Name:         toolspec.ID(completion.Name),
-		IsError:      completion.IsError,
-		Output:       completion.Output,
-		Summary:      completion.Summary,
-		CondensedText:  completion.CondensedText,
-		Presentation: completion.Presentation,
+		CallID:        completion.CallID,
+		Name:          toolspec.ID(completion.Name),
+		IsError:       completion.IsError,
+		Output:        completion.Output,
+		Summary:       completion.Summary,
+		CondensedText: completion.CondensedText,
+		Presentation:  completion.Presentation,
 	}, completion.ProviderItems)
 	return nil
 }
@@ -195,31 +195,31 @@ func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, prov
 	}
 }
 
-func (s *chatStore) appendOngoingDelta(delta string) {
+func (s *chatStore) appendStreamingDelta(delta string) {
 	if delta == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ongoing += delta
+	s.streaming += delta
 }
 
-func (s *chatStore) clearOngoing() {
+func (s *chatStore) discardStreaming() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ongoing = ""
+	s.streaming = ""
 }
 
-func (s *chatStore) setOngoingError(text string) {
+func (s *chatStore) setStreamingError(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ongoingError = strings.TrimSpace(text)
+	s.streamingError = strings.TrimSpace(text)
 }
 
-func (s *chatStore) clearOngoingError() {
+func (s *chatStore) clearStreamingError() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ongoingError = ""
+	s.streamingError = ""
 }
 
 func (s *chatStore) appendLocalEntryRecord(entry ChatEntry) {
@@ -459,7 +459,7 @@ func (s *chatStore) applyLastCommittedAssistantFinalAnswerLocked(msg llm.Message
 	s.lastCommittedAssistantFinalAnswer = ""
 }
 
-func (s *chatStore) ongoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
+func (s *chatStore) recentTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -467,7 +467,7 @@ func (s *chatStore) ongoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot
 	materializedToolResults := collectMaterializedToolCalls(items)
 	scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{
 		TrackRecentTail: true,
-		TailLimit:        maxEntries,
+		TailLimit:       maxEntries,
 	}, s.toolCompletions, materializedToolResults)
 	localIndex := 0
 	processedMessages := 0
@@ -501,8 +501,8 @@ func (s *chatStore) ongoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot
 	walker.Flush()
 	appendLocalEntries(processedMessages)
 	window := scan.RecentTailSnapshot()
-	window.Snapshot.Ongoing = s.ongoing
-	window.Snapshot.OngoingError = s.ongoingError
+	window.Snapshot.Streaming = s.streaming
+	window.Snapshot.StreamingError = s.streamingError
 	return window
 }
 
@@ -536,8 +536,8 @@ func (s *chatStore) transcriptPageSnapshot(offset, limit int) transcriptPageSnap
 	walker.Flush()
 	appendLocalEntries(processedMessages)
 	page := scan.PageSnapshot()
-	page.Snapshot.Ongoing = s.ongoing
-	page.Snapshot.OngoingError = s.ongoingError
+	page.Snapshot.Streaming = s.streaming
+	page.Snapshot.StreamingError = s.streamingError
 	return page
 }
 
@@ -576,8 +576,8 @@ func (s *chatStore) snapshotWithMetadata() materializedChatSnapshot {
 	walker.Flush()
 	appendLocalEntries(processedMessages)
 	snapshot := scan.PageSnapshot().Snapshot
-	snapshot.Ongoing = s.ongoing
-	snapshot.OngoingError = s.ongoingError
+	snapshot.Streaming = s.streaming
+	snapshot.StreamingError = s.streamingError
 	return materializedChatSnapshot{
 		Snapshot:             snapshot,
 		CompactionEntryStart: -1,

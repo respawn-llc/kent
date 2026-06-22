@@ -32,7 +32,7 @@ func (w uiDetailTranscriptWindow) page() clientui.TranscriptPage {
 			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              string(entry.Role),
 			Text:              entry.Text,
-			CondensedText:       entry.CondensedText,
+			CondensedText:     entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,
@@ -43,12 +43,12 @@ func (w uiDetailTranscriptWindow) page() clientui.TranscriptPage {
 		})
 	}
 	return clientui.TranscriptPage{
-		SessionID:    w.sessionID,
-		TotalEntries: w.totalEntries,
-		Offset:       w.offset,
-		Entries:      entries,
-		Ongoing:      w.ongoing,
-		OngoingError: w.ongoingError,
+		SessionID:      w.sessionID,
+		TotalEntries:   w.totalEntries,
+		Offset:         w.offset,
+		Entries:        entries,
+		Streaming:      w.ongoing,
+		StreamingError: w.ongoingError,
 	}
 }
 
@@ -74,8 +74,8 @@ func (w *uiDetailTranscriptWindow) syncTail(page clientui.TranscriptPage) {
 	end := w.offset + len(w.entries)
 	pageEnd := page.Offset + len(page.Entries)
 	w.totalEntries = page.TotalEntries
-	w.ongoing = page.Ongoing
-	w.ongoingError = page.OngoingError
+	w.ongoing = page.Streaming
+	w.ongoingError = page.StreamingError
 	if page.Offset >= end || pageEnd <= w.offset {
 		if pageEnd >= page.TotalEntries {
 			w.replace(page)
@@ -111,7 +111,7 @@ func (w uiDetailTranscriptWindow) matchesPage(page clientui.TranscriptPage) bool
 	if w.offset != page.Offset || w.totalEntries != totalEntries {
 		return false
 	}
-	if w.ongoing != page.Ongoing || w.ongoingError != page.OngoingError {
+	if w.ongoing != page.Streaming || w.ongoingError != page.StreamingError {
 		return false
 	}
 	if len(w.entries) != len(page.Entries) {
@@ -133,8 +133,8 @@ func (w *uiDetailTranscriptWindow) replace(page clientui.TranscriptPage) {
 	w.offset = page.Offset
 	w.totalEntries = max(page.TotalEntries, page.Offset+len(page.Entries))
 	w.entries = transcriptEntriesFromPage(page)
-	w.ongoing = page.Ongoing
-	w.ongoingError = page.OngoingError
+	w.ongoing = page.Streaming
+	w.ongoingError = page.StreamingError
 	w.loaded = true
 	w.lastRequest = clientui.TranscriptPageRequest{Offset: page.Offset, Limit: len(page.Entries)}
 	w.trimAround(page.Offset)
@@ -150,8 +150,8 @@ func (w *uiDetailTranscriptWindow) merge(page clientui.TranscriptPage) {
 	}
 	if len(page.Entries) == 0 {
 		w.totalEntries = max(w.totalEntries, page.TotalEntries)
-		w.ongoing = page.Ongoing
-		w.ongoingError = page.OngoingError
+		w.ongoing = page.Streaming
+		w.ongoingError = page.StreamingError
 		return
 	}
 	pageEntries := transcriptEntriesFromPage(page)
@@ -171,8 +171,8 @@ func (w *uiDetailTranscriptWindow) merge(page clientui.TranscriptPage) {
 	w.offset = mergedStart
 	w.entries = merged
 	w.totalEntries = max(max(w.totalEntries, page.TotalEntries), mergedEnd)
-	w.ongoing = page.Ongoing
-	w.ongoingError = page.OngoingError
+	w.ongoing = page.Streaming
+	w.ongoingError = page.StreamingError
 	w.loaded = true
 	w.lastRequest = clientui.TranscriptPageRequest{Offset: page.Offset, Limit: len(page.Entries)}
 	w.trimAround(page.Offset)

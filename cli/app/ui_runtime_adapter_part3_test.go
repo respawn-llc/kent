@@ -291,7 +291,7 @@ func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenCommittedT
 		Offset:       0,
 		TotalEntries: 1,
 		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "done", Phase: string(llm.MessagePhaseFinal)}},
-		Ongoing:      "",
+		Streaming:    "",
 	}
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 	if got := m.view.OngoingStreamingText(); got != "" {
@@ -327,7 +327,7 @@ func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenPageCommit
 			{Role: "assistant", Text: "done", Phase: string(llm.MessagePhaseFinal)},
 			{Role: "reviewer_status", Text: "Supervisor ran: no changes."},
 		},
-		Ongoing: "",
+		Streaming: "",
 	}
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 	if got := m.view.OngoingStreamingText(); got != "" {
@@ -371,7 +371,7 @@ func TestApplyRuntimeTranscriptPageRejectsSameRevisionEmptyOngoingWhenOnlyOlderA
 			{Role: "assistant", Text: "done", Phase: string(llm.MessagePhaseFinal)},
 			{Role: "assistant", Text: "different", Phase: string(llm.MessagePhaseFinal)},
 		},
-		Ongoing: "",
+		Streaming: "",
 	}
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 	if got := m.view.OngoingStreamingText(); got != "done" {

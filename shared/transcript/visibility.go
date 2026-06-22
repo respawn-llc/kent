@@ -5,8 +5,8 @@ import "strings"
 type EntryVisibility string
 
 const (
-	EntryVisibilityAuto       EntryVisibility = ""
-	EntryVisibilityAll        EntryVisibility = "all"
+	EntryVisibilityAuto    EntryVisibility = ""
+	EntryVisibilityAll     EntryVisibility = "all"
 	EntryVisibilityVerbose EntryVisibility = "verbose"
 )
 

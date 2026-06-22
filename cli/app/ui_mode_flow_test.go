@@ -479,8 +479,8 @@ func TestScenarioSessionResumeNormalizesLegacyReviewerEntriesInOngoingMode(t *te
 	workspace := t.TempDir()
 	store := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
 	if _, _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
-		"role":         "reviewer_suggestions",
-		"text":         "Supervisor suggested:\n1. Add final verification notes.",
+		"role":           "reviewer_suggestions",
+		"text":           "Supervisor suggested:\n1. Add final verification notes.",
 		"condensed_text": "Supervisor made 1 suggestion.",
 	}); err != nil {
 		t.Fatalf("append legacy reviewer_suggestions: %v", err)

@@ -466,7 +466,7 @@ func TestSessionViewClientUsesRegisteredRuntimeByID(t *testing.T) {
 	}
 	server.RegisterRuntime(store.Meta().SessionID, eng)
 	defer server.UnregisterRuntime(store.Meta().SessionID, eng)
-	eng.SetOngoingError("runtime-only")
+	eng.SetStreamingError("runtime-only")
 
 	resp, err := server.SessionViewClient().GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
@@ -479,7 +479,7 @@ func TestSessionViewClientUsesRegisteredRuntimeByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if page.Transcript.OngoingError != "runtime-only" {
+	if page.Transcript.StreamingError != "runtime-only" {
 		t.Fatalf("expected registered runtime transcript, got %+v", page.Transcript)
 	}
 }

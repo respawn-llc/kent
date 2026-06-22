@@ -23,8 +23,8 @@ func TestGoalFeedbackExpandedDetailKeepsPromptTextNormal(t *testing.T) {
 	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
 	m = updateModel(t, m, SetViewportSizeMsg{Lines: 8, Width: 80})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        TranscriptRole(transcript.EntryRoleGoalFeedback),
-		Text:        "Full goal prompt line one\nFull goal prompt line two",
+		Role:          TranscriptRole(transcript.EntryRoleGoalFeedback),
+		Text:          "Full goal prompt line one\nFull goal prompt line two",
 		CondensedText: "Goal complete. Cooked for 31m",
 	})
 	m = updateModel(t, m, ToggleModeMsg{})

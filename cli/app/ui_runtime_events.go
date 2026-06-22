@@ -128,7 +128,7 @@ func runtimeEventBatchFence(evt clientui.Event) bool {
 		clientui.EventConversationUpdated,
 		clientui.EventAssistantDelta,
 		clientui.EventReasoningDelta,
-		clientui.EventOngoingErrorUpdated,
+		clientui.EventStreamingErrorUpdated,
 		clientui.EventAssistantDeltaReset,
 		clientui.EventReasoningDeltaReset:
 		return true

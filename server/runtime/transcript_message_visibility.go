@@ -60,25 +60,25 @@ func visibleDeveloperChatEntry(msg llm.Message) (ChatEntry, bool) {
 func compactionSummaryChatEntry(msg llm.Message) ChatEntry {
 	label := compactLabelForMessage(msg)
 	return ChatEntry{
-		Visibility:   transcript.EntryVisibilityAll,
-		Role:         string(transcript.EntryRoleCompactionSummary),
-		Text:         msg.Content,
-		CondensedText:  label,
-		MessageType:  msg.MessageType,
-		SourcePath:   strings.TrimSpace(msg.SourcePath),
-		CompactLabel: label,
+		Visibility:    transcript.EntryVisibilityAll,
+		Role:          string(transcript.EntryRoleCompactionSummary),
+		Text:          msg.Content,
+		CondensedText: label,
+		MessageType:   msg.MessageType,
+		SourcePath:    strings.TrimSpace(msg.SourcePath),
+		CompactLabel:  label,
 	}
 }
 
 func developerContextEntry(msg llm.Message, visibility transcript.EntryVisibility) ChatEntry {
 	return ChatEntry{
-		Visibility:   visibility,
-		Role:         string(transcript.EntryRoleDeveloperContext),
-		Text:         msg.Content,
-		CondensedText:  strings.TrimSpace(msg.CompactContent),
-		MessageType:  msg.MessageType,
-		SourcePath:   strings.TrimSpace(msg.SourcePath),
-		CompactLabel: compactLabelForMessage(msg),
+		Visibility:    visibility,
+		Role:          string(transcript.EntryRoleDeveloperContext),
+		Text:          msg.Content,
+		CondensedText: strings.TrimSpace(msg.CompactContent),
+		MessageType:   msg.MessageType,
+		SourcePath:    strings.TrimSpace(msg.SourcePath),
+		CompactLabel:  compactLabelForMessage(msg),
 	}
 }
 

@@ -29,12 +29,12 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventLocalEntryAdded, stepID: "", committedChanged: true}})
 
 	start = len(events)
-	eng.SetOngoingError("boom")
-	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventOngoingErrorUpdated, stepID: "", committedChanged: false}})
+	eng.SetStreamingError("boom")
+	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventStreamingErrorUpdated, stepID: "", committedChanged: false}})
 
 	start = len(events)
-	eng.ClearOngoingError()
-	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventOngoingErrorUpdated, stepID: "", committedChanged: false}})
+	eng.ClearStreamingError()
+	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventStreamingErrorUpdated, stepID: "", committedChanged: false}})
 
 	start = len(events)
 	if err := eng.steer("stream-step", steerClearStreamingStateIntent()); err != nil {

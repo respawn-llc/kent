@@ -30,7 +30,7 @@ type dormantTranscriptCacheEntry struct {
 	revision                     int64
 	totalEntries                 int
 	lastCommittedAssistantAnswer string
-	ongoingTail                  runtime.TranscriptWindowSnapshot
+	recentTail                   runtime.TranscriptWindowSnapshot
 	activeRun                    *clientui.RunView
 	lastUsed                     uint64
 }
@@ -122,7 +122,7 @@ func dormantTranscriptCacheKey(sessionDir, sessionID string) string {
 func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store) (dormantTranscriptCacheEntry, error) {
 	meta := store.Meta()
 	scan, err := scanDormantTranscript(ctx, store, runtime.PersistedTranscriptScanRequest{
-		TrackRecentTail: true,
+		TrackRecentTail:  true,
 		TailLimit:        runtimeview.RecentTailEntryLimit,
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
@@ -143,7 +143,7 @@ func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store)
 		revision:                     meta.LastSequence,
 		totalEntries:                 scan.TotalEntries(),
 		lastCommittedAssistantAnswer: scan.LastCommittedAssistantFinalAnswer(),
-		ongoingTail:                  scan.RecentTailSnapshot(),
+		recentTail:                   scan.RecentTailSnapshot(),
 		activeRun:                    activeRun,
 	}, nil
 }
@@ -181,8 +181,8 @@ func (e dormantTranscriptCacheEntry) transcriptPageCoveredByTail(meta session.Me
 	if req.Limit <= 0 {
 		return clientui.TranscriptPage{}, false
 	}
-	tailOffset := e.ongoingTail.Offset
-	tailEntries := e.ongoingTail.Snapshot.Entries
+	tailOffset := e.recentTail.Offset
+	tailEntries := e.recentTail.Snapshot.Entries
 	if req.Offset < tailOffset {
 		return clientui.TranscriptPage{}, false
 	}

@@ -192,7 +192,7 @@ func (m *Model) reduceAppendTranscriptMsg(msg AppendTranscriptMsg, result *model
 		Committed:         msg.Committed,
 		Role:              role,
 		Text:              msg.Text,
-		CondensedText:       msg.CondensedText,
+		CondensedText:     msg.CondensedText,
 		Phase:             msg.Phase,
 		MessageType:       msg.MessageType,
 		SourcePath:        strings.TrimSpace(msg.SourcePath),

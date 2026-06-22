@@ -306,9 +306,9 @@ func seedPromptCacheContinuityConversation(t *testing.T, engine *Engine) {
 		t.Fatalf("append developer entry: %v", err)
 	}
 	if err := engine.steer("turn-1", steerLocalEntryIntent(storedLocalEntry{
-		Visibility:  transcript.EntryVisibilityAuto,
-		Role:        "warning",
-		Text:        "Prompt cache continuity probe is still running.",
+		Visibility:    transcript.EntryVisibilityAuto,
+		Role:          "warning",
+		Text:          "Prompt cache continuity probe is still running.",
 		CondensedText: "Prompt cache continuity probe is still running.",
 	})); err != nil {
 		t.Fatalf("append local entry: %v", err)

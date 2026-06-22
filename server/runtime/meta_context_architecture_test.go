@@ -76,7 +76,7 @@ func TestProductionRuntimeOutputMutationsUseSteeringBoundary(t *testing.T) {
 		"appendPersistedDiagnosticEntry":             true,
 		"appendPersistedLocalEntry":                  true,
 		"appendPersistedLocalEntryRecord":            true,
-		"appendPersistedLocalEntryWithCondensedText":   true,
+		"appendPersistedLocalEntryWithCondensedText": true,
 		"appendReasoningEntries":                     true,
 		"appendUserMessage":                          true,
 		"appendUserMessageWithoutConversationUpdate": true,
@@ -115,14 +115,14 @@ func TestTranscriptProjectionMutationsStayInsideOutputBoundary(t *testing.T) {
 		"transcript_projector.go":   true,
 	}
 	bannedCalls := map[string]bool{
-		"AppendMessage":                       true,
-		"AppendLocalEntryRecord":              true,
+		"AppendMessage":                         true,
+		"AppendLocalEntryRecord":                true,
 		"AppendCommittedEntryWithCondensedText": true,
-		"AppendCommittedEntryWithVisibility":  true,
-		"AppendOngoingDelta":                  true,
-		"ClearStreamingAssistantState":        true,
-		"RecordStoredToolCompletion":          true,
-		"ReplaceHistory":                      true,
+		"AppendCommittedEntryWithVisibility":    true,
+		"AppendStreamingDelta":                  true,
+		"ClearStreamingAssistantState":          true,
+		"RecordStoredToolCompletion":            true,
+		"ReplaceHistory":                        true,
 	}
 	assertNoBannedRuntimeCalls(t, allowedFiles, bannedCalls)
 }

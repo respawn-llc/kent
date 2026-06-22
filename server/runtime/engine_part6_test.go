@@ -346,8 +346,8 @@ func TestSubmitUserMessageFailsWhenReviewerStatusPersistenceFailsAfterAssistantE
 func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
 	store := mustCreateTestSession(t)
 	if _, _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
-		Role:        "reviewer_suggestions",
-		Text:        "Supervisor suggested:\n1. Add final verification notes.",
+		Role:          "reviewer_suggestions",
+		Text:          "Supervisor suggested:\n1. Add final verification notes.",
 		CondensedText: "Supervisor made 1 suggestion.",
 	}); err != nil {
 		t.Fatalf("append legacy reviewer_suggestions: %v", err)

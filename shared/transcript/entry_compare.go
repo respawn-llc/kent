@@ -15,7 +15,7 @@ type EntryPayload struct {
 	RollbackTargetID  string
 	Role              string
 	Text              string
-	CondensedText       string
+	CondensedText     string
 	Phase             string
 	MessageType       string
 	SourcePath        string

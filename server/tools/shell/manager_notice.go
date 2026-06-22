@@ -59,16 +59,16 @@ func SummarizeBackgroundEvent(evt Event, opts BackgroundNoticeOptions) Backgroun
 			detail = append(detail, preview)
 		}
 	}
-	ongoing := fmt.Sprintf("Background shell %s %s", evt.Snapshot.ID, state)
+	summary := fmt.Sprintf("Background shell %s %s", evt.Snapshot.ID, state)
 	if evt.Snapshot.ExitCode != nil {
-		ongoing = fmt.Sprintf("%s (exit %d)", ongoing, *evt.Snapshot.ExitCode)
+		summary = fmt.Sprintf("%s (exit %d)", summary, *evt.Snapshot.ExitCode)
 	}
 	return BackgroundNoticeSummary{
-		DetailText:  strings.Join(detail, "\n"),
-		CondensedText: ongoing,
-		LineCount:   lineCount,
-		Truncated:   truncated,
-		LogPath:     evt.Snapshot.LogPath,
+		DetailText:    strings.Join(detail, "\n"),
+		CondensedText: summary,
+		LineCount:     lineCount,
+		Truncated:     truncated,
+		LogPath:       evt.Snapshot.LogPath,
 	}
 }
 

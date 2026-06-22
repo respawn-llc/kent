@@ -144,7 +144,7 @@ func TestConversationSnapshotCommitClearsSawAssistantDelta(t *testing.T) {
 		t.Fatal("expected sawAssistantDelta true after assistant delta")
 	}
 
-	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{Role: "assistant", Text: "partial"}}, Ongoing: ""})
+	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{Role: "assistant", Text: "partial"}}, Streaming: ""})
 	m.setBusy(false)
 	m.layout().syncViewport()
 
@@ -318,11 +318,11 @@ func TestWorktreeReminderBeforeUserFlushRendersOnceInOngoing(t *testing.T) {
 		TranscriptRevision:         10,
 		CommittedEntryCount:        1,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Visibility:  transcript.EntryVisibilityAll,
-			Role:        string(transcript.EntryRoleDeveloperContext),
-			Text:        "The user has moved this conversation into a git worktree.",
+			Visibility:    transcript.EntryVisibilityAll,
+			Role:          string(transcript.EntryRoleDeveloperContext),
+			Text:          "The user has moved this conversation into a git worktree.",
 			CondensedText: "Switched worktree to fixes-1.2-part-3: /tmp/fixes-1.2-part-3",
-			MessageType: string(llm.MessageTypeWorktreeMode),
+			MessageType:   string(llm.MessageTypeWorktreeMode),
 		}},
 	}, true).cmd
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{

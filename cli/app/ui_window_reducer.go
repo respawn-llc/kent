@@ -174,8 +174,8 @@ func (m *uiModel) applyCommittedTranscriptSuffixForNativeReplay(suffix clientui.
 		BaseOffset:   page.Offset,
 		TotalEntries: page.TotalEntries,
 		Entries:      entries,
-		Ongoing:      page.Ongoing,
-		OngoingError: page.OngoingError,
+		Ongoing:      page.Streaming,
+		OngoingError: page.StreamingError,
 	})
 	committedEntries := committedTranscriptEntriesForApp(m.transcriptEntries)
 	if len(committedEntries) == 0 {

@@ -57,7 +57,7 @@ func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, req clientui.C
 
 func TranscriptPageFromRecentTailWindow(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, window runtime.TranscriptWindowSnapshot, req clientui.TranscriptPageRequest) clientui.TranscriptPage {
 	req = NormalizeDefaultTranscriptRequest(req)
-	pageReq := ongoingTailTranscriptRequest(req, revision, window)
+	pageReq := recentTailTranscriptRequest(req, revision, window)
 	return TranscriptPageFromCollectedChat(
 		sessionID,
 		sessionName,
@@ -96,7 +96,7 @@ func transcriptOffsetAndLimit(req clientui.TranscriptPageRequest) (int, int) {
 	return offset, limit
 }
 
-func ongoingTailTranscriptRequest(req clientui.TranscriptPageRequest, revision int64, window runtime.TranscriptWindowSnapshot) clientui.TranscriptPageRequest {
+func recentTailTranscriptRequest(req clientui.TranscriptPageRequest, revision int64, window runtime.TranscriptWindowSnapshot) clientui.TranscriptPageRequest {
 	pageReq := clientui.TranscriptPageRequest{Offset: window.Offset, Limit: window.TotalEntries - window.Offset}
 	if req.Window != clientui.TranscriptWindowRecentTail {
 		return pageReq
@@ -136,8 +136,8 @@ func TranscriptPageFromCollectedChat(sessionID, sessionName string, freshness cl
 		baseOffset,
 		req,
 	)
-	page.Ongoing = snapshot.Ongoing
-	page.OngoingError = snapshot.OngoingError
+	page.Streaming = snapshot.Streaming
+	page.StreamingError = snapshot.StreamingError
 	return page
 }
 
@@ -226,8 +226,8 @@ func transcriptPageFromNormalizedRequest(sessionID, sessionName string, freshnes
 		NextOffset:            nextOffset,
 		HasMore:               hasMore,
 		Entries:               entries,
-		Ongoing:               snapshot.Ongoing,
-		OngoingError:          snapshot.OngoingError,
+		Streaming:             snapshot.Streaming,
+		StreamingError:        snapshot.StreamingError,
 	}
 }
 

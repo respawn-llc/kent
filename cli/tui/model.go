@@ -28,7 +28,7 @@ type TranscriptEntry struct {
 	Committed         bool
 	Role              TranscriptRole
 	Text              string
-	CondensedText       string
+	CondensedText     string
 	Phase             clientui.MessagePhase
 	MessageType       clientui.MessageType
 	SourcePath        string
@@ -80,7 +80,7 @@ type AppendTranscriptMsg struct {
 	Committed         bool
 	Role              TranscriptRole
 	Text              string
-	CondensedText       string
+	CondensedText     string
 	Phase             clientui.MessagePhase
 	MessageType       clientui.MessageType
 	SourcePath        string

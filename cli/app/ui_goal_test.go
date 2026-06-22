@@ -167,10 +167,10 @@ func TestGoalSetRendersCommittedGoalFeedbackBeforeLaterRuntimeEvents(t *testing.
 		CommittedEntryStart:        0,
 		CommittedEntryStartSet:     true,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        string(transcript.EntryRoleGoalFeedback),
-			Text:        "goal detail",
+			Role:          string(transcript.EntryRoleGoalFeedback),
+			Text:          "goal detail",
 			CondensedText: `Goal set: "ship feature"`,
-			Visibility:  clientui.EntryVisibilityAll,
+			Visibility:    clientui.EntryVisibilityAll,
 		}},
 	}
 	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "later model output"}

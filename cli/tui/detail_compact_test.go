@@ -590,8 +590,8 @@ func TestCompactDetailClearsExpandedEntriesWhenReplacementReusesIndexes(t *testi
 func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
 	m := newCompactDetailModel(t, 10)
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
+		Role:          "reviewer_suggestions",
+		Text:          "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
 		CondensedText: "Supervisor made 2 suggestions.",
 	})
 	m = updateModel(t, m, ToggleModeMsg{})
@@ -616,13 +616,13 @@ func TestWorktreeReminderUsesCondensedTextAndKeepsDetailText(t *testing.T) {
 	fullText := "The user has moved this conversation into a git worktree.\n- Branch: feature/branch\n- New cwd / worktree path: /tmp/worktree/pkg"
 	ongoingText := "Switched worktree to feature/branch: /tmp/worktree/pkg"
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Visibility:   transcript.EntryVisibilityAll,
-		Role:         TranscriptRoleDeveloperContext,
-		Text:         fullText,
-		CondensedText:  ongoingText,
-		MessageType:  clientui.MessageTypeWorktreeMode,
-		SourcePath:   "/tmp/worktree/pkg",
-		CompactLabel: ongoingText,
+		Visibility:    transcript.EntryVisibilityAll,
+		Role:          TranscriptRoleDeveloperContext,
+		Text:          fullText,
+		CondensedText: ongoingText,
+		MessageType:   clientui.MessageTypeWorktreeMode,
+		SourcePath:    "/tmp/worktree/pkg",
+		CompactLabel:  ongoingText,
 	})
 
 	ongoing := xansi.Strip(m.OngoingSnapshot())
@@ -646,8 +646,8 @@ func TestCompactDetailKeepsVerboseReviewerSuggestionsWhenNoStructuredCountExists
 	m := newCompactDetailModel(t, 10)
 	suggestions := "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer."
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "reviewer_suggestions",
-		Text:        suggestions,
+		Role:          "reviewer_suggestions",
+		Text:          suggestions,
 		CondensedText: suggestions,
 	})
 	m = updateModel(t, m, ToggleModeMsg{})

@@ -326,8 +326,8 @@ func (m *uiModel) forwardToView(msg tea.Msg) {
 			BaseOffset:   page.Offset,
 			TotalEntries: page.TotalEntries,
 			Entries:      transcriptEntriesFromPage(page),
-			Ongoing:      page.Ongoing,
-			OngoingError: page.OngoingError,
+			Ongoing:      page.Streaming,
+			OngoingError: page.StreamingError,
 		})
 		if castedDetail, ok := nextDetail.(tui.Model); ok {
 			m.view = castedDetail

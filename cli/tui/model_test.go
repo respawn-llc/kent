@@ -741,9 +741,9 @@ func TestOngoingAskQuestionRendersSelectedOptionText(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "User chose option #2. They also said: include tests",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "User chose option #2. They also said: include tests",
 		CondensedText: "Recursive scan\nUser also said:\ninclude tests",
 	})
 
@@ -768,9 +768,9 @@ func TestOngoingAskQuestionPreservesLiteralUserAnsweredPrefix(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "User answered: keep going",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "User answered: keep going",
 		CondensedText: "User answered: keep going",
 	})
 
@@ -838,9 +838,9 @@ func TestOngoingAskQuestionQuestionTextWrapsWithoutEllipsis(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "yes",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "yes",
 		CondensedText: "yes",
 	})
 
@@ -882,9 +882,9 @@ func TestOngoingAskQuestionMarkdownWrapsWithinViewport(t *testing.T) {
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "approved",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "approved",
 		CondensedText: "approved",
 	})
 
@@ -1149,9 +1149,9 @@ func TestDetailAskQuestionKeepsToolResultTextWhenCondensedTextDiffers(t *testing
 		},
 	})
 	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:        "tool_result_ok",
-		ToolCallID:  "call_ask",
-		Text:        "User chose option #2. They also said: include tests",
+		Role:          "tool_result_ok",
+		ToolCallID:    "call_ask",
+		Text:          "User chose option #2. They also said: include tests",
 		CondensedText: "Recursive scan\nUser also said:\ninclude tests",
 	})
 	m = updateModel(t, m, ToggleModeMsg{})

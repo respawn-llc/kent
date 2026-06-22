@@ -27,7 +27,7 @@ func (e *Engine) persistToolCompletionRaw(stepID string, r tools.Result) error {
 		IsError:       r.IsError,
 		Output:        append(json.RawMessage(nil), r.Output...),
 		Summary:       r.Summary,
-		CondensedText:   r.CondensedText,
+		CondensedText: r.CondensedText,
 		Presentation:  r.Presentation,
 		ProviderItems: e.providerItemsForToolCompletion(r),
 	}
@@ -129,11 +129,11 @@ func (e *Engine) appendPersistedLocalEntryRecordRaw(stepID string, entry storedL
 
 func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 	return &ChatEntry{
-		Visibility:  entry.Visibility,
-		Role:        strings.TrimSpace(entry.Role),
-		Text:        strings.TrimSpace(entry.Text),
+		Visibility:    entry.Visibility,
+		Role:          strings.TrimSpace(entry.Role),
+		Text:          strings.TrimSpace(entry.Text),
 		CondensedText: strings.TrimSpace(entry.CondensedText),
-		NoticeID:    strings.TrimSpace(entry.NoticeID),
+		NoticeID:      strings.TrimSpace(entry.NoticeID),
 	}
 }
 

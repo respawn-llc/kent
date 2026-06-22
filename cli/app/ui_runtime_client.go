@@ -536,9 +536,9 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 		}
 		if isRecentTailTranscriptRequest(req) {
 			view.Session.Chat = clientui.ChatSnapshot{
-				Entries:      cloneTranscriptEntries(page.Entries),
-				Ongoing:      page.Ongoing,
-				OngoingError: page.OngoingError,
+				Entries:        cloneTranscriptEntries(page.Entries),
+				Streaming:      page.Streaming,
+				StreamingError: page.StreamingError,
 			}
 		}
 	})

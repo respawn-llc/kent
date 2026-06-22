@@ -38,10 +38,10 @@ func TestWaitRuntimeEventDoesNotDeferCommittedGoalFeedback(t *testing.T) {
 		CommittedEntryStart:        0,
 		CommittedEntryStartSet:     true,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        string(transcript.EntryRoleGoalFeedback),
-			Text:        "goal detail",
+			Role:          string(transcript.EntryRoleGoalFeedback),
+			Text:          "goal detail",
 			CondensedText: `Goal set: "ship feature"`,
-			Visibility:  clientui.EntryVisibilityAll,
+			Visibility:    clientui.EntryVisibilityAll,
 		}},
 	}
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "later"}

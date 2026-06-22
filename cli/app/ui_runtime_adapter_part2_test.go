@@ -26,10 +26,10 @@ func TestProjectedCommittedGoalFeedbackAppendsImmediately(t *testing.T) {
 		CommittedEntryStart:        0,
 		CommittedEntryStartSet:     true,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        string(transcript.EntryRoleGoalFeedback),
-			Text:        "Goal set developer prompt detail",
+			Role:          string(transcript.EntryRoleGoalFeedback),
+			Text:          "Goal set developer prompt detail",
 			CondensedText: `Goal set: "ship feature"`,
-			Visibility:  clientui.EntryVisibilityAll,
+			Visibility:    clientui.EntryVisibilityAll,
 		}},
 	}, false)
 	if cmd != nil || !mutated || needsHydration {
@@ -749,8 +749,8 @@ func TestHandleProjectedRuntimeEventAppendsLocalEntryImmediately(t *testing.T) {
 		TranscriptRevision:         10,
 		CommittedEntryCount:        1,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        "reviewer_suggestions",
-			Text:        "Supervisor suggested:\n1. Add verification notes.",
+			Role:          "reviewer_suggestions",
+			Text:          "Supervisor suggested:\n1. Add verification notes.",
 			CondensedText: "Supervisor made 1 suggestion.",
 		}},
 	}, true).cmd
@@ -791,8 +791,8 @@ func TestLocalEntryAddedRemainsVisibleAfterHydrationSync(t *testing.T) {
 		TranscriptRevision:         10,
 		CommittedEntryCount:        2,
 		TranscriptEntries: []clientui.ChatEntry{{
-			Role:        "reviewer_suggestions",
-			Text:        "Supervisor suggested:\n1. Add verification notes.",
+			Role:          "reviewer_suggestions",
+			Text:          "Supervisor suggested:\n1. Add verification notes.",
 			CondensedText: "Supervisor made 1 suggestion.",
 		}},
 	}, true).cmd
@@ -929,7 +929,7 @@ func TestRuntimeSessionViewUsesLocalFallbackWhenRuntimeClientMissing(t *testing.
 	if len(view.Chat.Entries) != 1 || view.Chat.Entries[0].Text != "hello" {
 		t.Fatalf("unexpected fallback chat entries: %+v", view.Chat.Entries)
 	}
-	if view.Chat.Ongoing != "streaming" {
-		t.Fatalf("ongoing = %q, want streaming", view.Chat.Ongoing)
+	if view.Chat.Streaming != "streaming" {
+		t.Fatalf("ongoing = %q, want streaming", view.Chat.Streaming)
 	}
 }

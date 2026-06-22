@@ -287,7 +287,7 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.streaming != nil {
 		if item.streaming.assistantDelta != nil {
 			delta := *item.streaming.assistantDelta
-			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendOngoingDelta(delta)
+			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendStreamingDelta(delta)
 			e.emitRaw(Event{Kind: EventAssistantDelta, StepID: stepID, AssistantDelta: delta})
 			return nil
 		}

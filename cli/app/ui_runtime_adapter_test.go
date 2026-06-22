@@ -218,7 +218,7 @@ func (f *runtimeAdapterFakeClient) ProviderCapabilities(context.Context) (llm.Pr
 func TestApplyChatSnapshotSetsOngoingFromSnapshot(t *testing.T) {
 	m := newProjectedStaticUIModel()
 
-	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Ongoing: "hello"})
+	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Streaming: "hello"})
 
 	if got := m.view.OngoingStreamingText(); got != "hello" {
 		t.Fatalf("expected snapshot ongoing text, got %q", got)
@@ -444,8 +444,8 @@ func TestOngoingReviewerEntriesAfterCommittedFinalKeepFinalVisibleWithoutHydrati
 			CommittedEntryStart:        1,
 			CommittedEntryStartSet:     true,
 			TranscriptEntries: []clientui.ChatEntry{{
-				Role:        "reviewer_suggestions",
-				Text:        "Supervisor suggested:\n1. Check final answer.",
+				Role:          "reviewer_suggestions",
+				Text:          "Supervisor suggested:\n1. Check final answer.",
 				CondensedText: "Supervisor suggested:\n1. Check final answer.",
 			}},
 		},
@@ -879,7 +879,7 @@ func TestAppendTranscriptMsgFromEntryPreservesTransientCompactMetadata(t *testin
 		Visibility:        transcript.EntryVisibilityVerbose,
 		Role:              "warning",
 		Text:              "transient warning body",
-		CondensedText:       "transient warning",
+		CondensedText:     "transient warning",
 		Phase:             string(llm.MessagePhaseFinal),
 		MessageType:       string(llm.MessageTypeCompactionSoonReminder),
 		SourcePath:        "  testdata/compact-source.md  ",

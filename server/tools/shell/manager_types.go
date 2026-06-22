@@ -98,11 +98,11 @@ type ExecResult struct {
 }
 
 type BackgroundNoticeSummary struct {
-	DetailText  string
+	DetailText    string
 	CondensedText string
-	LineCount   int
-	Truncated   bool
-	LogPath     string
+	LineCount     int
+	Truncated     bool
+	LogPath       string
 }
 
 type OutputChunk struct {

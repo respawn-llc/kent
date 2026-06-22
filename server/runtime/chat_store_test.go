@@ -48,8 +48,8 @@ func TestChatStoreSnapshotProjectsConversation(t *testing.T) {
 	})
 	s.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: "done"})
 
-	s.appendOngoingDelta("stream")
-	s.setOngoingError("failed")
+	s.appendStreamingDelta("stream")
+	s.setStreamingError("failed")
 	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "system", Text: "note"})
 
 	snap := s.snapshotWithMetadata().Snapshot
@@ -89,11 +89,11 @@ func TestChatStoreSnapshotProjectsConversation(t *testing.T) {
 	if snap.Entries[5].Role != "system" || snap.Entries[5].Text != "note" {
 		t.Fatalf("unexpected local entry: %+v", snap.Entries[5])
 	}
-	if snap.Ongoing != "stream" {
-		t.Fatalf("unexpected ongoing text: %q", snap.Ongoing)
+	if snap.Streaming != "stream" {
+		t.Fatalf("unexpected ongoing text: %q", snap.Streaming)
 	}
-	if snap.OngoingError != "failed" {
-		t.Fatalf("unexpected ongoing error: %q", snap.OngoingError)
+	if snap.StreamingError != "failed" {
+		t.Fatalf("unexpected ongoing error: %q", snap.StreamingError)
 	}
 }
 
@@ -160,9 +160,9 @@ func TestChatStoreRestoreToolCompletionPreservesCondensedText(t *testing.T) {
 		}},
 	})
 	payload, err := json.Marshal(storedToolCompletion{
-		CallID:      "call_ask",
-		Name:        string(toolspec.ToolAskQuestion),
-		Output:      json.RawMessage(`"User chose option #2. They also said: include tests"`),
+		CallID:        "call_ask",
+		Name:          string(toolspec.ToolAskQuestion),
+		Output:        json.RawMessage(`"User chose option #2. They also said: include tests"`),
 		CondensedText: "fast\nUser also said:\ninclude tests",
 	})
 	if err != nil {
@@ -305,7 +305,7 @@ func TestChatStoreRecentTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
 	}))
 	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "compaction_notice", Text: "after replace notice"})
 
-	window := s.ongoingTailSnapshot(1)
+	window := s.recentTailSnapshot(1)
 	if got := len(window.Snapshot.Entries); got != 3 {
 		t.Fatalf("entry count = %d, want 3 (%+v)", got, window.Snapshot.Entries)
 	}
@@ -334,7 +334,7 @@ func TestChatStoreRecentTailUsesMostRecentCompactionBoundary(t *testing.T) {
 	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-2"}})
 	s.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: "after"})
 
-	window := s.ongoingTailSnapshot(1)
+	window := s.recentTailSnapshot(1)
 	if got := window.TotalEntries; got != 5 {
 		t.Fatalf("total entries = %d, want 5", got)
 	}

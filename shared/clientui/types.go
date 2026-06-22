@@ -15,7 +15,7 @@ const (
 	EventStreamGap               EventKind = "stream_gap"
 	EventAssistantDelta          EventKind = "assistant_delta"
 	EventAssistantDeltaReset     EventKind = "assistant_delta_reset"
-	EventOngoingErrorUpdated     EventKind = "ongoing_error_updated"
+	EventStreamingErrorUpdated   EventKind = "streaming_error_updated"
 	EventReasoningDelta          EventKind = "reasoning_delta"
 	EventReasoningDeltaReset     EventKind = "reasoning_delta_reset"
 	EventAssistantMessage        EventKind = "assistant_message"
@@ -145,7 +145,7 @@ type ChatEntry struct {
 	RollbackTargetID  string
 	Role              string
 	Text              string
-	CondensedText       string
+	CondensedText     string
 	Phase             string
 	MessageType       string
 	SourcePath        string
@@ -159,15 +159,15 @@ type ChatEntry struct {
 const ChatEntryPhaseFinalAnswer = string(MessagePhaseFinal)
 
 type ChatSnapshot struct {
-	Entries      []ChatEntry
-	Ongoing      string
-	OngoingError string
+	Entries        []ChatEntry
+	Streaming      string
+	StreamingError string
 }
 
 type TranscriptWindow string
 
 const (
-	TranscriptWindowDefault     TranscriptWindow = ""
+	TranscriptWindowDefault    TranscriptWindow = ""
 	TranscriptWindowRecentTail TranscriptWindow = "recent_tail"
 )
 
@@ -191,8 +191,8 @@ type TranscriptPage struct {
 	NextOffset            int
 	HasMore               bool
 	Entries               []ChatEntry
-	Ongoing               string
-	OngoingError          string
+	Streaming             string
+	StreamingError        string
 }
 
 const (

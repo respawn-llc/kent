@@ -76,7 +76,7 @@ func (s *transcriptRuntimeState) Snapshot() ChatSnapshot {
 
 func (s *transcriptRuntimeState) RecentTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
 	if chat := s.chatProjection(); chat != nil {
-		return chat.ongoingTailSnapshot(maxEntries)
+		return chat.recentTailSnapshot(maxEntries)
 	}
 	return TranscriptWindowSnapshot{}
 }

@@ -1297,8 +1297,8 @@ func TestVerboseReviewerSuggestionsStaySingleAfterInterruptAndNextSubmit(t *test
 			CommittedEntryStart:        1,
 			CommittedEntryStartSet:     true,
 			TranscriptEntries: []clientui.ChatEntry{{
-				Role:        "reviewer_suggestions",
-				Text:        suggestions,
+				Role:          "reviewer_suggestions",
+				Text:          suggestions,
 				CondensedText: "Supervisor made 1 suggestion.",
 			}},
 		},

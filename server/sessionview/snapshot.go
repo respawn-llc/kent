@@ -292,7 +292,7 @@ func (s *dormantSessionSnapshotSource) buildCacheEntry(ctx context.Context, stor
 	}
 	meta := store.Meta()
 	scan, err := scanDormantTranscript(ctx, store, runtime.PersistedTranscriptScanRequest{
-		TrackRecentTail: true,
+		TrackRecentTail:  true,
 		TailLimit:        runtimeview.RecentTailEntryLimit,
 		CacheWarningMode: cacheWarningMode,
 	})
@@ -313,7 +313,7 @@ func (s *dormantSessionSnapshotSource) buildCacheEntry(ctx context.Context, stor
 		revision:                     meta.LastSequence,
 		totalEntries:                 scan.TotalEntries(),
 		lastCommittedAssistantAnswer: scan.LastCommittedAssistantFinalAnswer(),
-		ongoingTail:                  scan.RecentTailSnapshot(),
+		recentTail:                   scan.RecentTailSnapshot(),
 		activeRun:                    activeRun,
 	}, nil
 }
@@ -352,7 +352,7 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req clientui
 		return clientui.TranscriptPage{}, err
 	}
 	if req.Window == clientui.TranscriptWindowRecentTail {
-		return runtimeview.TranscriptPageFromRecentTailWindow(meta.SessionID, meta.Name, freshness, meta.LastSequence, entry.ongoingTail, req), nil
+		return runtimeview.TranscriptPageFromRecentTailWindow(meta.SessionID, meta.Name, freshness, meta.LastSequence, entry.recentTail, req), nil
 	}
 	offset := req.Offset
 	limit := req.Limit

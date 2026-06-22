@@ -768,14 +768,14 @@ func TestRuntimeModelReplacementAndSameStepTailConvergeWithoutDuplicateRows(t *t
 
 func TestRuntimeModelRefreshesOngoingErrorOnDedicatedUpdateEvent(t *testing.T) {
 	client := &runtimeControlFakeClient{transcript: clientui.TranscriptPage{
-		SessionID:    "session-1",
-		Revision:     10,
-		TotalEntries: 1,
-		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-		OngoingError: "background continuation failed",
+		SessionID:      "session-1",
+		Revision:       10,
+		TotalEntries:   1,
+		Entries:        []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+		StreamingError: "background continuation failed",
 	}}
 	runtimeEvents := make(chan clientui.Event, 1)
-	runtimeEvents <- clientui.Event{Kind: clientui.EventOngoingErrorUpdated, StepID: "step-1"}
+	runtimeEvents <- clientui.Event{Kind: clientui.EventStreamingErrorUpdated, StepID: "step-1"}
 	close(runtimeEvents)
 	m := newProjectedTestUIModel(client, runtimeEvents, nil)
 	m.startupCmds = nil
@@ -791,28 +791,28 @@ func TestRuntimeModelRefreshesOngoingErrorOnDedicatedUpdateEvent(t *testing.T) {
 	}
 }
 
-func TestRuntimeModelOngoingErrorUpdatedSetsAndClearsBannerLifecycle(t *testing.T) {
+func TestRuntimeModelStreamingErrorUpdatedSetsAndClearsBannerLifecycle(t *testing.T) {
 	client := &refreshingRuntimeClient{
 		transcripts: []clientui.TranscriptPage{
 			{
-				SessionID:    "session-1",
-				Revision:     10,
-				TotalEntries: 1,
-				Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-				OngoingError: "background continuation failed",
+				SessionID:      "session-1",
+				Revision:       10,
+				TotalEntries:   1,
+				Entries:        []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+				StreamingError: "background continuation failed",
 			},
 			{
-				SessionID:    "session-1",
-				Revision:     10,
-				TotalEntries: 1,
-				Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-				OngoingError: "",
+				SessionID:      "session-1",
+				Revision:       10,
+				TotalEntries:   1,
+				Entries:        []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+				StreamingError: "",
 			},
 		},
 	}
 	runtimeEvents := make(chan clientui.Event, 2)
-	runtimeEvents <- clientui.Event{Kind: clientui.EventOngoingErrorUpdated, StepID: "step-1"}
-	runtimeEvents <- clientui.Event{Kind: clientui.EventOngoingErrorUpdated, StepID: "step-1"}
+	runtimeEvents <- clientui.Event{Kind: clientui.EventStreamingErrorUpdated, StepID: "step-1"}
+	runtimeEvents <- clientui.Event{Kind: clientui.EventStreamingErrorUpdated, StepID: "step-1"}
 	close(runtimeEvents)
 	m := newProjectedTestUIModel(client, runtimeEvents, nil)
 	m.startupCmds = nil

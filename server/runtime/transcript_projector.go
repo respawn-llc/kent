@@ -93,7 +93,7 @@ func (p *TranscriptProjector) RecentTailSnapshot(maxEntries int) TranscriptWindo
 	if p == nil || p.chat == nil {
 		return TranscriptWindowSnapshot{}
 	}
-	return p.chat.ongoingTailSnapshot(maxEntries)
+	return p.chat.recentTailSnapshot(maxEntries)
 }
 
 func (p *TranscriptProjector) LastCommittedAssistantFinalAnswer() string {

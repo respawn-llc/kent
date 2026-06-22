@@ -216,9 +216,9 @@ func TestEventFromRuntimeProjectsLocalEntry(t *testing.T) {
 		Kind:   runtime.EventLocalEntryAdded,
 		StepID: "step-1",
 		LocalEntry: &runtime.ChatEntry{
-			Visibility:  transcript.EntryVisibilityAll,
-			Role:        "reviewer_suggestions",
-			Text:        "Supervisor suggested:\n1. Add verification notes.",
+			Visibility:    transcript.EntryVisibilityAll,
+			Role:          "reviewer_suggestions",
+			Text:          "Supervisor suggested:\n1. Add verification notes.",
 			CondensedText: "Supervisor made 1 suggestion.",
 		},
 	})
@@ -523,7 +523,7 @@ func TestChatSnapshotFromRuntimeCopiesEntries(t *testing.T) {
 			Visibility:        transcript.EntryVisibilityVerbose,
 			Role:              "assistant",
 			Text:              "hello",
-			CondensedText:       "hel",
+			CondensedText:     "hel",
 			Phase:             llm.MessagePhaseFinal,
 			MessageType:       llm.MessageTypeEnvironment,
 			SourcePath:        "/tmp/source",
@@ -532,8 +532,8 @@ func TestChatSnapshotFromRuntimeCopiesEntries(t *testing.T) {
 			ToolCallID:        "call-1",
 			ToolCall:          toolCall,
 		}},
-		Ongoing:      "ongoing",
-		OngoingError: "warn",
+		Streaming:      "ongoing",
+		StreamingError: "warn",
 	})
 	if len(snapshot.Entries) != 1 {
 		t.Fatalf("expected one entry, got %d", len(snapshot.Entries))
@@ -555,7 +555,7 @@ func TestChatSnapshotFromRuntimeCopiesEntries(t *testing.T) {
 	if snapshot.Entries[0].ToolCall.Suggestions[0] != "a" {
 		t.Fatalf("expected projection to copy suggestions, got %+v", snapshot.Entries[0].ToolCall.Suggestions)
 	}
-	if snapshot.Ongoing != "ongoing" || snapshot.OngoingError != "warn" {
+	if snapshot.Streaming != "ongoing" || snapshot.StreamingError != "warn" {
 		t.Fatalf("unexpected snapshot projection: %+v", snapshot)
 	}
 }
@@ -567,16 +567,16 @@ func TestChatSnapshotFromRuntimeSuppressesNoopFinalAssistantState(t *testing.T) 
 			Text:  "NO_OP",
 			Phase: llm.MessagePhaseFinal,
 		}},
-		Ongoing:      "NO_OP",
-		OngoingError: "warn",
+		Streaming:      "NO_OP",
+		StreamingError: "warn",
 	})
 	if got := len(snapshot.Entries); got != 0 {
 		t.Fatalf("noop final entry count = %d, want 0", got)
 	}
-	if got := snapshot.Ongoing; got != "" {
+	if got := snapshot.Streaming; got != "" {
 		t.Fatalf("noop ongoing text = %q, want empty", got)
 	}
-	if got := snapshot.OngoingError; got != "warn" {
+	if got := snapshot.StreamingError; got != "warn" {
 		t.Fatalf("ongoing error = %q, want warn", got)
 	}
 }

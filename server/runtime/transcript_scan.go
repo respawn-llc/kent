@@ -19,7 +19,7 @@ type inMemoryTranscriptScanRequest struct {
 	Offset int
 	Limit  int
 
-	TrackRecentTail     bool
+	TrackRecentTail      bool
 	TailLimit            int
 	CompactionItemCutoff int
 }

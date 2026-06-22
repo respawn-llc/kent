@@ -63,9 +63,9 @@ func TestTranscriptEntriesFromEventEmitsVisibleToolCompletionEntriesForOrdinaryA
 		{
 			name: "ordinary shell result",
 			result: tools.Result{
-				CallID:      "call-shell-1",
-				Name:        toolspec.ToolExecCommand,
-				Output:      json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`),
+				CallID:        "call-shell-1",
+				Name:          toolspec.ToolExecCommand,
+				Output:        json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`),
 				CondensedText: "compact shell result",
 			},
 		},

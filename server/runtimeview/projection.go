@@ -219,7 +219,7 @@ func chatEntriesFromRuntime(entries []runtime.ChatEntry) []clientui.ChatEntry {
 			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              entry.Role,
 			Text:              entry.Text,
-			CondensedText:       entry.CondensedText,
+			CondensedText:     entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,
@@ -282,7 +282,7 @@ func ChatSnapshotFromRuntime(snapshot runtime.ChatSnapshot) clientui.ChatSnapsho
 			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              entry.Role,
 			Text:              entry.Text,
-			CondensedText:       entry.CondensedText,
+			CondensedText:     entry.CondensedText,
 			Phase:             string(entry.Phase),
 			MessageType:       string(entry.MessageType),
 			SourcePath:        entry.SourcePath,
@@ -293,14 +293,14 @@ func ChatSnapshotFromRuntime(snapshot runtime.ChatSnapshot) clientui.ChatSnapsho
 			ToolCall:          cloneToolCallMeta(entry.ToolCall),
 		})
 	}
-	ongoing := snapshot.Ongoing
-	if strings.TrimSpace(ongoing) == runtimeNoopFinalToken {
-		ongoing = ""
+	streaming := snapshot.Streaming
+	if strings.TrimSpace(streaming) == runtimeNoopFinalToken {
+		streaming = ""
 	}
 	return clientui.ChatSnapshot{
-		Entries:      entries,
-		Ongoing:      ongoing,
-		OngoingError: snapshot.OngoingError,
+		Entries:        entries,
+		Streaming:      streaming,
+		StreamingError: snapshot.StreamingError,
 	}
 }
 

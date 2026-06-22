@@ -18,8 +18,8 @@ func (a uiRuntimeAdapter) applyProjectedChatSnapshot(snapshot clientui.ChatSnaps
 	page.Offset = 0
 	page.NextOffset = 0
 	page.HasMore = false
-	page.Ongoing = snapshot.Ongoing
-	page.OngoingError = snapshot.OngoingError
+	page.Streaming = snapshot.Streaming
+	page.StreamingError = snapshot.StreamingError
 	return a.applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 }
 
@@ -139,8 +139,8 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 				BaseOffset:   page.Offset,
 				TotalEntries: page.TotalEntries,
 				Entries:      entries,
-				Ongoing:      page.Ongoing,
-				OngoingError: page.OngoingError,
+				Ongoing:      page.Streaming,
+				OngoingError: page.StreamingError,
 			})
 		}
 	} else {
@@ -169,8 +169,8 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 				BaseOffset:   detailPage.Offset,
 				TotalEntries: detailPage.TotalEntries,
 				Entries:      transcriptEntriesFromPage(detailPage),
-				Ongoing:      detailPage.Ongoing,
-				OngoingError: detailPage.OngoingError,
+				Ongoing:      detailPage.Streaming,
+				OngoingError: detailPage.StreamingError,
 			})
 			m.refreshRollbackCandidates()
 		}
@@ -178,7 +178,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	if m.view.Mode() == tui.ModeOngoing {
 		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
 	}
-	if strings.TrimSpace(page.Ongoing) == "" {
+	if strings.TrimSpace(page.Streaming) == "" {
 		m.sawAssistantDelta = false
 	}
 	cmds := make([]tea.Cmd, 0, 2)

@@ -153,8 +153,8 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 				BaseOffset:   page.Offset,
 				TotalEntries: page.TotalEntries,
 				Entries:      entries,
-				Ongoing:      page.Ongoing,
-				OngoingError: page.OngoingError,
+				Ongoing:      page.Streaming,
+				OngoingError: page.StreamingError,
 			})
 		}
 		return m.syncNativeHistoryFromTranscript()

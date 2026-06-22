@@ -1662,15 +1662,15 @@ func TestRuntimeClientMainViewBootstrapDoesNotSeedStreamingOngoingState(t *testi
 			CommittedEntryCount: 1,
 		},
 		Chat: clientui.ChatSnapshot{
-			Entries: []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
-			Ongoing: "NO_OP",
+			Entries:   []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
+			Streaming: "NO_OP",
 		},
 	}}}
 	runtimeClient := newRuntimeClientReadTest(reads)
 
 	_ = runtimeClient.MainView()
 	page := runtimeClient.Transcript()
-	if got := page.Ongoing; got != "" {
+	if got := page.Streaming; got != "" {
 		t.Fatalf("bootstrap ongoing text = %q, want empty", got)
 	}
 }
@@ -1731,7 +1731,7 @@ func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedRecentTail(
 			TotalEntries: 500,
 			HasMore:      true,
 			Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "windowed tail"}},
-			Ongoing:      "streaming",
+			Streaming:    "streaming",
 		},
 	}
 	runtimeClient := newRuntimeClientReadTest(reads)
@@ -1746,7 +1746,7 @@ func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedRecentTail(
 	if got := view.Session.Chat.Entries[0].Text; got != "windowed tail" {
 		t.Fatalf("main view chat text = %q, want windowed tail", got)
 	}
-	if got := view.Session.Chat.Ongoing; got != "streaming" {
+	if got := view.Session.Chat.Streaming; got != "streaming" {
 		t.Fatalf("main view ongoing = %q, want streaming", got)
 	}
 }
