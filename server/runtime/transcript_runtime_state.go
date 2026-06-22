@@ -67,32 +67,18 @@ func (s *transcriptRuntimeState) SnapshotItems() []llm.ResponseItem {
 	return nil
 }
 
-func (s *transcriptRuntimeState) Snapshot() ChatSnapshot {
-	if chat := s.chatProjection(); chat != nil {
-		return chat.snapshotWithMetadata().Snapshot
-	}
-	return ChatSnapshot{}
-}
-
-func (s *transcriptRuntimeState) RecentTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
-	if chat := s.chatProjection(); chat != nil {
-		return chat.recentTailSnapshot(maxEntries)
-	}
-	return TranscriptWindowSnapshot{}
-}
-
-func (s *transcriptRuntimeState) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
-	if chat := s.chatProjection(); chat != nil {
-		return chat.transcriptPageSnapshot(offset, limit)
-	}
-	return transcriptPageSnapshot{}
-}
-
 func (s *transcriptRuntimeState) CommittedEntryCount() int {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.committedEntryCount()
 	}
 	return 0
+}
+
+func (s *transcriptRuntimeState) StreamingSnapshot() (string, string) {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.streamingSnapshot()
+	}
+	return "", ""
 }
 
 func (s *transcriptRuntimeState) LastCommittedAssistantFinalAnswer() string {

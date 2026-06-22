@@ -123,14 +123,47 @@ func (s *chatStore) replaceHistory(items []llm.ResponseItem) {
 	// Non-reviewer compaction keeps user-visible transcript history append-only by
 	// materializing replacement items as synthetic local entries at the compaction
 	// boundary while provider/model history switches to the compacted checkpoint.
+	projectedStart := len(s.local)
 	s.appendProjectedHistoryReplacementEntriesLocked(transcriptEntriesFromHistoryReplacement(preparedItems))
+	s.local = append([]localChatEntry(nil), s.local[projectedStart:]...)
 	s.compact = &compactionCheckpoint{
-		CutoffItemCount:    len(s.items),
-		CutoffMessageCount: s.messageCount,
-		CutoffLocalCount:   len(s.local),
+		CutoffItemCount:    0,
+		CutoffMessageCount: 0,
+		CutoffLocalCount:   0,
 		Items:              llm.CloneResponseItems(preparedItems),
 	}
+	s.items = nil
+	s.pruneToolCompletionsToWorkingSetLocked()
 	s.providerTokenEstimateDirty = true
+}
+
+func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
+	if len(s.toolCompletions) == 0 {
+		return
+	}
+	referenced := make(map[string]struct{}, len(s.toolCompletions))
+	for _, item := range s.providerItemsSourceLocked() {
+		if !isToolCallItem(item.Type) {
+			continue
+		}
+		callID := strings.TrimSpace(item.CallID)
+		if callID == "" {
+			callID = strings.TrimSpace(item.ID)
+		}
+		if callID != "" {
+			referenced[callID] = struct{}{}
+		}
+	}
+	for callID := range s.toolCompletions {
+		if _, ok := referenced[callID]; ok {
+			continue
+		}
+		delete(s.toolCompletions, callID)
+		delete(s.toolCompletionProviderItems, callID)
+		delete(s.assistantToolCalls, callID)
+		delete(s.materializedToolResults, callID)
+		delete(s.synthesizedToolResults, callID)
+	}
 }
 
 func (s *chatStore) estimatedProviderTokens() int {
@@ -202,6 +235,12 @@ func (s *chatStore) appendStreamingDelta(delta string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.streaming += delta
+}
+
+func (s *chatStore) streamingSnapshot() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.streaming, s.streamingError
 }
 
 func (s *chatStore) discardStreaming() {
@@ -446,17 +485,20 @@ func (s *chatStore) applyMessageStatsLocked(msg llm.Message) {
 }
 
 func (s *chatStore) applyLastCommittedAssistantFinalAnswerLocked(msg llm.Message) {
+	s.lastCommittedAssistantFinalAnswer = applyLastCommittedAssistantFinalAnswer(s.lastCommittedAssistantFinalAnswer, msg)
+}
+
+func applyLastCommittedAssistantFinalAnswer(current string, msg llm.Message) string {
 	if messagePreservesLastCommittedAssistantFinalAnswer(msg) {
-		return
+		return current
 	}
 	if isNoopFinalAnswer(msg) {
-		return
+		return current
 	}
 	if msg.Role == llm.RoleAssistant && msg.Phase == llm.MessagePhaseFinal && strings.TrimSpace(msg.Content) != "" {
-		s.lastCommittedAssistantFinalAnswer = msg.Content
-		return
+		return msg.Content
 	}
-	s.lastCommittedAssistantFinalAnswer = ""
+	return ""
 }
 
 func (s *chatStore) recentTailSnapshot(maxEntries int) TranscriptWindowSnapshot {

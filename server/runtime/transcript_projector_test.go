@@ -9,26 +9,30 @@ import (
 	"core/shared/toolspec"
 )
 
-func TestTranscriptProjectorReconstructsPersistedTranscript(t *testing.T) {
-	projector := NewTranscriptProjector()
+func applyPersistedScanEvents(t *testing.T, scan *PersistedTranscriptScan, events []session.Event) {
+	t.Helper()
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", evt.Kind, err)
+		}
+	}
+}
+
+func TestPersistedTranscriptScanReconstructsPersistedTranscript(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
 	toolOutput, err := json.Marshal(map[string]any{"ok": true})
 	if err != nil {
 		t.Fatalf("marshal tool output: %v", err)
 	}
-	events := []session.Event{
+	applyPersistedScanEvents(t, scan, []session.Event{
 		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "hello"}),
 		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}),
 		mustPersistedEvent(t, "tool_completed", map[string]any{"call_id": "call-1", "name": string(toolspec.ToolExecCommand), "output": json.RawMessage(toolOutput)}),
 		mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "system", Text: "persisted note"}),
 		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal}),
-	}
-	for _, evt := range events {
-		if err := projector.ApplyPersistedEvent(evt); err != nil {
-			t.Fatalf("ApplyPersistedEvent(%q): %v", evt.Kind, err)
-		}
-	}
+	})
 
-	snapshot := projector.ChatSnapshot()
+	snapshot := scan.CollectedPageSnapshot()
 	if len(snapshot.Entries) != 5 {
 		t.Fatalf("entry count = %d, want 5", len(snapshot.Entries))
 	}
@@ -41,24 +45,19 @@ func TestTranscriptProjectorReconstructsPersistedTranscript(t *testing.T) {
 	if snapshot.Entries[3].Role != "system" || snapshot.Entries[3].Text != "persisted note" {
 		t.Fatalf("unexpected local entry: %+v", snapshot.Entries[3])
 	}
-	if got := projector.LastCommittedAssistantFinalAnswer(); got != "final answer" {
+	if got := scan.LastCommittedAssistantFinalAnswer(); got != "final answer" {
 		t.Fatalf("LastCommittedAssistantFinalAnswer() = %q, want final answer", got)
 	}
 }
 
-func TestTranscriptProjectorSurfacesPersistedCompactionSummaries(t *testing.T) {
-	projector := NewTranscriptProjector()
-	events := []session.Event{
+func TestPersistedTranscriptScanSurfacesPersistedCompactionSummaries(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	applyPersistedScanEvents(t, scan, []session.Event{
 		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "user summary"}),
 		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "developer handoff"}),
-	}
-	for _, evt := range events {
-		if err := projector.ApplyPersistedEvent(evt); err != nil {
-			t.Fatalf("ApplyPersistedEvent(%q): %v", evt.Kind, err)
-		}
-	}
+	})
 
-	snapshot := projector.ChatSnapshot()
+	snapshot := scan.CollectedPageSnapshot()
 	if len(snapshot.Entries) != 2 {
 		t.Fatalf("entry count = %d, want 2", len(snapshot.Entries))
 	}
@@ -70,13 +69,13 @@ func TestTranscriptProjectorSurfacesPersistedCompactionSummaries(t *testing.T) {
 	}
 }
 
-func TestTranscriptProjectorPreservesErrorLocalEntries(t *testing.T) {
-	projector := NewTranscriptProjector()
-	if err := projector.ApplyPersistedEvent(mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "error", Text: "Exact token counting failed"})); err != nil {
-		t.Fatalf("ApplyPersistedEvent(local_entry error): %v", err)
-	}
+func TestPersistedTranscriptScanPreservesErrorLocalEntries(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	applyPersistedScanEvents(t, scan, []session.Event{
+		mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "error", Text: "Exact token counting failed"}),
+	})
 
-	snapshot := projector.ChatSnapshot()
+	snapshot := scan.CollectedPageSnapshot()
 	if len(snapshot.Entries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(snapshot.Entries))
 	}
@@ -85,13 +84,13 @@ func TestTranscriptProjectorPreservesErrorLocalEntries(t *testing.T) {
 	}
 }
 
-func TestTranscriptProjectorPreservesPersistedLocalEntryNoticeID(t *testing.T) {
-	projector := NewTranscriptProjector()
-	if err := projector.ApplyPersistedEvent(mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "system", Text: "Mirrored notice", NoticeID: "notice-1"})); err != nil {
-		t.Fatalf("ApplyPersistedEvent(local_entry notice): %v", err)
-	}
+func TestPersistedTranscriptScanPreservesPersistedLocalEntryNoticeID(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	applyPersistedScanEvents(t, scan, []session.Event{
+		mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "system", Text: "Mirrored notice", NoticeID: "notice-1"}),
+	})
 
-	snapshot := projector.ChatSnapshot()
+	snapshot := scan.CollectedPageSnapshot()
 	if len(snapshot.Entries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(snapshot.Entries))
 	}

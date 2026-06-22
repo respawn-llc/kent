@@ -19,7 +19,7 @@
 - During continuous attachment, ongoing normal-buffer history is append-only.
 - Once a transcript line is emitted into scrollback, it is immutable: no retroactive restyling, no in-place rewrites, no clear-and-replay, and no full-buffer re-emission to paper over same-session divergence.
 - Compaction is same-session committed transcript progression, not a same-session transcript rewrite.
-- User-visible transcript history is never truncated by compaction or handoff.
+- User-visible transcript history is never truncated by compaction or handoff. It is durable on disk and served by streaming the persisted event log through a windowed projector (page or recent-tail), never by holding the full transcript in memory; the live `chatStore` keeps only the bounded model working set.
 - Latest-compaction boundary/floor is tail/model metadata only; detail paging and rendering ignore it.
 - Legacy persisted `history_replaced` entries with `engine="reviewer_rollback"` are tolerated and ignored as compatibility no-ops.
 - Rollback/fork is navigation or attachment to a different session target, not same-session transcript mutation.

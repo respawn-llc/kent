@@ -22,6 +22,8 @@ type worktreeReminderMaterializationOptions struct {
 	ignoreChatEntryDedupe bool
 }
 
+const worktreeReminderDedupeTailLimit = 512
+
 func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, opts worktreeReminderMaterializationOptions) error {
 	state := cloneRuntimeWorktreeReminderState(e.store.Meta().WorktreeReminder)
 	compactionCount := e.compactionRuntimeState().Count()
@@ -32,7 +34,7 @@ func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, op
 	if !ok {
 		return nil
 	}
-	if latestMaterializedWorktreeReminderMatches(e.transcriptRuntimeState().SnapshotItems(), message) || (!opts.ignoreChatEntryDedupe && latestMaterializedWorktreeReminderEntryMatches(e.ChatSnapshot().Entries, message)) {
+	if latestMaterializedWorktreeReminderMatches(e.transcriptRuntimeState().SnapshotItems(), message) || (!opts.ignoreChatEntryDedupe && latestMaterializedWorktreeReminderEntryMatches(e.recentTranscriptEntries(worktreeReminderDedupeTailLimit), message)) {
 		state.HasIssuedInGeneration = true
 		state.IssuedCompactionCount = compactionCount
 		return e.store.SetWorktreeReminderState(state)

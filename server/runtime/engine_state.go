@@ -14,22 +14,80 @@ import (
 	"core/shared/transcript"
 )
 
+func (e *Engine) scanPersistedTranscript(req PersistedTranscriptScanRequest) *PersistedTranscriptScan {
+	scan := NewPersistedTranscriptScan(req)
+	if e == nil || e.store == nil {
+		return scan
+	}
+	if err := e.store.WalkEvents(func(evt session.Event) error {
+		return scan.ApplyPersistedEvent(evt)
+	}); err != nil {
+		return NewPersistedTranscriptScan(req)
+	}
+	return scan
+}
+
+func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
+	if e == nil || snapshot == nil {
+		return
+	}
+	streaming, streamingErr := e.transcriptRuntimeState().StreamingSnapshot()
+	snapshot.Streaming = streaming
+	snapshot.StreamingError = streamingErr
+}
+
 func (e *Engine) ChatSnapshot() ChatSnapshot {
-	return e.transcriptRuntimeState().Snapshot()
+	if e == nil {
+		return ChatSnapshot{}
+	}
+	snapshot := e.scanPersistedTranscript(PersistedTranscriptScanRequest{CacheWarningMode: e.cfg.CacheWarningMode}).CollectedPageSnapshot()
+	e.overlayLiveStreaming(&snapshot)
+	return snapshot
+}
+
+func (e *Engine) recentTranscriptEntries(limit int) []ChatEntry {
+	if e == nil || limit <= 0 {
+		return nil
+	}
+	offset := e.CommittedTranscriptEntryCount() - limit
+	if offset < 0 {
+		offset = 0
+	}
+	return e.TranscriptPageSnapshot(offset, limit).Snapshot.Entries
 }
 
 func (e *Engine) RecentTailTranscriptWindow(maxEntries int) TranscriptWindowSnapshot {
 	if e == nil {
 		return TranscriptWindowSnapshot{}
 	}
-	return e.transcriptRuntimeState().RecentTailSnapshot(maxEntries)
+	window := e.scanPersistedTranscript(PersistedTranscriptScanRequest{
+		TrackRecentTail:  true,
+		TailLimit:        maxEntries,
+		CacheWarningMode: e.cfg.CacheWarningMode,
+	}).RecentTailSnapshot()
+	e.overlayLiveStreaming(&window.Snapshot)
+	return window
 }
 
 func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
 	if e == nil {
 		return transcriptPageSnapshot{}
 	}
-	return e.transcriptRuntimeState().TranscriptPageSnapshot(offset, limit)
+	scan := e.scanPersistedTranscript(PersistedTranscriptScanRequest{
+		Offset:           offset,
+		Limit:            limit,
+		CacheWarningMode: e.cfg.CacheWarningMode,
+	})
+	page := transcriptPageSnapshot{
+		Snapshot:     scan.CollectedPageSnapshot(),
+		TotalEntries: scan.TotalEntries(),
+		Offset:       offset,
+	}
+	if page.Offset > page.TotalEntries {
+		page.Offset = page.TotalEntries
+	}
+	e.overlayLiveStreaming(&page.Snapshot)
+	return page
 }
 
 func (e *Engine) TranscriptRevision() int64 {
