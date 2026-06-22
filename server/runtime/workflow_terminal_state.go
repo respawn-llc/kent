@@ -69,17 +69,10 @@ func (e *Engine) setWorkflowTerminalState(source WorkflowCompletionSource) {
 	}
 	transitioned := e.recordWorkflowTerminalState(source)
 	if transitioned {
-		// Soft cascade: a valid workflow completion auto-completes an ACTIVE self-set goal in the
-		// same step (actor=system). This runs here — after recordWorkflowTerminalState releases
-		// e.mu — so it covers every terminal source (structured/unstructured/tool/observed) exactly
-		// once on the false->true transition, without re-taking e.mu while SetGoalStatus holds
-		// controlMutationMu/steer (the R1 lock-order deadlock).
 		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 	}
 }
 
-// recordWorkflowTerminalState commits the terminal state under e.mu and reports whether this call
-// is the one that transitioned the run to completed (false otherwise, incl. repeat calls).
 func (e *Engine) recordWorkflowTerminalState(source WorkflowCompletionSource) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()

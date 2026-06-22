@@ -471,7 +471,6 @@ func TestRuntimeControlProtectedShellCommandStillRequiresLease(t *testing.T) {
 	}
 }
 
-// Issue #364: a self-set goal is allowed inside an active workflow run.
 func TestServiceWorkflowRuntimeAllowsGoalControl(t *testing.T) {
 	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{
 		WorkflowRun: &workflowruntime.Config{
@@ -496,8 +495,6 @@ func TestServiceWorkflowRuntimeAllowsGoalControl(t *testing.T) {
 	}
 }
 
-// R4: goal mutation inside a workflow run must not acquire the primary-run lease (the
-// workflow run already owns it), so it succeeds even when the gate reports the run active.
 func TestServiceWorkflowSessionGoalMutationSkipsPrimaryRunLease(t *testing.T) {
 	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{
 		WorkflowRun: &workflowruntime.Config{
@@ -526,7 +523,6 @@ func TestServiceWorkflowSessionGoalMutationSkipsPrimaryRunLease(t *testing.T) {
 	}
 }
 
-// Issue #364: pause/resume/complete goal controls work inside a workflow run.
 func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{
 		WorkflowRun: &workflowruntime.Config{
@@ -558,9 +554,6 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 	}
 }
 
-// Issue #364: ShowGoal is no longer rejected for a durable workflow-task session (the
-// previous errWorkflowTaskSessionGoalControl rejection is removed). A durable marker without
-// an active workflow run is an ordinary idle session for goal control.
 func TestServiceDurableWorkflowSessionAllowsGoalControl(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if err := store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {

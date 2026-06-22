@@ -10,10 +10,6 @@ import (
 	"core/shared/config"
 )
 
-// The goal and workflow drivers reach completion through one seam (CompletionAdapter). The goal
-// adapter decides completion from out-of-band state and ignores the model's final answer; the
-// workflow adapter decides it from a decoded final answer. Both report through objectiveOutcome.
-
 func TestGoalContinuationAdapterDecidesFromState(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
@@ -28,7 +24,6 @@ func TestGoalContinuationAdapterDecidesFromState(t *testing.T) {
 	if _, err := eng.SetGoal("keep going", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	// The final answer is ignored: an active goal keeps driving regardless of model output.
 	outcome, err = adapter.Evaluate(ctx, llm.Message{Phase: llm.MessagePhaseFinal, Content: "anything"})
 	if err != nil || !outcome.Applicable || outcome.Done || outcome.Complete != nil {
 		t.Fatalf("active goal: outcome=%+v err=%v, want Applicable, not Done, no side effect", outcome, err)
@@ -66,8 +61,6 @@ func TestWorkflowCompletionAdapterDecidesFromOutput(t *testing.T) {
 		t.Fatalf("non-final: outcome=%+v err=%v, want not Applicable", nonFinal, err)
 	}
 
-	// Tool/shell completion modes never complete from a normal final answer; the adapter declines so
-	// the driver applies its mode-specific protocol nudge.
 	toolMode, err := newAdapter(config.WorkflowCompletionModeTool).Evaluate(ctx, llm.Message{Phase: llm.MessagePhaseFinal, Content: `{"commentary":"complete","summary":"done"}`})
 	if err != nil || toolMode.Applicable {
 		t.Fatalf("tool mode final: outcome=%+v err=%v, want not Applicable", toolMode, err)

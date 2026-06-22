@@ -297,8 +297,6 @@ func TestGoalCommandWithoutGoalShowsLocalHint(t *testing.T) {
 	}
 }
 
-// Issue #364: a workflow-task session must steer as usual, so /goal is no longer blocked
-// client-side — the command reaches the runtime goal-set path like any other session.
 func TestWorkflowSessionGoalCommandReachesRuntime(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{WorkflowSession: &clientui.WorkflowSessionStatus{RunID: "run-1"}}}
 	m := newSizedProjectedClosedUIModel(client, 100, 20)

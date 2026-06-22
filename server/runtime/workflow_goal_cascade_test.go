@@ -12,9 +12,6 @@ import (
 	"core/shared/toolspec"
 )
 
-// Tool-mode (complete_node) is also a valid terminal completion and must cascade-complete an
-// active goal — the cascade lives in setWorkflowTerminalState so every completion source is
-// covered, not just structured/unstructured output.
 func TestWorkflowToolModeTerminalCompletionCascadeCompletesActiveGoal(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
@@ -42,10 +39,6 @@ func TestWorkflowToolModeTerminalCompletionCascadeCompletesActiveGoal(t *testing
 	}
 }
 
-// A valid workflow completion submitted while a self-set goal is still active must
-// complete the workflow AND auto-complete the active goal in the same step (soft cascade,
-// actor=system). The goal is the foreground objective, but a real task completion overrides
-// ordering rather than being blocked by the goal.
 func TestWorkflowTerminalCompletionCascadeCompletesActiveGoal(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
@@ -70,8 +63,6 @@ func TestWorkflowTerminalCompletionCascadeCompletesActiveGoal(t *testing.T) {
 	}
 }
 
-// Only ACTIVE goals cascade-complete. A paused goal must survive a workflow completion
-// untouched (paused goals are out of the foreground continuation).
 func TestWorkflowTerminalCompletionLeavesPausedGoalIntact(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
@@ -94,10 +85,6 @@ func TestWorkflowTerminalCompletionLeavesPausedGoalIntact(t *testing.T) {
 	}
 }
 
-// When a workflow completion is invalid and a goal is active, the continuation nudge must
-// carry the goal reminder so the model keeps working toward the objective. We assert that
-// the goal's objective text (data the user set) flows into the developer feedback, not the
-// reminder's wording.
 func TestWorkflowInvalidCompletionNudgeIncludesActiveGoalReminder(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
@@ -117,10 +104,6 @@ func TestWorkflowInvalidCompletionNudgeIncludesActiveGoalReminder(t *testing.T) 
 	assertDeveloperErrorFeedbackAfterAssistantFinalContains(t, eng, `{"summary":""}`, []string{"ship the steering rework end to end"}, nil)
 }
 
-// Regression guard for the R1 deadlock: the cascade-complete must run AFTER
-// setWorkflowTerminalState releases e.mu, so a concurrent user-side goal mutation racing the
-// terminal completion never deadlocks. The test fails (times out) if the cascade is ever
-// moved back under e.mu.
 func TestWorkflowTerminalCascadeRacesUserGoalMutationWithoutDeadlock(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
@@ -154,7 +137,6 @@ func TestWorkflowTerminalCascadeRacesUserGoalMutationWithoutDeadlock(t *testing.
 
 	mutateDone := make(chan struct{})
 	go func() {
-		// Race a user-side goal mutation against the terminal cascade.
 		_, _ = eng.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser)
 		close(mutateDone)
 	}()
@@ -172,5 +154,64 @@ func TestWorkflowTerminalCascadeRacesUserGoalMutationWithoutDeadlock(t *testing.
 	case <-mutateDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("deadlock: user goal mutation did not finish")
+	}
+}
+
+func TestWorkflowToolModeCascadeEmitsGoalCompletionAfterToolResult(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("complete", completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	if _, err := eng.SetGoal("finish via tool completion", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("SubmitWorkflowTurn: %v", err)
+	}
+
+	entries := eng.ChatSnapshot().Entries
+	toolResultIdx, goalCompleteIdx := -1, -1
+	for i, entry := range entries {
+		if entry.ToolCallID == "call_complete" {
+			toolResultIdx = i
+		}
+		if entry.MessageType == llm.MessageTypeGoal {
+			goalCompleteIdx = i
+		}
+	}
+	if toolResultIdx < 0 || goalCompleteIdx < 0 {
+		t.Fatalf("missing entries: toolResult=%d goalComplete=%d entries=%+v", toolResultIdx, goalCompleteIdx, entries)
+	}
+	if goalCompleteIdx < toolResultIdx {
+		t.Fatalf("goal-completion message (idx %d) precedes complete_node tool result (idx %d); a non-tool item interleaves the tool call/result pair", goalCompleteIdx, toolResultIdx)
+	}
+}
+
+func TestWorkflowToolModeCascadeSkipsGoalPausedDuringRace(t *testing.T) {
+	store := mustCreateTestSession(t)
+	active, err := store.SetGoal("stay paused through completion", session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := store.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("complete", completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
+	}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("SubmitWorkflowTurn: %v", err)
+	}
+	goal := eng.Goal()
+	if goal == nil || goal.ID != active.ID || goal.Status != session.GoalStatusPaused {
+		t.Fatalf("paused goal after workflow completion = %+v, want left paused", goal)
 	}
 }

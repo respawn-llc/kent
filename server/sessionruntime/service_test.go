@@ -784,9 +784,6 @@ func TestActivateSessionRuntimeCollaborativeWorkflowRuntimeOmitsGoalManage(t *te
 	}
 }
 
-// Issue #364: a limited-control attach to a durable workflow-task session may drive goal
-// control like any other session — goal.manage is in the allowed operations and the
-// collaborative guard runs the goal.manage callback.
 func TestActivateSessionRuntimeCollaborativeDurableWorkflowSessionAllowsGoalManage(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	if err := fixture.store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {

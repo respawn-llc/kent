@@ -378,6 +378,9 @@ func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.
 			return false, false, err
 		}
 	}
+	if terminal {
+		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
+	}
 	durableTerminal, err := s.workflowDurableCompletionTerminal(ctx, stepID)
 	if err != nil {
 		return false, false, err

@@ -447,17 +447,10 @@ func (s *Service) WithCollaborativePromptResponder(ctx context.Context, sessionI
 	})
 }
 
-// runtimeUnavailableErr reports that a session has no active runtime reachable for a
-// limited-control attach. It wraps the typed serverapi.ErrRuntimeUnavailable sentinel so
-// callers (and the gateway/client protocol layer) can match it, and surfaces a
-// vocabulary-aligned message instead of internal "collaborative runtime" wording.
 func runtimeUnavailableErr(sessionID string) error {
 	return errors.Join(serverapi.ErrRuntimeUnavailable, fmt.Errorf("session %q has no active runtime available", strings.TrimSpace(sessionID)))
 }
 
-// controlUnavailableErr reports that a control is not permitted for a session from a
-// limited-control attach (operation absent from the attach's allowed set). It also wraps
-// ErrRuntimeUnavailable so it maps through the protocol layer with a clear message.
 func controlUnavailableErr(op serverapi.SessionRuntimeOperation, sessionID string) error {
 	return errors.Join(serverapi.ErrRuntimeUnavailable, fmt.Errorf("control %q is not available for session %q from a limited-control attach", op, strings.TrimSpace(sessionID)))
 }

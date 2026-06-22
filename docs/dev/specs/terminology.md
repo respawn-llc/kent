@@ -249,7 +249,3 @@ A persistent self/user-declared objective with a continuation loop (nudges, susp
 ### Goal Continuation Loop
 
 The driver that re-runs the step loop to keep working a goal across runs, injecting goal reminders. It does not run while a workflow run owns the session — the workflow turn loop is the single continuation driver there, and the goal stays a passive objective folded into the workflow's continuation nudge.
-
-### Soft Cascade
-
-The coupling between a workflow completion and an active self-set goal: a valid terminal workflow completion auto-completes an active goal in the same step (actor=system), across every completion source. A valid completion is never blocked by a still-active goal; paused goals are left intact.

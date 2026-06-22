@@ -657,9 +657,6 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 	memoReq := goalSetMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Objective: trimmedObjective, Actor: strings.TrimSpace(req.Actor)}
 	return s.goals.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalSetMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		var response serverapi.RuntimeGoalShowResponse
-		// Evaluate the deterministic agent-overwrite denial against the resolved engine before
-		// acquiring runtime access, so an agent receives the precise overwrite error instead of a
-		// misleading runtime-availability error when the limited-control guard is unavailable.
 		if err := s.rejectAgentGoalSet(ctx, req); err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
@@ -698,11 +695,6 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 	})
 }
 
-// rejectAgentGoalSet surfaces the deterministic agent-overwrite denial before runtime
-// access is acquired. It resolves the engine read-only (mirroring ShowGoal) so the
-// agent-overwrite denial is reported with its precise error even when the limited-control
-// runtime guard is unavailable. The authoritative check inside the mutation closure remains
-// as defense in depth.
 func (s *Service) rejectAgentGoalSet(ctx context.Context, req serverapi.RuntimeGoalSetRequest) error {
 	engine, err := s.resolve(ctx, req.SessionID)
 	if err != nil {
@@ -817,12 +809,6 @@ func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, 
 		if err != nil {
 			return err
 		}
-		// An active workflow run owns the primary-run lease for its whole duration, so acquiring it
-		// here would block the model's own goal mutation mid-task with ErrActivePrimaryRun. Goal
-		// mutation is serialized by the engine's controlMutationMu and needs no step exclusivity,
-		// so an engine that is currently running a workflow skips the lease and mutates through the
-		// limited-control guard. Idle sessions (incl. durable workflow markers with no active run)
-		// keep acquiring the free lease, unchanged.
 		if !engine.WorkflowRunConfigured() {
 			lease, err := s.acquirePrimaryRun(sessionID)
 			if err != nil {
