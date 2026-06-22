@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"context"
-	"core/server/llm"
-	"core/server/tools"
-	"core/shared/toolspec"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"core/server/llm"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 func TestQueuedUserMessageFlushesWhenAssistantReturnsWithoutTools(t *testing.T) {
@@ -319,7 +321,7 @@ func TestReasoningSummaryVisibleAndEncryptedReasoningRoundTrips(t *testing.T) {
 		t.Fatalf("expected reasoning summary in chat snapshot entries, got %+v", snap.Entries)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -500,7 +502,7 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 		t.Fatalf("append second diagnostic: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -538,7 +540,7 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 		t.Fatalf("append second diagnostic after reopen: %v", err)
 	}
 
-	events, err := reopenedStore.ReadEvents()
+	events, err := sessiontest.CollectEvents(reopenedStore)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

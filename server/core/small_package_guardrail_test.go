@@ -114,6 +114,7 @@ var allowedSmallPackages = map[string]string{
 	"server/runtimeview":              "cohesive runtime projection owner with focused service tests",
 	"server/serverstatus":             "server status/update-status service owner after status consolidation",
 	"server/sessionlaunch":            "session launch service seam kept separate from session runtime to avoid runprompt/runtime cycles",
+	"server/session/sessiontest":      "test-only helper package exposing full event-history collectors kept out of the production session surface so production code cannot materialize whole histories",
 	"server/sessionruntime":           "session runtime service seam kept separate from session launch to avoid runprompt/runtime cycles",
 	"server/workflowrunner":           "workflow run-starting owner after absorbing scheduler and workflow runtime test helpers",
 	"server/workflowruntime":          "runtime/workflow contract boundary imported by server runtime; merging into runner would invert dependencies",

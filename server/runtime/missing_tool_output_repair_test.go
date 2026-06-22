@@ -8,6 +8,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -24,7 +25,7 @@ func appendRepairEvent(t *testing.T, store *session.Store, kind string, payload 
 
 func readRepairEvents(t *testing.T, store *session.Store) []session.Event {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

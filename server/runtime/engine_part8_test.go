@@ -4,19 +4,21 @@ import (
 	"context"
 	"errors"
 
-	"core/server/llm"
-	"core/server/session"
-	"core/server/tools"
-	shelltool "core/server/tools/shell"
-	"core/shared/config"
-	"core/shared/toolspec"
-	"core/shared/transcript"
 	"encoding/json"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"core/server/llm"
+	"core/server/session"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	shelltool "core/server/tools/shell"
+	"core/shared/config"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *testing.T) {
@@ -309,7 +311,7 @@ func TestNewNormalizesPersistedInFlightStepOnReopen(t *testing.T) {
 	if last.Role != llm.RoleDeveloper || last.MessageType != llm.MessageTypeInterruption || last.Content != interruptMessage {
 		t.Fatalf("expected interruption developer message, got %+v", last)
 	}
-	events, err := reopenedStore.ReadEvents()
+	events, err := sessiontest.CollectEvents(reopenedStore)
 	if err != nil {
 		t.Fatalf("read reopened events: %v", err)
 	}
@@ -557,7 +559,7 @@ func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -820,7 +822,7 @@ func TestPersistedAssistantToolCallsContainNoUIDisplayMarkers(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

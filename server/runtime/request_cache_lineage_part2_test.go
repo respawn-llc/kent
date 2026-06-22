@@ -2,13 +2,15 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"testing"
+
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/config"
 	"core/shared/transcript"
-	"encoding/json"
-	"testing"
 )
 
 func TestGenerateWithRetryClient_RestoreSkipsDigestVersionMismatch(t *testing.T) {
@@ -136,7 +138,7 @@ func stringValue(value any) string {
 
 func persistedCacheWarnings(t *testing.T, store *session.Store) []transcript.CacheWarning {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -156,7 +158,7 @@ func persistedCacheWarnings(t *testing.T, store *session.Store) []transcript.Cac
 
 func persistedCacheWarningEventCount(t *testing.T, store *session.Store) int {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

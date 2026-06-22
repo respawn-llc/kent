@@ -18,6 +18,7 @@ import (
 	"core/prompts"
 	"core/server/metadata"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -545,7 +546,7 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 	if goal := record.Meta.Goal; goal != nil {
 		t.Fatalf("persisted goal after rejected busy set = %+v, want nil", goal)
 	}
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}

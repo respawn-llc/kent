@@ -71,14 +71,6 @@ func (s *Store) LatestRun() (*RunRecord, error) {
 	return &latest, nil
 }
 
-func runsFromEvents(events []Event) []RunRecord {
-	projector := newRunProjector()
-	for _, evt := range events {
-		projector.ApplyEvent(evt)
-	}
-	return projector.Runs()
-}
-
 type runProjector struct {
 	orderedIDs []string
 	byID       map[string]RunRecord

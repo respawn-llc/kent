@@ -21,6 +21,7 @@ import (
 	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
@@ -260,7 +261,7 @@ func TestRunPromptClientRunsLoopbackThroughEmbeddedServer(t *testing.T) {
 	if store.Meta().Continuation == nil || store.Meta().Continuation.OpenAIBaseURL != responseServer.URL {
 		t.Fatalf("unexpected continuation context: %+v", store.Meta().Continuation)
 	}
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

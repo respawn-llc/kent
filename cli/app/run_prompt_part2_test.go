@@ -2,11 +2,6 @@ package app
 
 import (
 	"context"
-	"core/server/llm"
-	"core/server/metadata"
-	"core/server/session"
-	"core/shared/config"
-	"core/shared/serverapi"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +10,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"core/server/llm"
+	"core/server/metadata"
+	"core/server/session"
+	"core/server/session/sessiontest"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
@@ -75,7 +77,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		t.Fatalf("unexpected continuation context: %+v", meta.Continuation)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -418,7 +420,7 @@ func openAuthoritativeWorkspaceSessionStore(t *testing.T, workspaceRoot, openAIB
 }
 
 func readStoredMessages(store *session.Store) ([]llm.Message, error) {
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		return nil, err
 	}

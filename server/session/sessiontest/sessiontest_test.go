@@ -1,4 +1,4 @@
-package session_test
+package sessiontest_test
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 )
 
 func TestSnapshotFromDirReturnsDurableSessionState(t *testing.T) {
@@ -32,7 +33,7 @@ func TestSnapshotFromDirReturnsDurableSessionState(t *testing.T) {
 		t.Fatalf("append run start: %v", err)
 	}
 
-	snapshot, err := session.SnapshotFromDir(store.Dir())
+	snapshot, err := sessiontest.SnapshotFromDir(store.Dir())
 	if err != nil {
 		t.Fatalf("snapshot from dir: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestSnapshotFromDirRejectsSymlinkedEventsFile(t *testing.T) {
 		t.Fatalf("symlink events file: %v", err)
 	}
 
-	if _, err := session.SnapshotFromDir(store.Dir()); err == nil || !errors.Is(err, session.ErrSessionFileSymlink) {
+	if _, err := sessiontest.SnapshotFromDir(store.Dir()); err == nil || !errors.Is(err, session.ErrSessionFileSymlink) {
 		t.Fatalf("expected snapshot to reject symlinked events file, got %v", err)
 	}
 }

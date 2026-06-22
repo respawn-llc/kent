@@ -9,6 +9,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/toolspec"
 )
@@ -296,7 +297,7 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t 
 		t.Fatalf("expected reopened engine to reuse persisted failure marker without retrying backend, got %d count attempts", client.countCalls)
 	}
 
-	events, err := reopenedStore.ReadEvents()
+	events, err := sessiontest.CollectEvents(reopenedStore)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -360,7 +361,7 @@ func TestCurrentInputTokensPreciselyDoesNotPersistFailureForRepairable400(t *tes
 		t.Fatalf("count calls=%d, want 2 repeated backend attempts (no permanent failure marker)", client.countCalls)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -395,7 +396,7 @@ func TestCurrentInputTokensPreciselySkipsUnsupportedCountClient(t *testing.T) {
 		t.Fatalf("count calls=%d, want 0 for unsupported exact counting", client.countCalls)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -429,7 +430,7 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnSupportProbeFailure
 		t.Fatalf("count calls=%d, want 0 when support probe fails closed", client.countCalls)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

@@ -27,7 +27,7 @@ func TestNewLazyDoesNotPersistUntilFirstWrite(t *testing.T) {
 
 func TestNewLazyReadEventsBeforePersistReturnsEmpty(t *testing.T) {
 	store := newSessionTestLazyStore(t)
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestAppendEventMonotonicSequence(t *testing.T) {
 		t.Fatalf("unexpected sequence values: %d, %d", e1.Seq, e2.Seq)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
 		t.Fatalf("append large event: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}
-	forkEvents, err := forked.ReadEvents()
+	forkEvents, err := collectEvents(forked)
 	if err != nil {
 		t.Fatalf("read fork events: %v", err)
 	}
@@ -947,8 +947,12 @@ func TestHeadlessActiveFromReplayEvents(t *testing.T) {
 		{"non-developer ignored", []ReplayEvent{{Kind: "message", Payload: []byte(`{"role":"user","message_type":"headless_mode","content":"x"}`)}}, false},
 	}
 	for _, tc := range cases {
-		if got := headlessActiveFromReplayEvents(tc.events); got != tc.want {
-			t.Fatalf("%s: headlessActiveFromReplayEvents = %v, want %v", tc.name, got, tc.want)
+		derived := replayDerivedState{}
+		for _, evt := range tc.events {
+			derived.apply(evt)
+		}
+		if derived.headlessActive != tc.want {
+			t.Fatalf("%s: derived.headlessActive = %v, want %v", tc.name, derived.headlessActive, tc.want)
 		}
 	}
 }

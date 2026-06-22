@@ -229,7 +229,7 @@ func TestOpenInitializesMissingEventsFileFromSessionMetadata(t *testing.T) {
 	if opened.Meta().LastSequence != 0 {
 		t.Fatalf("expected reopened last sequence to reconcile to zero, got %d", opened.Meta().LastSequence)
 	}
-	events, err := opened.ReadEvents()
+	events, err := collectEvents(opened)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
 		t.Fatalf("close events file: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
 		t.Fatalf("expected seq=2, got %d", e2.Seq)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

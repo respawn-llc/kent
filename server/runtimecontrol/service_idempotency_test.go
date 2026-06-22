@@ -7,6 +7,7 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -252,7 +253,7 @@ func newRuntimeControlCompactionFixture(t *testing.T) (*session.Store, *runtime.
 
 func countEventsByKind(t *testing.T, store *session.Store, kind string) int {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}

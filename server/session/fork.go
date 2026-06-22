@@ -11,6 +11,15 @@ import (
 
 var errForkReplayBoundary = errors.New("fork replay boundary reached")
 
+// forkReplayFlushEventCount and forkReplayFlushByteBudget bound how much of the
+// parent conversation is buffered in memory before a chunk is flushed to the
+// child store. Fork/clone stream the parent event log instead of materializing
+// it so arbitrarily large histories never load fully into memory.
+var (
+	forkReplayFlushEventCount = 512
+	forkReplayFlushByteBudget = 1 << 20
+)
+
 func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*Store, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("parent store is required")
@@ -18,29 +27,7 @@ func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*S
 	if userMessageIndex <= 0 {
 		return nil, fmt.Errorf("user message index must be >= 1")
 	}
-
-	parentMeta := parent.Meta()
-	replay := make([]ReplayEvent, 0)
-	visibleUserCount := 0
-	err := parent.WalkEvents(func(evt Event) error {
-		if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
-			visibleUserCount++
-			if visibleUserCount == userMessageIndex {
-				return errForkReplayBoundary
-			}
-		}
-		replay = append(replay, ReplayEvent{StepID: evt.StepID, Kind: evt.Kind, Payload: append([]byte(nil), evt.Payload...)})
-		return nil
-	})
-	if err != nil && !errors.Is(err, errForkReplayBoundary) {
-		return nil, fmt.Errorf("read parent events: %w", err)
-	}
-
-	if visibleUserCount < userMessageIndex {
-		return nil, fmt.Errorf("user message index %d is out of range", userMessageIndex)
-	}
-
-	return newChildFromReplay(parent, parentMeta, replay, forkName)
+	return streamChildFromParent(parent, parent.Meta(), forkName, userMessageIndex)
 }
 
 // CloneSession creates a child session that replays the parent's entire
@@ -51,18 +38,13 @@ func CloneSession(parent *Store, forkName string) (*Store, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("parent store is required")
 	}
-	parentMeta := parent.Meta()
-	replay := make([]ReplayEvent, 0)
-	if err := parent.WalkEvents(func(evt Event) error {
-		replay = append(replay, ReplayEvent{StepID: evt.StepID, Kind: evt.Kind, Payload: append([]byte(nil), evt.Payload...)})
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("read parent events: %w", err)
-	}
-	return newChildFromReplay(parent, parentMeta, replay, forkName)
+	return streamChildFromParent(parent, parent.Meta(), forkName, 0)
 }
 
-func newChildFromReplay(parent *Store, parentMeta Meta, replay []ReplayEvent, forkName string) (*Store, error) {
+// streamChildFromParent creates a child session and streams the parent event
+// log into it in bounded chunks. A boundary > 0 stops replay just before the
+// Nth visible user message (fork-at-message); boundary == 0 clones everything.
+func streamChildFromParent(parent *Store, parentMeta Meta, forkName string, boundary int) (*Store, error) {
 	containerDir := filepath.Dir(parent.Dir())
 	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, parent.options)
 	if err != nil {
@@ -71,12 +53,6 @@ func newChildFromReplay(parent *Store, parentMeta Meta, replay []ReplayEvent, fo
 
 	child.mu.Lock()
 	child.meta.Locked = cloneLockedContract(parentMeta.Locked)
-	// Derive headless state from the replayed events rather than copying the
-	// parent's current flag: a fork at an earlier user message only replays
-	// events before the boundary, where the headless state may differ from the
-	// parent's latest.
-	child.meta.HeadlessActive = headlessActiveFromReplayEvents(replay)
-	child.meta.CompactionSoonReminderIssued = reminderIssuedFromReplayEvents(replay)
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)
 	child.meta.UsageState = nil
 	child.meta.ParentSessionID = parentMeta.SessionID
@@ -84,16 +60,82 @@ func newChildFromReplay(parent *Store, parentMeta Meta, replay []ReplayEvent, fo
 	child.meta.Continuation = cloneContinuationContext(parentMeta.Continuation)
 	child.mu.Unlock()
 
-	if len(replay) == 0 {
-		if err := child.EnsureDurable(); err != nil {
-			return nil, fmt.Errorf("persist empty fork replay: %w", err)
-		}
-		return child, nil
+	derived, visibleUserCount, err := streamReplayIntoChild(parent, child, boundary)
+	if err != nil {
+		removeForkChild(child)
+		return nil, fmt.Errorf("stream fork replay events: %w", err)
 	}
-	if _, err := child.AppendReplayEvents(replay); err != nil {
-		return nil, fmt.Errorf("append fork replay events: %w", err)
+	if boundary > 0 && visibleUserCount < boundary {
+		removeForkChild(child)
+		return nil, fmt.Errorf("user message index %d is out of range", boundary)
+	}
+	if err := child.applyForkDerivedState(derived); err != nil {
+		removeForkChild(child)
+		return nil, fmt.Errorf("finalize fork replay: %w", err)
 	}
 	return child, nil
+}
+
+// streamReplayIntoChild walks the parent event log and appends each event to the
+// child in bounded chunks, folding replay-derived metadata incrementally. It
+// returns the derived state and the number of visible user messages observed so
+// callers can validate a requested fork boundary.
+func streamReplayIntoChild(parent *Store, child *Store, boundary int) (replayDerivedState, int, error) {
+	derived := replayDerivedState{}
+	visibleUserCount := 0
+	buffer := make([]ReplayEvent, 0, forkReplayFlushEventCount)
+	bufferedBytes := 0
+	flush := func() error {
+		if len(buffer) == 0 {
+			return nil
+		}
+		if _, err := child.AppendReplayEvents(buffer); err != nil {
+			return err
+		}
+		buffer = buffer[:0]
+		bufferedBytes = 0
+		return nil
+	}
+	walkErr := parent.WalkEvents(func(evt Event) error {
+		if boundary > 0 && hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
+			visibleUserCount++
+			if visibleUserCount == boundary {
+				return errForkReplayBoundary
+			}
+		}
+		replayEvent := ReplayEvent{StepID: evt.StepID, Kind: evt.Kind, Payload: append([]byte(nil), evt.Payload...)}
+		derived.apply(replayEvent)
+		buffer = append(buffer, replayEvent)
+		bufferedBytes += len(replayEvent.Payload)
+		if len(buffer) >= forkReplayFlushEventCount || bufferedBytes >= forkReplayFlushByteBudget {
+			return flush()
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, errForkReplayBoundary) {
+		return derived, visibleUserCount, walkErr
+	}
+	if err := flush(); err != nil {
+		return derived, visibleUserCount, err
+	}
+	return derived, visibleUserCount, nil
+}
+
+func (s *Store) applyForkDerivedState(derived replayDerivedState) error {
+	if err := s.SetHeadlessActive(derived.headlessActive); err != nil {
+		return err
+	}
+	if err := s.SetCompactionSoonReminderIssued(derived.reminderIssued); err != nil {
+		return err
+	}
+	return s.EnsureDurable()
+}
+
+func removeForkChild(child *Store) {
+	if child == nil {
+		return
+	}
+	_ = child.RemoveDurable()
 }
 
 func cloneLockedContract(in *LockedContract) *LockedContract {
@@ -193,52 +235,36 @@ func forkedWorktreeReminderState(in *WorktreeReminderState) *WorktreeReminderSta
 	return copyState
 }
 
-func headlessActiveFromReplayEvents(events []ReplayEvent) bool {
-	active := false
-	for _, evt := range events {
-		if evt.Kind != "message" {
-			continue
-		}
-		var msg reminderEventMessage
-		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
-			continue
-		}
-		if strings.TrimSpace(msg.Role) != "developer" {
-			continue
-		}
-		switch strings.TrimSpace(msg.MessageType) {
-		case "headless_mode":
-			active = true
-		case "headless_mode_exit":
-			active = false
-		}
-	}
-	return active
+// replayDerivedState folds the fork-derived child metadata over the replayed
+// event stream one event at a time so callers never need the full history in
+// memory. The derived flags reflect events up to the fork boundary, which can
+// differ from the parent's latest state when forking at an earlier message.
+type replayDerivedState struct {
+	headlessActive bool
+	reminderIssued bool
 }
 
-func reminderIssuedFromReplayEvents(events []ReplayEvent) bool {
-	issued := false
-	for _, evt := range events {
-		switch evt.Kind {
-		case "message":
-			var msg reminderEventMessage
-			if err := json.Unmarshal(evt.Payload, &msg); err != nil {
-				continue
-			}
-			if isCompactionSoonReminderMessage(msg) {
-				issued = true
-			}
-		case "history_replaced":
-			var payload struct {
-				Engine string `json:"engine"`
-			}
-			if err := json.Unmarshal(evt.Payload, &payload); err != nil {
-				continue
-			}
-			issued = false
+func (d *replayDerivedState) apply(evt ReplayEvent) {
+	switch evt.Kind {
+	case "message":
+		var msg reminderEventMessage
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			return
 		}
+		if strings.TrimSpace(msg.Role) == "developer" {
+			switch strings.TrimSpace(msg.MessageType) {
+			case "headless_mode":
+				d.headlessActive = true
+			case "headless_mode_exit":
+				d.headlessActive = false
+			}
+		}
+		if isCompactionSoonReminderMessage(msg) {
+			d.reminderIssued = true
+		}
+	case "history_replaced":
+		d.reminderIssued = false
 	}
-	return issued
 }
 
 func isCompactionSoonReminderMessage(msg reminderEventMessage) bool {

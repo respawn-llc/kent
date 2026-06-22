@@ -42,15 +42,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
 - [x] `TD-016` REMOVED
 
-- [ ] `TD-017` [P1] Session event-log utilities still materialize unbounded histories.
-
-  Repository guidance says no code should load full `events.jsonl` histories into memory. `server/session/store.go` exposes `ReadEvents() []Event`, which parses the entire event file and returns a slice. `server/session/snapshot.go` calls `ReadEvents` in `SnapshotFromStore`, reads all events in `SnapshotFromDir`, stores them in `Snapshot.Events`, and builds `Snapshot.Runs` from the same full slice. `server/session/fork.go` walks parent events and appends `ReplayEvent` values to an in-memory `replay` slice until the requested user-message boundary. `server/session/runs.go` implements `ReadRuns` by walking every event and accumulating all run records. `server/session/prompt_history.go` walks every event to reconstruct prompt history, and `server/sessionview/service.go` builds dormant transcript pages by scanning persisted events on demand.
-
-  Long-running sessions can grow to gigabytes, so full event materialization creates memory pressure, slow resume/fork/snapshot operations, and higher crash risk. The presence of `ReadEvents` makes it easy for new features to accidentally violate the unbounded-history rule even when pagination or streaming projection would be sufficient.
-
-  Remediation task: remove or quarantine full-history APIs behind test-only or explicit migration tooling. Replace production `ReadEvents` and snapshot callers with streaming projectors, bounded pagination, cursor-based readers, and domain-specific summaries. Fork replay should stream directly to the child store or spool through bounded chunks. Run listing and prompt history should use indexed metadata or incremental summaries instead of scanning entire event logs on demand. Dormant transcript reads should use bounded windows and persisted indexes where full replay is not required.
-
-  Regression prevention must include static checks or architecture tests that fail when production code calls full-history materializers such as `ReadEvents` or stores unbounded event slices. Add large-session tests for snapshot, fork, run listing, prompt history, and dormant transcript reads that assert bounded memory behavior and cursor/pagination correctness. New persistence features must prove they do not require loading all of `events.jsonl` into memory.
+- [x] `TD-017` [P1] Session event-log utilities still materialize unbounded histories.
 
 - [ ] `TD-018` [P0] Boundary validation and error taxonomy remain optional conventions instead of enforced contracts.
 
