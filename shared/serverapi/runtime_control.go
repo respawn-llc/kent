@@ -305,7 +305,7 @@ func (r RuntimeAppendCommittedEntryRequest) Validate() error {
 		return err
 	}
 	if visibility := transcript.NormalizeEntryVisibility(transcript.EntryVisibility(r.Visibility)); visibility != "" && visibility != transcript.EntryVisibilityAll && visibility != transcript.EntryVisibilityVerbose {
-		return errors.New("visibility must be all or verbose")
+		return errors.New("visibility must be empty/auto, all, or verbose")
 	}
 	return nil
 }

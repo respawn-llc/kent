@@ -332,7 +332,7 @@ func TestGoalLifecycleMessagesProjectAsSingleGoalFeedbackEntry(t *testing.T) {
 				t.Fatalf("role = %q, want %q", entry.Role, transcript.EntryRoleGoalFeedback)
 			}
 			if entry.CondensedText != tt.ongoing {
-				t.Fatalf("ongoing text = %q, want %q", entry.CondensedText, tt.ongoing)
+				t.Fatalf("condensed text = %q, want %q", entry.CondensedText, tt.ongoing)
 			}
 		})
 	}
@@ -485,7 +485,7 @@ func TestGoalDeveloperMessageVisibleInOngoingWithDetailPrompt(t *testing.T) {
 		t.Fatalf("goal detail text = %q, want full prompt", entry.Text)
 	}
 	if entry.CondensedText != msg.CompactContent {
-		t.Fatalf("goal ongoing text = %q, want compact", entry.CondensedText)
+		t.Fatalf("goal condensed text = %q, want compact", entry.CondensedText)
 	}
 }
 

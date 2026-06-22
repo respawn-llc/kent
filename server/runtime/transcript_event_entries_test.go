@@ -96,7 +96,7 @@ func TestTranscriptEntriesFromEventEmitsVisibleToolCompletionEntriesForOrdinaryA
 				t.Fatalf("entry tool call id = %q, want %q", entry.ToolCallID, tc.result.CallID)
 			}
 			if entry.CondensedText != strings.TrimSpace(tc.result.CondensedText) {
-				t.Fatalf("entry ongoing text = %q, want %q", entry.CondensedText, tc.result.CondensedText)
+				t.Fatalf("entry condensed text = %q, want %q", entry.CondensedText, tc.result.CondensedText)
 			}
 		})
 	}

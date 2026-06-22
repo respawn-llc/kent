@@ -734,7 +734,7 @@ func TestChatStoreSnapshotIncludesDeveloperContextAsVerboseRole(t *testing.T) {
 		t.Fatalf("unexpected environment context entry: %+v", snap.Entries[1])
 	}
 	if snap.Entries[0].Visibility != transcript.EntryVisibilityVerbose || snap.Entries[1].Visibility != transcript.EntryVisibilityVerbose {
-		t.Fatalf("expected developer context visibility to be detail-only, got %+v", snap.Entries)
+		t.Fatalf("expected developer context visibility to be verbose, got %+v", snap.Entries)
 	}
 }
 
@@ -763,7 +763,7 @@ func TestChatStoreSnapshotIncludesInterruptionAsVerboseRole(t *testing.T) {
 		t.Fatalf("unexpected interruption entry: %+v", snap.Entries[0])
 	}
 	if snap.Entries[0].Visibility != transcript.EntryVisibilityVerbose {
-		t.Fatalf("expected interruption detail-only visibility, got %+v", snap.Entries[0])
+		t.Fatalf("expected interruption verbose visibility, got %+v", snap.Entries[0])
 	}
 }
 

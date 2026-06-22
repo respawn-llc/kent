@@ -346,7 +346,7 @@ func TestPersistedTranscriptScanProjectsCarryoverFromPersistedMessage(t *testing
 		t.Fatalf("expected manual compaction carryover entry, got %+v", page.Entries[3])
 	}
 	if page.Entries[3].Visibility != transcript.EntryVisibilityVerbose {
-		t.Fatalf("expected carryover entry to stay detail-only, got %+v", page.Entries[3])
+		t.Fatalf("expected carryover entry to stay verbose, got %+v", page.Entries[3])
 	}
 }
 
