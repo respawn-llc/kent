@@ -3,7 +3,9 @@ package runtime
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/tools"
@@ -281,6 +283,604 @@ func TestSubmitQueuedUserMessagesStopsRetryingWhenContextIsCanceled(t *testing.T
 	}
 	if attempts != 1 {
 		t.Fatalf("expected one busy attempt before cancellation, got %d", attempts)
+	}
+}
+
+func TestInterruptedRunWithQueuedUserWorkDrainsAfterRunReleases(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenQueuedClient()
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+
+	client.waitStarted(t)
+	eng.QueueUserMessage("queued while interrupted")
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+
+	client.waitCallCount(t, 2)
+	hasQueuedUser := false
+	for _, message := range requestMessages(client.requestAt(1)) {
+		if message.Role == llm.RoleUser && message.Content == "queued while interrupted" {
+			hasQueuedUser = true
+			break
+		}
+	}
+	if !hasQueuedUser {
+		t.Fatalf("second model request did not include queued user work: %+v", requestMessages(client.requestAt(1)))
+	}
+	if eng.HasQueuedUserWork() {
+		t.Fatal("queued user work remained after interrupted run recovery")
+	}
+	waitEngineLifecycleTasks(t, eng)
+}
+
+func TestQueuedUserWorkScheduledWhenQueuedAfterRunBecomesIdle(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenQueuedClient()
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	blockingMessages := &blockingQueueMessageLifecycle{
+		wrapped:      eng.messageFlow,
+		queueEntered: make(chan struct{}),
+		releaseQueue: make(chan struct{}),
+	}
+	eng.messageFlow = blockingMessages
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	queueDone := make(chan struct{})
+	go func() {
+		eng.QueueUserMessage("queued after release check")
+		close(queueDone)
+	}()
+	blockingMessages.waitQueueEntered(t)
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	blockingMessages.release()
+	select {
+	case <-queueDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for queued steering call to return")
+	}
+
+	client.waitCallCount(t, 2)
+	hasQueuedUser := false
+	for _, message := range requestMessages(client.requestAt(1)) {
+		if message.Role == llm.RoleUser && message.Content == "queued after release check" {
+			hasQueuedUser = true
+			break
+		}
+	}
+	if !hasQueuedUser {
+		t.Fatalf("second model request did not include queued user work: %+v", requestMessages(client.requestAt(1)))
+	}
+	waitEngineLifecycleTasks(t, eng)
+}
+
+type blockingQueueMessageLifecycle struct {
+	wrapped      messageLifecycle
+	queueEntered chan struct{}
+	releaseQueue chan struct{}
+	once         sync.Once
+}
+
+func (m *blockingQueueMessageLifecycle) RestoreMessages() error {
+	return m.wrapped.RestoreMessages()
+}
+
+func (m *blockingQueueMessageLifecycle) FlushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
+	return m.wrapped.FlushPendingUserInjections(stepID, queueItemIDs)
+}
+
+func (m *blockingQueueMessageLifecycle) DrainPendingUserInjections() []QueuedUserMessage {
+	return m.wrapped.DrainPendingUserInjections()
+}
+
+func (m *blockingQueueMessageLifecycle) QueueUserMessage(text string, clientRequestID string) QueuedUserMessage {
+	if text != "idle explicit queue" {
+		m.once.Do(func() {
+			close(m.queueEntered)
+			<-m.releaseQueue
+		})
+	}
+	return m.wrapped.QueueUserMessage(text, clientRequestID)
+}
+
+func (m *blockingQueueMessageLifecycle) DiscardQueuedUserMessage(queueItemID string) (QueuedUserMessage, bool) {
+	return m.wrapped.DiscardQueuedUserMessage(queueItemID)
+}
+
+func (m *blockingQueueMessageLifecycle) HasPendingUserInjections() bool {
+	return m.wrapped.HasPendingUserInjections()
+}
+
+func (m *blockingQueueMessageLifecycle) waitQueueEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-m.queueEntered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for queued steering call to enter")
+	}
+}
+
+func (m *blockingQueueMessageLifecycle) release() {
+	close(m.releaseQueue)
+}
+
+func TestIdleQueueUserMessageDoesNotAutoSubmit(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first done", Phase: llm.MessagePhaseFinal},
+			Usage:     llm.Usage{WindowTokens: 200000},
+		},
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "queued done", Phase: llm.MessagePhaseFinal},
+			Usage:     llm.Usage{WindowTokens: 200000},
+		},
+	}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+
+	eng.QueueUserMessage("queued while idle")
+	time.Sleep(50 * time.Millisecond)
+	if got := fakeClientCallCount(client); got != 0 {
+		t.Fatalf("idle QueueUserMessage auto-submitted; model calls = %d, want 0", got)
+	}
+}
+
+func TestDiscardedBusyQueuedUserWorkDoesNotAuthorizeLaterIdleQueue(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenQueuedClient()
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	queued := eng.QueueUserMessage("discard me")
+	if !eng.DiscardQueuedUserMessage(queued.ID) {
+		t.Fatal("expected busy queued steering to be discarded")
+	}
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	waitEngineLifecycleTasks(t, eng)
+
+	eng.QueueUserMessage("idle explicit queue")
+	time.Sleep(50 * time.Millisecond)
+	if got := client.callCount(); got != 1 {
+		t.Fatalf("discarded busy marker authorized idle queue; model calls = %d, want 1", got)
+	}
+}
+
+func TestEmptyBusyQueuedUserWorkDoesNotAuthorizeLaterIdleQueue(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenQueuedClient()
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	eng.QueueUserMessage("   ")
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	waitEngineLifecycleTasks(t, eng)
+
+	eng.QueueUserMessage("idle explicit queue")
+	time.Sleep(50 * time.Millisecond)
+	if got := client.callCount(); got != 1 {
+		t.Fatalf("empty busy marker authorized idle queue; model calls = %d, want 1", got)
+	}
+}
+
+func TestAutoDrainDoesNotSubmitLaterIdleQueuedUserWork(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenQueuedClient()
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	blockingMessages := &blockingQueueMessageLifecycle{
+		wrapped:      eng.messageFlow,
+		queueEntered: make(chan struct{}),
+		releaseQueue: make(chan struct{}),
+	}
+	eng.messageFlow = blockingMessages
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	queueDone := make(chan struct{})
+	go func() {
+		eng.QueueUserMessage("busy marked queue")
+		close(queueDone)
+	}()
+	blockingMessages.waitQueueEntered(t)
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	eng.QueueUserMessage("idle explicit queue")
+	blockingMessages.release()
+	select {
+	case <-queueDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for queued steering call to return")
+	}
+	client.waitCallCount(t, 2)
+	waitEngineLifecycleTasks(t, eng)
+	request := requestMessages(client.requestAt(1))
+	hasBusyMarked := false
+	hasIdleExplicit := false
+	for _, message := range request {
+		if message.Role != llm.RoleUser {
+			continue
+		}
+		if message.Content == "busy marked queue" {
+			hasBusyMarked = true
+		}
+		if message.Content == "idle explicit queue" {
+			hasIdleExplicit = true
+		}
+	}
+	if !hasBusyMarked || hasIdleExplicit {
+		t.Fatalf("auto drain request user messages = %+v, want busy marked only", request)
+	}
+	if !eng.HasQueuedUserWork() {
+		t.Fatal("expected idle explicit queue to remain pending")
+	}
+}
+
+func TestAutoDrainReviewerFollowUpDoesNotSubmitLaterIdleQueuedUserWork(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenQueuedResponseClient(llm.Response{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "reviewed queued work", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	})
+	reviewerClient := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":["Double-check queued work."]}`},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		Reviewer: ReviewerConfig{
+			Frequency:     "all",
+			Model:         "gpt-5",
+			ThinkingLevel: "low",
+			Client:        reviewerClient,
+		},
+	})
+	blockingMessages := &blockingQueueMessageLifecycle{
+		wrapped:      eng.messageFlow,
+		queueEntered: make(chan struct{}),
+		releaseQueue: make(chan struct{}),
+	}
+	eng.messageFlow = blockingMessages
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	queueDone := make(chan struct{})
+	go func() {
+		eng.QueueUserMessage("busy marked queue")
+		close(queueDone)
+	}()
+	blockingMessages.waitQueueEntered(t)
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	eng.QueueUserMessage("idle explicit queue")
+	blockingMessages.release()
+	select {
+	case <-queueDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for queued steering call to return")
+	}
+	waitEngineLifecycleTasks(t, eng)
+
+	if got := fakeClientCallCount(reviewerClient); got != 1 {
+		t.Fatalf("reviewer calls = %d, want 1", got)
+	}
+	for idx := 1; idx < client.callCount(); idx++ {
+		for _, message := range requestMessages(client.requestAt(idx)) {
+			if message.Role == llm.RoleUser && message.Content == "idle explicit queue" {
+				t.Fatalf("model request %d included explicit idle queue during auto drain: %+v", idx, requestMessages(client.requestAt(idx)))
+			}
+		}
+	}
+	if !eng.HasQueuedUserWork() {
+		t.Fatal("expected idle explicit queue to remain pending after reviewed auto drain")
+	}
+}
+
+func TestAutoDrainLeavesLaterIdleQueuedUserWorkVisibleDuringTurn(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := newBlockingThenBlockedQueuedClient()
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	blockingMessages := &blockingQueueMessageLifecycle{
+		wrapped:      eng.messageFlow,
+		queueEntered: make(chan struct{}),
+		releaseQueue: make(chan struct{}),
+	}
+	eng.messageFlow = blockingMessages
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.SubmitUserMessage(context.Background(), "start blocking run")
+		firstDone <- err
+	}()
+	client.waitStarted(t)
+	queueDone := make(chan struct{})
+	go func() {
+		eng.QueueUserMessage("busy marked queue")
+		close(queueDone)
+	}()
+	blockingMessages.waitQueueEntered(t)
+	if err := eng.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	client.release()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("blocking run error = %v, want context.Canceled", err)
+	}
+	explicit := eng.QueueUserMessage("idle explicit queue")
+	blockingMessages.release()
+	select {
+	case <-queueDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for queued steering call to return")
+	}
+	client.waitSecondStarted(t)
+	if !eng.HasQueuedUserWork() {
+		t.Fatal("expected idle explicit queue to remain visible during auto drain")
+	}
+	if !eng.DiscardQueuedUserMessage(explicit.ID) {
+		t.Fatal("expected idle explicit queue to remain discardable during auto drain")
+	}
+	client.releaseSecond()
+	waitEngineLifecycleTasks(t, eng)
+
+	request := requestMessages(client.requestAt(1))
+	hasBusyMarked := false
+	hasIdleExplicit := false
+	for _, message := range request {
+		if message.Role != llm.RoleUser {
+			continue
+		}
+		if message.Content == "busy marked queue" {
+			hasBusyMarked = true
+		}
+		if message.Content == "idle explicit queue" {
+			hasIdleExplicit = true
+		}
+	}
+	if !hasBusyMarked || hasIdleExplicit {
+		t.Fatalf("auto drain request user messages = %+v, want busy marked only", request)
+	}
+	if eng.HasQueuedUserWork() {
+		t.Fatal("queued user work remained after discarding explicit queue")
+	}
+}
+
+type blockingThenQueuedClient struct {
+	started        chan struct{}
+	releaseC       chan struct{}
+	secondStarted  chan struct{}
+	releaseSecondC chan struct{}
+	queuedResponse llm.Response
+	mu             sync.Mutex
+	calls          []llm.Request
+}
+
+func newBlockingThenQueuedClient() *blockingThenQueuedClient {
+	return &blockingThenQueuedClient{
+		started:  make(chan struct{}),
+		releaseC: make(chan struct{}),
+	}
+}
+
+func newBlockingThenBlockedQueuedClient() *blockingThenQueuedClient {
+	return &blockingThenQueuedClient{
+		started:        make(chan struct{}),
+		releaseC:       make(chan struct{}),
+		secondStarted:  make(chan struct{}),
+		releaseSecondC: make(chan struct{}),
+	}
+}
+
+func newBlockingThenQueuedResponseClient(response llm.Response) *blockingThenQueuedClient {
+	return &blockingThenQueuedClient{
+		started:        make(chan struct{}),
+		releaseC:       make(chan struct{}),
+		queuedResponse: response,
+	}
+}
+
+func (c *blockingThenQueuedClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	c.mu.Lock()
+	c.calls = append(c.calls, req)
+	call := len(c.calls)
+	if call == 1 {
+		close(c.started)
+	}
+	c.mu.Unlock()
+	if call == 1 {
+		<-c.releaseC
+		return llm.Response{}, ctx.Err()
+	}
+	if call == 2 && c.secondStarted != nil {
+		close(c.secondStarted)
+		select {
+		case <-ctx.Done():
+			return llm.Response{}, ctx.Err()
+		case <-c.releaseSecondC:
+		}
+	}
+	if c.queuedResponse.Assistant.Role != "" || c.queuedResponse.Assistant.Content != "" || len(c.queuedResponse.Assistant.ToolCalls) > 0 {
+		return c.queuedResponse, nil
+	}
+	return llm.Response{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "queued work handled", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}, nil
+}
+
+func (c *blockingThenQueuedClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return llm.ProviderCapabilities{
+		ProviderID:           "openai",
+		SupportsResponsesAPI: true,
+		IsOpenAIFirstParty:   true,
+	}, nil
+}
+
+func (c *blockingThenQueuedClient) waitStarted(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for blocking model call")
+	}
+}
+
+func (c *blockingThenQueuedClient) release() {
+	close(c.releaseC)
+}
+
+func (c *blockingThenQueuedClient) waitSecondStarted(t *testing.T) {
+	t.Helper()
+	if c.secondStarted == nil {
+		t.Fatal("second model call blocking is not configured")
+	}
+	select {
+	case <-c.secondStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for second model call")
+	}
+}
+
+func (c *blockingThenQueuedClient) releaseSecond() {
+	close(c.releaseSecondC)
+}
+
+func (c *blockingThenQueuedClient) waitCallCount(t *testing.T, want int) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		c.mu.Lock()
+		got := len(c.calls)
+		c.mu.Unlock()
+		if got >= want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("model calls = %d, want at least %d", got, want)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func (c *blockingThenQueuedClient) requestAt(index int) llm.Request {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if index < 0 || index >= len(c.calls) {
+		return llm.Request{}
+	}
+	return c.calls[index]
+}
+
+func (c *blockingThenQueuedClient) callCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
+}
+
+func waitFakeClientCallCount(t *testing.T, client *fakeClient, want int) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		client.mu.Lock()
+		got := len(client.calls)
+		client.mu.Unlock()
+		if got >= want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("model calls = %d, want at least %d", got, want)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func fakeClientCallCount(client *fakeClient) int {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return len(client.calls)
+}
+
+func fakeClientRequestAt(client *fakeClient, index int) llm.Request {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if index < 0 || index >= len(client.calls) {
+		return llm.Request{}
+	}
+	return client.calls[index]
+}
+
+func waitEngineLifecycleTasks(t *testing.T, eng *Engine) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		eng.lifecycleWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for engine lifecycle tasks")
 	}
 }
 

@@ -5,6 +5,8 @@ import { useCallback, type MouseEvent, type PointerEvent, type ReactNode } from 
 import { useTranslation } from "react-i18next";
 
 import { toggleInMemoryThemeOverride } from "../appEnvironment";
+import { AppUpdateChip } from "./AppUpdateChip";
+import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
 import {
   appChromeContrastScrimClassNames,
   appChromeContrastScrimStyle,
@@ -29,11 +31,12 @@ export type AppChromeProps = Readonly<{
 
 export function AppChrome({ children }: AppChromeProps) {
   const { t } = useTranslation();
-  const { debugThemeOverrideEnabled, nativeBridge } = useAppServices();
+  const { debugThemeOverrideEnabled, logger, nativeBridge } = useAppServices();
   const navigation = useAppNavigation();
   const stack = useNavigationStackState();
   const macOS = nativeBridge.capabilities.platform === "macos";
   const title = useCurrentWindowChromeTitle();
+  const update = useDesktopUpdate(nativeBridge, logger);
 
   return (
     <main className="window-glass-fill grid h-screen w-screen overflow-hidden pt-[var(--native-titlebar-height)]">
@@ -54,6 +57,7 @@ export function AppChrome({ children }: AppChromeProps) {
         className={`app-region-no-drag fixed top-[8px] z-30 flex h-6 items-center ${macOS ? "left-[var(--native-home-link-left-macos)]" : "right-[var(--space-4)]"}`}
         data-testid="app-chrome-navigation"
       >
+        {!macOS ? <AppUpdateChip state={update} /> : null}
         {stack.hasHistory && !macOS ? (
           <HistoryButtons
             backLabel={t("app.back")}
@@ -92,6 +96,7 @@ export function AppChrome({ children }: AppChromeProps) {
           </div>
         ) : null}
       </div>
+      <AppChromeFloatingUpdateChip state={update} visible={macOS} />
       {title !== null && !macOS ? (
         <div
           className={[...appChromeTitleClassNames, ...appChromeTitlePlacementClassNames(macOS)].join(" ")}
@@ -117,6 +122,27 @@ export function AppChrome({ children }: AppChromeProps) {
         </WorkflowEditorDraftBridgeProvider>
       </SidebarProvider>
     </main>
+  );
+}
+
+// macOS keeps the traffic lights and nav cluster on the left, so the update chip
+// gets its own fixed slot in the free top-right corner. On other platforms the
+// chip rides inside the right-aligned nav cluster (see AppChrome) to avoid
+// overlapping the window controls.
+function AppChromeFloatingUpdateChip({
+  state,
+  visible,
+}: Readonly<{ state: DesktopUpdateState; visible: boolean }>) {
+  if (!visible) {
+    return null;
+  }
+  return (
+    <div
+      className="app-region-no-drag fixed top-[8px] right-[var(--space-4)] z-30 flex h-[22px] items-center"
+      data-testid="app-chrome-update-slot"
+    >
+      <AppUpdateChip state={state} />
+    </div>
   );
 }
 

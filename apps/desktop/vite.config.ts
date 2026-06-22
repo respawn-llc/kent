@@ -10,6 +10,9 @@ export default defineConfig({
     // Desktop bundle loads from local disk; keep warning for real growth without treating current MVP size as web risk.
     chunkSizeWarningLimit: 2_048,
     manifest: true,
+    // Never ship JS source maps in release artifacts (they expose original
+    // source). Matches Vite's default; pinned explicitly to prevent regressions.
+    sourcemap: false,
   },
   resolve: {
     alias: {

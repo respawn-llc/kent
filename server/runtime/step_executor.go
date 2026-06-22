@@ -22,6 +22,10 @@ type defaultStepExecutor struct {
 
 func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID string, options stepLoopOptions) (stepLoopResult, error) {
 	e := s.engine
+	// The engine owns the queued user-injection scope for the in-flight top-level
+	// step; derive it here so reviewer follow-ups inherit it without the supervisor
+	// threading injection IDs through stepLoopOptions.
+	options.PendingUserInjectionIDs = e.activeUserInjectionScopeSnapshot()
 	executedToolCall := false
 	patchEditsApplied := false
 	deferredFinal := llm.Message{}
@@ -31,6 +35,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 		if terminal, err := s.workflowDurableCompletionTerminal(ctx, stepID); err != nil {
 			return stepLoopResult{}, err
 		} else if terminal {
+			e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
 		}
 		if err := s.prepareModelTurn(ctx, stepID); err != nil {
@@ -66,6 +71,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 		if terminal, err := s.workflowDurableCompletionTerminal(ctx, stepID); err != nil {
 			return stepLoopResult{}, err
 		} else if terminal {
+			e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
 		}
 
@@ -200,7 +206,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 				if len(hostedToolExecutions) > 0 {
 					_ = e.steer(stepID, steerEventIntent(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true}))
 				}
-				if _, err := s.messages.FlushPendingUserInjections(stepID); err != nil {
+				if _, err := s.messages.FlushPendingUserInjections(stepID, options.PendingUserInjectionIDs); err != nil {
 					return stepLoopResult{}, err
 				}
 				continue
@@ -209,7 +215,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 				if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: commentaryWithoutToolCallsWarning}})); err != nil {
 					return stepLoopResult{}, err
 				}
-				if _, err := s.messages.FlushPendingUserInjections(stepID); err != nil {
+				if _, err := s.messages.FlushPendingUserInjections(stepID, options.PendingUserInjectionIDs); err != nil {
 					return stepLoopResult{}, err
 				}
 				continue
@@ -218,13 +224,13 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 				if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: finalWithoutContentWarning}})); err != nil {
 					return stepLoopResult{}, err
 				}
-				if _, err := s.messages.FlushPendingUserInjections(stepID); err != nil {
+				if _, err := s.messages.FlushPendingUserInjections(stepID, options.PendingUserInjectionIDs); err != nil {
 					return stepLoopResult{}, err
 				}
 				continue
 			}
 
-			flushed, err := s.messages.FlushPendingUserInjections(stepID)
+			flushed, err := s.messages.FlushPendingUserInjections(stepID, options.PendingUserInjectionIDs)
 			if err != nil {
 				return stepLoopResult{}, err
 			}
@@ -306,9 +312,10 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 		}
 		patchEditsApplied = patchEditsApplied || applied
 		if terminal {
+			e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 			return stepLoopResult{Message: assistantMsg, ExecutedToolCall: true}, nil
 		}
-		if _, err := s.messages.FlushPendingUserInjections(stepID); err != nil {
+		if _, err := s.messages.FlushPendingUserInjections(stepID, options.PendingUserInjectionIDs); err != nil {
 			return stepLoopResult{}, err
 		}
 	}
@@ -345,6 +352,7 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 		if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
 			return false, false, err
 		}
+		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
 		return patchEditsApplied, true, nil
 	}
 	if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
@@ -412,39 +420,26 @@ func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Co
 	if !e.workflowRunActive() || e.cfg.WorkflowRun.Controller == nil {
 		return false, false, nil
 	}
+	outcome, err := s.workflowCompletionAdapter().Evaluate(ctx, assistantMsg)
+	if err != nil {
+		return false, false, err
+	}
+	if outcome.Applicable {
+		if !outcome.Done {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, outcome.Continue)
+			return true, terminal, nudgeErr
+		}
+		if completeErr := outcome.Complete(ctx); completeErr != nil {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
+			return true, terminal, nudgeErr
+		}
+		return true, true, nil
+	}
 	mode, err := e.workflowCompletionMode(ctx)
 	if err != nil {
 		return false, false, err
 	}
 	content := strings.TrimSpace(assistantMsg.Content)
-	if mode == workflowruntime.CompletionModeStructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
-		parsed, parseErr := workflowruntime.DecodeCompletion([]byte(content), e.cfg.WorkflowRun.Contract)
-		if parseErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
-			return true, terminal, nudgeErr
-		}
-		completeErr := s.completeWorkflowRunFromParsed(ctx, parsed)
-		if completeErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
-			return true, terminal, nudgeErr
-		}
-		e.setWorkflowTerminalState(WorkflowCompletionSourceStructuredOutput)
-		return true, true, nil
-	}
-	if mode == workflowruntime.CompletionModeUnstructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
-		parsed, parseErr := workflowruntime.DecodeUnstructuredCompletion(content, e.cfg.WorkflowRun.Contract)
-		if parseErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
-			return true, terminal, nudgeErr
-		}
-		completeErr := s.completeWorkflowRunFromParsed(ctx, parsed)
-		if completeErr != nil {
-			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
-			return true, terminal, nudgeErr
-		}
-		e.setWorkflowTerminalState(WorkflowCompletionSourceUnstructured)
-		return true, true, nil
-	}
 	if mode == workflowruntime.CompletionModeShellCommand && assistantMsg.Phase == llm.MessagePhaseFinal {
 		terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, errors.New("normal final answers do not complete shell-command workflow nodes"))
 		return true, terminal, nudgeErr
@@ -497,6 +492,9 @@ func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.C
 	}
 	if strings.TrimSpace(instructions) != "" {
 		content += "\n\n" + strings.TrimSpace(instructions)
+	}
+	if reminder, ok := e.goalContinuation().reminderText(); ok {
+		content += "\n\n" + reminder
 	}
 	return false, e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: content}}))
 }

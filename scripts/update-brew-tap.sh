@@ -3,9 +3,10 @@ set -euo pipefail
 
 usage() {
 	cat <<'USAGE'
-Usage: scripts/update-brew-tap.sh [--version vX.Y.Z] [--tap /path/to/homebrew-tap] [--repo owner/name] [--formula name] [--commit] [--push]
+Usage: scripts/update-brew-tap.sh [--version vX.Y.Z] [--tap /path/to/homebrew-tap] [--repo owner/name] [--formula name] [--desktop-url URL] [--commit] [--push]
 
-Updates the Homebrew tap formula for kent with a new tag tarball + sha256.
+Updates the Homebrew tap formula for kent with a new tag tarball + sha256, and
+optionally the kent-desktop cask from a published .dmg asset.
 
 Defaults:
   --version : $KENT_VERSION, $GITHUB_REF_NAME, or latest git tag in this repo
@@ -14,7 +15,9 @@ Defaults:
   --tap     : $KENT_TAP_PATH, $HOMEBREW_TAP_PATH, else ../homebrew-tap (relative to repo root)
 
 Flags:
-  --commit  : commit the formula update in the tap repo
+  --desktop-url : published macOS .dmg URL; when set, also (re)generate the cask
+                  (downloaded to compute its sha256). Omit to update only the formula.
+  --commit  : commit the formula/cask update in the tap repo
   --push    : push the commit (implies --commit)
 USAGE
 }
@@ -30,12 +33,27 @@ require_option_value() {
 	exit 1
 }
 
+sha256_of() {
+	local file="$1"
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$file" | awk '{print $1}'
+	elif command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "$file" | awk '{print $1}'
+	else
+		echo "sha256sum or shasum required" >&2
+		exit 1
+	fi
+}
+
 version=""
 repo="respawn-llc/kent"
 formula="kent"
 tap_dir=""
 do_commit="false"
 do_push="false"
+desktop_url=""
+# Constant cask name; never varies, so it is not a CLI flag.
+desktop_cask="kent-desktop"
 
 unset_git_local_env() {
 	local config_count="${GIT_CONFIG_COUNT:-}"
@@ -87,6 +105,11 @@ while [[ $# -gt 0 ]]; do
 	--formula)
 		require_option_value "--formula" "${2:-}"
 		formula="$2"
+		shift 2
+		;;
+	--desktop-url)
+		require_option_value "--desktop-url" "${2:-}"
+		desktop_url="$2"
 		shift 2
 		;;
 	--tap)
@@ -151,20 +174,14 @@ url="https://github.com/${repo}/archive/refs/tags/${version}.tar.gz"
 
 tmp_file="$(mktemp)"
 tmp_formula="$(mktemp)"
+tmp_cask=""
 cleanup() {
-	rm -f "$tmp_file" "$tmp_formula"
+	rm -f "$tmp_file" "$tmp_formula" "$tmp_cask"
 }
 trap cleanup EXIT
 
 curl -fsSL "$url" -o "$tmp_file"
-if command -v sha256sum >/dev/null 2>&1; then
-	sha256="$(sha256sum "$tmp_file" | awk '{print $1}')"
-elif command -v shasum >/dev/null 2>&1; then
-	sha256="$(shasum -a 256 "$tmp_file" | awk '{print $1}')"
-else
-	echo "sha256sum or shasum required" >&2
-	exit 1
-fi
+sha256="$(sha256_of "$tmp_file")"
 
 mkdir -p "$(dirname "$formula_path")"
 cat >"$tmp_formula" <<EOF
@@ -218,12 +235,80 @@ fi
 
 chmod 0644 "$formula_path"
 
+cask_path=""
+if [[ -n "$desktop_url" ]]; then
+	cask_version="${version#v}"
+	cask_path="$tap_dir/Casks/${desktop_cask}.rb"
+	tmp_cask="$(mktemp)"
+	curl -fsSL "$desktop_url" -o "$tmp_file"
+	dmg_sha256="$(sha256_of "$tmp_file")"
+	mkdir -p "$(dirname "$cask_path")"
+	cat >"$tmp_cask" <<EOF
+cask "${desktop_cask}" do
+  version "${cask_version}"
+  sha256 "${dmg_sha256}"
+
+  url "${desktop_url}"
+  name "Kent"
+  desc "Desktop client for the Kent coding agent"
+  homepage "https://github.com/respawn-llc/kent"
+
+  depends_on formula: "kent"
+  depends_on macos: :tahoe
+  depends_on arch: :arm64
+
+  app "Kent.app"
+
+  # Self-update is install-source-aware: Homebrew owns updates for cask installs
+  # and locksteps with the kent formula, so the in-app updater is gated off by
+  # writing the desktop settings file. Do NOT add \`auto_updates true\` — that would
+  # make \`brew upgrade\` skip this cask and let the app self-update ahead of the
+  # server. See docs/dev/specs/release-distribution.md.
+  postflight do
+    require "json"
+    settings_path = File.expand_path("~/Library/Application Support/sh.kent/settings.json")
+    FileUtils.mkdir_p(File.dirname(settings_path))
+    data = {}
+    if File.exist?(settings_path)
+      begin
+        parsed = JSON.parse(File.read(settings_path))
+        data = parsed if parsed.is_a?(Hash)
+      rescue JSON::ParserError
+        data = {}
+      end
+    end
+    data["version"] = 1
+    data["selfUpdate"] = "disabled"
+    File.write(settings_path, "#{JSON.pretty_generate(data)}\n")
+  end
+
+  uninstall quit: "sh.kent"
+
+  zap trash: [
+    "~/Library/Application Support/sh.kent",
+    "~/Library/Caches/sh.kent",
+    "~/Library/HTTPStorages/sh.kent",
+    "~/Library/Saved Application State/sh.kent.savedState",
+    "~/Library/WebKit/sh.kent",
+  ]
+end
+EOF
+	if [[ ! -f "$cask_path" ]] || ! cmp -s "$tmp_cask" "$cask_path"; then
+		mv "$tmp_cask" "$cask_path"
+		tmp_cask="$(mktemp)"
+	fi
+	chmod 0644 "$cask_path"
+fi
+
 if [[ "$do_commit" == "true" ]]; then
 	git -C "$tap_dir" add "$formula_path"
+	if [[ -n "$cask_path" ]]; then
+		git -C "$tap_dir" add "$cask_path"
+	fi
 	if git -C "$tap_dir" diff --cached --quiet; then
 		echo "No formula changes to commit"
 	else
-		git -C "$tap_dir" commit -m "${formula} ${version}"
+		git -C "$tap_dir" commit -m "${formula} ${version}${cask_path:+ + ${desktop_cask}}"
 	fi
 fi
 
@@ -234,3 +319,8 @@ fi
 echo "Updated ${formula_path}"
 echo "  url: $url"
 echo "  sha256: $sha256"
+if [[ -n "$cask_path" ]]; then
+	echo "Updated ${cask_path}"
+	echo "  url: $desktop_url"
+	echo "  sha256: $dmg_sha256"
+fi

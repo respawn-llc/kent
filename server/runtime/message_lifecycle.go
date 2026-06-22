@@ -263,9 +263,21 @@ func queuedUserMessagesForFlush(messages []queuedUserSteeringIntent) []QueuedUse
 	return items
 }
 
-func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int, error) {
+// FlushPendingUserInjections flushes queued user injections for the step. An empty
+// queueItemIDs flushes every pending injection; a non-empty set flushes only those
+// IDs.
+func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
+	var pending []queuedUserSteeringIntent
+	if len(queueItemIDs) == 0 {
+		pending = m.queue.Drain()
+	} else {
+		pending = m.queue.DrainByID(queueItemIDs)
+	}
+	return m.flushPendingUserInjections(stepID, pending)
+}
+
+func (m *defaultMessageLifecycle) flushPendingUserInjections(stepID string, pending []queuedUserSteeringIntent) (int, error) {
 	e := m.engine
-	pending := m.queue.Drain()
 	flushed := 0
 	pendingNotices := []steeringIntent(nil)
 	if m.background != nil {
@@ -280,6 +292,9 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 			return flushed, err
 		}
 		flushed++
+	}
+	for _, item := range pending {
+		e.unmarkQueuedUserInjectionForAutoDrain(item.message.ID)
 	}
 	for _, notice := range pendingNotices {
 		if err := e.steer(stepID, notice); err != nil {

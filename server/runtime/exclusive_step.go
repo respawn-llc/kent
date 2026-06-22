@@ -109,10 +109,12 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 			wrapped := fmt.Errorf("%w: %w", errMarkInFlightFalse, clearErr)
 			_ = s.engine.steer(stepID, steerEventIntent(Event{Kind: EventInFlightClearFailed, StepID: stepID, Error: wrapped.Error()}))
 			err = errors.Join(err, wrapped)
-		} else {
-			if s.background != nil {
+		} else if status != RunStatusFailed {
+			if !s.engine.scheduleQueuedUserInjectionsIfIdle() && s.background != nil {
 				s.background.ScheduleIfIdle()
 			}
+		} else if s.background != nil {
+			s.background.ScheduleIfIdle()
 		}
 		if panicValue != nil {
 			panic(panicValue)

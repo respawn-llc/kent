@@ -466,18 +466,36 @@ func (s *Store) SetGoalStatus(status GoalStatus, actor GoalActor) (GoalState, er
 }
 
 func (s *Store) SetGoalStatusWithEventBuilder(status GoalStatus, actor GoalActor, buildExtraEvents func(GoalState) ([]EventInput, error)) (GoalState, error) {
+	goal, _, err := s.transitionGoalStatus(status, actor, nil, buildExtraEvents)
+	return goal, err
+}
+
+func (s *Store) CompleteGoalIfActive(expectedID string, actor GoalActor, buildExtraEvents func(GoalState) ([]EventInput, error)) (GoalState, bool, error) {
+	return s.transitionGoalStatus(GoalStatusComplete, actor, func(current GoalState) bool {
+		return current.ID == expectedID && current.Status == GoalStatusActive
+	}, buildExtraEvents)
+}
+
+func (s *Store) transitionGoalStatus(status GoalStatus, actor GoalActor, allow func(GoalState) bool, buildExtraEvents func(GoalState) ([]EventInput, error)) (GoalState, bool, error) {
 	normalizedStatus, err := normalizeGoalStatus(status)
 	if err != nil {
-		return GoalState{}, err
+		return GoalState{}, false, err
 	}
 	normalizedActor, err := normalizeGoalActor(actor)
 	if err != nil {
-		return GoalState{}, err
+		return GoalState{}, false, err
 	}
 	s.mu.Lock()
 	if s.meta.Goal == nil {
 		s.mu.Unlock()
-		return GoalState{}, errors.New("goal is not set")
+		if allow != nil {
+			return GoalState{}, false, nil
+		}
+		return GoalState{}, false, errors.New("goal is not set")
+	}
+	if allow != nil && !allow(*cloneGoalState(s.meta.Goal)) {
+		s.mu.Unlock()
+		return GoalState{}, false, nil
 	}
 	now := storeTimestamp(s.options)
 	previousGoalState := *cloneGoalState(s.meta.Goal)
@@ -487,25 +505,24 @@ func (s *Store) SetGoalStatusWithEventBuilder(status GoalStatus, actor GoalActor
 	goal.UpdatedAt = now
 	var extraEvents []EventInput
 	if buildExtraEvents != nil {
-		var err error
 		extraEvents, err = buildExtraEvents(goal)
 		if err != nil {
 			s.mu.Unlock()
-			return GoalState{}, err
+			return GoalState{}, false, err
 		}
 	}
 	events, err := s.buildGoalEventsLocked("goal_status_updated", GoalStatusUpdatedEvent{Goal: goal, Actor: normalizedActor, PreviousStatus: previousStatus}, extraEvents, now)
 	if err != nil {
 		s.mu.Unlock()
-		return GoalState{}, err
+		return GoalState{}, false, err
 	}
 	s.meta.Goal = cloneGoalState(&goal)
 	if err := s.appendGoalEventsLocked(events, func() {
 		s.meta.Goal = cloneGoalState(&previousGoalState)
 	}); err != nil {
-		return GoalState{}, err
+		return GoalState{}, false, err
 	}
-	return goal, nil
+	return goal, true, nil
 }
 
 func (s *Store) ClearGoal(actor GoalActor) (GoalState, error) {

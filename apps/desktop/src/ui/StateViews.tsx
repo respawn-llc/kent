@@ -98,9 +98,11 @@ export type EmptyStateProps = Readonly<{
   icon?: ReactNode;
   actions?: ReactNode;
   action?: ReactNode;
+  children?: ReactNode;
   fullPage?: boolean;
   chromePadding?: boolean;
   contentWidth?: StateContentWidth;
+  testID?: string;
 }>;
 
 export function EmptyState({
@@ -109,9 +111,11 @@ export function EmptyState({
   icon,
   actions,
   action,
+  children,
   fullPage = true,
   chromePadding = false,
   contentWidth,
+  testID = "empty-state",
 }: EmptyStateProps) {
   const renderedActions = actions ?? action;
   return (
@@ -122,12 +126,13 @@ export function EmptyState({
       fullPage={fullPage}
       icon={icon ?? <Inbox size={28} strokeWidth={1.5} />}
       reveal={!fullPage}
-      testID="empty-state"
+      testID={testID}
       title={title}
       titleClassName="text-[var(--color-on-island)]"
       tone="secondary"
     >
       <p className="m-0 max-w-[52ch] text-[var(--color-muted)]">{body}</p>
+      {children}
       {renderedActions !== undefined ? <StateActions testID="empty-state-actions">{renderedActions}</StateActions> : null}
     </StateIsland>
   );

@@ -52,8 +52,8 @@ const (
 	SessionRuntimeOperationGoalManage               SessionRuntimeOperation = "goal.manage"
 )
 
-func CollaborativeSessionRuntimeOperations(workflowSession bool) []SessionRuntimeOperation {
-	operations := []SessionRuntimeOperation{
+func CollaborativeSessionRuntimeOperations() []SessionRuntimeOperation {
+	return []SessionRuntimeOperation{
 		SessionRuntimeOperationSubmitUserTurn,
 		SessionRuntimeOperationQueueUserMessage,
 		SessionRuntimeOperationSubmitQueuedUserMessages,
@@ -69,11 +69,8 @@ func CollaborativeSessionRuntimeOperations(workflowSession bool) []SessionRuntim
 		SessionRuntimeOperationCompactPreSubmit,
 		SessionRuntimeOperationWorktreeManage,
 		SessionRuntimeOperationProcessView,
+		SessionRuntimeOperationGoalManage,
 	}
-	if !workflowSession {
-		operations = append(operations, SessionRuntimeOperationGoalManage)
-	}
-	return operations
 }
 
 type SessionRuntimeReleaseRequest struct {

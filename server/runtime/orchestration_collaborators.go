@@ -42,6 +42,7 @@ type stepLoopOptions struct {
 	ReviewerClient                 llm.Client
 	EmitAssistantEvent             bool
 	RefreshReviewerConfigOnResolve bool
+	PendingUserInjectionIDs        map[string]struct{}
 }
 
 type stepLoopResult struct {
@@ -66,7 +67,7 @@ type toolExecutor interface {
 
 type messageLifecycle interface {
 	RestoreMessages() error
-	FlushPendingUserInjections(stepID string) (int, error)
+	FlushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error)
 	DrainPendingUserInjections() []QueuedUserMessage
 	QueueUserMessage(text string, clientRequestID string) QueuedUserMessage
 	DiscardQueuedUserMessage(queueItemID string) (QueuedUserMessage, bool)

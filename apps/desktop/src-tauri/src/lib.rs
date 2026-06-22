@@ -45,6 +45,21 @@ fn resolve_native_platform() -> String {
 }
 
 #[tauri::command]
+fn self_update_supported() -> bool {
+    self_update_supported_for_platform()
+}
+
+// The Tauri Linux updater only services AppImage bundles, so deb and plain-binary
+// launches (where APPIMAGE is unset) cannot self-update and must fall back to the
+// system package manager. macOS and Windows installs always self-update.
+fn self_update_supported_for_platform() -> bool {
+    if std::env::consts::OS == "linux" {
+        return std::env::var_os("APPIMAGE").is_some();
+    }
+    true
+}
+
+#[tauri::command]
 async fn select_directory(app: tauri::AppHandle, title: String) -> Result<Option<String>, String> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     app.dialog()
@@ -117,6 +132,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
@@ -129,6 +147,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             resolve_native_context,
             resolve_native_platform,
+            self_update_supported,
             select_directory,
             open_external_url,
             append_gui_log,

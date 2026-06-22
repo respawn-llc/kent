@@ -305,18 +305,19 @@ func waitForLaunchdServiceShutdown(ctx context.Context, spec serviceSpec) error 
 	deadline := time.Now().Add(timeout)
 	for {
 		healthStatus, healthPID := probeServiceHealth(ctx, spec)
-		if healthStatus != "ok" {
+		loaded, _ := launchdLoaded(ctx)
+		// launchctl bootout is asynchronous: the HTTP listener closes (health
+		// goes down) milliseconds before launchd finishes evicting the job from
+		// the domain. Bootstrapping inside that window fails with the generic
+		// launchctl "Bootstrap error 5: Input/output error". Treat shutdown as
+		// complete only once both the server has stopped responding AND launchd
+		// no longer reports the label loaded, so the follow-up bootstrap can
+		// never race the teardown.
+		if healthStatus != "ok" && !loaded {
 			return nil
 		}
-		loaded, _ := launchdLoaded(ctx)
 		if time.Now().After(deadline) {
-			detail := brand.Product + " server still responds on " + spec.Endpoint
-			if healthPID > 0 {
-				detail = fmt.Sprintf("%s (pid %d)", detail, healthPID)
-			}
-			if loaded {
-				detail += "; launchd still reports the service as loaded"
-			}
+			detail := launchdShutdownBlockDetail(spec, healthStatus, healthPID, loaded)
 			return fmt.Errorf("%w: %s. Not bootstrapping a second server because it would fail with launchctl Bootstrap error 5. Re-running with sudo will not fix this; stop the stale "+brand.Command+" process or wait for it to exit, then run `"+brand.Command+" service restart` again", errLaunchdOldServerNotExited, detail)
 		}
 		timer := time.NewTimer(interval)
@@ -327,6 +328,21 @@ func waitForLaunchdServiceShutdown(ctx context.Context, spec serviceSpec) error 
 		case <-timer.C:
 		}
 	}
+}
+
+func launchdShutdownBlockDetail(spec serviceSpec, healthStatus string, healthPID int, loaded bool) string {
+	parts := []string{}
+	if healthStatus == "ok" {
+		detail := brand.Product + " server still responds on " + spec.Endpoint
+		if healthPID > 0 {
+			detail = fmt.Sprintf("%s (pid %d)", detail, healthPID)
+		}
+		parts = append(parts, detail)
+	}
+	if loaded {
+		parts = append(parts, "launchd still reports the service as loaded")
+	}
+	return strings.Join(parts, "; ")
 }
 
 func bootstrapLaunchdService(ctx context.Context, spec serviceSpec, path string) error {
@@ -347,9 +363,21 @@ func isTransientLaunchdBootstrapError(err error) bool {
 	return commandErr.Name == "launchctl" && commandErr.Result.Code == 5
 }
 
+// isLaunchdServiceAbsentError reports whether a launchctl command failed because
+// the service is already gone from the domain ("Boot-out failed: 3: No such
+// process"). When the teardown wait already evicted the label, a recovery
+// bootout legitimately returns this and must not abort the bootstrap retry.
+func isLaunchdServiceAbsentError(err error) bool {
+	var commandErr serviceCommandError
+	if !errors.As(err, &commandErr) {
+		return false
+	}
+	return commandErr.Name == "launchctl" && commandErr.Result.Code == 3
+}
+
 func replaceStaleLaunchdService(ctx context.Context, spec serviceSpec, path string, cause error) error {
 	target := fmt.Sprintf("gui/%d", os.Getuid()) + "/" + serviceLaunchdLabel
-	if _, err := runServiceCommand(ctx, "launchctl", "bootout", target); err != nil {
+	if _, err := runServiceCommand(ctx, "launchctl", "bootout", target); err != nil && !isLaunchdServiceAbsentError(err) {
 		return errors.Join(cause, err)
 	}
 	if err := waitForLaunchdServiceShutdown(ctx, spec); err != nil {

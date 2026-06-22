@@ -1,6 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kent",
+  "mainBinaryName": "kent-desktop",
   "version": "0.0.0",
   "identifier": "sh.kent",
   "build": {
@@ -32,8 +33,42 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost; font-src 'self'; connect-src ipc: http://ipc.localhost ws://127.0.0.1:* ws://localhost:* ws://*:* wss://*:*; object-src 'none'; frame-src 'none'; base-uri 'self'"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/respawn-llc/kent/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGQTA4MTNGMzQwNjBGNzQKUldSMER3WTBQNEdnWDNlRlp4a09NMmxpbGJQWUJXQW5IY01VVHI4WXZ2cjg4Z1BBKyt4Q1VLSWQK"
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "createUpdaterArtifacts": true,
+    "targets": ["app", "dmg", "appimage", "deb"],
+    "category": "DeveloperTool",
+    "shortDescription": "Desktop client for Kent, an agentic coding platform for professional SWE work.",
+    "longDescription": "Kent Desktop is the GUI client for Kent — an agentic coding platform for professional software engineering focused on output quality, with self-review, supervision, and dynamic workflows. It remote-controls a running Kent server (boards, task detail, and the workflow editor) over loopback; install and start the Kent CLI/service first.",
+    "homepage": "https://github.com/respawn-llc/kent",
+    "publisher": "Respawn LLC",
+    "copyright": "© 2026 Respawn LLC",
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../../../LICENSE",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "26.0",
+      "entitlements": "entitlements.plist"
+    },
+    "linux": {
+      "deb": {
+        "section": "devel"
+      }
+    }
   }
 }

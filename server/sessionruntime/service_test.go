@@ -678,7 +678,7 @@ func TestActivateSessionRuntimeAttachesCollaborativelyToExternalActiveRuntime(t 
 	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
 		t.Fatalf("response = %+v, want collaborative legacy read-only without lease", resp)
 	}
-	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(false))
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations())
 	if len(fixture.service.handles) != 0 {
 		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
 	}
@@ -778,13 +778,13 @@ func TestActivateSessionRuntimeCollaborativeWorkflowRuntimeOmitsGoalManage(t *te
 	if resp.Mode != serverapi.SessionRuntimeAttachModeCollaborative || !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
 		t.Fatalf("response = %+v, want collaborative legacy read-only without lease", resp)
 	}
-	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations())
 	if len(fixture.service.handles) != 0 {
 		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
 	}
 }
 
-func TestActivateSessionRuntimeCollaborativeDurableWorkflowSessionOmitsGoalManage(t *testing.T) {
+func TestActivateSessionRuntimeCollaborativeDurableWorkflowSessionAllowsGoalManage(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	if err := fixture.store.SetWorkflowSessionState(&session.WorkflowSessionState{RunID: "run-1", TaskID: "task-1", WorkflowID: "workflow-1"}); err != nil {
 		t.Fatalf("SetWorkflowSessionState: %v", err)
@@ -810,13 +810,17 @@ func TestActivateSessionRuntimeCollaborativeDurableWorkflowSessionOmitsGoalManag
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations(true))
+	assertOperationsEqual(t, resp.AllowedOperations, serverapi.CollaborativeSessionRuntimeOperations())
+	called := false
 	err = fixture.service.WithCollaborativeRuntime(context.Background(), fixture.store.Meta().SessionID, serverapi.SessionRuntimeOperationGoalManage, func(CollaborativeRuntimeGuard) error {
-		t.Fatal("goal.manage callback should not run for durable workflow sessions")
+		called = true
 		return nil
 	})
-	if err == nil {
-		t.Fatal("expected durable workflow collaborative goal.manage to be unavailable")
+	if err != nil {
+		t.Fatalf("durable workflow collaborative goal.manage = %v, want allowed", err)
+	}
+	if !called {
+		t.Fatal("expected goal.manage callback to run for durable workflow session")
 	}
 }
 
@@ -852,8 +856,8 @@ func TestWithCollaborativeRuntimeRequiresExternalActiveRuntime(t *testing.T) {
 		t.Fatal("unexpected callback for controller-owned handle")
 		return nil
 	})
-	if err == nil {
-		t.Fatal("expected controller-owned session to reject collaborative access")
+	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("controller-owned collaborative access error = %v, want ErrRuntimeUnavailable", err)
 	}
 }
 

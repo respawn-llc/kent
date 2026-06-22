@@ -272,3 +272,55 @@ jobs:
 
       - name: Check Tauri native shell
         run: cargo check --locked
+
+  desktop_bundle:
+    # Catch desktop packaging breakage (bundling, AppImage/deb generation, updater
+    # artifact signing) on PRs — gui-native only cargo-checks the Rust shell. Linux
+    # only: it is the cheap runner and the most common packaging break; the macOS
+    # .dmg/glass-icon path is validated by the release job + first-bundle manual QA.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Linux bundling dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libfuse2 file build-essential
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
+
+      - name: Install GUI dependencies
+        run: pnpm --dir apps install --frozen-lockfile
+
+      # build-desktop.sh signs updater artifacts (createUpdaterArtifacts is on). PRs
+      # (incl. forks) have no secret, so mint a throwaway key and pass it by content.
+      # The signer runs under pnpm --dir apps/desktop, so the key path must be
+      # absolute ($RUNNER_TEMP); the signed debug artifacts are discarded.
+      - name: Build desktop bundle (unsigned, debug)
+        run: |
+          pnpm --dir apps/desktop exec tauri signer generate -f -w "$RUNNER_TEMP/ci-updater.key" -p ""
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/ci-updater.key")"
+          export TAURI_SIGNING_PRIVATE_KEY
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          bash scripts/build-desktop.sh --skip-install -- --debug

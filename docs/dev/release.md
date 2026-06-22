@@ -37,7 +37,8 @@ The `release` workflow in `/.github/workflows/release.yml`:
 7. Smoke-tests the Windows installer against staged release assets before publishing.
 8. Publishes the GitHub release.
 9. Checks out `respawn-llc/homebrew-tap`.
-10. Runs `scripts/update-brew-tap.sh` for formula `kent`.
+10. Runs `scripts/update-brew-tap.sh` for formula `kent` (and, once `--desktop-url`
+    is passed with the published macOS `.dmg`, regenerates the `kent-desktop` cask).
 11. Opens a PR in the tap repo with label `pr-pull`.
 
 ## What The Tap Automation Does

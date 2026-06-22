@@ -209,6 +209,7 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID string, text string, batch 
 		CommittedTranscriptChanged:   true,
 	})
 	for _, item := range normalizedItems {
+		e.unmarkQueuedUserInjectionForAutoDrain(item.ID)
 		e.emitRaw(Event{
 			Kind: EventQueuedUserMessageStatus,
 			QueuedUserMessageStatus: &QueuedUserMessageStatusEvent{
@@ -270,6 +271,7 @@ func (e *Engine) FailQueuedUserMessages(reason QueuedUserMessageFailureReason) [
 	messages := make([]QueuedUserMessage, 0, len(pending))
 	for _, item := range pending {
 		messages = append(messages, item)
+		e.unmarkQueuedUserInjectionForAutoDrain(item.ID)
 		e.emitQueuedUserMessageStatus(item, QueuedUserMessageFailed, reason, true)
 	}
 	return messages
@@ -295,9 +297,9 @@ func flushedUserMessageEvent(msg llm.Message, stepID string) *Event {
 	return &Event{Kind: EventUserMessageFlushed, StepID: stepID, UserMessage: msg.Content, UserMessageBatch: []string{msg.Content}, CommittedTranscriptChanged: true}
 }
 
-func (e *Engine) flushPendingUserInjections(stepID string) (int, error) {
+func (e *Engine) flushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
 	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.FlushPendingUserInjections(stepID)
+	return e.messageFlow.FlushPendingUserInjections(stepID, queueItemIDs)
 }
 
 // resolveGlobalConfigDir returns the directory that owns model-visible global

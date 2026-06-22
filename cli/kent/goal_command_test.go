@@ -384,14 +384,6 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 	if overwriteOutput != "" {
 		t.Fatalf("goal set overwrite stdout = %q, want empty", overwriteOutput)
 	}
-	for _, want := range []string{
-		"collaborative runtime",
-		"unavailable",
-	} {
-		if !strings.Contains(overwriteErr, want) {
-			t.Fatalf("goal set overwrite stderr missing %q: %q", want, overwriteErr)
-		}
-	}
 	record, err = metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession after rejected overwrite: %v", err)
@@ -406,9 +398,6 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 	}
 	if completeOutput != "" {
 		t.Fatalf("goal complete stdout = %q, want empty", completeOutput)
-	}
-	if !strings.Contains(completeErr, "collaborative runtime") || !strings.Contains(completeErr, "unavailable") {
-		t.Fatalf("goal complete stderr = %q, want collaborative runtime unavailable", completeErr)
 	}
 
 	setOutput, setErr, setRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")

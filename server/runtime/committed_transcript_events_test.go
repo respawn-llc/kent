@@ -72,7 +72,7 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 
 	start = len(events)
 	eng.QueueUserMessage("queued input")
-	if _, err := eng.flushPendingUserInjections("flush-step"); err != nil {
+	if _, err := eng.flushPendingUserInjections("flush-step", nil); err != nil {
 		t.Fatalf("flush pending user injections: %v", err)
 	}
 	assertEventFlags(t, events[start:], []eventFlagExpectation{
