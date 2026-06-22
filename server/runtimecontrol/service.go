@@ -41,10 +41,7 @@ type WorkflowSessionResolver interface {
 	ResolveSessionStore(ctx context.Context, sessionID string) (*session.Store, error)
 }
 
-var (
-	errWorkflowTaskSessionGoalControl           = errors.New("goal control is unavailable for workflow task sessions")
-	errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
-)
+var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
 
 type Service struct {
 	runtimes       RuntimeResolver
@@ -638,9 +635,6 @@ func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowReq
 	if err != nil {
 		return serverapi.RuntimeGoalShowResponse{}, err
 	}
-	if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
-		return serverapi.RuntimeGoalShowResponse{}, err
-	}
 	goal := engine.Goal()
 	if goal == nil {
 		return serverapi.RuntimeGoalShowResponse{}, nil
@@ -663,17 +657,10 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 	memoReq := goalSetMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Objective: trimmedObjective, Actor: strings.TrimSpace(req.Actor)}
 	return s.goals.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalSetMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		var response serverapi.RuntimeGoalShowResponse
-		// Evaluate deterministic goal-set policy (workflow rejection and agent
-		// overwrite denial) against the resolved engine before acquiring runtime
-		// access, so callers receive the precise denial instead of a misleading
-		// runtime-availability error when the collaborative guard is unavailable.
 		if err := s.rejectAgentGoalSet(ctx, req); err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
 		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
-			if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
-				return err
-			}
 			if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 				currentGoal := engine.Goal()
 				if goalBlocksAgentSet(currentGoal) {
@@ -708,17 +695,9 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 	})
 }
 
-// rejectAgentGoalSet surfaces deterministic goal-set denials before runtime
-// access is acquired. It resolves the engine read-only (mirroring ShowGoal) so
-// workflow-session and agent-overwrite denials are reported with their precise
-// errors even when the collaborative runtime guard is unavailable. The
-// authoritative checks inside the mutation closure remain as defense in depth.
 func (s *Service) rejectAgentGoalSet(ctx context.Context, req serverapi.RuntimeGoalSetRequest) error {
 	engine, err := s.resolve(ctx, req.SessionID)
 	if err != nil {
-		return err
-	}
-	if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
 		return err
 	}
 	if strings.TrimSpace(req.Actor) != string(session.GoalActorAgent) {
@@ -768,9 +747,6 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 	return s.goalStatuses.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalStatusMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		var response serverapi.RuntimeGoalShowResponse
 		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
-			if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
-				return err
-			}
 			if status == session.GoalStatusComplete {
 				current := engine.Goal()
 				if current != nil && current.Status == session.GoalStatusComplete {
@@ -820,9 +796,6 @@ func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearR
 	memoReq := goalClearMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Actor: strings.TrimSpace(req.Actor)}
 	return s.goalClears.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalClearMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
-			if err := s.rejectWorkflowGoalControl(ctx, req.SessionID, engine); err != nil {
-				return err
-			}
 			_, err := engine.ClearGoal(session.GoalActor(req.Actor))
 			return err
 		})
@@ -831,30 +804,20 @@ func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearR
 }
 
 func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, leaseID string, fn func(*runtime.Engine) error) error {
-	var lease primaryrun.Lease
 	if strings.TrimSpace(leaseID) == "" {
-		if _, err := s.resolve(ctx, sessionID); err != nil {
-			return err
-		}
-		var err error
-		lease, err = s.acquirePrimaryRun(sessionID)
+		engine, err := s.resolve(ctx, sessionID)
 		if err != nil {
 			return err
 		}
-		defer lease.Release()
+		if !engine.WorkflowRunConfigured() {
+			lease, err := s.acquirePrimaryRun(sessionID)
+			if err != nil {
+				return err
+			}
+			defer lease.Release()
+		}
 	}
 	return s.withRuntimeAccess(ctx, sessionID, leaseID, serverapi.SessionRuntimeOperationGoalManage, fn)
-}
-
-func (s *Service) rejectWorkflowGoalControl(ctx context.Context, sessionID string, engine *runtime.Engine) error {
-	workflowSession, err := s.workflowTaskSession(ctx, sessionID, engine)
-	if err != nil {
-		return err
-	}
-	if workflowSession {
-		return errWorkflowTaskSessionGoalControl
-	}
-	return nil
 }
 
 func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {

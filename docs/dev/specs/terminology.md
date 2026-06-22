@@ -227,3 +227,25 @@ Terminal buffer with native scrollback. Ongoing mode renders committed history h
 ### Scrollback
 
 Terminal-owned history of normal-buffer output. Kent does not replay, clear, or restyle committed ongoing scrollback after startup.
+
+## Runtime Steering And Goals
+
+### Active Session Runtime
+
+The live runtime a session registers while it is running. It exists independently of who is driving it: a run owner may hold it, or it may be registered but idle between activations.
+
+### Run Owner
+
+The headless or workflow run that holds the session's primary-run lease for the whole run and drives the runtime loop. While a run owns the session, no other writer drives the step loop.
+
+### Limited-Control Attach
+
+An interactive client attached to a session whose active runtime is owned by a run. It gets a live view plus steering (queued user messages) and the allowed controls (goal, settings, compaction, worktree, process view), but not controller ownership. A limited-control attach to a running workflow task may steer and chat as usual; the only workflow-specific limit is that the model cannot submit a structured-output final answer that is invalid for the node. When no active runtime is reachable for an attach, the failure surfaces as the typed runtime-unavailable error, not internal wording.
+
+### Goal
+
+A persistent self/user-declared objective with a continuation loop (nudges, suspend/resume, premature-stop reminders) that drives turns until the goal is completed, paused, or cleared. A goal may be set by the user or by the model itself, including inside a workflow run.
+
+### Goal Continuation Loop
+
+The driver that re-runs the step loop to keep working a goal across runs, injecting goal reminders. It does not run while a workflow run owns the session — the workflow turn loop is the single continuation driver there, and the goal stays a passive objective folded into the workflow's continuation nudge.

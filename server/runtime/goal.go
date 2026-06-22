@@ -94,6 +94,49 @@ func (e *Engine) ClearGoal(actor session.GoalActor) (session.GoalState, error) {
 	return goal, nil
 }
 
+func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion() {
+	if e == nil || e.store == nil {
+		return
+	}
+	if !e.WorkflowTerminalState().Completed {
+		return
+	}
+	goal := e.Goal()
+	if goal == nil || goal.Status != session.GoalStatusActive {
+		return
+	}
+	reportErr := func(err error) {
+		_ = e.steer("", steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto,
+			Role:       string(transcript.EntryRoleDeveloperErrorFeedback),
+			Text:       "Failed to auto-complete active goal on workflow completion: " + err.Error(),
+		}))
+	}
+	transcriptWorkingDir := e.transcriptWorkingDir()
+	var msg llm.Message
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	completed, transitioned, err := e.store.CompleteGoalIfActive(goal.ID, session.GoalActorSystem, func(g session.GoalState) ([]session.EventInput, error) {
+		msg = normalizeMessageForTranscript(llm.Message{
+			Role:           llm.RoleDeveloper,
+			MessageType:    llm.MessageTypeGoal,
+			Content:        goalStatusPrompt(g),
+			CompactContent: goalStatusCompactText(g),
+		}, transcriptWorkingDir)
+		return []session.EventInput{{Kind: "message", Payload: msg}}, nil
+	})
+	if err != nil {
+		reportErr(err)
+		return
+	}
+	if !transitioned {
+		return
+	}
+	if err := e.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, false, []llm.Message{msg}), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(completed))); err != nil {
+		reportErr(err)
+	}
+}
+
 func goalStatusUpdateFromState(goal session.GoalState) GoalStatusUpdate {
 	return GoalStatusUpdate{State: goal}
 }
@@ -116,6 +159,9 @@ func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 	}
 	e.ensureOrchestrationCollaborators()
 	if !e.goalActive() {
+		return nil
+	}
+	if e.workflowRunActive() {
 		return nil
 	}
 	if err := e.requireAskQuestionForGoalLoopStart(); err != nil {
@@ -151,7 +197,7 @@ func (e *Engine) finishGoalLoop() {
 func (e *Engine) runGoalLoop(ctx context.Context, firstTurnAlreadyPrompted bool) {
 	appendNudge := !firstTurnAlreadyPrompted
 	for {
-		if !e.shouldContinueGoalLoop() {
+		if !e.shouldContinueGoalLoop(ctx) {
 			return
 		}
 		if _, err := e.runGoalTurn(ctx, appendNudge); err != nil {
@@ -174,12 +220,12 @@ func (e *Engine) runGoalTurn(ctx context.Context, appendNudge bool) (assistant l
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		goal := e.Goal()
-		if goal == nil || goal.Status != session.GoalStatusActive {
+		nudge, active := e.goalContinuation().nudgeMessage()
+		if !active {
 			return errGoalLoopInactive
 		}
 		if appendNudge {
-			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status)), CompactContent: goalNudgeCompactText(*goal)}, e.transcriptWorkingDir())})); err != nil {
+			if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{nudge})); err != nil {
 				return err
 			}
 		}
@@ -223,11 +269,18 @@ func (e *Engine) recordGoalLoopError(err error) {
 	e.SetOngoingError(message)
 }
 
-func (e *Engine) shouldContinueGoalLoop() bool {
+func (e *Engine) shouldContinueGoalLoop(ctx context.Context) bool {
 	if e == nil {
 		return false
 	}
-	return !e.goalLoopState().Suspended() && e.goalActive()
+	if e.goalLoopState().Suspended() {
+		return false
+	}
+	outcome, err := e.goalContinuation().Evaluate(ctx, llm.Message{})
+	if err != nil {
+		return false
+	}
+	return !outcome.Done
 }
 
 func (e *Engine) goalActive() bool {

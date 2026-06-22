@@ -14,13 +14,9 @@ import (
 )
 
 const noGoalHint = "No goal to manage yet. First, start a goal with /goal <objective>"
-const workflowGoalUnavailableMessage = "Goal control is unavailable for workflow task sessions"
 
 func (c uiInputController) handleGoalCommand(mode commands.GoalMode, objective string) (tea.Model, tea.Cmd) {
 	m := c.model
-	if m.workflowSessionActive() {
-		return m, m.sendTransientStatusWithNoticeID(workflowGoalUnavailableMessage, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-	}
 	switch mode {
 	case commands.GoalModeShow, "":
 		return m, c.startGoalFlowCmd()

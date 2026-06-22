@@ -86,7 +86,7 @@ func (a collaborativeMutationRuntimeAccess) SyncExecutionTarget(ctx context.Cont
 		return errors.New("execution target effective workdir is required")
 	}
 	if a.guard == nil {
-		return errors.New("collaborative runtime guard is unavailable")
+		return errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("worktree control is unavailable for this session's active runtime"))
 	}
 	if err := a.guard.Rebind(trimmedWorkdir); err != nil {
 		return err
@@ -883,11 +883,11 @@ func (s *Service) beginMutationRuntimeAccess(ctx context.Context, sessionID stri
 		return nil, serverapi.ErrInvalidControllerLease
 	}
 	if err := collaborative.WithCollaborativeRuntimeEngine(ctx, sessionID, serverapi.SessionRuntimeOperationWorktreeManage, func(*runtimepkg.Engine) error {
-		return errors.New("collaborative runtime guard is unavailable")
+		return errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("worktree control is unavailable for this session's active runtime"))
 	}); err != nil {
 		return nil, err
 	}
-	return nil, errors.New("collaborative runtime guard is unavailable")
+	return nil, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("worktree control is unavailable for this session's active runtime"))
 }
 
 func (s *Service) acquireWorkspaceMutationLock(workspaceID string) primaryrun.Lease {

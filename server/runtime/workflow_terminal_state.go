@@ -67,10 +67,17 @@ func (e *Engine) setWorkflowTerminalState(source WorkflowCompletionSource) {
 	if e == nil || !e.workflowRunActive() {
 		return
 	}
+	transitioned := e.recordWorkflowTerminalState(source)
+	if transitioned {
+		e.cascadeCompleteActiveGoalOnWorkflowCompletion()
+	}
+}
+
+func (e *Engine) recordWorkflowTerminalState(source WorkflowCompletionSource) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.workflowTerminal.Completed {
-		return
+		return false
 	}
 	e.workflowTerminal = WorkflowTerminalState{
 		Completed:   true,
@@ -79,4 +86,5 @@ func (e *Engine) setWorkflowTerminalState(source WorkflowCompletionSource) {
 		Source:      source,
 		CompletedAt: time.Now(),
 	}
+	return true
 }
