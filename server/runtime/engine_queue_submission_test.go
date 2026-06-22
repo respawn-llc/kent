@@ -386,12 +386,8 @@ func (m *blockingQueueMessageLifecycle) RestoreMessages() error {
 	return m.wrapped.RestoreMessages()
 }
 
-func (m *blockingQueueMessageLifecycle) FlushPendingUserInjections(stepID string) (int, error) {
-	return m.wrapped.FlushPendingUserInjections(stepID)
-}
-
-func (m *blockingQueueMessageLifecycle) FlushPendingUserInjectionsByID(stepID string, queueItemIDs map[string]struct{}) (int, error) {
-	return m.wrapped.FlushPendingUserInjectionsByID(stepID, queueItemIDs)
+func (m *blockingQueueMessageLifecycle) FlushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
+	return m.wrapped.FlushPendingUserInjections(stepID, queueItemIDs)
 }
 
 func (m *blockingQueueMessageLifecycle) DrainPendingUserInjections() []QueuedUserMessage {

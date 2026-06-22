@@ -297,14 +297,9 @@ func flushedUserMessageEvent(msg llm.Message, stepID string) *Event {
 	return &Event{Kind: EventUserMessageFlushed, StepID: stepID, UserMessage: msg.Content, UserMessageBatch: []string{msg.Content}, CommittedTranscriptChanged: true}
 }
 
-func (e *Engine) flushPendingUserInjections(stepID string) (int, error) {
+func (e *Engine) flushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
 	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.FlushPendingUserInjections(stepID)
-}
-
-func (e *Engine) flushPendingUserInjectionsByID(stepID string, queueItemIDs map[string]struct{}) (int, error) {
-	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.FlushPendingUserInjectionsByID(stepID, queueItemIDs)
+	return e.messageFlow.FlushPendingUserInjections(stepID, queueItemIDs)
 }
 
 // resolveGlobalConfigDir returns the directory that owns model-visible global

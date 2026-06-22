@@ -32,7 +32,7 @@ func (e *Engine) submitQueuedUserMessages(ctx context.Context, queueItemIDs map[
 			if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 				return err
 			}
-			flushed, err := e.flushQueuedUserInjections(stepID, queueItemIDs)
+			flushed, err := e.flushPendingUserInjections(stepID, queueItemIDs)
 			if err != nil {
 				return err
 			}
@@ -53,13 +53,6 @@ func (e *Engine) submitQueuedUserMessages(ctx context.Context, queueItemIDs map[
 		case <-time.After(queuedUserSubmissionBusyRetryDelay):
 		}
 	}
-}
-
-func (e *Engine) flushQueuedUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
-	if len(queueItemIDs) == 0 {
-		return e.flushPendingUserInjections(stepID)
-	}
-	return e.flushPendingUserInjectionsByID(stepID, queueItemIDs)
 }
 
 func (e *Engine) HasQueuedUserWork() bool {

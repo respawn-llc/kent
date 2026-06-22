@@ -67,8 +67,7 @@ type toolExecutor interface {
 
 type messageLifecycle interface {
 	RestoreMessages() error
-	FlushPendingUserInjections(stepID string) (int, error)
-	FlushPendingUserInjectionsByID(stepID string, queueItemIDs map[string]struct{}) (int, error)
+	FlushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error)
 	DrainPendingUserInjections() []QueuedUserMessage
 	QueueUserMessage(text string, clientRequestID string) QueuedUserMessage
 	DiscardQueuedUserMessage(queueItemID string) (QueuedUserMessage, bool)

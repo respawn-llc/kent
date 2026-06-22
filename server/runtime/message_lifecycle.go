@@ -263,13 +263,16 @@ func queuedUserMessagesForFlush(messages []queuedUserSteeringIntent) []QueuedUse
 	return items
 }
 
-func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int, error) {
-	pending := m.queue.Drain()
-	return m.flushPendingUserInjections(stepID, pending)
-}
-
-func (m *defaultMessageLifecycle) FlushPendingUserInjectionsByID(stepID string, queueItemIDs map[string]struct{}) (int, error) {
-	pending := m.queue.DrainByID(queueItemIDs)
+// FlushPendingUserInjections flushes queued user injections for the step. An empty
+// queueItemIDs flushes every pending injection; a non-empty set flushes only those
+// IDs.
+func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string, queueItemIDs map[string]struct{}) (int, error) {
+	var pending []queuedUserSteeringIntent
+	if len(queueItemIDs) == 0 {
+		pending = m.queue.Drain()
+	} else {
+		pending = m.queue.DrainByID(queueItemIDs)
+	}
 	return m.flushPendingUserInjections(stepID, pending)
 }
 
