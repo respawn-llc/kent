@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"core/prompts"
@@ -64,7 +65,7 @@ func (e *Engine) ensureMainPromptFacingContractFresh(ctx context.Context, locked
 	if err != nil {
 		return session.LockedContract{}, err
 	}
-	return session.LockedContract{}, nil
+	return session.LockedContract{}, errors.New("locked main prompt snapshot refresh did not commit")
 }
 
 func (e *Engine) ensureReviewerPromptFresh(ctx context.Context) (string, bool, error) {
