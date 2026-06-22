@@ -16,10 +16,36 @@ type LockedContract struct {
 	ContextWindow     int                        `json:"context_window,omitempty"`
 	ContextPercent    int                        `json:"context_percent,omitempty"`
 	EnabledTools      []string                   `json:"enabled_tools,omitempty"`
+	HasEnabledTools   bool                       `json:"has_enabled_tools,omitempty"`
+	WebSearchMode     string                     `json:"web_search_mode,omitempty"`
 	ToolPreambles     *bool                      `json:"tool_preambles,omitempty"`
 	ModelCapabilities LockedModelCapabilities    `json:"model_capabilities,omitempty"`
 	ProviderContract  LockedProviderCapabilities `json:"provider_contract,omitempty"`
 	LockedAt          time.Time                  `json:"locked_at"`
+}
+
+type LockedMainPromptSnapshot struct {
+	SystemPrompt    string
+	HasSystemPrompt bool
+	ToolPreambles   *bool
+	ContextWindow   int
+	ContextPercent  int
+}
+
+type LockedReviewerPromptSnapshot struct {
+	ReviewerPrompt    string
+	HasReviewerPrompt bool
+}
+
+type LockedRequestShapeBackfill struct {
+	EnabledTools    []string
+	HasEnabledTools bool
+	WebSearchMode   string
+}
+
+type LockedContractMutationResult struct {
+	Committed bool
+	Locked    *LockedContract
 }
 
 type LockedModelCapabilities struct {

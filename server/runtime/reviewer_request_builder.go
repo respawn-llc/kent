@@ -33,7 +33,7 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient llm.Cl
 	if err != nil {
 		return llm.Request{}, err
 	}
-	systemPrompt, err := e.reviewerSystemPrompt()
+	systemPrompt, err := e.reviewerSystemPrompt(ctx)
 	if err != nil {
 		return llm.Request{}, err
 	}

@@ -40,6 +40,13 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 	if err != nil {
 		return requestBuildPlan{}, err
 	}
+	if _, err := e.lockedRequestShape(); err != nil {
+		return requestBuildPlan{}, err
+	}
+	locked, err = e.ensureMainPromptFacingContractFresh(ctx, locked)
+	if err != nil {
+		return requestBuildPlan{}, err
+	}
 
 	var workflowMode workflowruntime.CompletionMode
 	if e.workflowRunActive() {
@@ -51,7 +58,10 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 	}
 	var requestTools []llm.Tool
 	if allowTools {
-		requestTools = e.requestTools(ctx, workflowMode)
+		requestTools, err = e.requestTools(ctx, workflowMode)
+		if err != nil {
+			return requestBuildPlan{}, err
+		}
 	} else {
 		requestTools = []llm.Tool{}
 	}
@@ -123,7 +133,11 @@ func supportsPromptCacheKeyForClient(ctx context.Context, client llm.Client) boo
 }
 
 func (e *Engine) enableNativeWebSearch(ctx context.Context) (bool, error) {
-	if !tools.NeedsNativeWebSearch(e.cfg.EnabledTools, e.cfg.WebSearchMode) {
+	shape, err := e.lockedRequestShape()
+	if err != nil {
+		return false, err
+	}
+	if !tools.NeedsNativeWebSearch(shape.EnabledTools, shape.WebSearchMode) {
 		return false, nil
 	}
 	caps, err := e.providerCapabilities(ctx)
@@ -170,6 +184,16 @@ func (e *Engine) systemPrompt(locked session.LockedContract) (string, error) {
 	return prompt, nil
 }
 
+func (e *Engine) systemPromptWithoutBackfill(locked session.LockedContract) (string, error) {
+	if locked.HasSystemPrompt {
+		return strings.TrimSpace(locked.SystemPrompt), nil
+	}
+	if prompt := strings.TrimSpace(locked.SystemPrompt); prompt != "" {
+		return prompt, nil
+	}
+	return e.buildSystemPromptSnapshotForRoot(locked, e.systemPromptWorkspaceRoot())
+}
+
 func (e *Engine) estimatedToolCallsForLockedContext(locked session.LockedContract) int {
 	budget := e.promptContextBudget(locked)
 	return compactionutil.EstimatedToolCallsForContextWindow(budget.window, budget.percent)
@@ -181,6 +205,9 @@ type promptContextBudget struct {
 }
 
 func (e *Engine) promptContextBudget(locked session.LockedContract) promptContextBudget {
+	if locked.ContextWindow > 0 && locked.ContextPercent > 0 {
+		return promptContextBudget{window: locked.ContextWindow, percent: locked.ContextPercent}
+	}
 	budget := e.promptContextBudgetFromConfig()
 	if locked.ContextWindow > 0 {
 		budget.window = locked.ContextWindow
@@ -247,20 +274,24 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 	return out
 }
 
-func (e *Engine) requestTools(ctx context.Context, workflowMode workflowruntime.CompletionMode) []llm.Tool {
+func (e *Engine) requestTools(ctx context.Context, workflowMode workflowruntime.CompletionMode) ([]llm.Tool, error) {
 	workflowToolMode := workflowMode == workflowruntime.CompletionModeTool
+	shape, err := e.lockedRequestShape()
+	if err != nil {
+		return nil, err
+	}
 	exposure := tools.RequestExposureContext{
 		SupportsVision:     llm.LockedContractSupportsVisionInputs(e.store.Meta().Locked, e.cfg.Model),
 		WorkflowCompletion: workflowToolMode,
 	}
-	defs := tools.RequestExposedDefinitionsForSession(e.cfg.EnabledTools, e.registry.Definitions(), exposure)
+	defs := tools.RequestExposedDefinitionsForSession(shape.EnabledTools, e.registry.Definitions(), exposure)
 	if workflowToolMode {
 		if def, ok := tools.DefinitionFor(toolspec.ToolCompleteNode); ok && !definitionListContains(defs, toolspec.ToolCompleteNode) {
 			defs = append(defs, def)
 		}
 	}
 	if len(defs) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make([]llm.Tool, 0, len(defs))
 	customPatchSupported := e.supportsCustomPatchTool(ctx)
@@ -279,7 +310,7 @@ func (e *Engine) requestTools(ctx context.Context, workflowMode workflowruntime.
 		}
 		out = append(out, tool)
 	}
-	return out
+	return out, nil
 }
 
 func definitionListContains(defs []tools.Definition, id toolspec.ID) bool {

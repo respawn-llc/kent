@@ -141,8 +141,10 @@
 - Workspace relocation/rebinding is explicit user action; Kent does not infer auto-rebinds.
 - Session metadata authority lives in SQLite. `session.json` is removed from authoritative layout.
 - Interactive session creation is lazily durable.
-- Session start/setup becomes immutable at first model request dispatch, except thinking level can change on resume.
-- Lock covers model, core generation params, enabled tools, tool schema/description snapshot, and system prompt snapshot.
+- Session start/setup becomes immutable at first model request dispatch, except thinking level can change on resume and system/reviewer prompt snapshots can refresh after successful compaction.
+- Lock covers model, core generation params, enabled tool IDs, native web-search mode, and system/reviewer prompt snapshots. Model/core generation fields, active enabled tool IDs, and native web-search mode remain locked for the session lifetime; system/reviewer prompt snapshot fields are locked per compaction generation. Developer meta context messages are transcript entries, not lazy-refreshed lock snapshots. Tool declarations for locked tool IDs are runtime-defined and are not persisted as session snapshots.
+- Locked enabled tool IDs distinguish explicit empty tool sets from legacy missing metadata with a presence field; explicit empty sets are authoritative.
+- Legacy request-shape locks that lack enabled-tool presence or native web-search mode are backfilled before use; failed backfill blocks request/launch planning instead of using mutable config fallback.
 - Transcript message order is immutable for cache stability.
 - Canonical model context/history is stored as Responses API input items; message-only chat is UI projection.
 - `events.jsonl` is append-only on normal writes; periodic compaction rewrites canonical JSONL to control growth.
@@ -202,6 +204,9 @@
 - Main-agent OpenAI `session_id` remains the persisted Kent session ID for the conversation lifetime.
 - Prompt-cache lineage rotates by compaction generation: base `<session_id>`, then `<session_id>/compact-N`.
 - Supervisor/reviewer cache lineage uses `<session_id>/supervisor` with the same compaction generation counter.
+- After successful history replacement, Kent clears stale system/reviewer prompt snapshots from the locked contract. The next model request lazily reloads effective config, preserves locked model/provider/generation fields and active enabled tool IDs, refreshes system/reviewer prompt snapshots, then persists the refreshed lock for the new generation. The no-marker design accepts the existing file-store crash window where `history_replaced` can be durable before prompt snapshot clearing is durable.
+- The compaction request itself uses the stored pre-compaction contract when one exists. Refreshed system/reviewer prompt snapshots apply only to ordinary requests sent after successful history replacement. A repeat compaction before lazy refresh starts from the cleared prompt snapshot state and uses a non-mutating prompt resolver rather than preserving or persisting the previous prompt.
+- If lazy snapshot refresh fails, Kent blocks the model request with a clear error, leaves the pre-refresh lock state unchanged, and retries refresh on a later request after configuration is fixed.
 - Local compaction instructions are final `developer` messages. Runtime rejects any tool calls returned by local compaction.
 - Local compaction summary generation reuses the normal main-agent request envelope and changes only request items by appending compaction instructions.
 - If native or local compaction exceeds provider context length, Kent retries by collapsing supported historical tool payloads in the compaction request only. The four total attempts are the original request, then cumulative collapse targets of 10%, 20%, and 40% of the model context window. Shell outputs, including `exec_command` and `write_stdin` outputs, and patch inputs collapse to exact text `<collapsed>`; tool calls and call/output relationships remain present. Reasoning items and unsupported tool payloads are not removed or collapsed. Successful repaired compaction persists an operator-visible diagnostic with collapse counts and estimated omitted tokens.

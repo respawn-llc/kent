@@ -62,6 +62,32 @@ func TestActiveToolIDsLockedSessionPreservesPatchAndEdit(t *testing.T) {
 	}
 }
 
+func TestActiveToolIDsLockedSessionPreservesExplicitZeroTools(t *testing.T) {
+	settings := validLaunchSettings("gpt-5.5")
+	locked := &session.LockedContract{HasEnabledTools: true}
+
+	ids, err := ActiveToolIDsForPlan(settings, defaultToolSources(), locked)
+	if err != nil {
+		t.Fatalf("ActiveToolIDsForPlan: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("enabled tools = %+v, want explicit zero-tool lock", ids)
+	}
+}
+
+func TestActiveToolIDsLegacyMissingLockUsesEffectiveConfig(t *testing.T) {
+	settings := validLaunchSettings("gpt-5.5")
+	locked := &session.LockedContract{}
+
+	ids, err := ActiveToolIDsForPlan(settings, defaultToolSources(), locked)
+	if err != nil {
+		t.Fatalf("ActiveToolIDsForPlan: %v", err)
+	}
+	if !containsTool(ids, toolspec.ToolPatch) {
+		t.Fatalf("enabled tools = %+v, want effective config fallback for legacy missing lock", ids)
+	}
+}
+
 func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 	store := createTestSession(t, t.TempDir())
 	settings := validLaunchSettings("gpt-5.5")

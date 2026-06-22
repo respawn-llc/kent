@@ -115,6 +115,57 @@ func TestReviewerSystemPromptFileIsLazyLockedAndReused(t *testing.T) {
 	}
 }
 
+func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T) {
+	workspace := t.TempDir()
+	reviewerPromptPath := filepath.Join(workspace, "reviewer.md")
+	writeTestFile(t, reviewerPromptPath, "reviewer A")
+	autoCompactionEnabled := false
+	store := mustCreateTestSession(t, workspace)
+	mainClient := &fakeClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}, Usage: llm.Usage{WindowTokens: 200000}},
+	}}
+	reviewerClient := &fakeClient{}
+	eng := mustNewExecTestEngine(t, store, mainClient, Config{
+		CompactionMode:        "local",
+		AutoCompactionEnabled: &autoCompactionEnabled,
+		Reviewer: ReviewerConfig{
+			Frequency:        "all",
+			Model:            "gpt-5",
+			SystemPromptFile: reviewerPromptPath,
+			Client:           reviewerClient,
+		},
+	})
+	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	reviewerReq, err := eng.buildReviewerRequest(context.Background(), reviewerClient)
+	if err != nil {
+		t.Fatalf("build reviewer before compaction: %v", err)
+	}
+	if reviewerReq.SystemPrompt != "reviewer A" {
+		t.Fatalf("reviewer before compaction = %q, want reviewer A", reviewerReq.SystemPrompt)
+	}
+	writeTestFile(t, reviewerPromptPath, "reviewer B")
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	mainLocked := store.Meta().Locked
+	if mainLocked == nil || mainLocked.HasSystemPrompt || mainLocked.HasReviewerPrompt {
+		t.Fatalf("locked prompts after compaction = %+v, want both stale", mainLocked)
+	}
+	reviewerReq, err = eng.buildReviewerRequest(context.Background(), reviewerClient)
+	if err != nil {
+		t.Fatalf("build reviewer after compaction: %v", err)
+	}
+	if reviewerReq.SystemPrompt != "reviewer B" {
+		t.Fatalf("reviewer after compaction = %q, want reviewer B", reviewerReq.SystemPrompt)
+	}
+	if locked := store.Meta().Locked; locked == nil || locked.SystemPrompt != "" || !locked.HasReviewerPrompt || locked.ReviewerPrompt != "reviewer B" {
+		t.Fatalf("locked prompts after reviewer refresh = %+v", locked)
+	}
+}
+
 func TestReviewerSystemPromptFileResolvesTilde(t *testing.T) {
 	home := t.TempDir()
 	dir := t.TempDir()
