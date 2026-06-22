@@ -74,7 +74,19 @@ func NormalizeDefaultTranscriptRequest(req clientui.TranscriptPageRequest) clien
 	if req == (clientui.TranscriptPageRequest{}) {
 		return clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}
 	}
+	if !isKnownTranscriptWindow(req.Window) {
+		req.Window = clientui.TranscriptWindowRecentTail
+	}
 	return req
+}
+
+func isKnownTranscriptWindow(window clientui.TranscriptWindow) bool {
+	switch window {
+	case clientui.TranscriptWindowDefault, clientui.TranscriptWindowRecentTail:
+		return true
+	default:
+		return false
+	}
 }
 
 func transcriptOffsetAndLimit(req clientui.TranscriptPageRequest) (int, int) {

@@ -665,6 +665,26 @@ func TestTranscriptPageFromRuntimeUsesRecentTailWindowByDefault(t *testing.T) {
 	}
 }
 
+func TestTranscriptPageFromRuntimeFallsBackToRecentTailForUnknownWindow(t *testing.T) {
+	store := newRuntimeViewStore(t)
+	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
+
+	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Window: clientui.TranscriptWindow("ongoing_tail")})
+	if page.TotalEntries != 600 {
+		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
+	}
+	if page.Offset != 100 {
+		t.Fatalf("offset = %d, want 100", page.Offset)
+	}
+	if page.HasMore {
+		t.Fatalf("expected unknown window to fall back to bounded tail, got %+v", page)
+	}
+	if len(page.Entries) != 500 {
+		t.Fatalf("entries = %d, want 500", len(page.Entries))
+	}
+}
+
 func TestTranscriptPageFromRuntimeUsesIncrementalRecentTailWhenClientKnowsRecentRevision(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
