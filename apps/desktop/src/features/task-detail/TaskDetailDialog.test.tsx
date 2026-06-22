@@ -406,6 +406,7 @@ describe("TaskDetailSurface", () => {
       });
     });
 
+    fireEvent.focus(screen.getByRole("textbox", { name: "Description" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
       target: { value: "Updated details" },
     });
@@ -438,6 +439,7 @@ describe("TaskDetailSurface", () => {
     expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Resolve blocker");
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
 
+    fireEvent.focus(screen.getByRole("textbox", { name: "Description" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
       target: { value: "Updated description only" },
     });
@@ -514,7 +516,8 @@ describe("TaskDetailSurface", () => {
     render(<App services={services} />);
 
     const description = await screen.findByRole("textbox", { name: "Description" });
-    fireEvent.change(description, { target: { value: "Half-written notes" } });
+    fireEvent.focus(description);
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), { target: { value: "Half-written notes" } });
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
 
     // The task advances on the server and an event fires; the in-progress edit
