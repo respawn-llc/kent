@@ -40,7 +40,16 @@ func (r SessionMainViewRequest) Validate() error {
 }
 
 func (r SessionTranscriptPageRequest) Validate() error {
-	return validateRequiredSessionID(r.SessionID)
+	if err := validateRequiredSessionID(r.SessionID); err != nil {
+		return err
+	}
+	if r.Cursor < 0 || r.NewerCursor < 0 {
+		return errors.New("cursor values must be >= 0")
+	}
+	if r.Cursor > 0 && r.NewerCursor > 0 {
+		return errors.New("cursor and newer_cursor are mutually exclusive")
+	}
+	return nil
 }
 
 func (r SessionCommittedTranscriptSuffixRequest) Validate() error {
