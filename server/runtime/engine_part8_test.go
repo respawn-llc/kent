@@ -274,15 +274,15 @@ func TestSubmitUserMessageSurfacesInFlightClearFailure(t *testing.T) {
 	if !reopened.Meta().InFlightStep {
 		t.Fatalf("expected persisted in-flight flag to remain true after clear failure")
 	}
-	runs, err := reopened.ReadRuns()
+	latest, err := reopened.LatestRun()
 	if err != nil {
-		t.Fatalf("read durable runs after reopen: %v", err)
+		t.Fatalf("read durable run after reopen: %v", err)
 	}
-	if len(runs) != 1 {
-		t.Fatalf("expected durable run lifecycle to persist despite clear failure, got %+v", runs)
+	if latest == nil {
+		t.Fatalf("expected durable run lifecycle to persist despite clear failure")
 	}
-	if runs[0].Status != session.RunStatusCompleted || runs[0].FinishedAt.IsZero() {
-		t.Fatalf("expected terminal durable run after clear failure, got %+v", runs[0])
+	if latest.Status != session.RunStatusCompleted || latest.FinishedAt.IsZero() {
+		t.Fatalf("expected terminal durable run after clear failure, got %+v", latest)
 	}
 }
 

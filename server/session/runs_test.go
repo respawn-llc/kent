@@ -5,7 +5,19 @@ import (
 	"time"
 )
 
-func TestStoreReadRunsReconstructsDurableHistoryAfterReopen(t *testing.T) {
+func collectStoreEvents(t *testing.T, store *Store) []Event {
+	t.Helper()
+	var events []Event
+	if err := store.WalkEvents(func(evt Event) error {
+		events = append(events, evt)
+		return nil
+	}); err != nil {
+		t.Fatalf("collect events: %v", err)
+	}
+	return events
+}
+
+func TestProjectRunsReconstructsDurableHistory(t *testing.T) {
 	store := newSessionTestStore(t)
 
 	run1Start := time.Now().UTC().Add(-2 * time.Minute)
@@ -30,10 +42,7 @@ func TestStoreReadRunsReconstructsDurableHistoryAfterReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	runs, err := reopened.ReadRuns()
-	if err != nil {
-		t.Fatalf("read runs: %v", err)
-	}
+	runs := ProjectRuns(collectStoreEvents(t, reopened))
 	if len(runs) != 2 {
 		t.Fatalf("expected 2 runs, got %+v", runs)
 	}
@@ -42,6 +51,21 @@ func TestStoreReadRunsReconstructsDurableHistoryAfterReopen(t *testing.T) {
 	}
 	if runs[1].RunID != "run-2" || runs[1].Status != RunStatusInterrupted || !runs[1].StartedAt.Equal(run2Start) || !runs[1].FinishedAt.Equal(run2Finish) {
 		t.Fatalf("unexpected second run: %+v", runs[1])
+	}
+
+	latest, err := reopened.LatestRun()
+	if err != nil {
+		t.Fatalf("latest run after reopen: %v", err)
+	}
+	if latest == nil || latest.RunID != "run-2" || latest.Status != RunStatusInterrupted {
+		t.Fatalf("unexpected latest run after reopen: %+v", latest)
+	}
+	found, err := reopened.FindRecentRun("run-1")
+	if err != nil {
+		t.Fatalf("find recent run-1: %v", err)
+	}
+	if found == nil || found.RunID != "run-1" || found.Status != RunStatusCompleted {
+		t.Fatalf("unexpected find-recent run-1: %+v", found)
 	}
 }
 
@@ -74,7 +98,7 @@ func TestStoreLatestRunReturnsNewestDurableRun(t *testing.T) {
 	}
 }
 
-func TestStoreReadRunsTreatsStartedWithoutFinishAsRunning(t *testing.T) {
+func TestLatestRunTreatsStartedWithoutFinishAsRunningAfterReopen(t *testing.T) {
 	store := newSessionTestStore(t)
 
 	startedAt := time.Now().UTC().Add(-time.Minute)
@@ -86,15 +110,12 @@ func TestStoreReadRunsTreatsStartedWithoutFinishAsRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	runs, err := reopened.ReadRuns()
+	latest, err := reopened.LatestRun()
 	if err != nil {
-		t.Fatalf("read runs: %v", err)
+		t.Fatalf("latest run: %v", err)
 	}
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run, got %+v", runs)
-	}
-	if runs[0].RunID != "run-1" || runs[0].Status != RunStatusRunning || !runs[0].StartedAt.Equal(startedAt) || !runs[0].FinishedAt.IsZero() {
-		t.Fatalf("unexpected running run reconstruction: %+v", runs[0])
+	if latest == nil || latest.RunID != "run-1" || latest.Status != RunStatusRunning || !latest.StartedAt.Equal(startedAt) || !latest.FinishedAt.IsZero() {
+		t.Fatalf("unexpected running run reconstruction: %+v", latest)
 	}
 }
 

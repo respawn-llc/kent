@@ -164,6 +164,7 @@ type Meta struct {
 	Goal                            *GoalState             `json:"goal,omitempty"`
 	WorkflowSession                 *WorkflowSessionState  `json:"workflow_session,omitempty"`
 	Locked                          *LockedContract        `json:"locked,omitempty"`
+	LatestRun                       *RunRecord             `json:"latest_run,omitempty"`
 }
 
 type WorkflowSessionState struct {

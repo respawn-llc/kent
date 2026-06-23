@@ -48,14 +48,10 @@ func SnapshotFromDir(dir string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	runs, err := store.ReadRuns()
-	if err != nil {
-		return Snapshot{}, err
-	}
 	return Snapshot{
 		Meta:                  store.Meta(),
 		Events:                events,
-		Runs:                  runs,
+		Runs:                  session.ProjectRuns(events),
 		ConversationFreshness: store.ConversationFreshness(),
 	}, nil
 }

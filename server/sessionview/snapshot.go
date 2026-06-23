@@ -363,15 +363,12 @@ func (s dormantSessionSnapshot) Run(_ context.Context, runID string) (*clientui.
 }
 
 func runViewFromStore(store *session.Store, runID string) (*clientui.RunView, error) {
-	runs, err := store.ReadRuns()
+	run, err := store.FindRecentRun(runID)
 	if err != nil {
 		return nil, err
 	}
-	for _, run := range runs {
-		if run.RunID == runID {
-			copyRun := run
-			return runtimeview.RunViewFromSessionRecord(store.Meta().SessionID, &copyRun), nil
-		}
+	if run == nil {
+		return nil, fmt.Errorf("run %q not found", runID)
 	}
-	return nil, fmt.Errorf("run %q not found", runID)
+	return runtimeview.RunViewFromSessionRecord(store.Meta().SessionID, run), nil
 }

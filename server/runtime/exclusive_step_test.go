@@ -203,15 +203,12 @@ func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
 	if finished.FinishedAt.Before(finished.StartedAt) {
 		t.Fatalf("expected finished timestamp after start, got %+v", finished)
 	}
-	runs, err := store.ReadRuns()
+	latest, err := store.LatestRun()
 	if err != nil {
-		t.Fatalf("read runs: %v", err)
+		t.Fatalf("latest run: %v", err)
 	}
-	if len(runs) != 1 {
-		t.Fatalf("expected one durable run, got %+v", runs)
-	}
-	if runs[0].RunID != started.RunID || runs[0].Status != session.RunStatusCompleted {
-		t.Fatalf("unexpected durable run record: %+v", runs[0])
+	if latest == nil || latest.RunID != started.RunID || latest.Status != session.RunStatusCompleted {
+		t.Fatalf("unexpected durable run record: %+v", latest)
 	}
 }
 
@@ -272,15 +269,12 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 	if finished.FinishedAt.IsZero() || finished.StartedAt.IsZero() {
 		t.Fatalf("expected interrupted payload timestamps, got %+v", finished)
 	}
-	runs, err := store.ReadRuns()
+	latest, err := store.LatestRun()
 	if err != nil {
-		t.Fatalf("read runs: %v", err)
+		t.Fatalf("latest run: %v", err)
 	}
-	if len(runs) != 1 {
-		t.Fatalf("expected one durable run, got %+v", runs)
-	}
-	if runs[0].RunID != startedEvent.RunID || runs[0].Status != session.RunStatusInterrupted {
-		t.Fatalf("unexpected durable interrupted run: %+v", runs[0])
+	if latest == nil || latest.RunID != startedEvent.RunID || latest.Status != session.RunStatusInterrupted {
+		t.Fatalf("unexpected durable interrupted run: %+v", latest)
 	}
 }
 
@@ -300,18 +294,15 @@ func TestExclusiveStepLifecyclePersistsPanicsAsFailedRuns(t *testing.T) {
 		})
 	}()
 
-	runs, err := store.ReadRuns()
+	latest, err := store.LatestRun()
 	if err != nil {
-		t.Fatalf("read runs: %v", err)
+		t.Fatalf("latest run: %v", err)
 	}
-	if len(runs) != 1 {
-		t.Fatalf("expected one durable run, got %+v", runs)
+	if latest == nil || latest.Status != session.RunStatusFailed {
+		t.Fatalf("expected panic to persist as failed run, got %+v", latest)
 	}
-	if runs[0].Status != session.RunStatusFailed {
-		t.Fatalf("expected panic to persist as failed run, got %+v", runs[0])
-	}
-	if runs[0].FinishedAt.IsZero() {
-		t.Fatalf("expected failed run to be finished, got %+v", runs[0])
+	if latest.FinishedAt.IsZero() {
+		t.Fatalf("expected failed run to be finished, got %+v", latest)
 	}
 }
 
@@ -443,12 +434,12 @@ func TestExclusiveStepLifecycleCanEmitRunStateWithoutPersistingDurableRun(t *tes
 	if runEvents := collectRunStateEvents(events); len(runEvents) != 2 {
 		t.Fatalf("expected run-state events, got %+v", runEvents)
 	}
-	runs, err := store.ReadRuns()
+	latest, err := store.LatestRun()
 	if err != nil {
-		t.Fatalf("read runs: %v", err)
+		t.Fatalf("latest run: %v", err)
 	}
-	if len(runs) != 0 {
-		t.Fatalf("expected no durable runs when persistence is disabled, got %+v", runs)
+	if latest != nil {
+		t.Fatalf("expected no durable runs when persistence is disabled, got %+v", latest)
 	}
 }
 

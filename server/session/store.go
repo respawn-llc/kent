@@ -863,6 +863,7 @@ func (s *Store) AppendReplayEvents(events []ReplayEvent) ([]Event, error) {
 func (s *Store) appendObservedEventsLockedWithCommitStatus(events []Event) (bool, error) {
 	s.captureFirstPromptPreviewLocked(events)
 	s.advanceConversationFreshnessLocked(events)
+	s.updateLatestRunLocked(events)
 	observation, committed, err := s.appendEventsAtomicLockedWithCommitStatus(events)
 	s.mu.Unlock()
 	if err != nil {
