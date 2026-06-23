@@ -14,11 +14,9 @@ const (
 )
 
 const (
-	defaultEventLogFSyncPolicy           = EventLogFSyncPeriodic
-	defaultEventLogFSyncIntervalWrites   = 16
-	defaultEventLogCompactionEveryWrites = 256
-	defaultEventLogCompactionMinBytes    = int64(4 * 1024 * 1024)
-	defaultPersistenceObserverTimeout    = 2 * time.Second
+	defaultEventLogFSyncPolicy         = EventLogFSyncPeriodic
+	defaultEventLogFSyncIntervalWrites = 16
+	defaultPersistenceObserverTimeout  = 2 * time.Second
 )
 
 type StoreOption func(*storeOptions)
@@ -33,22 +31,13 @@ type storeOptions struct {
 }
 
 type eventLogOptions struct {
-	fsyncPolicy           EventLogFSyncPolicy
-	fsyncIntervalWrites   int
-	compactionEveryWrites int
-	compactionMinBytes    int64
+	fsyncPolicy         EventLogFSyncPolicy
+	fsyncIntervalWrites int
 }
 
 func WithEventLogFSyncPolicy(policy EventLogFSyncPolicy) StoreOption {
 	return func(options *storeOptions) {
 		options.eventLog.fsyncPolicy = policy
-	}
-}
-
-func WithEventLogCompaction(everyWrites int, minBytes int64) StoreOption {
-	return func(options *storeOptions) {
-		options.eventLog.compactionEveryWrites = everyWrites
-		options.eventLog.compactionMinBytes = minBytes
 	}
 }
 
@@ -79,10 +68,8 @@ func WithClock(now func() time.Time) StoreOption {
 func normalizeStoreOptions(options ...StoreOption) storeOptions {
 	result := storeOptions{
 		eventLog: eventLogOptions{
-			fsyncPolicy:           defaultEventLogFSyncPolicy,
-			fsyncIntervalWrites:   defaultEventLogFSyncIntervalWrites,
-			compactionEveryWrites: defaultEventLogCompactionEveryWrites,
-			compactionMinBytes:    defaultEventLogCompactionMinBytes,
+			fsyncPolicy:         defaultEventLogFSyncPolicy,
+			fsyncIntervalWrites: defaultEventLogFSyncIntervalWrites,
 		},
 		observerTimeout: defaultPersistenceObserverTimeout,
 	}
@@ -117,12 +104,6 @@ func normalizeEventLogOptions(options eventLogOptions) eventLogOptions {
 	}
 	if options.fsyncIntervalWrites <= 0 {
 		options.fsyncIntervalWrites = defaultEventLogFSyncIntervalWrites
-	}
-	if options.compactionEveryWrites < 0 {
-		options.compactionEveryWrites = 0
-	}
-	if options.compactionMinBytes < 0 {
-		options.compactionMinBytes = 0
 	}
 	return options
 }

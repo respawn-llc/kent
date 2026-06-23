@@ -48,9 +48,8 @@ type Store struct {
 	metadataVersion       uint64
 	persistedMetaVersion  uint64
 	options               storeOptions
-	eventsFileSizeBytes   int64
-	pendingFsyncWrites    int
-	writesSinceCompaction int
+	eventsFileSizeBytes int64
+	pendingFsyncWrites  int
 }
 
 type persistenceObservation struct {
@@ -237,7 +236,6 @@ func (s *Store) RemoveDurable() error {
 	s.persisted = false
 	s.eventsFileSizeBytes = 0
 	s.pendingFsyncWrites = 0
-	s.writesSinceCompaction = 0
 	s.persistedMetaVersion = 0
 	return nil
 }
@@ -989,9 +987,6 @@ func (s *Store) appendEventsAtomicLockedWithCommitStatus(events []Event) (*persi
 	if err := s.ensurePersistedLocked(); err != nil {
 		return nil, false, err
 	}
-	if err := s.compactEventsIfNeededLocked(); err != nil {
-		return nil, false, err
-	}
 
 	if _, err := s.appendEventsLogLocked(events); err != nil {
 		return nil, false, err
@@ -1000,7 +995,6 @@ func (s *Store) appendEventsAtomicLockedWithCommitStatus(events []Event) (*persi
 		s.meta.LastSequence = e.Seq
 	}
 	s.meta.UpdatedAt = time.Now().UTC()
-	s.writesSinceCompaction++
 	snapshot, err := s.persistMetaLocked()
 	if err != nil {
 		return nil, true, err
@@ -1020,7 +1014,6 @@ func (s *Store) ensurePersistedLocked() error {
 	}
 	s.eventsFileSizeBytes = 0
 	s.pendingFsyncWrites = 0
-	s.writesSinceCompaction = 0
 	s.persisted = true
 	return nil
 }

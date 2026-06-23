@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -346,47 +345,6 @@ func TestOpenReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
 	}
 	if next.Seq != 3 {
 		t.Fatalf("expected seq=3 after reopen reconciliation, got %d", next.Seq)
-	}
-}
-
-func TestPeriodicCompactionRewritesCanonicalEventsLog(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(
-		root,
-		"workspace-x",
-		"/tmp/work",
-		WithEventLogCompaction(1, 1),
-		WithEventLogFSyncPolicy(EventLogFSyncNever),
-	)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
-		t.Fatalf("append event 1: %v", err)
-	}
-
-	fp, err := os.OpenFile(filepath.Join(store.Dir(), eventsFile), os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatalf("open events file: %v", err)
-	}
-	if _, err := fp.WriteString("\n\n"); err != nil {
-		_ = fp.Close()
-		t.Fatalf("append padding lines: %v", err)
-	}
-	if err := fp.Close(); err != nil {
-		t.Fatalf("close events file: %v", err)
-	}
-
-	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
-		t.Fatalf("append event 2: %v", err)
-	}
-
-	raw, err := os.ReadFile(filepath.Join(store.Dir(), eventsFile))
-	if err != nil {
-		t.Fatalf("read events file: %v", err)
-	}
-	if strings.Contains(string(raw), "\n\n") {
-		t.Fatalf("expected compaction to remove blank lines from events log")
 	}
 }
 

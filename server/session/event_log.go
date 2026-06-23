@@ -37,7 +37,6 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 			}
 			s.eventsFileSizeBytes = 0
 			s.pendingFsyncWrites = 0
-			s.writesSinceCompaction = 0
 			s.conversationFreshness = ConversationFreshnessFresh
 			if s.meta.LastSequence != 0 {
 				s.meta.LastSequence = 0
@@ -52,7 +51,6 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 	}
 	s.eventsFileSizeBytes = parsed.totalBytes
 	s.pendingFsyncWrites = 0
-	s.writesSinceCompaction = 0
 	s.conversationFreshness = freshness
 	if parsed.lastSequence != s.meta.LastSequence {
 		s.meta.LastSequence = parsed.lastSequence
@@ -61,39 +59,6 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 			return err
 		}
 	}
-	if parsed.droppedTrailingEOF {
-		if err := s.compactEventsLocked(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) compactEventsIfNeededLocked() error {
-	options := s.options.eventLog
-	if options.compactionEveryWrites == 0 {
-		return nil
-	}
-	if s.writesSinceCompaction < options.compactionEveryWrites {
-		return nil
-	}
-	if s.eventsFileSizeBytes < options.compactionMinBytes {
-		return nil
-	}
-	return s.compactEventsLocked()
-}
-
-func (s *Store) compactEventsLocked() error {
-	parsed, err := readEventsFile(s.eventsFP)
-	if err != nil {
-		return err
-	}
-	if err := writeEventsFile(s.eventsFP, parsed.events); err != nil {
-		return err
-	}
-	s.eventsFileSizeBytes = computeEventsJSONLSize(parsed.events)
-	s.writesSinceCompaction = 0
-	s.pendingFsyncWrites = 0
 	return nil
 }
 
@@ -208,15 +173,6 @@ func (s *Store) repairTrailingLineLocked(fp *os.File, fileSize int64) (bool, err
 	return false, nil
 }
 
-func readEventsFile(path string) (parsedEvents, error) {
-	fp, err := openRegularSessionFile(path, "events file")
-	if err != nil {
-		return parsedEvents{}, fmt.Errorf("open events file: %w", err)
-	}
-	defer fp.Close()
-	return parseEventsFromReader(bufio.NewReader(fp))
-}
-
 func walkEventsFile(path string, visit func(Event) error) (parsedEvents, error) {
 	fp, err := openRegularSessionFile(path, "events file")
 	if err != nil {
@@ -224,39 +180,6 @@ func walkEventsFile(path string, visit func(Event) error) (parsedEvents, error) 
 	}
 	defer fp.Close()
 	return walkEventsFromReader(bufio.NewReader(fp), visit)
-}
-
-func parseEventsFromReader(reader *bufio.Reader) (parsedEvents, error) {
-	out := make([]Event, 0)
-	totalBytes := int64(0)
-	droppedTrailingEOF := false
-	for {
-		line, readErr := reader.ReadString('\n')
-		totalBytes += int64(len(line))
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			var evt Event
-			if err := json.Unmarshal([]byte(trimmed), &evt); err != nil {
-				if errors.Is(readErr, io.EOF) && !strings.HasSuffix(line, "\n") {
-					droppedTrailingEOF = true
-					break
-				}
-				return parsedEvents{}, fmt.Errorf("parse event line: %w", err)
-			}
-			out = append(out, evt)
-		}
-		if errors.Is(readErr, io.EOF) {
-			break
-		}
-		if readErr != nil {
-			return parsedEvents{}, fmt.Errorf("read events line: %w", readErr)
-		}
-	}
-	lastSequence := int64(0)
-	if len(out) > 0 {
-		lastSequence = out[len(out)-1].Seq
-	}
-	return parsedEvents{events: out, totalBytes: totalBytes, lastSequence: lastSequence, droppedTrailingEOF: droppedTrailingEOF}, nil
 }
 
 func walkEventsFromReader(reader *bufio.Reader, visit func(Event) error) (parsedEvents, error) {
@@ -524,46 +447,6 @@ func writeAll(fp *os.File, payload []byte) (int, error) {
 		offset += written
 	}
 	return offset, nil
-}
-
-func writeEventsFile(path string, events []Event) error {
-	tmp := path + ".tmp"
-	fp, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("open events tmp file: %w", err)
-	}
-	for _, event := range events {
-		line, marshalErr := json.Marshal(event)
-		if marshalErr != nil {
-			_ = fp.Close()
-			return fmt.Errorf("marshal event line: %w", marshalErr)
-		}
-		line = append(line, '\n')
-		_, writeErr := writeAll(fp, line)
-		if writeErr != nil {
-			_ = fp.Close()
-			return writeErr
-		}
-	}
-	if err := fp.Close(); err != nil {
-		return fmt.Errorf("close events tmp file: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replace events file: %w", err)
-	}
-	return nil
-}
-
-func computeEventsJSONLSize(events []Event) int64 {
-	total := int64(0)
-	for _, event := range events {
-		line, err := json.Marshal(event)
-		if err != nil {
-			continue
-		}
-		total += int64(len(line) + 1)
-	}
-	return total
 }
 
 func lastNewlineOffset(fp *os.File, fileSize int64) (int64, error) {
