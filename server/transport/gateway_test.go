@@ -602,7 +602,6 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 		{name: "attach session", method: protocol.MethodAttachSession, requiresAuth: false},
 		{name: "session transcript page", method: protocol.MethodSessionGetTranscriptPage, requiresAuth: false},
 		{name: "process list", method: protocol.MethodProcessList, requiresAuth: false},
-		{name: "run get", method: protocol.MethodRunGet, requiresAuth: false},
 		{name: "session plan", method: protocol.MethodSessionPlan, requiresAuth: true},
 		{name: "persist input draft", method: protocol.MethodSessionPersistInputDraft, requiresAuth: true},
 		{name: "runtime submit", method: protocol.MethodRuntimeSubmitUserMessage, requiresAuth: true},

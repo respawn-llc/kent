@@ -146,7 +146,7 @@ func TestCommittedSuffixResponseWhileAssistantStreamingIsDeferredWithoutHasMoreC
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -223,7 +223,7 @@ func TestCommittedSuffixFinalizerResponseAppliesWhileGateIsActive(t *testing.T) 
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -266,7 +266,7 @@ func TestCommittedSuffixFinalizerResponseAppliesFromNativeStreamingSourceOnly(t 
 	}
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -304,7 +304,7 @@ func TestCommittedSuffixFinalizerResponseDoesNotBypassGateWhenActiveStepIsKnown(
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -357,7 +357,7 @@ func TestCommittedSuffixGateEvaluatesTrimmedSuffixRows(t *testing.T) {
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 2},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,

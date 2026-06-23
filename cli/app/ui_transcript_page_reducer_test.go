@@ -61,7 +61,7 @@ func TestReduceRuntimeTranscriptPagePreservesLiveOngoingForEqualRevisionDetailPa
 		viewMode:                tui.ModeDetail,
 		liveOngoing:             "working",
 		liveOngoingError:        "boom",
-	}), clientui.TranscriptPageRequest{Offset: 0, Limit: 1}, clientui.TranscriptPage{
+	}), clientui.TranscriptPageRequest{Cursor: 4096}, clientui.TranscriptPage{
 		Revision:     10,
 		Offset:       0,
 		TotalEntries: 1,

@@ -8,10 +8,7 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/clientui"
-	"core/shared/config"
 	"core/shared/serverapi"
-	"core/shared/transcript/patchformat"
 )
 
 func TestDormantTranscriptCacheReusesEntryForUnchangedRevision(t *testing.T) {
@@ -129,70 +126,6 @@ func TestDormantTranscriptCacheEvictsLeastRecentlyUsedEntry(t *testing.T) {
 	}
 	if buildCalls != 4 {
 		t.Fatalf("build calls = %d, want 4", buildCalls)
-	}
-}
-
-func TestDormantTranscriptPageCacheReturnsMutationSafeCopies(t *testing.T) {
-	cache := newDormantTranscriptPageCacheWithLimit(dormantTranscriptPageCacheMaxEntries)
-	key := dormantTranscriptPageCacheKey{
-		sessionDir:       "dir",
-		sessionID:        "session-1",
-		revision:         1,
-		cacheWarningMode: config.CacheWarningModeDefault,
-		cursor:           1024,
-	}
-	buildCalls := 0
-	build := func() (clientui.TranscriptPage, error) {
-		buildCalls++
-		return clientui.TranscriptPage{
-			SessionID: "session-1",
-			Entries: []clientui.ChatEntry{{
-				Role: "tool_call",
-				Text: "original",
-				ToolCall: &clientui.ToolCallMeta{
-					ToolName:    "patch",
-					Suggestions: []string{"first"},
-					RenderHint:  &clientui.ToolRenderHint{Path: "old"},
-					PatchRender: &patchformat.RenderedPatch{DetailLines: []patchformat.RenderedLine{{Text: "old diff"}}},
-				},
-			}},
-		}, nil
-	}
-
-	first, err := cache.getOrBuild(key, build)
-	if err != nil {
-		t.Fatalf("getOrBuild first: %v", err)
-	}
-	first.Entries[0].Text = "mutated"
-	first.Entries[0].ToolCall.ToolName = "mutated"
-	first.Entries[0].ToolCall.Suggestions[0] = "mutated"
-	first.Entries[0].ToolCall.RenderHint.Path = "mutated"
-	first.Entries[0].ToolCall.PatchRender.DetailLines[0].Text = "mutated"
-
-	second, err := cache.getOrBuild(key, build)
-	if err != nil {
-		t.Fatalf("getOrBuild second: %v", err)
-	}
-	if buildCalls != 1 {
-		t.Fatalf("build calls = %d, want 1", buildCalls)
-	}
-	entry := second.Entries[0]
-	if entry.Text != "original" || entry.ToolCall.ToolName != "patch" || entry.ToolCall.Suggestions[0] != "first" || entry.ToolCall.RenderHint.Path != "old" || entry.ToolCall.PatchRender.DetailLines[0].Text != "old diff" {
-		t.Fatalf("cached page mutated through returned copy: %+v", entry)
-	}
-}
-
-func TestDormantTranscriptPageCacheKeyIncludesCacheWarningMode(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	meta := store.Meta()
-	defaultKey := dormantTranscriptPageCacheKeyForStore(store, meta, clientui.ConversationFreshnessEstablished, config.CacheWarningModeDefault, 1024)
-	verboseKey := dormantTranscriptPageCacheKeyForStore(store, meta, clientui.ConversationFreshnessEstablished, config.CacheWarningModeVerbose, 1024)
-	if defaultKey == verboseKey {
-		t.Fatalf("expected cache-warning mode to contribute to dormant page cache key: %+v", defaultKey)
 	}
 }
 

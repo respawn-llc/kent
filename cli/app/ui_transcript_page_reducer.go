@@ -74,7 +74,7 @@ func newRuntimeTranscriptPageState(snapshot runtimeTranscriptPageSnapshot) runti
 }
 
 func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage, recoveryCause clientui.TranscriptRecoveryCause) runtimeTranscriptPageReduction {
-	pageReq := normalizeRuntimeTranscriptPageRequest(state, req, page)
+	pageReq := req
 	if shouldPreserveLiveAssistantOngoingForRuntimeTranscriptPage(state, pageReq, page) {
 		page.Streaming = state.liveOngoing
 		page.StreamingError = state.liveOngoingError
@@ -111,19 +111,12 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 	return reduction
 }
 
-func normalizeRuntimeTranscriptPageRequest(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest, page clientui.TranscriptPage) clientui.TranscriptPageRequest {
-	if req.Window == clientui.TranscriptWindowDefault && transcriptPageLooksLikeRecentTail(page) && state.viewMode == tui.ModeOngoing {
-		req.Window = clientui.TranscriptWindowRecentTail
-	}
-	return req
-}
-
 func shouldSyncNativeHistoryForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return req.Window == clientui.TranscriptWindowRecentTail || req == (clientui.TranscriptPageRequest{})
+	return isRecentTailTranscriptRequest(req)
 }
 
 func replacesRecentTailForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return req.Window == clientui.TranscriptWindowRecentTail || (req == (clientui.TranscriptPageRequest{}) && state.viewMode != tui.ModeDetail)
+	return isRecentTailTranscriptRequest(req) && state.viewMode != tui.ModeDetail
 }
 
 func runtimeTranscriptPageApplyBranch(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) string {

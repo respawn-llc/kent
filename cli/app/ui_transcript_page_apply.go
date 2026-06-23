@@ -129,7 +129,8 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		m.clearDeferredCommittedTail("authoritative_hydrate")
 		a.applyAuthoritativeRecentTailPage(page, entries, reduction.preserveLiveReasoning)
 	}
-	if pageReq.Window == clientui.TranscriptWindowRecentTail || (pageReq == (clientui.TranscriptPageRequest{}) && m.view.Mode() != tui.ModeDetail) {
+	m.detailTranscript.lastRequest = pageReq
+	if isRecentTailTranscriptRequest(pageReq) && m.view.Mode() != tui.ModeDetail {
 		m.detailTranscript.syncTail(page)
 		if m.view.Mode() != tui.ModeDetail {
 			if !reduction.preserveLiveReasoning {
@@ -151,7 +152,9 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 			}
 			return nil
 		}
-		if pageReq.Cursor > 0 {
+		if pageReq.NewerCursor > 0 {
+			m.detailTranscript.appendCursorPage(page)
+		} else if pageReq.Cursor > 0 {
 			m.detailTranscript.prependCursorPage(page)
 		} else {
 			m.detailTranscript.apply(page)

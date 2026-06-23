@@ -38,29 +38,6 @@ func TestCommittedTranscriptSuffixEmptySession(t *testing.T) {
 	}
 }
 
-func TestCommittedTranscriptSuffixClampsInconsistentBaseOffset(t *testing.T) {
-	suffix := CommittedTranscriptSuffixFromCollectedChat(
-		"session-1",
-		"session",
-		clientui.ConversationFreshnessEstablished,
-		12,
-		clientui.ChatSnapshot{Entries: []clientui.ChatEntry{{Role: "assistant", Text: "stale row"}}},
-		1,
-		3,
-		clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 10},
-	)
-
-	if suffix.StartEntryCount != 1 || suffix.NextEntryCount != 1 {
-		t.Fatalf("expected clamped cursor at committed total, got %+v", suffix)
-	}
-	if suffix.HasMore {
-		t.Fatalf("did not expect has_more after clamping inconsistent cursor: %+v", suffix)
-	}
-	if len(suffix.Entries) != 0 {
-		t.Fatalf("expected no entries beyond committed total, got %+v", suffix.Entries)
-	}
-}
-
 func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
@@ -73,7 +50,7 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	}
 	eng.AppendCommittedEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityVerbose)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})
+	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
 
 	if got := len(suffix.Entries); got != 1 {
 		t.Fatalf("entries = %d, want 1", got)
@@ -86,7 +63,7 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 		t.Fatalf("visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityVerbose)
 	}
 	entry.Text = "mutated"
-	second := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})
+	second := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
 	if second.Entries[0].Text != "internal note" {
 		t.Fatalf("suffix entries were not cloned: %+v", second.Entries[0])
 	}

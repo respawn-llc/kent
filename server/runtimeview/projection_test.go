@@ -591,37 +591,13 @@ func TestTranscriptPageFromChatClonesPatchRender(t *testing.T) {
 		},
 	}}}
 
-	page := TranscriptPageFromChat("session-1", "session", clientui.ConversationFreshnessEstablished, 1, snapshot, clientui.TranscriptPageRequest{})
-	if len(page.Entries) != 1 || page.Entries[0].ToolCall == nil || page.Entries[0].ToolCall.PatchRender == nil {
-		t.Fatalf("expected patch render copied into transcript page, got %+v", page.Entries)
+	entries := cloneChatEntries(snapshot.Entries)
+	if len(entries) != 1 || entries[0].ToolCall == nil || entries[0].ToolCall.PatchRender == nil {
+		t.Fatalf("expected patch render copied into cloned entries, got %+v", entries)
 	}
 	snapshot.Entries[0].ToolCall.PatchRender.SummaryLines[0].Text = "after"
-	if page.Entries[0].ToolCall.PatchRender.SummaryLines[0].Text != "before" {
-		t.Fatalf("expected transcript page to deep copy patch render, got %+v", page.Entries[0].ToolCall.PatchRender.SummaryLines)
-	}
-}
-
-func TestTranscriptPageFromChatSupportsPageNumberPagination(t *testing.T) {
-	snapshot := clientui.ChatSnapshot{Entries: []clientui.ChatEntry{
-		{Role: "assistant", Text: "a0"},
-		{Role: "assistant", Text: "a1"},
-		{Role: "assistant", Text: "a2"},
-		{Role: "assistant", Text: "a3"},
-		{Role: "assistant", Text: "a4"},
-	}}
-
-	page := TranscriptPageFromChat("session-1", "incident triage", clientui.ConversationFreshnessEstablished, 7, snapshot, clientui.TranscriptPageRequest{Page: 1, PageSize: 2})
-	if page.TotalEntries != 5 {
-		t.Fatalf("total entries = %d, want 5", page.TotalEntries)
-	}
-	if page.Offset != 2 {
-		t.Fatalf("offset = %d, want 2", page.Offset)
-	}
-	if !page.HasMore || page.NextOffset != 4 {
-		t.Fatalf("unexpected pagination metadata: %+v", page)
-	}
-	if len(page.Entries) != 2 || page.Entries[0].Text != "a2" || page.Entries[1].Text != "a3" {
-		t.Fatalf("unexpected page entries: %+v", page.Entries)
+	if entries[0].ToolCall.PatchRender.SummaryLines[0].Text != "before" {
+		t.Fatalf("expected cloned entries to deep copy patch render, got %+v", entries[0].ToolCall.PatchRender.SummaryLines)
 	}
 }
 
@@ -645,13 +621,3 @@ func TestTranscriptPageFromRuntimeReturnsNewestSegment(t *testing.T) {
 	}
 }
 
-func TestTranscriptPageFromRuntimeUnusedOffsetLimitStillReturnsSegment(t *testing.T) {
-	store := newRuntimeViewStore(t)
-	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
-	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
-
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Offset: 550, Limit: 25})
-	if len(page.Entries) != 600 {
-		t.Fatalf("entries = %d, want 600 (offset/limit ignored under cursor model)", len(page.Entries))
-	}
-}

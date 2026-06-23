@@ -19,9 +19,6 @@ func (transcriptDiagTestSessionViewClient) GetSessionTranscriptPage(context.Cont
 	return serverapi.SessionTranscriptPageResponse{}, nil
 }
 
-func (transcriptDiagTestSessionViewClient) GetRun(context.Context, serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	return serverapi.RunGetResponse{}, nil
-}
 
 type transcriptDiagTestRuntimeControlClient struct{}
 

@@ -38,8 +38,7 @@ func TestSessionSnapshotSourcesParityForMainView(t *testing.T) {
 func TestSessionSnapshotSourcesParityForTranscriptQueries(t *testing.T) {
 	fixture := newSessionSnapshotParityFixture(t, config.CacheWarningModeVerbose)
 	pageRequests := map[string]serverapi.SessionTranscriptPageRequest{
-		"default":      {SessionID: fixture.sessionID},
-		"offset_limit": {SessionID: fixture.sessionID, Offset: 1, Limit: 4},
+		"default": {SessionID: fixture.sessionID},
 	}
 	for name, req := range pageRequests {
 		t.Run(name, func(t *testing.T) {
@@ -49,24 +48,61 @@ func TestSessionSnapshotSourcesParityForTranscriptQueries(t *testing.T) {
 		})
 	}
 
-	suffixReq := serverapi.SessionCommittedTranscriptSuffixRequest{SessionID: fixture.sessionID, AfterEntryCount: 2, Limit: 3}
+	suffixReq := serverapi.SessionCommittedTranscriptSuffixRequest{SessionID: fixture.sessionID}
 	liveSuffix := mustCommittedSuffix(t, fixture.live, suffixReq)
 	dormantSuffix := mustCommittedSuffix(t, fixture.dormant, suffixReq)
 	assertEqual(t, "committed suffix", normalizedCommittedSuffix(liveSuffix), normalizedCommittedSuffix(dormantSuffix))
 }
 
-func TestSessionSnapshotSourcesParityForRunQueriesAndErrors(t *testing.T) {
-	fixture := newSessionSnapshotParityFixture(t, config.CacheWarningModeVerbose)
-	liveRun := mustRun(t, fixture.live, fixture.sessionID, fixture.completedRunID)
-	dormantRun := mustRun(t, fixture.dormant, fixture.sessionID, fixture.completedRunID)
-	assertEqual(t, "durable run", normalizedRunView(liveRun), normalizedRunView(dormantRun))
-
-	_, liveErr := fixture.live.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: fixture.sessionID, RunID: "missing-run"})
-	_, dormantErr := fixture.dormant.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: fixture.sessionID, RunID: "missing-run"})
-	if liveErr == nil || dormantErr == nil {
-		t.Fatalf("expected missing run errors, got live=%v dormant=%v", liveErr, dormantErr)
+func TestSessionSnapshotSourcesParityForForwardCursorPaging(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
 	}
-	assertEqual(t, "missing run error", liveErr.Error(), dormantErr.Error())
+	appendParityMessage(t, store, llm.RoleUser, "u1")
+	appendParityMessage(t, store, llm.RoleAssistant, "a1")
+	if _, _, err := store.AppendEvent("step", "history_replaced", map[string]any{
+		"engine": "compaction",
+		"items":  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
+	}); err != nil {
+		t.Fatalf("append history_replaced: %v", err)
+	}
+	appendParityMessage(t, store, llm.RoleUser, "u2")
+	appendParityMessage(t, store, llm.RoleAssistant, "a2")
+
+	engine, err := runtime.New(store, &serviceFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	target := staticExecutionTargetResolver{target: clientui.SessionExecutionTarget{WorkspaceID: "workspace-1", WorkspaceRoot: dir, CwdRelpath: ".", EffectiveWorkdir: dir}}
+	live := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(engine), target)
+	dormant := NewService(NewStaticSessionResolver(store), nil, target)
+	sessionID := store.Meta().SessionID
+
+	tail := mustTranscriptPage(t, live, serverapi.SessionTranscriptPageRequest{SessionID: sessionID})
+	if tail.OlderCursor <= 0 {
+		t.Fatalf("tail must page above a compaction, got cursor %d", tail.OlderCursor)
+	}
+	older := mustTranscriptPage(t, live, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Cursor: tail.OlderCursor})
+	if older.NewerCursor <= 0 || !older.HasMoreBelow {
+		t.Fatalf("older segment must expose a forward cursor, got cursor=%d below=%t", older.NewerCursor, older.HasMoreBelow)
+	}
+
+	forwardReq := serverapi.SessionTranscriptPageRequest{SessionID: sessionID, NewerCursor: older.NewerCursor}
+	liveForward := mustTranscriptPage(t, live, forwardReq)
+	dormantForward := mustTranscriptPage(t, dormant, forwardReq)
+	assertEqual(t, "forward transcript page", normalizedTranscriptPage(liveForward), normalizedTranscriptPage(dormantForward))
+
+	dormantOlder := mustTranscriptPage(t, dormant, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Cursor: tail.OlderCursor})
+	assertEqual(t, "older transcript page", normalizedTranscriptPage(older), normalizedTranscriptPage(dormantOlder))
+}
+
+func appendParityMessage(t *testing.T, store *session.Store, role llm.Role, content string) {
+	t.Helper()
+	if _, _, err := store.AppendEvent("step", "message", llm.Message{Role: role, Content: content}); err != nil {
+		t.Fatalf("append %q: %v", content, err)
+	}
 }
 
 func TestSessionSnapshotSourcesParityForActiveRunStatus(t *testing.T) {
@@ -80,9 +116,6 @@ func TestSessionSnapshotSourcesParityForActiveRunStatus(t *testing.T) {
 	if liveMain.ActiveRun == nil {
 		t.Fatal("expected active run")
 	}
-	liveRun := mustRun(t, live, store.Meta().SessionID, liveMain.ActiveRun.RunID)
-	dormantRun := mustRun(t, dormant, store.Meta().SessionID, liveMain.ActiveRun.RunID)
-	assertEqual(t, "active run lookup", normalizedRunView(liveRun), normalizedRunView(dormantRun))
 
 	close(release)
 	if err := <-done; err != nil {
@@ -97,8 +130,6 @@ func TestLiveRuntimeSnapshotReturnsActiveRunWithoutSessionStore(t *testing.T) {
 	if liveMain.ActiveRun == nil {
 		t.Fatal("expected active run")
 	}
-	activeRun := mustRun(t, live, store.Meta().SessionID, liveMain.ActiveRun.RunID)
-	assertEqual(t, "active run without store", normalizedRunView(activeRun), normalizedRunView(liveMain.ActiveRun))
 
 	close(release)
 	if err := <-done; err != nil {
@@ -107,10 +138,9 @@ func TestLiveRuntimeSnapshotReturnsActiveRunWithoutSessionStore(t *testing.T) {
 }
 
 type sessionSnapshotParityFixture struct {
-	sessionID      string
-	completedRunID string
-	live           *Service
-	dormant        *Service
+	sessionID string
+	live      *Service
+	dormant   *Service
 }
 
 func newSessionSnapshotParityFixture(t *testing.T, cacheWarningMode config.CacheWarningMode) sessionSnapshotParityFixture {
@@ -166,7 +196,7 @@ func newSessionSnapshotParityFixture(t *testing.T, cacheWarningMode config.Cache
 	update := staticUpdateStatusProvider{status: clientui.UpdateStatus{Checked: true, Available: true, CurrentVersion: "1.0.0", LatestVersion: "1.1.0"}}
 	live := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(engine), target).WithCacheWarningMode(cacheWarningMode).WithUpdateStatusProvider(update)
 	dormant := NewService(NewStaticSessionResolver(store), nil, target).WithCacheWarningMode(cacheWarningMode).WithUpdateStatusProvider(update)
-	return sessionSnapshotParityFixture{sessionID: store.Meta().SessionID, completedRunID: "run-completed", live: live, dormant: dormant}
+	return sessionSnapshotParityFixture{sessionID: store.Meta().SessionID, live: live, dormant: dormant}
 }
 
 func startBlockingRuntimeRun(t *testing.T) (*session.Store, *runtime.Engine, chan struct{}, chan error) {
@@ -237,15 +267,6 @@ func mustCommittedSuffix(t *testing.T, svc *Service, req serverapi.SessionCommit
 	return resp.Suffix
 }
 
-func mustRun(t *testing.T, svc *Service, sessionID, runID string) *clientui.RunView {
-	t.Helper()
-	resp, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: sessionID, RunID: runID})
-	if err != nil {
-		t.Fatalf("get run: %v", err)
-	}
-	return resp.Run
-}
-
 type comparableTranscriptPage struct {
 	SessionID             string
 	SessionName           string
@@ -253,6 +274,8 @@ type comparableTranscriptPage struct {
 	Revision              int64
 	OlderCursor           int64
 	HasMoreAbove          bool
+	NewerCursor           int64
+	HasMoreBelow          bool
 	Entries               []comparableChatEntry
 }
 
@@ -264,6 +287,8 @@ func normalizedTranscriptPage(page clientui.TranscriptPage) comparableTranscript
 		Revision:              page.Revision,
 		OlderCursor:           page.OlderCursor,
 		HasMoreAbove:          page.HasMoreAbove,
+		NewerCursor:           page.NewerCursor,
+		HasMoreBelow:          page.HasMoreBelow,
 		Entries:               normalizedChatEntries(page.Entries),
 	}
 }

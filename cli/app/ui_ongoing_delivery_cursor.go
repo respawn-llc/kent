@@ -134,21 +134,7 @@ func (c *ongoingCommittedDeliveryCursor) nextSuffixRequest() (clientui.Committed
 	if c == nil || c.nativeFlushInFlight {
 		return clientui.CommittedTranscriptSuffixRequest{}, false
 	}
-	if len(c.pendingCommittedRanges) == 0 {
-		return clientui.CommittedTranscriptSuffixRequest{
-			AfterEntryCount: c.lastEmittedCommittedEntryCount,
-			Limit:           clientui.DefaultCommittedTranscriptSuffixLimit,
-		}, true
-	}
-	next := c.pendingCommittedRanges[0]
-	limit := next.endEntryCount - c.lastEmittedCommittedEntryCount
-	if limit <= 0 {
-		limit = clientui.DefaultCommittedTranscriptSuffixLimit
-	}
-	return clientui.CommittedTranscriptSuffixRequest{
-		AfterEntryCount: c.lastEmittedCommittedEntryCount,
-		Limit:           limit,
-	}, true
+	return clientui.CommittedTranscriptSuffixRequest{}, true
 }
 
 func (c *ongoingCommittedDeliveryCursor) recordPendingRange(startEntryCount int, endEntryCount int, revision int64) {

@@ -51,8 +51,6 @@ func (s *Store) AppendRunFinished(run RunRecord) (Event, error) {
 	return evt, err
 }
 
-const recentRunRecoveryEvents = 512
-
 // ProjectRuns rebuilds run records from an in-memory event slice. It performs no
 // file read; callers supplying a full-history slice (test-only collectors) get
 // every run, while bounded windows yield only the runs they contain.
@@ -74,35 +72,6 @@ func (s *Store) LatestRun() (*RunRecord, error) {
 	}
 	latest := *s.meta.LatestRun
 	return &latest, nil
-}
-
-// FindRecentRun resolves a run by ID. The latest run is served O(1) from
-// metadata; older runs are projected from a bounded reverse tail read. Runs
-// older than the recent window resolve to nil rather than triggering a full
-// event-log scan.
-func (s *Store) FindRecentRun(runID string) (*RunRecord, error) {
-	runID = strings.TrimSpace(runID)
-	if runID == "" {
-		return nil, nil
-	}
-	s.mu.Lock()
-	if s.meta.LatestRun != nil && s.meta.LatestRun.RunID == runID {
-		latest := *s.meta.LatestRun
-		s.mu.Unlock()
-		return &latest, nil
-	}
-	s.mu.Unlock()
-	window, err := s.ReadRecentEvents(recentRunRecoveryEvents)
-	if err != nil {
-		return nil, err
-	}
-	for _, run := range ProjectRuns(window.Events) {
-		if run.RunID == runID {
-			match := run
-			return &match, nil
-		}
-	}
-	return nil, nil
 }
 
 func (s *Store) updateLatestRunLocked(events []Event) {

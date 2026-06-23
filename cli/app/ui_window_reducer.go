@@ -117,49 +117,10 @@ func (m *uiModel) requestNativeResizeCommittedTranscriptSuffix(token uint64) tea
 	if !ok {
 		return nil
 	}
-	committedCount, hasCachedServerCount := m.cachedServerCommittedTranscriptEntryCount()
 	return func() tea.Msg {
-		if !hasCachedServerCount {
-			committedCount = max(committedCount, runtimeClient.MainView().Session.Transcript.CommittedEntryCount)
-		}
-		req := nativeResizeCommittedTranscriptSuffixRequestForCommittedCount(committedCount)
-		suffix, err := client.RefreshCommittedTranscriptSuffix(req)
+		suffix, err := client.RefreshCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{})
 		return nativeResizeTranscriptSuffixRefreshedMsg{token: token, suffix: suffix, err: err}
 	}
-}
-
-func (m *uiModel) nativeResizeCommittedTranscriptSuffixRequest() clientui.CommittedTranscriptSuffixRequest {
-	committedCount, _ := m.cachedServerCommittedTranscriptEntryCount()
-	return nativeResizeCommittedTranscriptSuffixRequestForCommittedCount(committedCount)
-}
-
-func nativeResizeCommittedTranscriptSuffixRequestForCommittedCount(committedCount int) clientui.CommittedTranscriptSuffixRequest {
-	limit := clientui.MaxCommittedTranscriptSuffixLimit
-	after := committedCount - limit
-	if after < 0 {
-		after = 0
-	}
-	return clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: after, Limit: limit}
-}
-
-func (m *uiModel) cachedServerCommittedTranscriptEntryCount() (int, bool) {
-	if m == nil {
-		return 0, false
-	}
-	committedCount := 0
-	if m.ongoingCommittedDelivery.initialized {
-		committedCount = max(committedCount, m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount)
-		committedCount = max(committedCount, m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount)
-	}
-	if cached, ok := m.runtimeClient().(interface {
-		CachedMainView() (clientui.RuntimeMainView, bool)
-	}); ok {
-		if view, hasCached := cached.CachedMainView(); hasCached {
-			committedCount = max(committedCount, view.Session.Transcript.CommittedEntryCount)
-			return committedCount, true
-		}
-	}
-	return committedCount, false
 }
 
 func (m *uiModel) applyCommittedTranscriptSuffixForNativeReplay(suffix clientui.CommittedTranscriptSuffix) tea.Cmd {

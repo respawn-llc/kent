@@ -120,6 +120,122 @@ func TestReadSegmentBackwardPaginatesSegmentsViaCursor(t *testing.T) {
 	}
 }
 
+func TestReadSegmentForwardPaginatesSegmentsViaCursor(t *testing.T) {
+	const segments = 4
+	const perSegment = 5
+	var sb strings.Builder
+	seq := 0
+	for s := 0; s < segments; s++ {
+		seq++
+		if s > 0 {
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"history_replaced","payload":{"v":%d}}`+"\n", seq, seq))
+		} else {
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", seq, seq))
+		}
+		for i := 1; i < perSegment; i++ {
+			seq++
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", seq, seq))
+		}
+	}
+	sb.WriteString(`{"seq":99,"kind":"message","pa`)
+	total := segments * perSegment
+	path := filepath.Join(t.TempDir(), eventsFile)
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		t.Fatalf("write events file: %v", err)
+	}
+
+	for _, chunk := range []int64{1, 5, 13, 1 << 20} {
+		var collected []Event
+		startOffset := int64(0)
+		pages := 0
+		for {
+			pages++
+			if pages > segments+1 {
+				t.Fatalf("chunk=%d: forward pagination did not terminate", chunk)
+			}
+			window, err := readSegmentForwardFile(path, startOffset, chunk, matchEventKind("history_replaced"))
+			if err != nil {
+				t.Fatalf("chunk=%d: read forward: %v", chunk, err)
+			}
+			if len(window.Events) != perSegment {
+				t.Fatalf("chunk=%d: forward segment returned %d events, want %d", chunk, len(window.Events), perSegment)
+			}
+			collected = append(collected, window.Events...)
+			if window.ReachedEnd {
+				break
+			}
+			startOffset = window.EndOffset
+		}
+		if pages != segments {
+			t.Fatalf("chunk=%d: forward-paginated %d segments, want %d", chunk, pages, segments)
+		}
+		if len(collected) != total {
+			t.Fatalf("chunk=%d: reconstructed %d events, want %d (torn tail must be dropped)", chunk, len(collected), total)
+		}
+		for i := range collected {
+			if collected[i].Seq != int64(i+1) {
+				t.Fatalf("chunk=%d: event %d seq = %d, want %d", chunk, i, collected[i].Seq, i+1)
+			}
+		}
+	}
+}
+
+func TestReadSegmentForwardAndBackwardAgreeOnBoundaries(t *testing.T) {
+	const segments = 4
+	const perSegment = 5
+	var sb strings.Builder
+	seq := 0
+	for s := 0; s < segments; s++ {
+		seq++
+		if s > 0 {
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"history_replaced","payload":{"v":%d}}`+"\n", seq, seq))
+		} else {
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", seq, seq))
+		}
+		for i := 1; i < perSegment; i++ {
+			seq++
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", seq, seq))
+		}
+	}
+	path := filepath.Join(t.TempDir(), eventsFile)
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		t.Fatalf("write events file: %v", err)
+	}
+
+	tail, err := readSegmentBackwardFile(path, 0, 1<<20, matchEventKind("history_replaced"))
+	if err != nil {
+		t.Fatalf("read tail: %v", err)
+	}
+	if !tail.ReachedEnd {
+		t.Fatalf("tail segment must report ReachedEnd")
+	}
+	older, err := readSegmentBackwardFile(path, tail.StartOffset, 1<<20, matchEventKind("history_replaced"))
+	if err != nil {
+		t.Fatalf("read older: %v", err)
+	}
+	if older.ReachedEnd {
+		t.Fatalf("non-tail segment must not report ReachedEnd")
+	}
+	if older.EndOffset != tail.StartOffset {
+		t.Fatalf("older segment end %d must equal tail start %d", older.EndOffset, tail.StartOffset)
+	}
+	forward, err := readSegmentForwardFile(path, older.EndOffset, 1<<20, matchEventKind("history_replaced"))
+	if err != nil {
+		t.Fatalf("read forward from older end: %v", err)
+	}
+	if len(forward.Events) != len(tail.Events) {
+		t.Fatalf("forward-from-older-end returned %d events, want tail %d", len(forward.Events), len(tail.Events))
+	}
+	for i := range forward.Events {
+		if forward.Events[i].Seq != tail.Events[i].Seq {
+			t.Fatalf("forward event %d seq=%d, want tail seq=%d", i, forward.Events[i].Seq, tail.Events[i].Seq)
+		}
+	}
+	if !forward.ReachedEnd {
+		t.Fatalf("forward read into the newest segment must report ReachedEnd")
+	}
+}
+
 func TestReadRecentEventsCrossesBoundariesAndReassemblesAcrossChunks(t *testing.T) {
 	var sb strings.Builder
 	const total = 30

@@ -224,7 +224,6 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return resp, err
 		})
 	},
-	protocol.MethodRunGet:                                gatewayClientCall[client.SessionViewClient, serverapi.RunGetRequest, serverapi.RunGetResponse](GatewayDependencies.SessionViewClient, client.SessionViewClient.GetRun),
 	protocol.MethodRuntimeSetSessionName:                 gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeSetSessionNameRequest](GatewayDependencies.RuntimeControlClient, client.RuntimeControlClient.SetSessionName),
 	protocol.MethodRuntimeSetThinkingLevel:               gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeSetThinkingLevelRequest](GatewayDependencies.RuntimeControlClient, client.RuntimeControlClient.SetThinkingLevel),
 	protocol.MethodRuntimeSetFastModeEnabled:             gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSetFastModeEnabledRequest, serverapi.RuntimeSetFastModeEnabledResponse](GatewayDependencies.RuntimeControlClient, client.RuntimeControlClient.SetFastModeEnabled),

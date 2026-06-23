@@ -60,13 +60,6 @@ func TestProjectRunsReconstructsDurableHistory(t *testing.T) {
 	if latest == nil || latest.RunID != "run-2" || latest.Status != RunStatusInterrupted {
 		t.Fatalf("unexpected latest run after reopen: %+v", latest)
 	}
-	found, err := reopened.FindRecentRun("run-1")
-	if err != nil {
-		t.Fatalf("find recent run-1: %v", err)
-	}
-	if found == nil || found.RunID != "run-1" || found.Status != RunStatusCompleted {
-		t.Fatalf("unexpected find-recent run-1: %+v", found)
-	}
 }
 
 func TestStoreLatestRunReturnsNewestDurableRun(t *testing.T) {

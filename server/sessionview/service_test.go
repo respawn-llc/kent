@@ -277,9 +277,6 @@ func TestServiceRequiresSessionStoreResolverForDormantReads(t *testing.T) {
 	if _, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: "session-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
 		t.Fatalf("expected explicit session store resolver error for transcript page, got %v", err)
 	}
-	if _, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: "session-1", RunID: "run-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
-		t.Fatalf("expected explicit session store resolver error for run lookup, got %v", err)
-	}
 }
 
 func TestServiceGetSessionTranscriptPageUsesLiveRuntimeWhenAttached(t *testing.T) {
@@ -343,7 +340,7 @@ func TestServiceGetSessionTranscriptPageUsesConfiguredCacheWarningModeForDormant
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(NewStaticSessionResolver(store), nil, nil).WithCacheWarningMode(tt.mode)
-			resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
+			resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 			if err != nil {
 				t.Fatalf("get dormant transcript page: %v", err)
 			}
@@ -368,7 +365,7 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
+	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get dormant transcript page default: %v", err)
 	}
@@ -380,7 +377,7 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	if secondSvc != svc {
 		t.Fatal("expected WithCacheWarningMode to mutate service in place")
 	}
-	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
+	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get dormant transcript page verbose: %v", err)
 	}
@@ -440,7 +437,7 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRename(t *t
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
+	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get first transcript page: %v", err)
 	}
@@ -451,7 +448,7 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRename(t *t
 	if err := store.SetName("after rename"); err != nil {
 		t.Fatalf("rename session: %v", err)
 	}
-	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
+	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get second transcript page: %v", err)
 	}
@@ -776,31 +773,6 @@ func TestServiceGetSessionTranscriptPageUsesDormantRecentTailWindow(t *testing.T
 	}
 	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != fmt.Sprintf("u%d", total-1) {
 		t.Fatalf("last tail entry = %q", last)
-	}
-}
-
-func TestServiceGetRunReturnsDurableRunRecord(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	startedAt := time.Now().UTC().Add(-time.Minute)
-	finishedAt := startedAt.Add(10 * time.Second)
-	if _, err := store.AppendRunStarted(session.RunRecord{RunID: "run-1", StepID: "step-1", StartedAt: startedAt}); err != nil {
-		t.Fatalf("append run start: %v", err)
-	}
-	if _, err := store.AppendRunFinished(session.RunRecord{RunID: "run-1", StepID: "step-1", Status: session.RunStatusCompleted, StartedAt: startedAt, FinishedAt: finishedAt}); err != nil {
-		t.Fatalf("append run finish: %v", err)
-	}
-
-	svc := NewService(NewStaticSessionResolver(store), nil, nil)
-	resp, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: store.Meta().SessionID, RunID: "run-1"})
-	if err != nil {
-		t.Fatalf("get run: %v", err)
-	}
-	if resp.Run == nil || resp.Run.RunID != "run-1" || resp.Run.Status != "completed" {
-		t.Fatalf("unexpected run response: %+v", resp.Run)
 	}
 }
 

@@ -75,6 +75,46 @@ func TestEngineTranscriptSegmentPagePaginatesAcrossCompaction(t *testing.T) {
 	}
 }
 
+func TestEngineTranscriptSegmentPageForwardMatchesBackwardSegments(t *testing.T) {
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+
+	appendSegmentTestMessage(t, store, llm.RoleUser, "u1")
+	appendSegmentTestMessage(t, store, llm.RoleAssistant, "a1")
+	if _, _, err := store.AppendEvent("step", "history_replaced", historyReplacementPayload{
+		Engine: "compaction",
+		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
+	}); err != nil {
+		t.Fatalf("append history_replaced: %v", err)
+	}
+	appendSegmentTestMessage(t, store, llm.RoleUser, "u2")
+	appendSegmentTestMessage(t, store, llm.RoleAssistant, "a2")
+
+	newest := eng.TranscriptSegmentPage(0)
+	older := eng.TranscriptSegmentPage(newest.OlderCursor)
+	if !older.HasMoreBelow || older.NewerCursor <= 0 {
+		t.Fatalf("older segment must report more below with a forward cursor, got below=%t cursor=%d", older.HasMoreBelow, older.NewerCursor)
+	}
+
+	forward := eng.TranscriptSegmentPageForward(older.NewerCursor)
+	forwardTexts := segmentEntryTexts(forward)
+	if !containsText(forwardTexts, "u2") || !containsText(forwardTexts, "a2") {
+		t.Fatalf("forward segment must contain post-compaction turns, got %v", forwardTexts)
+	}
+	if containsText(forwardTexts, "u1") {
+		t.Fatalf("forward segment must not contain pre-compaction turns, got %v", forwardTexts)
+	}
+	if forward.HasMoreBelow {
+		t.Fatalf("forward read into the newest segment must report no more below")
+	}
+	if !forward.HasMoreAbove {
+		t.Fatalf("forward segment after a compaction must report more above")
+	}
+	if got, want := segmentEntryTexts(newest), forwardTexts; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("forward segment %v must match newest segment %v", want, got)
+	}
+}
+
 func TestEngineTranscriptSegmentPageSingleSegment(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})

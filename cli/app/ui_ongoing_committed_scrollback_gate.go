@@ -97,18 +97,11 @@ func isProjectedAssistantEntry(entry clientui.ChatEntry) bool {
 	return tui.TranscriptRoleFromWire(entry.Role) == tui.TranscriptRoleAssistant
 }
 
-func (m *uiModel) deferRuntimeCommittedSuffixRefresh(req clientui.CommittedTranscriptSuffixRequest) {
+func (m *uiModel) deferRuntimeCommittedSuffixRefresh() {
 	if m == nil {
 		return
 	}
-	req = clientui.NormalizeCommittedTranscriptSuffixRequest(req)
 	m.deferredCommittedSuffixRefreshSet = true
-	if req.Limit > m.deferredCommittedSuffixRefreshLimit {
-		m.deferredCommittedSuffixRefreshLimit = req.Limit
-	}
-	if m.deferredCommittedSuffixRefreshLimit <= 0 {
-		m.deferredCommittedSuffixRefreshLimit = clientui.DefaultCommittedTranscriptSuffixLimit
-	}
 }
 
 func (m *uiModel) drainDeferredCommittedDeliveryIfUnblocked() tea.Cmd {
@@ -282,16 +275,8 @@ func (m *uiModel) drainDeferredCommittedSuffixRefreshIfUnblocked() tea.Cmd {
 	if m == nil || !m.deferredCommittedSuffixRefreshSet || m.ongoingCommittedScrollbackGateActive() {
 		return nil
 	}
-	limit := m.deferredCommittedSuffixRefreshLimit
 	m.deferredCommittedSuffixRefreshSet = false
-	m.deferredCommittedSuffixRefreshLimit = 0
-	if limit <= 0 {
-		limit = clientui.DefaultCommittedTranscriptSuffixLimit
-	}
-	return m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{
-		AfterEntryCount: committedTranscriptTailEnd(m),
-		Limit:           limit,
-	})
+	return m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{})
 }
 
 func (m *uiModel) observeDeferredCommittedTailDelivery(evt clientui.Event) {

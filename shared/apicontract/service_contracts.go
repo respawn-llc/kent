@@ -127,7 +127,6 @@ type SessionViewService interface {
 	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
 	GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error)
 	GetSessionCommittedTranscriptSuffix(ctx context.Context, req serverapi.SessionCommittedTranscriptSuffixRequest) (serverapi.SessionCommittedTranscriptSuffixResponse, error)
-	GetRun(ctx context.Context, req serverapi.RunGetRequest) (serverapi.RunGetResponse, error)
 }
 
 type WorktreeService interface {

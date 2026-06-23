@@ -818,7 +818,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 
 	next, cmd := m.Update(runtimeTranscriptRefreshedMsg{
 		token: 7,
-		req:   clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail},
+		req:   clientui.TranscriptPageRequest{},
 		transcript: clientui.TranscriptPage{
 			SessionID:    "session-1",
 			Revision:     6,

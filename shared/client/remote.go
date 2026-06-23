@@ -461,11 +461,6 @@ func (c *Remote) DeleteWorktree(ctx context.Context, req serverapi.WorktreeDelet
 	return resp, c.call(ctx, protocol.MethodWorktreeDelete, req, &resp)
 }
 
-func (c *Remote) GetRun(ctx context.Context, req serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	var resp serverapi.RunGetResponse
-	return resp, c.call(ctx, protocol.MethodRunGet, req, &resp)
-}
-
 func (c *Remote) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
 	var resp serverapi.SessionRuntimeActivateResponse
 	return resp, c.call(ctx, protocol.MethodSessionRuntimeActivate, req, &resp)

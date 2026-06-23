@@ -1498,12 +1498,10 @@ func (s *Service) questionAttentionItems(ctx context.Context, projectID string, 
 	return items, nil
 }
 
-const pendingQuestionTranscriptPageSize = clientui.MaxCommittedTranscriptSuffixLimit
 const pendingQuestionFallbackMessage = "Question pending; open the task to answer."
 
 type pendingQuestionResolver struct {
 	transcripts SessionTranscriptPageProvider
-	bySession   map[string]map[string]pendingQuestion
 }
 
 type pendingQuestion struct {
@@ -1513,7 +1511,7 @@ type pendingQuestion struct {
 }
 
 func newPendingQuestionResolver(transcripts SessionTranscriptPageProvider) *pendingQuestionResolver {
-	return &pendingQuestionResolver{transcripts: transcripts, bySession: map[string]map[string]pendingQuestion{}}
+	return &pendingQuestionResolver{transcripts: transcripts}
 }
 
 func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
@@ -1525,45 +1523,15 @@ func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string
 	if sessionID == "" || askID == "" {
 		return pendingQuestion{}, errors.New("session_id and ask_id are required to resolve pending question")
 	}
-	questions, ok := r.bySession[sessionID]
-	if ok {
-		if question := questions[askID]; strings.TrimSpace(question.message) != "" {
-			return question, nil
-		}
-	} else {
-		r.bySession[sessionID] = map[string]pendingQuestion{}
-	}
-	question, err := r.findQuestion(ctx, sessionID, askID)
-	if err != nil {
-		return pendingQuestion{}, err
-	}
-	r.bySession[sessionID][askID] = question
-	return question, nil
-}
-
-func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
-	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Window: clientui.TranscriptWindowRecentTail})
+	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID})
 	if err != nil {
 		return pendingQuestion{}, fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
 	}
-	if question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID); strings.TrimSpace(question.message) != "" {
-		return question, nil
+	question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID)
+	if strings.TrimSpace(question.message) == "" {
+		return pendingQuestion{}, fmt.Errorf("pending question %q in session %q transcript: %w", askID, sessionID, ErrPendingQuestionNotFound)
 	}
-	for nextEnd := resp.Transcript.Offset; nextEnd > 0; {
-		start := nextEnd - pendingQuestionTranscriptPageSize
-		if start < 0 {
-			start = 0
-		}
-		page, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Offset: start, Limit: nextEnd - start})
-		if err != nil {
-			return pendingQuestion{}, fmt.Errorf("load session %q transcript page for pending question %q: %w", sessionID, askID, err)
-		}
-		if question := askQuestionFromTranscriptEntries(page.Transcript.Entries, askID); strings.TrimSpace(question.message) != "" {
-			return question, nil
-		}
-		nextEnd = start
-	}
-	return pendingQuestion{}, fmt.Errorf("pending question %q in session %q transcript: %w", askID, sessionID, ErrPendingQuestionNotFound)
+	return question, nil
 }
 
 func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) pendingQuestion {

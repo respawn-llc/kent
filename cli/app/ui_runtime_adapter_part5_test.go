@@ -830,8 +830,8 @@ func TestProjectedCommittedConversationUpdatedRequestsHydrationOnlyOnContinuityL
 	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedConversation {
 		t.Fatalf("committed conversation sync cause = %q, want %q", refresh.syncCause, runtimeTranscriptSyncCauseCommittedConversation)
 	}
-	if refresh.req.Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("committed conversation request window = %q, want recent_tail", refresh.req.Window)
+	if refresh.req != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("request = %+v, want recent-tail (zero cursor)", refresh.req)
 	}
 }
 
@@ -961,8 +961,8 @@ func TestProjectedCommittedGapRequestsExplicitCommittedGapHydration(t *testing.T
 	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedGap {
 		t.Fatalf("committed gap sync cause = %q, want %q", refresh.syncCause, runtimeTranscriptSyncCauseCommittedGap)
 	}
-	if refresh.req.Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("committed gap request window = %q, want recent_tail", refresh.req.Window)
+	if refresh.req != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("request = %+v, want recent-tail (zero cursor)", refresh.req)
 	}
 }
 

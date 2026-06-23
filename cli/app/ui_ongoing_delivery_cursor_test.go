@@ -102,15 +102,8 @@ func TestOngoingDeliveryCursorRecordsPendingRangeWhileEmissionDisabled(t *testin
 	if pending.startEntryCount != 2 || pending.endEntryCount != 7 || pending.revision != 13 {
 		t.Fatalf("unexpected pending range: %+v", pending)
 	}
-	req, ok := cursor.nextSuffixRequest()
-	if !ok {
+	if _, ok := cursor.nextSuffixRequest(); !ok {
 		t.Fatal("expected suffix request for pending range")
-	}
-	if req.AfterEntryCount != 2 {
-		t.Fatalf("after entry count = %d, want 2", req.AfterEntryCount)
-	}
-	if req.Limit != 5 {
-		t.Fatalf("limit = %d, want 5", req.Limit)
 	}
 }
 
@@ -138,11 +131,7 @@ func TestOngoingDeliveryCursorRetryKeepsCursorWhenFlushFails(t *testing.T) {
 	if cursor.lastEmittedCommittedEntryCount != 3 || cursor.lastEmittedTranscriptRevision != 10 {
 		t.Fatalf("cursor changed after failed flush: %+v", cursor)
 	}
-	req, ok := cursor.nextSuffixRequest()
-	if !ok {
+	if _, ok := cursor.nextSuffixRequest(); !ok {
 		t.Fatal("expected retry request after failed flush")
-	}
-	if req.AfterEntryCount != 3 {
-		t.Fatalf("retry after entry count = %d, want 3", req.AfterEntryCount)
 	}
 }

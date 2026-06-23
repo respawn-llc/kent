@@ -177,35 +177,34 @@ type uiStatusFeatureState struct {
 }
 
 type uiTranscriptFeatureState struct {
-	sawAssistantDelta                   bool
-	lastCommittedAssistantStepID        string
-	transcriptEntries                   []tui.TranscriptEntry
-	transcriptBaseOffset                int
-	transcriptTotalEntries              int
-	transcriptRevision                  int64
-	ongoingCommittedDelivery            ongoingCommittedDeliveryCursor
-	deferredCommittedTail               []deferredProjectedTranscriptTail
-	deferredCommittedSuffixRefreshSet   bool
-	deferredCommittedSuffixRefreshLimit int
-	runtimeConnection                   clientui.RuntimeConnectionLifecycle
-	transcriptLiveDirty                 bool
-	reasoningLiveDirty                  bool
-	detailTranscript                    uiDetailTranscriptWindow
-	runtimeMainViewToken                uint64
-	runtimeMainViewBusy                 bool
-	runtimeMainViewActiveRequest        runtimeMainViewRefreshRequest
-	runtimeMainViewPendingSet           bool
-	runtimeMainViewPending              runtimeMainViewRefreshRequest
-	runtimeTranscriptToken              uint64
-	runtimeCommittedSuffixToken         uint64
-	runtimeTranscriptRetry              uint64
-	runtimeTranscriptBusy               bool
-	runtimeTranscriptActiveRequest      runtimeTranscriptSyncRequest
-	runtimeTranscriptPendingSet         bool
-	runtimeTranscriptPending            runtimeTranscriptSyncRequest
-	pendingQueuedDrainAfterHydration    bool
-	queuedDrainReadyAfterHydration      bool
-	waitRuntimeEventAfterHydration      bool
+	sawAssistantDelta                 bool
+	lastCommittedAssistantStepID      string
+	transcriptEntries                 []tui.TranscriptEntry
+	transcriptBaseOffset              int
+	transcriptTotalEntries            int
+	transcriptRevision                int64
+	ongoingCommittedDelivery          ongoingCommittedDeliveryCursor
+	deferredCommittedTail             []deferredProjectedTranscriptTail
+	deferredCommittedSuffixRefreshSet bool
+	runtimeConnection                 clientui.RuntimeConnectionLifecycle
+	transcriptLiveDirty               bool
+	reasoningLiveDirty                bool
+	detailTranscript                  uiDetailTranscriptWindow
+	runtimeMainViewToken              uint64
+	runtimeMainViewBusy               bool
+	runtimeMainViewActiveRequest      runtimeMainViewRefreshRequest
+	runtimeMainViewPendingSet         bool
+	runtimeMainViewPending            runtimeMainViewRefreshRequest
+	runtimeTranscriptToken            uint64
+	runtimeCommittedSuffixToken       uint64
+	runtimeTranscriptRetry            uint64
+	runtimeTranscriptBusy             bool
+	runtimeTranscriptActiveRequest    runtimeTranscriptSyncRequest
+	runtimeTranscriptPendingSet       bool
+	runtimeTranscriptPending          runtimeTranscriptSyncRequest
+	pendingQueuedDrainAfterHydration  bool
+	queuedDrainReadyAfterHydration    bool
+	waitRuntimeEventAfterHydration    bool
 }
 
 type uiNativeHistoryFeatureState struct {

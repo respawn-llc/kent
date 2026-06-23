@@ -2,7 +2,6 @@ package sessionview
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 
@@ -71,15 +70,3 @@ func TestGetSessionCommittedTranscriptSuffixReturnsDormantSuffix(t *testing.T) {
 	}
 }
 
-func TestGetSessionCommittedTranscriptSuffixRejectsInvalidLimit(t *testing.T) {
-	svc := NewService(nil, nil, nil)
-
-	_, err := svc.GetSessionCommittedTranscriptSuffix(context.Background(), serverapi.SessionCommittedTranscriptSuffixRequest{
-		SessionID:       "session-1",
-		AfterEntryCount: 0,
-		Limit:           -1,
-	})
-	if !errors.Is(err, serverapi.ErrLimitNegative) {
-		t.Fatalf("expected invalid limit error, got %v", err)
-	}
-}

@@ -256,7 +256,6 @@ var routeContracts = []Route{
 	unary[serverapi.WorktreeCreateRequest, serverapi.WorktreeCreateResponse](protocol.MethodWorktreeCreate, AuthServer, ScopeSessionActiveProject, ConnectionControl, DependencyWorktree),
 	unary[serverapi.WorktreeSwitchRequest, serverapi.WorktreeSwitchResponse](protocol.MethodWorktreeSwitch, AuthServer, ScopeSessionActiveProject, ConnectionControl, DependencyWorktree),
 	unary[serverapi.WorktreeDeleteRequest, serverapi.WorktreeDeleteResponse](protocol.MethodWorktreeDelete, AuthServer, ScopeSessionActiveProject, ConnectionControl, DependencyWorktree),
-	unary[serverapi.RunGetRequest, serverapi.RunGetResponse](protocol.MethodRunGet, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl, DependencySessionView),
 	unary[serverapi.RuntimeSetSessionNameRequest, struct{}](protocol.MethodRuntimeSetSessionName, AuthServer, ScopeSessionActiveProject, ConnectionControl, DependencyRuntimeControl),
 	unary[serverapi.RuntimeSetThinkingLevelRequest, struct{}](protocol.MethodRuntimeSetThinkingLevel, AuthServer, ScopeSessionActiveProject, ConnectionControl, DependencyRuntimeControl),
 	unary[serverapi.RuntimeSetFastModeEnabledRequest, serverapi.RuntimeSetFastModeEnabledResponse](protocol.MethodRuntimeSetFastModeEnabled, AuthServer, ScopeSessionActiveProject, ConnectionControl, DependencyRuntimeControl),

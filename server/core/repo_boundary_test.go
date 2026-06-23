@@ -116,7 +116,6 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"TranscriptPage":                   {},
 		"TranscriptPageRequest":            {},
 		"TranscriptRecoveryCause":          {},
-		"TranscriptWindow":                 {},
 		"UpdateStatus":                     {},
 		"WorkflowSessionStatus":            {},
 	}
@@ -129,7 +128,6 @@ func TestSharedClientUIRemainsDTOOnly(t *testing.T) {
 		"NewReviewerLifecycle":                      {},
 		"NewRunLifecycle":                           {},
 		"NewRuntimeConnectionLifecycle":             {},
-		"NormalizeCommittedTranscriptSuffixRequest": {},
 		"NormalizeMessagePhase":                     {},
 		"NormalizeSessionExecutionTarget":           {},
 		"NormalizeThinkingLevel":                    {},

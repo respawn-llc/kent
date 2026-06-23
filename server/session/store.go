@@ -885,20 +885,29 @@ func (s *Store) ReadEventsBackwardUntil(match func(Event) bool) ([]Event, error)
 	return window.Events, nil
 }
 
-func (s *Store) ReadSegmentBackward(endOffset int64, match func(Event) bool) (BackwardWindow, error) {
+func (s *Store) ReadSegmentBackward(endOffset int64, match func(Event) bool) (SegmentWindow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.persisted {
-		return BackwardWindow{ReachedStart: true}, nil
+		return SegmentWindow{ReachedStart: true, ReachedEnd: true}, nil
 	}
 	return readSegmentBackwardFile(s.eventsFP, endOffset, activeTailReverseChunkBytes, match)
 }
 
-func (s *Store) ReadRecentEvents(maxEvents int) (BackwardWindow, error) {
+func (s *Store) ReadSegmentForward(startOffset int64, match func(Event) bool) (SegmentWindow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.persisted {
-		return BackwardWindow{ReachedStart: true}, nil
+		return SegmentWindow{ReachedStart: true, ReachedEnd: true}, nil
+	}
+	return readSegmentForwardFile(s.eventsFP, startOffset, activeTailReverseChunkBytes, match)
+}
+
+func (s *Store) ReadRecentEvents(maxEvents int) (SegmentWindow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return SegmentWindow{ReachedStart: true}, nil
 	}
 	return readRecentEventsBackwardFile(s.eventsFP, 0, maxEvents, activeTailReverseChunkBytes)
 }

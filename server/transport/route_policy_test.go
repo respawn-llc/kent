@@ -59,7 +59,6 @@ func TestRouteScopeAccessorKindsMatchRouteContract(t *testing.T) {
 		protocol.MethodWorktreeCreate,
 		protocol.MethodWorktreeSwitch,
 		protocol.MethodWorktreeDelete,
-		protocol.MethodRunGet,
 		protocol.MethodRuntimeSetSessionName,
 		protocol.MethodRuntimeSetThinkingLevel,
 		protocol.MethodRuntimeSetFastModeEnabled,

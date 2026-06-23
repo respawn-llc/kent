@@ -90,6 +90,8 @@ type TranscriptSegmentPage struct {
 	Snapshot                          ChatSnapshot
 	OlderCursor                       int64
 	HasMoreAbove                      bool
+	NewerCursor                       int64
+	HasMoreBelow                      bool
 	LastCommittedAssistantFinalAnswer string
 }
 
@@ -112,6 +114,21 @@ func TranscriptSegmentPageFromStore(store *session.Store, cursor int64, cacheWar
 	if err != nil {
 		return TranscriptSegmentPage{}, err
 	}
+	return segmentPageFromWindow(window, cacheWarningMode), nil
+}
+
+func TranscriptSegmentPageForwardFromStore(store *session.Store, startOffset int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
+	if store == nil {
+		return TranscriptSegmentPage{}, nil
+	}
+	window, err := store.ReadSegmentForward(startOffset, isCompactionSegmentBoundary)
+	if err != nil {
+		return TranscriptSegmentPage{}, err
+	}
+	return segmentPageFromWindow(window, cacheWarningMode), nil
+}
+
+func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config.CacheWarningMode) TranscriptSegmentPage {
 	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: cacheWarningMode})
 	for _, evt := range window.Events {
 		_ = scan.ApplyPersistedEvent(evt)
@@ -120,8 +137,10 @@ func TranscriptSegmentPageFromStore(store *session.Store, cursor int64, cacheWar
 		Snapshot:                          scan.CollectedPageSnapshot(),
 		OlderCursor:                       window.StartOffset,
 		HasMoreAbove:                      !window.ReachedStart,
+		NewerCursor:                       window.EndOffset,
+		HasMoreBelow:                      !window.ReachedEnd,
 		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
-	}, nil
+	}
 }
 
 func (e *Engine) TranscriptSegmentPage(cursor int64) TranscriptSegmentPage {
@@ -133,6 +152,20 @@ func (e *Engine) TranscriptSegmentPage(cursor int64) TranscriptSegmentPage {
 		return TranscriptSegmentPage{}
 	}
 	if cursor <= 0 {
+		e.overlayLiveStreaming(&page.Snapshot)
+	}
+	return page
+}
+
+func (e *Engine) TranscriptSegmentPageForward(startOffset int64) TranscriptSegmentPage {
+	if e == nil || e.store == nil {
+		return TranscriptSegmentPage{}
+	}
+	page, err := TranscriptSegmentPageForwardFromStore(e.store, startOffset, e.cfg.CacheWarningMode)
+	if err != nil {
+		return TranscriptSegmentPage{}
+	}
+	if !page.HasMoreBelow {
 		e.overlayLiveStreaming(&page.Snapshot)
 	}
 	return page

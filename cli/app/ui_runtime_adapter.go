@@ -86,7 +86,11 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	if len(evt.TranscriptEntries) > 0 {
 		if shouldDeliverCommittedRuntimeEventFromSuffix(m, evt) {
 			m.observeNativeStreamingAssistantCommitCandidate(evt)
-			cmds = append(cmds, m.requestRuntimeCommittedTranscriptSuffix(committedTranscriptSuffixRequestForEvent(m, evt)))
+			if localSuffix, ok := committedTranscriptSuffixFromEvent(m, evt); ok {
+				cmds = append(cmds, m.applyCommittedTranscriptSuffixFromEvent(localSuffix))
+			} else {
+				cmds = append(cmds, m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}))
+			}
 		} else {
 			m.observeNativeStreamingAssistantCommitCandidate(evt)
 			cmd, mutated, needsHydration := a.applyProjectedTranscriptEntries(evt, flushNativeHistory)
