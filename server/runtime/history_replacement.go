@@ -15,10 +15,12 @@ const legacyHistoryReplacementEngineReviewerRollback = "reviewer_rollback"
 var errDecodeHistoryReplacedEvent = errors.New("decode history_replaced event")
 
 type historyReplacementEnvelope struct {
-	Engine        string          `json:"engine"`
-	Mode          string          `json:"mode"`
-	WorkflowRunID string          `json:"workflow_run_id"`
-	Items         json.RawMessage `json:"items"`
+	Engine                      string          `json:"engine"`
+	Mode                        string          `json:"mode"`
+	WorkflowRunID               string          `json:"workflow_run_id"`
+	CompactionNumber            int             `json:"compaction_number"`
+	PendingHandoffFutureMessage string          `json:"pending_handoff_future_message"`
+	Items                       json.RawMessage `json:"items"`
 }
 
 func normalizeHistoryReplacementEngine(engine string) string {
@@ -39,9 +41,11 @@ func decodePersistedHistoryReplacementPayload(payload []byte) (historyReplacemen
 		return historyReplacementPayload{Engine: engine, Mode: strings.TrimSpace(envelope.Mode)}, true, nil
 	}
 	decoded := historyReplacementPayload{
-		Engine:        engine,
-		Mode:          strings.TrimSpace(envelope.Mode),
-		WorkflowRunID: strings.TrimSpace(envelope.WorkflowRunID),
+		Engine:                      engine,
+		Mode:                        strings.TrimSpace(envelope.Mode),
+		WorkflowRunID:               strings.TrimSpace(envelope.WorkflowRunID),
+		CompactionNumber:            envelope.CompactionNumber,
+		PendingHandoffFutureMessage: strings.TrimSpace(envelope.PendingHandoffFutureMessage),
 	}
 	trimmedItems := bytes.TrimSpace(envelope.Items)
 	if len(trimmedItems) == 0 || bytes.Equal(trimmedItems, []byte("null")) {

@@ -30,7 +30,11 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	meta := e.store.Meta()
 	recoveredHandoff := newPersistedHandoffRecovery()
 	reminderIssued := meta.CompactionSoonReminderIssued
-	if err := e.store.WalkEvents(func(evt session.Event) error {
+	activeListEvents, err := e.store.ReadEventsBackwardUntil(isCompactionSegmentBoundary)
+	if err != nil {
+		return err
+	}
+	for _, evt := range activeListEvents {
 		switch evt.Kind {
 		case "message":
 			var msg llm.Message
@@ -74,7 +78,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return fmt.Errorf("%w: %w", errDecodeHistoryReplacedEvent, err)
 			}
 			if ignoredLegacy {
-				return nil
+				continue
 			}
 			e.resetLocalDiagnostics()
 			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).ReplaceHistory(payload.Items)
@@ -85,11 +89,9 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.compactionRuntimeState().SetLastWorkflowRunID(payload.WorkflowRunID)
 			recoveredHandoff.ClearSatisfiedByCompaction()
+			recoveredHandoff.SeedFutureMessage(payload.PendingHandoffFutureMessage)
 			reminderIssued = false
 		}
-		return nil
-	}); err != nil {
-		return err
 	}
 	e.compactionRuntimeState().SetSoonReminderIssued(reminderIssued)
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
@@ -177,6 +179,15 @@ func (r *persistedHandoffRecovery) ApplyToolCompletion(payload []byte) error {
 	}
 	r.pending = req
 	return nil
+}
+
+func (r *persistedHandoffRecovery) SeedFutureMessage(message string) {
+	if r == nil {
+		return
+	}
+	if trimmed := strings.TrimSpace(message); trimmed != "" {
+		r.pendingFutureMessage = trimmed
+	}
 }
 
 func (r *persistedHandoffRecovery) ClearSatisfiedByCompaction() {
