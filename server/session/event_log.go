@@ -25,11 +25,7 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 	if !s.persisted {
 		return nil
 	}
-	freshness := ConversationFreshnessFresh
-	parsed, err := walkEventsFile(s.eventsFP, func(evt Event) error {
-		freshness = advanceConversationFreshness(freshness, evt)
-		return nil
-	})
+	info, err := os.Stat(s.eventsFP)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if writeErr := os.WriteFile(s.eventsFP, nil, 0o644); writeErr != nil {
@@ -49,11 +45,44 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 		}
 		return err
 	}
-	s.eventsFileSizeBytes = parsed.totalBytes
+	s.eventsFileSizeBytes = info.Size()
 	s.pendingFsyncWrites = 0
-	s.conversationFreshness = freshness
-	if parsed.lastSequence != s.meta.LastSequence {
-		s.meta.LastSequence = parsed.lastSequence
+
+	window, err := readRecentEventsBackwardFile(s.eventsFP, 0, bootstrapTailRecoveryEvents, activeTailReverseChunkBytes)
+	if err != nil {
+		return err
+	}
+
+	established := s.meta.ConversationEstablished
+	if !established {
+		for _, evt := range window.Events {
+			if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
+				established = true
+				break
+			}
+		}
+	}
+	if established {
+		s.conversationFreshness = ConversationFreshnessEstablished
+	} else {
+		s.conversationFreshness = ConversationFreshnessFresh
+	}
+
+	lastSequence := int64(0)
+	if n := len(window.Events); n > 0 {
+		lastSequence = window.Events[n-1].Seq
+	}
+
+	metaChanged := false
+	if lastSequence != s.meta.LastSequence {
+		s.meta.LastSequence = lastSequence
+		metaChanged = true
+	}
+	if established && !s.meta.ConversationEstablished {
+		s.meta.ConversationEstablished = true
+		metaChanged = true
+	}
+	if metaChanged {
 		s.meta.UpdatedAt = time.Now().UTC()
 		if _, err := s.persistMetaLocked(); err != nil {
 			return err
@@ -217,6 +246,8 @@ func walkEventsFromReader(reader *bufio.Reader, visit func(Event) error) (parsed
 }
 
 const activeTailReverseChunkBytes = int64(1 << 20)
+
+const bootstrapTailRecoveryEvents = 512
 
 type eventAtOffset struct {
 	event  Event

@@ -504,6 +504,78 @@ func TestOpenRehydratesConversationFreshnessFromEvents(t *testing.T) {
 	}
 }
 
+func TestOpenBackfillsConversationFreshnessForLegacyMetaFromTail(t *testing.T) {
+	store := newSessionTestStore(t)
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "legacy established session"}); err != nil {
+		t.Fatalf("append user event: %v", err)
+	}
+
+	metaPath := filepath.Join(store.Dir(), sessionFile)
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read session file: %v", err)
+	}
+	var meta Meta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
+	}
+	meta.ConversationEstablished = false
+	rewritten, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal meta: %v", err)
+	}
+	if err := os.WriteFile(metaPath, rewritten, 0o644); err != nil {
+		t.Fatalf("write legacy meta: %v", err)
+	}
+
+	opened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if got := opened.ConversationFreshness(); got != ConversationFreshnessEstablished {
+		t.Fatalf("backfilled freshness = %v, want established", got)
+	}
+	if !opened.Meta().ConversationEstablished {
+		t.Fatalf("expected backfill to persist conversation_established flag")
+	}
+}
+
+func TestOpenRecoversLastSequenceFromTailWhenMetaStale(t *testing.T) {
+	store := newSessionTestStore(t)
+	for i := 0; i < 3; i++ {
+		if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "reply"}); err != nil {
+			t.Fatalf("append event %d: %v", i, err)
+		}
+	}
+	trueLastSeq := store.Meta().LastSequence
+
+	metaPath := filepath.Join(store.Dir(), sessionFile)
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read session file: %v", err)
+	}
+	var meta Meta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
+	}
+	meta.LastSequence = 0
+	rewritten, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal meta: %v", err)
+	}
+	if err := os.WriteFile(metaPath, rewritten, 0o644); err != nil {
+		t.Fatalf("write stale meta: %v", err)
+	}
+
+	opened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if got := opened.Meta().LastSequence; got != trueLastSeq {
+		t.Fatalf("recovered last sequence = %d, want %d", got, trueLastSeq)
+	}
+}
+
 func TestFirstPromptPreviewSkipsCompactionSummaryMessages(t *testing.T) {
 	store := newSessionTestStore(t)
 	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {

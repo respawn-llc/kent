@@ -1123,6 +1123,7 @@ func (s *Store) advanceConversationFreshnessLocked(events []Event) {
 	for _, evt := range events {
 		s.conversationFreshness = advanceConversationFreshness(s.conversationFreshness, evt)
 		if s.conversationFreshness == ConversationFreshnessEstablished {
+			s.meta.ConversationEstablished = true
 			return
 		}
 	}
