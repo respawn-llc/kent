@@ -146,6 +146,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		}
 	} else {
 		if m.view.Mode() == tui.ModeDetail && m.detailTranscript.matchesPage(page) {
+			m.detailTranscript.refreshEdgeCursors(page)
 			m.transcriptRevision = max(m.transcriptRevision, page.Revision)
 			if previousWindowTitle != sessionTitle(m.sessionName) {
 				return tea.SetWindowTitle(sessionTitle(m.sessionName))

@@ -62,6 +62,34 @@ func TestDetailRecentTailRefreshUpdatesWindowAtLiveTail(t *testing.T) {
 	}
 }
 
+func TestDetailContentMatchingPageRefreshesEdgeCursors(t *testing.T) {
+	m := setTestUITerminalSize(newProjectedStaticUIModel(), 100, 18)
+	m.layout().syncViewport()
+	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.view.Mode() != tui.ModeDetail {
+		t.Fatalf("mode = %q, want detail", m.view.Mode())
+	}
+
+	seed := testTranscriptPage(100, 5, 105)
+	m.detailTranscript.replace(seed)
+	if _, ok := m.detailTranscript.pageBefore(); ok {
+		t.Fatal("precondition: cursorless tail must not expose a scroll-up page")
+	}
+
+	authoritative := testTranscriptPage(100, 5, 105)
+	authoritative.OlderCursor = 4096
+	authoritative.HasMoreAbove = true
+	uiRuntimeAdapter{model: m}.applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, authoritative, clientui.TranscriptRecoveryCauseNone)
+
+	if !m.detailTranscript.hasMoreAbove {
+		t.Fatal("content-matching authoritative page did not refresh hasMoreAbove")
+	}
+	req, ok := m.detailTranscript.pageBefore()
+	if !ok || req.Cursor != 4096 {
+		t.Fatalf("scroll-up page unavailable after cursor refresh: ok=%t req=%+v", ok, req)
+	}
+}
+
 func TestRefreshTranscriptPagePreservesCommittedCountForCursorPages(t *testing.T) {
 	reads := &flakySessionViewClient{
 		errs: []error{nil, nil},

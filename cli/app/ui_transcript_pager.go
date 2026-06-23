@@ -82,6 +82,19 @@ func (w *uiDetailTranscriptWindow) refreshBounds() {
 	w.hasMoreBelow = bottom.hasMoreBelow
 }
 
+func (w *uiDetailTranscriptWindow) refreshEdgeCursors(page clientui.TranscriptPage) {
+	if w == nil || len(w.segments) == 0 {
+		return
+	}
+	top := &w.segments[0]
+	top.olderCursor = page.OlderCursor
+	top.hasMoreAbove = page.HasMoreAbove
+	bottom := &w.segments[len(w.segments)-1]
+	bottom.newerCursor = page.NewerCursor
+	bottom.hasMoreBelow = page.HasMoreBelow
+	w.refreshBounds()
+}
+
 func segmentMetaFromPage(startLocal int, page clientui.TranscriptPage) residentSegmentMeta {
 	return residentSegmentMeta{
 		startLocal:   startLocal,
