@@ -828,6 +828,36 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 			t.Fatal("expected reminder-issued state to clear after non-reviewer history replacement")
 		}
 	})
+
+	t.Run("legacy reviewer rollback preserves earlier reminder-issued state", func(t *testing.T) {
+		parent, err := Create(t.TempDir(), "ws", t.TempDir())
+		if err != nil {
+			t.Fatalf("create parent: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+			t.Fatalf("append first user: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_soon_reminder", "content": "compact soon"}); err != nil {
+			t.Fatalf("append reminder: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s1", "history_replaced", map[string]any{
+			"engine": "reviewer_rollback",
+			"items":  []map[string]any{},
+		}); err != nil {
+			t.Fatalf("append reviewer rollback history replacement: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+			t.Fatalf("append second user: %v", err)
+		}
+
+		forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after legacy rollback")
+		if err != nil {
+			t.Fatalf("fork: %v", err)
+		}
+		if !forked.Meta().CompactionSoonReminderIssued {
+			t.Fatal("expected legacy reviewer rollback to preserve earlier reminder-issued state")
+		}
+	})
 }
 
 func TestForkAtUserMessageResetsWorktreeReminderGenerationFlags(t *testing.T) {

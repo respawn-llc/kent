@@ -273,9 +273,22 @@ func (d *replayDerivedState) apply(evt ReplayEvent) {
 			d.reminderIssued = true
 		}
 	case "history_replaced":
+		var replacement historyReplacementEngine
+		if err := json.Unmarshal(evt.Payload, &replacement); err != nil {
+			return
+		}
+		if strings.TrimSpace(replacement.Engine) == legacyReviewerRollbackEngine {
+			return
+		}
 		d.reminderIssued = false
 	}
 }
+
+type historyReplacementEngine struct {
+	Engine string `json:"engine"`
+}
+
+const legacyReviewerRollbackEngine = "reviewer_rollback"
 
 func isCompactionSoonReminderMessage(msg reminderEventMessage) bool {
 	return strings.TrimSpace(msg.Role) == "developer" && strings.TrimSpace(msg.MessageType) == "compaction_soon_reminder" && strings.TrimSpace(msg.Content) != ""
