@@ -326,4 +326,3 @@ func (s dormantSessionSnapshot) CommittedTranscriptSuffix(ctx context.Context, r
 	}
 	return runtimeview.CommittedTranscriptSuffixFromSegment(meta.SessionID, meta.Name, freshness, meta.LastSequence, entry.newestSegment), nil
 }
-

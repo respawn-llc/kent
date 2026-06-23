@@ -48,8 +48,8 @@ type Store struct {
 	metadataVersion       uint64
 	persistedMetaVersion  uint64
 	options               storeOptions
-	eventsFileSizeBytes int64
-	pendingFsyncWrites  int
+	eventsFileSizeBytes   int64
+	pendingFsyncWrites    int
 }
 
 type persistenceObservation struct {

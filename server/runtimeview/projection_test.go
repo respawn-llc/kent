@@ -620,4 +620,3 @@ func TestTranscriptPageFromRuntimeReturnsNewestSegment(t *testing.T) {
 		t.Fatalf("unexpected segment bounds: %q..%q", page.Entries[0].Text, page.Entries[599].Text)
 	}
 }
-

@@ -89,7 +89,6 @@ func (c *countingSessionViewClient) GetSessionCommittedTranscriptSuffix(ctx cont
 	return serverapi.SessionCommittedTranscriptSuffixResponse{Suffix: c.suffix}, nil
 }
 
-
 type blockingSessionViewClient struct{}
 
 func (blockingSessionViewClient) GetSessionMainView(ctx context.Context, _ serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
@@ -101,7 +100,6 @@ func (blockingSessionViewClient) GetSessionTranscriptPage(ctx context.Context, _
 	<-ctx.Done()
 	return serverapi.SessionTranscriptPageResponse{}, ctx.Err()
 }
-
 
 type blockingCountingSessionViewClient struct {
 	count atomic.Int32
@@ -117,7 +115,6 @@ func (c *blockingCountingSessionViewClient) GetSessionTranscriptPage(ctx context
 	<-ctx.Done()
 	return serverapi.SessionTranscriptPageResponse{}, ctx.Err()
 }
-
 
 type mutableRuntimeResolver struct {
 	mu     sync.Mutex
@@ -177,7 +174,6 @@ func (c *flakySessionViewClient) GetSessionTranscriptPage(context.Context, serve
 	}
 	return serverapi.SessionTranscriptPageResponse{}, nil
 }
-
 
 type runtimeClientFakeLLM struct {
 	mu        sync.Mutex

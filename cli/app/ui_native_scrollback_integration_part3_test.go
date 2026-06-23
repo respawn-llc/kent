@@ -72,7 +72,7 @@ func TestNativeNoopFinalNeverAppearsOnScreen(t *testing.T) {
 	}
 	for _, entry := range eng.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 		if strings.Contains(entry.Text, "NO_OP") {
-			t.Fatalf("expected NO_OP to stay out of transcript entries, got %+v", eng.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries)
+			t.Fatalf("expected NO_OP to stay out of transcript entries, got %+v", eng.RecentTailTranscriptWindow(1<<20).Snapshot.Entries)
 		}
 	}
 }

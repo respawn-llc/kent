@@ -69,4 +69,3 @@ func TestGetSessionCommittedTranscriptSuffixReturnsDormantSuffix(t *testing.T) {
 		t.Fatalf("unexpected entries: %+v", resp.Suffix.Entries)
 	}
 }
-
