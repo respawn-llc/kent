@@ -295,6 +295,11 @@ func (w *uiDetailTranscriptWindow) merge(page clientui.TranscriptPage) {
 		}
 	}
 	if len(w.segments) > 0 {
+		if pageStart <= currentStart {
+			top := &w.segments[0]
+			top.olderCursor = page.OlderCursor
+			top.hasMoreAbove = page.HasMoreAbove
+		}
 		bottom := &w.segments[len(w.segments)-1]
 		bottom.newerCursor = page.NewerCursor
 		bottom.hasMoreBelow = page.HasMoreBelow

@@ -196,7 +196,19 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 	if m.detailTranscript.loaded {
 		m.detailTranscript.apply(page)
 	}
-	if m.view.Mode() == tui.ModeOngoing {
+	if m.detailTranscript.loaded {
+		detailPage := m.detailTranscript.page()
+		detailPage.SessionID = page.SessionID
+		detailPage.SessionName = page.SessionName
+		detailPage.Revision = page.Revision
+		m.forwardToView(tui.SetConversationMsg{
+			BaseOffset:   detailPage.Offset,
+			TotalEntries: detailPage.TotalEntries,
+			Entries:      transcriptEntriesFromPage(detailPage),
+			Ongoing:      detailPage.Streaming,
+			OngoingError: detailPage.StreamingError,
+		})
+	} else {
 		m.forwardToView(tui.SetConversationMsg{
 			BaseOffset:   page.Offset,
 			TotalEntries: page.TotalEntries,
@@ -204,7 +216,6 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 			Ongoing:      page.Streaming,
 			OngoingError: page.StreamingError,
 		})
-		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
 	}
 	if !flushNativeHistory {
 		return nil, true
