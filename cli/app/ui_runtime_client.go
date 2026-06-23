@@ -505,6 +505,7 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 			Window:                   req.Window,
 			KnownRevision:            req.KnownRevision,
 			KnownCommittedEntryCount: req.KnownCommittedEntryCount,
+			Cursor:                   req.Cursor,
 		})
 	})
 	c.notifyConnectionState(err)

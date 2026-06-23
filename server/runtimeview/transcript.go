@@ -12,13 +12,21 @@ func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPa
 	if engine == nil {
 		return clientui.TranscriptPage{}
 	}
-	return TranscriptPageFromSegment(
+	page := TranscriptPageFromSegment(
 		engine.SessionID(),
 		engine.SessionName(),
 		ConversationFreshnessFromSession(engine.ConversationFreshness()),
 		engine.TranscriptRevision(),
 		engine.TranscriptSegmentPage(req.Cursor),
 	)
+	if req.Cursor <= 0 {
+		total := engine.CommittedTranscriptEntryCount()
+		page.TotalEntries = total
+		if offset := total - len(page.Entries); offset >= 0 {
+			page.Offset = offset
+		}
+	}
+	return page
 }
 
 func TranscriptPageFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.TranscriptPage {
@@ -40,13 +48,20 @@ func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.Com
 	if engine == nil {
 		return clientui.CommittedTranscriptSuffix{}
 	}
-	return CommittedTranscriptSuffixFromSegment(
+	suffix := CommittedTranscriptSuffixFromSegment(
 		engine.SessionID(),
 		engine.SessionName(),
 		ConversationFreshnessFromSession(engine.ConversationFreshness()),
 		engine.TranscriptRevision(),
 		engine.TranscriptSegmentPage(0),
 	)
+	total := engine.CommittedTranscriptEntryCount()
+	suffix.CommittedEntryCount = total
+	suffix.NextEntryCount = total
+	if start := total - len(suffix.Entries); start >= 0 {
+		suffix.StartEntryCount = start
+	}
+	return suffix
 }
 
 func CommittedTranscriptSuffixFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.CommittedTranscriptSuffix {

@@ -151,7 +151,11 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 			}
 			return nil
 		}
-		m.detailTranscript.apply(page)
+		if pageReq.Cursor > 0 {
+			m.detailTranscript.prependCursorPage(page)
+		} else {
+			m.detailTranscript.apply(page)
+		}
 		m.transcriptRevision = max(m.transcriptRevision, page.Revision)
 		if !reduction.preserveLiveReasoning {
 			m.reasoningLiveDirty = false

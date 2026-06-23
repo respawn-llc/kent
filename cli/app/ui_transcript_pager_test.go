@@ -62,13 +62,16 @@ func TestDetailTranscriptWindowTrimAroundKeepsAnchorRegionBounded(t *testing.T) 
 
 func TestDetailTranscriptWindowPageRequests(t *testing.T) {
 	window := uiDetailTranscriptWindow{}
-	window.replace(testTranscriptPage(250, 250, 800))
+	page := testTranscriptPage(250, 250, 800)
+	page.OlderCursor = 4096
+	page.HasMoreAbove = true
+	window.replace(page)
 
 	before, ok := window.pageBefore()
 	if !ok {
 		t.Fatal("expected pageBefore request")
 	}
-	if want := (clientui.TranscriptPageRequest{Offset: 0, Limit: 250}); !pageRequestEqual(before, want) {
+	if want := (clientui.TranscriptPageRequest{Cursor: 4096}); !pageRequestEqual(before, want) {
 		t.Fatalf("pageBefore = %+v, want %+v", before, want)
 	}
 
@@ -87,6 +90,35 @@ func TestDetailTranscriptWindowPageRequests(t *testing.T) {
 	window.reset()
 	if requested := window.requestedPageForDetailEntry(); !pageRequestEqual(requested, (clientui.TranscriptPageRequest{Offset: 0, Limit: uiDetailTranscriptPageSize})) {
 		t.Fatalf("default requested page = %+v", requested)
+	}
+}
+
+func TestDetailTranscriptWindowPrependCursorPageGrowsUpward(t *testing.T) {
+	window := uiDetailTranscriptWindow{}
+	tail := testTranscriptPage(250, 250, 500)
+	tail.OlderCursor = 4096
+	tail.HasMoreAbove = true
+	window.replace(tail)
+
+	older := testTranscriptPage(0, 250, 500)
+	older.OlderCursor = 0
+	older.HasMoreAbove = false
+	window.prependCursorPage(older)
+
+	if window.offset != 0 {
+		t.Fatalf("offset after prepend = %d, want 0", window.offset)
+	}
+	if got := len(window.entries); got != 500 {
+		t.Fatalf("entry count after prepend = %d, want 500", got)
+	}
+	if window.entries[0].Text != "line 000" || window.entries[499].Text != "line 499" {
+		t.Fatalf("unexpected entries after prepend: first=%q last=%q", window.entries[0].Text, window.entries[499].Text)
+	}
+	if window.hasMoreAbove {
+		t.Fatal("expected hasMoreAbove cleared after reaching oldest segment")
+	}
+	if _, ok := window.pageBefore(); ok {
+		t.Fatal("expected no further pageBefore at top of transcript")
 	}
 }
 

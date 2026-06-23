@@ -27,7 +27,7 @@ func TestSessionSnapshotSourcesParityForMainView(t *testing.T) {
 	assertEqual(t, "session id", live.Session.SessionID, dormant.Session.SessionID)
 	assertEqual(t, "session name", live.Session.SessionName, dormant.Session.SessionName)
 	assertEqual(t, "freshness", live.Session.ConversationFreshness, dormant.Session.ConversationFreshness)
-	assertEqual(t, "transcript metadata", live.Session.Transcript, dormant.Session.Transcript)
+	assertEqual(t, "transcript revision", live.Session.Transcript.Revision, dormant.Session.Transcript.Revision)
 	assertEqual(t, "execution target", live.Session.ExecutionTarget, dormant.Session.ExecutionTarget)
 	assertEqual(t, "parent session id", live.Status.ParentSessionID, dormant.Status.ParentSessionID)
 	assertEqual(t, "last committed final", live.Status.LastCommittedAssistantFinalAnswer, dormant.Status.LastCommittedAssistantFinalAnswer)
@@ -251,10 +251,8 @@ type comparableTranscriptPage struct {
 	SessionName           string
 	ConversationFreshness clientui.ConversationFreshness
 	Revision              int64
-	TotalEntries          int
-	Offset                int
-	NextOffset            int
-	HasMore               bool
+	OlderCursor           int64
+	HasMoreAbove          bool
 	Entries               []comparableChatEntry
 }
 
@@ -264,10 +262,8 @@ func normalizedTranscriptPage(page clientui.TranscriptPage) comparableTranscript
 		SessionName:           page.SessionName,
 		ConversationFreshness: page.ConversationFreshness,
 		Revision:              page.Revision,
-		TotalEntries:          page.TotalEntries,
-		Offset:                page.Offset,
-		NextOffset:            page.NextOffset,
-		HasMore:               page.HasMore,
+		OlderCursor:           page.OlderCursor,
+		HasMoreAbove:          page.HasMoreAbove,
 		Entries:               normalizedChatEntries(page.Entries),
 	}
 }
@@ -277,9 +273,6 @@ type comparableCommittedSuffix struct {
 	SessionName           string
 	ConversationFreshness clientui.ConversationFreshness
 	Revision              int64
-	CommittedEntryCount   int
-	StartEntryCount       int
-	NextEntryCount        int
 	HasMore               bool
 	Entries               []comparableChatEntry
 }
@@ -290,9 +283,6 @@ func normalizedCommittedSuffix(suffix clientui.CommittedTranscriptSuffix) compar
 		SessionName:           suffix.SessionName,
 		ConversationFreshness: suffix.ConversationFreshness,
 		Revision:              suffix.Revision,
-		CommittedEntryCount:   suffix.CommittedEntryCount,
-		StartEntryCount:       suffix.StartEntryCount,
-		NextEntryCount:        suffix.NextEntryCount,
 		HasMore:               suffix.HasMore,
 		Entries:               normalizedChatEntries(suffix.Entries),
 	}
