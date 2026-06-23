@@ -152,12 +152,17 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 			}
 			return nil
 		}
-		if pageReq.NewerCursor > 0 {
-			m.detailTranscript.appendCursorPage(page)
-		} else if pageReq.Cursor > 0 {
-			m.detailTranscript.prependCursorPage(page)
-		} else {
-			m.detailTranscript.apply(page)
+		detailPinnedAwayFromTail := m.view.Mode() == tui.ModeDetail &&
+			isRecentTailTranscriptRequest(pageReq) &&
+			m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
+		if !detailPinnedAwayFromTail {
+			if pageReq.NewerCursor > 0 {
+				m.detailTranscript.appendCursorPage(page)
+			} else if pageReq.Cursor > 0 {
+				m.detailTranscript.prependCursorPage(page)
+			} else {
+				m.detailTranscript.apply(page)
+			}
 		}
 		m.transcriptRevision = max(m.transcriptRevision, page.Revision)
 		if !reduction.preserveLiveReasoning {
@@ -168,7 +173,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		detailPage.SessionName = page.SessionName
 		detailPage.ConversationFreshness = page.ConversationFreshness
 		detailPage.Revision = page.Revision
-		if m.view.Mode() == tui.ModeDetail {
+		if m.view.Mode() == tui.ModeDetail && !detailPinnedAwayFromTail {
 			if !reduction.preserveLiveReasoning {
 				m.forwardToView(tui.ClearStreamingReasoningMsg{})
 			}

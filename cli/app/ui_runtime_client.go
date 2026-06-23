@@ -525,9 +525,13 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 	c.patchMainView(func(view *clientui.RuntimeMainView) {
 		view.Status.ConversationFreshness = page.ConversationFreshness
 		view.Session.ConversationFreshness = page.ConversationFreshness
+		committedEntryCount := view.Session.Transcript.CommittedEntryCount
+		if isRecentTailTranscriptRequest(req) {
+			committedEntryCount = page.TotalEntries
+		}
 		view.Session.Transcript = clientui.TranscriptMetadata{
 			Revision:            page.Revision,
-			CommittedEntryCount: page.TotalEntries,
+			CommittedEntryCount: committedEntryCount,
 		}
 		if isRecentTailTranscriptRequest(req) {
 			view.Session.Chat = clientui.ChatSnapshot{
