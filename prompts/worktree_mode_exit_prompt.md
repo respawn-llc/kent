@@ -1,10 +1,5 @@
-The user moved this established conversation out of a git worktree and back to the main workspace.
-
-New workspace context:
-
-- Effective cwd: {{cwd}}
+You've been moved from the previous worktree into the main workspace directory. Uncommitted changes and local files were not brought over, and the previous worktree may have been detached or deleted. Workspace context:
+- New effective cwd, applies after this message: {{cwd}}
 - Main workspace root: {{workspace_root}}
 - Previous worktree path: {{worktree_path}}
 - Previous branch: {{branch}}
-
-Do not continue assuming the deleted or detached worktree is still the active environment.

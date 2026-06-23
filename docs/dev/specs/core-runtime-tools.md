@@ -236,7 +236,8 @@
 - `kent service restart`, `kent service restart --if-installed`, `kent service install` without `--no-start`, `kent service start`, `kent service stop`, and `kent service uninstall` without `--keep-running` refuse to run from Kent shell commands when `KENT_SESSION_ID` is present, before backend stop/restart or installation-state mutation, because those commands can stop or restart the server hosting current agent work.
 - Standalone `kent goal` commands do not acquire controller leases; model-shell CLI has narrow lease-free authority for same-session show, first-time set, and confirm-gated complete.
 - While a model turn runs, TUI goal lifecycle accepts only pause and clear.
-- Ctrl+C during active goal work keeps persisted status `active` and creates runtime-local suspension only.
+- Ctrl+C during active goal work keeps persisted status `active` and creates runtime-local suspension only. The next user message auto-resumes the suspended goal loop after its turn completes (no `/goal resume` needed); an explicit `/goal pause` is still the hard pause. A user turn that is itself interrupted leaves the loop suspended.
+- The goal status-line indicator shows the animated spinner only while a goal run is executing; when the goal is `active` but idle (e.g. after Ctrl+C), it shows the idle status dot.
 - Goal prompts and model-facing goal error copy live under `prompts/goal/`.
 
 ## Headless Mode
