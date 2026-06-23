@@ -15,19 +15,6 @@ import (
 	"core/shared/transcript"
 )
 
-func (e *Engine) scanPersistedTranscript(req PersistedTranscriptScanRequest) *PersistedTranscriptScan {
-	scan := NewPersistedTranscriptScan(req)
-	if e == nil || e.store == nil {
-		return scan
-	}
-	if err := e.store.WalkEvents(func(evt session.Event) error {
-		return scan.ApplyPersistedEvent(evt)
-	}); err != nil {
-		return NewPersistedTranscriptScan(req)
-	}
-	return scan
-}
-
 func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 	if e == nil || snapshot == nil {
 		return
@@ -35,15 +22,6 @@ func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 	streaming, streamingErr := e.transcriptRuntimeState().StreamingSnapshot()
 	snapshot.Streaming = streaming
 	snapshot.StreamingError = streamingErr
-}
-
-func (e *Engine) ChatSnapshot() ChatSnapshot {
-	if e == nil {
-		return ChatSnapshot{}
-	}
-	snapshot := e.scanPersistedTranscript(PersistedTranscriptScanRequest{CacheWarningMode: e.cfg.CacheWarningMode}).CollectedPageSnapshot()
-	e.overlayLiveStreaming(&snapshot)
-	return snapshot
 }
 
 func (e *Engine) recentTranscriptEntries(limit int) []ChatEntry {
@@ -106,27 +84,6 @@ func (e *Engine) activeListEvents() []session.Event {
 		return nil
 	}
 	return events
-}
-
-func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
-	if e == nil {
-		return transcriptPageSnapshot{}
-	}
-	scan := e.scanPersistedTranscript(PersistedTranscriptScanRequest{
-		Offset:           offset,
-		Limit:            limit,
-		CacheWarningMode: e.cfg.CacheWarningMode,
-	})
-	page := transcriptPageSnapshot{
-		Snapshot:     scan.CollectedPageSnapshot(),
-		TotalEntries: scan.TotalEntries(),
-		Offset:       offset,
-	}
-	if page.Offset > page.TotalEntries {
-		page.Offset = page.TotalEntries
-	}
-	e.overlayLiveStreaming(&page.Snapshot)
-	return page
 }
 
 type TranscriptSegmentPage struct {

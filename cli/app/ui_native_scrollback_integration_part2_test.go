@@ -172,7 +172,7 @@ func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
 		if strings.Count(model.nativeRenderedSnapshot, "TAIL-ONCE") != 1 {
 			return false
 		}
-		for _, entry := range eng.ChatSnapshot().Entries {
+		for _, entry := range eng.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 			if strings.Contains(entry.Text, "NO_OP") {
 				return false
 			}
@@ -220,7 +220,7 @@ func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			snapshot := eng.ChatSnapshot()
+			snapshot := eng.RecentTailTranscriptWindow(1 << 20).Snapshot
 			t.Fatalf("timed out waiting for final commit to clear ongoing state output=%q flush_seq=%d flushed_seq=%d pending_flushes=%d runtime_transcript=%+v ui_transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q", normalizedOutput(out.String()), model.nativeFlushSequence, model.nativeFlushedSequence, len(model.nativePendingFlushes), snapshot.Entries, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -229,7 +229,7 @@ func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
 
 	normalized := normalizedOutput(out.String())
 	if !strings.Contains(normalized, "FINAL-CONTENT") {
-		snapshot := eng.ChatSnapshot()
+		snapshot := eng.RecentTailTranscriptWindow(1 << 20).Snapshot
 		t.Fatalf("expected final content in output, got output=%q flush_seq=%d flushed_seq=%d pending_flushes=%d runtime_transcript=%+v ui_transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q", normalized, model.nativeFlushSequence, model.nativeFlushedSequence, len(model.nativePendingFlushes), snapshot.Entries, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
 	}
 	if strings.Contains(normalized, "LATE-BLINK") {
@@ -670,7 +670,7 @@ func TestNativeQueuedSteerDuringBlockingToolAppearsInScrollback(t *testing.T) {
 		return containsInOrder(snapshot.OngoingSnapshot, "steer now", "after steer")
 	})
 
-	snapshot := eng.ChatSnapshot()
+	snapshot := eng.RecentTailTranscriptWindow(1 << 20).Snapshot
 	hasQueuedUser := false
 	for _, entry := range snapshot.Entries {
 		if entry.Role == string(llm.RoleUser) && entry.Text == "steer now" {

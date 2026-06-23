@@ -344,7 +344,7 @@ func TestServiceAppendCommittedEntryDedupesSuccessfulRetry(t *testing.T) {
 		t.Fatalf("AppendCommittedEntry replay: %v", err)
 	}
 	count := 0
-	for _, entry := range engine.ChatSnapshot().Entries {
+	for _, entry := range engine.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 		if entry.Role == "warning" && entry.Text == "be careful" {
 			count++
 		}
@@ -373,7 +373,7 @@ func TestServiceAppendCommittedEntryReplaysVisibility(t *testing.T) {
 		t.Fatalf("AppendCommittedEntry replay: %v", err)
 	}
 	count := 0
-	for _, entry := range engine.ChatSnapshot().Entries {
+	for _, entry := range engine.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 		if entry.Role == "warning" && entry.Text == "visible warning" {
 			count++
 			if entry.Visibility != transcript.EntryVisibilityAll {
