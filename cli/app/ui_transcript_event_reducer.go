@@ -41,6 +41,8 @@ type projectedTranscriptEventState struct {
 	hasRuntimeClient     bool
 	busy                 bool
 	liveAssistantPending bool
+	liveAssistantText    string
+	liveAssistantStepID  string
 }
 
 type projectedTranscriptEventSnapshot struct {
@@ -50,6 +52,8 @@ type projectedTranscriptEventSnapshot struct {
 	hasRuntimeClient     bool
 	busy                 bool
 	liveAssistantPending bool
+	liveAssistantText    string
+	liveAssistantStepID  string
 }
 
 type projectedTranscriptReduction struct {
@@ -71,6 +75,8 @@ func newProjectedTranscriptEventState(snapshot projectedTranscriptEventSnapshot)
 		hasRuntimeClient:     snapshot.hasRuntimeClient,
 		busy:                 snapshot.busy,
 		liveAssistantPending: snapshot.liveAssistantPending,
+		liveAssistantText:    snapshot.liveAssistantText,
+		liveAssistantStepID:  snapshot.liveAssistantStepID,
 	}
 }
 
@@ -84,7 +90,11 @@ func reduceProjectedTranscriptEvent(state projectedTranscriptEventState, evt cli
 			duplicateToolStarts: true,
 		}
 	}
+	liveOnlyToolStart := projectedEventIsLiveOnlyUnresolvedToolStart(state, evt)
 	plan := planProjectedTranscriptEntries(state, evt)
+	if liveOnlyToolStart {
+		plan = liveOnlyToolStartProjectedTranscriptPlan(state, incoming)
+	}
 	reduction := projectedTranscriptReduction{
 		decision:           projectedTranscriptDecisionApply,
 		plan:               plan,
@@ -92,18 +102,18 @@ func reduceProjectedTranscriptEvent(state projectedTranscriptEventState, evt cli
 		hydrationCause:     evt.RecoveryCause,
 	}
 	reduction.projectedTransient = state.hasRuntimeClient && evt.Kind != clientui.EventConversationUpdated && !reduction.projectedCommitted
+	if plan.mode != projectedTranscriptEntryPlanSkip && shouldDeferCommittedTranscriptEventWhileStreaming(state, evt) {
+		reduction.decision = projectedTranscriptDecisionDefer
+		reduction.shouldDeferTail = true
+		reduction.skipReason = "deferred_tail"
+		return reduction
+	}
 	switch plan.mode {
 	case projectedTranscriptEntryPlanSkip:
 		reduction.decision = projectedTranscriptDecisionSkip
 		reduction.skipReason = "already_hydrated"
 	case projectedTranscriptEntryPlanHydrate:
 		reduction.decision = projectedTranscriptDecisionHydrate
-	case projectedTranscriptEntryPlanAppend:
-		if shouldDeferProjectedUserMessageFlushAppend(state, evt) {
-			reduction.decision = projectedTranscriptDecisionDefer
-			reduction.shouldDeferTail = true
-			reduction.skipReason = "deferred_tail"
-		}
 	}
 	return reduction
 }
@@ -246,24 +256,109 @@ func shouldSkipProjectedToolCallStart(state projectedTranscriptEventState, evt c
 	return matched
 }
 
-func shouldDeferProjectedUserMessageFlushAppend(state projectedTranscriptEventState, evt clientui.Event) bool {
-	if evt.Kind != clientui.EventUserMessageFlushed || len(evt.TranscriptEntries) == 0 {
-		return false
-	}
-	if !state.busy {
-		return false
-	}
+func shouldDeferCommittedTranscriptEventWhileStreaming(state projectedTranscriptEventState, evt clientui.Event) bool {
 	if !state.liveAssistantPending {
 		return false
 	}
+	if !evt.CommittedTranscriptChanged || len(evt.TranscriptEntries) == 0 {
+		return false
+	}
+	if isAssistantStreamFinalizerEvent(state, evt) {
+		return false
+	}
+	if projectedEventIsLiveOnlyUnresolvedToolStart(state, evt) {
+		return false
+	}
+	return true
+}
+
+func isFinalAssistantCommitEvent(evt clientui.Event) bool {
+	if evt.Kind != clientui.EventAssistantMessage || !evt.CommittedTranscriptChanged {
+		return false
+	}
 	for _, entry := range evt.TranscriptEntries {
-		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleUser {
+		if isFinalAssistantProjectedEntry(entry) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAssistantStreamFinalizerEvent(state projectedTranscriptEventState, evt clientui.Event) bool {
+	if evt.Kind != clientui.EventAssistantMessage || !evt.CommittedTranscriptChanged {
+		return false
+	}
+	if strings.TrimSpace(state.liveAssistantStepID) != "" {
+		return activeAssistantStepMatchesEvent(state, evt) && isFinalAssistantCommitEvent(evt)
+	}
+	activeStream := strings.TrimSpace(state.liveAssistantText)
+	if activeStream == "" {
+		return false
+	}
+	for _, entry := range evt.TranscriptEntries {
+		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
+			continue
+		}
+		if strings.TrimSpace(entry.Text) == activeStream {
+			return true
+		}
+	}
+	return false
+}
+
+func activeAssistantStepMatchesEvent(state projectedTranscriptEventState, evt clientui.Event) bool {
+	activeStepID := strings.TrimSpace(state.liveAssistantStepID)
+	if activeStepID == "" {
+		return true
+	}
+	eventStepID := strings.TrimSpace(evt.StepID)
+	if eventStepID == "" {
+		return false
+	}
+	return eventStepID == activeStepID
+}
+
+func projectedEventIsLiveOnlyUnresolvedToolStart(state projectedTranscriptEventState, evt clientui.Event) bool {
+	if evt.Kind != clientui.EventToolCallStarted || len(evt.TranscriptEntries) == 0 {
+		return false
+	}
+	for _, entry := range evt.TranscriptEntries {
+		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleToolCall {
 			return false
 		}
 	}
-	if !state.hasRuntimeClient {
-		return true
+	currentCommittedOngoing := len(committedTranscriptEntriesForApp(state.entries))
+	projectedEntries := append([]tui.TranscriptEntry(nil), state.entries...)
+	for _, entry := range evt.TranscriptEntries {
+		projectedEntries = append(projectedEntries, transcriptEntryFromProjectedChatEntry(entry, false, evt.CommittedTranscriptChanged))
 	}
-	committed := committedTranscriptEntriesForApp(state.entries)
-	return len(committed) == 0
+	return len(committedTranscriptEntriesForApp(projectedEntries)) == currentCommittedOngoing
+}
+
+func liveOnlyToolStartProjectedTranscriptPlan(state projectedTranscriptEventState, entries []clientui.ChatEntry) projectedTranscriptEntryPlan {
+	if len(entries) == 1 {
+		toolCallID := strings.TrimSpace(entries[0].ToolCallID)
+		if toolCallID != "" {
+			for idx, entry := range state.entries {
+				if strings.TrimSpace(entry.ToolCallID) != toolCallID {
+					continue
+				}
+				if tui.TranscriptRoleFromWire(string(entry.Role)) != tui.TranscriptRoleToolCall {
+					continue
+				}
+				return projectedTranscriptEntryPlan{
+					mode:       projectedTranscriptEntryPlanReplace,
+					rangeStart: idx,
+					rangeEnd:   idx + 1,
+					entries:    entries,
+				}
+			}
+		}
+	}
+	return projectedTranscriptEntryPlan{
+		mode:       projectedTranscriptEntryPlanAppend,
+		rangeStart: len(state.entries),
+		rangeEnd:   len(state.entries),
+		entries:    entries,
+	}
 }

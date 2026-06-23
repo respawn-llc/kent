@@ -172,7 +172,9 @@ func (m *uiModel) handleRuntimeEventBatch(events []clientui.Event) (*uiModel, te
 	}
 	m.layout().syncViewport()
 	if !result.transcriptMutated {
-		cmd = sequenceCmds(cmd, m.syncNativeStreamingScrollback())
+		streamCmd := m.syncNativeStreamingScrollback()
+		deferredCmd := m.drainDeferredCommittedDeliveryIfUnblocked()
+		cmd = sequenceCmds(cmd, streamCmd, deferredCmd)
 	}
 	if result.awaitsHydration {
 		m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.runtime_batch_pause", map[string]string{

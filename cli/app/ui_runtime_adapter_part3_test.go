@@ -404,7 +404,7 @@ func TestApplyRuntimeTranscriptPageRejectsStaleAuthoritativePageWhileDeferredCom
 	m.sessionID = "session-1"
 	m.setBusy(true)
 	m.sawAssistantDelta = true
-	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 0, Entries: nil, Ongoing: "stale assistant"})
+	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 0, Entries: nil, Ongoing: "done"})
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventUserMessageFlushed,

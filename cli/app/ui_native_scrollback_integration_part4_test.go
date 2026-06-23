@@ -165,7 +165,7 @@ func TestNativeProgramCommittedToolStartReplacesMatchingTransientToolRowWithoutH
 	}
 }
 
-func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t *testing.T) {
+func TestNativeProgramUserFlushDefersCommittedGapWhileAssistantStreamIsLive(t *testing.T) {
 	out := &bytes.Buffer{}
 	runtimeEvents := make(chan clientui.Event, 16)
 	client := &staleTranscriptRuntimeClient{
@@ -215,24 +215,18 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 		UserMessage:                "steered message",
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	}
-	userFlushDeadline := time.Now().Add(2 * time.Second)
-	userFlushVisible := false
-	for time.Now().Before(userFlushDeadline) {
-		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
-		if containsInOrder(committed, "seed", "steered message") {
-			userFlushVisible = true
-			break
+	waitForTestCondition(t, 2*time.Second, "user flush deferred while assistant stream is live", func() bool {
+		if len(model.deferredCommittedTail) != 1 {
+			return false
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !userFlushVisible {
-		t.Fatalf("expected user flush visible after hydrate, committed=%q load_calls=%d output=%q", stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)), client.LoadCalls(), normalizedOutput(out.String()))
-	}
-	if got := len(model.deferredCommittedTail); got != 0 {
-		t.Fatalf("expected queued user flush path to avoid deferred committed tail, got %d", got)
+		committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider))
+		return !strings.Contains(committed, "steered message") && strings.Contains(normalizedOutput(out.String()), "next: steered message")
+	})
+	if got := len(model.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected queued user flush in deferred committed tail, got %d", got)
 	}
 	if currentLoadCalls := client.LoadCalls(); currentLoadCalls != baselineLoadCalls {
-		t.Fatalf("expected contiguous user flush append to avoid transcript hydrate, baseline=%d current=%d", baselineLoadCalls, currentLoadCalls)
+		t.Fatalf("expected deferred user flush to avoid transcript hydrate while stream is live, baseline=%d current=%d", baselineLoadCalls, currentLoadCalls)
 	}
 
 	runtimeEvents <- clientui.Event{
@@ -258,7 +252,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 
 	program.QuitAndWait(2 * time.Second)
 	if committed := stripANSIAndTrimRight(model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider)); !containsInOrder(committed, "seed", "steered message", "after follow-up") {
-		t.Fatalf("expected hydrated committed user flush to remain visible in ongoing committed surface, got %q", committed)
+		t.Fatalf("expected deferred committed user flush to remain visible in ongoing committed surface after final commit, got %q", committed)
 	}
 }
 

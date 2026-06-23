@@ -584,29 +584,34 @@ func (m *uiModel) handleRuntimeCommittedTranscriptSuffixRefreshed(msg runtimeCom
 		return m.requestRuntimeCommittedGapSync()
 	}
 	m.observeRuntimeRequestResult(nil)
+	if m.shouldGateCommittedSuffixResponse(msg.suffix) {
+		m.deferRuntimeCommittedSuffixRefresh(msg.req)
+		return nil
+	}
 	if committedTranscriptSuffixStartsAfterDeliveryCursor(m, msg.suffix) {
 		return m.requestRuntimeCommittedGapSync()
 	}
 	staleResponse := msg.token < m.runtimeCommittedSuffixToken
 	trimmedSuffix := m.trimCommittedTranscriptSuffixToDeliveryCursor(msg.suffix)
 	applyCmd := m.applyCommittedTranscriptSuffixAppend(msg.suffix)
+	deferredCmd := m.drainDeferredCommittedDeliveryIfUnblocked()
 	hasMore := msg.suffix.HasMore
 	nextEntryCount := msg.suffix.NextEntryCount
 	if staleResponse {
 		hasMore = trimmedSuffix.HasMore
 		nextEntryCount = trimmedSuffix.NextEntryCount
 		if trimmedSuffix.NextEntryCount <= trimmedSuffix.StartEntryCount {
-			return applyCmd
+			return sequenceCmds(applyCmd, deferredCmd)
 		}
 	}
 	if !hasMore {
-		return applyCmd
+		return sequenceCmds(applyCmd, deferredCmd)
 	}
 	nextReq := clientui.NormalizeCommittedTranscriptSuffixRequest(clientui.CommittedTranscriptSuffixRequest{
 		AfterEntryCount: nextEntryCount,
 		Limit:           msg.req.Limit,
 	})
-	return sequenceCmds(applyCmd, m.requestRuntimeCommittedTranscriptSuffix(nextReq))
+	return sequenceCmds(applyCmd, deferredCmd, m.requestRuntimeCommittedTranscriptSuffix(nextReq))
 }
 
 func (m *uiModel) flushQueuedInputsAfterHydration() tea.Cmd {

@@ -459,7 +459,7 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 	}()
 
 	waitForSignal(t, 2*time.Second, "first deferred final delta", firstDelta)
-	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}))
+	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "foreground done"}))
 	observed.waitFor(t, 2*time.Second, "live deferred final delta visible", func(snapshot observedUISnapshot) bool {
 		return strings.Contains(snapshot.OngoingStreamingText, "foreground done")
 	})
@@ -532,7 +532,7 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 	}()
 
 	waitForSignal(t, roundTripTimeout, "first deferred final delta", firstDelta)
-	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}))
+	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "foreground done"}))
 	observed.waitFor(t, roundTripTimeout, "live deferred final delta visible", func(snapshot observedUISnapshot) bool {
 		return strings.Contains(snapshot.OngoingStreamingText, "foreground done")
 	})

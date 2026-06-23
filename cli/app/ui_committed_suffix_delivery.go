@@ -11,7 +11,14 @@ func shouldDeliverCommittedRuntimeEventFromSuffix(m *uiModel, evt clientui.Event
 	if m == nil || !evt.CommittedTranscriptChanged || len(evt.TranscriptEntries) == 0 {
 		return false
 	}
+	state := newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m))
 	if evt.Kind == clientui.EventUserMessageFlushed {
+		return false
+	}
+	if projectedEventIsLiveOnlyUnresolvedToolStart(state, evt) {
+		return false
+	}
+	if m.ongoingCommittedScrollbackGateActive() {
 		return false
 	}
 	if _, ok := m.runtimeClient().(interface {

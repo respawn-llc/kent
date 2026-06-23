@@ -36,15 +36,20 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEventsBatch(events []clientui.Eve
 		return runtimeEventApplyResult{cmd: batchedCmd, awaitsHydration: awaitsHydration}
 	}
 	nativeCmd := a.model.syncNativeHistoryFromTranscript()
-	return runtimeEventApplyResult{cmd: sequenceCmds(nativeCmd, batchedCmd), transcriptMutated: true, awaitsHydration: awaitsHydration}
+	deferredCmd := a.model.drainDeferredCommittedDeliveryIfUnblocked()
+	return runtimeEventApplyResult{cmd: sequenceCmds(nativeCmd, deferredCmd, batchedCmd), transcriptMutated: true, awaitsHydration: awaitsHydration}
 }
 
 func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNativeHistory bool) runtimeEventApplyResult {
 	m := a.model
-	if merge := reduceDeferredCommittedTailMerge(newDeferredCommittedTailState(deferredCommittedTailSnapshotFromModel(m)), evt); merge.merged {
-		evt = merge.event
-		m.deferredCommittedTail = merge.remaining
-		m.logDeferredCommittedTailMergeDiag(evt, merge)
+	projectedState := newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m))
+	skipDeferredTailMerge := projectedEventIsLiveOnlyUnresolvedToolStart(projectedState, evt)
+	if !skipDeferredTailMerge {
+		if merge := reduceDeferredCommittedTailMerge(newDeferredCommittedTailState(deferredCommittedTailSnapshotFromModel(m)), evt); merge.merged {
+			evt = merge.event
+			m.deferredCommittedTail = merge.remaining
+			m.logDeferredCommittedTailMergeDiag(evt, merge)
+		}
 	}
 	if m.turnQueueHook != nil {
 		m.turnQueueHook.OnProjectedRuntimeEvent(evt)
@@ -72,6 +77,9 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	}
 	cmds := make([]tea.Cmd, 0, 5)
 	cmds = append(cmds, a.applyRuntimeEventReduction(reduction))
+	if m.clearAwaitingNativeStreamingCommitOnIdle(evt) {
+		cmds = append(cmds, m.drainDeferredCommittedDeliveryIfUnblocked())
+	}
 	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
 	transcriptMutated := false
 	awaitsHydration := false
@@ -79,20 +87,13 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		if shouldDeliverCommittedRuntimeEventFromSuffix(m, evt) {
 			m.observeNativeStreamingAssistantCommitCandidate(evt)
 			cmds = append(cmds, m.requestRuntimeCommittedTranscriptSuffix(committedTranscriptSuffixRequestForEvent(m, evt)))
-			if shouldClearAssistantStreamForCommittedAssistantEvent(evt) || skippedAssistantCommitMatchesActiveLiveStream(m, evt) {
-				if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
-					m.lastCommittedAssistantStepID = stepID
-				}
-				m.sawAssistantDelta = false
-				m.forwardToView(tui.ClearOngoingAssistantMsg{})
-			}
 		} else {
 			m.observeNativeStreamingAssistantCommitCandidate(evt)
 			cmd, mutated, needsHydration := a.applyProjectedTranscriptEntries(evt, flushNativeHistory)
 			cmds = append(cmds, cmd)
 			transcriptMutated = transcriptMutated || mutated
 			awaitsHydration = awaitsHydration || needsHydration
-			if shouldClearAssistantStreamForCommittedAssistantEvent(evt) && (mutated || skippedAssistantCommitMatchesActiveLiveStream(m, evt)) {
+			if shouldClearAssistantStreamForCommittedAssistantEvent(evt, m.view.OngoingStreamingText()) && (mutated || skippedAssistantCommitMatchesActiveLiveStream(m, evt)) {
 				if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
 					m.lastCommittedAssistantStepID = stepID
 				}
@@ -120,6 +121,9 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		case runtimestate.RuntimeAssistantStreamClear:
 			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
 				m.lastCommittedAssistantStepID = stepID
+			}
+			if strings.TrimSpace(m.nativeStreamingController.source) != "" || strings.TrimSpace(m.nativeStreamingText) != "" {
+				m.nativeStreamingAwaitingCommit = true
 			}
 			m.sawAssistantDelta = false
 			m.forwardToView(tui.ClearOngoingAssistantMsg{})
