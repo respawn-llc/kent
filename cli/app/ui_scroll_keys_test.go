@@ -519,6 +519,7 @@ func TestRollbackSelectionInDetailUsesPagedDetailWindow(t *testing.T) {
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -593,6 +594,7 @@ func TestRollbackForkSubmissionUsesPagedDetailAbsoluteIndex(t *testing.T) {
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -657,6 +659,7 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -777,6 +780,7 @@ func TestRollbackSelectionPagesToFirstUserAcrossTrimmedDetailWindow(t *testing.T
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -881,6 +885,7 @@ func TestRollbackTransitionsUseFixedDetailAltScreen(t *testing.T) {
 		if m.view.Mode() != tui.ModeDetail || m.altScreenActive != altOnEntry {
 			t.Fatalf("unexpected detail state before picker: mode=%q alt=%t", m.view.Mode(), m.altScreenActive)
 		}
+		seedTestRollbackTargets(m)
 
 		m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})

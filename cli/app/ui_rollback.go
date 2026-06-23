@@ -3,7 +3,6 @@ package app
 import (
 	"core/cli/tui"
 	"core/shared/clientui"
-	"core/shared/rollbacktarget"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,9 +17,6 @@ func (m *uiModel) refreshRollbackCandidates() {
 			continue
 		}
 		targetID := entry.RollbackTargetID
-		if targetID == "" && !m.hasRuntimeClient() {
-			targetID = rollbacktarget.EncodeUserMessageSeq(int64(baseOffset + idx + 1))
-		}
 		if targetID == "" {
 			continue
 		}

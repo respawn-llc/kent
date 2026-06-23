@@ -141,6 +141,7 @@ func TestFullscreenSurfaceOpenClosePolicy(t *testing.T) {
 			open: func(t *testing.T, m *uiModel) tea.Cmd {
 				m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt"}}
 				m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
+				seedTestRollbackTargets(m)
 				if !m.startRollbackSelectionMode() {
 					t.Fatal("expected rollback selection to start")
 				}

@@ -569,6 +569,7 @@ func TestHelpRollbackSelectionDismissesAndMovesSelection(t *testing.T) {
 	m.termHeight = 24
 	m.windowSizeKnown = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "one"}, {Role: "assistant", Text: "a"}, {Role: "user", Text: "two"}}
+	seedTestRollbackTargets(m)
 	if !m.startRollbackSelectionMode() {
 		t.Fatal("expected rollback selection mode to start")
 	}
@@ -594,6 +595,7 @@ func TestHelpRollbackEditDismissesAndReturnsToSelection(t *testing.T) {
 	m.termHeight = 24
 	m.windowSizeKnown = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "one"}, {Role: "assistant", Text: "a"}, {Role: "user", Text: "two"}}
+	seedTestRollbackTargets(m)
 	if !m.startRollbackSelectionMode() {
 		t.Fatal("expected rollback selection mode to start")
 	}

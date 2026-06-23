@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"core/cli/tui"
 	"core/server/session"
 	"core/shared/rollbacktarget"
 )
@@ -149,6 +150,26 @@ func rollbackTargetIDForTestSelection(selectedTranscriptEntry int) string {
 		return ""
 	}
 	return rollbacktarget.EncodeUserMessageSeq(int64(selectedTranscriptEntry + 1))
+}
+
+func seedTestRollbackTargets(m *uiModel) {
+	if m == nil {
+		return
+	}
+	seeded := false
+	seed := func(entries []tui.TranscriptEntry, base int) {
+		for i := range entries {
+			if entries[i].Role == tui.TranscriptRoleUser && entries[i].RollbackTargetID == "" {
+				entries[i].RollbackTargetID = rollbackTargetIDForTestSelection(base + i)
+				seeded = true
+			}
+		}
+	}
+	seed(m.transcriptEntries, m.transcriptBaseOffset)
+	seed(m.detailTranscript.entries, m.detailTranscript.offset)
+	if seeded {
+		m.refreshRollbackCandidates()
+	}
 }
 
 func testRollbackSelection(m *uiModel) int {
