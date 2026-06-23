@@ -254,12 +254,17 @@ func normalizeRuntimeMainViewRefreshRequest(req runtimeMainViewRefreshRequest) r
 
 func runtimeMainViewRefreshRequestForCause(cause runtimeMainViewRefreshCause) runtimeMainViewRefreshRequest {
 	priority := 10
-	if cause == runtimeMainViewRefreshCauseStartupUpdate {
+	class := runtimeSyncPolicyClassRoutine
+	switch cause {
+	case runtimeMainViewRefreshCauseStartupUpdate:
 		priority = 20
+	case runtimeMainViewRefreshCauseWorktreeMutation:
+		class = runtimeSyncPolicyClassAllowed
+		priority = 50
 	}
 	return normalizeRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequest{
 		cause:    cause,
-		class:    runtimeSyncPolicyClassRoutine,
+		class:    class,
 		priority: priority,
 	})
 }

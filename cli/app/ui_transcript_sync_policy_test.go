@@ -160,6 +160,31 @@ func TestRuntimeSyncPolicyDropsRoutineTranscriptResponseWhenBlockerAppears(t *te
 	}
 }
 
+func TestRuntimeSyncPolicyRunsWorktreeMutationRefreshWhileBusy(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	client.mainView = clientui.RuntimeMainView{
+		Session:         clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "server-name"},
+		ExternalRuntime: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateRegisteredIdle, QueueAccepting: true},
+	}
+	m.setBusy(true)
+
+	cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd
+	if cmd == nil {
+		t.Fatal("expected worktree-mutation main-view refresh to run authoritatively while busy")
+	}
+	refresh := cmd().(runtimeMainViewRefreshedMsg)
+	next, _ := m.Update(refresh)
+	updated := next.(*uiModel)
+	if updated.isBusy() {
+		t.Fatal("expected authoritative worktree-mutation refresh to reconcile busy to idle server truth")
+	}
+	if updated.sessionName != "server-name" {
+		t.Fatalf("session name = %q, want server-name", updated.sessionName)
+	}
+}
+
 func TestRuntimeSyncPolicyDefersAndReleasesMainViewRefresh(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
@@ -169,7 +194,7 @@ func TestRuntimeSyncPolicyDefersAndReleasesMainViewRefresh(t *testing.T) {
 	}
 	m.setBusy(true)
 
-	if cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd; cmd != nil {
+	if cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseManual)).cmd; cmd != nil {
 		t.Fatalf("expected main-view refresh deferred while streaming/busy, got %T", cmd)
 	}
 	if client.refreshMainViewCalls != 0 {
@@ -202,7 +227,7 @@ func TestRuntimeSyncPolicyDropsRoutineMainViewResponseWhenBlockerAppears(t *test
 	client.mainView = clientui.RuntimeMainView{
 		Session: clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "server-name"},
 	}
-	cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd
+	cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseManual)).cmd
 	if cmd == nil {
 		t.Fatal("expected unblocked main-view refresh to start")
 	}
@@ -361,8 +386,8 @@ func TestStartupUpdateNoticePendingRefreshSurvivesWorktreeRefreshCoalescing(t *t
 	if m.runtimeMainViewPending.cause != runtimeMainViewRefreshCauseStartupUpdate {
 		t.Fatalf("pending main-view cause = %q, want startup_update", m.runtimeMainViewPending.cause)
 	}
-	if cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseWorktreeMutation)).cmd; cmd != nil {
-		t.Fatalf("expected blocked worktree refresh to coalesce, got %T", cmd)
+	if cmd := m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(runtimeMainViewRefreshCauseManual)).cmd; cmd != nil {
+		t.Fatalf("expected blocked routine refresh to coalesce, got %T", cmd)
 	}
 	if m.runtimeMainViewPending.cause != runtimeMainViewRefreshCauseStartupUpdate {
 		t.Fatalf("coalesced pending main-view cause = %q, want startup_update", m.runtimeMainViewPending.cause)
