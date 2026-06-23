@@ -158,6 +158,17 @@ func (m *uiModel) resetNativeHistoryState() {
 	m.discardPendingNativeHistoryFlushes()
 }
 
+func (m *uiModel) flushSupersededAssistantStreamTurn() tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	m.sawAssistantDelta = false
+	m.nativeStreamingActive = false
+	m.forwardToView(tui.ClearOngoingAssistantMsg{})
+	m.resetNativeStreamingState()
+	return m.drainDeferredCommittedDeliveryIfUnblocked()
+}
+
 func (m *uiModel) resetNativeStreamingState() {
 	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
 	m.nativeStreamingTail = nil

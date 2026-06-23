@@ -81,6 +81,11 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		cmds = append(cmds, m.drainDeferredCommittedDeliveryIfUnblocked())
 	}
 	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
+	if evt.Kind == clientui.EventToolCallStarted {
+		if stepID := strings.TrimSpace(evt.StepID); stepID != "" && m.nativeStreamingStepID != "" && stepID != m.nativeStreamingStepID {
+			cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
+		}
+	}
 	transcriptMutated := false
 	awaitsHydration := false
 	if len(evt.TranscriptEntries) > 0 {
@@ -117,6 +122,9 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 				continue
 			}
 			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
+				if m.nativeStreamingStepID != "" && stepID != m.nativeStreamingStepID {
+					cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
+				}
 				m.nativeStreamingStepID = stepID
 				m.nativeStreamingCommitRangeSet = false
 			}
