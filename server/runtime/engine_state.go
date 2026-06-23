@@ -114,7 +114,7 @@ func TranscriptSegmentPageFromStore(store *session.Store, cursor int64, cacheWar
 	if err != nil {
 		return TranscriptSegmentPage{}, err
 	}
-	return segmentPageFromWindow(window, cacheWarningMode), nil
+	return segmentPageFromWindow(window, cacheWarningMode)
 }
 
 func TranscriptSegmentPageForwardFromStore(store *session.Store, startOffset int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
@@ -125,13 +125,15 @@ func TranscriptSegmentPageForwardFromStore(store *session.Store, startOffset int
 	if err != nil {
 		return TranscriptSegmentPage{}, err
 	}
-	return segmentPageFromWindow(window, cacheWarningMode), nil
+	return segmentPageFromWindow(window, cacheWarningMode)
 }
 
-func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config.CacheWarningMode) TranscriptSegmentPage {
+func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
 	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: cacheWarningMode})
 	for _, evt := range window.Events {
-		_ = scan.ApplyPersistedEvent(evt)
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			return TranscriptSegmentPage{}, err
+		}
 	}
 	return TranscriptSegmentPage{
 		Snapshot:                          scan.CollectedPageSnapshot(),
@@ -140,7 +142,7 @@ func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config
 		NewerCursor:                       window.EndOffset,
 		HasMoreBelow:                      !window.ReachedEnd,
 		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
-	}
+	}, nil
 }
 
 func (e *Engine) TranscriptSegmentPage(cursor int64) TranscriptSegmentPage {
