@@ -861,10 +861,16 @@ func (s *Store) AppendReplayEvents(events []ReplayEvent) ([]Event, error) {
 }
 
 func (s *Store) appendObservedEventsLockedWithCommitStatus(events []Event) (bool, error) {
+	previousMeta := s.meta
+	previousFreshness := s.conversationFreshness
 	s.captureFirstPromptPreviewLocked(events)
 	s.advanceConversationFreshnessLocked(events)
 	s.updateLatestRunLocked(events)
 	observation, committed, err := s.appendEventsAtomicLockedWithCommitStatus(events)
+	if err != nil && !committed {
+		s.meta = previousMeta
+		s.conversationFreshness = previousFreshness
+	}
 	s.mu.Unlock()
 	if err != nil {
 		return committed, err
