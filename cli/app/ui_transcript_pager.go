@@ -190,23 +190,33 @@ func (w *uiDetailTranscriptWindow) prependCursorPage(page clientui.TranscriptPag
 		return
 	}
 	pageEntries := transcriptEntriesFromPage(page)
-	if len(pageEntries) > 0 {
-		merged := make([]tui.TranscriptEntry, 0, len(pageEntries)+len(w.entries))
-		merged = append(merged, pageEntries...)
-		merged = append(merged, w.entries...)
-		w.offset -= len(pageEntries)
-		if w.offset < 0 {
-			w.offset = 0
+	if len(pageEntries) == 0 {
+		if len(w.segments) == 0 {
+			w.segments = []residentSegmentMeta{segmentMetaFromPage(0, page)}
+		} else {
+			top := &w.segments[0]
+			top.olderCursor = page.OlderCursor
+			top.hasMoreAbove = page.HasMoreAbove
 		}
-		w.entries = merged
-		w.totalEntries = max(w.totalEntries, w.offset+len(w.entries))
-		for i := range w.segments {
-			w.segments[i].startLocal += len(pageEntries)
-		}
-		w.segments = append([]residentSegmentMeta{segmentMetaFromPage(0, page)}, w.segments...)
 		w.refreshBounds()
-		w.trimToSegments(w.offset)
+		w.loaded = true
+		return
 	}
+	merged := make([]tui.TranscriptEntry, 0, len(pageEntries)+len(w.entries))
+	merged = append(merged, pageEntries...)
+	merged = append(merged, w.entries...)
+	w.offset -= len(pageEntries)
+	if w.offset < 0 {
+		w.offset = 0
+	}
+	w.entries = merged
+	w.totalEntries = max(w.totalEntries, w.offset+len(w.entries))
+	for i := range w.segments {
+		w.segments[i].startLocal += len(pageEntries)
+	}
+	w.segments = append([]residentSegmentMeta{segmentMetaFromPage(0, page)}, w.segments...)
+	w.refreshBounds()
+	w.trimToSegments(w.offset)
 	w.loaded = true
 }
 
@@ -219,14 +229,26 @@ func (w *uiDetailTranscriptWindow) appendCursorPage(page clientui.TranscriptPage
 		return
 	}
 	pageEntries := transcriptEntriesFromPage(page)
-	if len(pageEntries) > 0 {
-		startLocal := len(w.entries)
-		w.entries = append(w.entries, pageEntries...)
-		w.totalEntries = max(w.totalEntries, w.offset+len(w.entries))
-		w.segments = append(w.segments, segmentMetaFromPage(startLocal, page))
+	if len(pageEntries) == 0 {
+		if len(w.segments) == 0 {
+			w.segments = []residentSegmentMeta{segmentMetaFromPage(len(w.entries), page)}
+		} else {
+			bottom := &w.segments[len(w.segments)-1]
+			bottom.newerCursor = page.NewerCursor
+			bottom.hasMoreBelow = page.HasMoreBelow
+		}
 		w.refreshBounds()
-		w.trimToSegments(w.offset + len(w.entries))
+		w.ongoing = page.Streaming
+		w.ongoingError = page.StreamingError
+		w.loaded = true
+		return
 	}
+	startLocal := len(w.entries)
+	w.entries = append(w.entries, pageEntries...)
+	w.totalEntries = max(w.totalEntries, w.offset+len(w.entries))
+	w.segments = append(w.segments, segmentMetaFromPage(startLocal, page))
+	w.refreshBounds()
+	w.trimToSegments(w.offset + len(w.entries))
 	w.ongoing = page.Streaming
 	w.ongoingError = page.StreamingError
 	w.loaded = true

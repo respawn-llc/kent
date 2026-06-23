@@ -324,10 +324,13 @@ func shouldReplacePendingRuntimeTranscriptSync(current, next runtimeTranscriptSy
 	if next.priority != current.priority {
 		return next.priority > current.priority
 	}
-	nextRecentTail := next.page.Cursor <= 0
-	currentRecentTail := current.page.Cursor <= 0
+	nextRecentTail := next.page.Cursor <= 0 && next.page.NewerCursor <= 0
+	currentRecentTail := current.page.Cursor <= 0 && current.page.NewerCursor <= 0
 	if nextRecentTail != currentRecentTail {
 		return nextRecentTail
+	}
+	if next.page.NewerCursor > 0 || current.page.NewerCursor > 0 {
+		return next.page.NewerCursor >= current.page.NewerCursor
 	}
 	return next.page.Cursor >= current.page.Cursor
 }

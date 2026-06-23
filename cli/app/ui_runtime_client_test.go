@@ -432,7 +432,7 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeResizeTranscriptSuffixRefreshedMsg, got %T", fetchCmd())
 	}
-	if reads.lastSuffixReq.SessionID == "" {
+	if reads.lastSuffixReq.SessionID != "session-1" {
 		t.Fatalf("unexpected resize suffix request: %+v", reads.lastSuffixReq)
 	}
 	if got := reads.mainViewCount.Load(); got != 0 {

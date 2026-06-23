@@ -49,14 +49,15 @@ func committedTranscriptSuffixFromEvent(m *uiModel, evt clientui.Event) (clientu
 		}
 	}
 	return clientui.CommittedTranscriptSuffix{
-		SessionID:           m.sessionID,
-		SessionName:         m.sessionName,
-		Revision:            evt.TranscriptRevision,
-		CommittedEntryCount: evt.CommittedEntryCount,
-		StartEntryCount:     evt.CommittedEntryStart,
-		NextEntryCount:      evt.CommittedEntryCount,
-		HasMore:             false,
-		Entries:             append([]clientui.ChatEntry(nil), evt.TranscriptEntries...),
+		SessionID:             m.sessionID,
+		SessionName:           m.sessionName,
+		ConversationFreshness: m.currentConversationFreshness(),
+		Revision:              evt.TranscriptRevision,
+		CommittedEntryCount:   evt.CommittedEntryCount,
+		StartEntryCount:       evt.CommittedEntryStart,
+		NextEntryCount:        evt.CommittedEntryCount,
+		HasMore:               false,
+		Entries:               append([]clientui.ChatEntry(nil), evt.TranscriptEntries...),
 	}, true
 }
 

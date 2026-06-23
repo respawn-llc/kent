@@ -17,7 +17,7 @@ func projectedTranscriptEventSnapshotFromModel(m *uiModel) projectedTranscriptEv
 		revision:             m.transcriptRevision,
 		hasRuntimeClient:     m.hasRuntimeClient(),
 		busy:                 m.isBusy(),
-		liveAssistantPending: strings.TrimSpace(liveAssistantText) != "" || m.sawAssistantDelta,
+		liveAssistantPending: m.ongoingCommittedScrollbackGateActive(),
 		liveAssistantText:    liveAssistantText,
 		liveAssistantStepID:  m.nativeStreamingStepID,
 	}
