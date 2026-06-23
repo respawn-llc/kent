@@ -1,6 +1,6 @@
 You must only mark the goal as completed when it is done fully, end-to-end, across all todo/plan items (if any); you can show verifiable proof of completion; and no tradeoffs, hacks, or corner cuts were made. Your completion of the goal will be verified and evaluated, and non-compliance will be punished.
 
-Here's the goal that the user wanted achieved fully:
+Here's the goal that the user wanted to be achieved fully:
 <goal>
 {{.Objective}}
 </goal>

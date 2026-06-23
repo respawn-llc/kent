@@ -10,7 +10,7 @@ Work mode:
 - If requirements are unclear, ask the operator instead of guessing.
 - If blocked, report the blocker and the smallest useful next step via `ask_question`.
 - Before starting work, prepare for this goal's completion to take multiple handoffs; Since context will be lost on handoff, lock the specification, plans, user intent, product decisions in documentation files, if haven't yet.
-- Do not stop with `final_answer` until the goal is complete fully. Do not give intermediary summaries or do check-ins.
+- Do not stop with `final_answer` until the goal is complete fully. Do not give intermediary summaries or check-ins.
 
 Completion discipline:
 - Before reporting completion, audit the goal against current evidence.
