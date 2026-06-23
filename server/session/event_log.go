@@ -347,6 +347,132 @@ func readEventsBackwardUntilFile(path string, chunkBytes int64, match func(Event
 	return events, err
 }
 
+type eventAtOffset struct {
+	event  Event
+	offset int64
+}
+
+type BackwardWindow struct {
+	Events       []Event
+	StartOffset  int64
+	ReachedStart bool
+}
+
+func readEventsBackwardWindowFile(path string, endOffset int64, maxEntries int, chunkBytes int64) (BackwardWindow, error) {
+	if chunkBytes <= 0 {
+		chunkBytes = activeTailReverseChunkBytes
+	}
+	if maxEntries <= 0 {
+		return BackwardWindow{ReachedStart: true}, nil
+	}
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return BackwardWindow{}, fmt.Errorf("open events file: %w", err)
+	}
+	defer fp.Close()
+	size, err := fp.Seek(0, io.SeekEnd)
+	if err != nil {
+		return BackwardWindow{}, fmt.Errorf("seek events file: %w", err)
+	}
+	if endOffset <= 0 || endOffset > size {
+		endOffset = size
+	}
+	if endOffset == 0 {
+		return BackwardWindow{ReachedStart: true}, nil
+	}
+	atEOF := endOffset == size
+	var buffer []byte
+	pos := endOffset
+	for pos > 0 {
+		chunk := chunkBytes
+		if chunk > pos {
+			chunk = pos
+		}
+		pos -= chunk
+		tmp := make([]byte, chunk)
+		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
+			return BackwardWindow{}, fmt.Errorf("read events file: %w", err)
+		}
+		buffer = append(tmp, buffer...)
+		window, done, err := windowFromBuffer(buffer, pos, pos == 0, atEOF, maxEntries)
+		if err != nil {
+			return BackwardWindow{}, err
+		}
+		if done {
+			return window, nil
+		}
+	}
+	window, _, err := windowFromBuffer(buffer, 0, true, atEOF, maxEntries)
+	return window, err
+}
+
+func windowFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, maxEntries int) (BackwardWindow, bool, error) {
+	parsed, err := completeEventsWithOffsets(buffer, baseOffset, atStart, atEOF)
+	if err != nil {
+		return BackwardWindow{}, false, err
+	}
+	if len(parsed) >= maxEntries {
+		taken := parsed[len(parsed)-maxEntries:]
+		return BackwardWindow{
+			Events:       eventsOfOffsets(taken),
+			StartOffset:  taken[0].offset,
+			ReachedStart: taken[0].offset == 0,
+		}, true, nil
+	}
+	if atStart {
+		start := int64(0)
+		if len(parsed) > 0 {
+			start = parsed[0].offset
+		}
+		return BackwardWindow{Events: eventsOfOffsets(parsed), StartOffset: start, ReachedStart: true}, true, nil
+	}
+	return BackwardWindow{}, false, nil
+}
+
+func completeEventsWithOffsets(buffer []byte, baseOffset int64, atStart, atEOF bool) ([]eventAtOffset, error) {
+	start := 0
+	if !atStart {
+		nl := bytes.IndexByte(buffer, '\n')
+		if nl < 0 {
+			return nil, nil
+		}
+		start = nl + 1
+	}
+	out := make([]eventAtOffset, 0)
+	for i := start; i < len(buffer); {
+		nl := bytes.IndexByte(buffer[i:], '\n')
+		torn := nl < 0
+		lineEnd := len(buffer)
+		if !torn {
+			lineEnd = i + nl
+		}
+		trimmed := bytes.TrimSpace(buffer[i:lineEnd])
+		if len(trimmed) > 0 {
+			var evt Event
+			if err := json.Unmarshal(trimmed, &evt); err != nil {
+				if !(torn && atEOF) {
+					return nil, fmt.Errorf("parse event line: %w", err)
+				}
+			} else {
+				out = append(out, eventAtOffset{event: evt, offset: baseOffset + int64(i)})
+			}
+		}
+		if torn {
+			break
+		}
+		i = lineEnd + 1
+	}
+	return out, nil
+}
+
+func eventsOfOffsets(items []eventAtOffset) []Event {
+	events := make([]Event, len(items))
+	for i := range items {
+		events[i] = items[i].event
+	}
+	return events
+}
+
 func activeTailFromBuffer(buffer []byte, atStart bool, match func(Event) bool) ([]Event, bool, error) {
 	region := buffer
 	if !atStart {

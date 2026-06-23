@@ -1,9 +1,11 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +58,66 @@ func TestReadEventsBackwardUntilNoMatchReturnsAllEvents(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("no-match read returned %d events, want all 3", len(events))
 	}
+}
+
+func TestReadEventsBackwardWindowPaginatesWholeFileViaCursor(t *testing.T) {
+	const n = 25
+	var sb strings.Builder
+	for i := 1; i <= n; i++ {
+		sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", i, i))
+	}
+	sb.WriteString(`{"seq":99,"kind":"message","pa`)
+	path := filepath.Join(t.TempDir(), eventsFile)
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		t.Fatalf("write events file: %v", err)
+	}
+
+	for _, chunk := range []int64{1, 5, 13, 1 << 20} {
+		for _, pageSize := range []int{1, 4, 7, n, n + 5} {
+			var collected []Event
+			endOffset := int64(0)
+			for pages := 0; ; pages++ {
+				if pages > n+2 {
+					t.Fatalf("chunk=%d page=%d: pagination did not terminate", chunk, pageSize)
+				}
+				window, err := readEventsBackwardWindowFile(path, endOffset, pageSize, chunk)
+				if err != nil {
+					t.Fatalf("chunk=%d page=%d: read window: %v", chunk, pageSize, err)
+				}
+				if len(window.Events) > pageSize {
+					t.Fatalf("chunk=%d page=%d: window returned %d entries, exceeds page", chunk, pageSize, len(window.Events))
+				}
+				collected = append(append([]Event(nil), window.Events...), collected...)
+				if window.ReachedStart {
+					break
+				}
+				if window.StartOffset <= 0 || window.StartOffset >= endOffsetOrSize(t, path, endOffset) {
+					t.Fatalf("chunk=%d page=%d: cursor did not advance (start=%d end=%d)", chunk, pageSize, window.StartOffset, endOffset)
+				}
+				endOffset = window.StartOffset
+			}
+			if len(collected) != n {
+				t.Fatalf("chunk=%d page=%d: reconstructed %d events, want %d (torn tail must be dropped)", chunk, pageSize, len(collected), n)
+			}
+			for i := range collected {
+				if collected[i].Seq != int64(i+1) {
+					t.Fatalf("chunk=%d page=%d: event %d seq = %d, want %d", chunk, pageSize, i, collected[i].Seq, i+1)
+				}
+			}
+		}
+	}
+}
+
+func endOffsetOrSize(t *testing.T, path string, endOffset int64) int64 {
+	t.Helper()
+	if endOffset > 0 {
+		return endOffset
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	return info.Size()
 }
 
 func TestReadEventsBackwardUntilFileReassemblesAcrossChunksAndToleratesTornTail(t *testing.T) {
