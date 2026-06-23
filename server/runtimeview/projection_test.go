@@ -606,7 +606,10 @@ func TestTranscriptPageFromRuntimeReturnsNewestSegment(t *testing.T) {
 	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{})
+	page, err := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{})
+	if err != nil {
+		t.Fatalf("transcript page from runtime: %v", err)
+	}
 	if page.HasMoreAbove {
 		t.Fatalf("never-compacted session must not report more above, got %+v", page)
 	}

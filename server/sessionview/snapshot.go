@@ -220,11 +220,11 @@ func (s liveRuntimeSessionSnapshot) MainView(ctx context.Context) (clientui.Runt
 }
 
 func (s liveRuntimeSessionSnapshot) TranscriptPage(_ context.Context, req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
-	return runtimeview.TranscriptPageFromRuntime(s.engine, req), nil
+	return runtimeview.TranscriptPageFromRuntime(s.engine, req)
 }
 
 func (s liveRuntimeSessionSnapshot) CommittedTranscriptSuffix(_ context.Context, req clientui.CommittedTranscriptSuffixRequest) (clientui.CommittedTranscriptSuffix, error) {
-	return runtimeview.CommittedTranscriptSuffixFromRuntime(s.engine, req), nil
+	return runtimeview.CommittedTranscriptSuffixFromRuntime(s.engine, req)
 }
 
 type dormantSessionSnapshotSource struct {

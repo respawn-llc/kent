@@ -15,7 +15,7 @@ import (
 func TestCommittedTranscriptSuffixReturnsNewestSegment(t *testing.T) {
 	eng := newRuntimeViewTranscriptSuffixEngine(t, 5)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
+	suffix := mustRuntimeSuffix(t, eng)
 
 	if suffix.SessionID != eng.SessionID() || suffix.SessionName != eng.SessionName() {
 		t.Fatalf("unexpected session metadata: %+v", suffix)
@@ -31,7 +31,7 @@ func TestCommittedTranscriptSuffixReturnsNewestSegment(t *testing.T) {
 func TestCommittedTranscriptSuffixEmptySession(t *testing.T) {
 	eng := newRuntimeViewTranscriptSuffixEngine(t, 0)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
+	suffix := mustRuntimeSuffix(t, eng)
 
 	if len(suffix.Entries) != 0 {
 		t.Fatalf("entries = %d, want 0", len(suffix.Entries))
@@ -50,7 +50,7 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	}
 	eng.AppendCommittedEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityVerbose)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
+	suffix := mustRuntimeSuffix(t, eng)
 
 	if got := len(suffix.Entries); got != 1 {
 		t.Fatalf("entries = %d, want 1", got)
@@ -63,10 +63,19 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 		t.Fatalf("visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityVerbose)
 	}
 	entry.Text = "mutated"
-	second := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
+	second := mustRuntimeSuffix(t, eng)
 	if second.Entries[0].Text != "internal note" {
 		t.Fatalf("suffix entries were not cloned: %+v", second.Entries[0])
 	}
+}
+
+func mustRuntimeSuffix(t *testing.T, eng *runtime.Engine) clientui.CommittedTranscriptSuffix {
+	t.Helper()
+	suffix, err := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
+	if err != nil {
+		t.Fatalf("committed transcript suffix: %v", err)
+	}
+	return suffix
 }
 
 func newRuntimeViewTranscriptSuffixEngine(t *testing.T, count int) *runtime.Engine {

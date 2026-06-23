@@ -145,32 +145,32 @@ func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config
 	}, nil
 }
 
-func (e *Engine) TranscriptSegmentPage(cursor int64) TranscriptSegmentPage {
+func (e *Engine) TranscriptSegmentPage(cursor int64) (TranscriptSegmentPage, error) {
 	if e == nil || e.store == nil {
-		return TranscriptSegmentPage{}
+		return TranscriptSegmentPage{}, nil
 	}
 	page, err := TranscriptSegmentPageFromStore(e.store, cursor, e.cfg.CacheWarningMode)
 	if err != nil {
-		return TranscriptSegmentPage{}
+		return TranscriptSegmentPage{}, err
 	}
 	if cursor <= 0 {
 		e.overlayLiveStreaming(&page.Snapshot)
 	}
-	return page
+	return page, nil
 }
 
-func (e *Engine) TranscriptSegmentPageForward(startOffset int64) TranscriptSegmentPage {
+func (e *Engine) TranscriptSegmentPageForward(startOffset int64) (TranscriptSegmentPage, error) {
 	if e == nil || e.store == nil {
-		return TranscriptSegmentPage{}
+		return TranscriptSegmentPage{}, nil
 	}
 	page, err := TranscriptSegmentPageForwardFromStore(e.store, startOffset, e.cfg.CacheWarningMode)
 	if err != nil {
-		return TranscriptSegmentPage{}
+		return TranscriptSegmentPage{}, err
 	}
 	if !page.HasMoreBelow {
 		e.overlayLiveStreaming(&page.Snapshot)
 	}
-	return page
+	return page, nil
 }
 
 func (e *Engine) TranscriptRevision() int64 {

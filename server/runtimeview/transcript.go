@@ -7,13 +7,16 @@ import (
 
 const RecentTailEntryLimit = 500
 
-func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPageRequest) clientui.TranscriptPage {
+func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
 	if engine == nil {
-		return clientui.TranscriptPage{}
+		return clientui.TranscriptPage{}, nil
 	}
-	segment := engine.TranscriptSegmentPage(req.Cursor)
+	segment, err := engine.TranscriptSegmentPage(req.Cursor)
 	if req.NewerCursor > 0 {
-		segment = engine.TranscriptSegmentPageForward(req.NewerCursor)
+		segment, err = engine.TranscriptSegmentPageForward(req.NewerCursor)
+	}
+	if err != nil {
+		return clientui.TranscriptPage{}, err
 	}
 	page := TranscriptPageFromSegment(
 		engine.SessionID(),
@@ -34,7 +37,7 @@ func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPa
 			page.TotalEntries = len(page.Entries)
 		}
 	}
-	return page
+	return page, nil
 }
 
 func TranscriptPageFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.TranscriptPage {
@@ -54,11 +57,14 @@ func TranscriptPageFromSegment(sessionID, sessionName string, freshness clientui
 	}
 }
 
-func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.CommittedTranscriptSuffixRequest) clientui.CommittedTranscriptSuffix {
+func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.CommittedTranscriptSuffixRequest) (clientui.CommittedTranscriptSuffix, error) {
 	if engine == nil {
-		return clientui.CommittedTranscriptSuffix{}
+		return clientui.CommittedTranscriptSuffix{}, nil
 	}
-	segment := engine.TranscriptSegmentPage(0)
+	segment, err := engine.TranscriptSegmentPage(0)
+	if err != nil {
+		return clientui.CommittedTranscriptSuffix{}, err
+	}
 	suffix := CommittedTranscriptSuffixFromSegment(
 		engine.SessionID(),
 		engine.SessionName(),
@@ -74,7 +80,7 @@ func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.Com
 			suffix.StartEntryCount = start
 		}
 	}
-	return suffix
+	return suffix, nil
 }
 
 func CommittedTranscriptSuffixFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.CommittedTranscriptSuffix {
