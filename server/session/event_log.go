@@ -295,58 +295,6 @@ func walkEventsFromReader(reader *bufio.Reader, visit func(Event) error) (parsed
 
 const activeTailReverseChunkBytes = int64(1 << 20)
 
-func parseEventBytes(region []byte) ([]Event, error) {
-	collected := make([]Event, 0)
-	if _, err := walkEventsFromReader(bufio.NewReader(bytes.NewReader(region)), func(evt Event) error {
-		collected = append(collected, evt)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return collected, nil
-}
-
-func readEventsBackwardUntilFile(path string, chunkBytes int64, match func(Event) bool) ([]Event, error) {
-	if chunkBytes <= 0 {
-		chunkBytes = activeTailReverseChunkBytes
-	}
-	fp, err := openRegularSessionFile(path, "events file")
-	if err != nil {
-		return nil, fmt.Errorf("open events file: %w", err)
-	}
-	defer fp.Close()
-	size, err := fp.Seek(0, io.SeekEnd)
-	if err != nil {
-		return nil, fmt.Errorf("seek events file: %w", err)
-	}
-	if size == 0 {
-		return nil, nil
-	}
-	var buffer []byte
-	pos := size
-	for pos > 0 {
-		chunk := chunkBytes
-		if chunk > pos {
-			chunk = pos
-		}
-		pos -= chunk
-		tmp := make([]byte, chunk)
-		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("read events file: %w", err)
-		}
-		buffer = append(tmp, buffer...)
-		events, resolved, err := activeTailFromBuffer(buffer, pos == 0, match)
-		if err != nil {
-			return nil, err
-		}
-		if resolved {
-			return events, nil
-		}
-	}
-	events, _, err := activeTailFromBuffer(buffer, true, match)
-	return events, err
-}
-
 type eventAtOffset struct {
 	event  Event
 	offset int64
@@ -358,12 +306,9 @@ type BackwardWindow struct {
 	ReachedStart bool
 }
 
-func readEventsBackwardWindowFile(path string, endOffset int64, maxEntries int, chunkBytes int64) (BackwardWindow, error) {
+func readSegmentBackwardFile(path string, endOffset int64, chunkBytes int64, match func(Event) bool) (BackwardWindow, error) {
 	if chunkBytes <= 0 {
 		chunkBytes = activeTailReverseChunkBytes
-	}
-	if maxEntries <= 0 {
-		return BackwardWindow{ReachedStart: true}, nil
 	}
 	fp, err := openRegularSessionFile(path, "events file")
 	if err != nil {
@@ -394,7 +339,7 @@ func readEventsBackwardWindowFile(path string, endOffset int64, maxEntries int, 
 			return BackwardWindow{}, fmt.Errorf("read events file: %w", err)
 		}
 		buffer = append(tmp, buffer...)
-		window, done, err := windowFromBuffer(buffer, pos, pos == 0, atEOF, maxEntries)
+		window, done, err := segmentFromBuffer(buffer, pos, pos == 0, atEOF, match)
 		if err != nil {
 			return BackwardWindow{}, err
 		}
@@ -402,21 +347,27 @@ func readEventsBackwardWindowFile(path string, endOffset int64, maxEntries int, 
 			return window, nil
 		}
 	}
-	window, _, err := windowFromBuffer(buffer, 0, true, atEOF, maxEntries)
+	window, _, err := segmentFromBuffer(buffer, 0, true, atEOF, match)
 	return window, err
 }
 
-func windowFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, maxEntries int) (BackwardWindow, bool, error) {
+func segmentFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, match func(Event) bool) (BackwardWindow, bool, error) {
 	parsed, err := completeEventsWithOffsets(buffer, baseOffset, atStart, atEOF)
 	if err != nil {
 		return BackwardWindow{}, false, err
 	}
-	if len(parsed) >= maxEntries {
-		taken := parsed[len(parsed)-maxEntries:]
+	last := -1
+	for i := range parsed {
+		if match != nil && match(parsed[i].event) {
+			last = i
+		}
+	}
+	if last >= 0 {
+		seg := parsed[last:]
 		return BackwardWindow{
-			Events:       eventsOfOffsets(taken),
-			StartOffset:  taken[0].offset,
-			ReachedStart: taken[0].offset == 0,
+			Events:       eventsOfOffsets(seg),
+			StartOffset:  seg[0].offset,
+			ReachedStart: seg[0].offset == 0,
 		}, true, nil
 	}
 	if atStart {
@@ -471,34 +422,6 @@ func eventsOfOffsets(items []eventAtOffset) []Event {
 		events[i] = items[i].event
 	}
 	return events
-}
-
-func activeTailFromBuffer(buffer []byte, atStart bool, match func(Event) bool) ([]Event, bool, error) {
-	region := buffer
-	if !atStart {
-		nl := bytes.IndexByte(buffer, '\n')
-		if nl < 0 {
-			return nil, false, nil
-		}
-		region = buffer[nl+1:]
-	}
-	events, err := parseEventBytes(region)
-	if err != nil {
-		return nil, false, err
-	}
-	last := -1
-	for i := range events {
-		if match != nil && match(events[i]) {
-			last = i
-		}
-	}
-	if last >= 0 {
-		return events[last:], true, nil
-	}
-	if atStart {
-		return events, true, nil
-	}
-	return nil, false, nil
 }
 
 func encodeEventLines(events []Event, hasExistingContent bool) ([]byte, error) {

@@ -1,0 +1,93 @@
+package runtime
+
+import (
+	"strings"
+	"testing"
+
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+)
+
+func appendSegmentTestMessage(t *testing.T, store *session.Store, role llm.Role, content string) {
+	t.Helper()
+	if _, _, err := store.AppendEvent("step", "message", llm.Message{Role: role, Content: content}); err != nil {
+		t.Fatalf("append message %q: %v", content, err)
+	}
+}
+
+func segmentEntryTexts(page TranscriptSegmentPage) []string {
+	texts := make([]string, 0, len(page.Snapshot.Entries))
+	for _, entry := range page.Snapshot.Entries {
+		if text := strings.TrimSpace(entry.Text); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return texts
+}
+
+func containsText(texts []string, want string) bool {
+	for _, text := range texts {
+		if text == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEngineTranscriptSegmentPagePaginatesAcrossCompaction(t *testing.T) {
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+
+	appendSegmentTestMessage(t, store, llm.RoleUser, "u1")
+	appendSegmentTestMessage(t, store, llm.RoleAssistant, "a1")
+	if _, _, err := store.AppendEvent("step", "history_replaced", historyReplacementPayload{
+		Engine: "compaction",
+		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
+	}); err != nil {
+		t.Fatalf("append history_replaced: %v", err)
+	}
+	appendSegmentTestMessage(t, store, llm.RoleUser, "u2")
+	appendSegmentTestMessage(t, store, llm.RoleAssistant, "a2")
+
+	newest := eng.TranscriptSegmentPage(0)
+	newestTexts := segmentEntryTexts(newest)
+	if !containsText(newestTexts, "u2") || !containsText(newestTexts, "a2") {
+		t.Fatalf("newest segment must contain post-compaction turns, got %v", newestTexts)
+	}
+	if containsText(newestTexts, "u1") {
+		t.Fatalf("newest segment must not contain pre-compaction turns, got %v", newestTexts)
+	}
+	if !newest.HasMoreAbove {
+		t.Fatalf("newest segment after a compaction must report more above")
+	}
+	if newest.OlderCursor <= 0 {
+		t.Fatalf("newest segment older cursor must point above, got %d", newest.OlderCursor)
+	}
+
+	older := eng.TranscriptSegmentPage(newest.OlderCursor)
+	olderTexts := segmentEntryTexts(older)
+	if !containsText(olderTexts, "u1") || !containsText(olderTexts, "a1") {
+		t.Fatalf("older segment must contain pre-compaction turns, got %v", olderTexts)
+	}
+	if older.HasMoreAbove {
+		t.Fatalf("oldest segment must not report more above, got cursor=%d", older.OlderCursor)
+	}
+}
+
+func TestEngineTranscriptSegmentPageSingleSegment(t *testing.T) {
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+
+	appendSegmentTestMessage(t, store, llm.RoleUser, "only")
+	appendSegmentTestMessage(t, store, llm.RoleAssistant, "answer")
+
+	page := eng.TranscriptSegmentPage(0)
+	if page.HasMoreAbove {
+		t.Fatalf("never-compacted session must not report more above")
+	}
+	texts := segmentEntryTexts(page)
+	if !containsText(texts, "only") || !containsText(texts, "answer") {
+		t.Fatalf("single segment must contain all turns, got %v", texts)
+	}
+}

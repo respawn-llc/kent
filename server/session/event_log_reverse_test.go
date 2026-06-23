@@ -60,67 +60,67 @@ func TestReadEventsBackwardUntilNoMatchReturnsAllEvents(t *testing.T) {
 	}
 }
 
-func TestReadEventsBackwardWindowPaginatesWholeFileViaCursor(t *testing.T) {
-	const n = 25
+func TestReadSegmentBackwardPaginatesSegmentsViaCursor(t *testing.T) {
+	const segments = 4
+	const perSegment = 5
 	var sb strings.Builder
-	for i := 1; i <= n; i++ {
-		sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", i, i))
+	seq := 0
+	for s := 0; s < segments; s++ {
+		seq++
+		if s > 0 {
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"history_replaced","payload":{"v":%d}}`+"\n", seq, seq))
+		} else {
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", seq, seq))
+		}
+		for i := 1; i < perSegment; i++ {
+			seq++
+			sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":"message","payload":{"v":%d}}`+"\n", seq, seq))
+		}
 	}
 	sb.WriteString(`{"seq":99,"kind":"message","pa`)
+	total := segments * perSegment
 	path := filepath.Join(t.TempDir(), eventsFile)
 	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
 		t.Fatalf("write events file: %v", err)
 	}
 
 	for _, chunk := range []int64{1, 5, 13, 1 << 20} {
-		for _, pageSize := range []int{1, 4, 7, n, n + 5} {
-			var collected []Event
-			endOffset := int64(0)
-			for pages := 0; ; pages++ {
-				if pages > n+2 {
-					t.Fatalf("chunk=%d page=%d: pagination did not terminate", chunk, pageSize)
-				}
-				window, err := readEventsBackwardWindowFile(path, endOffset, pageSize, chunk)
-				if err != nil {
-					t.Fatalf("chunk=%d page=%d: read window: %v", chunk, pageSize, err)
-				}
-				if len(window.Events) > pageSize {
-					t.Fatalf("chunk=%d page=%d: window returned %d entries, exceeds page", chunk, pageSize, len(window.Events))
-				}
-				collected = append(append([]Event(nil), window.Events...), collected...)
-				if window.ReachedStart {
-					break
-				}
-				if window.StartOffset <= 0 || window.StartOffset >= endOffsetOrSize(t, path, endOffset) {
-					t.Fatalf("chunk=%d page=%d: cursor did not advance (start=%d end=%d)", chunk, pageSize, window.StartOffset, endOffset)
-				}
-				endOffset = window.StartOffset
+		var collected []Event
+		endOffset := int64(0)
+		pages := 0
+		for {
+			pages++
+			if pages > segments+1 {
+				t.Fatalf("chunk=%d: pagination did not terminate", chunk)
 			}
-			if len(collected) != n {
-				t.Fatalf("chunk=%d page=%d: reconstructed %d events, want %d (torn tail must be dropped)", chunk, pageSize, len(collected), n)
+			window, err := readSegmentBackwardFile(path, endOffset, chunk, matchEventKind("history_replaced"))
+			if err != nil {
+				t.Fatalf("chunk=%d: read segment: %v", chunk, err)
 			}
-			for i := range collected {
-				if collected[i].Seq != int64(i+1) {
-					t.Fatalf("chunk=%d page=%d: event %d seq = %d, want %d", chunk, pageSize, i, collected[i].Seq, i+1)
-				}
+			if len(window.Events) != perSegment {
+				t.Fatalf("chunk=%d: segment returned %d events, want %d", chunk, len(window.Events), perSegment)
+			}
+			collected = append(append([]Event(nil), window.Events...), collected...)
+			if window.ReachedStart {
+				break
+			}
+			endOffset = window.StartOffset
+		}
+		if pages != segments {
+			t.Fatalf("chunk=%d: paginated %d segments, want %d", chunk, pages, segments)
+		}
+		if len(collected) != total {
+			t.Fatalf("chunk=%d: reconstructed %d events, want %d (torn tail must be dropped)", chunk, len(collected), total)
+		}
+		for i := range collected {
+			if collected[i].Seq != int64(i+1) {
+				t.Fatalf("chunk=%d: event %d seq = %d, want %d", chunk, i, collected[i].Seq, i+1)
 			}
 		}
 	}
 }
 
-func endOffsetOrSize(t *testing.T, path string, endOffset int64) int64 {
-	t.Helper()
-	if endOffset > 0 {
-		return endOffset
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	return info.Size()
-}
-
-func TestReadEventsBackwardUntilFileReassemblesAcrossChunksAndToleratesTornTail(t *testing.T) {
+func TestReadSegmentBackwardReassemblesAcrossChunksAndToleratesTornTail(t *testing.T) {
 	path := filepath.Join(t.TempDir(), eventsFile)
 	content := `{"seq":1,"kind":"message","payload":{"v":"a"}}
 {"seq":2,"kind":"history_replaced","payload":{"v":"hr"}}
@@ -132,12 +132,15 @@ func TestReadEventsBackwardUntilFileReassemblesAcrossChunksAndToleratesTornTail(
 	}
 
 	for _, chunk := range []int64{1, 3, 7, 64, 1 << 20} {
-		events, err := readEventsBackwardUntilFile(path, chunk, matchEventKind("history_replaced"))
+		window, err := readSegmentBackwardFile(path, 0, chunk, matchEventKind("history_replaced"))
 		if err != nil {
 			t.Fatalf("read backward (chunk=%d): %v", chunk, err)
 		}
-		if got, want := eventKinds(events), []string{"history_replaced", "message", "message"}; !reflect.DeepEqual(got, want) {
+		if got, want := eventKinds(window.Events), []string{"history_replaced", "message", "message"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("chunk=%d active tail kinds = %v, want %v (torn trailing line must be dropped)", chunk, got, want)
+		}
+		if window.ReachedStart {
+			t.Fatalf("chunk=%d: segment beginning at a history_replaced must report more above", chunk)
 		}
 	}
 }

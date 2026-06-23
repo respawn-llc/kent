@@ -122,6 +122,37 @@ func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapsho
 	return page
 }
 
+type TranscriptSegmentPage struct {
+	Snapshot     ChatSnapshot
+	OlderCursor  int64
+	HasMoreAbove bool
+}
+
+func (e *Engine) TranscriptSegmentPage(cursor int64) TranscriptSegmentPage {
+	if e == nil || e.store == nil {
+		return TranscriptSegmentPage{}
+	}
+	window, err := e.store.ReadSegmentBackward(cursor, func(evt session.Event) bool {
+		return evt.Kind == sessionEventHistoryReplaced
+	})
+	if err != nil {
+		return TranscriptSegmentPage{}
+	}
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: e.cfg.CacheWarningMode})
+	for _, evt := range window.Events {
+		_ = scan.ApplyPersistedEvent(evt)
+	}
+	page := TranscriptSegmentPage{
+		Snapshot:     scan.CollectedPageSnapshot(),
+		OlderCursor:  window.StartOffset,
+		HasMoreAbove: !window.ReachedStart,
+	}
+	if cursor <= 0 {
+		e.overlayLiveStreaming(&page.Snapshot)
+	}
+	return page
+}
+
 func (e *Engine) TranscriptRevision() int64 {
 	if e == nil || e.store == nil {
 		return 0

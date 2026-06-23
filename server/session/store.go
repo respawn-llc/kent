@@ -879,12 +879,20 @@ type EventInput struct {
 }
 
 func (s *Store) ReadEventsBackwardUntil(match func(Event) bool) ([]Event, error) {
+	window, err := s.ReadSegmentBackward(0, match)
+	if err != nil {
+		return nil, err
+	}
+	return window.Events, nil
+}
+
+func (s *Store) ReadSegmentBackward(endOffset int64, match func(Event) bool) (BackwardWindow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.persisted {
-		return nil, nil
+		return BackwardWindow{ReachedStart: true}, nil
 	}
-	return readEventsBackwardUntilFile(s.eventsFP, activeTailReverseChunkBytes, match)
+	return readSegmentBackwardFile(s.eventsFP, endOffset, activeTailReverseChunkBytes, match)
 }
 
 func (s *Store) WalkEvents(visit func(Event) error) error {
