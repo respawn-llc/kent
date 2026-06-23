@@ -65,7 +65,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(evt session.Event) error {
 			return fmt.Errorf("decode message event: %w", err)
 		}
 		for _, reconstructed := range reconstructPersistedMessages(msg) {
-			s.applyReconstructedMessage(reconstructed)
+			s.applyReconstructedMessage(reconstructed, evt.Seq)
 		}
 	case "tool_completed":
 		var completion storedToolCompletion
@@ -120,7 +120,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(evt session.Event) error {
 	return nil
 }
 
-func (s *streamingTranscriptScan) applyReconstructedMessage(msg llm.Message) {
+func (s *streamingTranscriptScan) applyReconstructedMessage(msg llm.Message, seq int64) {
 	if msg.Role == llm.RoleAssistant && len(msg.ToolCalls) > 0 {
 		s.closeTurn()
 		buffered := msg
@@ -138,7 +138,7 @@ func (s *streamingTranscriptScan) applyReconstructedMessage(msg llm.Message) {
 		return
 	}
 	s.closeTurn()
-	s.applyMessage(msg)
+	s.applyMessage(msg, seq)
 }
 
 func (s *streamingTranscriptScan) turnOwnsCall(callID string) bool {
@@ -153,8 +153,8 @@ func (s *streamingTranscriptScan) turnOwnsCall(callID string) bool {
 	return false
 }
 
-func (s *streamingTranscriptScan) applyMessage(msg llm.Message) {
-	s.scan.ApplyMessage(msg)
+func (s *streamingTranscriptScan) applyMessage(msg llm.Message, seq int64) {
+	s.scan.ApplyMessage(msg, seq)
 	s.lastCommittedAssistantFinalAnswer = applyLastCommittedAssistantFinalAnswer(s.lastCommittedAssistantFinalAnswer, msg)
 }
 
@@ -171,9 +171,9 @@ func (s *streamingTranscriptScan) closeTurn() {
 			s.materialized[callID] = struct{}{}
 		}
 	}
-	s.applyMessage(assistant)
+	s.applyMessage(assistant, 0)
 	for _, rm := range materialized {
-		s.applyMessage(rm)
+		s.applyMessage(rm, 0)
 	}
 
 	for _, callID := range callIDs {

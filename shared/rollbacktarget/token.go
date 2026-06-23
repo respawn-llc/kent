@@ -9,28 +9,28 @@ import (
 )
 
 // ErrInvalidRollbackTargetID is returned when a rollback target id cannot be
-// decoded into a valid user-message index.
+// decoded into a valid user-message sequence.
 var ErrInvalidRollbackTargetID = errors.New("invalid rollback target id")
 
-const tokenVersion = 1
+const tokenVersion = 2
 
 type tokenPayload struct {
-	Version          int `json:"v"`
-	UserMessageIndex int `json:"u"`
+	Version        int   `json:"v"`
+	UserMessageSeq int64 `json:"s"`
 }
 
-func EncodeUserMessageIndex(index int) string {
-	if index <= 0 {
+func EncodeUserMessageSeq(seq int64) string {
+	if seq <= 0 {
 		return ""
 	}
-	payload, err := json.Marshal(tokenPayload{Version: tokenVersion, UserMessageIndex: index})
+	payload, err := json.Marshal(tokenPayload{Version: tokenVersion, UserMessageSeq: seq})
 	if err != nil {
 		return ""
 	}
 	return base64.RawURLEncoding.EncodeToString(payload)
 }
 
-func DecodeUserMessageIndex(raw string) (int, error) {
+func DecodeUserMessageSeq(raw string) (int64, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return 0, fmt.Errorf("rollback target id is required")
@@ -46,8 +46,8 @@ func DecodeUserMessageIndex(raw string) (int, error) {
 	if decoded.Version != tokenVersion {
 		return 0, fmt.Errorf("unsupported rollback target id version")
 	}
-	if decoded.UserMessageIndex <= 0 {
+	if decoded.UserMessageSeq <= 0 {
 		return 0, ErrInvalidRollbackTargetID
 	}
-	return decoded.UserMessageIndex, nil
+	return decoded.UserMessageSeq, nil
 }

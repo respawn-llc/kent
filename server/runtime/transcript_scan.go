@@ -36,7 +36,6 @@ type inMemoryTranscriptScan struct {
 
 	toolCompletions       map[string]tools.Result
 	materializedToolCalls map[string]struct{}
-	userMessageCount      int
 }
 
 func newInMemoryTranscriptScan(req inMemoryTranscriptScanRequest, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) *inMemoryTranscriptScan {
@@ -57,11 +56,11 @@ func newInMemoryTranscriptScan(req inMemoryTranscriptScanRequest, completions ma
 	}
 }
 
-func (s *inMemoryTranscriptScan) ApplyMessage(msg llm.Message) {
+func (s *inMemoryTranscriptScan) ApplyMessage(msg llm.Message, seq int64) {
 	if s == nil {
 		return
 	}
-	for _, entry := range s.visibleEntriesFromMessage(msg) {
+	for _, entry := range s.visibleEntriesFromMessage(msg, seq) {
 		s.appendEntry(entry)
 	}
 }
@@ -112,14 +111,13 @@ func (s *inMemoryTranscriptScan) MarkCompactionBoundary() {
 	s.tailStart = s.compactionEntryStart
 }
 
-func (s *inMemoryTranscriptScan) visibleEntriesFromMessage(msg llm.Message) []ChatEntry {
+func (s *inMemoryTranscriptScan) visibleEntriesFromMessage(msg llm.Message, seq int64) []ChatEntry {
 	entries := make([]ChatEntry, 0, 1+len(msg.ToolCalls))
 	switch msg.Role {
 	case llm.RoleUser:
 		if entry, ok := visibleUserTranscriptEntry(msg); ok {
 			if strings.TrimSpace(entry.Role) == "user" {
-				s.userMessageCount++
-				entry.RollbackTargetID = rollbacktarget.EncodeUserMessageIndex(s.userMessageCount)
+				entry.RollbackTargetID = rollbacktarget.EncodeUserMessageSeq(seq)
 			}
 			entries = append(entries, entry)
 		}

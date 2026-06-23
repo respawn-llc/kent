@@ -647,6 +647,25 @@ func TestListSessionsUsesPersistedFirstPromptPreviewOnly(t *testing.T) {
 	}
 }
 
+func userMessageSeqAt(t *testing.T, store *Store, n int) int64 {
+	t.Helper()
+	events, err := collectEvents(store)
+	if err != nil {
+		t.Fatalf("collect events: %v", err)
+	}
+	visible := 0
+	for _, evt := range events {
+		if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
+			visible++
+			if visible == n {
+				return evt.Seq
+			}
+		}
+	}
+	t.Fatalf("user message %d not found among %d events", n, len(events))
+	return 0
+}
+
 func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	root := t.TempDir()
 	parent, err := Create(root, "workspace-x", "/tmp/work")
@@ -675,7 +694,7 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 		t.Fatalf("append a2: %v", err)
 	}
 
-	forked, err := ForkAtUserMessage(parent, 2, "Parent → edit u2")
+	forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "Parent → edit u2")
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}
@@ -732,7 +751,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		t.Fatalf("append second user: %v", err)
 	}
 
-	beforeReminder, err := ForkAtUserMessage(parent, 1, "before reminder")
+	beforeReminder, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 1), "before reminder")
 	if err != nil {
 		t.Fatalf("fork before reminder: %v", err)
 	}
@@ -740,7 +759,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		t.Fatal("expected fork before reminder to clear reminder-issued state")
 	}
 
-	afterReminder, err := ForkAtUserMessage(parent, 2, "after reminder")
+	afterReminder, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after reminder")
 	if err != nil {
 		t.Fatalf("fork after reminder: %v", err)
 	}
@@ -771,7 +790,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 			t.Fatalf("append second user: %v", err)
 		}
 
-		forked, err := ForkAtUserMessage(parent, 2, "after legacy reviewer rollback")
+		forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after legacy reviewer rollback")
 		if err != nil {
 			t.Fatalf("fork: %v", err)
 		}
@@ -801,7 +820,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 			t.Fatalf("append second user: %v", err)
 		}
 
-		forked, err := ForkAtUserMessage(parent, 2, "after compaction")
+		forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after compaction")
 		if err != nil {
 			t.Fatalf("fork: %v", err)
 		}
@@ -834,7 +853,7 @@ func TestForkAtUserMessageResetsWorktreeReminderGenerationFlags(t *testing.T) {
 		t.Fatalf("append second user: %v", err)
 	}
 
-	forked, err := ForkAtUserMessage(parent, 2, "forked")
+	forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "forked")
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}

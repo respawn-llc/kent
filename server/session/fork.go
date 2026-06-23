@@ -20,14 +20,18 @@ var (
 	forkReplayFlushByteBudget = 1 << 20
 )
 
-func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*Store, error) {
+// ForkAtUserMessage creates a child session whose history is the parent's
+// conversation up to (but excluding) the visible user message persisted at
+// userMessageSeq. It returns the forked store and the 1-based ordinal of that
+// user message among the parent's visible user messages (for naming/display).
+func ForkAtUserMessage(parent *Store, userMessageSeq int64, forkName string) (*Store, int, error) {
 	if parent == nil {
-		return nil, fmt.Errorf("parent store is required")
+		return nil, 0, fmt.Errorf("parent store is required")
 	}
-	if userMessageIndex <= 0 {
-		return nil, fmt.Errorf("user message index must be >= 1")
+	if userMessageSeq <= 0 {
+		return nil, 0, fmt.Errorf("user message seq must be >= 1")
 	}
-	return streamChildFromParent(parent, parent.Meta(), forkName, userMessageIndex)
+	return streamChildFromParent(parent, parent.Meta(), forkName, userMessageSeq)
 }
 
 // CloneSession creates a child session that replays the parent's entire
@@ -38,17 +42,20 @@ func CloneSession(parent *Store, forkName string) (*Store, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("parent store is required")
 	}
-	return streamChildFromParent(parent, parent.Meta(), forkName, 0)
+	child, _, err := streamChildFromParent(parent, parent.Meta(), forkName, 0)
+	return child, err
 }
 
 // streamChildFromParent creates a child session and streams the parent event
-// log into it in bounded chunks. A boundary > 0 stops replay just before the
-// Nth visible user message (fork-at-message); boundary == 0 clones everything.
-func streamChildFromParent(parent *Store, parentMeta Meta, forkName string, boundary int) (*Store, error) {
+// log into it in bounded chunks. A targetSeq > 0 stops replay just before the
+// visible user message persisted at that sequence (fork-at-message); targetSeq
+// == 0 clones everything. It returns the 1-based ordinal of the cut user
+// message among the parent's visible user messages (0 when cloning).
+func streamChildFromParent(parent *Store, parentMeta Meta, forkName string, targetSeq int64) (*Store, int, error) {
 	containerDir := filepath.Dir(parent.Dir())
 	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, parent.options)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	child.mu.Lock()
@@ -60,29 +67,31 @@ func streamChildFromParent(parent *Store, parentMeta Meta, forkName string, boun
 	child.meta.Continuation = cloneContinuationContext(parentMeta.Continuation)
 	child.mu.Unlock()
 
-	derived, visibleUserCount, err := streamReplayIntoChild(parent, child, boundary)
+	derived, cutOrdinal, err := streamReplayIntoChild(parent, child, targetSeq)
 	if err != nil {
 		removeForkChild(child)
-		return nil, fmt.Errorf("stream fork replay events: %w", err)
+		return nil, 0, fmt.Errorf("stream fork replay events: %w", err)
 	}
-	if boundary > 0 && visibleUserCount < boundary {
+	if targetSeq > 0 && cutOrdinal == 0 {
 		removeForkChild(child)
-		return nil, fmt.Errorf("user message index %d is out of range", boundary)
+		return nil, 0, fmt.Errorf("user message seq %d is out of range", targetSeq)
 	}
 	if err := child.applyForkDerivedState(derived); err != nil {
 		removeForkChild(child)
-		return nil, fmt.Errorf("finalize fork replay: %w", err)
+		return nil, 0, fmt.Errorf("finalize fork replay: %w", err)
 	}
-	return child, nil
+	return child, cutOrdinal, nil
 }
 
 // streamReplayIntoChild walks the parent event log and appends each event to the
-// child in bounded chunks, folding replay-derived metadata incrementally. It
-// returns the derived state and the number of visible user messages observed so
-// callers can validate a requested fork boundary.
-func streamReplayIntoChild(parent *Store, child *Store, boundary int) (replayDerivedState, int, error) {
+// child in bounded chunks, folding replay-derived metadata incrementally. When
+// targetSeq > 0 it stops just before the visible user message persisted at that
+// sequence and returns that message's 1-based visible-user-message ordinal; it
+// returns 0 when the target is not found (or when cloning the whole log).
+func streamReplayIntoChild(parent *Store, child *Store, targetSeq int64) (replayDerivedState, int, error) {
 	derived := replayDerivedState{}
 	visibleUserCount := 0
+	cutOrdinal := 0
 	buffer := make([]ReplayEvent, 0, forkReplayFlushEventCount)
 	bufferedBytes := 0
 	flush := func() error {
@@ -97,9 +106,10 @@ func streamReplayIntoChild(parent *Store, child *Store, boundary int) (replayDer
 		return nil
 	}
 	walkErr := parent.WalkEvents(func(evt Event) error {
-		if boundary > 0 && hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
+		if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
 			visibleUserCount++
-			if visibleUserCount == boundary {
+			if targetSeq > 0 && evt.Seq == targetSeq {
+				cutOrdinal = visibleUserCount
 				return errForkReplayBoundary
 			}
 		}
@@ -113,12 +123,12 @@ func streamReplayIntoChild(parent *Store, child *Store, boundary int) (replayDer
 		return nil
 	})
 	if walkErr != nil && !errors.Is(walkErr, errForkReplayBoundary) {
-		return derived, visibleUserCount, walkErr
+		return derived, 0, walkErr
 	}
 	if err := flush(); err != nil {
-		return derived, visibleUserCount, err
+		return derived, 0, err
 	}
-	return derived, visibleUserCount, nil
+	return derived, cutOrdinal, nil
 }
 
 func (s *Store) applyForkDerivedState(derived replayDerivedState) error {

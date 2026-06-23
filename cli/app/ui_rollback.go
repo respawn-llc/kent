@@ -19,7 +19,7 @@ func (m *uiModel) refreshRollbackCandidates() {
 		}
 		targetID := entry.RollbackTargetID
 		if targetID == "" && !m.hasRuntimeClient() {
-			targetID = rollbacktarget.EncodeUserMessageIndex(baseOffset + idx + 1)
+			targetID = rollbacktarget.EncodeUserMessageSeq(int64(baseOffset + idx + 1))
 		}
 		if targetID == "" {
 			continue

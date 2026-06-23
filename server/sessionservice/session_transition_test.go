@@ -44,7 +44,8 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	if _, _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
+	u2Evt, _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleUser, Content: "u2"})
+	if err != nil {
 		t.Fatalf("append second user message: %v", err)
 	}
 	if _, _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleAssistant, Content: "a2"}); err != nil {
@@ -54,9 +55,9 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
 		Store: store,
 		Transition: sessionTransition{
-			Action:               serverapi.SessionTransitionActionForkRollback,
-			InitialPrompt:        "edited user message",
-			ForkUserMessageIndex: 2,
+			Action:             serverapi.SessionTransitionActionForkRollback,
+			InitialPrompt:      "edited user message",
+			ForkUserMessageSeq: u2Evt.Seq,
 		},
 	})
 	if err != nil {

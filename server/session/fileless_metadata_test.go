@@ -139,12 +139,13 @@ func TestForkAtUserMessagePreservesPersistenceOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
-	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	userEvt, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"})
+	if err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	observer.called = false
 
-	forked, err := ForkAtUserMessage(parent, 1, "Parent -> edit u1")
+	forked, _, err := ForkAtUserMessage(parent, userEvt.Seq, "Parent -> edit u1")
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}

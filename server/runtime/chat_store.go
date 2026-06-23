@@ -530,7 +530,7 @@ func (s *chatStore) recentTailSnapshot(maxEntries int) TranscriptWindowSnapshot 
 		scan.MarkCompactionBoundary()
 	}
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {
-		scan.ApplyMessage(msg)
+		scan.ApplyMessage(msg, 0)
 		processedMessages++
 		if s.compact != nil && processedMessages == s.compact.CutoffMessageCount {
 			scan.MarkCompactionBoundary()
@@ -568,7 +568,7 @@ func (s *chatStore) transcriptPageSnapshot(offset, limit int) transcriptPageSnap
 	}
 	appendLocalEntries(0)
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {
-		scan.ApplyMessage(msg)
+		scan.ApplyMessage(msg, 0)
 		processedMessages++
 		appendLocalEntries(processedMessages)
 	})
@@ -608,7 +608,7 @@ func (s *chatStore) snapshotWithMetadata() materializedChatSnapshot {
 	appendLocalEntries(0)
 	processedMessages := 0
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {
-		scan.ApplyMessage(msg)
+		scan.ApplyMessage(msg, 0)
 		processedMessages++
 		appendLocalEntries(processedMessages)
 	})

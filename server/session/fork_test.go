@@ -100,10 +100,12 @@ func TestForkAtUserMessageStreamsPrefixAcrossChunks(t *testing.T) {
 	const forkIndex = 3
 	expected := make([]Event, 0)
 	visible := 0
+	var forkSeq int64
 	for _, evt := range parentEvents {
 		if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
 			visible++
 			if visible == forkIndex {
+				forkSeq = evt.Seq
 				break
 			}
 		}
@@ -113,9 +115,12 @@ func TestForkAtUserMessageStreamsPrefixAcrossChunks(t *testing.T) {
 		t.Fatalf("test requires fork prefix (%d) to span multiple chunks (%d)", len(expected), forkReplayFlushEventCount)
 	}
 
-	child, err := ForkAtUserMessage(parent, forkIndex, "fork")
+	child, ordinal, err := ForkAtUserMessage(parent, forkSeq, "fork")
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
+	}
+	if ordinal != forkIndex {
+		t.Fatalf("fork ordinal = %d, want %d", ordinal, forkIndex)
 	}
 	childEvents, err := collectEvents(child)
 	if err != nil {
@@ -132,7 +137,7 @@ func TestForkAtUserMessageOutOfRangeCleansUpChild(t *testing.T) {
 	parent := newSessionTestStoreAt(t, root)
 	appendForkTestEvents(t, parent, 2, 4)
 
-	if _, err := ForkAtUserMessage(parent, 9, "fork"); err == nil {
+	if _, _, err := ForkAtUserMessage(parent, 999999, "fork"); err == nil {
 		t.Fatal("expected out-of-range fork to fail")
 	}
 

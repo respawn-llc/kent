@@ -1014,7 +1014,7 @@ func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T)
 		nil,
 		store.Meta().SessionID,
 		"lease-test-controller",
-		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(1)},
+		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkRollbackTargetID: rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, store, 1))},
 	)
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)

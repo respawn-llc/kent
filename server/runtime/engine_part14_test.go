@@ -145,7 +145,7 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 		t.Fatalf("append second user message: %v", err)
 	}
 
-	forkedStore, err := session.ForkAtUserMessage(store, 2, "Parent -> edit")
+	forkedStore, _, err := session.ForkAtUserMessage(store, userMessageSeqAt(t, store, 2), "Parent -> edit")
 	if err != nil {
 		t.Fatalf("fork session: %v", err)
 	}

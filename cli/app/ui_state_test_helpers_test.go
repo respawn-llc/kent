@@ -1,6 +1,40 @@
 package app
 
-import "core/shared/rollbacktarget"
+import (
+	"encoding/json"
+	"testing"
+
+	"core/server/session"
+	"core/shared/rollbacktarget"
+)
+
+func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
+	t.Helper()
+	window, err := store.ReadRecentEvents(10_000)
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	visible := 0
+	for _, evt := range window.Events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var msg struct {
+			Role string `json:"role"`
+		}
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			continue
+		}
+		if msg.Role == "user" {
+			visible++
+			if visible == n {
+				return evt.Seq
+			}
+		}
+	}
+	t.Fatalf("user message %d not found among %d events", n, len(window.Events))
+	return 0
+}
 
 func testActiveAsk(m *uiModel) *askEvent {
 	if m == nil {
@@ -114,7 +148,7 @@ func rollbackTargetIDForTestSelection(selectedTranscriptEntry int) string {
 	if selectedTranscriptEntry < 0 {
 		return ""
 	}
-	return rollbacktarget.EncodeUserMessageIndex(selectedTranscriptEntry + 1)
+	return rollbacktarget.EncodeUserMessageSeq(int64(selectedTranscriptEntry + 1))
 }
 
 func testRollbackSelection(m *uiModel) int {
