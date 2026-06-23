@@ -286,36 +286,14 @@ func (s *dormantSessionSnapshotSource) clear() {
 }
 
 func (s *dormantSessionSnapshotSource) buildCacheEntry(ctx context.Context, store *session.Store) (dormantTranscriptCacheEntry, error) {
-	cacheWarningMode := config.CacheWarningModeDefault
+	return buildDormantTranscriptCacheEntryWithMode(ctx, store, s.cacheWarningModeOrDefault())
+}
+
+func (s *dormantSessionSnapshotSource) cacheWarningModeOrDefault() config.CacheWarningMode {
 	if s != nil && s.cacheWarningMode != nil {
-		cacheWarningMode = normalizeServiceCacheWarningMode(s.cacheWarningMode())
+		return normalizeServiceCacheWarningMode(s.cacheWarningMode())
 	}
-	meta := store.Meta()
-	scan, err := scanDormantTranscript(ctx, store, runtime.PersistedTranscriptScanRequest{
-		TrackRecentTail:  true,
-		TailLimit:        runtimeview.RecentTailEntryLimit,
-		CacheWarningMode: cacheWarningMode,
-	})
-	if err != nil {
-		return dormantTranscriptCacheEntry{}, err
-	}
-	var activeRun *clientui.RunView
-	latestRun, err := store.LatestRun()
-	if err != nil {
-		return dormantTranscriptCacheEntry{}, err
-	}
-	if latestRun != nil && latestRun.Status == session.RunStatusRunning {
-		activeRun = runtimeview.RunViewFromSessionRecord(meta.SessionID, latestRun)
-	}
-	return dormantTranscriptCacheEntry{
-		sessionDir:                   store.Dir(),
-		sessionID:                    meta.SessionID,
-		revision:                     meta.LastSequence,
-		totalEntries:                 scan.TotalEntries(),
-		lastCommittedAssistantAnswer: scan.LastCommittedAssistantFinalAnswer(),
-		recentTail:                   scan.RecentTailSnapshot(),
-		activeRun:                    activeRun,
-	}, nil
+	return config.CacheWarningModeDefault
 }
 
 type dormantSessionSnapshot struct {
@@ -344,49 +322,23 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req clientui
 	if s.store == nil {
 		return clientui.TranscriptPage{}, errors.New("session store is required")
 	}
-	req = runtimeview.NormalizeDefaultTranscriptRequest(req)
 	meta := s.store.Meta()
 	freshness := runtimeview.ConversationFreshnessFromSession(s.store.ConversationFreshness())
-	entry, err := s.source.dormant.get(ctx, s.store)
-	if err != nil {
-		return clientui.TranscriptPage{}, err
-	}
-	if req.Window == clientui.TranscriptWindowRecentTail {
-		return runtimeview.TranscriptPageFromRecentTailWindow(meta.SessionID, meta.Name, freshness, meta.LastSequence, entry.recentTail, req), nil
-	}
-	offset := req.Offset
-	limit := req.Limit
-	if req.PageSize > 0 {
-		offset = req.Page * req.PageSize
-		limit = req.PageSize
-	}
-	if page, ok := entry.transcriptPageCoveredByTail(meta, freshness, clientui.TranscriptPageRequest{Offset: offset, Limit: limit}); ok {
-		return page, nil
-	}
-	cacheWarningMode := config.CacheWarningModeDefault
-	if s.source != nil && s.source.cacheWarningMode != nil {
-		cacheWarningMode = normalizeServiceCacheWarningMode(s.source.cacheWarningMode())
-	}
-	cacheKey := dormantTranscriptPageCacheKeyForStore(s.store, meta, freshness, cacheWarningMode, offset, limit)
-	return s.source.dormantPages.getOrBuild(cacheKey, func() (clientui.TranscriptPage, error) {
-		scan, err := scanDormantTranscript(ctx, s.store, runtime.PersistedTranscriptScanRequest{Offset: offset, Limit: limit, CacheWarningMode: cacheWarningMode})
+	if req.Cursor <= 0 {
+		entry, err := s.source.dormant.get(ctx, s.store)
 		if err != nil {
 			return clientui.TranscriptPage{}, err
 		}
-		pageOffset := offset
-		if pageOffset > scan.TotalEntries() {
-			pageOffset = scan.TotalEntries()
+		return entry.newestSegmentPage(meta, freshness), nil
+	}
+	cacheWarningMode := s.source.cacheWarningModeOrDefault()
+	cacheKey := dormantTranscriptPageCacheKeyForStore(s.store, meta, freshness, cacheWarningMode, req.Cursor)
+	return s.source.dormantPages.getOrBuild(cacheKey, func() (clientui.TranscriptPage, error) {
+		segment, err := runtime.TranscriptSegmentPageFromStore(s.store, req.Cursor, cacheWarningMode)
+		if err != nil {
+			return clientui.TranscriptPage{}, err
 		}
-		return runtimeview.TranscriptPageFromCollectedChat(
-			meta.SessionID,
-			meta.Name,
-			freshness,
-			meta.LastSequence,
-			runtimeview.ChatSnapshotFromRuntime(scan.CollectedPageSnapshot()),
-			scan.TotalEntries(),
-			pageOffset,
-			clientui.TranscriptPageRequest{Offset: pageOffset, Limit: limit},
-		), nil
+		return runtimeview.TranscriptPageFromSegment(meta.SessionID, meta.Name, freshness, meta.LastSequence, segment), nil
 	})
 }
 
@@ -394,35 +346,13 @@ func (s dormantSessionSnapshot) CommittedTranscriptSuffix(ctx context.Context, r
 	if s.store == nil {
 		return clientui.CommittedTranscriptSuffix{}, errors.New("session store is required")
 	}
-	req = clientui.NormalizeCommittedTranscriptSuffixRequest(req)
 	meta := s.store.Meta()
 	freshness := runtimeview.ConversationFreshnessFromSession(s.store.ConversationFreshness())
-	cacheWarningMode := config.CacheWarningModeDefault
-	if s.source != nil && s.source.cacheWarningMode != nil {
-		cacheWarningMode = normalizeServiceCacheWarningMode(s.source.cacheWarningMode())
-	}
-	scan, err := scanDormantTranscript(ctx, s.store, runtime.PersistedTranscriptScanRequest{
-		Offset:           req.AfterEntryCount,
-		Limit:            req.Limit,
-		CacheWarningMode: cacheWarningMode,
-	})
+	entry, err := s.source.dormant.get(ctx, s.store)
 	if err != nil {
 		return clientui.CommittedTranscriptSuffix{}, err
 	}
-	startEntryCount := req.AfterEntryCount
-	if total := scan.TotalEntries(); startEntryCount > total {
-		startEntryCount = total
-	}
-	return runtimeview.CommittedTranscriptSuffixFromCollectedChat(
-		meta.SessionID,
-		meta.Name,
-		freshness,
-		meta.LastSequence,
-		runtimeview.ChatSnapshotFromRuntime(scan.CollectedPageSnapshot()),
-		scan.TotalEntries(),
-		startEntryCount,
-		req,
-	), nil
+	return runtimeview.CommittedTranscriptSuffixFromSegment(meta.SessionID, meta.Name, freshness, meta.LastSequence, entry.newestSegment), nil
 }
 
 func (s dormantSessionSnapshot) Run(_ context.Context, runID string) (*clientui.RunView, error) {
@@ -430,21 +360,6 @@ func (s dormantSessionSnapshot) Run(_ context.Context, runID string) (*clientui.
 		return nil, errors.New("session store is required")
 	}
 	return runViewFromStore(s.store, strings.TrimSpace(runID))
-}
-
-func scanDormantTranscript(ctx context.Context, store *session.Store, req runtime.PersistedTranscriptScanRequest) (*runtime.PersistedTranscriptScan, error) {
-	scan := runtime.NewPersistedTranscriptScan(req)
-	if err := store.WalkEvents(func(evt session.Event) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		return scan.ApplyPersistedEvent(evt)
-	}); err != nil {
-		return nil, err
-	}
-	return scan, nil
 }
 
 func runViewFromStore(store *session.Store, runID string) (*clientui.RunView, error) {

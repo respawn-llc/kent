@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"core/server/runtime"
-	"core/server/runtimeview"
 	"core/server/session"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
@@ -170,8 +169,7 @@ func (s *Service) GetSessionTranscriptPage(ctx context.Context, req serverapi.Se
 	if err := req.Validate(); err != nil {
 		return serverapi.SessionTranscriptPageResponse{}, err
 	}
-	pageReq := clientui.TranscriptPageRequest{Offset: req.Offset, Limit: req.Limit, Page: req.Page, PageSize: req.PageSize, Window: req.Window, KnownRevision: req.KnownRevision, KnownCommittedEntryCount: req.KnownCommittedEntryCount}
-	pageReq = runtimeview.NormalizeDefaultTranscriptRequest(pageReq)
+	pageReq := clientui.TranscriptPageRequest{Cursor: req.Cursor}
 	snapshot, err := s.resolveSnapshot(ctx, req.SessionID)
 	if err != nil {
 		return serverapi.SessionTranscriptPageResponse{}, err

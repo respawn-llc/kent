@@ -78,7 +78,11 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			}
 			e.resetLocalDiagnostics()
 			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).ReplaceHistory(payload.Items)
-			e.compactionRuntimeState().IncrementCount()
+			if payload.CompactionNumber > 0 {
+				e.compactionRuntimeState().SetCount(payload.CompactionNumber)
+			} else {
+				e.compactionRuntimeState().IncrementCount()
+			}
 			e.compactionRuntimeState().SetLastWorkflowRunID(payload.WorkflowRunID)
 			recoveredHandoff.ClearSatisfiedByCompaction()
 			reminderIssued = false

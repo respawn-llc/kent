@@ -10,6 +10,7 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
@@ -46,14 +47,22 @@ func (e *Engine) ChatSnapshot() ChatSnapshot {
 }
 
 func (e *Engine) recentTranscriptEntries(limit int) []ChatEntry {
-	if e == nil || limit <= 0 {
+	if e == nil || e.store == nil || limit <= 0 {
 		return nil
 	}
-	offset := e.CommittedTranscriptEntryCount() - limit
-	if offset < 0 {
-		offset = 0
+	window, err := e.store.ReadRecentEvents(limit)
+	if err != nil {
+		return nil
 	}
-	return e.TranscriptPageSnapshot(offset, limit).Snapshot.Entries
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: e.cfg.CacheWarningMode})
+	for _, evt := range window.Events {
+		_ = scan.ApplyPersistedEvent(evt)
+	}
+	entries := scan.CollectedPageSnapshot().Entries
+	if len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+	return entries
 }
 
 func (e *Engine) RecentTailTranscriptWindow(maxEntries int) TranscriptWindowSnapshot {
@@ -92,9 +101,7 @@ func (e *Engine) activeListEvents() []session.Event {
 	if e == nil || e.store == nil {
 		return nil
 	}
-	events, err := e.store.ReadEventsBackwardUntil(func(evt session.Event) bool {
-		return evt.Kind == sessionEventHistoryReplaced
-	})
+	events, err := e.store.ReadEventsBackwardUntil(isCompactionSegmentBoundary)
 	if err != nil {
 		return nil
 	}
@@ -123,29 +130,50 @@ func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapsho
 }
 
 type TranscriptSegmentPage struct {
-	Snapshot     ChatSnapshot
-	OlderCursor  int64
-	HasMoreAbove bool
+	Snapshot                          ChatSnapshot
+	OlderCursor                       int64
+	HasMoreAbove                      bool
+	LastCommittedAssistantFinalAnswer string
+}
+
+func isCompactionSegmentBoundary(evt session.Event) bool {
+	if evt.Kind != sessionEventHistoryReplaced {
+		return false
+	}
+	_, ignoredLegacy, err := decodePersistedHistoryReplacementPayload(evt.Payload)
+	if err != nil {
+		return false
+	}
+	return !ignoredLegacy
+}
+
+func TranscriptSegmentPageFromStore(store *session.Store, cursor int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
+	if store == nil {
+		return TranscriptSegmentPage{}, nil
+	}
+	window, err := store.ReadSegmentBackward(cursor, isCompactionSegmentBoundary)
+	if err != nil {
+		return TranscriptSegmentPage{}, err
+	}
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: cacheWarningMode})
+	for _, evt := range window.Events {
+		_ = scan.ApplyPersistedEvent(evt)
+	}
+	return TranscriptSegmentPage{
+		Snapshot:                          scan.CollectedPageSnapshot(),
+		OlderCursor:                       window.StartOffset,
+		HasMoreAbove:                      !window.ReachedStart,
+		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
+	}, nil
 }
 
 func (e *Engine) TranscriptSegmentPage(cursor int64) TranscriptSegmentPage {
 	if e == nil || e.store == nil {
 		return TranscriptSegmentPage{}
 	}
-	window, err := e.store.ReadSegmentBackward(cursor, func(evt session.Event) bool {
-		return evt.Kind == sessionEventHistoryReplaced
-	})
+	page, err := TranscriptSegmentPageFromStore(e.store, cursor, e.cfg.CacheWarningMode)
 	if err != nil {
 		return TranscriptSegmentPage{}
-	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: e.cfg.CacheWarningMode})
-	for _, evt := range window.Events {
-		_ = scan.ApplyPersistedEvent(evt)
-	}
-	page := TranscriptSegmentPage{
-		Snapshot:     scan.CollectedPageSnapshot(),
-		OlderCursor:  window.StartOffset,
-		HasMoreAbove: !window.ReachedStart,
 	}
 	if cursor <= 0 {
 		e.overlayLiveStreaming(&page.Snapshot)
@@ -695,8 +723,9 @@ type historyReplacementPayload struct {
 	// replacement, when the engine runs under a workflow run. It is the durable,
 	// single-write provenance of a compaction: resume reconstructs it from this
 	// event so a workflow run never recompacts a continuation it already committed.
-	WorkflowRunID string             `json:"workflow_run_id,omitempty"`
-	Items         []llm.ResponseItem `json:"items"`
+	WorkflowRunID    string             `json:"workflow_run_id,omitempty"`
+	CompactionNumber int                `json:"compaction_number,omitempty"`
+	Items            []llm.ResponseItem `json:"items"`
 }
 
 func toToolNames(ids []toolspec.ID) []string {

@@ -27,6 +27,7 @@ type SessionTranscriptPageRequest struct {
 	Window                   clientui.TranscriptWindow `json:"window,omitempty"`
 	KnownRevision            int64                     `json:"known_revision,omitempty"`
 	KnownCommittedEntryCount int                       `json:"known_committed_entry_count,omitempty"`
+	Cursor                   int64                     `json:"cursor,omitempty"`
 }
 
 type SessionTranscriptPageResponse struct {

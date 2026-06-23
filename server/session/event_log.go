@@ -351,6 +351,77 @@ func readSegmentBackwardFile(path string, endOffset int64, chunkBytes int64, mat
 	return window, err
 }
 
+func readRecentEventsBackwardFile(path string, endOffset int64, maxEvents int, chunkBytes int64) (BackwardWindow, error) {
+	if maxEvents <= 0 {
+		return BackwardWindow{ReachedStart: true}, nil
+	}
+	if chunkBytes <= 0 {
+		chunkBytes = activeTailReverseChunkBytes
+	}
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return BackwardWindow{}, fmt.Errorf("open events file: %w", err)
+	}
+	defer fp.Close()
+	size, err := fp.Seek(0, io.SeekEnd)
+	if err != nil {
+		return BackwardWindow{}, fmt.Errorf("seek events file: %w", err)
+	}
+	if endOffset <= 0 || endOffset > size {
+		endOffset = size
+	}
+	if endOffset == 0 {
+		return BackwardWindow{ReachedStart: true}, nil
+	}
+	atEOF := endOffset == size
+	var buffer []byte
+	pos := endOffset
+	for pos > 0 {
+		chunk := chunkBytes
+		if chunk > pos {
+			chunk = pos
+		}
+		pos -= chunk
+		tmp := make([]byte, chunk)
+		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
+			return BackwardWindow{}, fmt.Errorf("read events file: %w", err)
+		}
+		buffer = append(tmp, buffer...)
+		window, done, err := recentWindowFromBuffer(buffer, pos, pos == 0, atEOF, maxEvents)
+		if err != nil {
+			return BackwardWindow{}, err
+		}
+		if done {
+			return window, nil
+		}
+	}
+	window, _, err := recentWindowFromBuffer(buffer, 0, true, atEOF, maxEvents)
+	return window, err
+}
+
+func recentWindowFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, maxEvents int) (BackwardWindow, bool, error) {
+	parsed, err := completeEventsWithOffsets(buffer, baseOffset, atStart, atEOF)
+	if err != nil {
+		return BackwardWindow{}, false, err
+	}
+	if len(parsed) >= maxEvents {
+		seg := parsed[len(parsed)-maxEvents:]
+		return BackwardWindow{
+			Events:       eventsOfOffsets(seg),
+			StartOffset:  seg[0].offset,
+			ReachedStart: seg[0].offset == 0,
+		}, true, nil
+	}
+	if atStart {
+		start := int64(0)
+		if len(parsed) > 0 {
+			start = parsed[0].offset
+		}
+		return BackwardWindow{Events: eventsOfOffsets(parsed), StartOffset: start, ReachedStart: true}, true, nil
+	}
+	return BackwardWindow{}, false, nil
+}
+
 func segmentFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, match func(Event) bool) (BackwardWindow, bool, error) {
 	parsed, err := completeEventsWithOffsets(buffer, baseOffset, atStart, atEOF)
 	if err != nil {

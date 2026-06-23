@@ -31,20 +31,15 @@ func TestGetSessionCommittedTranscriptSuffixReturnsRuntimeViewSuffix(t *testing.
 	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
 
 	resp, err := svc.GetSessionCommittedTranscriptSuffix(context.Background(), serverapi.SessionCommittedTranscriptSuffixRequest{
-		SessionID:       store.Meta().SessionID,
-		AfterEntryCount: 1,
-		Limit:           2,
+		SessionID: store.Meta().SessionID,
 	})
 	if err != nil {
 		t.Fatalf("get committed transcript suffix: %v", err)
 	}
-	if resp.Suffix.StartEntryCount != 1 || resp.Suffix.NextEntryCount != 3 {
-		t.Fatalf("unexpected cursor metadata: %+v", resp.Suffix)
+	if got := len(resp.Suffix.Entries); got != 4 {
+		t.Fatalf("entries = %d, want 4 (newest segment)", got)
 	}
-	if got := len(resp.Suffix.Entries); got != 2 {
-		t.Fatalf("entries = %d, want 2", got)
-	}
-	if resp.Suffix.Entries[0].Text != "reply-001" || resp.Suffix.Entries[1].Text != "reply-002" {
+	if resp.Suffix.Entries[0].Text != "reply-000" || resp.Suffix.Entries[3].Text != "reply-003" {
 		t.Fatalf("unexpected entries: %+v", resp.Suffix.Entries)
 	}
 }
@@ -63,20 +58,15 @@ func TestGetSessionCommittedTranscriptSuffixReturnsDormantSuffix(t *testing.T) {
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
 	resp, err := svc.GetSessionCommittedTranscriptSuffix(context.Background(), serverapi.SessionCommittedTranscriptSuffixRequest{
-		SessionID:       store.Meta().SessionID,
-		AfterEntryCount: 2,
-		Limit:           10,
+		SessionID: store.Meta().SessionID,
 	})
 	if err != nil {
 		t.Fatalf("get dormant committed transcript suffix: %v", err)
 	}
-	if resp.Suffix.StartEntryCount != 2 || resp.Suffix.NextEntryCount != 4 {
-		t.Fatalf("unexpected cursor metadata: %+v", resp.Suffix)
+	if got := len(resp.Suffix.Entries); got != 4 {
+		t.Fatalf("entries = %d, want 4 (newest segment)", got)
 	}
-	if got := len(resp.Suffix.Entries); got != 2 {
-		t.Fatalf("entries = %d, want 2", got)
-	}
-	if resp.Suffix.Entries[0].Text != "reply-002" || resp.Suffix.Entries[1].Text != "reply-003" {
+	if resp.Suffix.Entries[0].Text != "reply-000" || resp.Suffix.Entries[3].Text != "reply-003" {
 		t.Fatalf("unexpected entries: %+v", resp.Suffix.Entries)
 	}
 }

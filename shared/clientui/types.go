@@ -179,6 +179,7 @@ type TranscriptPageRequest struct {
 	Window                   TranscriptWindow
 	KnownRevision            int64
 	KnownCommittedEntryCount int
+	Cursor                   int64
 }
 
 type TranscriptPage struct {
@@ -190,6 +191,8 @@ type TranscriptPage struct {
 	Offset                int
 	NextOffset            int
 	HasMore               bool
+	OlderCursor           int64
+	HasMoreAbove          bool
 	Entries               []ChatEntry
 	Streaming             string
 	StreamingError        string

@@ -28,9 +28,8 @@ type dormantTranscriptCacheEntry struct {
 	sessionDir                   string
 	sessionID                    string
 	revision                     int64
-	totalEntries                 int
 	lastCommittedAssistantAnswer string
-	recentTail                   runtime.TranscriptWindowSnapshot
+	newestSegment                runtime.TranscriptSegmentPage
 	activeRun                    *clientui.RunView
 	lastUsed                     uint64
 }
@@ -120,12 +119,12 @@ func dormantTranscriptCacheKey(sessionDir, sessionID string) string {
 }
 
 func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store) (dormantTranscriptCacheEntry, error) {
+	return buildDormantTranscriptCacheEntryWithMode(ctx, store, config.CacheWarningModeDefault)
+}
+
+func buildDormantTranscriptCacheEntryWithMode(_ context.Context, store *session.Store, cacheWarningMode config.CacheWarningMode) (dormantTranscriptCacheEntry, error) {
 	meta := store.Meta()
-	scan, err := scanDormantTranscript(ctx, store, runtime.PersistedTranscriptScanRequest{
-		TrackRecentTail:  true,
-		TailLimit:        runtimeview.RecentTailEntryLimit,
-		CacheWarningMode: config.CacheWarningModeDefault,
-	})
+	segment, err := runtime.TranscriptSegmentPageFromStore(store, 0, cacheWarningMode)
 	if err != nil {
 		return dormantTranscriptCacheEntry{}, err
 	}
@@ -141,9 +140,8 @@ func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store)
 		sessionDir:                   store.Dir(),
 		sessionID:                    meta.SessionID,
 		revision:                     meta.LastSequence,
-		totalEntries:                 scan.TotalEntries(),
-		lastCommittedAssistantAnswer: scan.LastCommittedAssistantFinalAnswer(),
-		recentTail:                   scan.RecentTailSnapshot(),
+		lastCommittedAssistantAnswer: segment.LastCommittedAssistantFinalAnswer,
+		newestSegment:                segment,
 		activeRun:                    activeRun,
 	}, nil
 }
@@ -169,51 +167,15 @@ func (e dormantTranscriptCacheEntry) mainView(meta session.Meta, freshness clien
 			SessionName:           meta.Name,
 			ConversationFreshness: freshness,
 			Transcript: clientui.TranscriptMetadata{
-				Revision:            meta.LastSequence,
-				CommittedEntryCount: e.totalEntries,
+				Revision: meta.LastSequence,
 			},
 		},
 		ActiveRun: e.activeRun,
 	}
 }
 
-func (e dormantTranscriptCacheEntry) transcriptPageCoveredByTail(meta session.Meta, freshness clientui.ConversationFreshness, req clientui.TranscriptPageRequest) (clientui.TranscriptPage, bool) {
-	if req.Limit <= 0 {
-		return clientui.TranscriptPage{}, false
-	}
-	tailOffset := e.recentTail.Offset
-	tailEntries := e.recentTail.Snapshot.Entries
-	if req.Offset < tailOffset {
-		return clientui.TranscriptPage{}, false
-	}
-	end := req.Offset + req.Limit
-	tailEnd := tailOffset + len(tailEntries)
-	if end > tailEnd {
-		return clientui.TranscriptPage{}, false
-	}
-	start := req.Offset - tailOffset
-	snapshot := runtime.ChatSnapshot{Entries: cloneDormantChatEntries(tailEntries[start : start+req.Limit])}
-	return runtimeview.TranscriptPageFromCollectedChat(
-		meta.SessionID,
-		meta.Name,
-		freshness,
-		meta.LastSequence,
-		runtimeview.ChatSnapshotFromRuntime(snapshot),
-		e.totalEntries,
-		req.Offset,
-		clientui.TranscriptPageRequest{Offset: req.Offset, Limit: req.Limit},
-	), true
-}
-
-func cloneDormantChatEntries(entries []runtime.ChatEntry) []runtime.ChatEntry {
-	if len(entries) == 0 {
-		return nil
-	}
-	cloned := make([]runtime.ChatEntry, 0, len(entries))
-	for _, entry := range entries {
-		cloned = append(cloned, entry)
-	}
-	return cloned
+func (e dormantTranscriptCacheEntry) newestSegmentPage(meta session.Meta, freshness clientui.ConversationFreshness) clientui.TranscriptPage {
+	return runtimeview.TranscriptPageFromSegment(meta.SessionID, meta.Name, freshness, meta.LastSequence, e.newestSegment)
 }
 
 type dormantTranscriptPageCache struct {
@@ -230,8 +192,7 @@ type dormantTranscriptPageCacheKey struct {
 	revision         int64
 	freshness        clientui.ConversationFreshness
 	cacheWarningMode config.CacheWarningMode
-	offset           int
-	limit            int
+	cursor           int64
 }
 
 type dormantTranscriptPageCacheEntry struct {
@@ -250,7 +211,7 @@ func newDormantTranscriptPageCacheWithLimit(limit int) *dormantTranscriptPageCac
 }
 
 func (c *dormantTranscriptPageCache) getOrBuild(key dormantTranscriptPageCacheKey, build func() (clientui.TranscriptPage, error)) (clientui.TranscriptPage, error) {
-	if c == nil || build == nil || key.limit <= 0 {
+	if c == nil || build == nil {
 		return build()
 	}
 	c.mu.Lock()
@@ -312,7 +273,7 @@ func (c *dormantTranscriptPageCache) evictIfNeededLocked() {
 	}
 }
 
-func dormantTranscriptPageCacheKeyForStore(store *session.Store, meta session.Meta, freshness clientui.ConversationFreshness, cacheWarningMode config.CacheWarningMode, offset, limit int) dormantTranscriptPageCacheKey {
+func dormantTranscriptPageCacheKeyForStore(store *session.Store, meta session.Meta, freshness clientui.ConversationFreshness, cacheWarningMode config.CacheWarningMode, cursor int64) dormantTranscriptPageCacheKey {
 	return dormantTranscriptPageCacheKey{
 		sessionDir:       strings.TrimSpace(store.Dir()),
 		sessionID:        strings.TrimSpace(meta.SessionID),
@@ -320,8 +281,7 @@ func dormantTranscriptPageCacheKeyForStore(store *session.Store, meta session.Me
 		revision:         meta.LastSequence,
 		freshness:        freshness,
 		cacheWarningMode: normalizeServiceCacheWarningMode(cacheWarningMode),
-		offset:           offset,
-		limit:            limit,
+		cursor:           cursor,
 	}
 }
 

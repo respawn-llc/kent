@@ -12,47 +12,57 @@ func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPa
 	if engine == nil {
 		return clientui.TranscriptPage{}
 	}
-	req = NormalizeDefaultTranscriptRequest(req)
-	if req.Window == clientui.TranscriptWindowRecentTail {
-		return TranscriptPageFromRecentTailWindow(
-			engine.SessionID(),
-			engine.SessionName(),
-			ConversationFreshnessFromSession(engine.ConversationFreshness()),
-			engine.TranscriptRevision(),
-			engine.RecentTailTranscriptWindow(RecentTailEntryLimit),
-			req,
-		)
-	}
-	offset, limit := transcriptOffsetAndLimit(req)
-	page := engine.TranscriptPageSnapshot(offset, limit)
-	return TranscriptPageFromCollectedChat(
+	return TranscriptPageFromSegment(
 		engine.SessionID(),
 		engine.SessionName(),
 		ConversationFreshnessFromSession(engine.ConversationFreshness()),
 		engine.TranscriptRevision(),
-		ChatSnapshotFromRuntime(page.Snapshot),
-		page.TotalEntries,
-		page.Offset,
-		clientui.TranscriptPageRequest{Offset: page.Offset, Limit: limit},
+		engine.TranscriptSegmentPage(req.Cursor),
 	)
 }
 
-func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, req clientui.CommittedTranscriptSuffixRequest) clientui.CommittedTranscriptSuffix {
+func TranscriptPageFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.TranscriptPage {
+	snapshot := ChatSnapshotFromRuntime(page.Snapshot)
+	return clientui.TranscriptPage{
+		SessionID:             sessionID,
+		SessionName:           sessionName,
+		ConversationFreshness: freshness,
+		Revision:              revision,
+		OlderCursor:           page.OlderCursor,
+		HasMoreAbove:          page.HasMoreAbove,
+		Entries:               cloneChatEntries(snapshot.Entries),
+		Streaming:             snapshot.Streaming,
+		StreamingError:        snapshot.StreamingError,
+	}
+}
+
+func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.CommittedTranscriptSuffixRequest) clientui.CommittedTranscriptSuffix {
 	if engine == nil {
 		return clientui.CommittedTranscriptSuffix{}
 	}
-	req = clientui.NormalizeCommittedTranscriptSuffixRequest(req)
-	page := engine.TranscriptPageSnapshot(req.AfterEntryCount, req.Limit)
-	return CommittedTranscriptSuffixFromCollectedChat(
+	return CommittedTranscriptSuffixFromSegment(
 		engine.SessionID(),
 		engine.SessionName(),
 		ConversationFreshnessFromSession(engine.ConversationFreshness()),
 		engine.TranscriptRevision(),
-		ChatSnapshotFromRuntime(page.Snapshot),
-		page.TotalEntries,
-		page.Offset,
-		req,
+		engine.TranscriptSegmentPage(0),
 	)
+}
+
+func CommittedTranscriptSuffixFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.CommittedTranscriptSuffix {
+	snapshot := ChatSnapshotFromRuntime(page.Snapshot)
+	entries := cloneChatEntries(snapshot.Entries)
+	return clientui.CommittedTranscriptSuffix{
+		SessionID:             sessionID,
+		SessionName:           sessionName,
+		ConversationFreshness: freshness,
+		Revision:              revision,
+		CommittedEntryCount:   len(entries),
+		StartEntryCount:       0,
+		NextEntryCount:        len(entries),
+		HasMore:               false,
+		Entries:               entries,
+	}
 }
 
 func TranscriptPageFromRecentTailWindow(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, window runtime.TranscriptWindowSnapshot, req clientui.TranscriptPageRequest) clientui.TranscriptPage {

@@ -120,6 +120,50 @@ func TestReadSegmentBackwardPaginatesSegmentsViaCursor(t *testing.T) {
 	}
 }
 
+func TestReadRecentEventsCrossesBoundariesAndReassemblesAcrossChunks(t *testing.T) {
+	var sb strings.Builder
+	const total = 30
+	for seq := 1; seq <= total; seq++ {
+		kind := "message"
+		if seq%7 == 0 {
+			kind = "history_replaced"
+		}
+		sb.WriteString(fmt.Sprintf(`{"seq":%d,"kind":%q,"payload":{"v":%d}}`+"\n", seq, kind, seq))
+	}
+	sb.WriteString(`{"seq":99,"kind":"message","pa`)
+	path := filepath.Join(t.TempDir(), eventsFile)
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		t.Fatalf("write events file: %v", err)
+	}
+
+	for _, chunk := range []int64{1, 5, 17, 1 << 20} {
+		window, err := readRecentEventsBackwardFile(path, 0, 8, chunk)
+		if err != nil {
+			t.Fatalf("chunk=%d: read recent: %v", chunk, err)
+		}
+		if len(window.Events) != 8 {
+			t.Fatalf("chunk=%d: recent window returned %d events, want 8 (torn tail dropped)", chunk, len(window.Events))
+		}
+		if window.ReachedStart {
+			t.Fatalf("chunk=%d: bounded recent window must report more above", chunk)
+		}
+		for i := range window.Events {
+			wantSeq := int64(total - 8 + 1 + i)
+			if window.Events[i].Seq != wantSeq {
+				t.Fatalf("chunk=%d: recent event %d seq = %d, want %d", chunk, i, window.Events[i].Seq, wantSeq)
+			}
+		}
+	}
+
+	all, err := readRecentEventsBackwardFile(path, 0, total+5, 7)
+	if err != nil {
+		t.Fatalf("read recent (all): %v", err)
+	}
+	if len(all.Events) != total || !all.ReachedStart {
+		t.Fatalf("recent window over-large limit = %d events reachedStart=%v, want %d reachedStart=true", len(all.Events), all.ReachedStart, total)
+	}
+}
+
 func TestReadSegmentBackwardReassemblesAcrossChunksAndToleratesTornTail(t *testing.T) {
 	path := filepath.Join(t.TempDir(), eventsFile)
 	content := `{"seq":1,"kind":"message","payload":{"v":"a"}}

@@ -83,8 +83,7 @@ func SessionViewFromRuntime(engine *runtime.Engine) clientui.RuntimeSessionView 
 		SessionName:           engine.SessionName(),
 		ConversationFreshness: ConversationFreshnessFromSession(engine.ConversationFreshness()),
 		Transcript: clientui.TranscriptMetadata{
-			Revision:            engine.TranscriptRevision(),
-			CommittedEntryCount: engine.CommittedTranscriptEntryCount(),
+			Revision: engine.TranscriptRevision(),
 		},
 	}
 }
