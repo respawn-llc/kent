@@ -106,7 +106,7 @@ func (s *Store) appendEventsLogLocked(events []Event) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open events file for append: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 
 	fileInfo, err := fp.Stat()
 	if err != nil {
@@ -217,7 +217,7 @@ func walkEventsFile(path string, visit func(Event) error) (parsedEvents, error) 
 	if err != nil {
 		return parsedEvents{}, fmt.Errorf("open events file: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 	return walkEventsFromReader(bufio.NewReader(fp), visit)
 }
 
@@ -280,7 +280,7 @@ func readSegmentBackwardFile(path string, endOffset int64, chunkBytes int64, mat
 	if err != nil {
 		return SegmentWindow{}, fmt.Errorf("open events file: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 	size, err := fp.Seek(0, io.SeekEnd)
 	if err != nil {
 		return SegmentWindow{}, fmt.Errorf("seek events file: %w", err)
@@ -304,7 +304,10 @@ func readSegmentBackwardFile(path string, endOffset int64, chunkBytes int64, mat
 		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
 			return SegmentWindow{}, fmt.Errorf("read events file: %w", err)
 		}
-		buffer = append(tmp, buffer...)
+		next := make([]byte, 0, len(tmp)+len(buffer))
+		next = append(next, tmp...)
+		next = append(next, buffer...)
+		buffer = next
 		window, done, err := segmentFromBuffer(buffer, pos, pos == 0, atEOF, match)
 		if err != nil {
 			return SegmentWindow{}, err
@@ -332,7 +335,7 @@ func readSegmentForwardFile(path string, startOffset int64, chunkBytes int64, ma
 	if err != nil {
 		return SegmentWindow{}, fmt.Errorf("open events file: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 	size, err := fp.Seek(0, io.SeekEnd)
 	if err != nil {
 		return SegmentWindow{}, fmt.Errorf("seek events file: %w", err)
@@ -380,7 +383,7 @@ func readRecentEventsBackwardFile(path string, endOffset int64, maxEvents int, c
 	if err != nil {
 		return SegmentWindow{}, fmt.Errorf("open events file: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 	size, err := fp.Seek(0, io.SeekEnd)
 	if err != nil {
 		return SegmentWindow{}, fmt.Errorf("seek events file: %w", err)
@@ -404,7 +407,10 @@ func readRecentEventsBackwardFile(path string, endOffset int64, maxEvents int, c
 		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
 			return SegmentWindow{}, fmt.Errorf("read events file: %w", err)
 		}
-		buffer = append(tmp, buffer...)
+		next := make([]byte, 0, len(tmp)+len(buffer))
+		next = append(next, tmp...)
+		next = append(next, buffer...)
+		buffer = next
 		window, done, err := recentWindowFromBuffer(buffer, pos, pos == 0, atEOF, maxEvents)
 		if err != nil {
 			return SegmentWindow{}, err
