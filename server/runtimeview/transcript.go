@@ -23,10 +23,15 @@ func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPa
 		segment,
 	)
 	if req.NewerCursor <= 0 && req.Cursor <= 0 {
-		total := engine.CommittedTranscriptEntryCount()
-		page.TotalEntries = total
-		if offset := total - len(page.Entries); offset >= 0 {
-			page.Offset = offset
+		if page.HasMoreAbove {
+			total := engine.CommittedTranscriptEntryCount()
+			page.TotalEntries = total
+			if offset := total - len(page.Entries); offset >= 0 {
+				page.Offset = offset
+			}
+		} else {
+			page.Offset = 0
+			page.TotalEntries = len(page.Entries)
 		}
 	}
 	return page
@@ -53,18 +58,21 @@ func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.Com
 	if engine == nil {
 		return clientui.CommittedTranscriptSuffix{}
 	}
+	segment := engine.TranscriptSegmentPage(0)
 	suffix := CommittedTranscriptSuffixFromSegment(
 		engine.SessionID(),
 		engine.SessionName(),
 		ConversationFreshnessFromSession(engine.ConversationFreshness()),
 		engine.TranscriptRevision(),
-		engine.TranscriptSegmentPage(0),
+		segment,
 	)
-	total := engine.CommittedTranscriptEntryCount()
-	suffix.CommittedEntryCount = total
-	suffix.NextEntryCount = total
-	if start := total - len(suffix.Entries); start >= 0 {
-		suffix.StartEntryCount = start
+	if segment.HasMoreAbove {
+		total := engine.CommittedTranscriptEntryCount()
+		suffix.CommittedEntryCount = total
+		suffix.NextEntryCount = total
+		if start := total - len(suffix.Entries); start >= 0 {
+			suffix.StartEntryCount = start
+		}
 	}
 	return suffix
 }
