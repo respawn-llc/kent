@@ -138,7 +138,11 @@ func (s *chatStore) replaceHistory(items []llm.ResponseItem) {
 }
 
 func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
-	if len(s.toolCompletions) == 0 {
+	if len(s.toolCompletions) == 0 &&
+		len(s.toolCompletionProviderItems) == 0 &&
+		len(s.assistantToolCalls) == 0 &&
+		len(s.materializedToolResults) == 0 &&
+		len(s.synthesizedToolResults) == 0 {
 		return
 	}
 	referenced := make(map[string]struct{}, len(s.toolCompletions))
@@ -154,15 +158,18 @@ func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 			referenced[callID] = struct{}{}
 		}
 	}
-	for callID := range s.toolCompletions {
-		if _, ok := referenced[callID]; ok {
-			continue
+	pruneCallIDMapToReferenced(s.toolCompletions, referenced)
+	pruneCallIDMapToReferenced(s.toolCompletionProviderItems, referenced)
+	pruneCallIDMapToReferenced(s.assistantToolCalls, referenced)
+	pruneCallIDMapToReferenced(s.materializedToolResults, referenced)
+	pruneCallIDMapToReferenced(s.synthesizedToolResults, referenced)
+}
+
+func pruneCallIDMapToReferenced[V any](m map[string]V, referenced map[string]struct{}) {
+	for callID := range m {
+		if _, ok := referenced[callID]; !ok {
+			delete(m, callID)
 		}
-		delete(s.toolCompletions, callID)
-		delete(s.toolCompletionProviderItems, callID)
-		delete(s.assistantToolCalls, callID)
-		delete(s.materializedToolResults, callID)
-		delete(s.synthesizedToolResults, callID)
 	}
 }
 
