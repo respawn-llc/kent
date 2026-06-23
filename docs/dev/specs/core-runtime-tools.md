@@ -151,6 +151,7 @@
 - Full transcript history can be gigabytes. Production code must not load full `events.jsonl` into memory.
 - Committed transcript is durable on disk (synchronous persistence on commit). Both active and dormant sessions project user-visible transcript by streaming the persisted event log through a windowed projector that retains only the requested page/recent-tail window; live reads overlay only the in-flight streaming delta. The in-memory `chatStore` retains the bounded model working set (compaction checkpoint plus post-cutoff tail), not the full transcript: compaction trims pre-cutoff provider items, local entries, and tool completions; only an `O(1)` committed-entry counter survives for hot-path delta detection.
 - Crash-loss tolerance allows losing up to one in-flight tool call. No session event compression.
+- Resume-critical session metadata (conversation-established freshness, latest run, prompt-cache compaction count, pending handoff future-message) is maintained on append and persisted in `Meta`/the `history_replaced` boundary, so reopen recovers it without scanning history. Sessions created before a given field was persisted are reconciled best-effort from a bounded tail window on first reopen; signals older than that window are not recovered. This is an accepted consequence of the no-full-read invariant (the only complete recovery would be a deep pre-active-list scan), and it is bounded to the first reopen after upgrade — every subsequent append persists the field going forward.
 
 ## Auth
 
