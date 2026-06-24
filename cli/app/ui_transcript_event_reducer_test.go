@@ -7,6 +7,60 @@ import (
 	"core/shared/clientui"
 )
 
+func TestActiveAssistantFinalizerGapPreservesPinnedDetailWindow(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
+	if m.view.Mode() != tui.ModeDetail {
+		t.Fatal("setup: expected detail mode")
+	}
+	m.forwardToView(tui.SetConversationMsg{Ongoing: "final answer"})
+
+	pinned := []tui.TranscriptEntry{
+		{Role: tui.TranscriptRoleUser, Text: "older prompt", Committed: true},
+		{Role: tui.TranscriptRoleAssistant, Text: "older answer", Committed: true},
+	}
+	m.detailTranscript = uiDetailTranscriptWindow{
+		sessionID:    "session-1",
+		offset:       0,
+		totalEntries: 50,
+		entries:      pinned,
+		loaded:       true,
+		hasMoreBelow: true,
+		newerCursor:  1234,
+		segments:     []residentSegmentMeta{{startLocal: 0, hasMoreBelow: true, newerCursor: 1234}},
+	}
+
+	a := uiRuntimeAdapter{model: m}
+	cmd, handled := a.applyActiveAssistantFinalizerGapAsRecentTail(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        40,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        41,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role: "assistant",
+			Text: "final answer",
+		}},
+	}, false)
+	if !handled {
+		t.Fatal("finalizer-gap event in detail mode should be handled")
+	}
+	_ = cmd
+
+	if got := len(m.detailTranscript.entries); got != len(pinned) {
+		t.Fatalf("pinned detail window entry count = %d, want preserved %d", got, len(pinned))
+	}
+	if m.detailTranscript.offset != 0 || m.detailTranscript.totalEntries != 50 {
+		t.Fatalf("pinned detail window bounds = offset %d total %d, want preserved 0/50", m.detailTranscript.offset, m.detailTranscript.totalEntries)
+	}
+	if m.detailTranscript.entries[0].Text != "older prompt" || m.detailTranscript.entries[1].Text != "older answer" {
+		t.Fatal("pinned detail window content was mutated by the recent-tail finalizer gap")
+	}
+}
+
 func TestReduceProjectedTranscriptEventSkipsDuplicateToolStart(t *testing.T) {
 	state := projectedTranscriptEventState{
 		entries: []tui.TranscriptEntry{{

@@ -193,10 +193,13 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 		StreamingError: m.view.OngoingErrorText(),
 	}
 	a.applyAuthoritativeRecentTailPage(page, entries, false)
-	if m.detailTranscript.loaded {
+	detailPinnedAwayFromTail := m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
+	if m.detailTranscript.loaded && !detailPinnedAwayFromTail {
 		m.detailTranscript.apply(page)
 	}
-	if m.detailTranscript.loaded {
+	switch {
+	case detailPinnedAwayFromTail:
+	case m.detailTranscript.loaded:
 		detailPage := m.detailTranscript.page()
 		detailPage.SessionID = page.SessionID
 		detailPage.SessionName = page.SessionName
@@ -208,7 +211,7 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 			Ongoing:      detailPage.Streaming,
 			OngoingError: detailPage.StreamingError,
 		})
-	} else {
+	default:
 		m.forwardToView(tui.SetConversationMsg{
 			BaseOffset:   page.Offset,
 			TotalEntries: page.TotalEntries,
