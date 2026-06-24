@@ -32,6 +32,9 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 	deferredFinalCommittedStart := -1
 	hasDeferredFinal := false
 	for {
+		if err := ctx.Err(); err != nil {
+			return stepLoopResult{}, err
+		}
 		if terminal, err := s.workflowDurableCompletionTerminal(ctx, stepID); err != nil {
 			return stepLoopResult{}, err
 		} else if terminal {

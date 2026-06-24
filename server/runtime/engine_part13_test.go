@@ -1147,3 +1147,26 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 		}
 	}
 }
+
+func TestRunStepLoopBailsOnCanceledContextWithoutModelCall(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{
+		responses: []llm.Response{
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "should-not-run", Phase: llm.MessagePhaseFinal}},
+		},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{})
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := eng.runStepLoop(ctx, "step-1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runStepLoop err = %v, want context.Canceled", err)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("model calls = %d, want 0 (canceled step must not call the model)", len(client.calls))
+	}
+}
