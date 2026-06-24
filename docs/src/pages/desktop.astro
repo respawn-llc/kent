@@ -26,16 +26,16 @@ const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
         {
           name: 'macOS Apple Silicon',
           pattern: /^Kent_\d+\.\d+\.\d+_aarch64\.dmg$/,
-          platforms: ['macos'],
+          platform: 'macos-arm64',
         },
         {
           name: 'Linux x86_64 AppImage',
           pattern: /^Kent_\d+\.\d+\.\d+_amd64\.AppImage$/,
-          platforms: ['linux'],
+          platform: 'linux',
         },
       ];
 
-      function detectDesktopPlatform() {
+      async function detectDesktopPlatform() {
         const platform = [
           navigator.userAgentData?.platform,
           navigator.platform,
@@ -46,7 +46,8 @@ const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
           .toLowerCase();
 
         if (platform.includes('mac')) {
-          return 'macos';
+          const architecture = await detectArchitecture();
+          return architecture === 'arm64' ? 'macos-arm64' : 'unsupported';
         }
         if (platform.includes('linux') || platform.includes('x11')) {
           return 'linux';
@@ -54,9 +55,25 @@ const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
         return 'unsupported';
       }
 
+      async function detectArchitecture() {
+        if (!navigator.userAgentData?.getHighEntropyValues) {
+          return 'unknown';
+        }
+
+        const values = await navigator.userAgentData.getHighEntropyValues(['architecture']);
+        const architecture = values.architecture?.toLowerCase();
+        if (architecture === 'arm' || architecture === 'arm64' || architecture === 'aarch64') {
+          return 'arm64';
+        }
+        if (architecture === 'x86' || architecture === 'x86_64' || architecture === 'amd64') {
+          return 'x64';
+        }
+        return 'unknown';
+      }
+
       async function redirectToLatestDesktopDownload() {
-        const desktopPlatform = detectDesktopPlatform();
-        const assetRule = desktopAssets.find((candidate) => candidate.platforms.includes(desktopPlatform));
+        const desktopPlatform = await detectDesktopPlatform();
+        const assetRule = desktopAssets.find((candidate) => candidate.platform === desktopPlatform);
         if (!assetRule) {
           throw new Error(`Kent Desktop does not publish an automatic download for ${desktopPlatform}`);
         }
