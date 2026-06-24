@@ -94,7 +94,7 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (resolvedSessionTr
 		return resolvedSessionTransition{}, err
 	}
 	if err := forkedStore.SetName(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal))); err != nil {
-		return resolvedSessionTransition{}, err
+		return resolvedSessionTransition{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
 	return resolvedSessionTransition{
 		NextSessionID:                forkedStore.Meta().SessionID,
