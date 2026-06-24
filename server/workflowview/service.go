@@ -251,6 +251,9 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 	if pageSize == 0 {
 		pageSize = 100
 	}
+	if _, err := s.metadata.GetProjectOverview(ctx, projectID); err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
 	pageToken, pageTokenSet, err := parseWorkflowTaskListPageToken(req.PageToken)
 	if err != nil {
 		return serverapi.WorkflowTaskListResponse{}, err
@@ -263,6 +266,7 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 		return serverapi.WorkflowTaskListResponse{}, err
 	}
 	requestedWorkflowID := strings.TrimSpace(req.WorkflowID)
+	explicitWorkflowID := requestedWorkflowID != ""
 	if requestedWorkflowID == "" && pageTokenSet {
 		requestedWorkflowID = pageToken.WorkflowID
 	}
@@ -277,6 +281,16 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 			GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
 			Tasks:             []serverapi.WorkflowTaskListItem{},
 		}, nil
+	}
+	if requestedWorkflowID != "" && selected.WorkflowID != requestedWorkflowID {
+		if pageTokenSet && !explicitWorkflowID {
+			return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
+		}
+		return serverapi.WorkflowTaskListResponse{}, serverapi.WorkflowRequestValidationError{
+			Code:    serverapi.WorkflowRequestErrorInvalidValue,
+			Field:   "workflow_id",
+			Message: fmt.Sprintf("unknown workflow %q for project %s", requestedWorkflowID, projectID),
+		}
 	}
 	def := definitions[selected.WorkflowID]
 	nodeKinds := nodeKindsByWorkflowID[selected.WorkflowID]

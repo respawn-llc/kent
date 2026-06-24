@@ -936,9 +936,10 @@ per_task_status AS (
     GROUP BY task_id
 ),
 run_counts AS (
-    SELECT task_id, COUNT(*) AS run_count
-    FROM task_run_records
-    GROUP BY task_id
+    SELECT r.task_id, COUNT(*) AS run_count
+    FROM task_run_records r
+    JOIN selected_tasks t ON t.id = r.task_id
+    GROUP BY r.task_id
 ),
 task_rows AS (
     SELECT

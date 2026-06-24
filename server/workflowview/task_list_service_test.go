@@ -136,6 +136,9 @@ func TestListTasksSelectsDefaultExplicitAndNoWorkflow(t *testing.T) {
 	if selectedResp.WorkflowID != string(selectedWorkflowID) || selectedResp.SelectedWorkflow == nil || selectedResp.SelectedWorkflow.WorkflowID != string(selectedWorkflowID) || len(selectedResp.Tasks) != 1 || selectedResp.Tasks[0].TaskID != string(selectedTask.ID) {
 		t.Fatalf("selected response = %+v, want only selected task %s", selectedResp, selectedTask.ID)
 	}
+	if _, err := view.ListTasks(ctx, serverapi.WorkflowTaskListRequest{ProjectID: binding.ProjectID, WorkflowID: "workflow-missing"}, workflow.StaticRoleResolver{"coder": true}); !isWorkflowRequestValidationField(err, "workflow_id") {
+		t.Fatalf("ListTasks unknown workflow error = %v, want workflow_id validation", err)
+	}
 
 	otherBinding, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other")
 	if err != nil {
@@ -161,6 +164,9 @@ func TestListTasksSelectsDefaultExplicitAndNoWorkflow(t *testing.T) {
 	}
 	if _, ok := shape["selected_workflow"]; ok {
 		t.Fatalf("empty response JSON includes selected_workflow: %s", raw)
+	}
+	if _, err := view.ListTasks(ctx, serverapi.WorkflowTaskListRequest{ProjectID: "project-missing"}, workflow.StaticRoleResolver{"coder": true}); !errors.Is(err, serverapi.ErrProjectNotFound) {
+		t.Fatalf("ListTasks missing project error = %v, want ErrProjectNotFound", err)
 	}
 }
 
