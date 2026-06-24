@@ -35,6 +35,7 @@ type streamingTranscriptScan struct {
 	turn turnBuffer
 
 	lastCommittedAssistantFinalAnswer string
+	committedEntryCountBase           int
 }
 
 type turnBuffer struct {
@@ -118,6 +119,9 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(evt session.Event) error {
 		}
 		if answer := strings.TrimSpace(payload.LastCommittedAssistantFinalAnswer); answer != "" {
 			s.lastCommittedAssistantFinalAnswer = payload.LastCommittedAssistantFinalAnswer
+		}
+		if payload.CommittedEntryCount > 0 {
+			s.committedEntryCountBase = payload.CommittedEntryCount
 		}
 	}
 	return nil
@@ -204,6 +208,10 @@ func (s *streamingTranscriptScan) TotalEntries() int {
 func (s *streamingTranscriptScan) LastCommittedAssistantFinalAnswer() string {
 	s.closeTurn()
 	return s.lastCommittedAssistantFinalAnswer
+}
+
+func (s *streamingTranscriptScan) CommittedEntryCountBase() int {
+	return s.committedEntryCountBase
 }
 
 // reconstructPersistedMessages round-trips a persisted message through the same

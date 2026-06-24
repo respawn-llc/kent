@@ -90,6 +90,13 @@ func (s *PersistedTranscriptScan) LastCommittedAssistantFinalAnswer() string {
 	return s.scan.LastCommittedAssistantFinalAnswer()
 }
 
+func (s *PersistedTranscriptScan) CommittedEntryCountBase() int {
+	if s == nil {
+		return 0
+	}
+	return s.scan.CommittedEntryCountBase()
+}
+
 func clonePersistedChatEntries(entries []ChatEntry) []ChatEntry {
 	if len(entries) == 0 {
 		return nil

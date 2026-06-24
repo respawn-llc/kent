@@ -99,6 +99,24 @@ func TestStreamingTranscriptScanBoundarySeedOverriddenByLaterFinalAnswer(t *test
 	}
 }
 
+func TestStreamingTranscriptScanExposesCommittedEntryCountBaseFromBoundary(t *testing.T) {
+	events := []session.Event{
+		streamScanTestEvent(t, "history_replaced", historyReplacementPayload{
+			Engine:              "compaction",
+			CommittedEntryCount: 42,
+			Items: llm.ItemsFromMessages([]llm.Message{
+				{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"},
+			}),
+		}),
+		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "next answer"}),
+	}
+	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	applyEventsToStreaming(t, scan, events)
+	if got, want := scan.CommittedEntryCountBase(), 42; got != want {
+		t.Fatalf("committed entry count base = %d, want boundary value %d", got, want)
+	}
+}
+
 func applyEventsToStreaming(t *testing.T, scan *streamingTranscriptScan, events []session.Event) {
 	t.Helper()
 	for _, evt := range events {

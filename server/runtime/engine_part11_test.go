@@ -518,6 +518,39 @@ func TestReopenedSessionRestoresLastAssistantFinalAnswerAcrossCompaction(t *test
 	}
 }
 
+func TestReopenedSessionRestoresCumulativeCommittedCountAcrossCompaction(t *testing.T) {
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{
+		{Role: llm.RoleUser, Content: "u1"},
+		{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "a1"},
+		{Role: llm.RoleUser, Content: "u2"},
+		{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "a2"},
+	})); err != nil {
+		t.Fatalf("seed messages: %v", err)
+	}
+	liveBefore := eng.CommittedTranscriptEntryCount()
+	if liveBefore < 4 {
+		t.Fatalf("precondition: committed count before compaction = %d, want >=4", liveBefore)
+	}
+
+	if err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{
+		{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"},
+	})); err != nil {
+		t.Fatalf("replace history: %v", err)
+	}
+	liveAfter := eng.CommittedTranscriptEntryCount()
+	if liveAfter <= liveBefore {
+		t.Fatalf("live committed count after compaction = %d, want cumulative > %d", liveAfter, liveBefore)
+	}
+
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{})
+	if got := restored.CommittedTranscriptEntryCount(); got != liveAfter {
+		t.Fatalf("restored committed count after compaction = %d, want cumulative %d", got, liveAfter)
+	}
+}
+
 func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})

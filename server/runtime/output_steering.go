@@ -108,7 +108,7 @@ func steerLocalEntryIntent(entry storedLocalEntry) steeringIntent {
 	}
 }
 
-func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, compactionNumber int, pendingHandoffFutureMessage string, lastCommittedAssistantFinalAnswer string, items []llm.ResponseItem) steeringIntent {
+func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, compactionNumber int, pendingHandoffFutureMessage string, lastCommittedAssistantFinalAnswer string, committedEntryCount int, items []llm.ResponseItem) steeringIntent {
 	preparedItems := llm.PrepareOpenAIInputItems(items)
 	payload := historyReplacementPayload{
 		Engine:                            normalizeHistoryReplacementEngine(engine),
@@ -117,6 +117,7 @@ func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowR
 		CompactionNumber:                  compactionNumber,
 		PendingHandoffFutureMessage:       pendingHandoffFutureMessage,
 		LastCommittedAssistantFinalAnswer: lastCommittedAssistantFinalAnswer,
+		CommittedEntryCount:               committedEntryCount,
 		Items:                             llm.CloneResponseItems(preparedItems),
 	}
 	return steeringIntent{

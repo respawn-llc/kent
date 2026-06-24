@@ -69,6 +69,25 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	}
 }
 
+func TestCommittedTranscriptSuffixFromSegmentUsesCommittedEntryCountBase(t *testing.T) {
+	segment := runtime.TranscriptSegmentPage{
+		CommittedEntryCountBase: 40,
+		Snapshot: runtime.ChatSnapshot{
+			Entries: []runtime.ChatEntry{
+				{Role: "assistant", Text: "r1"},
+				{Role: "assistant", Text: "r2"},
+			},
+		},
+	}
+	suffix := CommittedTranscriptSuffixFromSegment("sid", "name", clientui.ConversationFreshnessEstablished, 7, segment)
+	if suffix.StartEntryCount != 40 {
+		t.Fatalf("StartEntryCount = %d, want segment base 40", suffix.StartEntryCount)
+	}
+	if suffix.CommittedEntryCount != 42 || suffix.NextEntryCount != 42 {
+		t.Fatalf("CommittedEntryCount/NextEntryCount = %d/%d, want 42/42 (base+len)", suffix.CommittedEntryCount, suffix.NextEntryCount)
+	}
+}
+
 func mustRuntimeSuffix(t *testing.T, eng *runtime.Engine) clientui.CommittedTranscriptSuffix {
 	t.Helper()
 	suffix, err := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
