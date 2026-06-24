@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend(t *testing.T) {
+func TestProjectedConversationUpdatedSkipsHydrationAfterDeferredUserFlush(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
@@ -40,8 +40,11 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend
 		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	}, true).cmd
-	if got := len(m.transcriptEntries); got != 2 {
-		t.Fatalf("expected queued user flush to append immediately once committed tail is contiguous, got %d entries", got)
+	if got := len(m.transcriptEntries); got != 1 {
+		t.Fatalf("expected queued user flush to wait while assistant stream is live, got %d entries", got)
+	}
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected queued user flush in deferred committed tail, got %d", got)
 	}
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
@@ -56,8 +59,8 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend
 			t.Fatalf("did not expect committed conversation_updated to hydrate after immediate user append, got %+v", msg)
 		}
 	}
-	if got := len(m.deferredCommittedTail); got != 0 {
-		t.Fatalf("expected queued user flush path to avoid deferred committed tail, got %d", got)
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected no-entry conversation update to preserve deferred tail and avoid hydration, got %d", got)
 	}
 }
 
@@ -207,24 +210,20 @@ func TestProjectedCommittedGapClearsDeferredCommittedTailBeforeHydration(t *test
 		}},
 	}, true).cmd
 	msgs := collectCmdMessages(t, cmd)
-	refreshFound := false
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
-			refreshFound = true
+			t.Fatalf("did not expect unmatched committed final to hydrate while assistant stream is live, got %+v", msgs)
 		}
 	}
-	if !refreshFound {
-		t.Fatalf("expected committed gap to request hydration, got %+v", msgs)
+	if got := len(m.deferredCommittedTail); got != 2 {
+		t.Fatalf("expected unmatched committed final to remain deferred behind live stream, got %d", got)
 	}
-	if got := len(m.deferredCommittedTail); got != 0 {
-		t.Fatalf("expected committed continuity loss to clear deferred committed tail before hydration, got %d", got)
-	}
-	if got := m.view.OngoingStreamingText(); got != "" {
-		t.Fatalf("expected continuity recovery to clear stale ongoing assistant text, got %q", got)
+	if got := m.view.OngoingStreamingText(); got != "foreground done" {
+		t.Fatalf("expected unmatched committed final to preserve live assistant text, got %q", got)
 	}
 }
 
-func TestProjectedUserMessageFlushedDoesNotDeferAfterCommittedAssistantToolProgress(t *testing.T) {
+func TestProjectedUserMessageFlushedDefersAfterCommittedAssistantToolProgress(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
@@ -255,15 +254,19 @@ func TestProjectedUserMessageFlushedDoesNotDeferAfterCommittedAssistantToolProgr
 			t.Fatalf("did not expect transcript refresh after flushed user message, got %+v", msgs)
 		}
 	}
-	if got := len(m.transcriptEntries); got != 5 {
-		t.Fatalf("expected queued user flush to append immediately after committed tool progress, got %d entries", got)
+	if got := len(m.transcriptEntries); got != 4 {
+		t.Fatalf("expected queued user flush to wait behind live assistant stream, got %d entries", got)
 	}
-	if got := m.transcriptEntries[4].Text; got != "steered message" {
-		t.Fatalf("transcript entry text = %q, want steered message", got)
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected deferred committed tail for queued user flush, got %d", got)
+	}
+	pending := m.deferredPendingInjectedMessages()
+	if len(pending) != 1 || pending[0] != "steered message" {
+		t.Fatalf("deferred pending messages = %+v, want steered message", pending)
 	}
 }
 
-func TestProjectedUserMessageFlushedDoesNotDeferWhenUIIsIdleDespiteStaleLiveAssistantState(t *testing.T) {
+func TestProjectedUserMessageFlushedDefersWhenLiveAssistantStateIsPresent(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
@@ -288,11 +291,11 @@ func TestProjectedUserMessageFlushedDoesNotDeferWhenUIIsIdleDespiteStaleLiveAssi
 			t.Fatalf("did not expect transcript refresh after idle flushed user message, got %+v", msgs)
 		}
 	}
-	if got := len(m.transcriptEntries); got != 1 {
-		t.Fatalf("expected idle flushed user message to append immediately, got %d entries", got)
+	if got := len(m.transcriptEntries); got != 0 {
+		t.Fatalf("expected flushed user message to wait behind live assistant state, got %d entries", got)
 	}
-	if got := m.transcriptEntries[0].Text; got != "steered message" {
-		t.Fatalf("transcript entry text = %q, want steered message", got)
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected deferred committed tail, got %d", got)
 	}
 }
 

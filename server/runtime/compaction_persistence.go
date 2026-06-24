@@ -21,7 +21,11 @@ func (p compactionPersistence) replaceHistory(stepID, engine string, mode compac
 	if e.cfg.WorkflowRun != nil {
 		workflowRunID = strings.TrimSpace(string(e.cfg.WorkflowRun.RunID))
 	}
-	return e.steer(stepID, steerHistoryReplacementIntent(engine, mode, workflowRunID, items))
+	pendingHandoffFutureMessage := ""
+	if req := e.handoffRuntimeState().RequestSnapshot(); req != nil {
+		pendingHandoffFutureMessage = strings.TrimSpace(req.futureAgentMessage)
+	}
+	return e.steer(stepID, steerHistoryReplacementIntent(engine, mode, workflowRunID, e.compactionRuntimeState().Count()+1, pendingHandoffFutureMessage, e.LastCommittedAssistantFinalAnswer(), items))
 }
 
 func (p compactionPersistence) emitStatus(stepID string, kind EventKind, mode compactionMode, engine, provider string, trimmed, count int, errText string) error {

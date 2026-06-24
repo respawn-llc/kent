@@ -11,7 +11,14 @@ func shouldDeliverCommittedRuntimeEventFromSuffix(m *uiModel, evt clientui.Event
 	if m == nil || !evt.CommittedTranscriptChanged || len(evt.TranscriptEntries) == 0 {
 		return false
 	}
+	state := newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m))
 	if evt.Kind == clientui.EventUserMessageFlushed {
+		return false
+	}
+	if projectedEventIsLiveOnlyUnresolvedToolStart(state, evt) {
+		return false
+	}
+	if m.ongoingCommittedScrollbackGateActive() {
 		return false
 	}
 	if _, ok := m.runtimeClient().(interface {
@@ -20,6 +27,49 @@ func shouldDeliverCommittedRuntimeEventFromSuffix(m *uiModel, evt clientui.Event
 		return false
 	}
 	return true
+}
+
+func committedTranscriptSuffixFromEvent(m *uiModel, evt clientui.Event) (clientui.CommittedTranscriptSuffix, bool) {
+	if m == nil || !evt.CommittedEntryStartSet {
+		return clientui.CommittedTranscriptSuffix{}, false
+	}
+	delta := evt.CommittedEntryCount - evt.CommittedEntryStart
+	if delta < 0 || len(evt.TranscriptEntries) != delta {
+		return clientui.CommittedTranscriptSuffix{}, false
+	}
+	if evt.TranscriptRevision < m.transcriptRevision {
+		return clientui.CommittedTranscriptSuffix{}, false
+	}
+	if evt.CommittedEntryStart > committedTranscriptTailEnd(m) {
+		return clientui.CommittedTranscriptSuffix{}, false
+	}
+	for i := range evt.TranscriptEntries {
+		if isNoopFinalText(evt.TranscriptEntries[i].Text) {
+			return clientui.CommittedTranscriptSuffix{}, false
+		}
+	}
+	return clientui.CommittedTranscriptSuffix{
+		SessionID:             m.sessionID,
+		SessionName:           m.sessionName,
+		ConversationFreshness: m.currentConversationFreshness(),
+		Revision:              evt.TranscriptRevision,
+		CommittedEntryCount:   evt.CommittedEntryCount,
+		StartEntryCount:       evt.CommittedEntryStart,
+		NextEntryCount:        evt.CommittedEntryCount,
+		HasMore:               false,
+		Entries:               append([]clientui.ChatEntry(nil), evt.TranscriptEntries...),
+	}, true
+}
+
+func (m *uiModel) applyCommittedTranscriptSuffixFromEvent(suffix clientui.CommittedTranscriptSuffix) tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	m.runtimeCommittedSuffixToken++
+	token := m.runtimeCommittedSuffixToken
+	return func() tea.Msg {
+		return runtimeCommittedTranscriptSuffixRefreshedMsg{token: token, req: clientui.CommittedTranscriptSuffixRequest{}, suffix: suffix}
+	}
 }
 
 func suffixSessionChanged(m *uiModel, suffix clientui.CommittedTranscriptSuffix) bool {
@@ -39,18 +89,6 @@ func committedTranscriptSuffixStartsAfterDeliveryCursor(m *uiModel, suffix clien
 		return false
 	}
 	return suffix.StartEntryCount > loadedTranscriptTailEnd(m)
-}
-
-func committedTranscriptSuffixRequestForEvent(m *uiModel, evt clientui.Event) clientui.CommittedTranscriptSuffixRequest {
-	after := committedTranscriptTailEnd(m)
-	limit := clientui.DefaultCommittedTranscriptSuffixLimit
-	if evt.CommittedEntryCount > after {
-		limit = evt.CommittedEntryCount - after
-	}
-	return clientui.NormalizeCommittedTranscriptSuffixRequest(clientui.CommittedTranscriptSuffixRequest{
-		AfterEntryCount: after,
-		Limit:           limit,
-	})
 }
 
 func committedTranscriptTailEnd(m *uiModel) int {

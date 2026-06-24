@@ -2,14 +2,16 @@ package runtime
 
 import (
 	"context"
-	"core/server/llm"
-	"core/server/tools"
-	"core/shared/toolspec"
-	"core/shared/transcript"
 	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
+
+	"core/server/llm"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestSubmitUserMessageMissingPhaseOpenAILegacyResponseRemainsTerminal(t *testing.T) {
@@ -38,7 +40,7 @@ func TestSubmitUserMessageMissingPhaseOpenAILegacyResponseRemainsTerminal(t *tes
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -87,7 +89,7 @@ func TestSubmitUserMessageCommentaryWithoutToolsNonOpenAIRemainsTerminal(t *test
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -546,7 +548,7 @@ func TestSubmitUserMessageLegacyGarbageTokenRemainsTerminal(t *testing.T) {
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -595,7 +597,7 @@ func TestSubmitUserMessageLegacyEnvelopeLeakRemainsTerminal(t *testing.T) {
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -698,7 +700,7 @@ func TestSubmitUserMessageFinalAnswerWithToolCallsExecutesToolCallsBeforeFinal(t
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -817,7 +819,7 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 		t.Fatalf("expected pending tool call starts drained after final mixed tool calls, got %d", got)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

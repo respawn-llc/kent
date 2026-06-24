@@ -581,7 +581,7 @@ func TestProjectedCommittedToolAndFinalEventsDoNotScheduleTranscriptRefresh(t *t
 				Text: "say hi",
 			}},
 		},
-		{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "working"},
+		{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "done"},
 		{
 			Kind:                       clientui.EventToolCallStarted,
 			CommittedTranscriptChanged: true,
@@ -830,8 +830,8 @@ func TestProjectedCommittedConversationUpdatedRequestsHydrationOnlyOnContinuityL
 	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedConversation {
 		t.Fatalf("committed conversation sync cause = %q, want %q", refresh.syncCause, runtimeTranscriptSyncCauseCommittedConversation)
 	}
-	if refresh.req.Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("committed conversation request window = %q, want recent_tail", refresh.req.Window)
+	if refresh.req != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("request = %+v, want recent-tail (zero cursor)", refresh.req)
 	}
 }
 
@@ -961,12 +961,12 @@ func TestProjectedCommittedGapRequestsExplicitCommittedGapHydration(t *testing.T
 	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedGap {
 		t.Fatalf("committed gap sync cause = %q, want %q", refresh.syncCause, runtimeTranscriptSyncCauseCommittedGap)
 	}
-	if refresh.req.Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("committed gap request window = %q, want recent_tail", refresh.req.Window)
+	if refresh.req != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("request = %+v, want recent-tail (zero cursor)", refresh.req)
 	}
 }
 
-func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssistantStreamIsLive(t *testing.T) {
+func TestProjectedUserMessageFlushedDefersCommittedGapWhileAssistantStreamIsLive(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.termWidth = 100
@@ -1002,21 +1002,19 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 		}},
 	}, true).cmd
 	msgs := collectCmdMessages(t, cmd)
-	refresh, ok := msgs[0].(runtimeTranscriptRefreshedMsg)
-	if !ok {
-		t.Fatalf("expected committed gap hydration after queued user flush, got %+v", msgs)
-	}
-	if refresh.syncCause != runtimeTranscriptSyncCauseCommittedGap {
-		t.Fatalf("sync cause = %q, want committed_gap", refresh.syncCause)
+	for _, msg := range msgs {
+		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
+			t.Fatalf("did not expect committed gap hydration while assistant stream is live, got %+v", msgs)
+		}
 	}
 	if len(m.transcriptEntries) != 0 {
-		t.Fatalf("expected live user append to wait for authoritative hydrate when assistant commit is missing, got %+v", m.transcriptEntries)
+		t.Fatalf("expected live user append to wait behind assistant stream, got %+v", m.transcriptEntries)
 	}
-	if got := len(m.deferredCommittedTail); got != 0 {
-		t.Fatalf("expected queued user flush to stop using deferred committed tail, got %d", got)
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected queued user flush to use deferred committed tail, got %d", got)
 	}
-	if got := m.view.OngoingStreamingText(); got != "" {
-		t.Fatalf("expected committed gap hydration to clear stale live assistant text, got %q", got)
+	if got := m.view.OngoingStreamingText(); got != "foreground done" {
+		t.Fatalf("expected live assistant stream to remain visible, got %q", got)
 	}
 	if client.recordedPromptHistory != "" {
 		t.Fatalf("did not expect queued flush to persist prompt history again, got %q", client.recordedPromptHistory)
@@ -1025,8 +1023,8 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 		t.Fatalf("expected pending injected queue consumed even while hydrate is pending, got %+v", m.pendingInjected)
 	}
 	queuedPane := strings.TrimSpace(stripANSIAndTrimRight(strings.Join(m.layout().renderQueuedMessagesPane(80), "\n")))
-	if queuedPane != "" {
-		t.Fatalf("expected flushed user message to leave queued pane once prompt history advances, got %q", queuedPane)
+	if !strings.Contains(queuedPane, "next: steered message") {
+		t.Fatalf("expected flushed user message to stay visible as next pending item, got %q", queuedPane)
 	}
 	if m.isInputSubmitLocked() {
 		t.Fatal("expected input submit lock cleared")
@@ -1034,8 +1032,8 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 	if m.input != "" {
 		t.Fatalf("expected cleared input after deferred flushed user message, got %q", m.input)
 	}
-	if m.sawAssistantDelta {
-		t.Fatal("expected committed gap hydration to clear assistant delta flag")
+	if !m.sawAssistantDelta {
+		t.Fatal("expected assistant delta flag to remain set while stream is live")
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"core/server/runtime"
-	"core/server/runtimeview"
 	"core/server/session"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
@@ -170,8 +169,7 @@ func (s *Service) GetSessionTranscriptPage(ctx context.Context, req serverapi.Se
 	if err := req.Validate(); err != nil {
 		return serverapi.SessionTranscriptPageResponse{}, err
 	}
-	pageReq := clientui.TranscriptPageRequest{Offset: req.Offset, Limit: req.Limit, Page: req.Page, PageSize: req.PageSize, Window: req.Window, KnownRevision: req.KnownRevision, KnownCommittedEntryCount: req.KnownCommittedEntryCount}
-	pageReq = runtimeview.NormalizeDefaultTranscriptRequest(pageReq)
+	pageReq := clientui.TranscriptPageRequest{Cursor: req.Cursor, NewerCursor: req.NewerCursor}
 	snapshot, err := s.resolveSnapshot(ctx, req.SessionID)
 	if err != nil {
 		return serverapi.SessionTranscriptPageResponse{}, err
@@ -187,34 +185,15 @@ func (s *Service) GetSessionCommittedTranscriptSuffix(ctx context.Context, req s
 	if err := req.Validate(); err != nil {
 		return serverapi.SessionCommittedTranscriptSuffixResponse{}, err
 	}
-	suffixReq := clientui.NormalizeCommittedTranscriptSuffixRequest(clientui.CommittedTranscriptSuffixRequest{
-		AfterEntryCount: req.AfterEntryCount,
-		Limit:           req.Limit,
-	})
 	snapshot, err := s.resolveSnapshot(ctx, req.SessionID)
 	if err != nil {
 		return serverapi.SessionCommittedTranscriptSuffixResponse{}, err
 	}
-	suffix, err := snapshot.CommittedTranscriptSuffix(ctx, suffixReq)
+	suffix, err := snapshot.CommittedTranscriptSuffix(ctx, clientui.CommittedTranscriptSuffixRequest{})
 	if err != nil {
 		return serverapi.SessionCommittedTranscriptSuffixResponse{}, err
 	}
 	return serverapi.SessionCommittedTranscriptSuffixResponse{Suffix: suffix}, nil
-}
-
-func (s *Service) GetRun(ctx context.Context, req serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RunGetResponse{}, err
-	}
-	snapshot, err := s.resolveSnapshot(ctx, req.SessionID)
-	if err != nil {
-		return serverapi.RunGetResponse{}, err
-	}
-	run, err := snapshot.Run(ctx, req.RunID)
-	if err != nil {
-		return serverapi.RunGetResponse{}, err
-	}
-	return serverapi.RunGetResponse{Run: run}, nil
 }
 
 func (s *Service) resolveSnapshot(ctx context.Context, sessionID string) (SessionSnapshot, error) {

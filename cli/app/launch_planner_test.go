@@ -95,10 +95,6 @@ func (stubSessionViewClient) GetSessionTranscriptPage(context.Context, serverapi
 	return serverapi.SessionTranscriptPageResponse{}, errors.New("unexpected GetSessionTranscriptPage call")
 }
 
-func (stubSessionViewClient) GetRun(context.Context, serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	return serverapi.RunGetResponse{}, errors.New("unexpected GetRun call")
-}
-
 func (s *plannerOwnershipServer) OwnsServer() bool {
 	return s != nil && s.owns
 }

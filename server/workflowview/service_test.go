@@ -1568,25 +1568,51 @@ func TestAttentionListFillsPagePastDroppedCandidatesAndScopesTokenToProject(t *t
 	}
 }
 
-func TestPendingQuestionResolverSearchesBeforeRecentTail(t *testing.T) {
-	entries := make([]clientui.ChatEntry, 0, 650)
-	for i := 0; i < 650; i++ {
-		entry := clientui.ChatEntry{Role: "assistant", Text: "entry"}
-		if i == 20 {
-			entry = askTranscriptEntry("ask-old", "Question before tail?", nil, 0)
-		}
-		entries = append(entries, entry)
+func TestPendingQuestionResolverFindsPendingAskAtTail(t *testing.T) {
+	entries := make([]clientui.ChatEntry, 0, 64)
+	for i := 0; i < 32; i++ {
+		entries = append(entries, clientui.ChatEntry{Role: "assistant", Text: "entry"})
 	}
+	entries = append(entries, askTranscriptEntry("ask-pending", "Question at tail?", nil, 0))
 	resolver := newPendingQuestionResolver(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
-		"session-long": {Entries: entries},
+		"session-tail": {Entries: entries},
 	}})
 
-	question, err := resolver.Question(context.Background(), "session-long", "ask-old")
+	question, err := resolver.Question(context.Background(), "session-tail", "ask-pending")
 	if err != nil {
 		t.Fatalf("Question: %v", err)
 	}
-	if question.message != "Question before tail?" {
+	if question.message != "Question at tail?" {
 		t.Fatalf("question = %+v", question)
+	}
+}
+
+func TestPendingQuestionResolverResolvesMultiplePendingAsksIntertwinedWithToolCalls(t *testing.T) {
+	entries := []clientui.ChatEntry{
+		{Role: "assistant", Text: "working"},
+		{Role: "tool_call", ToolCallID: "shell-1", ToolCall: &clientui.ToolCallMeta{ToolName: "shell"}},
+		{Role: "tool_result_ok", ToolCallID: "shell-1", Text: "/tmp"},
+		askTranscriptEntry("ask-1", "First pending?", []string{"a", "b"}, 1),
+		{Role: "tool_call", ToolCallID: "shell-2", ToolCall: &clientui.ToolCallMeta{ToolName: "shell"}},
+		askTranscriptEntry("ask-2", "Second pending?", nil, 0),
+	}
+	resolver := newPendingQuestionResolver(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
+		"session-multi": {Entries: entries},
+	}})
+
+	first, err := resolver.Question(context.Background(), "session-multi", "ask-1")
+	if err != nil {
+		t.Fatalf("ask-1: %v", err)
+	}
+	if first.message != "First pending?" || first.recommendedOptionIndex != 1 || len(first.suggestions) != 2 {
+		t.Fatalf("ask-1 question = %+v", first)
+	}
+	second, err := resolver.Question(context.Background(), "session-multi", "ask-2")
+	if err != nil {
+		t.Fatalf("ask-2: %v", err)
+	}
+	if second.message != "Second pending?" {
+		t.Fatalf("ask-2 question = %+v", second)
 	}
 }
 
@@ -1848,26 +1874,7 @@ type staticTranscriptProvider struct {
 func (p staticTranscriptProvider) GetSessionTranscriptPage(_ context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
 	entries := append([]clientui.ChatEntry(nil), p.pages[strings.TrimSpace(req.SessionID)].Entries...)
 	total := len(entries)
-	offset := req.Offset
-	limit := req.Limit
-	if req.Window == clientui.TranscriptWindowRecentTail {
-		offset = total - 500
-		if offset < 0 {
-			offset = 0
-		}
-		limit = total - offset
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > total {
-		offset = total
-	}
-	if limit <= 0 || offset+limit > total {
-		limit = total - offset
-	}
-	page := clientui.TranscriptPage{TotalEntries: total, Offset: offset, NextOffset: offset + limit, Entries: entries[offset : offset+limit]}
-	page.HasMore = page.NextOffset < total
+	page := clientui.TranscriptPage{TotalEntries: total, Offset: 0, NextOffset: total, Entries: entries}
 	return serverapi.SessionTranscriptPageResponse{Transcript: page}, nil
 }
 

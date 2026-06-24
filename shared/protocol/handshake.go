@@ -97,7 +97,6 @@ const (
 	MethodWorktreeCreate                        = "worktree.create"
 	MethodWorktreeSwitch                        = "worktree.switch"
 	MethodWorktreeDelete                        = "worktree.delete"
-	MethodRunGet                                = "run.get"
 	MethodRuntimeSetSessionName                 = "runtime.setSessionName"
 	MethodRuntimeSetThinkingLevel               = "runtime.setThinkingLevel"
 	MethodRuntimeSetFastModeEnabled             = "runtime.setFastModeEnabled"

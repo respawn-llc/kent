@@ -153,6 +153,7 @@ type Meta struct {
 	CreatedAt                       time.Time              `json:"created_at"`
 	UpdatedAt                       time.Time              `json:"updated_at"`
 	LastSequence                    int64                  `json:"last_sequence"`
+	ConversationEstablished         bool                   `json:"conversation_established,omitempty"`
 	ModelRequestCount               int64                  `json:"model_request_count"`
 	InFlightStep                    bool                   `json:"in_flight_step"`
 	HeadlessActive                  bool                   `json:"headless_active,omitempty"`
@@ -163,6 +164,7 @@ type Meta struct {
 	Goal                            *GoalState             `json:"goal,omitempty"`
 	WorkflowSession                 *WorkflowSessionState  `json:"workflow_session,omitempty"`
 	Locked                          *LockedContract        `json:"locked,omitempty"`
+	LatestRun                       *RunRecord             `json:"latest_run,omitempty"`
 }
 
 type WorkflowSessionState struct {

@@ -519,6 +519,7 @@ func TestRollbackSelectionInDetailUsesPagedDetailWindow(t *testing.T) {
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -593,6 +594,7 @@ func TestRollbackForkSubmissionUsesPagedDetailAbsoluteIndex(t *testing.T) {
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -627,6 +629,8 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 			SessionID:    "session-1",
 			Offset:       0,
 			TotalEntries: 104,
+			OlderCursor:  0,
+			HasMoreAbove: false,
 			Entries:      olderEntries,
 		},
 	}
@@ -644,6 +648,8 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 		SessionID:    "session-1",
 		Offset:       100,
 		TotalEntries: 160,
+		OlderCursor:  100,
+		HasMoreAbove: true,
 		Entries:      tailEntries,
 	}
 	m.detailTranscript.replace(detailPage)
@@ -653,6 +659,7 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -697,7 +704,7 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected runtimeTranscriptRefreshedMsg, got %T", msgs[0])
 	}
-	if want := (clientui.TranscriptPageRequest{Offset: 0, Limit: 100}); refresh.req != want {
+	if want := (clientui.TranscriptPageRequest{Cursor: 100}); refresh.req != want {
 		t.Fatalf("previous page request = %+v, want %+v", refresh.req, want)
 	}
 
@@ -718,18 +725,29 @@ type pagedRollbackRuntimeClient struct {
 
 func (c *pagedRollbackRuntimeClient) LoadTranscriptPage(req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
 	c.requests = append(c.requests, req)
-	entries := make([]clientui.ChatEntry, req.Limit)
+	const pageSize = 250
+	end := int(req.Cursor)
+	if req.Cursor <= 0 {
+		end = 1502
+	}
+	start := end - pageSize
+	if start < 0 {
+		start = 0
+	}
+	entries := make([]clientui.ChatEntry, end-start)
 	for idx := range entries {
-		absolute := req.Offset + idx
+		absolute := start + idx
 		entries[idx] = clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("answer %04d", absolute)}
 	}
 	if len(entries) > 0 {
-		entries[0] = clientui.ChatEntry{Role: "user", Text: fmt.Sprintf("user %04d", req.Offset), RollbackTargetID: rollbackTargetIDForTestSelection(req.Offset)}
+		entries[0] = clientui.ChatEntry{Role: "user", Text: fmt.Sprintf("user %04d", start), RollbackTargetID: rollbackTargetIDForTestSelection(start)}
 	}
 	return clientui.TranscriptPage{
 		SessionID:    "session-1",
-		Offset:       req.Offset,
+		Offset:       start,
 		TotalEntries: 1502,
+		OlderCursor:  int64(start),
+		HasMoreAbove: start > 0,
 		Entries:      entries,
 	}, nil
 }
@@ -751,6 +769,8 @@ func TestRollbackSelectionPagesToFirstUserAcrossTrimmedDetailWindow(t *testing.T
 		SessionID:    "session-1",
 		Offset:       1250,
 		TotalEntries: 1502,
+		OlderCursor:  1250,
+		HasMoreAbove: true,
 		Entries:      tailEntries,
 	}
 	m.detailTranscript.replace(detailPage)
@@ -760,6 +780,7 @@ func TestRollbackSelectionPagesToFirstUserAcrossTrimmedDetailWindow(t *testing.T
 		TotalEntries: detailPage.TotalEntries,
 		Entries:      transcriptEntriesFromPage(detailPage),
 	})
+	seedTestRollbackTargets(m)
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -864,6 +885,7 @@ func TestRollbackTransitionsUseFixedDetailAltScreen(t *testing.T) {
 		if m.view.Mode() != tui.ModeDetail || m.altScreenActive != altOnEntry {
 			t.Fatalf("unexpected detail state before picker: mode=%q alt=%t", m.view.Mode(), m.altScreenActive)
 		}
+		seedTestRollbackTargets(m)
 
 		m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})

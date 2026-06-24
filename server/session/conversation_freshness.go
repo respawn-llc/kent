@@ -13,17 +13,6 @@ func (f ConversationFreshness) IsFresh() bool {
 	return f == ConversationFreshnessFresh
 }
 
-func conversationFreshnessFromEvents(events []Event) ConversationFreshness {
-	freshness := ConversationFreshnessFresh
-	for _, evt := range events {
-		freshness = advanceConversationFreshness(freshness, evt)
-		if freshness == ConversationFreshnessEstablished {
-			return freshness
-		}
-	}
-	return freshness
-}
-
 func advanceConversationFreshness(current ConversationFreshness, evt Event) ConversationFreshness {
 	if current == ConversationFreshnessEstablished {
 		return current

@@ -2,16 +2,18 @@ package runtime
 
 import (
 	"context"
-	"core/server/llm"
-	"core/server/session"
-	"core/server/tools"
-	"core/shared/toolspec"
 	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"core/server/llm"
+	"core/server/session"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 func TestSetReviewerEnabledConcurrentWithBusyStep(t *testing.T) {
@@ -267,7 +269,7 @@ func TestSubmitUserMessageContinuesAfterHostedToolOnlyTurn(t *testing.T) {
 		t.Fatalf("expected first request to enable native web search")
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -353,7 +355,7 @@ func TestSubmitUserMessageFinalAnswerWithHostedToolCallMaterializesToolBeforeFin
 		t.Fatalf("expected final answer with hosted tool call to finish in 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -453,7 +455,7 @@ func TestSubmitUserMessageCommentaryWithoutToolCallsForcesNextLoop(t *testing.T)
 		t.Fatalf("expected commentary warning in next request, got %+v", requestMessages(secondReq))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -760,7 +762,7 @@ func TestSubmitUserMessageMissingPhaseDefaultsToCommentaryAndWarns(t *testing.T)
 		t.Fatalf("expected missing-phase warning in next request, got %+v", requestMessages(secondReq))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -810,7 +812,7 @@ func TestSubmitUserMessageMissingPhaseLegacyClientRemainsTerminal(t *testing.T) 
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

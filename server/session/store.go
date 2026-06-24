@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,7 +50,6 @@ type Store struct {
 	options               storeOptions
 	eventsFileSizeBytes   int64
 	pendingFsyncWrites    int
-	writesSinceCompaction int
 }
 
 type persistenceObservation struct {
@@ -238,7 +236,6 @@ func (s *Store) RemoveDurable() error {
 	s.persisted = false
 	s.eventsFileSizeBytes = 0
 	s.pendingFsyncWrites = 0
-	s.writesSinceCompaction = 0
 	s.persistedMetaVersion = 0
 	return nil
 }
@@ -864,9 +861,16 @@ func (s *Store) AppendReplayEvents(events []ReplayEvent) ([]Event, error) {
 }
 
 func (s *Store) appendObservedEventsLockedWithCommitStatus(events []Event) (bool, error) {
+	previousMeta := s.meta
+	previousFreshness := s.conversationFreshness
 	s.captureFirstPromptPreviewLocked(events)
 	s.advanceConversationFreshnessLocked(events)
+	s.updateLatestRunLocked(events)
 	observation, committed, err := s.appendEventsAtomicLockedWithCommitStatus(events)
+	if err != nil && !committed {
+		s.meta = previousMeta
+		s.conversationFreshness = previousFreshness
+	}
 	s.mu.Unlock()
 	if err != nil {
 		return committed, err
@@ -879,24 +883,39 @@ type EventInput struct {
 	Payload any
 }
 
-func (s *Store) ReadEvents() ([]Event, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.persisted {
-		return nil, nil
-	}
-	fp, err := os.Open(s.eventsFP)
-	if err != nil {
-		return nil, fmt.Errorf("open events file: %w", err)
-	}
-	defer fp.Close()
-
-	parsed, err := parseEventsFromReader(bufio.NewReader(fp))
+func (s *Store) ReadEventsBackwardUntil(match func(Event) bool) ([]Event, error) {
+	window, err := s.ReadSegmentBackward(0, match)
 	if err != nil {
 		return nil, err
 	}
-	s.eventsFileSizeBytes = parsed.totalBytes
-	return parsed.events, nil
+	return window.Events, nil
+}
+
+func (s *Store) ReadSegmentBackward(endOffset int64, match func(Event) bool) (SegmentWindow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return SegmentWindow{ReachedStart: true, ReachedEnd: true}, nil
+	}
+	return readSegmentBackwardFile(s.eventsFP, endOffset, activeTailReverseChunkBytes, match)
+}
+
+func (s *Store) ReadSegmentForward(startOffset int64, match func(Event) bool) (SegmentWindow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return SegmentWindow{ReachedStart: true, ReachedEnd: true}, nil
+	}
+	return readSegmentForwardFile(s.eventsFP, startOffset, activeTailReverseChunkBytes, match)
+}
+
+func (s *Store) ReadRecentEvents(maxEvents int) (SegmentWindow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return SegmentWindow{ReachedStart: true}, nil
+	}
+	return readRecentEventsBackwardFile(s.eventsFP, 0, maxEvents, activeTailReverseChunkBytes)
 }
 
 func (s *Store) WalkEvents(visit func(Event) error) error {
@@ -911,6 +930,18 @@ func (s *Store) WalkEvents(visit func(Event) error) error {
 	}
 	s.eventsFileSizeBytes = parsed.totalBytes
 	return nil
+}
+
+func readMetaFile(path string) (Meta, error) {
+	data, err := readRegularSessionFile(path, "session meta")
+	if err != nil {
+		return Meta{}, fmt.Errorf("%w: %w", ErrReadSessionMeta, err)
+	}
+	var meta Meta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return Meta{}, fmt.Errorf("parse session meta: %w", err)
+	}
+	return meta, nil
 }
 
 func (s *Store) loadMetaLocked() error {
@@ -972,9 +1003,6 @@ func (s *Store) appendEventsAtomicLockedWithCommitStatus(events []Event) (*persi
 	if err := s.ensurePersistedLocked(); err != nil {
 		return nil, false, err
 	}
-	if err := s.compactEventsIfNeededLocked(); err != nil {
-		return nil, false, err
-	}
 
 	if _, err := s.appendEventsLogLocked(events); err != nil {
 		return nil, false, err
@@ -983,7 +1011,6 @@ func (s *Store) appendEventsAtomicLockedWithCommitStatus(events []Event) (*persi
 		s.meta.LastSequence = e.Seq
 	}
 	s.meta.UpdatedAt = time.Now().UTC()
-	s.writesSinceCompaction++
 	snapshot, err := s.persistMetaLocked()
 	if err != nil {
 		return nil, true, err
@@ -1003,7 +1030,6 @@ func (s *Store) ensurePersistedLocked() error {
 	}
 	s.eventsFileSizeBytes = 0
 	s.pendingFsyncWrites = 0
-	s.writesSinceCompaction = 0
 	s.persisted = true
 	return nil
 }
@@ -1113,6 +1139,7 @@ func (s *Store) advanceConversationFreshnessLocked(events []Event) {
 	for _, evt := range events {
 		s.conversationFreshness = advanceConversationFreshness(s.conversationFreshness, evt)
 		if s.conversationFreshness == ConversationFreshnessEstablished {
+			s.meta.ConversationEstablished = true
 			return
 		}
 	}

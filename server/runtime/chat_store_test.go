@@ -3,6 +3,7 @@ package runtime
 import (
 	"core/prompts"
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -265,47 +266,59 @@ func TestChatStoreTranscriptPageSnapshotSynthesizesCompletedToolResultBeforeTool
 	}
 }
 
-func TestChatStoreTranscriptPageSnapshotPreservesHistoryAcrossCompaction(t *testing.T) {
-	s := newChatStore()
-	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "before compaction"})
-	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "error", Text: "before replace"})
-	s.replaceHistory(llm.ItemsFromMessages([]llm.Message{
-		{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeEnvironment, Content: "environment info"},
-		{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "condensed summary"},
-	}))
-	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "compaction_notice", Text: "after replace notice"})
+func historyReplacedEvent(t *testing.T, messages []llm.Message) session.Event {
+	t.Helper()
+	return mustPersistedEvent(t, "history_replaced", historyReplacementPayload{
+		Engine: "compaction",
+		Items:  llm.ItemsFromMessages(messages),
+	})
+}
 
-	page := s.transcriptPageSnapshot(0, 0)
-	if got := len(page.Snapshot.Entries); got != 5 {
-		t.Fatalf("entry count = %d, want 5 (%+v)", got, page.Snapshot.Entries)
+func TestPersistedTranscriptScanPreservesHistoryAcrossCompaction(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	applyPersistedScanEvents(t, scan, []session.Event{
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "before compaction"}),
+		mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "error", Text: "before replace"}),
+		historyReplacedEvent(t, []llm.Message{
+			{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeEnvironment, Content: "environment info"},
+			{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "condensed summary"},
+		}),
+		mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "compaction_notice", Text: "after replace notice"}),
+	})
+
+	entries := scan.CollectedPageSnapshot().Entries
+	if got := len(entries); got != 5 {
+		t.Fatalf("entry count = %d, want 5 (%+v)", got, entries)
 	}
-	if got := page.Snapshot.Entries[0]; got.Role != "user" || got.Text != "before compaction" {
+	if got := entries[0]; got.Role != "user" || got.Text != "before compaction" {
 		t.Fatalf("entry[0] = %+v, want preserved pre-compaction user entry", got)
 	}
-	if got := page.Snapshot.Entries[1]; got.Role != "error" || got.Text != "before replace" {
+	if got := entries[1]; got.Role != "error" || got.Text != "before replace" {
 		t.Fatalf("entry[1] = %+v, want preserved pre-compaction local entry", got)
 	}
-	if got := page.Snapshot.Entries[2]; got.Role != string(transcript.EntryRoleDeveloperContext) || got.Text != "environment info" {
+	if got := entries[2]; got.Role != string(transcript.EntryRoleDeveloperContext) || got.Text != "environment info" {
 		t.Fatalf("entry[2] = %+v, want compacted developer context", got)
 	}
-	if got := page.Snapshot.Entries[3]; got.Role != string(transcript.EntryRoleCompactionSummary) || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.CondensedText != "Context compacted" {
+	if got := entries[3]; got.Role != string(transcript.EntryRoleCompactionSummary) || got.Text != "condensed summary" || got.CompactLabel != "Context compacted" || got.CondensedText != "Context compacted" {
 		t.Fatalf("entry[3] = %+v, want compacted summary", got)
 	}
-	if got := page.Snapshot.Entries[4]; got.Role != "compaction_notice" || got.Text != "after replace notice" {
+	if got := entries[4]; got.Role != "compaction_notice" || got.Text != "after replace notice" {
 		t.Fatalf("entry[4] = %+v, want legacy local entry preserved without special handling", got)
 	}
 }
 
-func TestChatStoreRecentTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
-	s := newChatStore()
-	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "before compaction"})
-	s.replaceHistory(llm.ItemsFromMessages([]llm.Message{
-		{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeEnvironment, Content: "environment info"},
-		{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "condensed summary"},
-	}))
-	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "compaction_notice", Text: "after replace notice"})
+func TestPersistedTranscriptScanRecentTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 1})
+	applyPersistedScanEvents(t, scan, []session.Event{
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "before compaction"}),
+		historyReplacedEvent(t, []llm.Message{
+			{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeEnvironment, Content: "environment info"},
+			{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "condensed summary"},
+		}),
+		mustPersistedEvent(t, "local_entry", storedLocalEntry{Role: "compaction_notice", Text: "after replace notice"}),
+	})
 
-	window := s.recentTailSnapshot(1)
+	window := scan.RecentTailSnapshot()
 	if got := len(window.Snapshot.Entries); got != 3 {
 		t.Fatalf("entry count = %d, want 3 (%+v)", got, window.Snapshot.Entries)
 	}
@@ -326,15 +339,17 @@ func TestChatStoreRecentTailUsesLatestCompactionBoundaryAsFloor(t *testing.T) {
 	}
 }
 
-func TestChatStoreRecentTailUsesMostRecentCompactionBoundary(t *testing.T) {
-	s := newChatStore()
-	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "before"})
-	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-1"}})
-	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "between"})
-	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-2"}})
-	s.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: "after"})
+func TestPersistedTranscriptScanRecentTailUsesMostRecentCompactionBoundary(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 1})
+	applyPersistedScanEvents(t, scan, []session.Event{
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "before"}),
+		historyReplacedEvent(t, []llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-1"}}),
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "between"}),
+		historyReplacedEvent(t, []llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-2"}}),
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: "after"}),
+	})
 
-	window := s.recentTailSnapshot(1)
+	window := scan.RecentTailSnapshot()
 	if got := window.TotalEntries; got != 5 {
 		t.Fatalf("total entries = %d, want 5", got)
 	}

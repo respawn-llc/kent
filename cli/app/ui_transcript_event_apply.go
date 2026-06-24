@@ -41,7 +41,21 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 		})
 		return nil, false, false
 	case projectedTranscriptDecisionHydrate:
+		if cmd, applied := a.applyActiveAssistantFinalizerGapAsRecentTail(evt, flushNativeHistory); applied {
+			m.logTranscriptEventDiag("transcript.diag.client.append_entries", evt, map[string]string{
+				"path":           "live_event",
+				"incoming_count": strconv.Itoa(incomingCount),
+				"reason":         "active_finalizer_recent_tail",
+				"divergence":     plan.divergence,
+				"applied_count":  strconv.Itoa(len(evt.TranscriptEntries)),
+			})
+			return cmd, true, false
+		}
+		activeAssistantFinalizerGap := isAssistantStreamFinalizerEvent(newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m)), evt)
 		m.beginCommittedTranscriptContinuityRecovery()
+		if activeAssistantFinalizerGap {
+			m.resetNativeStreamingState()
+		}
 		m.logTranscriptEventDiag("transcript.diag.client.append_entries", evt, map[string]string{
 			"path":           "live_event",
 			"incoming_count": strconv.Itoa(incomingCount),
@@ -145,6 +159,73 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	}
 	m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries, true)
 	return m.syncNativeHistoryFromTranscript(), true, false
+}
+
+func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clientui.Event, flushNativeHistory bool) (tea.Cmd, bool) {
+	m := a.model
+	if m == nil || len(evt.TranscriptEntries) == 0 || !evt.CommittedTranscriptChanged {
+		return nil, false
+	}
+	if m.view.Mode() != tui.ModeDetail {
+		return nil, false
+	}
+	state := newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m))
+	if !isAssistantStreamFinalizerEvent(state, evt) {
+		return nil, false
+	}
+	start, _, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
+	if !ok || start < 0 {
+		return nil, false
+	}
+	entries := make([]tui.TranscriptEntry, 0, len(evt.TranscriptEntries))
+	for _, entry := range evt.TranscriptEntries {
+		entries = append(entries, transcriptEntryFromProjectedChatEntry(entry, false, evt.CommittedTranscriptChanged))
+	}
+	if shouldClearAssistantStreamForCommittedTranscriptEntries(entries, m.view.OngoingStreamingText()) {
+		m.clearAssistantStreamForCommittedAppend()
+	}
+	page := clientui.TranscriptPage{
+		Revision:       evt.TranscriptRevision,
+		Offset:         start,
+		TotalEntries:   max(evt.CommittedEntryCount, start+len(evt.TranscriptEntries)),
+		Entries:        cloneChatEntries(evt.TranscriptEntries),
+		Streaming:      m.view.OngoingStreamingText(),
+		StreamingError: m.view.OngoingErrorText(),
+	}
+	detailPinnedAwayFromTail := m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
+	if detailPinnedAwayFromTail {
+		return m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}), true
+	}
+	a.applyAuthoritativeRecentTailPage(page, entries, false)
+	if m.detailTranscript.loaded {
+		m.detailTranscript.apply(page)
+	}
+	switch {
+	case m.detailTranscript.loaded:
+		detailPage := m.detailTranscript.page()
+		detailPage.SessionID = page.SessionID
+		detailPage.SessionName = page.SessionName
+		detailPage.Revision = page.Revision
+		m.forwardToView(tui.SetConversationMsg{
+			BaseOffset:   detailPage.Offset,
+			TotalEntries: detailPage.TotalEntries,
+			Entries:      transcriptEntriesFromPage(detailPage),
+			Ongoing:      detailPage.Streaming,
+			OngoingError: detailPage.StreamingError,
+		})
+	default:
+		m.forwardToView(tui.SetConversationMsg{
+			BaseOffset:   page.Offset,
+			TotalEntries: page.TotalEntries,
+			Entries:      entries,
+			Ongoing:      page.Streaming,
+			OngoingError: page.StreamingError,
+		})
+	}
+	if !flushNativeHistory {
+		return nil, true
+	}
+	return m.syncNativeHistoryFromTranscript(), true
 }
 
 func (m *uiModel) clearMirroredTransientStatus(entries []tui.TranscriptEntry) {

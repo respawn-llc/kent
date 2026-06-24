@@ -108,13 +108,16 @@ func steerLocalEntryIntent(entry storedLocalEntry) steeringIntent {
 	}
 }
 
-func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, items []llm.ResponseItem) steeringIntent {
+func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, compactionNumber int, pendingHandoffFutureMessage string, lastCommittedAssistantFinalAnswer string, items []llm.ResponseItem) steeringIntent {
 	preparedItems := llm.PrepareOpenAIInputItems(items)
 	payload := historyReplacementPayload{
-		Engine:        normalizeHistoryReplacementEngine(engine),
-		Mode:          string(mode),
-		WorkflowRunID: workflowRunID,
-		Items:         llm.CloneResponseItems(preparedItems),
+		Engine:                            normalizeHistoryReplacementEngine(engine),
+		Mode:                              string(mode),
+		WorkflowRunID:                     workflowRunID,
+		CompactionNumber:                  compactionNumber,
+		PendingHandoffFutureMessage:       pendingHandoffFutureMessage,
+		LastCommittedAssistantFinalAnswer: lastCommittedAssistantFinalAnswer,
+		Items:                             llm.CloneResponseItems(preparedItems),
 	}
 	return steeringIntent{
 		priority: steeringPriorityNormal,
@@ -260,11 +263,15 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.cacheWarning != nil {
 		warning := item.cacheWarning.warning
 		visibility := transcript.NormalizeEntryVisibility(item.cacheWarning.visibility)
+		_, committed, appendErr := e.store.AppendEvent(stepID, sessionEventCacheWarning, warning)
+		if appendErr != nil && !committed {
+			return appendErr
+		}
 		newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
 		if item.cacheWarning.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
-		return nil
+		return appendErr
 	}
 	if item.cacheObservation != nil {
 		observation := item.cacheObservation
@@ -352,6 +359,7 @@ func (e *Engine) emitProjectedHistoryReplacementEntriesRaw(stepID string, start 
 			CommittedTranscriptChanged: true,
 			CommittedEntryStart:        start + idx,
 			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        start + idx + 1,
 		})
 	}
 }

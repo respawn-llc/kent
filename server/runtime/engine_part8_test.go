@@ -4,19 +4,21 @@ import (
 	"context"
 	"errors"
 
-	"core/server/llm"
-	"core/server/session"
-	"core/server/tools"
-	shelltool "core/server/tools/shell"
-	"core/shared/config"
-	"core/shared/toolspec"
-	"core/shared/transcript"
 	"encoding/json"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"core/server/llm"
+	"core/server/session"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	shelltool "core/server/tools/shell"
+	"core/shared/config"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *testing.T) {
@@ -272,15 +274,15 @@ func TestSubmitUserMessageSurfacesInFlightClearFailure(t *testing.T) {
 	if !reopened.Meta().InFlightStep {
 		t.Fatalf("expected persisted in-flight flag to remain true after clear failure")
 	}
-	runs, err := reopened.ReadRuns()
+	latest, err := reopened.LatestRun()
 	if err != nil {
-		t.Fatalf("read durable runs after reopen: %v", err)
+		t.Fatalf("read durable run after reopen: %v", err)
 	}
-	if len(runs) != 1 {
-		t.Fatalf("expected durable run lifecycle to persist despite clear failure, got %+v", runs)
+	if latest == nil {
+		t.Fatalf("expected durable run lifecycle to persist despite clear failure")
 	}
-	if runs[0].Status != session.RunStatusCompleted || runs[0].FinishedAt.IsZero() {
-		t.Fatalf("expected terminal durable run after clear failure, got %+v", runs[0])
+	if latest.Status != session.RunStatusCompleted || latest.FinishedAt.IsZero() {
+		t.Fatalf("expected terminal durable run after clear failure, got %+v", latest)
 	}
 }
 
@@ -309,7 +311,7 @@ func TestNewNormalizesPersistedInFlightStepOnReopen(t *testing.T) {
 	if last.Role != llm.RoleDeveloper || last.MessageType != llm.MessageTypeInterruption || last.Content != interruptMessage {
 		t.Fatalf("expected interruption developer message, got %+v", last)
 	}
-	events, err := reopenedStore.ReadEvents()
+	events, err := sessiontest.CollectEvents(reopenedStore)
 	if err != nil {
 		t.Fatalf("read reopened events: %v", err)
 	}
@@ -557,7 +559,7 @@ func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -820,7 +822,7 @@ func TestPersistedAssistantToolCallsContainNoUIDisplayMarkers(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

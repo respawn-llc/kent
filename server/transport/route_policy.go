@@ -256,8 +256,6 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.WorktreeDeleteRequest:
 		return p.SessionID, true
-	case serverapi.RunGetRequest:
-		return p.SessionID, true
 	case serverapi.RuntimeSetSessionNameRequest:
 		return p.SessionID, true
 	case serverapi.RuntimeSetThinkingLevelRequest:

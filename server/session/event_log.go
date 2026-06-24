@@ -25,11 +25,7 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 	if !s.persisted {
 		return nil
 	}
-	freshness := ConversationFreshnessFresh
-	parsed, err := walkEventsFile(s.eventsFP, func(evt Event) error {
-		freshness = advanceConversationFreshness(freshness, evt)
-		return nil
-	})
+	info, err := os.Stat(s.eventsFP)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if writeErr := os.WriteFile(s.eventsFP, nil, 0o644); writeErr != nil {
@@ -37,7 +33,6 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 			}
 			s.eventsFileSizeBytes = 0
 			s.pendingFsyncWrites = 0
-			s.writesSinceCompaction = 0
 			s.conversationFreshness = ConversationFreshnessFresh
 			if s.meta.LastSequence != 0 {
 				s.meta.LastSequence = 0
@@ -50,50 +45,59 @@ func (s *Store) bootstrapEventLogStateLocked() error {
 		}
 		return err
 	}
-	s.eventsFileSizeBytes = parsed.totalBytes
+	s.eventsFileSizeBytes = info.Size()
 	s.pendingFsyncWrites = 0
-	s.writesSinceCompaction = 0
-	s.conversationFreshness = freshness
-	if parsed.lastSequence != s.meta.LastSequence {
-		s.meta.LastSequence = parsed.lastSequence
+
+	window, err := readRecentEventsBackwardFile(s.eventsFP, 0, bootstrapTailRecoveryEvents, activeTailReverseChunkBytes)
+	if err != nil {
+		return err
+	}
+
+	established := s.meta.ConversationEstablished
+	if !established {
+		for _, evt := range window.Events {
+			if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
+				established = true
+				break
+			}
+		}
+	}
+	if established {
+		s.conversationFreshness = ConversationFreshnessEstablished
+	} else {
+		s.conversationFreshness = ConversationFreshnessFresh
+	}
+
+	lastSequence := int64(0)
+	if n := len(window.Events); n > 0 {
+		lastSequence = window.Events[n-1].Seq
+	}
+
+	metaChanged := false
+	if lastSequence != s.meta.LastSequence {
+		s.meta.LastSequence = lastSequence
+		metaChanged = true
+	}
+	if established && !s.meta.ConversationEstablished {
+		s.meta.ConversationEstablished = true
+		metaChanged = true
+	}
+	if runs := ProjectRuns(window.Events); len(runs) > 0 {
+		latest := runs[len(runs)-1]
+		current := s.meta.LatestRun
+		if current == nil || current.RunID != latest.RunID || current.Status != latest.Status ||
+			!current.StartedAt.Equal(latest.StartedAt) || !current.FinishedAt.Equal(latest.FinishedAt) {
+			runCopy := latest
+			s.meta.LatestRun = &runCopy
+			metaChanged = true
+		}
+	}
+	if metaChanged {
 		s.meta.UpdatedAt = time.Now().UTC()
 		if _, err := s.persistMetaLocked(); err != nil {
 			return err
 		}
 	}
-	if parsed.droppedTrailingEOF {
-		if err := s.compactEventsLocked(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) compactEventsIfNeededLocked() error {
-	options := s.options.eventLog
-	if options.compactionEveryWrites == 0 {
-		return nil
-	}
-	if s.writesSinceCompaction < options.compactionEveryWrites {
-		return nil
-	}
-	if s.eventsFileSizeBytes < options.compactionMinBytes {
-		return nil
-	}
-	return s.compactEventsLocked()
-}
-
-func (s *Store) compactEventsLocked() error {
-	parsed, err := readEventsFile(s.eventsFP)
-	if err != nil {
-		return err
-	}
-	if err := writeEventsFile(s.eventsFP, parsed.events); err != nil {
-		return err
-	}
-	s.eventsFileSizeBytes = computeEventsJSONLSize(parsed.events)
-	s.writesSinceCompaction = 0
-	s.pendingFsyncWrites = 0
 	return nil
 }
 
@@ -102,7 +106,7 @@ func (s *Store) appendEventsLogLocked(events []Event) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open events file for append: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 
 	fileInfo, err := fp.Stat()
 	if err != nil {
@@ -208,55 +212,13 @@ func (s *Store) repairTrailingLineLocked(fp *os.File, fileSize int64) (bool, err
 	return false, nil
 }
 
-func readEventsFile(path string) (parsedEvents, error) {
-	fp, err := openRegularSessionFile(path, "events file")
-	if err != nil {
-		return parsedEvents{}, fmt.Errorf("open events file: %w", err)
-	}
-	defer fp.Close()
-	return parseEventsFromReader(bufio.NewReader(fp))
-}
-
 func walkEventsFile(path string, visit func(Event) error) (parsedEvents, error) {
 	fp, err := openRegularSessionFile(path, "events file")
 	if err != nil {
 		return parsedEvents{}, fmt.Errorf("open events file: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 	return walkEventsFromReader(bufio.NewReader(fp), visit)
-}
-
-func parseEventsFromReader(reader *bufio.Reader) (parsedEvents, error) {
-	out := make([]Event, 0)
-	totalBytes := int64(0)
-	droppedTrailingEOF := false
-	for {
-		line, readErr := reader.ReadString('\n')
-		totalBytes += int64(len(line))
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			var evt Event
-			if err := json.Unmarshal([]byte(trimmed), &evt); err != nil {
-				if errors.Is(readErr, io.EOF) && !strings.HasSuffix(line, "\n") {
-					droppedTrailingEOF = true
-					break
-				}
-				return parsedEvents{}, fmt.Errorf("parse event line: %w", err)
-			}
-			out = append(out, evt)
-		}
-		if errors.Is(readErr, io.EOF) {
-			break
-		}
-		if readErr != nil {
-			return parsedEvents{}, fmt.Errorf("read events line: %w", readErr)
-		}
-	}
-	lastSequence := int64(0)
-	if len(out) > 0 {
-		lastSequence = out[len(out)-1].Seq
-	}
-	return parsedEvents{events: out, totalBytes: totalBytes, lastSequence: lastSequence, droppedTrailingEOF: droppedTrailingEOF}, nil
 }
 
 func walkEventsFromReader(reader *bufio.Reader, visit func(Event) error) (parsedEvents, error) {
@@ -293,6 +255,306 @@ func walkEventsFromReader(reader *bufio.Reader, visit func(Event) error) (parsed
 	return parsedEvents{totalBytes: totalBytes, lastSequence: lastSequence, droppedTrailingEOF: droppedTrailingEOF}, nil
 }
 
+const activeTailReverseChunkBytes = int64(1 << 20)
+
+const bootstrapTailRecoveryEvents = 512
+
+type eventAtOffset struct {
+	event  Event
+	offset int64
+}
+
+type SegmentWindow struct {
+	Events       []Event
+	StartOffset  int64
+	EndOffset    int64
+	ReachedStart bool
+	ReachedEnd   bool
+}
+
+func readSegmentBackwardFile(path string, endOffset int64, chunkBytes int64, match func(Event) bool) (SegmentWindow, error) {
+	if chunkBytes <= 0 {
+		chunkBytes = activeTailReverseChunkBytes
+	}
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return SegmentWindow{}, fmt.Errorf("open events file: %w", err)
+	}
+	defer func() { _ = fp.Close() }()
+	size, err := fp.Seek(0, io.SeekEnd)
+	if err != nil {
+		return SegmentWindow{}, fmt.Errorf("seek events file: %w", err)
+	}
+	if endOffset <= 0 || endOffset > size {
+		endOffset = size
+	}
+	if endOffset == 0 {
+		return SegmentWindow{ReachedStart: true, ReachedEnd: true}, nil
+	}
+	atEOF := endOffset == size
+	var buffer []byte
+	pos := endOffset
+	for pos > 0 {
+		chunk := chunkBytes
+		if chunk > pos {
+			chunk = pos
+		}
+		pos -= chunk
+		tmp := make([]byte, chunk)
+		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
+			return SegmentWindow{}, fmt.Errorf("read events file: %w", err)
+		}
+		next := make([]byte, 0, len(tmp)+len(buffer))
+		next = append(next, tmp...)
+		next = append(next, buffer...)
+		buffer = next
+		window, done, err := segmentFromBuffer(buffer, pos, pos == 0, atEOF, match)
+		if err != nil {
+			return SegmentWindow{}, err
+		}
+		if done {
+			window.EndOffset = endOffset
+			window.ReachedEnd = atEOF
+			return window, nil
+		}
+	}
+	window, _, err := segmentFromBuffer(buffer, 0, true, atEOF, match)
+	if err != nil {
+		return SegmentWindow{}, err
+	}
+	window.EndOffset = endOffset
+	window.ReachedEnd = atEOF
+	return window, nil
+}
+
+func readSegmentForwardFile(path string, startOffset int64, chunkBytes int64, match func(Event) bool) (SegmentWindow, error) {
+	if chunkBytes <= 0 {
+		chunkBytes = activeTailReverseChunkBytes
+	}
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return SegmentWindow{}, fmt.Errorf("open events file: %w", err)
+	}
+	defer func() { _ = fp.Close() }()
+	size, err := fp.Seek(0, io.SeekEnd)
+	if err != nil {
+		return SegmentWindow{}, fmt.Errorf("seek events file: %w", err)
+	}
+	if startOffset < 0 {
+		startOffset = 0
+	}
+	if startOffset >= size {
+		return SegmentWindow{StartOffset: size, EndOffset: size, ReachedStart: size == 0, ReachedEnd: true}, nil
+	}
+	var buffer []byte
+	pos := startOffset
+	for pos < size {
+		chunk := chunkBytes
+		if chunk > size-pos {
+			chunk = size - pos
+		}
+		tmp := make([]byte, chunk)
+		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
+			return SegmentWindow{}, fmt.Errorf("read events file: %w", err)
+		}
+		buffer = append(buffer, tmp...)
+		pos += chunk
+		atEOF := pos == size
+		window, done, err := forwardSegmentFromBuffer(buffer, startOffset, atEOF, match)
+		if err != nil {
+			return SegmentWindow{}, err
+		}
+		if done {
+			return window, nil
+		}
+	}
+	window, _, err := forwardSegmentFromBuffer(buffer, startOffset, true, match)
+	return window, err
+}
+
+func readRecentEventsBackwardFile(path string, endOffset int64, maxEvents int, chunkBytes int64) (SegmentWindow, error) {
+	if maxEvents <= 0 {
+		return SegmentWindow{ReachedStart: true}, nil
+	}
+	if chunkBytes <= 0 {
+		chunkBytes = activeTailReverseChunkBytes
+	}
+	fp, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return SegmentWindow{}, fmt.Errorf("open events file: %w", err)
+	}
+	defer func() { _ = fp.Close() }()
+	size, err := fp.Seek(0, io.SeekEnd)
+	if err != nil {
+		return SegmentWindow{}, fmt.Errorf("seek events file: %w", err)
+	}
+	if endOffset <= 0 || endOffset > size {
+		endOffset = size
+	}
+	if endOffset == 0 {
+		return SegmentWindow{ReachedStart: true}, nil
+	}
+	atEOF := endOffset == size
+	var buffer []byte
+	pos := endOffset
+	for pos > 0 {
+		chunk := chunkBytes
+		if chunk > pos {
+			chunk = pos
+		}
+		pos -= chunk
+		tmp := make([]byte, chunk)
+		if _, err := fp.ReadAt(tmp, pos); err != nil && !errors.Is(err, io.EOF) {
+			return SegmentWindow{}, fmt.Errorf("read events file: %w", err)
+		}
+		next := make([]byte, 0, len(tmp)+len(buffer))
+		next = append(next, tmp...)
+		next = append(next, buffer...)
+		buffer = next
+		window, done, err := recentWindowFromBuffer(buffer, pos, pos == 0, atEOF, maxEvents)
+		if err != nil {
+			return SegmentWindow{}, err
+		}
+		if done {
+			return window, nil
+		}
+	}
+	window, _, err := recentWindowFromBuffer(buffer, 0, true, atEOF, maxEvents)
+	return window, err
+}
+
+func recentWindowFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, maxEvents int) (SegmentWindow, bool, error) {
+	parsed, err := completeEventsWithOffsets(buffer, baseOffset, atStart, atEOF)
+	if err != nil {
+		return SegmentWindow{}, false, err
+	}
+	if len(parsed) >= maxEvents {
+		seg := parsed[len(parsed)-maxEvents:]
+		return SegmentWindow{
+			Events:       eventsOfOffsets(seg),
+			StartOffset:  seg[0].offset,
+			ReachedStart: seg[0].offset == 0,
+		}, true, nil
+	}
+	if atStart {
+		start := int64(0)
+		if len(parsed) > 0 {
+			start = parsed[0].offset
+		}
+		return SegmentWindow{Events: eventsOfOffsets(parsed), StartOffset: start, ReachedStart: true}, true, nil
+	}
+	return SegmentWindow{}, false, nil
+}
+
+func segmentFromBuffer(buffer []byte, baseOffset int64, atStart, atEOF bool, match func(Event) bool) (SegmentWindow, bool, error) {
+	parsed, err := completeEventsWithOffsets(buffer, baseOffset, atStart, atEOF)
+	if err != nil {
+		return SegmentWindow{}, false, err
+	}
+	last := -1
+	for i := range parsed {
+		if match != nil && match(parsed[i].event) {
+			last = i
+		}
+	}
+	if last >= 0 {
+		seg := parsed[last:]
+		return SegmentWindow{
+			Events:       eventsOfOffsets(seg),
+			StartOffset:  seg[0].offset,
+			ReachedStart: seg[0].offset == 0,
+		}, true, nil
+	}
+	if atStart {
+		start := int64(0)
+		if len(parsed) > 0 {
+			start = parsed[0].offset
+		}
+		return SegmentWindow{Events: eventsOfOffsets(parsed), StartOffset: start, ReachedStart: true}, true, nil
+	}
+	return SegmentWindow{}, false, nil
+}
+
+func forwardSegmentFromBuffer(buffer []byte, startOffset int64, atEOF bool, match func(Event) bool) (SegmentWindow, bool, error) {
+	parsed, err := completeEventsWithOffsets(buffer, startOffset, true, atEOF)
+	if err != nil {
+		return SegmentWindow{}, false, err
+	}
+	for i := range parsed {
+		if parsed[i].offset > startOffset && match != nil && match(parsed[i].event) {
+			seg := parsed[:i]
+			return SegmentWindow{
+				Events:       eventsOfOffsets(seg),
+				StartOffset:  startOffset,
+				EndOffset:    parsed[i].offset,
+				ReachedStart: startOffset == 0,
+				ReachedEnd:   false,
+			}, true, nil
+		}
+	}
+	if atEOF {
+		end := startOffset
+		if len(buffer) > 0 {
+			end = startOffset + int64(len(buffer))
+		}
+		return SegmentWindow{
+			Events:       eventsOfOffsets(parsed),
+			StartOffset:  startOffset,
+			EndOffset:    end,
+			ReachedStart: startOffset == 0,
+			ReachedEnd:   true,
+		}, true, nil
+	}
+	return SegmentWindow{}, false, nil
+}
+
+func completeEventsWithOffsets(buffer []byte, baseOffset int64, atStart, atEOF bool) ([]eventAtOffset, error) {
+	start := 0
+	if !atStart {
+		nl := bytes.IndexByte(buffer, '\n')
+		if nl < 0 {
+			return nil, nil
+		}
+		start = nl + 1
+	}
+	out := make([]eventAtOffset, 0)
+	for i := start; i < len(buffer); {
+		nl := bytes.IndexByte(buffer[i:], '\n')
+		torn := nl < 0
+		lineEnd := len(buffer)
+		if !torn {
+			lineEnd = i + nl
+		}
+		if torn && !atEOF {
+			break
+		}
+		trimmed := bytes.TrimSpace(buffer[i:lineEnd])
+		if len(trimmed) > 0 {
+			var evt Event
+			if err := json.Unmarshal(trimmed, &evt); err != nil {
+				if !(torn && atEOF) {
+					return nil, fmt.Errorf("parse event line: %w", err)
+				}
+			} else {
+				out = append(out, eventAtOffset{event: evt, offset: baseOffset + int64(i)})
+			}
+		}
+		if torn {
+			break
+		}
+		i = lineEnd + 1
+	}
+	return out, nil
+}
+
+func eventsOfOffsets(items []eventAtOffset) []Event {
+	events := make([]Event, len(items))
+	for i := range items {
+		events[i] = items[i].event
+	}
+	return events
+}
+
 func encodeEventLines(events []Event, hasExistingContent bool) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	if hasExistingContent {
@@ -322,46 +584,6 @@ func writeAll(fp *os.File, payload []byte) (int, error) {
 		offset += written
 	}
 	return offset, nil
-}
-
-func writeEventsFile(path string, events []Event) error {
-	tmp := path + ".tmp"
-	fp, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("open events tmp file: %w", err)
-	}
-	for _, event := range events {
-		line, marshalErr := json.Marshal(event)
-		if marshalErr != nil {
-			_ = fp.Close()
-			return fmt.Errorf("marshal event line: %w", marshalErr)
-		}
-		line = append(line, '\n')
-		_, writeErr := writeAll(fp, line)
-		if writeErr != nil {
-			_ = fp.Close()
-			return writeErr
-		}
-	}
-	if err := fp.Close(); err != nil {
-		return fmt.Errorf("close events tmp file: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replace events file: %w", err)
-	}
-	return nil
-}
-
-func computeEventsJSONLSize(events []Event) int64 {
-	total := int64(0)
-	for _, event := range events {
-		line, err := json.Marshal(event)
-		if err != nil {
-			continue
-		}
-		total += int64(len(line) + 1)
-	}
-	return total
 }
 
 func lastNewlineOffset(fp *os.File, fileSize int64) (int64, error) {

@@ -22,7 +22,9 @@ func newProjectedTestUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents
 	if askEvents == nil {
 		askEvents = make(chan askEvent)
 	}
-	return NewProjectedUIModel(runtimeClient, runtimeEvents, askEvents, opts...).(*uiModel)
+	m := NewProjectedUIModel(runtimeClient, runtimeEvents, askEvents, opts...).(*uiModel)
+	seedTestRollbackTargets(m)
+	return m
 }
 
 func newProjectedClosedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption) *uiModel {

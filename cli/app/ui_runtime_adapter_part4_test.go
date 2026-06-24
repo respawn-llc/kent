@@ -476,16 +476,16 @@ func TestApplyProjectedTranscriptEntriesUsesTailOffsetWhileViewingOlderDetailPag
 	for i := 0; i < 200; i++ {
 		recentTail.Entries = append(recentTail.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
 	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, recentTail, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, recentTail, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
 	olderDetailPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 500}
-	for i := 0; i < 250; i++ {
+	for i := 0; i < 300; i++ {
 		olderDetailPage.Entries = append(olderDetailPage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("history %03d", i)})
 	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Offset: 0, Limit: 250}, olderDetailPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Cursor: 4096}, olderDetailPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 
@@ -516,16 +516,16 @@ func TestApplyProjectedTranscriptEntriesUsesTailOffsetWhileViewingOlderDetailPag
 	if got, want := m.detailTranscript.totalEntries, 502; got != want {
 		t.Fatalf("detail transcript total entries = %d, want %d", got, want)
 	}
-	if got, want := m.detailTranscript.offset, 500; got != want {
+	if got, want := m.detailTranscript.offset, 0; got != want {
 		t.Fatalf("detail transcript offset = %d, want %d", got, want)
 	}
-	if got, want := len(m.detailTranscript.entries), 2; got != want {
+	if got, want := len(m.detailTranscript.entries), 502; got != want {
 		t.Fatalf("detail transcript entry count = %d, want %d", got, want)
 	}
-	if got := m.detailTranscript.entries[0].Text; got != "tail 500" {
+	if got := m.detailTranscript.entries[500].Text; got != "tail 500" {
 		t.Fatalf("expected first appended detail transcript entry at live tail offset, got %q", got)
 	}
-	if got := m.detailTranscript.entries[1].Text; got != "tail 501" {
+	if got := m.detailTranscript.entries[501].Text; got != "tail 501" {
 		t.Fatalf("expected second appended detail transcript entry at live tail offset, got %q", got)
 	}
 	if got := m.view.TranscriptBaseOffset(); got != 0 {
@@ -572,14 +572,14 @@ func TestStartupSeedsFromRuntimeClientTranscriptAccessorBeforeBoundedSync(t *tes
 	if refreshed.syncCause != runtimeTranscriptSyncCauseBootstrap {
 		t.Fatalf("startup bounded sync cause = %q, want %q", refreshed.syncCause, runtimeTranscriptSyncCauseBootstrap)
 	}
-	if refreshed.req.Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("startup transcript request window = %q, want recent_tail", refreshed.req.Window)
+	if refreshed.req != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("request = %+v, want recent-tail (zero cursor)", refreshed.req)
 	}
 	if got, want := len(client.loadRequests), 1; got != want {
 		t.Fatalf("load request count = %d, want %d", got, want)
 	}
-	if client.loadRequests[0].Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("startup load request window = %q, want recent_tail", client.loadRequests[0].Window)
+	if client.loadRequests[0] != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("request = %+v, want recent-tail (zero cursor)", client.loadRequests[0])
 	}
 
 	next, followUp := updated.Update(refreshed)

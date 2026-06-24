@@ -12,6 +12,7 @@ import (
 
 	"core/prompts"
 	"core/server/llm"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
@@ -550,7 +551,7 @@ func TestWorkflowTerminalCompleteNodePersistsHostedToolResults(t *testing.T) {
 	if got := controller.completed.Load(); got != 1 {
 		t.Fatalf("completions = %d, want 1", got)
 	}
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}

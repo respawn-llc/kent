@@ -51,32 +51,65 @@ func (s *Store) AppendRunFinished(run RunRecord) (Event, error) {
 	return evt, err
 }
 
-func (s *Store) ReadRuns() ([]RunRecord, error) {
+// ProjectRuns rebuilds run records from an in-memory event slice. It performs no
+// file read; callers supplying a full-history slice (test-only collectors) get
+// every run, while bounded windows yield only the runs they contain.
+func ProjectRuns(events []Event) []RunRecord {
 	projector := newRunProjector()
-	if err := s.WalkEvents(projector.ApplyEvent); err != nil {
-		return nil, err
+	for _, evt := range events {
+		_ = projector.ApplyEvent(evt)
 	}
-	return projector.Runs(), nil
+	return projector.Runs()
 }
 
+// LatestRun returns the most recently started run, recovered O(1) from persisted
+// metadata maintained on append. It never scans the event log.
 func (s *Store) LatestRun() (*RunRecord, error) {
-	runs, err := s.ReadRuns()
-	if err != nil {
-		return nil, err
-	}
-	if len(runs) == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.meta.LatestRun == nil {
 		return nil, nil
 	}
-	latest := runs[len(runs)-1]
+	latest := *s.meta.LatestRun
 	return &latest, nil
 }
 
-func runsFromEvents(events []Event) []RunRecord {
-	projector := newRunProjector()
+func (s *Store) updateLatestRunLocked(events []Event) {
 	for _, evt := range events {
-		projector.ApplyEvent(evt)
+		kind := strings.TrimSpace(evt.Kind)
+		if kind != runStartedEventKind && kind != runFinishedEventKind {
+			continue
+		}
+		if len(evt.Payload) == 0 {
+			continue
+		}
+		var run RunRecord
+		if err := json.Unmarshal(evt.Payload, &run); err != nil {
+			continue
+		}
+		run = normalizeRunRecord(run)
+		if run.RunID == "" {
+			continue
+		}
+		if run.StepID == "" {
+			run.StepID = strings.TrimSpace(evt.StepID)
+		}
+		if kind == runStartedEventKind {
+			run.Status = RunStatusRunning
+			if run.StartedAt.IsZero() {
+				run.StartedAt = evt.Timestamp
+			}
+		} else if run.FinishedAt.IsZero() {
+			run.FinishedAt = evt.Timestamp
+		}
+		if s.meta.LatestRun != nil && s.meta.LatestRun.RunID == run.RunID {
+			merged := mergeRunRecord(*s.meta.LatestRun, run)
+			s.meta.LatestRun = &merged
+			continue
+		}
+		latest := run
+		s.meta.LatestRun = &latest
 	}
-	return projector.Runs()
 }
 
 type runProjector struct {

@@ -2,6 +2,7 @@ package sessionservice
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -22,6 +23,34 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 )
+
+func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
+	t.Helper()
+	window, err := store.ReadRecentEvents(10_000)
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	visible := 0
+	for _, evt := range window.Events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var msg struct {
+			Role string `json:"role"`
+		}
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			continue
+		}
+		if msg.Role == "user" {
+			visible++
+			if visible == n {
+				return evt.Seq
+			}
+		}
+	}
+	t.Fatalf("user message %d not found among %d events", n, len(window.Events))
+	return 0
+}
 
 const testControllerLeaseID = "lease-test-controller"
 
@@ -352,7 +381,7 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, store, 2)),
 		},
 	})
 	if err != nil {
@@ -395,7 +424,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, store, 2)),
 		},
 	})
 	if err != nil {
@@ -451,7 +480,7 @@ func TestServiceResolveTransitionForkRollbackPreservesExecutionTarget(t *testing
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, sess, 2)),
 		},
 	})
 	if err != nil {
@@ -522,7 +551,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, sess, 2)),
 		},
 	})
 	if err != nil {

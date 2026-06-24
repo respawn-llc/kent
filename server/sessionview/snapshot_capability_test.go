@@ -50,9 +50,9 @@ func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 		),
 		reflect.TypeOf(clientui.TranscriptMetadata{}):               fieldSet("Revision", "CommittedEntryCount"),
 		reflect.TypeOf(clientui.RunView{}):                          fieldSet("RunID", "SessionID", "StepID", "Status", "Lifecycle", "StartedAt", "FinishedAt"),
-		reflect.TypeOf(clientui.TranscriptPage{}):                   fieldSet("SessionID", "SessionName", "ConversationFreshness", "Revision", "TotalEntries", "Offset", "NextOffset", "HasMore", "Entries", "Streaming", "StreamingError"),
+		reflect.TypeOf(clientui.TranscriptPage{}):                   fieldSet("SessionID", "SessionName", "ConversationFreshness", "Revision", "TotalEntries", "Offset", "NextOffset", "HasMore", "OlderCursor", "HasMoreAbove", "NewerCursor", "HasMoreBelow", "Entries", "Streaming", "StreamingError"),
 		reflect.TypeOf(clientui.CommittedTranscriptSuffix{}):        fieldSet("SessionID", "SessionName", "ConversationFreshness", "Revision", "CommittedEntryCount", "StartEntryCount", "NextEntryCount", "HasMore", "Entries"),
-		reflect.TypeOf(clientui.CommittedTranscriptSuffixRequest{}): fieldSet("AfterEntryCount", "Limit"),
+		reflect.TypeOf(clientui.CommittedTranscriptSuffixRequest{}): fieldSet(),
 		reflect.TypeOf(clientui.ChatEntry{}): fieldSet(
 			"Visibility",
 			"RollbackTargetID",
@@ -91,13 +91,8 @@ func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 		),
 		reflect.TypeOf(clientui.ToolRenderHint{}): fieldSet("Kind", "Path", "ResultOnly", "ShellDialect"),
 		reflect.TypeOf(clientui.TranscriptPageRequest{}): fieldSet(
-			"Offset",
-			"Limit",
-			"Page",
-			"PageSize",
-			"Window",
-			"KnownRevision",
-			"KnownCommittedEntryCount",
+			"Cursor",
+			"NewerCursor",
 		),
 	}
 

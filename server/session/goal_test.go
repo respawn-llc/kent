@@ -38,7 +38,7 @@ func TestSetGoalPersistsMetadataAndEvent(t *testing.T) {
 		t.Fatalf("persisted goal = %+v, want %+v", *persisted, goal)
 	}
 
-	events, err := reopened.ReadEvents()
+	events, err := collectEvents(reopened)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestGoalWithEventsRollsBackMetadataWhenEventAppendFails(t *testing.T) {
 		t.Fatalf("goal after failed atomic set = %+v, want nil", goal)
 	}
 	restoreEmptyEventsFile(t, store)
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestGoalStatusAndClearPersistMetadataAndEvents(t *testing.T) {
 		t.Fatalf("meta goal after clear = %+v, want nil", store.Meta().Goal)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}

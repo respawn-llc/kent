@@ -12,6 +12,7 @@ import (
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -29,7 +30,7 @@ func TestGoalSetPersistsGoalAndDeveloperPrompt(t *testing.T) {
 		t.Fatalf("goal status = %q", goal.Status)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -266,7 +267,7 @@ func TestGoalStatusAndClearPersistDeveloperPrompts(t *testing.T) {
 		t.Fatalf("clear goal: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -401,7 +402,7 @@ func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
 		t.Fatalf("runGoalTurn: %v", err)
 	}
 	assertModelCallCount(t, client, 1)
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -447,7 +448,7 @@ func TestGoalTurnRejectsNoopFinalWithoutAppendingExtraNudge(t *testing.T) {
 		t.Fatalf("expected NO_OP warning in second request, got %+v", secondReq)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -685,7 +686,7 @@ func TestNewDoesNotRestartPersistedActiveGoalLoop(t *testing.T) {
 	if got := client.callCount(); got != 0 {
 		t.Fatalf("model calls after reopen = %d, want 0", got)
 	}
-	events, err := reopenedStore.ReadEvents()
+	events, err := sessiontest.CollectEvents(reopenedStore)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}

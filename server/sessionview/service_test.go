@@ -189,9 +189,6 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	if resp.MainView.Session.Transcript.Revision != store.Meta().LastSequence {
 		t.Fatalf("transcript revision = %d, want %d", resp.MainView.Session.Transcript.Revision, store.Meta().LastSequence)
 	}
-	if resp.MainView.Session.Transcript.CommittedEntryCount != 2 {
-		t.Fatalf("committed entry count = %d, want 2", resp.MainView.Session.Transcript.CommittedEntryCount)
-	}
 }
 
 func TestServiceGetSessionMainViewFallsBackToDurableWorkflowSessionState(t *testing.T) {
@@ -280,9 +277,6 @@ func TestServiceRequiresSessionStoreResolverForDormantReads(t *testing.T) {
 	if _, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: "session-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
 		t.Fatalf("expected explicit session store resolver error for transcript page, got %v", err)
 	}
-	if _, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: "session-1", RunID: "run-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
-		t.Fatalf("expected explicit session store resolver error for run lookup, got %v", err)
-	}
 }
 
 func TestServiceGetSessionTranscriptPageUsesLiveRuntimeWhenAttached(t *testing.T) {
@@ -325,39 +319,6 @@ func TestServiceGetSessionTranscriptPageUsesLiveRuntimeWhenAttached(t *testing.T
 	}
 }
 
-func TestServiceGetSessionTranscriptPageUsesIncrementalRecentTailForDormantSession(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	for i := 0; i < 600; i++ {
-		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
-			t.Fatalf("append message %d: %v", i, err)
-		}
-	}
-
-	svc := NewService(NewStaticSessionResolver(store), nil, nil)
-	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{
-		SessionID:                store.Meta().SessionID,
-		Window:                   clientui.TranscriptWindowRecentTail,
-		KnownRevision:            store.Meta().LastSequence - 1,
-		KnownCommittedEntryCount: 590,
-	})
-	if err != nil {
-		t.Fatalf("get incremental dormant transcript page: %v", err)
-	}
-	if got := resp.Transcript.Offset; got != 558 {
-		t.Fatalf("offset = %d, want 558", got)
-	}
-	if got := len(resp.Transcript.Entries); got != 42 {
-		t.Fatalf("entry count = %d, want 42", got)
-	}
-	if got := resp.Transcript.Entries[0].Text; got != "reply-558" {
-		t.Fatalf("first entry = %q, want reply-558", got)
-	}
-}
-
 func TestServiceGetSessionTranscriptPageUsesConfiguredCacheWarningModeForDormantTail(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
@@ -379,7 +340,7 @@ func TestServiceGetSessionTranscriptPageUsesConfiguredCacheWarningModeForDormant
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(NewStaticSessionResolver(store), nil, nil).WithCacheWarningMode(tt.mode)
-			resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
+			resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 			if err != nil {
 				t.Fatalf("get dormant transcript page: %v", err)
 			}
@@ -404,7 +365,7 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
+	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get dormant transcript page default: %v", err)
 	}
@@ -416,7 +377,7 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	if secondSvc != svc {
 		t.Fatal("expected WithCacheWarningMode to mutate service in place")
 	}
-	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Window: clientui.TranscriptWindowRecentTail})
+	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get dormant transcript page verbose: %v", err)
 	}
@@ -447,17 +408,17 @@ func TestServiceGetSessionTranscriptPageSupportsPagination(t *testing.T) {
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 1, Limit: 2})
+	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if resp.Transcript.TotalEntries != 4 {
-		t.Fatalf("total entries = %d, want 4", resp.Transcript.TotalEntries)
+	if resp.Transcript.HasMoreAbove {
+		t.Fatalf("never-compacted session must not report more above: %+v", resp.Transcript)
 	}
-	if !resp.Transcript.HasMore || resp.Transcript.NextOffset != 3 {
-		t.Fatalf("unexpected pagination metadata: %+v", resp.Transcript)
+	if len(resp.Transcript.Entries) != 4 {
+		t.Fatalf("entries = %d, want 4 (whole segment)", len(resp.Transcript.Entries))
 	}
-	if len(resp.Transcript.Entries) != 2 || resp.Transcript.Entries[0].Text != "a1" || resp.Transcript.Entries[1].Text != "u2" {
+	if resp.Transcript.Entries[0].Text != "u1" || resp.Transcript.Entries[3].Text != "a2" {
 		t.Fatalf("unexpected transcript page entries: %+v", resp.Transcript.Entries)
 	}
 }
@@ -476,7 +437,7 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRename(t *t
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
+	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get first transcript page: %v", err)
 	}
@@ -487,7 +448,7 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRename(t *t
 	if err := store.SetName("after rename"); err != nil {
 		t.Fatalf("rename session: %v", err)
 	}
-	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
+	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get second transcript page: %v", err)
 	}
@@ -507,23 +468,23 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRevisionBou
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
-	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
+	first, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get first transcript page: %v", err)
 	}
-	if got := first.Transcript.TotalEntries; got != 510 {
-		t.Fatalf("first total entries = %d, want 510", got)
+	if got := len(first.Transcript.Entries); got != 510 {
+		t.Fatalf("first entry count = %d, want 510", got)
 	}
 
 	if _, _, err := store.AppendEvent("step-extra", "message", llm.Message{Role: llm.RoleAssistant, Content: "line 510", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append revision boundary message: %v", err)
 	}
-	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
+	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get second transcript page: %v", err)
 	}
-	if got := second.Transcript.TotalEntries; got != 511 {
-		t.Fatalf("cached total entries = %d, want 511", got)
+	if got := len(second.Transcript.Entries); got != 511 {
+		t.Fatalf("cached entry count = %d, want 511", got)
 	}
 	if second.Transcript.Revision <= first.Transcript.Revision {
 		t.Fatalf("revision did not advance: first=%d second=%d", first.Transcript.Revision, second.Transcript.Revision)
@@ -553,27 +514,22 @@ func TestServiceGetSessionTranscriptPageUsesDormantRecentTailByDefault(t *testin
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
+	total := runtimeview.RecentTailEntryLimit + 20
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if resp.Transcript.TotalEntries != runtimeview.RecentTailEntryLimit+20 {
-		t.Fatalf("total entries = %d, want %d", resp.Transcript.TotalEntries, runtimeview.RecentTailEntryLimit+20)
+	if resp.Transcript.HasMoreAbove {
+		t.Fatalf("never-compacted session must not report more above: %+v", resp.Transcript)
 	}
-	if resp.Transcript.Offset != 20 {
-		t.Fatalf("offset = %d, want 20", resp.Transcript.Offset)
+	if len(resp.Transcript.Entries) != total {
+		t.Fatalf("entries = %d, want %d (whole segment)", len(resp.Transcript.Entries), total)
 	}
-	if len(resp.Transcript.Entries) != runtimeview.RecentTailEntryLimit {
-		t.Fatalf("entries = %d, want %d", len(resp.Transcript.Entries), runtimeview.RecentTailEntryLimit)
+	if first := resp.Transcript.Entries[0].Text; first != "u0" {
+		t.Fatalf("first dormant segment entry = %q, want u0", first)
 	}
-	if resp.Transcript.HasMore || resp.Transcript.NextOffset != 0 {
-		t.Fatalf("unexpected pagination metadata: %+v", resp.Transcript)
-	}
-	if first := resp.Transcript.Entries[0].Text; first != "u20" {
-		t.Fatalf("first dormant tail entry = %q, want u20", first)
-	}
-	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != fmt.Sprintf("u%d", runtimeview.RecentTailEntryLimit+19) {
-		t.Fatalf("last dormant tail entry = %q", last)
+	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != fmt.Sprintf("u%d", total-1) {
+		t.Fatalf("last dormant segment entry = %q", last)
 	}
 }
 
@@ -603,14 +559,12 @@ func TestServiceDormantReviewerRollbackIsIgnoredOnRead(t *testing.T) {
 
 	transcriptResp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{
 		SessionID: store.Meta().SessionID,
-		Offset:    0,
-		Limit:     10,
 	})
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if transcriptResp.Transcript.TotalEntries != 3 {
-		t.Fatalf("total entries = %d, want 3", transcriptResp.Transcript.TotalEntries)
+	if transcriptResp.Transcript.HasMoreAbove {
+		t.Fatalf("legacy reviewer rollback must not act as a segment boundary: %+v", transcriptResp.Transcript)
 	}
 	if len(transcriptResp.Transcript.Entries) != 3 {
 		t.Fatalf("entry count = %d, want 3", len(transcriptResp.Transcript.Entries))
@@ -631,9 +585,6 @@ func TestServiceDormantReviewerRollbackIsIgnoredOnRead(t *testing.T) {
 	}
 	if got := mainViewResp.MainView.Status.LastCommittedAssistantFinalAnswer; got != "" {
 		t.Fatalf("last committed assistant final answer = %q, want empty because later user message supersedes it", got)
-	}
-	if got := mainViewResp.MainView.Session.Transcript.CommittedEntryCount; got != 3 {
-		t.Fatalf("committed entry count = %d, want 3", got)
 	}
 }
 
@@ -705,24 +656,35 @@ func TestServiceGetSessionTranscriptPagePreservesHistoryAcrossActiveCompaction(t
 	eng.AppendCommittedEntry("assistant", "live local")
 	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
 
-	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 10})
+	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if len(resp.Transcript.Entries) != 4 {
-		t.Fatalf("entries = %d, want 4 (%+v)", len(resp.Transcript.Entries), resp.Transcript.Entries)
+	if !resp.Transcript.HasMoreAbove || resp.Transcript.OlderCursor <= 0 {
+		t.Fatalf("newest segment after compaction must report more above: %+v", resp.Transcript)
 	}
-	if resp.Transcript.Entries[0].Role != "user" || resp.Transcript.Entries[0].Text != "before compaction" {
-		t.Fatalf("expected preserved pre-compaction entry, got %+v", resp.Transcript.Entries[0])
+	if len(resp.Transcript.Entries) != 3 {
+		t.Fatalf("newest segment entries = %d, want 3 (%+v)", len(resp.Transcript.Entries), resp.Transcript.Entries)
 	}
-	if resp.Transcript.Entries[1].Role != "compaction_summary" || resp.Transcript.Entries[1].Text != "condensed provider summary" || resp.Transcript.Entries[1].CompactLabel != "Context compacted" || resp.Transcript.Entries[1].CondensedText != "Context compacted" {
-		t.Fatalf("expected projected compaction summary, got %+v", resp.Transcript.Entries[1])
+	if resp.Transcript.Entries[0].Role != "compaction_summary" || resp.Transcript.Entries[0].Text != "condensed provider summary" || resp.Transcript.Entries[0].CompactLabel != "Context compacted" || resp.Transcript.Entries[0].CondensedText != "Context compacted" {
+		t.Fatalf("expected projected compaction summary, got %+v", resp.Transcript.Entries[0])
 	}
-	if resp.Transcript.Entries[2].Role != "compaction_notice" || resp.Transcript.Entries[2].Text != "after replace notice" {
-		t.Fatalf("expected legacy local entry preserved without special handling, got %+v", resp.Transcript.Entries[2])
+	if resp.Transcript.Entries[1].Role != "compaction_notice" || resp.Transcript.Entries[1].Text != "after replace notice" {
+		t.Fatalf("expected legacy local entry preserved without special handling, got %+v", resp.Transcript.Entries[1])
 	}
-	if resp.Transcript.Entries[3].Role != "assistant" || resp.Transcript.Entries[3].Text != "live local" {
-		t.Fatalf("expected live local entry after compaction, got %+v", resp.Transcript.Entries[3])
+	if resp.Transcript.Entries[2].Role != "assistant" || resp.Transcript.Entries[2].Text != "live local" {
+		t.Fatalf("expected live local entry after compaction, got %+v", resp.Transcript.Entries[2])
+	}
+
+	older, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Cursor: resp.Transcript.OlderCursor})
+	if err != nil {
+		t.Fatalf("get older transcript page: %v", err)
+	}
+	if older.Transcript.HasMoreAbove {
+		t.Fatalf("oldest segment must not report more above: %+v", older.Transcript)
+	}
+	if len(older.Transcript.Entries) != 1 || older.Transcript.Entries[0].Text != "before compaction" {
+		t.Fatalf("expected pre-compaction segment via scroll-up, got %+v", older.Transcript.Entries)
 	}
 }
 
@@ -755,21 +717,28 @@ func TestServiceGetSessionTranscriptPagePaginatesBeforeActiveCompactionBoundary(
 	eng.AppendCommittedEntry("assistant", "live local")
 	svc := NewService(NewStaticSessionResolver(store), NewStaticRuntimeResolver(eng), nil)
 
-	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 2})
+	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get paginated session transcript page: %v", err)
 	}
-	if resp.Transcript.TotalEntries != 5 {
-		t.Fatalf("total entries = %d, want 5", resp.Transcript.TotalEntries)
+	if !resp.Transcript.HasMoreAbove || resp.Transcript.OlderCursor <= 0 {
+		t.Fatalf("newest segment must report more above: %+v", resp.Transcript)
 	}
-	if len(resp.Transcript.Entries) != 2 {
-		t.Fatalf("entries = %d, want 2 (%+v)", len(resp.Transcript.Entries), resp.Transcript.Entries)
+	older, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Cursor: resp.Transcript.OlderCursor})
+	if err != nil {
+		t.Fatalf("get pre-compaction segment: %v", err)
 	}
-	if resp.Transcript.Entries[0].Role != "user" || resp.Transcript.Entries[0].Text != "before-1" {
-		t.Fatalf("expected first pre-compaction entry, got %+v", resp.Transcript.Entries[0])
+	if older.Transcript.HasMoreAbove {
+		t.Fatalf("oldest segment must not report more above: %+v", older.Transcript)
 	}
-	if resp.Transcript.Entries[1].Role != "assistant" || resp.Transcript.Entries[1].Text != "before-2" {
-		t.Fatalf("expected second pre-compaction entry, got %+v", resp.Transcript.Entries[1])
+	if len(older.Transcript.Entries) != 2 {
+		t.Fatalf("entries = %d, want 2 (%+v)", len(older.Transcript.Entries), older.Transcript.Entries)
+	}
+	if older.Transcript.Entries[0].Role != "user" || older.Transcript.Entries[0].Text != "before-1" {
+		t.Fatalf("expected first pre-compaction entry, got %+v", older.Transcript.Entries[0])
+	}
+	if older.Transcript.Entries[1].Role != "assistant" || older.Transcript.Entries[1].Text != "before-2" {
+		t.Fatalf("expected second pre-compaction entry, got %+v", older.Transcript.Entries[1])
 	}
 }
 
@@ -786,52 +755,24 @@ func TestServiceGetSessionTranscriptPageUsesDormantRecentTailWindow(t *testing.T
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
 
+	total := runtimeview.RecentTailEntryLimit + 20
 	resp, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{
 		SessionID: store.Meta().SessionID,
-		Window:    "recent_tail",
 	})
 	if err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
-	if resp.Transcript.TotalEntries != runtimeview.RecentTailEntryLimit+20 {
-		t.Fatalf("total entries = %d, want %d", resp.Transcript.TotalEntries, runtimeview.RecentTailEntryLimit+20)
+	if resp.Transcript.HasMoreAbove {
+		t.Fatalf("never-compacted session must not report more above: %+v", resp.Transcript)
 	}
-	if resp.Transcript.Offset != 20 {
-		t.Fatalf("offset = %d, want 20", resp.Transcript.Offset)
+	if len(resp.Transcript.Entries) != total {
+		t.Fatalf("entries = %d, want %d (whole segment)", len(resp.Transcript.Entries), total)
 	}
-	if len(resp.Transcript.Entries) != runtimeview.RecentTailEntryLimit {
-		t.Fatalf("entries = %d, want %d", len(resp.Transcript.Entries), runtimeview.RecentTailEntryLimit)
+	if first := resp.Transcript.Entries[0].Text; first != "u0" {
+		t.Fatalf("first tail entry = %q, want u0", first)
 	}
-	if first := resp.Transcript.Entries[0].Text; first != "u20" {
-		t.Fatalf("first tail entry = %q, want u20", first)
-	}
-	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != "u519" {
-		t.Fatalf("last tail entry = %q, want u519", last)
-	}
-}
-
-func TestServiceGetRunReturnsDurableRunRecord(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	startedAt := time.Now().UTC().Add(-time.Minute)
-	finishedAt := startedAt.Add(10 * time.Second)
-	if _, err := store.AppendRunStarted(session.RunRecord{RunID: "run-1", StepID: "step-1", StartedAt: startedAt}); err != nil {
-		t.Fatalf("append run start: %v", err)
-	}
-	if _, err := store.AppendRunFinished(session.RunRecord{RunID: "run-1", StepID: "step-1", Status: session.RunStatusCompleted, StartedAt: startedAt, FinishedAt: finishedAt}); err != nil {
-		t.Fatalf("append run finish: %v", err)
-	}
-
-	svc := NewService(NewStaticSessionResolver(store), nil, nil)
-	resp, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: store.Meta().SessionID, RunID: "run-1"})
-	if err != nil {
-		t.Fatalf("get run: %v", err)
-	}
-	if resp.Run == nil || resp.Run.RunID != "run-1" || resp.Run.Status != "completed" {
-		t.Fatalf("unexpected run response: %+v", resp.Run)
+	if last := resp.Transcript.Entries[len(resp.Transcript.Entries)-1].Text; last != fmt.Sprintf("u%d", total-1) {
+		t.Fatalf("last tail entry = %q", last)
 	}
 }
 

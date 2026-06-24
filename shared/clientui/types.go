@@ -164,21 +164,9 @@ type ChatSnapshot struct {
 	StreamingError string
 }
 
-type TranscriptWindow string
-
-const (
-	TranscriptWindowDefault    TranscriptWindow = ""
-	TranscriptWindowRecentTail TranscriptWindow = "recent_tail"
-)
-
 type TranscriptPageRequest struct {
-	Offset                   int
-	Limit                    int
-	Page                     int
-	PageSize                 int
-	Window                   TranscriptWindow
-	KnownRevision            int64
-	KnownCommittedEntryCount int
+	Cursor      int64
+	NewerCursor int64
 }
 
 type TranscriptPage struct {
@@ -190,20 +178,16 @@ type TranscriptPage struct {
 	Offset                int
 	NextOffset            int
 	HasMore               bool
+	OlderCursor           int64
+	HasMoreAbove          bool
+	NewerCursor           int64
+	HasMoreBelow          bool
 	Entries               []ChatEntry
 	Streaming             string
 	StreamingError        string
 }
 
-const (
-	DefaultCommittedTranscriptSuffixLimit = 250
-	MaxCommittedTranscriptSuffixLimit     = 500
-)
-
-type CommittedTranscriptSuffixRequest struct {
-	AfterEntryCount int
-	Limit           int
-}
+type CommittedTranscriptSuffixRequest struct{}
 
 type CommittedTranscriptSuffix struct {
 	SessionID             string
@@ -215,19 +199,6 @@ type CommittedTranscriptSuffix struct {
 	NextEntryCount        int
 	HasMore               bool
 	Entries               []ChatEntry
-}
-
-func NormalizeCommittedTranscriptSuffixRequest(req CommittedTranscriptSuffixRequest) CommittedTranscriptSuffixRequest {
-	if req.AfterEntryCount < 0 {
-		req.AfterEntryCount = 0
-	}
-	if req.Limit <= 0 {
-		req.Limit = DefaultCommittedTranscriptSuffixLimit
-	}
-	if req.Limit > MaxCommittedTranscriptSuffixLimit {
-		req.Limit = MaxCommittedTranscriptSuffixLimit
-	}
-	return req
 }
 
 type ToolPresentationKind string

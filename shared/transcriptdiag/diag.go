@@ -98,26 +98,8 @@ func PageDigest(page clientui.TranscriptPage) string {
 
 func RequestFields(req clientui.TranscriptPageRequest) map[string]string {
 	fields := map[string]string{}
-	if req.Window != "" {
-		fields["window"] = string(req.Window)
-	}
-	if req.Offset != 0 {
-		fields["offset"] = strconv.Itoa(req.Offset)
-	}
-	if req.Limit != 0 {
-		fields["limit"] = strconv.Itoa(req.Limit)
-	}
-	if req.Page != 0 {
-		fields["page"] = strconv.Itoa(req.Page)
-	}
-	if req.PageSize != 0 {
-		fields["page_size"] = strconv.Itoa(req.PageSize)
-	}
-	if req.KnownRevision != 0 {
-		fields["known_revision"] = strconv.FormatInt(req.KnownRevision, 10)
-	}
-	if req.KnownCommittedEntryCount != 0 {
-		fields["known_committed_entry_count"] = strconv.Itoa(req.KnownCommittedEntryCount)
+	if req.Cursor != 0 {
+		fields["cursor"] = strconv.FormatInt(req.Cursor, 10)
 	}
 	return fields
 }

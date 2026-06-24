@@ -2,19 +2,21 @@ package runtime
 
 import (
 	"context"
-	"core/prompts"
-	"core/server/llm"
-	"core/server/session"
-	"core/server/tools"
-	"core/shared/config"
-	"core/shared/toolspec"
-	"core/shared/transcript"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"core/prompts"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	"core/shared/config"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestRemoteCompactionUsesSublinearPreciseTokenCountCalls(t *testing.T) {
@@ -503,7 +505,7 @@ func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.
 		t.Fatalf("expected compaction item in post-compaction request, got %+v", client.calls[1].Items)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -702,7 +704,7 @@ func TestRemoteCompactionTaskCommentCountErrorDoesNotReplaceHistory(t *testing.T
 	if len(messages) != 1 || messages[0].Role != llm.RoleUser || messages[0].Content != "seed" {
 		t.Fatalf("active list mutated after comment count error: %+v", messages)
 	}
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -731,7 +733,7 @@ func TestCompactionReplacementPayloadEmbedsReinjectedBaseMetaAtomically(t *testi
 		t.Fatalf("compactNow: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -810,7 +812,7 @@ func TestHistoryReplacementDurableAfterAppendObserverFailure(t *testing.T) {
 	if !observer.failed {
 		t.Fatal("observer did not fail after history replacement append")
 	}
-	events, readErr := store.ReadEvents()
+	events, readErr := sessiontest.CollectEvents(store)
 	if readErr != nil {
 		t.Fatalf("read events: %v", readErr)
 	}

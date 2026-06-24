@@ -20,6 +20,7 @@ const (
 	sessionEventCacheRequestObserved  = "cache_request_observed"
 	sessionEventCacheResponseObserved = "cache_response_observed"
 	sessionEventCacheWarning          = "cache_warning"
+	sessionEventHistoryReplaced       = "history_replaced"
 	cacheWarningTranscriptRole        = "cache_warning"
 	requestCacheDigestVersion         = 1
 )

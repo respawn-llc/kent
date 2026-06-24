@@ -56,7 +56,6 @@ func (c *runtimeClientWithoutCachedMainView) RefreshCommittedTranscriptSuffix(re
 		SessionID:             c.mainView.Session.SessionID,
 		Revision:              c.mainView.Session.Transcript.Revision,
 		CommittedEntryCount:   c.mainView.Session.Transcript.CommittedEntryCount,
-		StartEntryCount:       req.AfterEntryCount,
 		NextEntryCount:        c.mainView.Session.Transcript.CommittedEntryCount,
 		ConversationFreshness: c.mainView.Session.ConversationFreshness,
 	}, nil
@@ -90,10 +89,6 @@ func (c *countingSessionViewClient) GetSessionCommittedTranscriptSuffix(ctx cont
 	return serverapi.SessionCommittedTranscriptSuffixResponse{Suffix: c.suffix}, nil
 }
 
-func (*countingSessionViewClient) GetRun(context.Context, serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	return serverapi.RunGetResponse{}, nil
-}
-
 type blockingSessionViewClient struct{}
 
 func (blockingSessionViewClient) GetSessionMainView(ctx context.Context, _ serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
@@ -104,10 +99,6 @@ func (blockingSessionViewClient) GetSessionMainView(ctx context.Context, _ serve
 func (blockingSessionViewClient) GetSessionTranscriptPage(ctx context.Context, _ serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
 	<-ctx.Done()
 	return serverapi.SessionTranscriptPageResponse{}, ctx.Err()
-}
-
-func (blockingSessionViewClient) GetRun(context.Context, serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	return serverapi.RunGetResponse{}, nil
 }
 
 type blockingCountingSessionViewClient struct {
@@ -123,10 +114,6 @@ func (c *blockingCountingSessionViewClient) GetSessionMainView(ctx context.Conte
 func (c *blockingCountingSessionViewClient) GetSessionTranscriptPage(ctx context.Context, _ serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
 	<-ctx.Done()
 	return serverapi.SessionTranscriptPageResponse{}, ctx.Err()
-}
-
-func (*blockingCountingSessionViewClient) GetRun(context.Context, serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	return serverapi.RunGetResponse{}, nil
 }
 
 type mutableRuntimeResolver struct {
@@ -186,10 +173,6 @@ func (c *flakySessionViewClient) GetSessionTranscriptPage(context.Context, serve
 		return c.pages[len(c.pages)-1], nil
 	}
 	return serverapi.SessionTranscriptPageResponse{}, nil
-}
-
-func (c *flakySessionViewClient) GetRun(context.Context, serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	return serverapi.RunGetResponse{}, nil
 }
 
 type runtimeClientFakeLLM struct {
@@ -258,8 +241,8 @@ func TestRuntimeClientRefreshTranscriptRequestsRecentTail(t *testing.T) {
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
 	}
-	if reads.lastTranscriptReq.Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("window = %q, want ongoing tail", reads.lastTranscriptReq.Window)
+	if reads.lastTranscriptReq.Cursor != 0 {
+		t.Fatalf("request cursor = %d, want recent-tail (zero cursor)", reads.lastTranscriptReq.Cursor)
 	}
 }
 
@@ -270,8 +253,8 @@ func TestRuntimeClientLoadTranscriptPageLetsServerApplyDefaultWindow(t *testing.
 	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{}); err != nil {
 		t.Fatalf("load transcript page: %v", err)
 	}
-	if reads.lastTranscriptReq.Window != "" {
-		t.Fatalf("window = %q, want empty server-default request", reads.lastTranscriptReq.Window)
+	if reads.lastTranscriptReq.Cursor != 0 {
+		t.Fatalf("request cursor = %d, want recent-tail (zero cursor)", reads.lastTranscriptReq.Cursor)
 	}
 }
 
@@ -290,11 +273,11 @@ func TestRuntimeClientRefreshCommittedTranscriptSuffixUsesSessionViewSuffixAPI(t
 	}
 	runtimeClient := newRuntimeClientReadOnlyTest(reads).(*sessionRuntimeClient)
 
-	suffix, err := runtimeClient.RefreshCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 2, Limit: 2})
+	suffix, err := runtimeClient.RefreshCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{})
 	if err != nil {
 		t.Fatalf("refresh committed transcript suffix: %v", err)
 	}
-	if reads.lastSuffixReq.SessionID != "session-1" || reads.lastSuffixReq.AfterEntryCount != 2 || reads.lastSuffixReq.Limit != 2 {
+	if reads.lastSuffixReq.SessionID != "session-1" {
 		t.Fatalf("unexpected suffix request: %+v", reads.lastSuffixReq)
 	}
 	if reads.lastTranscriptReq != (serverapi.SessionTranscriptPageRequest{}) {
@@ -321,7 +304,7 @@ func TestRuntimeClientCommittedSuffixDisablesUnsupportedRPC(t *testing.T) {
 		suffixErr: serverapi.ErrMethodNotFound,
 	}
 	runtimeClient := newRuntimeClientReadOnlyTest(reads).(*sessionRuntimeClient)
-	req := clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 2, Limit: 1}
+	req := clientui.CommittedTranscriptSuffixRequest{}
 
 	suffix, err := runtimeClient.RefreshCommittedTranscriptSuffix(req)
 	if err != nil {
@@ -354,7 +337,7 @@ func TestRuntimeClientCommittedSuffixDisablesUnsupportedRPC(t *testing.T) {
 	}
 }
 
-func TestStartupRuntimeTranscriptUsesCommittedSuffixBounding(t *testing.T) {
+func TestStartupRuntimeTranscriptSeedsFromCommittedSuffix(t *testing.T) {
 	reads := &countingSessionViewClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
 			SessionID: "session-1",
@@ -377,11 +360,8 @@ func TestStartupRuntimeTranscriptUsesCommittedSuffixBounding(t *testing.T) {
 
 	model := NewProjectedUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents()).(*uiModel)
 
-	if reads.lastSuffixReq.AfterEntryCount != 100 {
-		t.Fatalf("startup suffix after_entry_count = %d, want 100", reads.lastSuffixReq.AfterEntryCount)
-	}
-	if reads.lastSuffixReq.Limit != clientui.MaxCommittedTranscriptSuffixLimit {
-		t.Fatalf("startup suffix limit = %d, want %d", reads.lastSuffixReq.Limit, clientui.MaxCommittedTranscriptSuffixLimit)
+	if reads.lastSuffixReq.SessionID != "session-1" {
+		t.Fatalf("startup suffix request = %+v, want session-1", reads.lastSuffixReq)
 	}
 	if reads.lastTranscriptReq != (serverapi.SessionTranscriptPageRequest{}) {
 		t.Fatalf("did not expect startup seed to use transcript page request, got %+v", reads.lastTranscriptReq)
@@ -452,7 +432,7 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeResizeTranscriptSuffixRefreshedMsg, got %T", fetchCmd())
 	}
-	if reads.lastSuffixReq.AfterEntryCount != 0 || reads.lastSuffixReq.Limit != clientui.MaxCommittedTranscriptSuffixLimit {
+	if reads.lastSuffixReq.SessionID != "session-1" {
 		t.Fatalf("unexpected resize suffix request: %+v", reads.lastSuffixReq)
 	}
 	if got := reads.mainViewCount.Load(); got != 0 {
@@ -476,14 +456,12 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 	}
 }
 
-func TestCommittedRuntimeEventPermanentOutputUsesCommittedSuffix(t *testing.T) {
+func newSeededCommittedSuffixTestModel(t *testing.T) (*uiModel, *countingSessionViewClient) {
+	t.Helper()
 	reads := &countingSessionViewClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
-			SessionID: "session-1",
-			Transcript: clientui.TranscriptMetadata{
-				Revision:            1,
-				CommittedEntryCount: 1,
-			},
+			SessionID:  "session-1",
+			Transcript: clientui.TranscriptMetadata{Revision: 1, CommittedEntryCount: 1},
 		}},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
@@ -499,14 +477,12 @@ func TestCommittedRuntimeEventPermanentOutputUsesCommittedSuffix(t *testing.T) {
 	model.termWidth = 100
 	model.termHeight = 20
 	model.windowSizeKnown = true
-	reads.suffix = clientui.CommittedTranscriptSuffix{
-		SessionID:           "session-1",
-		Revision:            2,
-		CommittedEntryCount: 2,
-		StartEntryCount:     1,
-		NextEntryCount:      2,
-		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "authoritative suffix"}},
-	}
+	return model, reads
+}
+
+func TestContiguousCommittedRuntimeEventAppliesFromEventWithoutServerRead(t *testing.T) {
+	model, reads := newSeededCommittedSuffixTestModel(t)
+	baselineReads := reads.suffixCount.Load()
 
 	cmd := model.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,
@@ -516,59 +492,52 @@ func TestCommittedRuntimeEventPermanentOutputUsesCommittedSuffix(t *testing.T) {
 		CommittedEntryCount:        2,
 		CommittedEntryStart:        1,
 		CommittedEntryStartSet:     true,
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "stale event payload", Phase: string(llm.MessagePhaseFinal)}},
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "answer", Phase: string(llm.MessagePhaseFinal)}},
 	}, true).cmd
-	msgs := collectCmdMessages(t, cmd)
-	var refresh runtimeCommittedTranscriptSuffixRefreshedMsg
-	for _, msg := range msgs {
-		if typed, ok := msg.(runtimeCommittedTranscriptSuffixRefreshedMsg); ok {
-			refresh = typed
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if refresh, ok := msg.(runtimeCommittedTranscriptSuffixRefreshedMsg); ok {
+			next, applyCmd := model.Update(refresh)
+			model = next.(*uiModel)
+			_ = collectCmdMessages(t, applyCmd)
 		}
 	}
-	if refresh.token == 0 {
-		t.Fatalf("expected committed suffix refresh, got %+v", msgs)
+	if got := reads.suffixCount.Load(); got != baselineReads {
+		t.Fatalf("server suffix reads = %d, want unchanged baseline %d (no disk re-read on contiguous event)", got, baselineReads)
 	}
-	if reads.lastSuffixReq.AfterEntryCount != 1 || reads.lastSuffixReq.Limit != 1 {
-		t.Fatalf("unexpected committed suffix request: %+v", reads.lastSuffixReq)
-	}
-	if strings.Contains(stripANSIAndTrimRight(model.view.OngoingSnapshot()), "stale event payload") {
-		t.Fatalf("event payload rendered before suffix response: %q", stripANSIAndTrimRight(model.view.OngoingSnapshot()))
-	}
-
-	next, applyCmd := model.Update(refresh)
-	model = next.(*uiModel)
-	_ = collectCmdMessages(t, applyCmd)
-	ongoing := stripANSIAndTrimRight(model.view.OngoingSnapshot())
-	if !strings.Contains(ongoing, "authoritative suffix") {
-		t.Fatalf("expected authoritative suffix rendered, got %q", ongoing)
-	}
-	if strings.Contains(ongoing, "stale event payload") {
-		t.Fatalf("event payload leaked into permanent output: %q", ongoing)
+	if model.transcriptTotalEntries != 2 {
+		t.Fatalf("committed total entries = %d, want 2 after local event apply", model.transcriptTotalEntries)
 	}
 }
 
-func TestCommittedSuffixRequestUsesDeliveryCursorNotLocalProjection(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(2, 10)
-	for i := 0; i < 8; i++ {
-		m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: tui.TranscriptRoleAssistant, Text: "stale"})
-	}
+func TestCommittedRuntimeEventWithForwardGapFallsBackToServerRead(t *testing.T) {
+	model, reads := newSeededCommittedSuffixTestModel(t)
+	baselineReads := reads.suffixCount.Load()
 
-	req := committedTranscriptSuffixRequestForEvent(m, clientui.Event{
+	cmd := model.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		StepID:                     "step-1",
 		CommittedTranscriptChanged: true,
-		CommittedEntryCount:        5,
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "committed"}},
-	})
-
-	if req.AfterEntryCount != 2 {
-		t.Fatalf("suffix request after_entry_count = %d, want delivery cursor 2", req.AfterEntryCount)
+		TranscriptRevision:         3,
+		CommittedEntryCount:        6,
+		CommittedEntryStart:        5,
+		CommittedEntryStartSet:     true,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "gapped", Phase: string(llm.MessagePhaseFinal)}},
+	}, true).cmd
+	foundRefresh := false
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if _, ok := msg.(runtimeCommittedTranscriptSuffixRefreshedMsg); ok {
+			foundRefresh = true
+		}
 	}
-	if req.Limit != 3 {
-		t.Fatalf("suffix request limit = %d, want committed gap 3", req.Limit)
+	if !foundRefresh {
+		t.Fatal("a committed event with a forward gap must trigger an authoritative server suffix read")
+	}
+	if got := reads.suffixCount.Load(); got != baselineReads+1 {
+		t.Fatalf("server suffix reads delta = %d, want 1 for the gap fallback", got-baselineReads)
 	}
 }
 
-func TestUserMessageFlushedAdvancesDeliveryCursorBeforeFollowingSuffix(t *testing.T) {
+func TestUserMessageFlushedAdvancesDeliveryCursor(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
 
@@ -586,18 +555,6 @@ func TestUserMessageFlushedAdvancesDeliveryCursorBeforeFollowingSuffix(t *testin
 	if m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount != 1 {
 		t.Fatalf("user echo did not advance delivery cursor: %+v", m.ongoingCommittedDelivery)
 	}
-	req := committedTranscriptSuffixRequestForEvent(m, clientui.Event{
-		CommittedTranscriptChanged: true,
-		CommittedEntryCount:        2,
-		TranscriptRevision:         3,
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "answer"}},
-	})
-	if req.AfterEntryCount != 1 {
-		t.Fatalf("following suffix after_entry_count = %d, want user echo cursor 1", req.AfterEntryCount)
-	}
-	if req.Limit != 1 {
-		t.Fatalf("following suffix limit = %d, want 1", req.Limit)
-	}
 }
 
 func TestCommittedSuffixResponsesAcceptOlderRangeAfterNewerRequestIssued(t *testing.T) {
@@ -609,7 +566,7 @@ func TestCommittedSuffixResponsesAcceptOlderRangeAfterNewerRequestIssued(t *test
 
 	firstCmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -621,7 +578,7 @@ func TestCommittedSuffixResponsesAcceptOlderRangeAfterNewerRequestIssued(t *test
 	})
 	secondCmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 2,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 1, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            3,
@@ -665,7 +622,7 @@ func TestCommittedSuffixStaleErrorDoesNotRequestFullTranscriptSync(t *testing.T)
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		err:   errors.New("stale timeout"),
 	})
 	if cmd != nil {
@@ -690,7 +647,7 @@ func TestCommittedSuffixStaleHasMoreDoesNotRequestFollowUp(t *testing.T) {
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -731,7 +688,7 @@ func TestFutureCommittedSuffixDoesNotReplaceMissingPrefix(t *testing.T) {
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 2,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 1, Limit: 1},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            3,
@@ -1206,7 +1163,7 @@ func TestCommittedSuffixMultiToolDetailRoundTripLeavesNoLiveSpinnerAfterFinalRes
 	}
 }
 
-func TestNativeResizeCommittedTranscriptSuffixFallsBackToMainViewWhenCacheUnavailable(t *testing.T) {
+func TestNativeResizeCommittedTranscriptSuffixRequestsWholeSegment(t *testing.T) {
 	client := &runtimeClientWithoutCachedMainView{
 		RuntimeClient: &runtimeControlFakeClient{},
 		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
@@ -1224,9 +1181,6 @@ func TestNativeResizeCommittedTranscriptSuffixFallsBackToMainViewWhenCacheUnavai
 	if cmd == nil {
 		t.Fatal("expected native resize suffix request command")
 	}
-	if client.mainViewCalls != 0 {
-		t.Fatalf("main view fallback happened during Update: %d calls", client.mainViewCalls)
-	}
 	raw := cmd()
 	msg, ok := raw.(nativeResizeTranscriptSuffixRefreshedMsg)
 	if !ok {
@@ -1235,12 +1189,11 @@ func TestNativeResizeCommittedTranscriptSuffixFallsBackToMainViewWhenCacheUnavai
 	if msg.token != 3 || msg.err != nil {
 		t.Fatalf("unexpected resize suffix response: %+v", msg)
 	}
-	if client.mainViewCalls != 1 {
-		t.Fatalf("expected main view fallback in command, got %d calls", client.mainViewCalls)
+	if client.mainViewCalls != 0 {
+		t.Fatalf("did not expect a main-view count fallback for a whole-segment suffix request, got %d calls", client.mainViewCalls)
 	}
-	wantAfter := 900 - clientui.MaxCommittedTranscriptSuffixLimit
-	if client.suffixReq.AfterEntryCount != wantAfter || client.suffixReq.Limit != clientui.MaxCommittedTranscriptSuffixLimit {
-		t.Fatalf("resize suffix request = %+v, want after=%d limit=%d", client.suffixReq, wantAfter, clientui.MaxCommittedTranscriptSuffixLimit)
+	if client.suffixReq != (clientui.CommittedTranscriptSuffixRequest{}) {
+		t.Fatalf("resize suffix request = %+v, want empty (whole newest segment)", client.suffixReq)
 	}
 }
 
@@ -1266,7 +1219,7 @@ func TestCommittedSuffixRefreshedRequestsNextPageWhenCapped(t *testing.T) {
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 7,
-		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: clientui.MaxCommittedTranscriptSuffixLimit},
+		req:   clientui.CommittedTranscriptSuffixRequest{},
 		suffix: clientui.CommittedTranscriptSuffix{
 			SessionID:           "session-1",
 			Revision:            2,
@@ -1294,14 +1247,11 @@ func TestCommittedSuffixRefreshedRequestsNextPageWhenCapped(t *testing.T) {
 	if !found {
 		t.Fatal("expected capped suffix to schedule a follow-up committed suffix request")
 	}
-	if followUp.req.AfterEntryCount != 500 {
-		t.Fatalf("follow-up after_entry_count = %d, want 500", followUp.req.AfterEntryCount)
+	if followUp.req != (clientui.CommittedTranscriptSuffixRequest{}) {
+		t.Fatalf("follow-up request = %+v, want empty (whole newest segment)", followUp.req)
 	}
-	if followUp.req.Limit != clientui.MaxCommittedTranscriptSuffixLimit {
-		t.Fatalf("follow-up limit = %d, want max %d", followUp.req.Limit, clientui.MaxCommittedTranscriptSuffixLimit)
-	}
-	if reads.lastSuffixReq.AfterEntryCount != 500 {
-		t.Fatalf("server follow-up after_entry_count = %d, want 500", reads.lastSuffixReq.AfterEntryCount)
+	if reads.lastSuffixReq.SessionID != "session-1" {
+		t.Fatalf("server follow-up request = %+v, want session-1", reads.lastSuffixReq)
 	}
 
 	nextCount := reads.count.Load()
@@ -1319,7 +1269,7 @@ func TestCommittedSuffixRefreshedRequestsNextPageWhenCapped(t *testing.T) {
 func TestRuntimeClientLoadTranscriptPageAlwaysReadsFromServerAuthority(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}}
 	runtimeClient := newRuntimeClientReadOnlyTest(reads)
-	req := clientui.TranscriptPageRequest{Offset: 300, Limit: 200}
+	req := clientui.TranscriptPageRequest{Cursor: 4096}
 
 	if _, err := runtimeClient.LoadTranscriptPage(req); err != nil {
 		t.Fatalf("first load transcript page: %v", err)
@@ -1336,10 +1286,10 @@ func TestRuntimeClientLoadTranscriptPageCachesByRequestKey(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1", TotalEntries: 500}}
 	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
-	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Offset: 300, Limit: 200}); err != nil {
+	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Cursor: 4096}); err != nil {
 		t.Fatalf("first load transcript page: %v", err)
 	}
-	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Offset: 0, Limit: 250}); err != nil {
+	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{}); err != nil {
 		t.Fatalf("second load transcript page: %v", err)
 	}
 	if got := reads.count.Load(); got != 2 {
@@ -1365,7 +1315,7 @@ func TestRuntimeClientRefreshTranscriptBypassesFreshCachedPage(t *testing.T) {
 func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *testing.T) {
 	reads := &countingSessionViewClient{
 		pageForRequest: func(req serverapi.SessionTranscriptPageRequest) clientui.TranscriptPage {
-			if req.Window == clientui.TranscriptWindowRecentTail {
+			if req.Cursor <= 0 {
 				return clientui.TranscriptPage{
 					SessionID:    "session-1",
 					Offset:       0,
@@ -1375,7 +1325,7 @@ func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *tes
 			}
 			return clientui.TranscriptPage{
 				SessionID:    "session-1",
-				Offset:       req.Offset,
+				Offset:       100,
 				TotalEntries: 500,
 				Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "paged"}},
 			}
@@ -1386,7 +1336,7 @@ func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *tes
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
 	}
-	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Offset: 300, Limit: 100}); err != nil {
+	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Cursor: 4096}); err != nil {
 		t.Fatalf("load transcript page: %v", err)
 	}
 	page := runtimeClient.Transcript()
@@ -1401,7 +1351,7 @@ func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *tes
 func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 	reads := &countingSessionViewClient{
 		pageForRequest: func(req serverapi.SessionTranscriptPageRequest) clientui.TranscriptPage {
-			if req.Window == clientui.TranscriptWindowRecentTail {
+			if req.Cursor <= 0 {
 				return clientui.TranscriptPage{
 					SessionID:    "session-1",
 					Offset:       490,
@@ -1411,7 +1361,7 @@ func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 			}
 			return clientui.TranscriptPage{
 				SessionID:    "session-1",
-				Offset:       req.Offset,
+				Offset:       100,
 				TotalEntries: 500,
 				Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "paged"}},
 			}
@@ -1422,7 +1372,7 @@ func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
 	}
-	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Offset: 0, Limit: 10}); err != nil {
+	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{}); err != nil {
 		t.Fatalf("load transcript page: %v", err)
 	}
 
@@ -1862,7 +1812,7 @@ func TestRuntimeClientMainViewCachesFallbackAfterReadError(t *testing.T) {
 func TestRuntimeClientRefreshTranscriptPageDoesNotUseHiddenPageCacheOnReadError(t *testing.T) {
 	reads := &countingSessionViewClient{}
 	runtimeClient := newRuntimeClientReadTest(reads)
-	seedReq := clientui.TranscriptPageRequest{Page: 2, PageSize: 25}
+	seedReq := clientui.TranscriptPageRequest{Cursor: 4096}
 	concrete := runtimeClient.(*sessionRuntimeClient)
 
 	var observedErr error
@@ -1908,7 +1858,7 @@ func TestRuntimeClientRefreshTranscriptPageRecoveryReturnsAuthoritativePage(t *t
 	if !ok {
 		t.Fatalf("runtime client type = %T, want *sessionRuntimeClient", runtimeClient)
 	}
-	seedReq := clientui.TranscriptPageRequest{Page: 2, PageSize: 25}
+	seedReq := clientui.TranscriptPageRequest{Cursor: 4096}
 	authoritativePage := clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Revision:     8,

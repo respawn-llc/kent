@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -10,6 +11,34 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/toolspec"
 )
+
+func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
+	t.Helper()
+	window, err := store.ReadRecentEvents(10_000)
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	visible := 0
+	for _, evt := range window.Events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var msg struct {
+			Role string `json:"role"`
+		}
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			continue
+		}
+		if msg.Role == "user" {
+			visible++
+			if visible == n {
+				return evt.Seq
+			}
+		}
+	}
+	t.Fatalf("user message %d not found among %d events", n, len(window.Events))
+	return 0
+}
 
 func mustCreateTestSession(t *testing.T, workspaceRoot ...string) *session.Store {
 	t.Helper()

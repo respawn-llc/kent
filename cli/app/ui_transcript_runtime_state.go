@@ -107,12 +107,18 @@ func (m *uiModel) beginCommittedTranscriptContinuityRecovery() {
 	m.invalidateTransientTranscriptState()
 }
 
-func shouldClearAssistantStreamForCommittedAssistantEvent(evt clientui.Event) bool {
+func shouldClearAssistantStreamForCommittedAssistantEvent(evt clientui.Event, activeStream string) bool {
 	if evt.Kind != clientui.EventAssistantMessage {
 		return false
 	}
+	trimmedActiveStream := strings.TrimSpace(activeStream)
 	for _, entry := range evt.TranscriptEntries {
 		if isFinalAssistantProjectedEntry(entry) {
+			return true
+		}
+		if trimmedActiveStream != "" &&
+			tui.TranscriptRoleFromWire(entry.Role) == tui.TranscriptRoleAssistant &&
+			strings.TrimSpace(entry.Text) == trimmedActiveStream {
 			return true
 		}
 	}
@@ -155,8 +161,25 @@ func (m *uiModel) clearAssistantStreamForCommittedAppend() {
 	if m == nil {
 		return
 	}
+	if strings.TrimSpace(m.nativeStreamingController.source) == "" && strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
+		m.nativeStreamingAwaitingCommit = true
+	}
 	m.sawAssistantDelta = false
 	m.forwardToView(tui.ClearOngoingAssistantMsg{})
+}
+
+func (m *uiModel) clearAwaitingNativeStreamingCommitOnIdle(evt clientui.Event) bool {
+	if m == nil || evt.Kind != clientui.EventRunStateChanged || evt.RunState == nil || evt.RunState.Lifecycle.IsRunning() {
+		return false
+	}
+	if !m.nativeStreamingAwaitingCommit {
+		return false
+	}
+	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" || m.sawAssistantDelta {
+		return false
+	}
+	m.resetNativeStreamingState()
+	return true
 }
 
 func (m *uiModel) observeNativeStreamingAssistantCommitCandidate(evt clientui.Event) {

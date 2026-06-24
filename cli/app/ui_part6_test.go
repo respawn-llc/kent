@@ -804,8 +804,8 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	}, true).cmd
-	if got := len(m.deferredCommittedTail); got != 0 {
-		t.Fatalf("expected queued user flush to stop using deferred committed tail, got %d", got)
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected queued user flush to use deferred committed tail while assistant stream is live, got %d", got)
 	}
 
 	m.setBusy(false)
@@ -818,7 +818,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 
 	next, cmd := m.Update(runtimeTranscriptRefreshedMsg{
 		token: 7,
-		req:   clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail},
+		req:   clientui.TranscriptPageRequest{},
 		transcript: clientui.TranscriptPage{
 			SessionID:    "session-1",
 			Revision:     6,
@@ -828,8 +828,8 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 		},
 	})
 	updated := next.(*uiModel)
-	if got := len(updated.deferredCommittedTail); got != 0 {
-		t.Fatalf("expected stale hydrate + queued drain path to keep deferred committed tail empty, got %d", got)
+	if got := len(updated.deferredCommittedTail); got != 1 {
+		t.Fatalf("expected stale hydrate + queued drain path to preserve deferred committed tail, got %d", got)
 	}
 	if updated.activeSubmit.text != "follow up" {
 		t.Fatalf("expected queued drain to continue after stale hydrate rejection, got active=%q", updated.activeSubmit.text)

@@ -236,7 +236,7 @@ func newSupervisorTerminalFenceRepro(t *testing.T) (*uiModel, string) {
 	m.windowSizeKnown = true
 	m.activity = uiActivityRunning
 	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 100})
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, clientui.TranscriptPage{
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Revision:     11,
 		TotalEntries: 1,

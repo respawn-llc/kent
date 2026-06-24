@@ -7,6 +7,7 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -252,7 +253,7 @@ func newRuntimeControlCompactionFixture(t *testing.T) (*session.Store, *runtime.
 
 func countEventsByKind(t *testing.T, store *session.Store, kind string) int {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -343,7 +344,7 @@ func TestServiceAppendCommittedEntryDedupesSuccessfulRetry(t *testing.T) {
 		t.Fatalf("AppendCommittedEntry replay: %v", err)
 	}
 	count := 0
-	for _, entry := range engine.ChatSnapshot().Entries {
+	for _, entry := range engine.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 		if entry.Role == "warning" && entry.Text == "be careful" {
 			count++
 		}
@@ -372,7 +373,7 @@ func TestServiceAppendCommittedEntryReplaysVisibility(t *testing.T) {
 		t.Fatalf("AppendCommittedEntry replay: %v", err)
 	}
 	count := 0
-	for _, entry := range engine.ChatSnapshot().Entries {
+	for _, entry := range engine.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 		if entry.Role == "warning" && entry.Text == "visible warning" {
 			count++
 			if entry.Visibility != transcript.EntryVisibilityAll {

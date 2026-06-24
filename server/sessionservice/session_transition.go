@@ -16,7 +16,7 @@ type sessionTransition struct {
 	InitialPromptHistoryRecorded bool
 	InitialInput                 string
 	TargetSessionID              string
-	ForkUserMessageIndex         int
+	ForkUserMessageSeq           int64
 	ParentSessionID              string
 }
 
@@ -81,18 +81,20 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (resolvedSessionTr
 	if req.Store == nil {
 		return resolvedSessionTransition{}, errors.New("current store is required for rollback fork")
 	}
-	if req.Transition.ForkUserMessageIndex <= 0 {
-		return resolvedSessionTransition{}, errors.New("rollback fork user message index must be > 0")
+	if req.Transition.ForkUserMessageSeq <= 0 {
+		return resolvedSessionTransition{}, errors.New("rollback fork user message seq must be > 0")
 	}
 	parentMeta := req.Store.Meta()
 	baseName := strings.TrimSpace(parentMeta.Name)
 	if baseName == "" {
 		baseName = parentMeta.SessionID
 	}
-	forkName := strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(req.Transition.ForkUserMessageIndex))
-	forkedStore, err := session.ForkAtUserMessage(req.Store, req.Transition.ForkUserMessageIndex, forkName)
+	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(req.Store, req.Transition.ForkUserMessageSeq, baseName)
 	if err != nil {
 		return resolvedSessionTransition{}, err
+	}
+	if err := forkedStore.SetName(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal))); err != nil {
+		return resolvedSessionTransition{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
 	return resolvedSessionTransition{
 		NextSessionID:                forkedStore.Meta().SessionID,

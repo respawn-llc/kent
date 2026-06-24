@@ -326,7 +326,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 		t.Fatalf("persist reminder-issued state: %v", err)
 	}
 
-	forkedStore, err := session.ForkAtUserMessage(store, 1, "Parent -> edit")
+	forkedStore, _, err := session.ForkAtUserMessage(store, userMessageSeqAt(t, store, 1), "Parent -> edit")
 	if err != nil {
 		t.Fatalf("fork session: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestForkedSessionDoesNotCopyPersistedUsageState(t *testing.T) {
 		t.Fatal("expected parent session to persist usage state")
 	}
 
-	forkedStore, err := session.ForkAtUserMessage(store, 1, "Parent -> edit")
+	forkedStore, _, err := session.ForkAtUserMessage(store, userMessageSeqAt(t, store, 1), "Parent -> edit")
 	if err != nil {
 		t.Fatalf("fork session: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestForkedSessionAfterReminderPreservesCompactionSoonReminderIssuedState(t 
 		t.Fatalf("append second user message: %v", err)
 	}
 
-	forkedStore, err := session.ForkAtUserMessage(store, 2, "Parent -> edit")
+	forkedStore, _, err := session.ForkAtUserMessage(store, userMessageSeqAt(t, store, 2), "Parent -> edit")
 	if err != nil {
 		t.Fatalf("fork session: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 		t.Fatal("expected reopened compacted session metadata to remain cleared")
 	}
 
-	forkedStore, err := session.ForkAtUserMessage(reopenedStore, 1, "Parent -> edit")
+	forkedStore, _, err := session.ForkAtUserMessage(reopenedStore, userMessageSeqAt(t, reopenedStore, 1), "Parent -> edit")
 	if err != nil {
 		t.Fatalf("fork compacted session: %v", err)
 	}

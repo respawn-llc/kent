@@ -246,16 +246,7 @@ func (m *uiModel) startupRuntimeTranscript() clientui.TranscriptPage {
 }
 
 func (m *uiModel) startupCommittedTranscriptSuffixRequest() clientui.CommittedTranscriptSuffixRequest {
-	committedCount := 0
-	if m != nil {
-		committedCount = m.runtimeMainView().Session.Transcript.CommittedEntryCount
-	}
-	limit := clientui.MaxCommittedTranscriptSuffixLimit
-	after := committedCount - limit
-	if after < 0 {
-		after = 0
-	}
-	return clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: after, Limit: limit}
+	return clientui.CommittedTranscriptSuffixRequest{}
 }
 
 func (m *uiModel) refreshRuntimeTranscript() clientui.TranscriptPage {

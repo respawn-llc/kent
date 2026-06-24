@@ -129,7 +129,8 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		m.clearDeferredCommittedTail("authoritative_hydrate")
 		a.applyAuthoritativeRecentTailPage(page, entries, reduction.preserveLiveReasoning)
 	}
-	if pageReq.Window == clientui.TranscriptWindowRecentTail || (pageReq == (clientui.TranscriptPageRequest{}) && m.view.Mode() != tui.ModeDetail) {
+	m.detailTranscript.lastRequest = pageReq
+	if isRecentTailTranscriptRequest(pageReq) && m.view.Mode() != tui.ModeDetail {
 		m.detailTranscript.syncTail(page)
 		if m.view.Mode() != tui.ModeDetail {
 			if !reduction.preserveLiveReasoning {
@@ -145,13 +146,25 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		}
 	} else {
 		if m.view.Mode() == tui.ModeDetail && m.detailTranscript.matchesPage(page) {
+			m.detailTranscript.refreshEdgeCursors(page)
 			m.transcriptRevision = max(m.transcriptRevision, page.Revision)
 			if previousWindowTitle != sessionTitle(m.sessionName) {
 				return tea.SetWindowTitle(sessionTitle(m.sessionName))
 			}
 			return nil
 		}
-		m.detailTranscript.apply(page)
+		detailPinnedAwayFromTail := m.view.Mode() == tui.ModeDetail &&
+			isRecentTailTranscriptRequest(pageReq) &&
+			m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
+		if !detailPinnedAwayFromTail {
+			if pageReq.NewerCursor > 0 {
+				m.detailTranscript.appendCursorPage(page)
+			} else if pageReq.Cursor > 0 {
+				m.detailTranscript.prependCursorPage(page)
+			} else {
+				m.detailTranscript.apply(page)
+			}
+		}
 		m.transcriptRevision = max(m.transcriptRevision, page.Revision)
 		if !reduction.preserveLiveReasoning {
 			m.reasoningLiveDirty = false
@@ -161,7 +174,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		detailPage.SessionName = page.SessionName
 		detailPage.ConversationFreshness = page.ConversationFreshness
 		detailPage.Revision = page.Revision
-		if m.view.Mode() == tui.ModeDetail {
+		if m.view.Mode() == tui.ModeDetail && !detailPinnedAwayFromTail {
 			if !reduction.preserveLiveReasoning {
 				m.forwardToView(tui.ClearStreamingReasoningMsg{})
 			}

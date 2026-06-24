@@ -12,89 +12,29 @@ import (
 	"core/shared/transcript"
 )
 
-func TestCommittedTranscriptSuffixReturnsRowsAfterCursor(t *testing.T) {
+func TestCommittedTranscriptSuffixReturnsNewestSegment(t *testing.T) {
 	eng := newRuntimeViewTranscriptSuffixEngine(t, 5)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 2, Limit: 2})
+	suffix := mustRuntimeSuffix(t, eng)
 
 	if suffix.SessionID != eng.SessionID() || suffix.SessionName != eng.SessionName() {
 		t.Fatalf("unexpected session metadata: %+v", suffix)
 	}
-	if suffix.StartEntryCount != 2 {
-		t.Fatalf("start entry count = %d, want 2", suffix.StartEntryCount)
+	if got := len(suffix.Entries); got != 5 {
+		t.Fatalf("entries = %d, want 5 (whole newest segment)", got)
 	}
-	if suffix.NextEntryCount != 4 {
-		t.Fatalf("next entry count = %d, want 4", suffix.NextEntryCount)
-	}
-	if suffix.CommittedEntryCount != 5 {
-		t.Fatalf("committed entry count = %d, want 5", suffix.CommittedEntryCount)
-	}
-	if !suffix.HasMore {
-		t.Fatalf("expected has_more for bounded suffix, got %+v", suffix)
-	}
-	if got := len(suffix.Entries); got != 2 {
-		t.Fatalf("entries = %d, want 2", got)
-	}
-	if suffix.Entries[0].Text != "reply-002" || suffix.Entries[1].Text != "reply-003" {
+	if suffix.Entries[0].Text != "reply-000" || suffix.Entries[4].Text != "reply-004" {
 		t.Fatalf("unexpected suffix entries: %+v", suffix.Entries)
 	}
 }
 
-func TestCommittedTranscriptSuffixReturnsEmptyAtTail(t *testing.T) {
-	eng := newRuntimeViewTranscriptSuffixEngine(t, 3)
+func TestCommittedTranscriptSuffixEmptySession(t *testing.T) {
+	eng := newRuntimeViewTranscriptSuffixEngine(t, 0)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 3, Limit: 10})
+	suffix := mustRuntimeSuffix(t, eng)
 
-	if suffix.StartEntryCount != 3 || suffix.NextEntryCount != 3 {
-		t.Fatalf("unexpected empty cursor metadata: %+v", suffix)
-	}
-	if suffix.CommittedEntryCount != 3 {
-		t.Fatalf("committed entry count = %d, want 3", suffix.CommittedEntryCount)
-	}
-	if suffix.HasMore {
-		t.Fatalf("did not expect has_more at tail: %+v", suffix)
-	}
 	if len(suffix.Entries) != 0 {
 		t.Fatalf("entries = %d, want 0", len(suffix.Entries))
-	}
-}
-
-func TestCommittedTranscriptSuffixHonorsLimit(t *testing.T) {
-	eng := newRuntimeViewTranscriptSuffixEngine(t, 8)
-
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 1, Limit: 3})
-
-	if got := len(suffix.Entries); got != 3 {
-		t.Fatalf("entries = %d, want 3", got)
-	}
-	if suffix.NextEntryCount != 4 {
-		t.Fatalf("next entry count = %d, want 4", suffix.NextEntryCount)
-	}
-	if !suffix.HasMore {
-		t.Fatalf("expected has_more when limit cuts suffix: %+v", suffix)
-	}
-}
-
-func TestCommittedTranscriptSuffixClampsInconsistentBaseOffset(t *testing.T) {
-	suffix := CommittedTranscriptSuffixFromCollectedChat(
-		"session-1",
-		"session",
-		clientui.ConversationFreshnessEstablished,
-		12,
-		clientui.ChatSnapshot{Entries: []clientui.ChatEntry{{Role: "assistant", Text: "stale row"}}},
-		1,
-		3,
-		clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 10},
-	)
-
-	if suffix.StartEntryCount != 1 || suffix.NextEntryCount != 1 {
-		t.Fatalf("expected clamped cursor at committed total, got %+v", suffix)
-	}
-	if suffix.HasMore {
-		t.Fatalf("did not expect has_more after clamping inconsistent cursor: %+v", suffix)
-	}
-	if len(suffix.Entries) != 0 {
-		t.Fatalf("expected no entries beyond committed total, got %+v", suffix.Entries)
 	}
 }
 
@@ -110,7 +50,7 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 	}
 	eng.AppendCommittedEntryWithVisibility("developer_context", "internal note", transcript.EntryVisibilityVerbose)
 
-	suffix := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})
+	suffix := mustRuntimeSuffix(t, eng)
 
 	if got := len(suffix.Entries); got != 1 {
 		t.Fatalf("entries = %d, want 1", got)
@@ -123,10 +63,19 @@ func TestCommittedTranscriptSuffixPreservesEntryMetadata(t *testing.T) {
 		t.Fatalf("visibility = %q, want %q", entry.Visibility, clientui.EntryVisibilityVerbose)
 	}
 	entry.Text = "mutated"
-	second := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1})
+	second := mustRuntimeSuffix(t, eng)
 	if second.Entries[0].Text != "internal note" {
 		t.Fatalf("suffix entries were not cloned: %+v", second.Entries[0])
 	}
+}
+
+func mustRuntimeSuffix(t *testing.T, eng *runtime.Engine) clientui.CommittedTranscriptSuffix {
+	t.Helper()
+	suffix, err := CommittedTranscriptSuffixFromRuntime(eng, clientui.CommittedTranscriptSuffixRequest{})
+	if err != nil {
+		t.Fatalf("committed transcript suffix: %v", err)
+	}
+	return suffix
 }
 
 func newRuntimeViewTranscriptSuffixEngine(t *testing.T, count int) *runtime.Engine {

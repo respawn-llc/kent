@@ -1147,3 +1147,53 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 		}
 	}
 }
+
+var errProbeCommittedObserverFailure = errors.New("probe committed observer failure")
+
+type armedCommittedAppendFailObserver struct{ armed bool }
+
+func (o *armedCommittedAppendFailObserver) ObservePersistedStore(_ context.Context, _ session.PersistedStoreSnapshot) error {
+	if o.armed {
+		return errProbeCommittedObserverFailure
+	}
+	return nil
+}
+
+func TestCacheWarningSteeringPropagatesCommittedAppendError(t *testing.T) {
+	observer := &armedCommittedAppendFailObserver{}
+	dir := t.TempDir()
+	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	observer.armed = true
+	err := eng.steer("step-1", steerCacheWarningIntent(transcript.CacheWarning{Reason: transcript.CacheWarningReasonCompaction}, transcript.EntryVisibilityAuto, false))
+	if !errors.Is(err, errProbeCommittedObserverFailure) {
+		t.Fatalf("cache-warning steer err = %v, want committed append observer error propagated", err)
+	}
+}
+
+func TestRunStepLoopBailsOnCanceledContextWithoutModelCall(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{
+		responses: []llm.Response{
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "should-not-run", Phase: llm.MessagePhaseFinal}},
+		},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{})
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := eng.runStepLoop(ctx, "step-1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runStepLoop err = %v, want context.Canceled", err)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("model calls = %d, want 0 (canceled step must not call the model)", len(client.calls))
+	}
+}

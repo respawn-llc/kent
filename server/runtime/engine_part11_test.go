@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"context"
-	"core/server/llm"
-	"core/server/tools"
-	"core/shared/toolspec"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"core/server/llm"
+	"core/server/session/sessiontest"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 func TestQueuedUserMessageFlushesWhenAssistantReturnsWithoutTools(t *testing.T) {
@@ -319,7 +321,7 @@ func TestReasoningSummaryVisibleAndEncryptedReasoningRoundTrips(t *testing.T) {
 		t.Fatalf("expected reasoning summary in chat snapshot entries, got %+v", snap.Entries)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -487,6 +489,35 @@ func TestReopenedSessionRestoresUsageCheckpointDeltaAccounting(t *testing.T) {
 	}
 }
 
+func TestReopenedSessionRestoresLastAssistantFinalAnswerAcrossCompaction(t *testing.T) {
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{
+		{Role: llm.RoleUser, Content: "do the thing"},
+		{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "the final answer"},
+	})); err != nil {
+		t.Fatalf("append messages: %v", err)
+	}
+	if got := eng.LastCommittedAssistantFinalAnswer(); got != "the final answer" {
+		t.Fatalf("precondition: live final answer = %q, want %q", got, "the final answer")
+	}
+
+	if err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{
+		{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary so far"},
+	})); err != nil {
+		t.Fatalf("replace history: %v", err)
+	}
+	if got := eng.LastCommittedAssistantFinalAnswer(); got != "the final answer" {
+		t.Fatalf("post-compaction live final answer = %q, want preserved %q", got, "the final answer")
+	}
+
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{})
+	if got := restored.LastCommittedAssistantFinalAnswer(); got != "the final answer" {
+		t.Fatalf("restored final answer after compaction = %q, want %q", got, "the final answer")
+	}
+}
+
 func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
@@ -500,7 +531,7 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 		t.Fatalf("append second diagnostic: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -538,7 +569,7 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 		t.Fatalf("append second diagnostic after reopen: %v", err)
 	}
 
-	events, err := reopenedStore.ReadEvents()
+	events, err := sessiontest.CollectEvents(reopenedStore)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

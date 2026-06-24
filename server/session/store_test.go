@@ -27,7 +27,7 @@ func TestNewLazyDoesNotPersistUntilFirstWrite(t *testing.T) {
 
 func TestNewLazyReadEventsBeforePersistReturnsEmpty(t *testing.T) {
 	store := newSessionTestLazyStore(t)
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestAppendEventMonotonicSequence(t *testing.T) {
 		t.Fatalf("unexpected sequence values: %d, %d", e1.Seq, e2.Seq)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
 		t.Fatalf("append large event: %v", err)
 	}
 
-	events, err := store.ReadEvents()
+	events, err := collectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
@@ -504,6 +504,78 @@ func TestOpenRehydratesConversationFreshnessFromEvents(t *testing.T) {
 	}
 }
 
+func TestOpenBackfillsConversationFreshnessForLegacyMetaFromTail(t *testing.T) {
+	store := newSessionTestStore(t)
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "legacy established session"}); err != nil {
+		t.Fatalf("append user event: %v", err)
+	}
+
+	metaPath := filepath.Join(store.Dir(), sessionFile)
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read session file: %v", err)
+	}
+	var meta Meta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
+	}
+	meta.ConversationEstablished = false
+	rewritten, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal meta: %v", err)
+	}
+	if err := os.WriteFile(metaPath, rewritten, 0o644); err != nil {
+		t.Fatalf("write legacy meta: %v", err)
+	}
+
+	opened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if got := opened.ConversationFreshness(); got != ConversationFreshnessEstablished {
+		t.Fatalf("backfilled freshness = %v, want established", got)
+	}
+	if !opened.Meta().ConversationEstablished {
+		t.Fatalf("expected backfill to persist conversation_established flag")
+	}
+}
+
+func TestOpenRecoversLastSequenceFromTailWhenMetaStale(t *testing.T) {
+	store := newSessionTestStore(t)
+	for i := 0; i < 3; i++ {
+		if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "reply"}); err != nil {
+			t.Fatalf("append event %d: %v", i, err)
+		}
+	}
+	trueLastSeq := store.Meta().LastSequence
+
+	metaPath := filepath.Join(store.Dir(), sessionFile)
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read session file: %v", err)
+	}
+	var meta Meta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("unmarshal meta: %v", err)
+	}
+	meta.LastSequence = 0
+	rewritten, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal meta: %v", err)
+	}
+	if err := os.WriteFile(metaPath, rewritten, 0o644); err != nil {
+		t.Fatalf("write stale meta: %v", err)
+	}
+
+	opened, err := Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if got := opened.Meta().LastSequence; got != trueLastSeq {
+		t.Fatalf("recovered last sequence = %d, want %d", got, trueLastSeq)
+	}
+}
+
 func TestFirstPromptPreviewSkipsCompactionSummaryMessages(t *testing.T) {
 	store := newSessionTestStore(t)
 	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {
@@ -575,6 +647,25 @@ func TestListSessionsUsesPersistedFirstPromptPreviewOnly(t *testing.T) {
 	}
 }
 
+func userMessageSeqAt(t *testing.T, store *Store, n int) int64 {
+	t.Helper()
+	events, err := collectEvents(store)
+	if err != nil {
+		t.Fatalf("collect events: %v", err)
+	}
+	visible := 0
+	for _, evt := range events {
+		if hasVisibleUserMessageEvent(evt.Kind, evt.Payload) {
+			visible++
+			if visible == n {
+				return evt.Seq
+			}
+		}
+	}
+	t.Fatalf("user message %d not found among %d events", n, len(events))
+	return 0
+}
+
 func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	root := t.TempDir()
 	parent, err := Create(root, "workspace-x", "/tmp/work")
@@ -603,11 +694,11 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 		t.Fatalf("append a2: %v", err)
 	}
 
-	forked, err := ForkAtUserMessage(parent, 2, "Parent → edit u2")
+	forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "Parent → edit u2")
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}
-	forkEvents, err := forked.ReadEvents()
+	forkEvents, err := collectEvents(forked)
 	if err != nil {
 		t.Fatalf("read fork events: %v", err)
 	}
@@ -660,7 +751,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		t.Fatalf("append second user: %v", err)
 	}
 
-	beforeReminder, err := ForkAtUserMessage(parent, 1, "before reminder")
+	beforeReminder, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 1), "before reminder")
 	if err != nil {
 		t.Fatalf("fork before reminder: %v", err)
 	}
@@ -668,7 +759,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		t.Fatal("expected fork before reminder to clear reminder-issued state")
 	}
 
-	afterReminder, err := ForkAtUserMessage(parent, 2, "after reminder")
+	afterReminder, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after reminder")
 	if err != nil {
 		t.Fatalf("fork after reminder: %v", err)
 	}
@@ -699,7 +790,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 			t.Fatalf("append second user: %v", err)
 		}
 
-		forked, err := ForkAtUserMessage(parent, 2, "after legacy reviewer rollback")
+		forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after legacy reviewer rollback")
 		if err != nil {
 			t.Fatalf("fork: %v", err)
 		}
@@ -729,12 +820,42 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 			t.Fatalf("append second user: %v", err)
 		}
 
-		forked, err := ForkAtUserMessage(parent, 2, "after compaction")
+		forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after compaction")
 		if err != nil {
 			t.Fatalf("fork: %v", err)
 		}
 		if forked.Meta().CompactionSoonReminderIssued {
 			t.Fatal("expected reminder-issued state to clear after non-reviewer history replacement")
+		}
+	})
+
+	t.Run("legacy reviewer rollback preserves earlier reminder-issued state", func(t *testing.T) {
+		parent, err := Create(t.TempDir(), "ws", t.TempDir())
+		if err != nil {
+			t.Fatalf("create parent: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+			t.Fatalf("append first user: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_soon_reminder", "content": "compact soon"}); err != nil {
+			t.Fatalf("append reminder: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s1", "history_replaced", map[string]any{
+			"engine": "reviewer_rollback",
+			"items":  []map[string]any{},
+		}); err != nil {
+			t.Fatalf("append reviewer rollback history replacement: %v", err)
+		}
+		if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+			t.Fatalf("append second user: %v", err)
+		}
+
+		forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "after legacy rollback")
+		if err != nil {
+			t.Fatalf("fork: %v", err)
+		}
+		if !forked.Meta().CompactionSoonReminderIssued {
+			t.Fatal("expected legacy reviewer rollback to preserve earlier reminder-issued state")
 		}
 	})
 }
@@ -762,7 +883,7 @@ func TestForkAtUserMessageResetsWorktreeReminderGenerationFlags(t *testing.T) {
 		t.Fatalf("append second user: %v", err)
 	}
 
-	forked, err := ForkAtUserMessage(parent, 2, "forked")
+	forked, _, err := ForkAtUserMessage(parent, userMessageSeqAt(t, parent, 2), "forked")
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
@@ -947,8 +1068,12 @@ func TestHeadlessActiveFromReplayEvents(t *testing.T) {
 		{"non-developer ignored", []ReplayEvent{{Kind: "message", Payload: []byte(`{"role":"user","message_type":"headless_mode","content":"x"}`)}}, false},
 	}
 	for _, tc := range cases {
-		if got := headlessActiveFromReplayEvents(tc.events); got != tc.want {
-			t.Fatalf("%s: headlessActiveFromReplayEvents = %v, want %v", tc.name, got, tc.want)
+		derived := replayDerivedState{}
+		for _, evt := range tc.events {
+			derived.apply(evt)
+		}
+		if derived.headlessActive != tc.want {
+			t.Fatalf("%s: derived.headlessActive = %v, want %v", tc.name, derived.headlessActive, tc.want)
 		}
 	}
 }

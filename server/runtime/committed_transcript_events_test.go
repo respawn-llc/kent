@@ -2,15 +2,17 @@ package runtime
 
 import (
 	"context"
-	"core/shared/toolspec"
-	"core/shared/transcript"
 	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
+	"core/shared/toolspec"
+	"core/shared/transcript"
+
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 )
 
@@ -266,7 +268,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 	if len(snapshot.Entries) != 2 || snapshot.Entries[0].Role != cacheWarningTranscriptRole || snapshot.Entries[1].Text != "feedback" {
 		t.Fatalf("committed chat order = %+v, want cache warning then feedback", snapshot.Entries)
 	}
-	persisted, err := store.ReadEvents()
+	persisted, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}

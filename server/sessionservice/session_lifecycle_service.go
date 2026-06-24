@@ -249,7 +249,7 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 		if err != nil {
 			return serverapi.SessionResolveTransitionResponse{}, err
 		}
-		forkUserMessageIndex, resolveErr := rollbacktarget.DecodeUserMessageIndex(req.Transition.ForkRollbackTargetID)
+		forkUserMessageSeq, resolveErr := rollbacktarget.DecodeUserMessageSeq(req.Transition.ForkRollbackTargetID)
 		if resolveErr != nil {
 			return serverapi.SessionResolveTransitionResponse{}, resolveErr
 		}
@@ -261,7 +261,7 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 				InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
 				InitialInput:                 req.Transition.InitialInput,
 				TargetSessionID:              req.Transition.TargetSessionID,
-				ForkUserMessageIndex:         forkUserMessageIndex,
+				ForkUserMessageSeq:           forkUserMessageSeq,
 				ParentSessionID:              req.Transition.ParentSessionID,
 			},
 		})

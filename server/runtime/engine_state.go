@@ -10,26 +10,167 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
 
-func (e *Engine) ChatSnapshot() ChatSnapshot {
-	return e.transcriptRuntimeState().Snapshot()
+func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
+	if e == nil || snapshot == nil {
+		return
+	}
+	streaming, streamingErr := e.transcriptRuntimeState().StreamingSnapshot()
+	snapshot.Streaming = streaming
+	snapshot.StreamingError = streamingErr
+}
+
+func (e *Engine) recentTranscriptEntries(limit int) []ChatEntry {
+	if e == nil || e.store == nil || limit <= 0 {
+		return nil
+	}
+	window, err := e.store.ReadRecentEvents(limit)
+	if err != nil {
+		return nil
+	}
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: e.cfg.CacheWarningMode})
+	for _, evt := range window.Events {
+		_ = scan.ApplyPersistedEvent(evt)
+	}
+	entries := scan.CollectedPageSnapshot().Entries
+	if len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+	return entries
 }
 
 func (e *Engine) RecentTailTranscriptWindow(maxEntries int) TranscriptWindowSnapshot {
 	if e == nil {
 		return TranscriptWindowSnapshot{}
 	}
-	return e.transcriptRuntimeState().RecentTailSnapshot(maxEntries)
+	window := e.cachedRecentTailWindow(maxEntries)
+	total := e.CommittedTranscriptEntryCount()
+	window.TotalEntries = total
+	if offset := total - len(window.Snapshot.Entries); offset >= 0 {
+		window.Offset = offset
+	}
+	e.overlayLiveStreaming(&window.Snapshot)
+	return window
 }
 
-func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
-	if e == nil {
-		return transcriptPageSnapshot{}
+func (e *Engine) cachedRecentTailWindow(maxEntries int) TranscriptWindowSnapshot {
+	revision := e.TranscriptRevision()
+	if cached, ok := e.recentTailCache.get(revision, maxEntries); ok {
+		return cached
 	}
-	return e.transcriptRuntimeState().TranscriptPageSnapshot(offset, limit)
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{
+		TrackRecentTail:  true,
+		TailLimit:        maxEntries,
+		CacheWarningMode: e.cfg.CacheWarningMode,
+	})
+	for _, evt := range e.activeListEvents() {
+		_ = scan.ApplyPersistedEvent(evt)
+	}
+	window := scan.RecentTailSnapshot()
+	e.recentTailCache.store(revision, maxEntries, window)
+	return window
+}
+
+func (e *Engine) activeListEvents() []session.Event {
+	if e == nil || e.store == nil {
+		return nil
+	}
+	events, err := e.store.ReadEventsBackwardUntil(isCompactionSegmentBoundary)
+	if err != nil {
+		return nil
+	}
+	return events
+}
+
+type TranscriptSegmentPage struct {
+	Snapshot                          ChatSnapshot
+	OlderCursor                       int64
+	HasMoreAbove                      bool
+	NewerCursor                       int64
+	HasMoreBelow                      bool
+	LastCommittedAssistantFinalAnswer string
+}
+
+func isCompactionSegmentBoundary(evt session.Event) bool {
+	if evt.Kind != sessionEventHistoryReplaced {
+		return false
+	}
+	_, ignoredLegacy, err := decodePersistedHistoryReplacementPayload(evt.Payload)
+	if err != nil {
+		return false
+	}
+	return !ignoredLegacy
+}
+
+func TranscriptSegmentPageFromStore(store *session.Store, cursor int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
+	if store == nil {
+		return TranscriptSegmentPage{}, nil
+	}
+	window, err := store.ReadSegmentBackward(cursor, isCompactionSegmentBoundary)
+	if err != nil {
+		return TranscriptSegmentPage{}, err
+	}
+	return segmentPageFromWindow(window, cacheWarningMode)
+}
+
+func TranscriptSegmentPageForwardFromStore(store *session.Store, startOffset int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
+	if store == nil {
+		return TranscriptSegmentPage{}, nil
+	}
+	window, err := store.ReadSegmentForward(startOffset, isCompactionSegmentBoundary)
+	if err != nil {
+		return TranscriptSegmentPage{}, err
+	}
+	return segmentPageFromWindow(window, cacheWarningMode)
+}
+
+func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: cacheWarningMode})
+	for _, evt := range window.Events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			return TranscriptSegmentPage{}, err
+		}
+	}
+	return TranscriptSegmentPage{
+		Snapshot:                          scan.CollectedPageSnapshot(),
+		OlderCursor:                       window.StartOffset,
+		HasMoreAbove:                      !window.ReachedStart,
+		NewerCursor:                       window.EndOffset,
+		HasMoreBelow:                      !window.ReachedEnd,
+		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
+	}, nil
+}
+
+func (e *Engine) TranscriptSegmentPage(cursor int64) (TranscriptSegmentPage, error) {
+	if e == nil || e.store == nil {
+		return TranscriptSegmentPage{}, nil
+	}
+	page, err := TranscriptSegmentPageFromStore(e.store, cursor, e.cfg.CacheWarningMode)
+	if err != nil {
+		return TranscriptSegmentPage{}, err
+	}
+	if cursor <= 0 {
+		e.overlayLiveStreaming(&page.Snapshot)
+	}
+	return page, nil
+}
+
+func (e *Engine) TranscriptSegmentPageForward(startOffset int64) (TranscriptSegmentPage, error) {
+	if e == nil || e.store == nil {
+		return TranscriptSegmentPage{}, nil
+	}
+	page, err := TranscriptSegmentPageForwardFromStore(e.store, startOffset, e.cfg.CacheWarningMode)
+	if err != nil {
+		return TranscriptSegmentPage{}, err
+	}
+	if !page.HasMoreBelow {
+		e.overlayLiveStreaming(&page.Snapshot)
+	}
+	return page, nil
 }
 
 func (e *Engine) TranscriptRevision() int64 {
@@ -574,8 +715,11 @@ type historyReplacementPayload struct {
 	// replacement, when the engine runs under a workflow run. It is the durable,
 	// single-write provenance of a compaction: resume reconstructs it from this
 	// event so a workflow run never recompacts a continuation it already committed.
-	WorkflowRunID string             `json:"workflow_run_id,omitempty"`
-	Items         []llm.ResponseItem `json:"items"`
+	WorkflowRunID                     string             `json:"workflow_run_id,omitempty"`
+	CompactionNumber                  int                `json:"compaction_number,omitempty"`
+	PendingHandoffFutureMessage       string             `json:"pending_handoff_future_message,omitempty"`
+	LastCommittedAssistantFinalAnswer string             `json:"last_committed_assistant_final_answer,omitempty"`
+	Items                             []llm.ResponseItem `json:"items"`
 }
 
 func toToolNames(ids []toolspec.ID) []string {
@@ -702,7 +846,9 @@ func (e *Engine) modelRequests() *modelRequestRuntimeState {
 
 func (e *Engine) emitRaw(evt Event) {
 	evt.TranscriptRevision = e.TranscriptRevision()
-	evt.CommittedEntryCount = e.CommittedTranscriptEntryCount()
+	if evt.CommittedEntryCount == 0 {
+		evt.CommittedEntryCount = e.CommittedTranscriptEntryCount()
+	}
 	if evt.ContextUsage == nil && eventShouldCarryContextUsage(evt) {
 		usage := e.ContextUsage()
 		evt.ContextUsage = &usage

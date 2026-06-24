@@ -15,6 +15,7 @@ import (
 	"core/server/runtime"
 	"core/server/runtimeview"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
@@ -607,7 +608,7 @@ func TestServiceSetGoalMemoNormalizesObjectiveWhitespace(t *testing.T) {
 	if first.Goal == nil || second.Goal == nil || first.Goal.ID != second.Goal.ID {
 		t.Fatalf("retry goal = %+v, want same id as %+v", second.Goal, first.Goal)
 	}
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -738,7 +739,7 @@ func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
 	if goal := store.Meta().Goal; goal == nil || goal.ID != resp.Goal.ID || goal.Objective != "next goal" || goal.Status != session.GoalStatusActive {
 		t.Fatalf("persisted replacement goal = %+v, want response goal %+v", goal, resp.Goal)
 	}
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -778,7 +779,7 @@ func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
 	if goal := store.Meta().Goal; goal != nil {
 		t.Fatalf("goal persisted after failed preflight: %+v", goal)
 	}
-	events, readErr := store.ReadEvents()
+	events, readErr := sessiontest.CollectEvents(store)
 	if readErr != nil {
 		t.Fatalf("ReadEvents: %v", readErr)
 	}
@@ -961,7 +962,7 @@ func TestServiceCollaborativeGoalMutationsRejectActivePrimaryRun(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(t, engine)
 			}
-			before, err := store.ReadEvents()
+			before, err := sessiontest.CollectEvents(store)
 			if err != nil {
 				t.Fatalf("ReadEvents before: %v", err)
 			}
@@ -973,7 +974,7 @@ func TestServiceCollaborativeGoalMutationsRejectActivePrimaryRun(t *testing.T) {
 			if !errors.Is(err, primaryrun.ErrActivePrimaryRun) {
 				t.Fatalf("goal update while primary run active error = %v, want ErrActivePrimaryRun", err)
 			}
-			after, err := store.ReadEvents()
+			after, err := sessiontest.CollectEvents(store)
 			if err != nil {
 				t.Fatalf("ReadEvents after: %v", err)
 			}
@@ -1017,14 +1018,14 @@ func TestServiceCompleteGoalAlreadyCompleteDoesNotDuplicateAudit(t *testing.T) {
 	if _, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "complete-1", SessionID: store.Meta().SessionID, Actor: "agent"}); err != nil {
 		t.Fatalf("CompleteGoal first: %v", err)
 	}
-	before, err := store.ReadEvents()
+	before, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents before: %v", err)
 	}
 	if _, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "complete-2", SessionID: store.Meta().SessionID, Actor: "agent"}); err != nil {
 		t.Fatalf("CompleteGoal second: %v", err)
 	}
-	after, err := store.ReadEvents()
+	after, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents after: %v", err)
 	}
@@ -1481,7 +1482,7 @@ func TestServiceQueueUserMessageRejectsClientRequestIDPayloadMismatch(t *testing
 
 func countDirectShellCommandMessages(t *testing.T, store *session.Store, command string) int {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -1518,7 +1519,7 @@ func countDirectShellCommandMessages(t *testing.T, store *session.Store, command
 
 func runtimeControlGoalDeveloperMessages(t *testing.T, store *session.Store) []llm.Message {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
@@ -1540,7 +1541,7 @@ func runtimeControlGoalDeveloperMessages(t *testing.T, store *session.Store) []l
 
 func countUserMessagesWithContent(t *testing.T, store *session.Store, content string) int {
 	t.Helper()
-	events, err := store.ReadEvents()
+	events, err := sessiontest.CollectEvents(store)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}

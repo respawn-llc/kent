@@ -213,8 +213,11 @@ func TestDetailEdgePagingWaitsForFirstNavigationToResolveMetrics(t *testing.T) {
 	for i := 0; i < 250; i++ {
 		page.Entries = append(page.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("line %03d", 100+i)})
 	}
+	page.NewerCursor = 5000
+	page.HasMoreBelow = true
 	entries := transcriptEntriesFromPage(page)
 	m.detailTranscript.replace(page)
+	m.detailTranscript.lastRequest = clientui.TranscriptPageRequest{Cursor: 4096}
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: page.Offset, TotalEntries: page.TotalEntries, Entries: entries})
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -245,7 +248,7 @@ func TestDetailEdgePagingWaitsForFirstNavigationToResolveMetrics(t *testing.T) {
 	if got, want := len(client.loadRequests), 1; got != want {
 		t.Fatalf("load request count = %d, want %d", got, want)
 	}
-	expectedReq := clientui.TranscriptPageRequest{Offset: 350, Limit: 150}
+	expectedReq := clientui.TranscriptPageRequest{NewerCursor: 5000}
 	if msg.req != expectedReq {
 		t.Fatalf("paging request = %+v, want %+v", msg.req, expectedReq)
 	}
@@ -261,7 +264,7 @@ func TestCtrlTDeferredDetailLoadSkipsDuplicateSeededPageRequest(t *testing.T) {
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone)
+	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, seed, clientui.TranscriptRecoveryCauseNone)
 	m.layout().syncViewport()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -305,7 +308,7 @@ func TestCtrlTDeferredDetailLoadSkippedKeepsDetailMetricsLazyEndToEnd(t *testing
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone)
+	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, seed, clientui.TranscriptRecoveryCauseNone)
 	m.layout().syncViewport()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -340,7 +343,7 @@ func TestDeferredDetailLoadRefreshesWhenTranscriptDirty(t *testing.T) {
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone)
+	_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, seed, clientui.TranscriptRecoveryCauseNone)
 	m.layout().syncViewport()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -360,7 +363,7 @@ func TestDeferredDetailLoadRefreshesWhenTranscriptDirty(t *testing.T) {
 	if refreshed.syncCause != runtimeTranscriptSyncCauseManualTranscriptRefresh {
 		t.Fatalf("detail refresh sync cause = %q, want %q", refreshed.syncCause, runtimeTranscriptSyncCauseManualTranscriptRefresh)
 	}
-	expectedReq := clientui.TranscriptPageRequest{Offset: seed.Offset, Limit: len(seed.Entries)}
+	expectedReq := clientui.TranscriptPageRequest{}
 	if refreshed.req != expectedReq {
 		t.Fatalf("dirty deferred detail request = %+v, want %+v", refreshed.req, expectedReq)
 	}
@@ -386,7 +389,7 @@ func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: detailPage}
 	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, seed, clientui.TranscriptRecoveryCauseNone); cmd != nil {
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, seed, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.layout().syncViewport()
@@ -650,8 +653,8 @@ func TestStartupHydrationKeepsCompactionSummaryVerbose(t *testing.T) {
 	if got, want := len(client.loadRequests), 1; got != want {
 		t.Fatalf("load request count = %d, want %d", got, want)
 	}
-	if client.loadRequests[0].Window != clientui.TranscriptWindowRecentTail {
-		t.Fatalf("startup hydration window = %q, want recent_tail", client.loadRequests[0].Window)
+	if client.loadRequests[0] != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("startup hydration request = %+v, want recent-tail (zero cursor)", client.loadRequests[0])
 	}
 }
 

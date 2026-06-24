@@ -1,19 +1,43 @@
 package app
 
-import "strings"
+import (
+	"strings"
+
+	"core/cli/tui"
+)
 
 func projectedTranscriptEventSnapshotFromModel(m *uiModel) projectedTranscriptEventSnapshot {
 	if m == nil {
 		return projectedTranscriptEventSnapshot{}
 	}
+	liveAssistantText := projectedActiveAssistantStreamText(m)
 	return projectedTranscriptEventSnapshot{
 		entries:              m.transcriptEntries,
 		baseOffset:           m.transcriptBaseOffset,
 		revision:             m.transcriptRevision,
 		hasRuntimeClient:     m.hasRuntimeClient(),
 		busy:                 m.isBusy(),
-		liveAssistantPending: strings.TrimSpace(m.view.OngoingStreamingText()) != "" || m.sawAssistantDelta,
+		liveAssistantPending: strings.TrimSpace(liveAssistantText) != "" || m.sawAssistantDelta,
+		liveAssistantText:    liveAssistantText,
+		liveAssistantStepID:  m.nativeStreamingStepID,
 	}
+}
+
+func projectedActiveAssistantStreamText(m *uiModel) string {
+	if m == nil {
+		return ""
+	}
+	values := []string{
+		m.view.OngoingStreamingText(),
+		m.nativeStreamingController.source,
+		m.nativeStreamingText,
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func deferredCommittedTailSnapshotFromModel(m *uiModel) deferredCommittedTailSnapshot {
@@ -21,10 +45,28 @@ func deferredCommittedTailSnapshotFromModel(m *uiModel) deferredCommittedTailSna
 		return deferredCommittedTailSnapshot{}
 	}
 	return deferredCommittedTailSnapshot{
-		tails:            m.deferredCommittedTail,
-		committedEntries: committedTranscriptEntriesForApp(m.transcriptEntries),
+		tails: m.deferredCommittedTail,
+		// Deferred tails reconcile against the loaded committed model frontier,
+		// including unresolved tool calls. The ongoing projection frontier stops
+		// before unresolved tools, which is correct for scrollback output but
+		// would make later tool results/finalizers look non-contiguous here.
+		committedEntries: committedTranscriptEntriesForDeferredTail(m.transcriptEntries),
 		baseOffset:       m.transcriptBaseOffset,
 		revision:         m.transcriptRevision,
 		totalEntries:     m.transcriptTotalEntries,
 	}
+}
+
+func committedTranscriptEntriesForDeferredTail(entries []tui.TranscriptEntry) []tui.TranscriptEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	committed := make([]tui.TranscriptEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Transient && !entry.Committed {
+			continue
+		}
+		committed = append(committed, entry)
+	}
+	return committed
 }

@@ -402,7 +402,7 @@ func TestTranscriptPersistenceCoordinatorOwnsChatMutationTransitions(t *testing.
 	persistence := newTranscriptPersistenceCoordinator(state)
 	persistence.AppendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode"})
 	persistence.AppendLocalEntryRecord(ChatEntry{Role: "notice", Text: "local note"})
-	snap := state.Snapshot()
+	snap := state.chatProjection().snapshotWithMetadata().Snapshot
 	if len(snap.Entries) != 2 || snap.Entries[1].Role != "notice" || snap.Entries[1].Text != "local note" {
 		t.Fatalf("unexpected transcript entries after local append: %+v", snap.Entries)
 	}

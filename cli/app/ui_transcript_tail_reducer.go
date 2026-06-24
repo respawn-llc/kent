@@ -73,6 +73,9 @@ func reduceDeferredCommittedTailDefer(state deferredCommittedTailState, evt clie
 	if end > totalEntriesAfter {
 		totalEntriesAfter = end
 	}
+	if evt.CommittedEntryCount > totalEntriesAfter {
+		totalEntriesAfter = evt.CommittedEntryCount
+	}
 	return deferredCommittedTailDeferReduction{
 		shouldDefer: true,
 		tail: deferredProjectedTranscriptTail{
@@ -91,7 +94,7 @@ func reduceDeferredCommittedTailMerge(state deferredCommittedTailState, evt clie
 	if len(state.tails) == 0 || len(evt.TranscriptEntries) == 0 || !evt.CommittedTranscriptChanged {
 		return deferredCommittedTailMergeReduction{event: evt, remaining: append([]deferredProjectedTranscriptTail(nil), state.tails...)}
 	}
-	eventStart, _, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
+	eventStart, eventEnd, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
 	if !ok {
 		return deferredCommittedTailMergeReduction{event: evt, remaining: append([]deferredProjectedTranscriptTail(nil), state.tails...)}
 	}
@@ -101,17 +104,29 @@ func reduceDeferredCommittedTailMerge(state deferredCommittedTailState, evt clie
 	used := 0
 	chainEnd := currentEnd
 	for _, deferred := range state.tails {
-		if deferred.rangeStart != chainEnd {
+		if deferred.rangeStart != chainEnd || deferred.rangeEnd > eventStart {
 			break
 		}
 		mergedEntries = append(mergedEntries, cloneChatEntries(deferred.entries)...)
 		chainEnd = deferred.rangeEnd
 		used++
 	}
-	if used == 0 || eventStart != chainEnd {
+	if eventStart != chainEnd {
 		return deferredCommittedTailMergeReduction{event: evt, remaining: append([]deferredProjectedTranscriptTail(nil), state.tails...)}
 	}
 	mergedEntries = append(mergedEntries, cloneChatEntries(evt.TranscriptEntries)...)
+	chainEnd = eventEnd
+	for _, deferred := range state.tails[used:] {
+		if deferred.rangeStart != chainEnd || evt.CommittedEntryCount < deferred.rangeEnd {
+			break
+		}
+		mergedEntries = append(mergedEntries, cloneChatEntries(deferred.entries)...)
+		chainEnd = deferred.rangeEnd
+		used++
+	}
+	if used == 0 {
+		return deferredCommittedTailMergeReduction{event: evt, remaining: append([]deferredProjectedTranscriptTail(nil), state.tails...)}
+	}
 	evt.TranscriptEntries = mergedEntries
 	evt.CommittedEntryStart = mergedStart
 	evt.CommittedEntryStartSet = true

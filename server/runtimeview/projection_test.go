@@ -401,7 +401,7 @@ func TestMainViewFromReopenedWorkflowSessionIncludesDurableWorkflowStatus(t *tes
 	}
 }
 
-func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
+func TestSessionViewFromRuntimeOmitsTranscriptPayload(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
@@ -414,8 +414,8 @@ func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
 	}
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 	view := SessionViewFromRuntime(eng)
-	if view.Transcript.CommittedEntryCount != eng.CommittedTranscriptEntryCount() {
-		t.Fatalf("projected committed entry count = %d, engine committed entry count = %d", view.Transcript.CommittedEntryCount, eng.CommittedTranscriptEntryCount())
+	if view.Transcript.Revision != eng.TranscriptRevision() {
+		t.Fatalf("projected revision = %d, engine revision = %d", view.Transcript.Revision, eng.TranscriptRevision())
 	}
 	if got := len(view.Chat.Entries); got != 0 {
 		t.Fatalf("session view chat entry count = %d, want 0", got)
@@ -591,146 +591,35 @@ func TestTranscriptPageFromChatClonesPatchRender(t *testing.T) {
 		},
 	}}}
 
-	page := TranscriptPageFromChat("session-1", "session", clientui.ConversationFreshnessEstablished, 1, snapshot, clientui.TranscriptPageRequest{})
-	if len(page.Entries) != 1 || page.Entries[0].ToolCall == nil || page.Entries[0].ToolCall.PatchRender == nil {
-		t.Fatalf("expected patch render copied into transcript page, got %+v", page.Entries)
+	entries := cloneChatEntries(snapshot.Entries)
+	if len(entries) != 1 || entries[0].ToolCall == nil || entries[0].ToolCall.PatchRender == nil {
+		t.Fatalf("expected patch render copied into cloned entries, got %+v", entries)
 	}
 	snapshot.Entries[0].ToolCall.PatchRender.SummaryLines[0].Text = "after"
-	if page.Entries[0].ToolCall.PatchRender.SummaryLines[0].Text != "before" {
-		t.Fatalf("expected transcript page to deep copy patch render, got %+v", page.Entries[0].ToolCall.PatchRender.SummaryLines)
+	if entries[0].ToolCall.PatchRender.SummaryLines[0].Text != "before" {
+		t.Fatalf("expected cloned entries to deep copy patch render, got %+v", entries[0].ToolCall.PatchRender.SummaryLines)
 	}
 }
 
-func TestTranscriptPageFromChatSupportsPageNumberPagination(t *testing.T) {
-	snapshot := clientui.ChatSnapshot{Entries: []clientui.ChatEntry{
-		{Role: "assistant", Text: "a0"},
-		{Role: "assistant", Text: "a1"},
-		{Role: "assistant", Text: "a2"},
-		{Role: "assistant", Text: "a3"},
-		{Role: "assistant", Text: "a4"},
-	}}
-
-	page := TranscriptPageFromChat("session-1", "incident triage", clientui.ConversationFreshnessEstablished, 7, snapshot, clientui.TranscriptPageRequest{Page: 1, PageSize: 2})
-	if page.TotalEntries != 5 {
-		t.Fatalf("total entries = %d, want 5", page.TotalEntries)
-	}
-	if page.Offset != 2 {
-		t.Fatalf("offset = %d, want 2", page.Offset)
-	}
-	if !page.HasMore || page.NextOffset != 4 {
-		t.Fatalf("unexpected pagination metadata: %+v", page)
-	}
-	if len(page.Entries) != 2 || page.Entries[0].Text != "a2" || page.Entries[1].Text != "a3" {
-		t.Fatalf("unexpected page entries: %+v", page.Entries)
-	}
-}
-
-func TestTranscriptPageFromRuntimeUsesRecentTailWindow(t *testing.T) {
-	store := newRuntimeViewStore(t)
-	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
-	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
-
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail})
-	if page.TotalEntries != 600 {
-		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
-	}
-	if page.Offset != 100 {
-		t.Fatalf("offset = %d, want 100", page.Offset)
-	}
-	if page.HasMore {
-		t.Fatalf("expected ongoing tail page to terminate at end, got %+v", page)
-	}
-	if len(page.Entries) != 500 {
-		t.Fatalf("entries = %d, want 500", len(page.Entries))
-	}
-}
-
-func TestTranscriptPageFromRuntimeUsesRecentTailWindowByDefault(t *testing.T) {
-	store := newRuntimeViewStore(t)
-	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
-	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
-
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{})
-	if page.TotalEntries != 600 {
-		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
-	}
-	if page.Offset != 100 {
-		t.Fatalf("offset = %d, want 100", page.Offset)
-	}
-	if page.HasMore {
-		t.Fatalf("expected default transcript request to return ongoing tail, got %+v", page)
-	}
-	if len(page.Entries) != 500 {
-		t.Fatalf("entries = %d, want 500", len(page.Entries))
-	}
-}
-
-func TestTranscriptPageFromRuntimeFallsBackToRecentTailForUnknownWindow(t *testing.T) {
-	store := newRuntimeViewStore(t)
-	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
-	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
-
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Window: clientui.TranscriptWindow("ongoing_tail")})
-	if page.TotalEntries != 600 {
-		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
-	}
-	if page.Offset != 100 {
-		t.Fatalf("offset = %d, want 100", page.Offset)
-	}
-	if page.HasMore {
-		t.Fatalf("expected unknown window to fall back to bounded tail, got %+v", page)
-	}
-	if len(page.Entries) != 500 {
-		t.Fatalf("entries = %d, want 500", len(page.Entries))
-	}
-}
-
-func TestTranscriptPageFromRuntimeUsesIncrementalRecentTailWhenClientKnowsRecentRevision(t *testing.T) {
+func TestTranscriptPageFromRuntimeReturnsNewestSegment(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{
-		Window:                   clientui.TranscriptWindowRecentTail,
-		KnownRevision:            599,
-		KnownCommittedEntryCount: 590,
-	})
-	if page.TotalEntries != 600 {
-		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
+	page, err := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{})
+	if err != nil {
+		t.Fatalf("transcript page from runtime: %v", err)
 	}
-	if page.Offset != 558 {
-		t.Fatalf("offset = %d, want 558", page.Offset)
+	if page.HasMoreAbove {
+		t.Fatalf("never-compacted session must not report more above, got %+v", page)
 	}
-	if len(page.Entries) != 42 {
-		t.Fatalf("entries = %d, want 42", len(page.Entries))
+	if page.OlderCursor != 0 {
+		t.Fatalf("never-compacted older cursor = %d, want 0", page.OlderCursor)
 	}
-	if got := page.Entries[0].Text; got != "reply-558" {
-		t.Fatalf("first entry = %q, want reply-558", got)
+	if len(page.Entries) != 600 {
+		t.Fatalf("entries = %d, want 600 (whole segment)", len(page.Entries))
 	}
-}
-
-func TestTranscriptPageFromRuntimeUsesPagedSnapshotForOffsetLimit(t *testing.T) {
-	store := newRuntimeViewStore(t)
-	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
-	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
-
-	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Offset: 550, Limit: 25})
-	if page.TotalEntries != 600 {
-		t.Fatalf("total entries = %d, want 600", page.TotalEntries)
-	}
-	if page.Offset != 550 {
-		t.Fatalf("offset = %d, want 550", page.Offset)
-	}
-	if !page.HasMore || page.NextOffset != 575 {
-		t.Fatalf("unexpected pagination metadata: %+v", page)
-	}
-	if len(page.Entries) != 25 {
-		t.Fatalf("entries = %d, want 25", len(page.Entries))
-	}
-	if first := page.Entries[0].Text; first != "reply-550" {
-		t.Fatalf("first entry = %q, want reply-550", first)
-	}
-	if last := page.Entries[len(page.Entries)-1].Text; last != "reply-574" {
-		t.Fatalf("last entry = %q, want reply-574", last)
+	if page.Entries[0].Text != "reply-000" || page.Entries[599].Text != "reply-599" {
+		t.Fatalf("unexpected segment bounds: %q..%q", page.Entries[0].Text, page.Entries[599].Text)
 	}
 }

@@ -103,7 +103,6 @@ func (m *uiModel) requestRuntimeCommittedTranscriptSuffix(req clientui.Committed
 	if !ok {
 		return nil
 	}
-	req = clientui.NormalizeCommittedTranscriptSuffixRequest(req)
 	m.runtimeCommittedSuffixToken++
 	token := m.runtimeCommittedSuffixToken
 	return func() tea.Msg {
@@ -140,7 +139,7 @@ func (m *uiModel) startRuntimeTranscriptSyncRequest(syncRequest runtimeTranscrip
 	}
 	if syncRequest.allowDuplicateSkip && m.shouldSkipTranscriptPageRequest(syncRequest.page) {
 		request := syncRequest.page
-		m.logf("ui.runtime.transcript.skip_duplicate mode=%s offset=%d limit=%d window=%s sync_cause=%s", m.view.Mode(), request.Offset, request.Limit, request.Window, syncRequest.syncCause)
+		m.logf("ui.runtime.transcript.skip_duplicate mode=%s cursor=%d sync_cause=%s", m.view.Mode(), request.Cursor, syncRequest.syncCause)
 		return runtimeTranscriptSyncDecision{}
 	}
 	if m.shouldDeferRuntimeTranscriptSync(syncRequest) {
@@ -254,18 +253,22 @@ func normalizeRuntimeMainViewRefreshRequest(req runtimeMainViewRefreshRequest) r
 
 func runtimeMainViewRefreshRequestForCause(cause runtimeMainViewRefreshCause) runtimeMainViewRefreshRequest {
 	priority := 10
-	if cause == runtimeMainViewRefreshCauseStartupUpdate {
+	class := runtimeSyncPolicyClassRoutine
+	switch cause {
+	case runtimeMainViewRefreshCauseStartupUpdate:
 		priority = 20
+	case runtimeMainViewRefreshCauseWorktreeMutation:
+		class = runtimeSyncPolicyClassAllowed
+		priority = 50
 	}
 	return normalizeRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequest{
 		cause:    cause,
-		class:    runtimeSyncPolicyClassRoutine,
+		class:    class,
 		priority: priority,
 	})
 }
 
 func (m *uiModel) normalizeRuntimeTranscriptSyncRequest(req runtimeTranscriptSyncRequest) runtimeTranscriptSyncRequest {
-	req.page = m.transcriptHydrationRequest(req.page, req.allowDuplicateSkip)
 	if req.syncCause == "" {
 		req.syncCause = runtimeTranscriptSyncCauseCommittedConversation
 	}
@@ -321,13 +324,15 @@ func shouldReplacePendingRuntimeTranscriptSync(current, next runtimeTranscriptSy
 	if next.priority != current.priority {
 		return next.priority > current.priority
 	}
-	if next.page.Window != current.page.Window {
-		return next.page.Window == clientui.TranscriptWindowRecentTail
+	nextRecentTail := next.page.Cursor <= 0 && next.page.NewerCursor <= 0
+	currentRecentTail := current.page.Cursor <= 0 && current.page.NewerCursor <= 0
+	if nextRecentTail != currentRecentTail {
+		return nextRecentTail
 	}
-	if next.page.Limit != current.page.Limit {
-		return next.page.Limit > current.page.Limit
+	if next.page.NewerCursor > 0 || current.page.NewerCursor > 0 {
+		return next.page.NewerCursor >= current.page.NewerCursor
 	}
-	return next.page.Offset >= current.page.Offset
+	return next.page.Cursor >= current.page.Cursor
 }
 
 func (m *uiModel) mergePendingRuntimeMainViewRefresh(req runtimeMainViewRefreshRequest) {
@@ -382,25 +387,15 @@ func (m *uiModel) logRuntimeTranscriptPolicyDecision(outcome string, req runtime
 		return
 	}
 	m.logf(
-		"ui.runtime.transcript.policy outcome=%s sync_cause=%s recovery_cause=%s priority=%d streaming=%t process_overlay=%t window=%s offset=%d limit=%d",
+		"ui.runtime.transcript.policy outcome=%s sync_cause=%s recovery_cause=%s priority=%d streaming=%t process_overlay=%t cursor=%d",
 		outcome,
 		req.syncCause,
 		req.recoveryCause,
 		req.priority,
 		m.runtimeSyncBlockedByStreaming(),
 		m.runtimeSyncBlockedByProcessOverlay(),
-		req.page.Window,
-		req.page.Offset,
-		req.page.Limit,
+		req.page.Cursor,
 	)
-}
-
-func (m *uiModel) transcriptHydrationRequest(request clientui.TranscriptPageRequest, allowDuplicateSkip bool) clientui.TranscriptPageRequest {
-	if m == nil || allowDuplicateSkip || request.Window != clientui.TranscriptWindowRecentTail {
-		return request
-	}
-	request.KnownRevision, request.KnownCommittedEntryCount = committedTranscriptStateIncludingDeferredTail(m)
-	return request
 }
 
 func (m *uiModel) shouldSkipTranscriptPageRequest(req clientui.TranscriptPageRequest) bool {
@@ -575,33 +570,32 @@ func (m *uiModel) handleRuntimeCommittedTranscriptSuffixRefreshed(msg runtimeCom
 			return nil
 		}
 		m.observeRuntimeRequestResult(msg.err)
-		m.logf("ui.runtime.committed_suffix err=%q after_entry_count=%d limit=%d", msg.err.Error(), msg.req.AfterEntryCount, msg.req.Limit)
+		m.logf("ui.runtime.committed_suffix err=%q", msg.err.Error())
 		return m.requestRuntimeCommittedGapSync()
 	}
 	m.observeRuntimeRequestResult(nil)
+	if m.shouldGateCommittedSuffixResponse(msg.suffix) {
+		m.deferRuntimeCommittedSuffixRefresh()
+		return nil
+	}
 	if committedTranscriptSuffixStartsAfterDeliveryCursor(m, msg.suffix) {
 		return m.requestRuntimeCommittedGapSync()
 	}
 	staleResponse := msg.token < m.runtimeCommittedSuffixToken
 	trimmedSuffix := m.trimCommittedTranscriptSuffixToDeliveryCursor(msg.suffix)
 	applyCmd := m.applyCommittedTranscriptSuffixAppend(msg.suffix)
+	deferredCmd := m.drainDeferredCommittedDeliveryIfUnblocked()
 	hasMore := msg.suffix.HasMore
-	nextEntryCount := msg.suffix.NextEntryCount
 	if staleResponse {
 		hasMore = trimmedSuffix.HasMore
-		nextEntryCount = trimmedSuffix.NextEntryCount
 		if trimmedSuffix.NextEntryCount <= trimmedSuffix.StartEntryCount {
-			return applyCmd
+			return sequenceCmds(applyCmd, deferredCmd)
 		}
 	}
 	if !hasMore {
-		return applyCmd
+		return sequenceCmds(applyCmd, deferredCmd)
 	}
-	nextReq := clientui.NormalizeCommittedTranscriptSuffixRequest(clientui.CommittedTranscriptSuffixRequest{
-		AfterEntryCount: nextEntryCount,
-		Limit:           msg.req.Limit,
-	})
-	return sequenceCmds(applyCmd, m.requestRuntimeCommittedTranscriptSuffix(nextReq))
+	return sequenceCmds(applyCmd, deferredCmd, m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}))
 }
 
 func (m *uiModel) flushQueuedInputsAfterHydration() tea.Cmd {

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -40,23 +41,6 @@ func TestChatStoreSnapshotPreservesVisibleEntryOrdering(t *testing.T) {
 				{Role: "assistant", Text: "second"},
 			},
 		},
-		{
-			name: "detail transcript keeps pre-replacement history",
-			seed: func(s *chatStore) {
-				s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "a"})
-				s.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: "b"})
-				s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "error", Text: "before replace"})
-				s.replaceHistory(llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "after replace"}}))
-				s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "compaction_notice", Text: "after replace notice"})
-			},
-			want: []expectedChatEntry{
-				{Role: "user", Text: "a"},
-				{Role: "assistant", Text: "b"},
-				{Role: "error", Text: "before replace"},
-				{Role: "user", Text: "after replace"},
-				{Role: "compaction_notice", Text: "after replace notice"},
-			},
-		},
 	})
 }
 
@@ -85,33 +69,58 @@ func TestChatStoreProviderHistoryStartsAtLastCompactionCheckpoint(t *testing.T) 
 	if items[2].Role != llm.RoleUser || items[2].Content != "after" {
 		t.Fatalf("expected post-compaction tail in provider history, got %+v", items[2])
 	}
-
-	snap := s.snapshotWithMetadata().Snapshot
-	assertChatEntries(t, snap.Entries, []expectedChatEntry{
-		{Role: "user", Text: "before-1"},
-		{Role: "assistant", Text: "before-2"},
-		{Role: string(transcript.EntryRoleDeveloperContext), Text: "ctx"},
-		{Role: string(transcript.EntryRoleCompactionSummary), Text: "compact-summary"},
-		{Role: "user", Text: "after"},
-	})
 }
 
-func TestChatStoreSnapshotKeepsProjectedEntriesAcrossMultipleCompactions(t *testing.T) {
-	s := newChatStore()
-	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "before"})
-	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-1"}})
-	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "between"})
-	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-2"}})
-	s.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: "after"})
+func TestPersistedTranscriptScanKeepsProjectedEntriesAcrossMultipleCompactions(t *testing.T) {
+	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	applyPersistedScanEvents(t, scan, []session.Event{
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "before"}),
+		historyReplacedEvent(t, []llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-1"}}),
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: "between"}),
+		historyReplacedEvent(t, []llm.Message{{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary-2"}}),
+		mustPersistedEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: "after"}),
+	})
 
-	snap := s.snapshotWithMetadata().Snapshot
-	assertChatEntries(t, snap.Entries, []expectedChatEntry{
+	assertChatEntries(t, scan.CollectedPageSnapshot().Entries, []expectedChatEntry{
 		{Role: "user", Text: "before"},
 		{Role: string(transcript.EntryRoleCompactionSummary), Text: "summary-1"},
 		{Role: "user", Text: "between"},
 		{Role: string(transcript.EntryRoleCompactionSummary), Text: "summary-2"},
 		{Role: "assistant", Text: "after"},
 	})
+}
+
+func TestChatStoreCompactionTrimsRetainedHistoryToWorkingSet(t *testing.T) {
+	s := newChatStore()
+	for i := 0; i < 600; i++ {
+		s.appendMessage(llm.Message{
+			Role:      llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{{ID: callIDForIndex(i), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}},
+		})
+		s.recordToolCompletionWithProviderItems(tools.Result{CallID: callIDForIndex(i), Name: toolspec.ToolExecCommand, Output: json.RawMessage(`{"output":"/tmp"}`)}, nil)
+		s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAuto, Role: "system", Text: "note"})
+	}
+	committedBeforeCompaction := s.committedEntryCount()
+
+	s.replaceHistory([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}})
+	s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "after"})
+
+	if got := len(s.items); got > 4 {
+		t.Fatalf("retained %d provider items after compaction, want bounded working set", got)
+	}
+	if got := len(s.local); got > 4 {
+		t.Fatalf("retained %d local entries after compaction, want bounded working set", got)
+	}
+	if got := len(s.toolCompletions); got != 0 {
+		t.Fatalf("retained %d tool completions after compaction, want pruned working set", got)
+	}
+	if got := s.committedEntryCount(); got <= committedBeforeCompaction {
+		t.Fatalf("committed entry counter = %d, want cumulative total preserved across trim (was %d)", got, committedBeforeCompaction)
+	}
+}
+
+func callIDForIndex(i int) string {
+	return "call-" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26)) + string(rune('a'+(i/676)%26))
 }
 
 func TestChatStoreProviderHistoryUsesMostRecentCompactionCheckpoint(t *testing.T) {

@@ -50,7 +50,7 @@ func TestNativeNoopFinalNeverAppearsOnScreen(t *testing.T) {
 		if model.sawAssistantDelta {
 			return false
 		}
-		for _, entry := range eng.ChatSnapshot().Entries {
+		for _, entry := range eng.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 			if strings.Contains(entry.Text, "NO_OP") {
 				return false
 			}
@@ -70,9 +70,9 @@ func TestNativeNoopFinalNeverAppearsOnScreen(t *testing.T) {
 	if model.sawAssistantDelta {
 		t.Fatal("expected sawAssistantDelta cleared after noop final")
 	}
-	for _, entry := range eng.ChatSnapshot().Entries {
+	for _, entry := range eng.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
 		if strings.Contains(entry.Text, "NO_OP") {
-			t.Fatalf("expected NO_OP to stay out of transcript entries, got %+v", eng.ChatSnapshot().Entries)
+			t.Fatalf("expected NO_OP to stay out of transcript entries, got %+v", eng.RecentTailTranscriptWindow(1<<20).Snapshot.Entries)
 		}
 	}
 }

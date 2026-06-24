@@ -27,6 +27,7 @@ func TestRollbackSelectionUsesAbsoluteTranscriptEntryIndexWhenPaged(t *testing.T
 	m.transcriptBaseOffset = 200
 	m.transcriptTotalEntries = 203
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: m.transcriptBaseOffset, TotalEntries: m.transcriptTotalEntries, Entries: m.transcriptEntries})
+	seedTestRollbackTargets(m)
 	m.layout().syncViewport()
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -69,6 +70,7 @@ func TestRollbackRefreshClearsPendingPageSelectionOutsideSelectionMode(t *testin
 		{Role: tui.TranscriptRoleAssistant, Text: "answer"},
 		{Role: tui.TranscriptRoleUser, Text: "newer"},
 	}
+	seedTestRollbackTargets(m)
 	m.rollback.phase = uiRollbackPhaseEditing
 	m.rollback.selection = 1
 	m.rollback.pendingSelectionAnchor = 2

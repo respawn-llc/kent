@@ -343,7 +343,7 @@ func (c *sessionRuntimeClient) Transcript() clientui.TranscriptPage {
 }
 
 func (c *sessionRuntimeClient) RefreshTranscript() (clientui.TranscriptPage, error) {
-	return c.refreshTranscriptPageSync(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowRecentTail}, uiRuntimeHydrationReadTimeout)
+	return c.refreshTranscriptPageSync(clientui.TranscriptPageRequest{}, uiRuntimeHydrationReadTimeout)
 }
 
 func (c *sessionRuntimeClient) RefreshTranscriptPage(req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
@@ -497,14 +497,9 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 	defer cancel()
 	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseWithWarning, false, func() (serverapi.SessionTranscriptPageResponse, error) {
 		return c.reads.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{
-			SessionID:                c.sessionID,
-			Offset:                   req.Offset,
-			Limit:                    req.Limit,
-			Page:                     req.Page,
-			PageSize:                 req.PageSize,
-			Window:                   req.Window,
-			KnownRevision:            req.KnownRevision,
-			KnownCommittedEntryCount: req.KnownCommittedEntryCount,
+			SessionID:   c.sessionID,
+			Cursor:      req.Cursor,
+			NewerCursor: req.NewerCursor,
 		})
 	})
 	c.notifyConnectionState(err)
@@ -530,9 +525,13 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 	c.patchMainView(func(view *clientui.RuntimeMainView) {
 		view.Status.ConversationFreshness = page.ConversationFreshness
 		view.Session.ConversationFreshness = page.ConversationFreshness
+		committedEntryCount := view.Session.Transcript.CommittedEntryCount
+		if isRecentTailTranscriptRequest(req) {
+			committedEntryCount = page.TotalEntries
+		}
 		view.Session.Transcript = clientui.TranscriptMetadata{
 			Revision:            page.Revision,
-			CommittedEntryCount: page.TotalEntries,
+			CommittedEntryCount: committedEntryCount,
 		}
 		if isRecentTailTranscriptRequest(req) {
 			view.Session.Chat = clientui.ChatSnapshot{
@@ -545,10 +544,9 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 	return page, nil
 }
 
-func (c *sessionRuntimeClient) refreshCommittedTranscriptSuffixSync(req clientui.CommittedTranscriptSuffixRequest, timeout time.Duration) (clientui.CommittedTranscriptSuffix, error) {
-	req = clientui.NormalizeCommittedTranscriptSuffixRequest(req)
+func (c *sessionRuntimeClient) refreshCommittedTranscriptSuffixSync(_ clientui.CommittedTranscriptSuffixRequest, timeout time.Duration) (clientui.CommittedTranscriptSuffix, error) {
 	fallbackToPage := func() (clientui.CommittedTranscriptSuffix, error) {
-		page, err := c.refreshTranscriptPageSync(clientui.TranscriptPageRequest{Offset: req.AfterEntryCount, Limit: req.Limit}, timeout)
+		page, err := c.refreshTranscriptPageSync(clientui.TranscriptPageRequest{}, timeout)
 		if err != nil {
 			return clientui.CommittedTranscriptSuffix{SessionID: c.sessionID}, err
 		}
@@ -565,9 +563,7 @@ func (c *sessionRuntimeClient) refreshCommittedTranscriptSuffixSync(req clientui
 	defer cancel()
 	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseWithWarning, false, func() (serverapi.SessionCommittedTranscriptSuffixResponse, error) {
 		return suffixClient.GetSessionCommittedTranscriptSuffix(ctx, serverapi.SessionCommittedTranscriptSuffixRequest{
-			SessionID:       c.sessionID,
-			AfterEntryCount: req.AfterEntryCount,
-			Limit:           req.Limit,
+			SessionID: c.sessionID,
 		})
 	})
 	c.notifyConnectionState(err)
@@ -654,7 +650,7 @@ func (c *sessionRuntimeClient) logTranscriptDiag(line string) {
 }
 
 func isRecentTailTranscriptRequest(req clientui.TranscriptPageRequest) bool {
-	return req == (clientui.TranscriptPageRequest{}) || req.Window == clientui.TranscriptWindowRecentTail
+	return req.Cursor <= 0 && req.NewerCursor <= 0
 }
 
 func transcriptPageFromSessionView(view clientui.RuntimeSessionView) clientui.TranscriptPage {

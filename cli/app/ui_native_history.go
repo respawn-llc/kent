@@ -97,7 +97,7 @@ func (m *uiModel) nativeStreamingCommitAssistantIndex(committedEntries []tui.Tra
 	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
 		return -1
 	}
-	if strings.TrimSpace(m.nativeStreamingController.source) == "" {
+	if strings.TrimSpace(m.nativeStreamingController.source) == "" && !m.nativeStreamingAwaitingCommit {
 		return -1
 	}
 	previousCommittedCount := m.nativeFlushedEntryCount
@@ -158,6 +158,17 @@ func (m *uiModel) resetNativeHistoryState() {
 	m.discardPendingNativeHistoryFlushes()
 }
 
+func (m *uiModel) flushSupersededAssistantStreamTurn() tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	m.sawAssistantDelta = false
+	m.nativeStreamingActive = false
+	m.forwardToView(tui.ClearOngoingAssistantMsg{})
+	m.resetNativeStreamingState()
+	return m.drainDeferredCommittedDeliveryIfUnblocked()
+}
+
 func (m *uiModel) resetNativeStreamingState() {
 	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
 	m.nativeStreamingTail = nil
@@ -167,6 +178,7 @@ func (m *uiModel) resetNativeStreamingState() {
 	m.nativeStreamingCommitStart = 0
 	m.nativeStreamingCommitEnd = 0
 	m.nativeStreamingCommitRangeSet = false
+	m.nativeStreamingAwaitingCommit = false
 	m.nativeStreamingWidth = 0
 	m.nativeStreamingFlushedLineCount = 0
 	m.nativeStreamingDividerFlushed = false
@@ -178,6 +190,9 @@ func (m *uiModel) syncNativeStreamingScrollback() tea.Cmd {
 	}
 	streamText, ok := m.activeNativeStreamingText()
 	if !ok {
+		if m.nativeStreamingAwaitingCommit {
+			return nil
+		}
 		m.resetNativeStreamingState()
 		return nil
 	}
@@ -241,7 +256,13 @@ func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProject
 		return m.emitCurrentNativeScrollbackState(true), true
 	}
 	hadCommittedHistory := previousCommittedCount > 0
-	m.nativeStreamingController.source = committedEntries[streamedAssistantIndex].Text
+	committedAssistantText := committedEntries[streamedAssistantIndex].Text
+	if strings.TrimSpace(m.nativeStreamingController.source) != "" {
+		m.nativeStreamingController.source = committedAssistantText
+		m.nativeStreamingController.rendered = tui.RenderAssistantMarkdownProjection(committedAssistantText, m.nativeStreamingController.theme, m.nativeStreamingController.width)
+	} else {
+		m.nativeStreamingController.ApplySource(committedAssistantText, m.theme, m.nativeReplayRenderWidth())
+	}
 	finalUpdate := m.nativeStreamingController.Finalize()
 	flushTailText := renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth())
 	postAssistantText := m.nativeProjectionTextForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)

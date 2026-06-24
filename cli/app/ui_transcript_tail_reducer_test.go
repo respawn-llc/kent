@@ -96,6 +96,46 @@ func TestReduceDeferredCommittedTailMergeConsumesContiguousChain(t *testing.T) {
 	}
 }
 
+func TestReduceDeferredCommittedTailMergeConsumesCoveredPostEventTail(t *testing.T) {
+	state := deferredCommittedTailState{
+		committedEntries: []tui.TranscriptEntry{
+			{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true},
+			{Role: tui.TranscriptRoleAssistant, Text: "previous", Committed: true},
+			{Role: tui.TranscriptRoleUser, Text: "run task", Committed: true},
+			{Role: tui.TranscriptRoleAssistant, Text: "draft", Committed: true},
+		},
+		baseOffset: 0,
+		tails: []deferredProjectedTranscriptTail{
+			{rangeStart: 5, rangeEnd: 6, revision: 8, entries: []clientui.ChatEntry{{Role: "user", Text: "queued follow-up"}}},
+		},
+	}
+	reduction := reduceDeferredCommittedTailMerge(state, clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        4,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        6,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "final answer"}},
+	})
+
+	if !reduction.merged {
+		t.Fatalf("expected post-event tail merge, got %+v", reduction)
+	}
+	if reduction.consumedTails != 1 || len(reduction.remaining) != 0 {
+		t.Fatalf("consumed/remaining = %d/%d, want 1/0", reduction.consumedTails, len(reduction.remaining))
+	}
+	if reduction.event.CommittedEntryStart != 4 || !reduction.event.CommittedEntryStartSet {
+		t.Fatalf("merged start = %d set:%t, want 4 true", reduction.event.CommittedEntryStart, reduction.event.CommittedEntryStartSet)
+	}
+	text := make([]string, 0, len(reduction.event.TranscriptEntries))
+	for _, entry := range reduction.event.TranscriptEntries {
+		text = append(text, entry.Text)
+	}
+	if len(text) != 2 || text[0] != "final answer" || text[1] != "queued follow-up" {
+		t.Fatalf("merged text = %+v", text)
+	}
+}
+
 func TestReduceDeferredCommittedTailMergeRejectsChainGap(t *testing.T) {
 	evt := clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,
