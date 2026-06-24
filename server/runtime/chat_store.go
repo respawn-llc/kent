@@ -322,14 +322,6 @@ func (s *chatStore) seedLastCommittedAssistantFinalAnswerIfEmpty(answer string) 
 	}
 }
 
-func (s *chatStore) setCommittedEntryCountBase(base int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if base > s.transcriptEntryCount {
-		s.transcriptEntryCount = base
-	}
-}
-
 func (s *chatStore) snapshotMessages() []llm.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

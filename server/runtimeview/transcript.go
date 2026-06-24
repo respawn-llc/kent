@@ -89,18 +89,14 @@ func CommittedTranscriptSuffixFromRuntime(engine *runtime.Engine, _ clientui.Com
 func CommittedTranscriptSuffixFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, page runtime.TranscriptSegmentPage) clientui.CommittedTranscriptSuffix {
 	snapshot := ChatSnapshotFromRuntime(page.Snapshot)
 	entries := cloneChatEntries(snapshot.Entries)
-	start := page.CommittedEntryCountBase
-	if start < 0 {
-		start = 0
-	}
 	return clientui.CommittedTranscriptSuffix{
 		SessionID:             sessionID,
 		SessionName:           sessionName,
 		ConversationFreshness: freshness,
 		Revision:              revision,
-		CommittedEntryCount:   start + len(entries),
-		StartEntryCount:       start,
-		NextEntryCount:        start + len(entries),
+		CommittedEntryCount:   len(entries),
+		StartEntryCount:       0,
+		NextEntryCount:        len(entries),
 		HasMore:               false,
 		Entries:               entries,
 	}

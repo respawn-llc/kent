@@ -21,7 +21,6 @@ type historyReplacementEnvelope struct {
 	CompactionNumber                  int             `json:"compaction_number"`
 	PendingHandoffFutureMessage       string          `json:"pending_handoff_future_message"`
 	LastCommittedAssistantFinalAnswer string          `json:"last_committed_assistant_final_answer"`
-	CommittedEntryCount               int             `json:"committed_entry_count"`
 	Items                             json.RawMessage `json:"items"`
 }
 
@@ -49,7 +48,6 @@ func decodePersistedHistoryReplacementPayload(payload []byte) (historyReplacemen
 		CompactionNumber:                  envelope.CompactionNumber,
 		PendingHandoffFutureMessage:       strings.TrimSpace(envelope.PendingHandoffFutureMessage),
 		LastCommittedAssistantFinalAnswer: envelope.LastCommittedAssistantFinalAnswer,
-		CommittedEntryCount:               envelope.CommittedEntryCount,
 	}
 	trimmedItems := bytes.TrimSpace(envelope.Items)
 	if len(trimmedItems) == 0 || bytes.Equal(trimmedItems, []byte("null")) {

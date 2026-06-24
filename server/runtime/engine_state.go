@@ -93,7 +93,6 @@ type TranscriptSegmentPage struct {
 	NewerCursor                       int64
 	HasMoreBelow                      bool
 	LastCommittedAssistantFinalAnswer string
-	CommittedEntryCountBase           int
 }
 
 func isCompactionSegmentBoundary(evt session.Event) bool {
@@ -143,7 +142,6 @@ func segmentPageFromWindow(window session.SegmentWindow, cacheWarningMode config
 		NewerCursor:                       window.EndOffset,
 		HasMoreBelow:                      !window.ReachedEnd,
 		LastCommittedAssistantFinalAnswer: scan.LastCommittedAssistantFinalAnswer(),
-		CommittedEntryCountBase:           scan.CommittedEntryCountBase(),
 	}, nil
 }
 
@@ -721,7 +719,6 @@ type historyReplacementPayload struct {
 	CompactionNumber                  int                `json:"compaction_number,omitempty"`
 	PendingHandoffFutureMessage       string             `json:"pending_handoff_future_message,omitempty"`
 	LastCommittedAssistantFinalAnswer string             `json:"last_committed_assistant_final_answer,omitempty"`
-	CommittedEntryCount               int                `json:"committed_entry_count,omitempty"`
 	Items                             []llm.ResponseItem `json:"items"`
 }
 

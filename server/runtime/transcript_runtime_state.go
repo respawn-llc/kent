@@ -97,15 +97,6 @@ func (s *transcriptRuntimeState) SeedLastCommittedAssistantFinalAnswerIfEmpty(an
 	}
 }
 
-func (s *transcriptRuntimeState) SetCommittedEntryCountBase(base int) {
-	if base <= 0 {
-		return
-	}
-	if chat := s.chatProjection(); chat != nil {
-		chat.setCommittedEntryCountBase(base)
-	}
-}
-
 func (s *transcriptRuntimeState) EstimatedProviderTokens() int {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.estimatedProviderTokens()
