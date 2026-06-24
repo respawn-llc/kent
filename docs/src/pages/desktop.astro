@@ -13,7 +13,7 @@ const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
   <body>
     <main>
       <h1>Downloading Kent Desktop</h1>
-      <p id="status">Resolving the latest macOS download...</p>
+      <p id="status">Resolving the latest desktop download...</p>
       <p>
         If the download does not start, open the
         <a href={releasePageUrl}>latest Kent release</a>.
@@ -22,8 +22,45 @@ const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
     <script>
       const statusElement = document.getElementById('status');
       const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
+      const desktopAssets = [
+        {
+          name: 'macOS Apple Silicon',
+          pattern: /^Kent_\d+\.\d+\.\d+_aarch64\.dmg$/,
+          platforms: ['macos'],
+        },
+        {
+          name: 'Linux x86_64 AppImage',
+          pattern: /^Kent_\d+\.\d+\.\d+_amd64\.AppImage$/,
+          platforms: ['linux'],
+        },
+      ];
+
+      function detectDesktopPlatform() {
+        const platform = [
+          navigator.userAgentData?.platform,
+          navigator.platform,
+          navigator.userAgent,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (platform.includes('mac')) {
+          return 'macos';
+        }
+        if (platform.includes('linux') || platform.includes('x11')) {
+          return 'linux';
+        }
+        return 'unsupported';
+      }
 
       async function redirectToLatestDesktopDownload() {
+        const desktopPlatform = detectDesktopPlatform();
+        const assetRule = desktopAssets.find((candidate) => candidate.platforms.includes(desktopPlatform));
+        if (!assetRule) {
+          throw new Error(`Kent Desktop does not publish an automatic download for ${desktopPlatform}`);
+        }
+
         const response = await fetch('https://api.github.com/repos/respawn-llc/kent/releases/latest', {
           headers: { Accept: 'application/vnd.github+json' },
         });
@@ -32,11 +69,9 @@ const releasePageUrl = 'https://github.com/respawn-llc/kent/releases/latest';
         }
 
         const release = await response.json();
-        const asset = release.assets?.find((candidate) =>
-          /^Kent_\d+\.\d+\.\d+_aarch64\.dmg$/.test(candidate.name ?? ''),
-        );
+        const asset = release.assets?.find((candidate) => assetRule.pattern.test(candidate.name ?? ''));
         if (!asset?.browser_download_url) {
-          throw new Error('Latest Kent release does not contain a macOS desktop DMG');
+          throw new Error(`Latest Kent release does not contain ${assetRule.name}`);
         }
 
         window.location.replace(asset.browser_download_url);
