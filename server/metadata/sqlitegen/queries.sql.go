@@ -4865,6 +4865,190 @@ func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID string) ([]L
 	return items, nil
 }
 
+const listWorkflowTaskListFilteredRows = `-- name: ListWorkflowTaskListFilteredRows :many
+WITH visible_columns AS (
+    SELECT
+        CAST(json_extract(value, '$.node_id') AS TEXT) AS node_id,
+        CAST(json_extract(value, '$.node_key') AS TEXT) AS node_key,
+        CAST(json_extract(value, '$.node_kind') AS TEXT) AS node_kind,
+        CAST(json_extract(value, '$.status_order') AS INTEGER) AS status_order
+    FROM json_each(?5)
+),
+selected_tasks AS (
+    SELECT id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_url, source_workspace_id, managed_worktree_id, canceled_at_unix_ms, cancellation_reason, created_at_unix_ms, updated_at_unix_ms, metadata_json
+    FROM task_records
+    WHERE task_records.project_id = ?6
+      AND task_records.workflow_id = ?7
+),
+effective_placements AS (
+    SELECT t.id AS task_id, p.id AS placement_id, p.node_id AS node_id, p.state AS state, vc.status_order AS status_order, vc.node_key AS node_key, vc.node_kind AS node_kind
+    FROM selected_tasks t
+    JOIN task_node_placements p ON p.task_id = t.id
+    JOIN visible_columns vc ON vc.node_id = p.node_id
+    WHERE p.state IN ('active', 'waiting_approval')
+      AND (t.canceled_at_unix_ms = 0 OR vc.node_kind = 'terminal' OR trim(?8) = '')
+    UNION
+    SELECT t.id AS task_id, '' AS placement_id, vc.node_id AS node_id, 'active' AS state, vc.status_order AS status_order, vc.node_key AS node_key, vc.node_kind AS node_kind
+    FROM selected_tasks t
+    JOIN visible_columns vc ON vc.node_id = ?8
+    WHERE t.canceled_at_unix_ms != 0
+      AND trim(?8) != ''
+      AND NOT EXISTS (
+          SELECT 1
+          FROM task_node_placements p
+          JOIN workflow_nodes n ON n.id = p.node_id
+          WHERE p.task_id = t.id
+            AND p.state IN ('active', 'waiting_approval')
+            AND n.kind = 'terminal'
+      )
+    UNION
+    SELECT t.id AS task_id, 'pending-approval:' || tt.id AS placement_id, tt.source_node_id AS node_id, 'waiting_approval' AS state, vc.status_order AS status_order, vc.node_key AS node_key, vc.node_kind AS node_kind
+    FROM task_transition_records tt
+    JOIN selected_tasks t ON t.id = tt.task_id
+    JOIN visible_columns vc ON vc.node_id = tt.source_node_id
+    WHERE tt.state = 'pending_approval'
+      AND (t.canceled_at_unix_ms = 0 OR trim(?8) = '')
+),
+per_task_status AS (
+    SELECT task_id, MIN(status_order) AS status_order
+    FROM effective_placements
+    GROUP BY task_id
+),
+run_counts AS (
+    SELECT task_id, COUNT(*) AS run_count
+    FROM task_run_records
+    GROUP BY task_id
+),
+task_rows AS (
+    SELECT
+        t.id, t.project_id, t.project_workflow_link_id, t.workflow_id, t.workflow_revision_seen, t.task_seq, t.short_id, t.title, t.body, t.source_url, t.source_workspace_id, t.managed_worktree_id, t.canceled_at_unix_ms, t.cancellation_reason, t.created_at_unix_ms, t.updated_at_unix_ms, t.metadata_json,
+        CAST(COALESCE(pts.status_order, ?9) AS INTEGER) AS status_order,
+        CAST(COALESCE(rc.run_count, 0) AS INTEGER) AS run_count,
+        LOWER(t.title) AS title_sort,
+        CASE
+            WHEN t.canceled_at_unix_ms != 0 THEN 'canceled'
+            WHEN EXISTS (SELECT 1 FROM effective_placements ep_done WHERE ep_done.task_id = t.id AND ep_done.node_kind = 'terminal') THEN 'done'
+            WHEN EXISTS (SELECT 1 FROM effective_placements ep_waiting WHERE ep_waiting.task_id = t.id AND ep_waiting.state = 'waiting_approval')
+              OR EXISTS (
+                  SELECT 1
+                  FROM task_run_records r
+                  JOIN effective_placements ep_run ON ep_run.placement_id = r.placement_id
+                  WHERE ep_run.task_id = t.id
+                    AND r.completed_at_unix_ms = 0
+                    AND (r.started_at_unix_ms != 0 OR r.interrupted_at_unix_ms != 0 OR trim(r.waiting_ask_id) != '')
+              ) THEN 'running'
+            ELSE 'open'
+        END AS run_status
+    FROM selected_tasks t
+    LEFT JOIN per_task_status pts ON pts.task_id = t.id
+    LEFT JOIN run_counts rc ON rc.task_id = t.id
+)
+SELECT
+    id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_url, source_workspace_id, managed_worktree_id, canceled_at_unix_ms, cancellation_reason, created_at_unix_ms, updated_at_unix_ms, metadata_json,
+    status_order, run_count, run_status, title_sort
+FROM task_rows
+WHERE (
+    CAST(?1 AS INTEGER) = 0
+    OR EXISTS (SELECT 1 FROM effective_placements ep_filter WHERE ep_filter.task_id = task_rows.id AND ep_filter.node_key IN (SELECT value FROM json_each(?2)))
+)
+  AND (
+    CAST(?3 AS INTEGER) = 0
+    OR run_status IN (SELECT value FROM json_each(?4))
+)
+ORDER BY id ASC
+`
+
+type ListWorkflowTaskListFilteredRowsParams struct {
+	StatusFilterSet        int64
+	StatusKeysJson         interface{}
+	RunStatusFilterSet     int64
+	RunStatusesJson        interface{}
+	VisibleColumnsJson     interface{}
+	ProjectID              string
+	WorkflowID             string
+	CanceledTerminalNodeID string
+	SentinelStatusOrder    int64
+}
+
+type ListWorkflowTaskListFilteredRowsRow struct {
+	ID                    string
+	ProjectID             string
+	ProjectWorkflowLinkID string
+	WorkflowID            string
+	WorkflowRevisionSeen  int64
+	TaskSeq               int64
+	ShortID               string
+	Title                 string
+	Body                  string
+	SourceUrl             string
+	SourceWorkspaceID     sql.NullString
+	ManagedWorktreeID     sql.NullString
+	CanceledAtUnixMs      int64
+	CancellationReason    string
+	CreatedAtUnixMs       int64
+	UpdatedAtUnixMs       int64
+	MetadataJson          string
+	StatusOrder           int64
+	RunCount              int64
+	RunStatus             string
+	TitleSort             string
+}
+
+func (q *Queries) ListWorkflowTaskListFilteredRows(ctx context.Context, arg ListWorkflowTaskListFilteredRowsParams) ([]ListWorkflowTaskListFilteredRowsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkflowTaskListFilteredRows,
+		arg.StatusFilterSet,
+		arg.StatusKeysJson,
+		arg.RunStatusFilterSet,
+		arg.RunStatusesJson,
+		arg.VisibleColumnsJson,
+		arg.ProjectID,
+		arg.WorkflowID,
+		arg.CanceledTerminalNodeID,
+		arg.SentinelStatusOrder,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWorkflowTaskListFilteredRowsRow
+	for rows.Next() {
+		var i ListWorkflowTaskListFilteredRowsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ProjectWorkflowLinkID,
+			&i.WorkflowID,
+			&i.WorkflowRevisionSeen,
+			&i.TaskSeq,
+			&i.ShortID,
+			&i.Title,
+			&i.Body,
+			&i.SourceUrl,
+			&i.SourceWorkspaceID,
+			&i.ManagedWorktreeID,
+			&i.CanceledAtUnixMs,
+			&i.CancellationReason,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.MetadataJson,
+			&i.StatusOrder,
+			&i.RunCount,
+			&i.RunStatus,
+			&i.TitleSort,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkflowTransitionGroups = `-- name: ListWorkflowTransitionGroups :many
 SELECT
     tg.id,

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -154,263 +153,204 @@ func (s *Service) listWorkflowTaskListRows(ctx context.Context, req workflowTask
 	if len(req.columns) == 0 {
 		return []workflowTaskListRow{}, nil
 	}
-	args := []any{}
-	columnRows := make([]string, 0, len(req.columns))
-	for _, column := range req.columns {
-		columnRows = append(columnRows, "(?, ?, ?, ?, ?, ?)")
-		args = append(args, column.Node.NodeID, column.Node.Key, column.Node.Kind, column.SortOrder, boolInt(column.IsBacklog), boolInt(column.IsDone))
+	visibleColumnsJSON, err := workflowTaskListVisibleColumnsJSON(req.columns)
+	if err != nil {
+		return nil, err
 	}
-	sentinelStatusOrder := len(req.columns)
-	args = append(args,
-		req.projectID, req.workflowID,
-		req.canceledTerminalID,
-		req.canceledTerminalID, req.projectID, req.workflowID, req.canceledTerminalID,
-		req.projectID, req.workflowID, req.canceledTerminalID,
-		sentinelStatusOrder,
-	)
-	var b strings.Builder
-	b.WriteString(`
-WITH visible_columns(node_id, node_key, node_kind, status_order, is_backlog, is_done) AS (
-    VALUES `)
-	b.WriteString(strings.Join(columnRows, ","))
-	b.WriteString(`
-),
-selected_tasks AS (
-    SELECT *
-    FROM task_records
-    WHERE project_id = ?
-      AND workflow_id = ?
-),
-effective_placements AS (
-    SELECT t.id AS task_id, p.id AS placement_id, p.node_id AS node_id, p.state AS state, vc.status_order AS status_order, vc.node_key AS node_key, vc.node_kind AS node_kind
-    FROM selected_tasks t
-    JOIN task_node_placements p ON p.task_id = t.id
-    JOIN visible_columns vc ON vc.node_id = p.node_id
-    WHERE p.state IN ('active', 'waiting_approval')
-      AND (t.canceled_at_unix_ms = 0 OR vc.node_kind = 'terminal' OR trim(?) = '')
-    UNION
-    SELECT t.id AS task_id, '' AS placement_id, vc.node_id AS node_id, 'active' AS state, vc.status_order AS status_order, vc.node_key AS node_key, vc.node_kind AS node_kind
-    FROM selected_tasks t
-    JOIN visible_columns vc ON vc.node_id = ?
-    WHERE t.project_id = ?
-      AND t.workflow_id = ?
-      AND t.canceled_at_unix_ms != 0
-      AND trim(?) != ''
-      AND NOT EXISTS (
-          SELECT 1
-          FROM task_node_placements p
-          JOIN workflow_nodes n ON n.id = p.node_id
-          WHERE p.task_id = t.id
-            AND p.state IN ('active', 'waiting_approval')
-            AND n.kind = 'terminal'
-      )
-    UNION
-    SELECT t.id AS task_id, 'pending-approval:' || tt.id AS placement_id, tt.source_node_id AS node_id, 'waiting_approval' AS state, vc.status_order AS status_order, vc.node_key AS node_key, vc.node_kind AS node_kind
-    FROM task_transition_records tt
-    JOIN selected_tasks t ON t.id = tt.task_id
-    JOIN visible_columns vc ON vc.node_id = tt.source_node_id
-    WHERE tt.state = 'pending_approval'
-      AND t.project_id = ?
-      AND t.workflow_id = ?
-      AND (t.canceled_at_unix_ms = 0 OR trim(?) = '')
-),
-per_task_status AS (
-    SELECT task_id, MIN(status_order) AS status_order
-    FROM effective_placements
-    GROUP BY task_id
-),
-run_counts AS (
-    SELECT task_id, COUNT(*) AS run_count
-    FROM task_run_records
-    GROUP BY task_id
-),
-task_rows AS (
-    SELECT
-        t.id, t.project_id, t.project_workflow_link_id, t.workflow_id, t.workflow_revision_seen, t.task_seq, t.short_id, t.title, t.body, t.source_url, t.source_workspace_id, t.managed_worktree_id, t.canceled_at_unix_ms, t.cancellation_reason, t.created_at_unix_ms, t.updated_at_unix_ms, t.metadata_json,
-        CAST(COALESCE(pts.status_order, ?) AS INTEGER) AS status_order,
-        CAST(COALESCE(rc.run_count, 0) AS INTEGER) AS run_count,
-        LOWER(t.title) AS title_sort,
-        CASE
-            WHEN t.canceled_at_unix_ms != 0 THEN 'canceled'
-            WHEN EXISTS (SELECT 1 FROM effective_placements ep_done WHERE ep_done.task_id = t.id AND ep_done.node_kind = 'terminal') THEN 'done'
-            WHEN EXISTS (SELECT 1 FROM effective_placements ep_waiting WHERE ep_waiting.task_id = t.id AND ep_waiting.state = 'waiting_approval')
-              OR EXISTS (
-                  SELECT 1
-                  FROM task_run_records r
-                  JOIN effective_placements ep_run ON ep_run.placement_id = r.placement_id
-                  WHERE ep_run.task_id = t.id
-                    AND r.completed_at_unix_ms = 0
-                    AND (r.started_at_unix_ms != 0 OR r.interrupted_at_unix_ms != 0 OR trim(r.waiting_ask_id) != '')
-              ) THEN 'running'
-            ELSE 'open'
-        END AS run_status
-    FROM selected_tasks t
-    LEFT JOIN per_task_status pts ON pts.task_id = t.id
-    LEFT JOIN run_counts rc ON rc.task_id = t.id
-)
-SELECT
-    id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_url, source_workspace_id, managed_worktree_id, canceled_at_unix_ms, cancellation_reason, created_at_unix_ms, updated_at_unix_ms, metadata_json,
-    status_order, run_count, run_status, title_sort
-FROM task_rows
-WHERE 1 = 1`)
-	if len(req.statusKeys) > 0 {
-		b.WriteString(`
-  AND EXISTS (SELECT 1 FROM effective_placements ep_filter WHERE ep_filter.task_id = task_rows.id AND ep_filter.node_key IN (` + sqlPlaceholders(len(req.statusKeys)) + `))`)
-		for _, key := range req.statusKeys {
-			args = append(args, key)
-		}
+	statusKeysJSON, err := json.Marshal(req.statusKeys)
+	if err != nil {
+		return nil, err
 	}
-	if len(req.runStatuses) > 0 {
-		b.WriteString(`
-  AND run_status IN (` + sqlPlaceholders(len(req.runStatuses)) + `)`)
-		for _, status := range req.runStatuses {
-			args = append(args, string(status))
-		}
+	runStatuses := make([]string, 0, len(req.runStatuses))
+	for _, status := range req.runStatuses {
+		runStatuses = append(runStatuses, string(status))
 	}
+	runStatusesJSON, err := json.Marshal(runStatuses)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.queries.ListWorkflowTaskListFilteredRows(ctx, sqlitegen.ListWorkflowTaskListFilteredRowsParams{
+		StatusFilterSet:        boolInt64(len(req.statusKeys) > 0),
+		StatusKeysJson:         string(statusKeysJSON),
+		RunStatusFilterSet:     boolInt64(len(req.runStatuses) > 0),
+		RunStatusesJson:        string(runStatusesJSON),
+		VisibleColumnsJson:     visibleColumnsJSON,
+		ProjectID:              req.projectID,
+		WorkflowID:             req.workflowID,
+		CanceledTerminalNodeID: req.canceledTerminalID,
+		SentinelStatusOrder:    int64(len(req.columns)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]workflowTaskListRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, workflowTaskListRow{
+			task: sqlitegen.TaskRecord{
+				ID:                    row.ID,
+				ProjectID:             row.ProjectID,
+				ProjectWorkflowLinkID: row.ProjectWorkflowLinkID,
+				WorkflowID:            row.WorkflowID,
+				WorkflowRevisionSeen:  row.WorkflowRevisionSeen,
+				TaskSeq:               row.TaskSeq,
+				ShortID:               row.ShortID,
+				Title:                 row.Title,
+				Body:                  row.Body,
+				SourceUrl:             row.SourceUrl,
+				SourceWorkspaceID:     row.SourceWorkspaceID,
+				ManagedWorktreeID:     row.ManagedWorktreeID,
+				CanceledAtUnixMs:      row.CanceledAtUnixMs,
+				CancellationReason:    row.CancellationReason,
+				CreatedAtUnixMs:       row.CreatedAtUnixMs,
+				UpdatedAtUnixMs:       row.UpdatedAtUnixMs,
+				MetadataJson:          row.MetadataJson,
+			},
+			statusOrder: int(row.StatusOrder),
+			runCount:    int(row.RunCount),
+			runStatus:   serverapi.WorkflowTaskRunStatus(row.RunStatus),
+			titleSort:   row.TitleSort,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return workflowTaskListRowLess(out[i], out[j], req.sortSelectors)
+	})
 	if req.cursorSet {
-		predicate, predicateArgs := workflowTaskListCursorPredicate(req.sortSelectors, req.cursor)
-		if predicate == "" {
-			return nil, ErrInvalidPageToken
+		filtered := out[:0]
+		for _, row := range out {
+			if workflowTaskListRowAfterCursor(row, req.sortSelectors, req.cursor) {
+				filtered = append(filtered, row)
+			}
 		}
-		b.WriteString(`
-  AND (` + predicate + `)`)
-		args = append(args, predicateArgs...)
+		out = filtered
 	}
-	orderBy, err := workflowTaskListOrderBy(req.sortSelectors)
-	if err != nil {
-		return nil, err
-	}
-	b.WriteString(`
-ORDER BY `)
-	b.WriteString(orderBy)
-	b.WriteString(`
-LIMIT ?`)
-	args = append(args, req.limit)
-	rows, err := s.metadata.DB().QueryContext(ctx, b.String(), args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := []workflowTaskListRow{}
-	for rows.Next() {
-		var row workflowTaskListRow
-		var runStatus string
-		if err := rows.Scan(
-			&row.task.ID, &row.task.ProjectID, &row.task.ProjectWorkflowLinkID, &row.task.WorkflowID, &row.task.WorkflowRevisionSeen, &row.task.TaskSeq, &row.task.ShortID, &row.task.Title, &row.task.Body, &row.task.SourceUrl, &row.task.SourceWorkspaceID, &row.task.ManagedWorktreeID, &row.task.CanceledAtUnixMs, &row.task.CancellationReason, &row.task.CreatedAtUnixMs, &row.task.UpdatedAtUnixMs, &row.task.MetadataJson,
-			&row.statusOrder, &row.runCount, &runStatus, &row.titleSort,
-		); err != nil {
-			return nil, err
-		}
-		row.runStatus = serverapi.WorkflowTaskRunStatus(runStatus)
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if req.limit >= 0 && len(out) > req.limit {
+		out = out[:req.limit]
 	}
 	return out, nil
 }
 
-func boolInt(value bool) int {
+type workflowTaskListVisibleColumn struct {
+	NodeID      string `json:"node_id"`
+	NodeKey     string `json:"node_key"`
+	NodeKind    string `json:"node_kind"`
+	StatusOrder int    `json:"status_order"`
+}
+
+func workflowTaskListVisibleColumnsJSON(columns []serverapi.WorkflowBoardColumn) (string, error) {
+	rows := make([]workflowTaskListVisibleColumn, 0, len(columns))
+	for _, column := range columns {
+		rows = append(rows, workflowTaskListVisibleColumn{
+			NodeID:      column.Node.NodeID,
+			NodeKey:     column.Node.Key,
+			NodeKind:    column.Node.Kind,
+			StatusOrder: column.SortOrder,
+		})
+	}
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func boolInt64(value bool) int64 {
 	if value {
 		return 1
 	}
 	return 0
 }
 
-func sqlPlaceholders(count int) string {
-	parts := make([]string, count)
-	for index := range parts {
-		parts[index] = "?"
-	}
-	return strings.Join(parts, ",")
-}
-
-func workflowTaskListOrderBy(sortSelectors []serverapi.WorkflowTaskListSort) (string, error) {
-	parts := make([]string, 0, len(sortSelectors)+1)
+func workflowTaskListRowLess(left workflowTaskListRow, right workflowTaskListRow, sortSelectors []serverapi.WorkflowTaskListSort) bool {
 	for _, selector := range sortSelectors {
-		column, err := workflowTaskListSortColumn(selector.Field)
-		if err != nil {
-			return "", err
+		cmp := workflowTaskListRowCompare(left, right, selector.Field)
+		if cmp == 0 {
+			continue
 		}
-		direction := "ASC"
 		if selector.Direction == serverapi.WorkflowTaskListSortDirectionDesc {
-			direction = "DESC"
+			return cmp > 0
 		}
-		parts = append(parts, column+" "+direction)
+		return cmp < 0
 	}
-	parts = append(parts, "id ASC")
-	return strings.Join(parts, ", "), nil
+	return left.task.ID < right.task.ID
 }
 
-func workflowTaskListSortColumn(field serverapi.WorkflowTaskListSortField) (string, error) {
+func workflowTaskListRowAfterCursor(row workflowTaskListRow, sortSelectors []serverapi.WorkflowTaskListSort, cursor workflowTaskListCursor) bool {
+	for _, selector := range sortSelectors {
+		cmp := workflowTaskListRowCompareCursor(row, cursor, selector.Field)
+		if cmp == 0 {
+			continue
+		}
+		if selector.Direction == serverapi.WorkflowTaskListSortDirectionDesc {
+			return cmp < 0
+		}
+		return cmp > 0
+	}
+	return row.task.ID > cursor.TaskID
+}
+
+func workflowTaskListRowCompare(left workflowTaskListRow, right workflowTaskListRow, field serverapi.WorkflowTaskListSortField) int {
 	switch field {
 	case serverapi.WorkflowTaskListSortFieldCreated:
-		return "created_at_unix_ms", nil
+		return compareInt64(left.task.CreatedAtUnixMs, right.task.CreatedAtUnixMs)
 	case serverapi.WorkflowTaskListSortFieldUpdated:
-		return "updated_at_unix_ms", nil
+		return compareInt64(left.task.UpdatedAtUnixMs, right.task.UpdatedAtUnixMs)
 	case serverapi.WorkflowTaskListSortFieldStatus:
-		return "status_order", nil
+		return compareInt(left.statusOrder, right.statusOrder)
 	case serverapi.WorkflowTaskListSortFieldRunCount:
-		return "run_count", nil
+		return compareInt(left.runCount, right.runCount)
 	case serverapi.WorkflowTaskListSortFieldTitle:
-		return "title_sort", nil
+		return compareString(left.titleSort, right.titleSort)
 	default:
-		return "", fmt.Errorf("unsupported workflow task list sort field %q", field)
+		return 0
 	}
 }
 
-func workflowTaskListCursorPredicate(sortSelectors []serverapi.WorkflowTaskListSort, cursor workflowTaskListCursor) (string, []any) {
-	terms := append([]serverapi.WorkflowTaskListSort(nil), sortSelectors...)
-	terms = append(terms, serverapi.WorkflowTaskListSort{Field: serverapi.WorkflowTaskListSortField("task_id"), Direction: serverapi.WorkflowTaskListSortDirectionAsc})
-	clauses := make([]string, 0, len(terms))
-	args := []any{}
-	for index, term := range terms {
-		parts := make([]string, 0, index+1)
-		for priorIndex := 0; priorIndex < index; priorIndex++ {
-			column, err := workflowTaskListCursorColumn(terms[priorIndex].Field)
-			if err != nil {
-				return "", nil
-			}
-			parts = append(parts, column+" = ?")
-			args = append(args, workflowTaskListCursorValue(cursor, terms[priorIndex].Field))
-		}
-		column, err := workflowTaskListCursorColumn(term.Field)
-		if err != nil {
-			return "", nil
-		}
-		operator := ">"
-		if term.Direction == serverapi.WorkflowTaskListSortDirectionDesc {
-			operator = "<"
-		}
-		parts = append(parts, column+" "+operator+" ?")
-		args = append(args, workflowTaskListCursorValue(cursor, term.Field))
-		clauses = append(clauses, "("+strings.Join(parts, " AND ")+")")
-	}
-	return strings.Join(clauses, " OR "), args
-}
-
-func workflowTaskListCursorColumn(field serverapi.WorkflowTaskListSortField) (string, error) {
-	if field == serverapi.WorkflowTaskListSortField("task_id") {
-		return "id", nil
-	}
-	return workflowTaskListSortColumn(field)
-}
-
-func workflowTaskListCursorValue(cursor workflowTaskListCursor, field serverapi.WorkflowTaskListSortField) any {
+func workflowTaskListRowCompareCursor(row workflowTaskListRow, cursor workflowTaskListCursor, field serverapi.WorkflowTaskListSortField) int {
 	switch field {
 	case serverapi.WorkflowTaskListSortFieldCreated:
-		return cursor.CreatedAtUnixMs
+		return compareInt64(row.task.CreatedAtUnixMs, cursor.CreatedAtUnixMs)
 	case serverapi.WorkflowTaskListSortFieldUpdated:
-		return cursor.UpdatedAtUnixMs
+		return compareInt64(row.task.UpdatedAtUnixMs, cursor.UpdatedAtUnixMs)
 	case serverapi.WorkflowTaskListSortFieldStatus:
-		return cursor.StatusOrder
+		return compareInt(row.statusOrder, cursor.StatusOrder)
 	case serverapi.WorkflowTaskListSortFieldRunCount:
-		return cursor.RunCount
+		return compareInt(row.runCount, cursor.RunCount)
 	case serverapi.WorkflowTaskListSortFieldTitle:
-		return cursor.TitleSort
-	case serverapi.WorkflowTaskListSortField("task_id"):
-		return cursor.TaskID
+		return compareString(row.titleSort, cursor.TitleSort)
 	default:
-		return nil
+		return 0
+	}
+}
+
+func compareInt(left int, right int) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareInt64(left int64, right int64) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareString(left string, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
 	}
 }
