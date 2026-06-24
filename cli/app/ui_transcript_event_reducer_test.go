@@ -7,6 +7,104 @@ import (
 	"core/shared/clientui"
 )
 
+func TestActiveAssistantFinalizerGapPreservesRecentTailWhenDetailPinned(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
+	m.forwardToView(tui.SetConversationMsg{Ongoing: "final answer"})
+
+	recentTail := []tui.TranscriptEntry{
+		{Role: tui.TranscriptRoleUser, Text: "tail prompt", Committed: true},
+		{Role: tui.TranscriptRoleAssistant, Text: "tail answer", Committed: true},
+		{Role: tui.TranscriptRoleUser, Text: "tail prompt 2", Committed: true},
+	}
+	m.transcriptBaseOffset = 37
+	m.transcriptEntries = append([]tui.TranscriptEntry(nil), recentTail...)
+	m.transcriptTotalEntries = 40
+
+	m.detailTranscript = uiDetailTranscriptWindow{
+		sessionID:    "session-1",
+		offset:       0,
+		totalEntries: 50,
+		entries:      []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "older prompt", Committed: true}},
+		loaded:       true,
+		hasMoreBelow: true,
+		newerCursor:  1234,
+		segments:     []residentSegmentMeta{{startLocal: 0, hasMoreBelow: true, newerCursor: 1234}},
+	}
+
+	a := uiRuntimeAdapter{model: m}
+	_, handled := a.applyActiveAssistantFinalizerGapAsRecentTail(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        40,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        41,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "final answer"}},
+	}, false)
+	if !handled {
+		t.Fatal("finalizer-gap event in detail mode should be handled")
+	}
+	if got := len(m.transcriptEntries); got != len(recentTail) {
+		t.Fatalf("recent-tail backing entries = %d, want preserved %d (not clobbered to the single finalizer row)", got, len(recentTail))
+	}
+	if m.transcriptBaseOffset != 37 {
+		t.Fatalf("recent-tail base offset = %d, want preserved 37", m.transcriptBaseOffset)
+	}
+}
+
+func TestDeferredCommittedTailDrainPreservesPinnedDetailWindow(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
+
+	m.transcriptBaseOffset = 0
+	m.transcriptEntries = []tui.TranscriptEntry{
+		{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true},
+		{Role: tui.TranscriptRoleAssistant, Text: "answer", Committed: true},
+	}
+	m.transcriptTotalEntries = 2
+
+	pinned := []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "older prompt", Committed: true}}
+	m.detailTranscript = uiDetailTranscriptWindow{
+		sessionID:    "session-1",
+		offset:       0,
+		totalEntries: 50,
+		entries:      pinned,
+		loaded:       true,
+		hasMoreBelow: true,
+		newerCursor:  1234,
+		segments:     []residentSegmentMeta{{startLocal: 0, hasMoreBelow: true, newerCursor: 1234}},
+	}
+
+	cmd, mutated := m.applyDeferredCommittedTailDelivery(clientui.Event{
+		Kind:                       clientui.EventConversationUpdated,
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        2,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        3,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "drained finalizer"}},
+	}, 3)
+	if !mutated {
+		t.Fatal("deferred committed tail drain should mutate the recent-tail model")
+	}
+	_ = cmd
+
+	if got := len(m.detailTranscript.entries); got != len(pinned) {
+		t.Fatalf("pinned detail window entry count = %d, want preserved %d", got, len(pinned))
+	}
+	if m.detailTranscript.entries[0].Text != "older prompt" {
+		t.Fatal("pinned detail window content was mutated by the deferred committed tail drain")
+	}
+	if got := len(m.transcriptEntries); got != 3 {
+		t.Fatalf("recent-tail backing entries = %d, want 3 after drain insert", got)
+	}
+}
+
 func TestActiveAssistantFinalizerGapPreservesPinnedDetailWindow(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.windowSizeKnown = true

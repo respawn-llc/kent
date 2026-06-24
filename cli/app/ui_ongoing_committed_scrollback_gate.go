@@ -248,7 +248,7 @@ func (m *uiModel) applyDeferredCommittedTailDelivery(evt clientui.Event, totalEn
 		})
 		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
 	}
-	if m.detailTranscript.loaded {
+	if m.detailTranscript.loaded && !m.detailTranscript.hasMoreBelow {
 		page := clientui.TranscriptPage{
 			Revision:     m.transcriptRevision,
 			Offset:       start,

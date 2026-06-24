@@ -192,13 +192,15 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 		Streaming:      m.view.OngoingStreamingText(),
 		StreamingError: m.view.OngoingErrorText(),
 	}
-	a.applyAuthoritativeRecentTailPage(page, entries, false)
 	detailPinnedAwayFromTail := m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
-	if m.detailTranscript.loaded && !detailPinnedAwayFromTail {
+	if detailPinnedAwayFromTail {
+		return m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}), true
+	}
+	a.applyAuthoritativeRecentTailPage(page, entries, false)
+	if m.detailTranscript.loaded {
 		m.detailTranscript.apply(page)
 	}
 	switch {
-	case detailPinnedAwayFromTail:
 	case m.detailTranscript.loaded:
 		detailPage := m.detailTranscript.page()
 		detailPage.SessionID = page.SessionID
