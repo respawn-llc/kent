@@ -3,16 +3,16 @@ title: Quickstart
 description: Install Kent, authenticate on first launch, tune the most useful settings, and learn the main session workflows.
 ---
 
-## Install
+## 1. Install Kent Server and CLI
 
-### Homebrew (macOS/Linux)
+#### Homebrew (macOS/Linux)
 
 ```bash
 brew tap respawn-llc/tap
 brew install respawn-llc/tap/kent
 ```
 
-### Arch Linux (AUR)
+#### Arch Linux (AUR)
 
 The [`kent-bin`](https://aur.archlinux.org/packages/kent-bin) AUR package is community-maintained.
 
@@ -20,7 +20,7 @@ The [`kent-bin`](https://aur.archlinux.org/packages/kent-bin) AUR package is com
 yay -S kent-bin
 ```
 
-### Standalone binaries via GitHub Releases
+#### Standalone binaries via GitHub Releases
 
 These versions are **not auto-updated**. Please keep them updated manually by re-running install scripts.
 
@@ -38,7 +38,7 @@ irm https://kent.sh/install.ps1 | iex
 
 Check the installed version with: `kent --version`
 
-## Optional: Install the Background Service
+## 2. Optional: Install the Background Service
 
 Run this if you want one shared Kent server to start at login:
 
@@ -46,13 +46,33 @@ Run this if you want one shared Kent server to start at login:
 kent service install
 ```
 
-It uses 20 MB of RAM when idle, lets unlimited frontends stay lightweight by connecting to **one** orchestrator, makes spawning and controlling subagents and background shells reliable. See [Kent Server](../server/) for details and service management commands.
+It uses 20 MB of RAM when idle, lets unlimited frontends stay lightweight by connecting to **one** orchestrator, makes spawning and controlling subagents and background shells reliable, and enables the use of the desktop app. See [Kent Server](../server/) for details and service management commands.
+
+## 3. Install Kent Desktop
+
+The desktop app lets you use Kent's [Workflows and Tasks](../workflows/) feature to build agentic loops and deterministic pipelines to **fully automate** processes and scale to 10s or 100s of agents.
+
+![Kent Desktop showing a project kanban board with tasks grouped by workflow stage](/desktop/desktop-kanban.webp)
+
+### Manual Install
+
+Download the installer for your platform at [kent.sh/desktop](https://kent.sh/desktop) (currently MacOS and Linux), or install via Homebrew:
+
+```bash
+brew install --cask respawn-llc/tap/kent-desktop
+```
+
+Homebrew installs update through `brew upgrade`, standalone installs self-update.
+
+:::note
+The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
+:::
+
+# First Use
 
 :::danger[Security Warning]
 Out of the box, Kent does not ship a sandbox, and does not enforce tool calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
 :::
-
-# First Use
 
 Start Kent CLI with: `kent`. The first run will ask you to pick auth option and walk you through onboarding.
 
@@ -116,3 +136,7 @@ More info on the [Slash commands](../slash-commands/) page.
 ## Supervisor
 
 - Use `/supervisor` to toggle its invocation for the current session. Supervisor is a feature that will automatically review the edits made by the model. It increases costs by ~15% (if using the main model) but improves results. By default supervisor uses the same model as the main one. That may be too costly / too slow for you. [Configuration](../config/) page contains instructions on how to change supervisor model.
+
+## Advanced
+
+Once you're comfortable driving the traditional agentic CLI, consider upgrading to [workflows](../workflows/).

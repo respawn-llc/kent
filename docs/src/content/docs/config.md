@@ -61,6 +61,11 @@ trigger_handoff = true # proactive compaction by the model
 postprocessing_mode = "all" # shell output token optimizations by Kent, or "all" | "none" | "user"
 # postprocess_hook = "~/.kent/shell_postprocess_hook" # custom processor, see docs
 
+[workflow]
+completion_mode = "auto"
+concurrency = 5
+max_invalid_completion_attempts = 5
+
 [skills]
 "skill name" = true
 
@@ -133,6 +138,15 @@ verbose_output = false # show supervisor suggestions in ongoing transcript
 | `shell.postprocess_hook` | string | `""` | `KENT_SHELL_POSTPROCESS_HOOK` |  | Optional executable/script path for a single local command post-processing hook. Kent sends JSON on stdin and expects JSON on stdout. |
 | `prevent_sleep` | string | `active` | `KENT_PREVENT_SLEEP` |  | Prevent system sleep while Kent is running. Allowed: `always` (while the server process is live), `active` (while any agent is working, plus up to one minute of idle-confirmation grace), `never` (disabled). Only system sleep is inhibited; screensaver and display sleep are unaffected. |
 | `timeouts.model_request_seconds` | int | `400` | `KENT_TIMEOUTS_MODEL_REQUEST_SECONDS` | `kent run --model-timeout-seconds` | HTTP timeout for model requests. Must be `> 0`. |
+
+
+### Workflow
+
+| Key | Type | Default | Env | Description |
+| --- | --- | --- | --- | --- |
+| `workflow.completion_mode` | string | `auto` | `KENT_WORKFLOW_COMPLETION_MODE` | Default completion mode for workflow agent nodes that inherit the global default. Allowed: `auto`, `structured_output`, `tool`, `shell_command`, `unstructured_output`. |
+| `workflow.concurrency` | int | `5` | `KENT_WORKFLOW_CONCURRENCY` | Maximum number of workflow agent runs scheduled concurrently. Must be `> 0`. |
+| `workflow.max_invalid_completion_attempts` | int | `5` | `KENT_WORKFLOW_MAX_INVALID_COMPLETION_ATTEMPTS` | Number of invalid workflow completion attempts allowed before Kent interrupts the run. Must be `> 0`. |
 
 
 ### Supervisor

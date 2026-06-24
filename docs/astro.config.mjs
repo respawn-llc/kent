@@ -38,6 +38,10 @@ export default defineConfig({
           link: '/quickstart/',
         },
         {
+          label: 'Workflows',
+          link: '/workflows/',
+        },
+        {
           label: 'Slash Commands',
           link: '/slash-commands/',
         },
