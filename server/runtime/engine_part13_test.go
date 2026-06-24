@@ -1148,6 +1148,33 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 	}
 }
 
+var errProbeCommittedObserverFailure = errors.New("probe committed observer failure")
+
+type armedCommittedAppendFailObserver struct{ armed bool }
+
+func (o *armedCommittedAppendFailObserver) ObservePersistedStore(_ context.Context, _ session.PersistedStoreSnapshot) error {
+	if o.armed {
+		return errProbeCommittedObserverFailure
+	}
+	return nil
+}
+
+func TestCacheWarningSteeringPropagatesCommittedAppendError(t *testing.T) {
+	observer := &armedCommittedAppendFailObserver{}
+	dir := t.TempDir()
+	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+	if err := eng.steer("", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: "seed"}})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	observer.armed = true
+	err := eng.steer("step-1", steerCacheWarningIntent(transcript.CacheWarning{Reason: transcript.CacheWarningReasonCompaction}, transcript.EntryVisibilityAuto, false))
+	if !errors.Is(err, errProbeCommittedObserverFailure) {
+		t.Fatalf("cache-warning steer err = %v, want committed append observer error propagated", err)
+	}
+}
+
 func TestRunStepLoopBailsOnCanceledContextWithoutModelCall(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{

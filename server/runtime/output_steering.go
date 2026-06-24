@@ -262,14 +262,15 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.cacheWarning != nil {
 		warning := item.cacheWarning.warning
 		visibility := transcript.NormalizeEntryVisibility(item.cacheWarning.visibility)
-		if _, committed, err := e.store.AppendEvent(stepID, sessionEventCacheWarning, warning); err != nil && !committed {
-			return err
+		_, committed, appendErr := e.store.AppendEvent(stepID, sessionEventCacheWarning, warning)
+		if appendErr != nil && !committed {
+			return appendErr
 		}
 		newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendCommittedEntryWithVisibility(cacheWarningTranscriptRole, transcript.CacheWarningText(warning), visibility)
 		if item.cacheWarning.emit {
 			e.emitRaw(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(&warning), CacheWarningVisibility: visibility, CommittedTranscriptChanged: true})
 		}
-		return nil
+		return appendErr
 	}
 	if item.cacheObservation != nil {
 		observation := item.cacheObservation
