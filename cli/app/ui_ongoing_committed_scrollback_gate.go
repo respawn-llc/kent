@@ -29,7 +29,38 @@ func (m *uiModel) shouldGateCommittedSuffixResponse(suffix clientui.CommittedTra
 	if trimmed.NextEntryCount <= trimmed.StartEntryCount {
 		return suffix.HasMore
 	}
-	return !m.committedSuffixCanFinalizeAssistantStream(trimmed)
+	if !m.committedSuffixCanFinalizeAssistantStream(trimmed) {
+		return true
+	}
+	return m.committedSuffixAppendWouldDivergeNativeProjection(trimmed)
+}
+
+func (m *uiModel) committedSuffixAppendWouldDivergeNativeProjection(suffix clientui.CommittedTranscriptSuffix) bool {
+	if m == nil || len(suffix.Entries) == 0 {
+		return false
+	}
+	previous := m.nativeRenderedProjection
+	if previous.Empty() {
+		previous = m.nativeProjection
+	}
+	if previous.Empty() {
+		return false
+	}
+	projected := committedTranscriptEntriesForApp(m.transcriptEntries)
+	for _, entry := range suffix.Entries {
+		projected = append(projected, transcriptEntryFromProjectedChatEntry(entry, false, true))
+	}
+	projected = committedTranscriptEntriesForApp(projected)
+	var projector tui.CommittedOngoingProjector
+	projection := projector.Project(projected, tui.CommittedOngoingProjectionKey{
+		Revision:   m.transcriptRevision,
+		Width:      m.nativeReplayRenderWidth(),
+		Theme:      m.theme,
+		BaseOffset: m.transcriptBaseOffset,
+		EntryCount: len(projected),
+	})
+	_, cleanAppend := projection.RenderAppendDeltaFrom(previous, tui.TranscriptDivider)
+	return !cleanAppend
 }
 
 func (m *uiModel) trimCommittedTranscriptSuffixForGate(suffix clientui.CommittedTranscriptSuffix) clientui.CommittedTranscriptSuffix {

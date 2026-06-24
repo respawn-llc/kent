@@ -9,6 +9,70 @@ import (
 	"core/shared/clientui"
 )
 
+func TestCommittedSuffixFinalizerThatWouldRestructureEmittedBlockIsDeferred(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.runtimeCommittedSuffixToken = 1
+	m.transcriptEntries = []tui.TranscriptEntry{
+		{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true},
+		{Role: tui.TranscriptRoleAssistant, Text: "commentary", Committed: true},
+	}
+	renderedEntries := []tui.TranscriptEntry{
+		{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true},
+		{Role: tui.TranscriptRoleAssistant, Text: "rendered-divergent", Committed: true},
+	}
+	var projector tui.CommittedOngoingProjector
+	m.nativeRenderedProjection = projector.Project(renderedEntries, tui.CommittedOngoingProjectionKey{
+		Revision:   m.transcriptRevision,
+		Width:      m.nativeReplayRenderWidth(),
+		Theme:      m.theme,
+		BaseOffset: m.transcriptBaseOffset,
+		EntryCount: len(renderedEntries),
+	})
+
+	m.sawAssistantDelta = true
+	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
+	m.nativeStreamingController.ApplySource("final answer", m.theme, m.nativeReplayRenderWidth())
+	m.nativeStreamingText = "final answer"
+
+	suffix := clientui.CommittedTranscriptSuffix{
+		SessionID:           "session-1",
+		Revision:            2,
+		CommittedEntryCount: 3,
+		StartEntryCount:     2,
+		NextEntryCount:      3,
+		Entries: []clientui.ChatEntry{{
+			Role:  "assistant",
+			Text:  "final answer",
+			Phase: string(llm.MessagePhaseFinal),
+		}},
+	}
+
+	if !m.committedSuffixCanFinalizeAssistantStream(m.trimCommittedTranscriptSuffixForGate(suffix)) {
+		t.Fatal("test precondition: suffix must be able to finalize the active stream")
+	}
+	if !m.shouldGateCommittedSuffixResponse(suffix) {
+		t.Fatal("committed suffix that would restructure an already-emitted block must be deferred while the stream is unsettled")
+	}
+
+	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
+		token:  1,
+		req:    clientui.CommittedTranscriptSuffixRequest{},
+		suffix: suffix,
+	})
+	if cmd != nil {
+		t.Fatal("deferred divergent suffix should not emit a command")
+	}
+	if !m.deferredCommittedSuffixRefreshSet {
+		t.Fatal("deferred divergent suffix should schedule a deferred refresh")
+	}
+	if got := len(m.transcriptEntries); got != 2 {
+		t.Fatalf("transcript entry count = %d, want unchanged (suffix not applied)", got)
+	}
+}
+
 func TestCommittedLocalEntryWhileAssistantStreamingIsDeferredUntilFinalCommit(t *testing.T) {
 	m := newProjectedClosedUIModel(nil)
 	m.windowSizeKnown = true
