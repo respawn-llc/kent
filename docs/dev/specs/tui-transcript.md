@@ -10,47 +10,40 @@
 ## Ongoing Mode
 
 - Ongoing remains minimal: command start previews, file hint previews, lower-contrast syntax-highlighted shell previews, no thinking traces, no preambles, no outputs, and no diffs.
-- Ongoing preview sizing is fixed: command max 80, file max 60, soft-wrap allowed.
-- Ongoing line prefix is `>`, followed by one space.
-- Ongoing does not own a transcript viewport or restore app-managed scroll. Native terminal scrollback owns committed history navigation.
+- **Ongoing does not own a transcript viewport or restore app-managed scroll. Native terminal scrollback owns committed history navigation.**
 - Main UI startup stays in the normal buffer because ongoing-mode replay must remain visible in terminal scrollback.
-- The former `tui_alternate_screen` config is removed; legacy config keys are rejected.
-- Startup clears the visible terminal viewport once before rendering so each session starts from a clean visible slate.
-- During continuous attachment, ongoing normal-buffer history is append-only.
-- Once a transcript line is emitted into scrollback, it is immutable: no retroactive restyling, no in-place rewrites, no clear-and-replay, and no full-buffer re-emission to paper over same-session divergence.
+- **ongoing normal-buffer history is append-only.** 
+- **Once a transcript line is emitted into scrollback, it is immutable: no retroactive restyling, no in-place rewrites, no clear-and-replay, and no full-buffer re-emission to paper over same-session divergence.**
 - Compaction is same-session committed transcript progression, not a same-session transcript rewrite.
-- User-visible transcript history is never truncated by compaction or handoff. It is durable on disk and served by streaming the persisted event log through a windowed projector (page or recent-tail), never by holding the full transcript in memory; the live `chatStore` keeps only the bounded model working set.
+- User-visible transcript history is never truncated by compaction or handoff. It is durable on disk and served by streaming the persisted event log through a windowed projector (page or recent-tail), never by holding the full transcript in memory; the live conversation storage keeps only the bounded model working set.
 - Latest-compaction boundary/floor is tail/model metadata only; detail paging and rendering ignore it.
-- Legacy persisted `history_replaced` entries with `engine="reviewer_rollback"` are tolerated and ignored as compatibility no-ops.
 - Rollback/fork is navigation or attachment to a different session target, not same-session transcript mutation.
-- Assistant streaming in ongoing mode uses source-backed Markdown promotion. Stable rendered assistant lines may append before commit; mutable tail stays in live viewport.
-- Ongoing scrollback authority is committed transcript plus immutable stable assistant stream promotions. Tool progress and reasoning deltas remain transient live viewport state.
+- **Assistant streaming in ongoing mode uses source-backed Markdown promotion. Stable rendered assistant lines append during streaming after being styled as markdown; volatile tail that cannot be styled deterministically stays in live viewport and will be rewritten with styled content on permanent scrollback commit. This is necessary to prevent overflow of live area beyond screen height (which makes it forcibly immutable per TUI limitations and breaks scrollback).**
 - Runtime-control feedback rows that appear in the transcript are committed by the runtime. Runtime-backed clients must not emit optimistic or transient transcript echoes for those rows; local transcript fallback is limited to sessions without a runtime client or committed-append failures.
 - Connectivity/subscription continuity loss discards transient live viewport immediately and recovers by hydrating authoritative committed transcript state.
 - Transcript-affecting transport failures must not be swallowed or converted to fake empty/idle state.
-- External continuity-loss recovery may re-issue the ongoing buffer from authoritative committed state.
+- External continuity-loss recovery may re-issue the ongoing buffer from authoritative committed state, only allowed on connection loss.
 - Client-side transcript divergence from deduplication, ordering, overlap, or pagination bugs is not an acceptable redraw case.
-- Pending tool-call activity lives only in the volatile live region.
-- Ongoing glyphs reserve `@` for web search and `§` for reviewer status/suggestion entries.
-- Pending tool-call previews in live region use the same rendering/layout as committed tool-call previews, with no pending-only labels.
-- Tool completion appends exactly one final committed line in transcript order. Ongoing never recolors/mutates an earlier emitted tool line.
-- Parallel tool calls commit through a stable frontier: later completed calls remain live until all earlier pending calls are ready.
-- In main-input mode, `Up`/`Down` are reserved for prompt-history recall at whole-buffer boundaries or multiline cursor movement. They do not scroll ongoing transcript.
+- **Pending tool-call activity lives only in the volatile live region. When tool execution is in progress and no tool completion event has been issued, the tool calls render a loading spinner in a separate terminal area that is refreshed every frame to enable animations, but when tools are completed, they use regular `steer` path to get committed to permanent native terminal scrollback.**
+- Messages in TUI use icon-like, single-symbol glyphs: `@` for web search, `§` for reviewer status/suggestion entries, `⇄` for file edits (edit/patch tools), `$` for shell tool calls, `⚠` for all warnings, `!` for all errors, `ℹ` for all ongoing-visible neutral notices (such as goal, worktree messages), and `?` for questions.
+- **Pending tool-call previews in live region use the same rendering/layout as committed tool-call previews, with no pending-only labels.**
+- **Tool completion appends exactly one final committed line in transcript order. Ongoing never recolors/mutates an earlier emitted tool line.**
+- **Parallel tool calls commit through a stable frontier: later completed calls remain live until all earlier pending calls are ready.**
+- **In main-input mode, `Up`/`Down` are reserved for prompt-history recall at whole-buffer boundaries or multiline cursor movement. They do not scroll ongoing transcript.**
 - `PgUp`/`PgDn` also do not scroll ongoing transcript state.
-- Ongoing mouse capture is disabled to preserve native text selection.
-- Ongoing mode never enables terminal alternate-scroll `?1007`.
+- **Ongoing mouse capture is disabled to preserve native text selection.**
+- **Ongoing mode never enables terminal alternate-scroll `?1007`.**
 
 ## Detail Mode
 
 - Detail mode is an expandable transcript inspector.
-- Collapsed detail is default.
+- Collapsed detail is default presentation mode.
 - User and assistant messages show at most the first 3 rendered lines when collapsed.
 - Tool calls show the same first input line used by ongoing previews.
 - Ask-question entries show only the question when collapsed.
 - Known developer/context reminders use typed compact labels.
-- Expanding reveals full detail content.
+- Expanding reveals full entry content verbatim.
 - Detail compact labels are metadata-first. Runtime/client projection preserves source message type, source path, compact content/label, and tool presentation metadata.
-- Legacy sessions degrade by role and text-preview fallback only. Kent must not parse old prompt/reminder text to reclassify AGENTS, skills, environment, worktree, patch, or handoff messages.
 - Unknown roles, unknown message types, and invalid/missing metadata remain visible and expandable when recoverable text exists.
 - Detail tool calls with error results stay collapsed by default but may show compact input plus structured error summary.
 - Detail scrolling is line-oriented.
