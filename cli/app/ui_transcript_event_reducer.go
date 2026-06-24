@@ -272,24 +272,12 @@ func shouldDeferCommittedTranscriptEventWhileStreaming(state projectedTranscript
 	return true
 }
 
-func isFinalAssistantCommitEvent(evt clientui.Event) bool {
-	if evt.Kind != clientui.EventAssistantMessage || !evt.CommittedTranscriptChanged {
-		return false
-	}
-	for _, entry := range evt.TranscriptEntries {
-		if isFinalAssistantProjectedEntry(entry) {
-			return true
-		}
-	}
-	return false
-}
-
 func isAssistantStreamFinalizerEvent(state projectedTranscriptEventState, evt clientui.Event) bool {
 	if evt.Kind != clientui.EventAssistantMessage || !evt.CommittedTranscriptChanged {
 		return false
 	}
 	if strings.TrimSpace(state.liveAssistantStepID) != "" {
-		return activeAssistantStepMatchesEvent(state, evt) && isFinalAssistantCommitEvent(evt)
+		return activeAssistantStepMatchesEvent(state, evt)
 	}
 	activeStream := strings.TrimSpace(state.liveAssistantText)
 	if activeStream == "" {

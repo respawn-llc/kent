@@ -102,7 +102,8 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 			cmds = append(cmds, cmd)
 			transcriptMutated = transcriptMutated || mutated
 			awaitsHydration = awaitsHydration || needsHydration
-			if shouldClearAssistantStreamForCommittedAssistantEvent(evt, m.view.OngoingStreamingText()) && (mutated || skippedAssistantCommitMatchesActiveLiveStream(m, evt)) {
+			streamFinalizer := mutated && isAssistantStreamFinalizerEvent(projectedState, evt)
+			if (shouldClearAssistantStreamForCommittedAssistantEvent(evt, m.view.OngoingStreamingText()) && (mutated || skippedAssistantCommitMatchesActiveLiveStream(m, evt))) || streamFinalizer {
 				if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
 					m.lastCommittedAssistantStepID = stepID
 				}

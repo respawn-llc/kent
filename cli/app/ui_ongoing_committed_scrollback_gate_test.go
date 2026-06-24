@@ -662,3 +662,76 @@ func TestRunIdleClearsAwaitingNativeStreamingCommitAndDrainsDeferredTail(t *test
 		t.Fatalf("transcript entries after idle recovery = %+v", m.transcriptEntries)
 	}
 }
+
+func TestCommentaryCommitFinalizesStreamWithinRunScopedStepID(t *testing.T) {
+	client := &runtimeClientWithoutCachedMainView{
+		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID:  "session-1",
+			Transcript: clientui.TranscriptMetadata{Revision: 5, CommittedEntryCount: 5},
+		}},
+	}
+	m := newProjectedClosedUIModel(client)
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
+	m.transcriptRevision = 1
+	m.transcriptTotalEntries = 1
+	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 1, Entries: m.transcriptEntries})
+
+	_, c1 := m.handleRuntimeEventBatch([]clientui.Event{{Kind: clientui.EventAssistantDelta, StepID: "run-1", AssistantDelta: "first turn commentary"}})
+	_ = collectCmdMessages(t, c1)
+	_, c2 := m.handleRuntimeEventBatch([]clientui.Event{{
+		Kind:                       clientui.EventAssistantMessage,
+		StepID:                     "run-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        2,
+		TranscriptRevision:         2,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "first turn commentary", Phase: string(llm.MessagePhaseCommentary)}},
+	}})
+	_ = collectCmdMessages(t, c2)
+
+	_, c3 := m.handleRuntimeEventBatch([]clientui.Event{{Kind: clientui.EventAssistantDelta, StepID: "run-1", AssistantDelta: "second turn commentary"}})
+	_ = collectCmdMessages(t, c3)
+
+	if got := m.view.OngoingStreamingText(); got != "second turn commentary" {
+		t.Fatalf("live stream = %q, want only the second turn (first turn snowballed into the live area)", got)
+	}
+}
+
+func TestCommentaryCommitFinalizesStreamWhenStreamedTextDiffersFromCommitted(t *testing.T) {
+	client := &runtimeClientWithoutCachedMainView{
+		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID:  "session-1",
+			Transcript: clientui.TranscriptMetadata{Revision: 5, CommittedEntryCount: 5},
+		}},
+	}
+	m := newProjectedClosedUIModel(client)
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
+	m.transcriptRevision = 1
+	m.transcriptTotalEntries = 1
+	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 1, Entries: m.transcriptEntries})
+
+	_, c1 := m.handleRuntimeEventBatch([]clientui.Event{{Kind: clientui.EventAssistantDelta, StepID: "run-1", AssistantDelta: "streamed draft"}})
+	_ = collectCmdMessages(t, c1)
+	_, c2 := m.handleRuntimeEventBatch([]clientui.Event{{
+		Kind:                       clientui.EventAssistantMessage,
+		StepID:                     "run-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        2,
+		TranscriptRevision:         2,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "committed final text", Phase: string(llm.MessagePhaseCommentary)}},
+	}})
+	_ = collectCmdMessages(t, c2)
+
+	if got := m.view.OngoingStreamingText(); got != "" {
+		t.Fatalf("live stream = %q, want cleared once the turn committed even though streamed text differed", got)
+	}
+}
