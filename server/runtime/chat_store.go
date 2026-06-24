@@ -314,6 +314,14 @@ func (s *chatStore) cachedLastCommittedAssistantFinalAnswer() string {
 	return s.lastCommittedAssistantFinalAnswer
 }
 
+func (s *chatStore) seedLastCommittedAssistantFinalAnswerIfEmpty(answer string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(s.lastCommittedAssistantFinalAnswer) == "" {
+		s.lastCommittedAssistantFinalAnswer = answer
+	}
+}
+
 func (s *chatStore) snapshotMessages() []llm.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

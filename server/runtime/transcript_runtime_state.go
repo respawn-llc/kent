@@ -88,6 +88,15 @@ func (s *transcriptRuntimeState) LastCommittedAssistantFinalAnswer() string {
 	return ""
 }
 
+func (s *transcriptRuntimeState) SeedLastCommittedAssistantFinalAnswerIfEmpty(answer string) {
+	if strings.TrimSpace(answer) == "" {
+		return
+	}
+	if chat := s.chatProjection(); chat != nil {
+		chat.seedLastCommittedAssistantFinalAnswerIfEmpty(answer)
+	}
+}
+
 func (s *transcriptRuntimeState) EstimatedProviderTokens() int {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.estimatedProviderTokens()

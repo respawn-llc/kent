@@ -715,10 +715,11 @@ type historyReplacementPayload struct {
 	// replacement, when the engine runs under a workflow run. It is the durable,
 	// single-write provenance of a compaction: resume reconstructs it from this
 	// event so a workflow run never recompacts a continuation it already committed.
-	WorkflowRunID               string             `json:"workflow_run_id,omitempty"`
-	CompactionNumber            int                `json:"compaction_number,omitempty"`
-	PendingHandoffFutureMessage string             `json:"pending_handoff_future_message,omitempty"`
-	Items                       []llm.ResponseItem `json:"items"`
+	WorkflowRunID                     string             `json:"workflow_run_id,omitempty"`
+	CompactionNumber                  int                `json:"compaction_number,omitempty"`
+	PendingHandoffFutureMessage       string             `json:"pending_handoff_future_message,omitempty"`
+	LastCommittedAssistantFinalAnswer string             `json:"last_committed_assistant_final_answer,omitempty"`
+	Items                             []llm.ResponseItem `json:"items"`
 }
 
 func toToolNames(ids []toolspec.ID) []string {
@@ -845,7 +846,9 @@ func (e *Engine) modelRequests() *modelRequestRuntimeState {
 
 func (e *Engine) emitRaw(evt Event) {
 	evt.TranscriptRevision = e.TranscriptRevision()
-	evt.CommittedEntryCount = e.CommittedTranscriptEntryCount()
+	if evt.CommittedEntryCount == 0 {
+		evt.CommittedEntryCount = e.CommittedTranscriptEntryCount()
+	}
 	if evt.ContextUsage == nil && eventShouldCarryContextUsage(evt) {
 		usage := e.ContextUsage()
 		evt.ContextUsage = &usage

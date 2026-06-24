@@ -116,6 +116,9 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(evt session.Event) error {
 		for _, entry := range transcriptEntriesFromHistoryReplacement(llm.PrepareOpenAIInputItems(payload.Items)) {
 			s.scan.appendEntry(entry)
 		}
+		if answer := strings.TrimSpace(payload.LastCommittedAssistantFinalAnswer); answer != "" {
+			s.lastCommittedAssistantFinalAnswer = payload.LastCommittedAssistantFinalAnswer
+		}
 	}
 	return nil
 }

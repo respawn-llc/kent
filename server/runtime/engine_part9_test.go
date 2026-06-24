@@ -15,6 +15,46 @@ import (
 	"time"
 )
 
+func TestMultiRowCompactionEmitsPerRowCommittedCounts(t *testing.T) {
+	store := mustCreateTestSession(t)
+	var (
+		mu     sync.Mutex
+		events []Event
+	)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		OnEvent: func(evt Event) {
+			mu.Lock()
+			events = append(events, evt)
+			mu.Unlock()
+		},
+	})
+	if err := newCompactionPersistence(eng).replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{
+		{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary one"},
+		{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "summary two"},
+	})); err != nil {
+		t.Fatalf("replace history: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	rows := 0
+	for _, evt := range events {
+		if evt.Kind != EventLocalEntryAdded || !evt.CommittedTranscriptChanged {
+			continue
+		}
+		rows++
+		if !evt.CommittedEntryStartSet {
+			t.Fatal("compaction row event missing CommittedEntryStartSet")
+		}
+		if got, want := evt.CommittedEntryCount, evt.CommittedEntryStart+1; got != want {
+			t.Fatalf("compaction row committed count = %d, want per-row %d (start %d)", got, want, evt.CommittedEntryStart)
+		}
+	}
+	if rows < 2 {
+		t.Fatalf("expected >=2 projected compaction rows, got %d", rows)
+	}
+}
+
 func TestExecuteToolCallsRejectsWhitespaceWebSearchQuery(t *testing.T) {
 	store := mustCreateTestSession(t)
 

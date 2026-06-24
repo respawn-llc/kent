@@ -64,6 +64,41 @@ func streamScanRepresentativeEvents(t *testing.T) []session.Event {
 	}
 }
 
+func TestStreamingTranscriptScanSeedsLastFinalAnswerFromCompactionBoundary(t *testing.T) {
+	events := []session.Event{
+		streamScanTestEvent(t, "history_replaced", historyReplacementPayload{
+			Engine:                            "compaction",
+			LastCommittedAssistantFinalAnswer: "retained final answer",
+			Items: llm.ItemsFromMessages([]llm.Message{
+				{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary so far"},
+			}),
+		}),
+	}
+	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	applyEventsToStreaming(t, scan, events)
+	if got, want := scan.LastCommittedAssistantFinalAnswer(), "retained final answer"; got != want {
+		t.Fatalf("scan last final answer = %q, want boundary-seeded %q", got, want)
+	}
+}
+
+func TestStreamingTranscriptScanBoundarySeedOverriddenByLaterFinalAnswer(t *testing.T) {
+	events := []session.Event{
+		streamScanTestEvent(t, "history_replaced", historyReplacementPayload{
+			Engine:                            "compaction",
+			LastCommittedAssistantFinalAnswer: "stale boundary answer",
+			Items: llm.ItemsFromMessages([]llm.Message{
+				{Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "summary so far"},
+			}),
+		}),
+		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "newer final answer"}),
+	}
+	scan := newStreamingTranscriptScan(inMemoryTranscriptScanRequest{Offset: 0, Limit: 0}, config.CacheWarningModeDefault)
+	applyEventsToStreaming(t, scan, events)
+	if got, want := scan.LastCommittedAssistantFinalAnswer(), "newer final answer"; got != want {
+		t.Fatalf("scan last final answer = %q, want later final %q", got, want)
+	}
+}
+
 func applyEventsToStreaming(t *testing.T, scan *streamingTranscriptScan, events []session.Event) {
 	t.Helper()
 	for _, evt := range events {

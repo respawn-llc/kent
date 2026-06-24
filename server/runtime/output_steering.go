@@ -108,15 +108,16 @@ func steerLocalEntryIntent(entry storedLocalEntry) steeringIntent {
 	}
 }
 
-func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, compactionNumber int, pendingHandoffFutureMessage string, items []llm.ResponseItem) steeringIntent {
+func steerHistoryReplacementIntent(engine string, mode compactionMode, workflowRunID string, compactionNumber int, pendingHandoffFutureMessage string, lastCommittedAssistantFinalAnswer string, items []llm.ResponseItem) steeringIntent {
 	preparedItems := llm.PrepareOpenAIInputItems(items)
 	payload := historyReplacementPayload{
-		Engine:                      normalizeHistoryReplacementEngine(engine),
-		Mode:                        string(mode),
-		WorkflowRunID:               workflowRunID,
-		CompactionNumber:            compactionNumber,
-		PendingHandoffFutureMessage: pendingHandoffFutureMessage,
-		Items:                       llm.CloneResponseItems(preparedItems),
+		Engine:                            normalizeHistoryReplacementEngine(engine),
+		Mode:                              string(mode),
+		WorkflowRunID:                     workflowRunID,
+		CompactionNumber:                  compactionNumber,
+		PendingHandoffFutureMessage:       pendingHandoffFutureMessage,
+		LastCommittedAssistantFinalAnswer: lastCommittedAssistantFinalAnswer,
+		Items:                             llm.CloneResponseItems(preparedItems),
 	}
 	return steeringIntent{
 		priority: steeringPriorityNormal,
@@ -358,6 +359,7 @@ func (e *Engine) emitProjectedHistoryReplacementEntriesRaw(stepID string, start 
 			CommittedTranscriptChanged: true,
 			CommittedEntryStart:        start + idx,
 			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        start + idx + 1,
 		})
 	}
 }
