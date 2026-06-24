@@ -45,6 +45,18 @@ sha256_of() {
 	fi
 }
 
+cask_versioned_url() {
+	local source_url="$1"
+	local cask_version="$2"
+	local token='#{version}'
+	local versioned_url="${source_url//${cask_version}/${token}}"
+	if [[ "$versioned_url" == "$source_url" ]]; then
+		echo "Desktop URL must contain cask version ${cask_version} so Homebrew can audit it as versioned: ${source_url}" >&2
+		exit 1
+	fi
+	printf '%s' "$versioned_url"
+}
+
 version=""
 repo="respawn-llc/kent"
 formula="kent"
@@ -242,13 +254,14 @@ if [[ -n "$desktop_url" ]]; then
 	tmp_cask="$(mktemp)"
 	curl -fsSL "$desktop_url" -o "$tmp_file"
 	dmg_sha256="$(sha256_of "$tmp_file")"
+	cask_url="$(cask_versioned_url "$desktop_url" "$cask_version")"
 	mkdir -p "$(dirname "$cask_path")"
 	cat >"$tmp_cask" <<EOF
 cask "${desktop_cask}" do
   version "${cask_version}"
   sha256 "${dmg_sha256}"
 
-  url "${desktop_url}"
+  url "${cask_url}"
   name "Kent"
   desc "Desktop client for the Kent coding agent"
   homepage "https://github.com/respawn-llc/kent"
@@ -321,6 +334,6 @@ echo "  url: $url"
 echo "  sha256: $sha256"
 if [[ -n "$cask_path" ]]; then
 	echo "Updated ${cask_path}"
-	echo "  url: $desktop_url"
+	echo "  url: $cask_url"
 	echo "  sha256: $dmg_sha256"
 fi
