@@ -123,11 +123,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 	if donePreviewLimit == 0 {
 		donePreviewLimit = 20
 	}
-	links, err := s.queries.ListProjectWorkflowLinks(ctx, projectID)
-	if err != nil {
-		return serverapi.WorkflowBoard{}, err
-	}
-	taskActivityRows, err := s.queries.ListProjectWorkflowTaskActivity(ctx, projectID)
+	definitions, nodeKindsByWorkflowID, picker, err := s.workflowSelectionInputs(ctx, projectID, roleResolver)
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
@@ -136,57 +132,6 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		return serverapi.WorkflowBoard{}, err
 	}
 	primaryWorkspace, workspacesByID := boardProjectWorkspaceSummaries(project)
-	workflowIDs := make([]string, 0, len(links)+len(taskActivityRows))
-	seen := map[string]bool{}
-	linkByWorkflowID := map[string]sqlitegen.ProjectWorkflowLinkRecord{}
-	for _, link := range links {
-		if linkByWorkflowID[link.WorkflowID].ID == "" {
-			linkByWorkflowID[link.WorkflowID] = link
-		}
-		if !seen[link.WorkflowID] {
-			workflowIDs = append(workflowIDs, link.WorkflowID)
-			seen[link.WorkflowID] = true
-		}
-	}
-	activityByWorkflowID := map[string]int64{}
-	for _, activity := range taskActivityRows {
-		activityByWorkflowID[activity.WorkflowID] = activity.LatestUpdatedAtUnixMs
-		if !seen[activity.WorkflowID] {
-			workflowIDs = append(workflowIDs, activity.WorkflowID)
-			seen[activity.WorkflowID] = true
-		}
-	}
-	definitions := make(map[string]serverapi.WorkflowDefinition, len(workflowIDs))
-	nodeKindsByWorkflowID := make(map[string]map[string]workflow.NodeKind, len(workflowIDs))
-	picker := make([]serverapi.WorkflowPickerItem, 0, len(workflowIDs))
-	for _, workflowID := range workflowIDs {
-		def, nodeKinds, err := s.definition(ctx, workflowID)
-		if err != nil {
-			return serverapi.WorkflowBoard{}, err
-		}
-		definitions[workflowID] = def
-		nodeKindsByWorkflowID[workflowID] = nodeKinds
-		link := linkByWorkflowID[workflowID]
-		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
-		picker = append(picker, serverapi.WorkflowPickerItem{
-			WorkflowID:           workflowID,
-			DisplayName:          def.Workflow.Name,
-			Description:          def.Workflow.Description,
-			Version:              def.Workflow.Version,
-			IsProjectDefault:     link.ID != "" && link.IsDefault != 0,
-			ValidForTaskCreation: !validation.HasBlockingErrors() && link.ID != "",
-			ValidationErrors:     ValidationErrors(def.Workflow.ID, validation.Errors),
-		})
-	}
-	sort.SliceStable(picker, func(i, j int) bool {
-		if picker[i].IsProjectDefault != picker[j].IsProjectDefault {
-			return picker[i].IsProjectDefault
-		}
-		if activityByWorkflowID[picker[i].WorkflowID] != activityByWorkflowID[picker[j].WorkflowID] {
-			return activityByWorkflowID[picker[i].WorkflowID] > activityByWorkflowID[picker[j].WorkflowID]
-		}
-		return strings.ToLower(picker[i].DisplayName) < strings.ToLower(picker[j].DisplayName)
-	})
 	requestedWorkflowID := strings.TrimSpace(req.WorkflowID)
 	if requestedWorkflowID == "" && strings.TrimSpace(req.PageToken) != "" {
 		tokenWorkflowID, err := workflowBoardPageTokenWorkflowID(req.PageToken, projectID)
@@ -292,6 +237,254 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		GeneratedAtUnixMs:  time.Now().UTC().UnixMilli(),
 	}
 	return board, nil
+}
+
+func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest, roleResolver workflow.RoleResolver) (serverapi.WorkflowTaskListResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	if s == nil {
+		return serverapi.WorkflowTaskListResponse{}, errors.New("workflow view service is required")
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	pageSize := req.PageSize
+	if pageSize == 0 {
+		pageSize = 100
+	}
+	pageToken, pageTokenSet, err := parseWorkflowTaskListPageToken(req.PageToken)
+	if err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	if pageTokenSet && pageToken.ProjectID != projectID {
+		return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
+	}
+	definitions, nodeKindsByWorkflowID, picker, err := s.workflowSelectionInputs(ctx, projectID, roleResolver)
+	if err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	requestedWorkflowID := strings.TrimSpace(req.WorkflowID)
+	if requestedWorkflowID == "" && pageTokenSet {
+		requestedWorkflowID = pageToken.WorkflowID
+	}
+	selected := selectWorkflow(picker, requestedWorkflowID)
+	if selected.WorkflowID == "" {
+		if pageTokenSet {
+			return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
+		}
+		return serverapi.WorkflowTaskListResponse{
+			ProjectID:         projectID,
+			WorkflowID:        "",
+			GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
+			Tasks:             []serverapi.WorkflowTaskListItem{},
+		}, nil
+	}
+	def := definitions[selected.WorkflowID]
+	nodeKinds := nodeKindsByWorkflowID[selected.WorkflowID]
+	columns := boardColumns(def)
+	normalizedSort := normalizeWorkflowTaskListSort(req.Sort)
+	statusStructureHash := workflowTaskListStatusStructureHash(def, columns)
+	fingerprint := workflowTaskListRequestFingerprint(req, normalizedSort, statusStructureHash)
+	if pageTokenSet && (pageToken.WorkflowID != selected.WorkflowID || pageToken.WorkflowVersion != selected.Version || pageToken.StatusStructureHash != statusStructureHash || pageToken.Fingerprint != fingerprint) {
+		return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
+	}
+	if err := validateWorkflowTaskListStatusKeys(req.StatusKeys, columns); err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	statusFilter := workflowTaskListStatusKeyFilter(req.StatusKeys)
+	runStatusFilter := workflowTaskListRunStatusFilter(req.RunStatuses)
+	rows, err := s.listWorkflowTaskListRows(ctx, workflowTaskListQueryRequest{
+		projectID:          projectID,
+		workflowID:         selected.WorkflowID,
+		columns:            columns,
+		canceledTerminalID: canceledBoardTerminalNodeID(def),
+		statusKeys:         req.StatusKeys,
+		runStatuses:        req.RunStatuses,
+		sortSelectors:      normalizedSort,
+		cursor:             pageToken.Cursor,
+		cursorSet:          pageTokenSet,
+		limit:              pageSize + 1,
+	})
+	if err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	tasks := make([]sqlitegen.TaskRecord, 0, len(rows))
+	for _, row := range rows {
+		tasks = append(tasks, row.task)
+	}
+	placementsByTaskID, err := s.boardPlacementsByTask(ctx, tasks)
+	if err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	items := make([]workflowTaskListItemWithSort, 0, len(rows))
+	for _, row := range rows {
+		task := row.task
+		placements := effectiveVisibleBoardStatusPlacementsForTask(task, placementsByTaskID[task.ID], def, nodeKinds)
+		statusKeys, _ := workflowTaskStatusKeysAndOrder(placements, columns)
+		item := workflowTaskListItemWithSort{
+			item: serverapi.WorkflowTaskListItem{
+				TaskID:          task.ID,
+				ShortID:         task.ShortID,
+				WorkflowID:      task.WorkflowID,
+				Title:           task.Title,
+				CreatedAtUnixMs: task.CreatedAtUnixMs,
+				UpdatedAtUnixMs: task.UpdatedAtUnixMs,
+				StatusKeys:      statusKeys,
+				RunStatus:       row.runStatus,
+				RunCount:        row.runCount,
+			},
+			statusOrder: row.statusOrder,
+			titleSort:   row.titleSort,
+		}
+		if !workflowTaskListMatchesFilters(item.item, statusFilter, runStatusFilter) {
+			continue
+		}
+		items = append(items, item)
+	}
+	pageItems := items
+	hasNext := len(pageItems) > pageSize
+	if hasNext {
+		pageItems = pageItems[:pageSize]
+	}
+	nextPageToken := ""
+	if hasNext && len(pageItems) > 0 {
+		nextPageToken = workflowTaskListPageToken(workflowTaskListPageTokenPayload{
+			Version:             1,
+			ProjectID:           projectID,
+			WorkflowID:          selected.WorkflowID,
+			WorkflowVersion:     selected.Version,
+			StatusStructureHash: statusStructureHash,
+			Fingerprint:         fingerprint,
+			Cursor:              workflowTaskListCursorFromItem(pageItems[len(pageItems)-1]),
+		})
+	}
+	responseItems := make([]serverapi.WorkflowTaskListItem, 0, len(pageItems))
+	for _, item := range pageItems {
+		responseItems = append(responseItems, item.item)
+	}
+	selectedCopy := selected
+	return serverapi.WorkflowTaskListResponse{
+		ProjectID:         projectID,
+		WorkflowID:        selected.WorkflowID,
+		SelectedWorkflow:  &selectedCopy,
+		NextPageToken:     nextPageToken,
+		GeneratedAtUnixMs: time.Now().UTC().UnixMilli(),
+		Tasks:             responseItems,
+	}, nil
+}
+
+func validateWorkflowTaskListStatusKeys(statusKeys []string, columns []serverapi.WorkflowBoardColumn) error {
+	visible := map[string]bool{}
+	for _, column := range columns {
+		visible[column.Node.Key] = true
+	}
+	for index, statusKey := range statusKeys {
+		if !visible[statusKey] {
+			return serverapi.WorkflowRequestValidationError{
+				Code:    serverapi.WorkflowRequestErrorInvalidValue,
+				Field:   fmt.Sprintf("status_keys[%d]", index),
+				Message: fmt.Sprintf("unknown workflow status key %q", statusKey),
+			}
+		}
+	}
+	return nil
+}
+
+func workflowTaskListStatusKeyFilter(statusKeys []string) map[string]bool {
+	filter := map[string]bool{}
+	for _, statusKey := range statusKeys {
+		filter[statusKey] = true
+	}
+	return filter
+}
+
+func workflowTaskListRunStatusFilter(statuses []serverapi.WorkflowTaskRunStatus) map[serverapi.WorkflowTaskRunStatus]bool {
+	filter := map[serverapi.WorkflowTaskRunStatus]bool{}
+	for _, status := range statuses {
+		filter[status] = true
+	}
+	return filter
+}
+
+func workflowTaskListMatchesFilters(item serverapi.WorkflowTaskListItem, statusFilter map[string]bool, runStatusFilter map[serverapi.WorkflowTaskRunStatus]bool) bool {
+	if len(statusFilter) > 0 {
+		matchesStatus := false
+		for _, statusKey := range item.StatusKeys {
+			if statusFilter[statusKey] {
+				matchesStatus = true
+				break
+			}
+		}
+		if !matchesStatus {
+			return false
+		}
+	}
+	if len(runStatusFilter) > 0 && !runStatusFilter[item.RunStatus] {
+		return false
+	}
+	return true
+}
+
+func (s *Service) workflowSelectionInputs(ctx context.Context, projectID string, roleResolver workflow.RoleResolver) (map[string]serverapi.WorkflowDefinition, map[string]map[string]workflow.NodeKind, []serverapi.WorkflowPickerItem, error) {
+	links, err := s.queries.ListProjectWorkflowLinks(ctx, projectID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	taskActivityRows, err := s.queries.ListProjectWorkflowTaskActivity(ctx, projectID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	workflowIDs := make([]string, 0, len(links)+len(taskActivityRows))
+	seen := map[string]bool{}
+	linkByWorkflowID := map[string]sqlitegen.ProjectWorkflowLinkRecord{}
+	for _, link := range links {
+		if linkByWorkflowID[link.WorkflowID].ID == "" {
+			linkByWorkflowID[link.WorkflowID] = link
+		}
+		if !seen[link.WorkflowID] {
+			workflowIDs = append(workflowIDs, link.WorkflowID)
+			seen[link.WorkflowID] = true
+		}
+	}
+	activityByWorkflowID := map[string]int64{}
+	for _, activity := range taskActivityRows {
+		activityByWorkflowID[activity.WorkflowID] = activity.LatestUpdatedAtUnixMs
+		if !seen[activity.WorkflowID] {
+			workflowIDs = append(workflowIDs, activity.WorkflowID)
+			seen[activity.WorkflowID] = true
+		}
+	}
+	definitions := make(map[string]serverapi.WorkflowDefinition, len(workflowIDs))
+	nodeKindsByWorkflowID := make(map[string]map[string]workflow.NodeKind, len(workflowIDs))
+	picker := make([]serverapi.WorkflowPickerItem, 0, len(workflowIDs))
+	for _, workflowID := range workflowIDs {
+		def, nodeKinds, err := s.definition(ctx, workflowID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		definitions[workflowID] = def
+		nodeKindsByWorkflowID[workflowID] = nodeKinds
+		link := linkByWorkflowID[workflowID]
+		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
+		picker = append(picker, serverapi.WorkflowPickerItem{
+			WorkflowID:           workflowID,
+			DisplayName:          def.Workflow.Name,
+			Description:          def.Workflow.Description,
+			Version:              def.Workflow.Version,
+			IsProjectDefault:     link.ID != "" && link.IsDefault != 0,
+			ValidForTaskCreation: !validation.HasBlockingErrors() && link.ID != "",
+			ValidationErrors:     ValidationErrors(def.Workflow.ID, validation.Errors),
+		})
+	}
+	sort.SliceStable(picker, func(i, j int) bool {
+		if picker[i].IsProjectDefault != picker[j].IsProjectDefault {
+			return picker[i].IsProjectDefault
+		}
+		if activityByWorkflowID[picker[i].WorkflowID] != activityByWorkflowID[picker[j].WorkflowID] {
+			return activityByWorkflowID[picker[i].WorkflowID] > activityByWorkflowID[picker[j].WorkflowID]
+		}
+		return strings.ToLower(picker[i].DisplayName) < strings.ToLower(picker[j].DisplayName)
+	})
+	return definitions, nodeKindsByWorkflowID, picker, nil
 }
 
 func (s *Service) ListBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest, _ workflow.RoleResolver) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
@@ -2050,6 +2243,40 @@ func effectiveBoardPlacementsForTask(task sqlitegen.TaskRecord, placements []sql
 		CreatedAtUnixMs: task.UpdatedAtUnixMs,
 		UpdatedAtUnixMs: task.UpdatedAtUnixMs,
 	}}
+}
+
+func effectiveVisibleBoardStatusPlacementsForTask(task sqlitegen.TaskRecord, placements []sqlitegen.TaskNodePlacementRecord, def serverapi.WorkflowDefinition, nodeKinds map[string]workflow.NodeKind) []sqlitegen.TaskNodePlacementRecord {
+	effective := effectiveBoardPlacementsForTask(task, placements, def, nodeKinds)
+	visibleNodeIDs := map[string]bool{}
+	for _, column := range boardColumns(def) {
+		visibleNodeIDs[column.Node.NodeID] = true
+	}
+	visible := make([]sqlitegen.TaskNodePlacementRecord, 0, len(effective))
+	for _, placement := range effective {
+		if visibleNodeIDs[placement.NodeID] {
+			visible = append(visible, placement)
+		}
+	}
+	return visible
+}
+
+func workflowTaskStatusKeysAndOrder(placements []sqlitegen.TaskNodePlacementRecord, columns []serverapi.WorkflowBoardColumn) ([]string, int) {
+	nodeIDs := map[string]bool{}
+	for _, placement := range placements {
+		nodeIDs[placement.NodeID] = true
+	}
+	keys := []string{}
+	statusOrder := len(columns)
+	for index, column := range columns {
+		if !nodeIDs[column.Node.NodeID] {
+			continue
+		}
+		if statusOrder == len(columns) {
+			statusOrder = index
+		}
+		keys = append(keys, column.Node.Key)
+	}
+	return keys, statusOrder
 }
 
 func canceledBoardTerminalNodeID(def serverapi.WorkflowDefinition) string {

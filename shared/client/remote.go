@@ -385,6 +385,10 @@ func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req serverapi.Wor
 	return callUnscopedRPC[serverapi.WorkflowTaskActivityListRequest, serverapi.WorkflowTaskActivityListResponse](c, ctx, protocol.MethodWorkflowTaskActivityList, req)
 }
 
+func (c *Remote) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+	return callUnscopedRPC[serverapi.WorkflowTaskListRequest, serverapi.WorkflowTaskListResponse](c, ctx, protocol.MethodWorkflowTaskList, req)
+}
+
 func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
 	return callUnscopedRPC[serverapi.WorkflowBoardRequest, serverapi.WorkflowBoardResponse](c, ctx, protocol.MethodWorkflowBoardGet, req)
 }

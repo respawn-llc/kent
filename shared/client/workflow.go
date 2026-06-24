@@ -188,6 +188,10 @@ func (c *loopbackWorkflowClient) ListWorkflowTaskActivity(ctx context.Context, r
 	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.ListWorkflowTaskActivity)
 }
 
+func (c *loopbackWorkflowClient) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.ListWorkflowTasks)
+}
+
 func (c *loopbackWorkflowClient) SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error) {
 	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.SubscribeWorkflowProject)
 }

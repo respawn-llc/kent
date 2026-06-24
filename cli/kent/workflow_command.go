@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -1162,35 +1161,6 @@ func workflowDisplayNameFromKey(key string) string {
 		return strings.TrimSpace(key)
 	}
 	return display
-}
-
-func sortedWorkflowTasksFromCards(board serverapi.WorkflowBoard, cards []serverapi.WorkflowBoardTaskCard) []serverapi.WorkflowTaskSummary {
-	seen := map[string]serverapi.WorkflowTaskSummary{}
-	for _, card := range cards {
-		seen[card.TaskID] = workflowTaskSummaryFromCard(board.ProjectID, card)
-	}
-	for _, card := range board.Cards {
-		seen[card.TaskID] = workflowTaskSummaryFromCard(board.ProjectID, card)
-	}
-	for _, card := range board.DonePreview {
-		seen[card.TaskID] = workflowTaskSummaryFromCard(board.ProjectID, card)
-	}
-	for _, workflow := range board.Workflows {
-		for _, task := range workflow.Tasks {
-			seen[task.ID] = task
-		}
-	}
-	tasks := make([]serverapi.WorkflowTaskSummary, 0, len(seen))
-	for _, task := range seen {
-		tasks = append(tasks, task)
-	}
-	sort.Slice(tasks, func(i, j int) bool {
-		if tasks[i].ShortID == tasks[j].ShortID {
-			return tasks[i].ID < tasks[j].ID
-		}
-		return tasks[i].ShortID < tasks[j].ShortID
-	})
-	return tasks
 }
 
 func workflowTaskSummaryFromCard(projectID string, card serverapi.WorkflowBoardTaskCard) serverapi.WorkflowTaskSummary {

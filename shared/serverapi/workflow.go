@@ -18,6 +18,7 @@ const (
 )
 
 const WorkflowListMaxPageSize = 100
+const WorkflowTaskListMaxPageSize = 100
 
 const (
 	WorkflowGraphDraftMaxNodeGroups       = 200
@@ -857,6 +858,68 @@ type WorkflowBoardRequest struct {
 	DonePreviewLimit int    `json:"done_preview_limit"`
 	PageSize         int    `json:"page_size"`
 	PageToken        string `json:"page_token"`
+}
+
+type WorkflowTaskRunStatus string
+
+const (
+	WorkflowTaskRunStatusOpen     WorkflowTaskRunStatus = "open"
+	WorkflowTaskRunStatusRunning  WorkflowTaskRunStatus = "running"
+	WorkflowTaskRunStatusDone     WorkflowTaskRunStatus = "done"
+	WorkflowTaskRunStatusCanceled WorkflowTaskRunStatus = "canceled"
+)
+
+type WorkflowTaskListSortField string
+
+const (
+	WorkflowTaskListSortFieldCreated  WorkflowTaskListSortField = "created"
+	WorkflowTaskListSortFieldUpdated  WorkflowTaskListSortField = "updated"
+	WorkflowTaskListSortFieldStatus   WorkflowTaskListSortField = "status"
+	WorkflowTaskListSortFieldRunCount WorkflowTaskListSortField = "run_count"
+	WorkflowTaskListSortFieldTitle    WorkflowTaskListSortField = "title"
+)
+
+type WorkflowTaskListSortDirection string
+
+const (
+	WorkflowTaskListSortDirectionAsc  WorkflowTaskListSortDirection = "asc"
+	WorkflowTaskListSortDirectionDesc WorkflowTaskListSortDirection = "desc"
+)
+
+type WorkflowTaskListSort struct {
+	Field     WorkflowTaskListSortField     `json:"field"`
+	Direction WorkflowTaskListSortDirection `json:"direction"`
+}
+
+type WorkflowTaskListRequest struct {
+	ProjectID   string                  `json:"project_id"`
+	WorkflowID  string                  `json:"workflow_id,omitempty"`
+	StatusKeys  []string                `json:"status_keys,omitempty"`
+	RunStatuses []WorkflowTaskRunStatus `json:"run_statuses,omitempty"`
+	Sort        []WorkflowTaskListSort  `json:"sort,omitempty"`
+	PageSize    int                     `json:"page_size"`
+	PageToken   string                  `json:"page_token,omitempty"`
+}
+
+type WorkflowTaskListResponse struct {
+	ProjectID         string                 `json:"project_id"`
+	WorkflowID        string                 `json:"workflow_id"`
+	SelectedWorkflow  *WorkflowPickerItem    `json:"selected_workflow,omitempty"`
+	NextPageToken     string                 `json:"next_page_token,omitempty"`
+	GeneratedAtUnixMs int64                  `json:"generated_at_unix_ms"`
+	Tasks             []WorkflowTaskListItem `json:"tasks"`
+}
+
+type WorkflowTaskListItem struct {
+	TaskID          string                `json:"task_id"`
+	ShortID         string                `json:"short_id"`
+	WorkflowID      string                `json:"workflow_id"`
+	Title           string                `json:"title"`
+	CreatedAtUnixMs int64                 `json:"created_at_unix_ms"`
+	UpdatedAtUnixMs int64                 `json:"updated_at_unix_ms"`
+	StatusKeys      []string              `json:"status_keys"`
+	RunStatus       WorkflowTaskRunStatus `json:"run_status"`
+	RunCount        int                   `json:"run_count"`
 }
 
 type WorkflowBoardResponse struct {
@@ -1775,6 +1838,51 @@ func (r WorkflowBoardRequest) Validate() error {
 	}
 	if strings.TrimSpace(r.PageToken) != r.PageToken {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
+	return nil
+}
+
+func (r WorkflowTaskListRequest) Validate() error {
+	if err := validateRequired("project_id", r.ProjectID); err != nil {
+		return err
+	}
+	if r.PageSize < 0 {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_size", "page_size must be non-negative")
+	}
+	if r.PageSize > WorkflowTaskListMaxPageSize {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_size", fmt.Sprintf("page_size must be <= %d", WorkflowTaskListMaxPageSize))
+	}
+	if strings.TrimSpace(r.PageToken) != r.PageToken {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
+	for index, statusKey := range r.StatusKeys {
+		if !workflowkey.Valid(statusKey) {
+			return workflowRequestError(WorkflowRequestErrorInvalidKey, fmt.Sprintf("status_keys[%d]", index), fmt.Sprintf("status_keys[%d] must %s", index, workflowkey.Description))
+		}
+	}
+	for index, status := range r.RunStatuses {
+		switch status {
+		case WorkflowTaskRunStatusOpen, WorkflowTaskRunStatusRunning, WorkflowTaskRunStatusDone, WorkflowTaskRunStatusCanceled:
+		default:
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, fmt.Sprintf("run_statuses[%d]", index), "run_status must be open, running, done, or canceled")
+		}
+	}
+	seenSortFields := map[WorkflowTaskListSortField]bool{}
+	for index, sortSelector := range r.Sort {
+		switch sortSelector.Field {
+		case WorkflowTaskListSortFieldCreated, WorkflowTaskListSortFieldUpdated, WorkflowTaskListSortFieldStatus, WorkflowTaskListSortFieldRunCount, WorkflowTaskListSortFieldTitle:
+		default:
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, fmt.Sprintf("sort[%d].field", index), "sort field must be created, updated, status, run_count, or title")
+		}
+		if seenSortFields[sortSelector.Field] {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, fmt.Sprintf("sort[%d].field", index), "sort field must not be duplicated")
+		}
+		seenSortFields[sortSelector.Field] = true
+		switch sortSelector.Direction {
+		case WorkflowTaskListSortDirectionAsc, WorkflowTaskListSortDirectionDesc:
+		default:
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, fmt.Sprintf("sort[%d].direction", index), "sort direction must be asc or desc")
+		}
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -129,8 +130,8 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	taskID := taskResp.Task.Summary.ID
 
 	taskListOut, _ := runWorkflowRootCommandOK(t, "task", "list", "--project", binding.ProjectID)
-	if !strings.Contains(taskListOut, shortID+": Task.") || !strings.Contains(taskListOut, "Status: open") {
-		t.Fatalf("task list output = %q, want short id and open backlog status", taskListOut)
+	if !strings.Contains(taskListOut, shortID+": Task.") || !strings.Contains(taskListOut, "Status: backlog") || !strings.Contains(taskListOut, "Run status: open") {
+		t.Fatalf("task list output = %q, want short id, backlog status, and open run status", taskListOut)
 	}
 	taskListJSONOut, _ := runWorkflowRootCommandOK(t, "task", "list", "--project", binding.ProjectID, "--json")
 	if !strings.Contains(taskListJSONOut, shortID) || !strings.Contains(taskListJSONOut, taskID) {
@@ -1059,7 +1060,7 @@ type pagedTaskListRemote struct {
 	client.WorkflowClient
 	board    serverapi.WorkflowBoard
 	pages    map[string]serverapi.WorkflowBoard
-	requests []serverapi.WorkflowBoardRequest
+	requests []serverapi.WorkflowTaskListRequest
 }
 
 func (r *pagedTaskListRemote) Close() error { return nil }
@@ -1069,11 +1070,60 @@ func (r *pagedTaskListRemote) ResolveProjectPath(context.Context, serverapi.Proj
 }
 
 func (r *pagedTaskListRemote) GetWorkflowBoard(_ context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-	r.requests = append(r.requests, req)
 	if strings.TrimSpace(req.PageToken) == "" {
 		return serverapi.WorkflowBoardResponse{Board: r.board}, nil
 	}
 	return serverapi.WorkflowBoardResponse{Board: r.pages[req.PageToken]}, nil
+}
+
+func (r *pagedTaskListRemote) ListWorkflowTasks(_ context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+	r.requests = append(r.requests, req)
+	board := r.board
+	if strings.TrimSpace(req.PageToken) != "" {
+		board = r.pages[req.PageToken]
+	}
+	return workflowTaskListResponseFromBoard(board), nil
+}
+
+func workflowTaskListResponseFromBoard(board serverapi.WorkflowBoard) serverapi.WorkflowTaskListResponse {
+	cards := append([]serverapi.WorkflowBoardTaskCard{}, board.Cards...)
+	cards = append(cards, board.DonePreview...)
+	tasks := make([]serverapi.WorkflowTaskListItem, 0, len(cards))
+	for _, card := range cards {
+		runStatus := serverapi.WorkflowTaskRunStatus(testTaskListRunStatusFromCardStatus(card.Status))
+		statusKey := "agent"
+		if card.Status.Kind == "done" {
+			statusKey = "done"
+		}
+		if card.Status.Kind == "backlog" {
+			statusKey = "backlog"
+		}
+		tasks = append(tasks, serverapi.WorkflowTaskListItem{
+			TaskID:          card.TaskID,
+			ShortID:         card.ShortID,
+			WorkflowID:      card.WorkflowID,
+			Title:           card.Title,
+			CreatedAtUnixMs: 1,
+			UpdatedAtUnixMs: card.UpdatedAtUnixMs,
+			StatusKeys:      []string{statusKey},
+			RunStatus:       runStatus,
+			RunCount:        len(card.Status.RunIDs),
+		})
+	}
+	return serverapi.WorkflowTaskListResponse{ProjectID: board.ProjectID, WorkflowID: board.SelectedWorkflow.WorkflowID, SelectedWorkflow: &board.SelectedWorkflow, NextPageToken: board.NextPageToken, Tasks: tasks}
+}
+
+func testTaskListRunStatusFromCardStatus(status serverapi.WorkflowTaskStatus) string {
+	switch status.Kind {
+	case "done":
+		return "done"
+	case "canceled":
+		return "canceled"
+	case "running", "interrupted", "waiting_question", "waiting_approval":
+		return "running"
+	default:
+		return "open"
+	}
 }
 
 func TestTaskListUsesDefaultPageSizeAndPrintsNextPageToken(t *testing.T) {
@@ -1109,14 +1159,14 @@ func TestTaskListUsesDefaultPageSizeAndPrintsNextPageToken(t *testing.T) {
 	if strings.Contains(stdout, "short_id\t") {
 		t.Fatalf("task list output = %q, want human-readable blocks without TSV header", stdout)
 	}
-	if !strings.Contains(stdout, "BLD-1: A.\nStatus: open\n") {
-		t.Fatalf("task list output = %q, want readable open status block", stdout)
+	if !strings.Contains(stdout, "BLD-1: A.\nStatus: agent\nRun status: open\n") {
+		t.Fatalf("task list output = %q, want readable status block", stdout)
 	}
 	if !strings.Contains(stderr, "Next page token: `next`") {
 		t.Fatalf("task list stderr = %q, want next page token", stderr)
 	}
-	if len(remote.requests) != 1 || remote.requests[0].PageSize != 100 || remote.requests[0].PageToken != "" {
-		t.Fatalf("board requests = %+v, want one default-sized first page request", remote.requests)
+	if len(remote.requests) != 1 || remote.requests[0].PageSize != 100 || remote.requests[0].PageToken != "" || !reflect.DeepEqual(remote.requests[0].Sort, defaultTaskListSortSelectors()) {
+		t.Fatalf("task list requests = %+v, want one default-sized first page request with default sort", remote.requests)
 	}
 }
 
@@ -1151,17 +1201,17 @@ func TestTaskListUsesRequestedPageSizeAndToken(t *testing.T) {
 	if strings.Contains(stdout, "BLD-1:") || strings.Count(stdout, "BLD-2:") != 1 || strings.Count(stdout, "BLD-3:") != 1 {
 		t.Fatalf("task list output = %q, want the open page plus the surfaced done preview", stdout)
 	}
-	if !strings.Contains(stdout, "BLD-2: B.\nStatus: open\n") {
-		t.Fatalf("task list output = %q, want readable open status block", stdout)
+	if !strings.Contains(stdout, "BLD-2: B.\nStatus: agent\nRun status: open\n") {
+		t.Fatalf("task list output = %q, want readable status block", stdout)
 	}
-	if !strings.Contains(stdout, "BLD-3: C.\nStatus: done\n") {
+	if !strings.Contains(stdout, "BLD-3: C.\nStatus: done\nRun status: done\n") {
 		t.Fatalf("task list output = %q, want surfaced done task", stdout)
 	}
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("task list stderr = %q, want no next page token", stderr)
 	}
 	if len(remote.requests) != 1 || remote.requests[0].PageSize != 1 || remote.requests[0].PageToken != "next" {
-		t.Fatalf("board requests = %+v, want requested page size and token", remote.requests)
+		t.Fatalf("task list requests = %+v, want requested page size and token", remote.requests)
 	}
 }
 
@@ -1199,28 +1249,8 @@ func TestTaskListJSONOutputsStructuredPage(t *testing.T) {
 	if output.ProjectID != "project-1" || output.NextPageToken != "next" {
 		t.Fatalf("task list --json output = %+v, want project and next page token", output)
 	}
-	if len(output.Tasks) != 1 || output.Tasks[0].TaskID != "task-a" || output.Tasks[0].Status != "running" {
-		t.Fatalf("task list --json tasks = %+v, want running task-a", output.Tasks)
-	}
-}
-
-func TestTaskListStatusMapping(t *testing.T) {
-	tests := []struct {
-		name string
-		task serverapi.WorkflowTaskSummary
-		want string
-	}{
-		{name: "open", task: serverapi.WorkflowTaskSummary{}, want: "open"},
-		{name: "running", task: serverapi.WorkflowTaskSummary{ActiveNodeIDs: []string{"node-1"}}, want: "running"},
-		{name: "done", task: serverapi.WorkflowTaskSummary{Done: true, ActiveNodeIDs: []string{"node-1"}}, want: "done"},
-		{name: "canceled", task: serverapi.WorkflowTaskSummary{CanceledAt: 1, Done: true, ActiveNodeIDs: []string{"node-1"}}, want: "canceled"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := taskListStatus(tt.task); got != tt.want {
-				t.Fatalf("taskListStatus(%+v) = %q, want %q", tt.task, got, tt.want)
-			}
-		})
+	if len(output.Tasks) != 1 || output.Tasks[0].TaskID != "task-a" || output.Tasks[0].Status != "running" || output.Tasks[0].RunStatus != "running" || !reflect.DeepEqual(output.Tasks[0].StatusKeys, []string{"agent"}) || output.Tasks[0].CreatedAtUnixMs == 0 {
+		t.Fatalf("task list --json tasks = %+v, want structured running task-a", output.Tasks)
 	}
 }
 
@@ -1229,7 +1259,7 @@ func TestTaskListHelpIncludesPaginationAndJSONFlags(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("task list --help exit=%d stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"kent task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]", "-json", "-page-size", "-page-token"} {
+	for _, want := range []string{"kent task list [--project <project>]", "--status", "--column", "--run-status", "--sort", "-json", "-page-size", "-page-token"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("task list --help stderr = %q, want %q", stderr, want)
 		}
@@ -1754,25 +1784,6 @@ func testTaskCard(taskID string, shortID string, title string) serverapi.Workflo
 		Title:      title,
 		WorkflowID: "workflow-1",
 		Status:     serverapi.WorkflowTaskStatus{Kind: "active"},
-	}
-}
-
-func TestTaskListStatusFromCardStatus(t *testing.T) {
-	cases := map[string]string{
-		"backlog":          "open",
-		"active":           "open",
-		"":                 "open",
-		"running":          "running",
-		"interrupted":      "running",
-		"waiting_question": "running",
-		"waiting_approval": "running",
-		"done":             "done",
-		"canceled":         "canceled",
-	}
-	for kind, want := range cases {
-		if got := taskListStatusFromCardStatus(serverapi.WorkflowTaskStatus{Kind: kind}); got != want {
-			t.Fatalf("taskListStatusFromCardStatus(%q) = %q, want %q", kind, got, want)
-		}
 	}
 }
 

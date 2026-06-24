@@ -11,11 +11,17 @@ import (
 type fakeWorkflowService struct {
 	servicecontract.WorkflowService
 	created serverapi.WorkflowCreateRequest
+	listReq serverapi.WorkflowTaskListRequest
 }
 
 func (s *fakeWorkflowService) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
 	s.created = req
 	return serverapi.WorkflowCreateResponse{Workflow: serverapi.WorkflowRecord{ID: "workflow-1", Name: req.Name}}, nil
+}
+
+func (s *fakeWorkflowService) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+	s.listReq = req
+	return serverapi.WorkflowTaskListResponse{ProjectID: req.ProjectID, WorkflowID: req.WorkflowID}, nil
 }
 
 func TestLoopbackWorkflowClientCallsService(t *testing.T) {
@@ -27,5 +33,12 @@ func TestLoopbackWorkflowClientCallsService(t *testing.T) {
 	}
 	if resp.Workflow.ID != "workflow-1" || service.created.Name != "Workflow" {
 		t.Fatalf("response=%+v service=%+v", resp, service.created)
+	}
+	taskList, err := client.ListWorkflowTasks(context.Background(), serverapi.WorkflowTaskListRequest{ProjectID: "project-1", WorkflowID: "workflow-1"})
+	if err != nil {
+		t.Fatalf("ListWorkflowTasks: %v", err)
+	}
+	if taskList.ProjectID != "project-1" || service.listReq.WorkflowID != "workflow-1" {
+		t.Fatalf("task list response=%+v service=%+v", taskList, service.listReq)
 	}
 }
