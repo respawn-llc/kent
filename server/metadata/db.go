@@ -54,7 +54,7 @@ func openDatabaseAtPath(persistenceRoot string, databasePath string) (*sql.DB, e
 }
 
 func metadataSQLiteDSN(databasePath string) string {
-	u := url.URL{Scheme: "file", Path: databasePath}
+	u := url.URL{Scheme: "file", Path: sqliteFileURLPath(databasePath)}
 	q := url.Values{}
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "journal_mode(WAL)")
@@ -62,6 +62,18 @@ func metadataSQLiteDSN(databasePath string) string {
 	q.Add("_pragma", "busy_timeout(5000)")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+func sqliteFileURLPath(databasePath string) string {
+	slashPath := strings.ReplaceAll(filepath.ToSlash(databasePath), "\\", "/")
+	if len(slashPath) >= 2 && slashPath[1] == ':' && isASCIILetter(rune(slashPath[0])) {
+		return "/" + slashPath
+	}
+	return slashPath
+}
+
+func isASCIILetter(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
 }
 
 func runMigrations(db *sql.DB) error {
