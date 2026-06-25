@@ -684,6 +684,9 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
 			}
 		}
+		if response, queued, err := s.queueAgentShellGoalSet(ctx, req, rejectEngine, trimmedObjective); err != nil || queued {
+			return response, err
+		}
 		err = s.withGoalSetMutationAccess(ctx, req, func(engine *runtime.Engine) error {
 			if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 				currentGoal := engine.Goal()
@@ -705,18 +708,37 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 			if err := engine.StartGoalLoop(); err != nil {
 				return err
 			}
-			response = serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-				ID:        strings.TrimSpace(goal.ID),
-				Objective: goal.Objective,
-				Status:    strings.TrimSpace(string(goal.Status)),
-				Suspended: false,
-				CreatedAt: goal.CreatedAt,
-				UpdatedAt: goal.UpdatedAt,
-			}}
+			response = serverapi.RuntimeGoalShowResponse{Goal: runtimeGoalFromSessionGoal(goal, false)}
 			return nil
 		})
 		return response, err
 	})
+}
+
+func (s *Service) queueAgentShellGoalSet(ctx context.Context, req serverapi.RuntimeGoalSetRequest, engine *runtime.Engine, objective string) (serverapi.RuntimeGoalShowResponse, bool, error) {
+	if !s.agentGoalSetCanQueue(req) {
+		return serverapi.RuntimeGoalShowResponse{}, false, nil
+	}
+	if engine == nil {
+		var err error
+		engine, err = s.resolve(ctx, req.SessionID)
+		if err != nil {
+			return serverapi.RuntimeGoalShowResponse{}, false, err
+		}
+	}
+	goal, queued, err := engine.QueueAgentShellSetGoal(req.ShellRunID, req.ShellStepID, objective, session.GoalActor(req.Actor))
+	if err != nil || !queued {
+		return serverapi.RuntimeGoalShowResponse{}, queued, err
+	}
+	return serverapi.RuntimeGoalShowResponse{Goal: runtimeGoalFromSessionGoal(goal, false)}, true, nil
+}
+
+func (s *Service) agentGoalSetCanQueue(req serverapi.RuntimeGoalSetRequest) bool {
+	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
+		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
+		s != nil &&
+		s.shellTokens != nil &&
+		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken)
 }
 
 func goalBlocksAgentSet(goal *session.GoalState) bool {
@@ -755,18 +777,16 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 	memoReq := goalStatusMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Status: strings.TrimSpace(string(status)), Actor: strings.TrimSpace(req.Actor)}
 	return s.goalStatuses.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalStatusMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		var response serverapi.RuntimeGoalShowResponse
+		if status == session.GoalStatusComplete {
+			if queuedResponse, queued, err := s.queueAgentShellGoalComplete(ctx, req); err != nil || queued {
+				return queuedResponse, err
+			}
+		}
 		err := s.withGoalStatusMutationAccess(ctx, req, status, func(engine *runtime.Engine) error {
 			if status == session.GoalStatusComplete {
 				current := engine.Goal()
 				if current != nil && current.Status == session.GoalStatusComplete {
-					response = serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-						ID:        strings.TrimSpace(current.ID),
-						Objective: current.Objective,
-						Status:    strings.TrimSpace(string(current.Status)),
-						Suspended: false,
-						CreatedAt: current.CreatedAt,
-						UpdatedAt: current.UpdatedAt,
-					}}
+					response = serverapi.RuntimeGoalShowResponse{Goal: runtimeGoalFromSessionGoal(*current, false)}
 					return nil
 				}
 			}
@@ -784,18 +804,37 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 					return err
 				}
 			}
-			response = serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-				ID:        strings.TrimSpace(goal.ID),
-				Objective: goal.Objective,
-				Status:    strings.TrimSpace(string(goal.Status)),
-				Suspended: false,
-				CreatedAt: goal.CreatedAt,
-				UpdatedAt: goal.UpdatedAt,
-			}}
+			response = serverapi.RuntimeGoalShowResponse{Goal: runtimeGoalFromSessionGoal(goal, false)}
 			return nil
 		})
 		return response, err
 	})
+}
+
+func (s *Service) queueAgentShellGoalComplete(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, bool, error) {
+	if !s.agentGoalCompletionCanQueue(req) {
+		return serverapi.RuntimeGoalShowResponse{}, false, nil
+	}
+	engine, err := s.resolve(ctx, req.SessionID)
+	if err != nil {
+		return serverapi.RuntimeGoalShowResponse{}, false, err
+	}
+	if current := engine.Goal(); current != nil && current.Status == session.GoalStatusComplete {
+		return serverapi.RuntimeGoalShowResponse{Goal: runtimeGoalFromSessionGoal(*current, false)}, true, nil
+	}
+	goal, queued, err := engine.QueueAgentShellCompleteGoal(req.ShellRunID, req.ShellStepID, session.GoalActor(req.Actor))
+	if err != nil || !queued {
+		return serverapi.RuntimeGoalShowResponse{}, queued, err
+	}
+	return serverapi.RuntimeGoalShowResponse{Goal: runtimeGoalFromSessionGoal(goal, false)}, true, nil
+}
+
+func (s *Service) agentGoalCompletionCanQueue(req serverapi.RuntimeGoalStatusRequest) bool {
+	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
+		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
+		s != nil &&
+		s.shellTokens != nil &&
+		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken)
 }
 
 func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
@@ -830,58 +869,22 @@ func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, 
 }
 
 func (s *Service) withGoalSetMutationAccess(ctx context.Context, req serverapi.RuntimeGoalSetRequest, fn func(*runtime.Engine) error) error {
-	if s.agentGoalSetUsesLeaseFreeRuntimeAccess(ctx, req) {
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return err
-		}
-		return fn(engine)
-	}
 	return s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, fn)
 }
 
 func (s *Service) withGoalStatusMutationAccess(ctx context.Context, req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus, fn func(*runtime.Engine) error) error {
-	if s.agentGoalCompletionUsesLeaseFreeRuntimeAccess(ctx, req, status) {
-		engine, err := s.resolve(ctx, req.SessionID)
-		if err != nil {
-			return err
-		}
-		return fn(engine)
-	}
 	return s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, fn)
 }
 
-func (s *Service) agentGoalSetUsesLeaseFreeRuntimeAccess(ctx context.Context, req serverapi.RuntimeGoalSetRequest) bool {
-	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
-		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
-		s != nil &&
-		s.shellTokens != nil &&
-		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken) &&
-		agentShellOwnsActiveRun(ctx, s, req.SessionID, req.ShellRunID, req.ShellStepID)
-}
-
-func (s *Service) agentGoalCompletionUsesLeaseFreeRuntimeAccess(ctx context.Context, req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus) bool {
-	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
-		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
-		status == session.GoalStatusComplete &&
-		s != nil &&
-		s.shellTokens != nil &&
-		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken) &&
-		agentShellOwnsActiveRun(ctx, s, req.SessionID, req.ShellRunID, req.ShellStepID)
-}
-
-func agentShellOwnsActiveRun(ctx context.Context, s *Service, sessionID string, shellRunID string, shellStepID string) bool {
-	shellRunID = strings.TrimSpace(shellRunID)
-	shellStepID = strings.TrimSpace(shellStepID)
-	if s == nil || shellRunID == "" || shellStepID == "" {
-		return false
+func runtimeGoalFromSessionGoal(goal session.GoalState, suspended bool) *serverapi.RuntimeGoal {
+	return &serverapi.RuntimeGoal{
+		ID:        strings.TrimSpace(goal.ID),
+		Objective: goal.Objective,
+		Status:    strings.TrimSpace(string(goal.Status)),
+		Suspended: suspended,
+		CreatedAt: goal.CreatedAt,
+		UpdatedAt: goal.UpdatedAt,
 	}
-	engine, err := s.resolve(ctx, sessionID)
-	if err != nil {
-		return false
-	}
-	active := engine.ActiveRun()
-	return active != nil && active.RunID == shellRunID && active.StepID == shellStepID
 }
 
 func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {

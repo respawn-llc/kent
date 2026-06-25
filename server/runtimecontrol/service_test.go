@@ -176,6 +176,11 @@ type cancelObservingRuntimeControlClient struct {
 	cancelOnce  sync.Once
 }
 
+type runtimeControlActiveRun struct {
+	Snapshot *runtime.RunSnapshot
+	finish   func()
+}
+
 func newCancelObservingRuntimeControlClient() *cancelObservingRuntimeControlClient {
 	return &cancelObservingRuntimeControlClient{
 		started:     make(chan struct{}),
@@ -211,7 +216,7 @@ func (c *cancelObservingRuntimeControlClient) ProviderCapabilities(context.Conte
 	return llm.ProviderCapabilities{}, nil
 }
 
-func startRuntimeControlActiveRun(t *testing.T, engine *runtime.Engine, client *cancelObservingRuntimeControlClient) *runtime.RunSnapshot {
+func startRuntimeControlActiveRun(t *testing.T, engine *runtime.Engine, client *cancelObservingRuntimeControlClient) runtimeControlActiveRun {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {
@@ -236,18 +241,26 @@ func startRuntimeControlActiveRun(t *testing.T, engine *runtime.Engine, client *
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	t.Cleanup(func() {
-		close(client.release)
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("active run: %v", err)
+	var finishOnce sync.Once
+	finish := func() {
+		t.Helper()
+		finishOnce.Do(func() {
+			close(client.release)
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("active run: %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("timed out waiting for active run cleanup")
 			}
-		case <-time.After(3 * time.Second):
-			t.Fatal("timed out waiting for active run cleanup")
-		}
+		})
+	}
+	t.Cleanup(func() {
+		t.Helper()
+		finish()
 	})
-	return snapshot
+	return runtimeControlActiveRun{Snapshot: snapshot, finish: finish}
 }
 
 type fakeShellHandler struct{}
@@ -506,8 +519,8 @@ func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 		ClientRequestID: "goal-complete-agent-current-turn",
 		SessionID:       store.Meta().SessionID,
 		ShellToken:      "shell-token",
-		ShellRunID:      active.RunID,
-		ShellStepID:     active.StepID,
+		ShellRunID:      active.Snapshot.RunID,
+		ShellStepID:     active.Snapshot.StepID,
 		Actor:           "agent",
 	})
 	if err != nil {
@@ -516,6 +529,7 @@ func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	if resp.Goal == nil || resp.Goal.Status != string(session.GoalStatusComplete) {
 		t.Fatalf("complete response = %+v, want complete goal", resp.Goal)
 	}
+	active.finish()
 	if goal := store.Meta().Goal; goal == nil || goal.Status != session.GoalStatusComplete {
 		t.Fatalf("persisted goal = %+v, want complete", goal)
 	}
@@ -543,8 +557,8 @@ func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 		ClientRequestID: "goal-set-agent-current-turn",
 		SessionID:       store.Meta().SessionID,
 		ShellToken:      "shell-token",
-		ShellRunID:      active.RunID,
-		ShellStepID:     active.StepID,
+		ShellRunID:      active.Snapshot.RunID,
+		ShellStepID:     active.Snapshot.StepID,
 		Objective:       "new current-turn goal",
 		Actor:           "agent",
 	})
@@ -554,6 +568,7 @@ func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	if resp.Goal == nil || resp.Goal.Objective != "new current-turn goal" || resp.Goal.Status != string(session.GoalStatusActive) {
 		t.Fatalf("set response = %+v, want active current-turn goal", resp.Goal)
 	}
+	active.finish()
 	if goal := store.Meta().Goal; goal == nil || goal.Objective != "new current-turn goal" || goal.Status != session.GoalStatusActive {
 		t.Fatalf("persisted goal = %+v, want active current-turn goal", goal)
 	}
@@ -581,8 +596,8 @@ func TestServiceAgentSetGoalWithStaleShellRunKeepsPrimaryRunGate(t *testing.T) {
 		ClientRequestID: "goal-set-agent-stale-turn",
 		SessionID:       store.Meta().SessionID,
 		ShellToken:      "shell-token",
-		ShellRunID:      active.RunID + "-stale",
-		ShellStepID:     active.StepID,
+		ShellRunID:      active.Snapshot.RunID + "-stale",
+		ShellStepID:     active.Snapshot.StepID,
 		Objective:       "blocked stale goal",
 		Actor:           "agent",
 	})
