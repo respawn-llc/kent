@@ -1,0 +1,114 @@
+.markdown-text {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+  color: inherit;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.markdown-text-inline {
+  display: inline;
+}
+
+.markdown-text :where(h1, h2, h3, h4, h5, h6, p, blockquote, pre, ul, ol, table) {
+  margin: 0;
+}
+
+.markdown-text :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--color-on-island);
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.markdown-text h1 {
+  font-size: 1.35rem;
+}
+
+.markdown-text h2 {
+  font-size: 1.2rem;
+}
+
+.markdown-text h3 {
+  font-size: 1.08rem;
+}
+
+.markdown-text :where(h4, h5, h6) {
+  font-size: 1rem;
+}
+
+.markdown-text :where(ul, ol) {
+  display: grid;
+  gap: var(--space-1);
+  padding-inline-start: 1.4em;
+}
+
+.markdown-text ul {
+  list-style: disc;
+}
+
+.markdown-text ol {
+  list-style: decimal;
+}
+
+.markdown-text :where(ul ul, ul ol, ol ul, ol ol) {
+  margin-block-start: var(--space-1);
+}
+
+.markdown-text li {
+  padding-inline-start: var(--space-1);
+}
+
+.markdown-text blockquote {
+  border-inline-start: 3px solid var(--color-outline);
+  color: var(--color-muted);
+  padding-inline-start: var(--space-3);
+}
+
+.markdown-text a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.markdown-text code {
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-s);
+  background: var(--color-island-2);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0.05em 0.32em;
+}
+
+.markdown-text pre {
+  overflow: auto;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-m);
+  background: var(--color-island-1);
+  padding: var(--space-3);
+}
+
+.markdown-text pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-text table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+
+.markdown-text :where(th, td) {
+  border: 1px solid var(--color-outline);
+  padding: var(--space-2);
+  text-align: start;
+  vertical-align: top;
+}
+
+.markdown-text th {
+  background: var(--color-island-2);
+  font-weight: 700;
+}

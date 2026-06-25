@@ -285,7 +285,12 @@ jobs:
             platform: macos
           - runs_on: ubuntu-22.04
             platform: linux
+          - runs_on: windows-latest
+            platform: windows
     runs-on: ${{ matrix.runs_on }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v6.0.2
 

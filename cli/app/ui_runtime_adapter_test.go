@@ -469,7 +469,7 @@ func TestOngoingReviewerEntriesAfterCommittedFinalKeepFinalVisibleWithoutHydrati
 	}
 
 	for _, evt := range events {
-		msgs := collectCmdMessages(t, m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd)
+		msgs := collectCmdMessagesApplyingNativeWriteResults(t, m, m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd)
 		for _, msg := range msgs {
 			if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 				t.Fatalf("did not expect reviewer sequence to trigger transcript hydration, event=%s msg=%+v", evt.Kind, msg)

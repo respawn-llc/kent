@@ -6,6 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/shared/clientui"
+	"core/shared/transcript"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,223 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 	}
 	if got := strings.Count(committed, "I opened it via the browser client"); got != 1 {
 		t.Fatalf("expected committed multiline final tail once, got %d in %q", got, committed)
+	}
+}
+
+func TestNativeGoalFeedbackBeforeStreamDoesNotReplayOrDuplicateFinal(t *testing.T) {
+	out := &bytes.Buffer{}
+	runtimeEvents := make(chan clientui.Event, 8)
+	model := newProjectedTestUIModel(nil, runtimeEvents, closedAskEvents())
+	program := startNativeProgram(t, model, out)
+	time.Sleep(30 * time.Millisecond)
+	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventLocalEntryAdded,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        0,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        1,
+		TranscriptRevision:         1,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:          string(transcript.EntryRoleGoalFeedback),
+			Text:          "Goal resumed developer prompt detail",
+			CondensedText: `Goal resumed: "ship native scrollback"`,
+			Visibility:    clientui.EntryVisibilityAll,
+		}},
+	}
+	waitForTestCondition(t, 2*time.Second, "goal feedback visible before stream", func() bool {
+		return strings.Contains(normalizedOutput(out.String()), `Goal resumed: "ship native scrollback"`)
+	})
+
+	finalText := "Continuing the same pending-tool/native live-region flow family."
+	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: finalText}
+	waitForTestCondition(t, 2*time.Second, "assistant stream visible after goal feedback", func() bool {
+		return strings.Contains(normalizedOutput(out.String()), finalText)
+	})
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        2,
+		TranscriptRevision:         2,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:  "assistant",
+			Text:  finalText,
+			Phase: string(llm.MessagePhaseFinal),
+		}},
+	}
+	waitForTestCondition(t, 2*time.Second, "stream committed after goal feedback", func() bool {
+		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
+			model.nativeAckedFlushSequence() >= model.nativeLastScheduledFlushSequence() &&
+			model.nativeScrollbackLedger.PendingCount() == 0
+	})
+
+	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	program.Wait(2 * time.Second)
+	finalTerminal := normalizedOutput(replayTerminalPlainText(out.String()))
+	if got := strings.Count(finalTerminal, `Goal resumed: "ship native scrollback"`); got != 1 {
+		t.Fatalf("expected goal feedback once, got %d in %q", got, finalTerminal)
+	}
+	if got := strings.Count(finalTerminal, finalText); got != 1 {
+		t.Fatalf("expected final answer once, got %d in %q", got, finalTerminal)
+	}
+	if !containsInOrder(finalTerminal, `Goal resumed: "ship native scrollback"`, finalText) {
+		t.Fatalf("expected goal feedback before final answer without replay, got %q", finalTerminal)
+	}
+}
+
+func TestNativeLocalEntryDuringStreamDefersUntilFinalWithoutDuplicatingStream(t *testing.T) {
+	out := &bytes.Buffer{}
+	runtimeEvents := make(chan clientui.Event, 8)
+	model := newProjectedTestUIModel(nil, runtimeEvents, closedAskEvents())
+	program := startNativeProgram(t, model, out)
+	time.Sleep(30 * time.Millisecond)
+	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	finalText := "Current implementation is at 864 LOC diff."
+	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: finalText}
+	waitForTestCondition(t, 2*time.Second, "assistant stream visible", func() bool {
+		return strings.Contains(normalizedOutput(out.String()), finalText)
+	})
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventLocalEntryAdded,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        0,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        1,
+		TranscriptRevision:         1,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:          string(transcript.EntryRoleGoalFeedback),
+			Text:          "Goal resumed developer prompt detail",
+			CondensedText: `Goal resumed: "ship native scrollback"`,
+			Visibility:    clientui.EntryVisibilityAll,
+		}},
+	}
+	time.Sleep(50 * time.Millisecond)
+	if strings.Contains(normalizedOutput(replayTerminalPlainText(out.String())), `Goal resumed: "ship native scrollback"`) {
+		t.Fatalf("local goal feedback reached native scrollback before stream finalization: %q", normalizedOutput(replayTerminalPlainText(out.String())))
+	}
+
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        2,
+		TranscriptRevision:         2,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:  "assistant",
+			Text:  finalText,
+			Phase: string(llm.MessagePhaseFinal),
+		}},
+	}
+	waitForTestCondition(t, 2*time.Second, "deferred local row drained after stream finalization", func() bool {
+		terminal := normalizedOutput(replayTerminalPlainText(out.String()))
+		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
+			model.nativeAckedFlushSequence() >= model.nativeLastScheduledFlushSequence() &&
+			model.nativeScrollbackLedger.PendingCount() == 0 &&
+			strings.Contains(terminal, finalText) &&
+			strings.Contains(terminal, `Goal resumed: "ship native scrollback"`)
+	})
+
+	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	program.Wait(2 * time.Second)
+	finalTerminal := normalizedOutput(replayTerminalPlainText(out.String()))
+	if got := strings.Count(finalTerminal, finalText); got != 1 {
+		t.Fatalf("expected stream/final text once, got %d in %q", got, finalTerminal)
+	}
+	if got := strings.Count(finalTerminal, `Goal resumed: "ship native scrollback"`); got != 1 {
+		t.Fatalf("expected deferred goal feedback once, got %d in %q", got, finalTerminal)
+	}
+	if !containsInOrder(finalTerminal, finalText, `Goal resumed: "ship native scrollback"`) {
+		t.Fatalf("expected stream finalization before deferred local feedback, got %q", finalTerminal)
+	}
+}
+
+func TestNativeReviewerEntriesAfterStreamFinalDoNotReplayFinalAnswer(t *testing.T) {
+	out := &bytes.Buffer{}
+	runtimeEvents := make(chan clientui.Event, 8)
+	model := newProjectedTestUIModel(nil, runtimeEvents, closedAskEvents())
+	program := startNativeProgram(t, model, out)
+	time.Sleep(30 * time.Millisecond)
+	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	finalText := "Continuing into the worker projection bridge next."
+	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: finalText}
+	waitForTestCondition(t, 2*time.Second, "assistant stream visible", func() bool {
+		return strings.Contains(normalizedOutput(out.String()), finalText)
+	})
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        0,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        1,
+		TranscriptRevision:         1,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:  "assistant",
+			Text:  finalText,
+			Phase: string(llm.MessagePhaseFinal),
+		}},
+	}
+	waitForTestCondition(t, 2*time.Second, "final answer committed before reviewer entries", func() bool {
+		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
+			model.nativeAckedFlushSequence() >= model.nativeLastScheduledFlushSequence() &&
+			model.nativeScrollbackLedger.PendingCount() == 0
+	})
+
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventLocalEntryAdded,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        2,
+		TranscriptRevision:         2,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:          "reviewer_suggestions",
+			Text:          "Supervisor suggested:\n1. Check final answer.",
+			CondensedText: "Supervisor suggested:\n1. Check final answer.",
+		}},
+	}
+	runtimeEvents <- clientui.Event{
+		Kind:                       clientui.EventLocalEntryAdded,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        2,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        3,
+		TranscriptRevision:         3,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role: "reviewer_status",
+			Text: "Supervisor ran: 1 suggestion, no changes applied.",
+		}},
+	}
+	waitForTestCondition(t, 2*time.Second, "reviewer entries appended after final answer", func() bool {
+		terminal := normalizedOutput(replayTerminalPlainText(out.String()))
+		return model.nativeAckedFlushSequence() >= model.nativeLastScheduledFlushSequence() &&
+			model.nativeScrollbackLedger.PendingCount() == 0 &&
+			containsInOrder(terminal, finalText, "Supervisor suggested:", "Supervisor ran: 1 suggestion")
+	})
+
+	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	program.Wait(2 * time.Second)
+	finalTerminal := normalizedOutput(replayTerminalPlainText(out.String()))
+	if got := strings.Count(finalTerminal, finalText); got != 1 {
+		t.Fatalf("expected final answer once after reviewer entries, got %d in %q", got, finalTerminal)
+	}
+	if got := strings.Count(finalTerminal, "Supervisor suggested:"); got != 1 {
+		t.Fatalf("expected reviewer suggestions once, got %d in %q", got, finalTerminal)
+	}
+	if got := strings.Count(finalTerminal, "Supervisor ran: 1 suggestion"); got != 1 {
+		t.Fatalf("expected reviewer status once, got %d in %q", got, finalTerminal)
 	}
 }
 

@@ -147,6 +147,32 @@ describe("TaskDetailSurface", () => {
     });
   });
 
+  it("renders task description markdown with block typography", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.task.get",
+        result: {
+          task: {
+            ...taskDetailNoInboxResponse.task,
+            body: "# Release plan\n\n- Restore bullets\n- Restore headings\n\nUse `kent`.",
+          },
+        },
+      },
+      { method: "workflow.task.comment.list", result: commentListResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    const description = await screen.findByRole("textbox", { name: "Description" });
+    expect(within(description).getByTestId("markdown-text")).toHaveClass("markdown-text");
+    expect(within(description).getByRole("heading", { level: 1, name: "Release plan" })).toBeInTheDocument();
+    expect(within(description).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(description).getByText("kent")).toBeInTheDocument();
+  });
+
   it("surfaces failed comment deletes through the status toast surface", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     const services = createTestServices([

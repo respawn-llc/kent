@@ -11,8 +11,8 @@ import {
 import { flushSync } from "react-dom";
 
 import type { BoardColumn, WorkflowBoard } from "../../api";
-import { runViewTransition } from "../../app/viewTransitions";
 import { chromeContentPaddingClassName } from "../../ui/chromePadding";
+import { runBoardCardMotionTransition } from "./BoardCardMotionAnimator";
 import { BoardCardMotionContext, type BoardCardMotionContextValue } from "./BoardCardMotionContext";
 import { KanbanColumn, KanbanGroup } from "./BoardColumns";
 import {
@@ -134,6 +134,7 @@ export function BoardRailMotionController({
   const boardColumnCountsRef = useRef(boardColumnCounts);
   const visibleCardIDsRef = useRef<ReadonlySet<string>>(new Set());
   const cardElementsRef = useRef<ReadonlyMap<string, HTMLElement>>(new Map());
+  const columnElementsRef = useRef<ReadonlyMap<string, HTMLElement>>(new Map());
   const cardObserverRef = useRef<IntersectionObserver | null>(null);
   const phaseRef = useRef<BoardMotionPhase>("idle");
   const followUpPendingRef = useRef(false);
@@ -311,8 +312,11 @@ export function BoardRailMotionController({
         return;
       }
       phaseRef.current = "running";
-      void runViewTransition({
-        scope: "board-card",
+      void runBoardCardMotionTransition({
+        cardElementsRef,
+        columnElementsRef,
+        namesByCardID: armedTransition.namesByCardID,
+        pendingCardMove,
         update: () => {
           flushSync(() => {
             displayedColumnsRef.current = armedTransition.nextDisplayed;
@@ -325,31 +329,40 @@ export function BoardRailMotionController({
             setRevealCardIDs(armedTransition.revealCardIDs);
           });
         },
-      }).then((transition) => {
-        void transition.finished.finally(() => {
-          if (
-            armedTransition.attemptID !== attemptIDRef.current ||
-            armedTransition.layoutSignature !== layoutSignatureRef.current ||
-            armedTransition.runtimeGeneration !== runtimeGenerationRef.current
-          ) {
-            return;
-          }
-          phaseRef.current = "idle";
-          setArmedTransition(null);
-          setActiveNamesByCardID(new Map());
-          setHeldExpandedColumnIDs(new Set());
-          scheduleRevealClear(revealTimeoutsRef, armedTransition.revealCardIDs, setRevealCardIDs);
-          if (followUpPendingRef.current) {
-            followUpPendingRef.current = false;
-            scheduleNextTransition(false);
-          }
-        });
+      }).finally(() => {
+        if (
+          armedTransition.attemptID !== attemptIDRef.current ||
+          armedTransition.layoutSignature !== layoutSignatureRef.current ||
+          armedTransition.runtimeGeneration !== runtimeGenerationRef.current
+        ) {
+          return;
+        }
+        phaseRef.current = "idle";
+        setArmedTransition(null);
+        setActiveNamesByCardID(new Map());
+        setHeldExpandedColumnIDs(new Set());
+        scheduleRevealClear(revealTimeoutsRef, armedTransition.revealCardIDs, setRevealCardIDs);
+        if (followUpPendingRef.current) {
+          followUpPendingRef.current = false;
+          scheduleNextTransition(false);
+        }
       });
     });
-  }, [armedTransition, scheduleNextTransition]);
+  }, [armedTransition, pendingCardMove, scheduleNextTransition]);
 
   const registerCard = useCallback((cardID: string, element: HTMLElement | null) => {
     registerCardElement({ cardElementsRef, cardObserverRef, visibleCardIDsRef }, cardID, element);
+  }, []);
+
+  const registerColumn = useCallback((columnID: string, element: HTMLElement | null) => {
+    const current = columnElementsRef.current;
+    const next = new Map(current);
+    if (element === null) {
+      next.delete(columnID);
+    } else {
+      next.set(columnID, element);
+    }
+    columnElementsRef.current = next;
   }, []);
 
   const motionContext = useMemo<BoardCardMotionContextValue>(
@@ -404,6 +417,7 @@ export function BoardRailMotionController({
                   onInterruptedRunObserved={onInterruptedRunObserved}
                   onInterruptTask={onInterruptTask}
                   onReportColumnSnapshot={reportColumnSnapshot}
+                  onRegisterColumn={registerColumn}
                   onResumeTask={onResumeTask}
                   scrollportRef={scrollportRef}
                 />
@@ -430,6 +444,7 @@ export function BoardRailMotionController({
               onInterruptedRunObserved={onInterruptedRunObserved}
               onInterruptTask={onInterruptTask}
               onReportColumnSnapshot={reportColumnSnapshot}
+              onRegisterColumn={registerColumn}
               onResumeTask={onResumeTask}
               scrollportRef={scrollportRef}
             />
@@ -459,6 +474,7 @@ function BoardColumnMotionBoundary({
   onInterruptedRunObserved,
   onInterruptTask,
   onReportColumnSnapshot,
+  onRegisterColumn,
   onResumeTask,
   scrollportRef,
 }: Readonly<{
@@ -480,10 +496,18 @@ function BoardColumnMotionBoundary({
   onInterruptedRunObserved: (input: Readonly<{ runID: string; taskID: string }>) => void;
   onInterruptTask: (taskID: string, runID: string) => void;
   onReportColumnSnapshot: (columnID: string, snapshot: BoardColumnQuerySnapshot) => void;
+  onRegisterColumn: (columnID: string, element: HTMLElement | null) => void;
   onResumeTask: (taskID: string, runID: string) => void;
   scrollportRef: RefObject<HTMLDivElement | null>;
 }>) {
   const [columnElement, setColumnElement] = useState<HTMLElement | null>(null);
+  const setRegisteredColumnElement = useCallback(
+    (element: HTMLElement | null): void => {
+      setColumnElement(element);
+      onRegisterColumn(column.id, element);
+    },
+    [column.id, onRegisterColumn],
+  );
   const isVisible = useColumnVisibility(scrollportRef, columnElement);
   const queryEnabled = isVisible && !latestIsCollapsed;
   const cardsQuery = useBoardNodeCards(board.projectID, board.selectedWorkflow.id, column.id, queryEnabled);
@@ -524,7 +548,7 @@ function BoardColumnMotionBoundary({
       actionsDisabled={actionsDisabled}
       cards={renderedCards}
       column={columnVM}
-      columnRef={setColumnElement}
+      columnRef={setRegisteredColumnElement}
       dropState={dropState}
       hasMoreCards={cardsQuery.hasNextPage}
       isCollapsed={isCollapsed}

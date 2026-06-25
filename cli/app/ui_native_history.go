@@ -59,6 +59,18 @@ func (m *uiModel) syncNativeHistoryFromTranscript() tea.Cmd {
 	committedCount := len(committedEntries)
 	projection := m.nativeCommittedProjection(committedEntries)
 	if m.nativeCommittedEntryCount() < 0 || m.nativeCommittedEntryCount() > committedCount {
+		previousProjection := m.nativeCommittedHistoryDivergenceBaseline()
+		previousBaseOffset := m.nativeRenderedProjectionBaseOffset()
+		if previousBaseOffset < 0 {
+			previousBaseOffset = m.nativeCurrentProjectionBaseOffset()
+		}
+		if appendCmd, appended := m.emitNativeSlidingWindowAppend(projection, previousProjection, m.transcriptBaseOffset, previousBaseOffset); appended {
+			m.rebaseNativeProjection(projection, m.transcriptBaseOffset, committedCount)
+			if !m.shouldEmitNativeHistory() {
+				return sequenceCmds(nil, m.syncNativeStreamingScrollback())
+			}
+			return sequenceCmds(appendCmd, m.syncNativeStreamingScrollback())
+		}
 		if m.nativeHistoryReplayPermit == nativeHistoryReplayPermitContinuityRecovery {
 			previousProjection := m.nativeCommittedHistoryDivergenceBaseline()
 			m.rebaseNativeProjection(projection, m.transcriptBaseOffset, committedCount)
@@ -131,6 +143,32 @@ func (m *uiModel) syncNativeHistoryFromTranscriptAndTrackCommittedDelivery() tea
 		return cmd
 	}
 	return sequenceCmds(cmd, m.trackOngoingCommittedFrontierFlush(committedOngoingLocalFrontierEnd(m), m.transcriptRevision, beforeSequence))
+}
+
+func (m *uiModel) reflowNativeHistoryForResize() tea.Cmd {
+	if m == nil || !m.shouldEmitNativeHistory() {
+		return nil
+	}
+	nativeCommittedEntries := committedNativeScrollbackEntriesForApp(m.transcriptEntries)
+	committedEntries := nativeCommittedEntries.Entries
+	m.resetNativeStreamingRenderStateForResize()
+	if len(committedEntries) == 0 {
+		m.rebaseNativeProjection(tui.TranscriptProjection{}, m.transcriptBaseOffset, 0)
+		m.scheduleNativeRenderedProjectionCommitAtBase(tui.TranscriptProjection{}, m.transcriptBaseOffset, false)
+		return sequenceCmds(m.emitNativeClearScreen(), m.syncNativeStreamingScrollbackAfterResize())
+	}
+	committedCount := len(committedEntries)
+	projection := m.nativeCommittedProjection(committedEntries)
+	m.rebaseNativeProjection(projection, m.transcriptBaseOffset, committedCount)
+	styled := renderStyledNativeProjectionLines(projection.Lines(tui.TranscriptDivider), m.theme, m.nativeReplayRenderWidth())
+	if strings.TrimSpace(styled) == "" {
+		m.scheduleNativeRenderedProjectionCommitAtBase(projection, m.transcriptBaseOffset, false)
+		return sequenceCmds(m.emitNativeClearScreen(), m.syncNativeStreamingScrollbackAfterResize())
+	}
+	return sequenceCmds(
+		m.emitNativeRenderedTextAndCommitProjection(nativeClearScreenAndHomeSequence+styled, false, projection, m.transcriptBaseOffset, false),
+		m.syncNativeStreamingScrollbackAfterResize(),
+	)
 }
 
 func (m *uiModel) nativeCommittedHistoryBaselineExists() bool {
@@ -244,6 +282,18 @@ func (m *uiModel) resetNativeStreamingState() {
 	m.nativeScrollbackLedger.ResetAssistantStream()
 }
 
+func (m *uiModel) resetNativeStreamingRenderStateForResize() {
+	if m == nil {
+		return
+	}
+	m.nativeStreamingDividerFlushed = false
+	if m.nativeStreamingAwaitingCommit {
+		m.nativeScrollbackLedger.ResetAssistantStreamRenderingState()
+		return
+	}
+	m.nativeScrollbackLedger.ResetAssistantStream()
+}
+
 func (m *uiModel) syncNativeStreamingScrollback() tea.Cmd {
 	if m == nil || !m.shouldEmitNativeHistory() {
 		return nil
@@ -256,6 +306,40 @@ func (m *uiModel) syncNativeStreamingScrollback() tea.Cmd {
 		m.resetNativeStreamingState()
 		return nil
 	}
+	return m.syncNativeStreamingScrollbackText(streamText)
+}
+
+func (m *uiModel) syncNativeStreamingScrollbackAfterResize() tea.Cmd {
+	if m == nil || !m.shouldEmitNativeHistory() {
+		return nil
+	}
+	if streamText, ok := m.nativeStreamingResizeReplayText(); ok {
+		return m.syncNativeStreamingScrollbackText(streamText)
+	}
+	return m.syncNativeStreamingScrollback()
+}
+
+func (m *uiModel) nativeStreamingResizeReplayText() (string, bool) {
+	if m == nil || !m.nativeStreamingAwaitingCommit {
+		return "", false
+	}
+	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
+		return "", false
+	}
+	if m.nativeScrollbackLedger.RenderedProjectionCommitPendingResetStreaming() {
+		return "", false
+	}
+	streamState := m.nativeScrollbackLedger.AssistantStreamState()
+	if strings.TrimSpace(streamState.Source) == "" ||
+		streamState.ScheduledStableLines != 0 ||
+		streamState.AckedStableLines != 0 ||
+		streamState.NeedsReplay {
+		return "", false
+	}
+	return streamState.Source, true
+}
+
+func (m *uiModel) syncNativeStreamingScrollbackText(streamText string) tea.Cmd {
 	width := m.nativeReplayRenderWidth()
 	update := m.nativeScrollbackLedger.ApplyAssistantStreamSource(nativescrollback.AssistantStreamInput{
 		Source: streamText,
@@ -574,6 +658,7 @@ func (m *uiModel) emitNativeSlidingWindowAppend(current tui.TranscriptProjection
 		return nil, false
 	}
 	if overlapBlocks >= len(current.Blocks) {
+		m.scheduleNativeRenderedProjectionCommitAtBase(current, currentBaseOffset, false)
 		return nil, true
 	}
 	styledDelta := renderStyledNativeProjectionLines(current.LinesFromBlock(overlapBlocks, tui.TranscriptDivider), m.theme, m.nativeReplayRenderWidth())

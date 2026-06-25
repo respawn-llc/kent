@@ -331,6 +331,8 @@ describe("KanbanColumn", () => {
       statusKind: "backlog",
       manualMoveTargetNodeIDs: [],
     });
+    expect(dataTransfer.setDragImage).toHaveBeenCalledTimes(1);
+    expect(dataTransfer.setDragImage.mock.calls[0]?.[0]).toBeInstanceOf(HTMLElement);
     expect(onCardDragStart).toHaveBeenCalledTimes(1);
     expect(onCardClick).not.toHaveBeenCalled();
   });
@@ -373,6 +375,7 @@ class TestDataTransfer {
   readonly #values = new Map<string, string>();
   effectAllowed = "all";
   dropEffect = "none";
+  readonly setDragImage = vi.fn();
 
   get types(): readonly string[] {
     return [...this.#values.keys()];

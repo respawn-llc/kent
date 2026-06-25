@@ -327,6 +327,45 @@ func TestLedgerRenderedProjectionCommitWaitsForTerminalAckCheckpoint(t *testing.
 	}
 }
 
+func TestLedgerRenderedProjectionCommitPreservesPendingStreamingReset(t *testing.T) {
+	var ledger Ledger
+	firstProjection := testProjection("final assistant")
+	secondProjection := testProjection("resized final assistant")
+	firstFlush, ok := ledger.Enqueue("final assistant", FlushOptions{})
+	if !ok {
+		t.Fatal("expected first flush")
+	}
+	if _, ready, err := ledger.AcceptFlush(firstFlush); err != nil || !ready {
+		t.Fatalf("accept first flush ready=%v err=%v", ready, err)
+	}
+	ledger.ScheduleRenderedProjectionCommit(firstProjection, 0, true)
+
+	secondFlush, ok := ledger.Enqueue("resized final assistant", FlushOptions{})
+	if !ok {
+		t.Fatal("expected second flush")
+	}
+	ledger.ScheduleRenderedProjectionCommit(secondProjection, 0, false)
+	if !ledger.RenderedProjectionCommitPendingResetStreaming() {
+		t.Fatal("replacement projection commit dropped pending streaming reset")
+	}
+	if _, err := ledger.Ack(TerminalWriteResult{Sequence: firstFlush.Sequence}); err != nil {
+		t.Fatalf("ack first flush: %v", err)
+	}
+	if update, applied := ledger.ApplyRenderedProjectionCommitIfReady(); applied {
+		t.Fatalf("commit applied before replacement flush ack: %+v", update)
+	}
+	if _, ready, err := ledger.AcceptFlush(secondFlush); err != nil || !ready {
+		t.Fatalf("accept second flush ready=%v err=%v", ready, err)
+	}
+	if _, err := ledger.Ack(TerminalWriteResult{Sequence: secondFlush.Sequence}); err != nil {
+		t.Fatalf("ack second flush: %v", err)
+	}
+	update, applied := ledger.ApplyRenderedProjectionCommitIfReady()
+	if !applied || !update.ResetStreaming {
+		t.Fatalf("replacement commit update = %+v applied=%v, want preserved streaming reset", update, applied)
+	}
+}
+
 func TestLedgerProjectionSnapshotsAreCloned(t *testing.T) {
 	var ledger Ledger
 	projection := testProjection("original")

@@ -564,7 +564,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDefersNormalScrollbackAppen
 	}
 }
 
-func TestNativeStreamingResizeKeepsPermanentPromotionWidthFrozen(t *testing.T) {
+func TestNativeStreamingResizeReflowsPermanentPromotionWidth(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
@@ -586,9 +586,9 @@ func TestNativeStreamingResizeKeepsPermanentPromotionWidthFrozen(t *testing.T) {
 
 	next, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 16, Height: 8})
 	m = next.(*uiModel)
-	_ = resizeCmd
-	if got := m.nativeScrollbackLedger.AssistantStreamState().Width; got != 22 {
-		t.Fatalf("expected permanent stream ledger width to stay frozen at 22 after resize, got %d", got)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, resizeCmd)
+	if got := m.nativeScrollbackLedger.AssistantStreamState().Width; got != 16 {
+		t.Fatalf("expected permanent stream ledger width to reflow at 16 after resize, got %d", got)
 	}
 
 	resizedCount := lineCount + 1
@@ -598,11 +598,11 @@ func TestNativeStreamingResizeKeepsPermanentPromotionWidthFrozen(t *testing.T) {
 
 	secondCmd := m.syncNativeHistoryFromTranscript()
 	secondFlush := collectNativeHistoryFlushText(collectCmdMessages(t, secondCmd))
-	if got := m.nativeScrollbackLedger.AssistantStreamState().Width; got != 22 {
-		t.Fatalf("expected stream tracking width to stay frozen at 22 after resize, got %d", got)
+	if got := m.nativeScrollbackLedger.AssistantStreamState().Width; got != 16 {
+		t.Fatalf("expected stream tracking width to stay at resized width 16, got %d", got)
 	}
-	if got := strings.Count(firstFlush+secondFlush, "line-01"); got != 1 {
-		t.Fatalf("expected resized stream not to duplicate earliest line, got %d in %q%q", got, firstFlush, secondFlush)
+	if got := strings.Count(firstFlush+secondFlush, "line-01"); got < 1 || got > 2 {
+		t.Fatalf("expected resized stream to reflow without unbounded duplication, got %d in %q%q", got, firstFlush, secondFlush)
 	}
 	view := stripANSIPreserve(m.View())
 	if !strings.Contains(view, fmt.Sprintf("line-%02d", resizedCount)) {
@@ -1058,6 +1058,65 @@ func TestNativeHistorySnapshotAppendsVisibleSuffixAfterHiddenRewriteWithoutRepla
 	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
 	if got := m.nativeRenderedSnapshot(); got != m.nativeCurrentProjection().Render(tui.TranscriptDivider) {
 		t.Fatalf("expected rendered snapshot rebased to current projection, got %q", got)
+	}
+}
+
+func TestNativeHistoryRecentTailHydrateRebasesRenderedSuffixWithoutMismatch(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{
+			{Role: "assistant", Text: "before resident tail"},
+			{Role: "assistant", Text: "resident tail one"},
+			{Role: "assistant", Text: "resident tail two"},
+		}),
+	)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	if startupCmd == nil {
+		t.Fatal("expected startup replay command")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	hydrateCmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     2,
+		Offset:       1,
+		TotalEntries: 3,
+		Entries: []clientui.ChatEntry{
+			{Role: "assistant", Text: "resident tail one"},
+			{Role: "assistant", Text: "resident tail two"},
+		},
+	}, clientui.TranscriptRecoveryCauseNone)
+	for _, msg := range collectCmdMessages(t, hydrateCmd) {
+		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
+			t.Fatalf("did not expect active-tail hydrate to re-emit already rendered suffix, got %+v", flush)
+		}
+	}
+	if m.nativeScrollbackInvariantSet {
+		t.Fatalf("did not expect active-tail hydrate to record invariant: %+v current=%#v rendered=%#v", m.nativeScrollbackInvariant, m.nativeCurrentProjection().Blocks, m.nativeScheduledRenderedProjectionState().Projection.Blocks)
+	}
+	rendered := stripANSIText(m.nativeRenderedSnapshot())
+	if strings.Contains(rendered, "before resident tail") || !strings.Contains(rendered, "resident tail two") {
+		t.Fatalf("expected rendered projection ledger rebased to active suffix, got %q", rendered)
+	}
+
+	cmd, mutated, needsHydration := m.runtimeAdapter().applyProjectedTranscriptEntries(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		TranscriptRevision:         3,
+		CommittedEntryStart:        3,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        4,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "answer after compaction"}},
+	}, true)
+	if !mutated || needsHydration {
+		t.Fatalf("expected post-hydrate assistant append, mutated=%t needsHydration=%t", mutated, needsHydration)
+	}
+	msg, ok := cmd().(nativeHistoryFlushMsg)
+	if !ok {
+		t.Fatalf("expected native append flush after active-tail hydrate, got %T", cmd())
+	}
+	plain := stripANSIText(msg.Text)
+	if !strings.Contains(plain, "answer after compaction") || strings.Contains(plain, "before resident tail") {
+		t.Fatalf("expected only new post-compaction answer to flush, got %q", plain)
 	}
 }
 

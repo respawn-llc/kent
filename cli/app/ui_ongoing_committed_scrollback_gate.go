@@ -16,6 +16,7 @@ func (m *uiModel) ongoingCommittedScrollbackGateActive() bool {
 	return strings.TrimSpace(m.view.OngoingStreamingText()) != "" ||
 		m.sawAssistantDelta ||
 		m.nativeStreamingActive ||
+		m.nativeStreamingAwaitingCommit ||
 		strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) != ""
 }
 

@@ -44,3 +44,23 @@ func TestAuthoritativeRecentTailHydrateDeliveryUsesUnfilteredStablePrefix(t *tes
 		t.Fatalf("committed delivery state = %+v, want applied frontier at unfiltered stable prefix end", state)
 	}
 }
+
+func TestAuthoritativeRecentTailHydratePreservesAlreadyEmittedCursor(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	setCommittedDeliveryForTest(m, 13, 6)
+	entries := []tui.TranscriptEntry{
+		{Role: "developer_context", Text: "environment info", Committed: true},
+		{Role: tui.TranscriptRoleCompactionSummary, Text: "summary", Committed: true},
+	}
+
+	m.runtimeAdapter().applyAuthoritativeRecentTailPage(clientui.TranscriptPage{
+		Offset:       11,
+		Revision:     7,
+		TotalEntries: 13,
+	}, entries, false)
+
+	state := committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 13 || state.LastAppliedCommittedEntryCount != 13 {
+		t.Fatalf("committed delivery state = %+v, want already emitted active tail preserved", state)
+	}
+}

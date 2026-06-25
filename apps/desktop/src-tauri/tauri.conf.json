@@ -44,7 +44,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["app", "dmg", "appimage", "deb"],
+    "targets": ["app", "dmg", "appimage", "deb", "nsis"],
     "category": "DeveloperTool",
     "shortDescription": "Desktop client for Kent, an agentic coding platform for professional SWE work.",
     "longDescription": "Kent Desktop is the GUI client for Kent — an agentic coding platform for professional software engineering focused on output quality, with self-review, supervision, and dynamic workflows. It remote-controls a running Kent server (boards, task detail, and the workflow editor) over loopback; install and start the Kent CLI/service first.",

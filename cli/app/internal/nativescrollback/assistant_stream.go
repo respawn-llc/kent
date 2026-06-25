@@ -113,6 +113,13 @@ func (l *Ledger) ResetAssistantStream() {
 	l.assistant = assistantStreamLedger{}
 }
 
+func (l *Ledger) ResetAssistantStreamRenderingState() {
+	if l == nil {
+		return
+	}
+	l.assistant.resetRenderingState()
+}
+
 func (l *Ledger) SetAssistantStreamStepID(stepID string) {
 	if l == nil {
 		return
@@ -224,6 +231,30 @@ func (s *assistantStreamLedger) setStepID(stepID string) {
 	s.commitRangeSet = false
 	s.commitStartEntryCount = 0
 	s.commitEndEntryCount = 0
+}
+
+func (s *assistantStreamLedger) resetRenderingState() {
+	source := s.source
+	theme := s.theme
+	width := s.width
+	stepID := s.stepID
+	commitRangeSet := s.commitRangeSet
+	commitStartEntryCount := s.commitStartEntryCount
+	commitEndEntryCount := s.commitEndEntryCount
+	rendered := []tui.TranscriptProjectionLine(nil)
+	if strings.TrimSpace(source) != "" {
+		rendered = tui.RenderAssistantMarkdownProjection(source, theme, width)
+	}
+	*s = assistantStreamLedger{
+		theme:                 theme,
+		width:                 width,
+		source:                source,
+		rendered:              rendered,
+		stepID:                stepID,
+		commitRangeSet:        commitRangeSet,
+		commitStartEntryCount: commitStartEntryCount,
+		commitEndEntryCount:   commitEndEntryCount,
+	}
 }
 
 func (s *assistantStreamLedger) observeCommitCandidate(candidate AssistantCommitCandidate) (AssistantCommitBinding, bool) {

@@ -1,8 +1,10 @@
 package app
 
 import (
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/server/runtime"
+	"core/shared/clientui"
 	"core/shared/transcript"
 	"fmt"
 	"strings"
@@ -39,6 +41,17 @@ func collectNativeHistoryFlushText(msgs []tea.Msg) string {
 		out.WriteByte('\n')
 	}
 	return out.String()
+}
+
+func firstNativeHistoryFlushForTest(t *testing.T, cmd tea.Cmd) (nativeHistoryFlushMsg, bool) {
+	t.Helper()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		flush, ok := msg.(nativeHistoryFlushMsg)
+		if ok {
+			return flush, true
+		}
+	}
+	return nativeHistoryFlushMsg{}, false
 }
 
 func makeStreamingLines(count int) string {
@@ -457,7 +470,7 @@ func TestNativeScrollbackBlocksWhenNoSharedPrefixExists(t *testing.T) {
 	}
 }
 
-func TestNativeScrollbackResizeFreezesFormatterWidth(t *testing.T) {
+func TestNativeScrollbackResizeTracksFormatterWidth(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
 	)
@@ -470,9 +483,13 @@ func TestNativeScrollbackResizeFreezesFormatterWidth(t *testing.T) {
 		t.Fatalf("expected initial formatter width 40, got %d", m.nativeFormatterWidth)
 	}
 
-	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	if m.nativeFormatterWidth != 40 {
-		t.Fatalf("expected formatter width to stay frozen at 40 after resize, got %d", m.nativeFormatterWidth)
+	_, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, resizeCmd)
+	if m.nativeFormatterWidth != 100 {
+		t.Fatalf("expected formatter width to track resize at 100, got %d", m.nativeFormatterWidth)
 	}
 
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "new line"})
@@ -494,7 +511,7 @@ func TestNativeScrollbackResizeFreezesFormatterWidth(t *testing.T) {
 	}
 }
 
-func TestNativeWidthResizeDoesNotScheduleReplayOrRebaseRenderedHistory(t *testing.T) {
+func TestNativeWidthResizeSchedulesResidentReflowAndRebasesRenderedHistory(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
 	)
@@ -504,18 +521,254 @@ func TestNativeWidthResizeDoesNotScheduleReplayOrRebaseRenderedHistory(t *testin
 	}
 	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 	renderedSnapshot := m.nativeRenderedSnapshot()
-	formatterWidth := m.nativeFormatterWidth
 
 	next, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = next.(*uiModel)
-	if cmd != nil {
-		t.Fatalf("expected width resize not to schedule native replay, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
 	}
-	if m.nativeRenderedSnapshot() != renderedSnapshot {
-		t.Fatalf("expected width resize not to mutate rendered native snapshot, got %q want %q", m.nativeRenderedSnapshot(), renderedSnapshot)
+	foundResidentHistory := false
+	for _, msg := range collectCmdMessagesApplyingNativeWriteResults(t, m, cmd) {
+		if flush, ok := msg.(nativeHistoryFlushMsg); ok && strings.Contains(stripANSIText(flush.Text), "old line") {
+			foundResidentHistory = true
+		}
 	}
-	if m.nativeFormatterWidth != formatterWidth {
-		t.Fatalf("expected width resize not to change frozen formatter width, got %d want %d", m.nativeFormatterWidth, formatterWidth)
+	if !foundResidentHistory {
+		t.Fatalf("expected width resize to re-emit resident native history, previous snapshot %q", renderedSnapshot)
+	}
+	if m.nativeFormatterWidth != 80 {
+		t.Fatalf("expected width resize to update formatter width, got %d", m.nativeFormatterWidth)
+	}
+}
+
+func TestNativeWidthResizeReflowUsesLedgerFlushWhileWriteInFlight(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
+	)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	if startupCmd == nil {
+		t.Fatal("expected startup replay command")
+	}
+	startupFlush, ok := startupCmd().(nativeHistoryFlushMsg)
+	if !ok {
+		t.Fatalf("expected nativeHistoryFlushMsg, got %T", startupCmd())
+	}
+	_ = collectCmdMessages(t, m.handleNativeHistoryFlush(startupFlush))
+
+	_, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
+	}
+	msgs := collectCmdMessages(t, resizeCmd)
+	var resizeFlush nativeHistoryFlushMsg
+	foundResizeFlush := false
+	for _, msg := range msgs {
+		if strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
+			t.Fatalf("resize reflow must be ledger-owned, got out-of-band clear screen msg %+v", msg)
+		}
+		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
+			resizeFlush = flush
+			foundResizeFlush = true
+		}
+	}
+	if !foundResizeFlush {
+		t.Fatalf("expected resize reflow native flush, got %+v", msgs)
+	}
+	if !strings.HasPrefix(resizeFlush.Text, nativeClearScreenAndHomeSequence) {
+		t.Fatalf("resize reflow flush must include ordered clear-screen prefix, got %q", resizeFlush.Text)
+	}
+	if pendingMsgs := collectCmdMessages(t, m.handleNativeHistoryFlush(resizeFlush)); len(pendingMsgs) != 0 {
+		t.Fatalf("resize reflow should wait behind in-flight native write, got immediate messages %+v", pendingMsgs)
+	}
+}
+
+func TestNativeWidthResizePreservesAwaitingAssistantCommitGate(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
+	)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	if startupCmd == nil {
+		t.Fatal("expected startup replay command")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+	seedNativeAssistantStreamForTest(m, "final answer")
+	m.nativeStreamingAwaitingCommit = true
+
+	_, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, resizeCmd)
+	if !m.nativeStreamingAwaitingCommit {
+		t.Fatal("resize reflow must preserve awaiting assistant commit gate")
+	}
+	if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) == "" {
+		t.Fatal("resize reflow must preserve assistant stream source while awaiting committed finalizer")
+	}
+
+	beforeSequence := m.nativeLastScheduledFlushSequence()
+	_, _ = m.handleRuntimeEventBatch([]clientui.Event{{
+		Kind:                       clientui.EventLocalEntryAdded,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        2,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        3,
+		TranscriptRevision:         3,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "system", Text: "local diagnostic"}},
+	}})
+	if got := len(m.transcriptEntries); got != 1 {
+		t.Fatalf("transcript entry count while awaiting commit = %d, want 1", got)
+	}
+	if got := len(m.deferredCommittedTail); got != 1 {
+		t.Fatalf("deferred committed tail count = %d, want 1", got)
+	}
+	if got := m.nativeLastScheduledFlushSequence(); got != beforeSequence {
+		t.Fatalf("local feedback scheduled native flush while awaiting commit: before=%d after=%d", beforeSequence, got)
+	}
+}
+
+func TestNativeWidthResizeResetsPromotedAssistantAccountingBeforeFinalCommit(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
+	)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	if startupCmd == nil {
+		t.Fatal("expected startup replay command")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	streamText := "stable prefix\nstable body\n"
+	m.nativeScrollbackLedger.SetAssistantStreamStepID("step-resize-final")
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
+	streamCmd := m.syncNativeHistoryFromTranscript()
+	if streamCmd == nil {
+		t.Fatal("expected stable streaming promotion before resize")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, streamCmd)
+	beforeResizeState := m.nativeScrollbackLedger.AssistantStreamState()
+	if beforeResizeState.AckedStableLines == 0 {
+		t.Fatalf("test setup did not ack promoted stable lines: %+v", beforeResizeState)
+	}
+
+	m.nativeStreamingAwaitingCommit = true
+	m.forwardToView(tui.ClearOngoingAssistantMsg{})
+	_, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
+	}
+	resizeMsgs := collectCmdMessagesApplyingNativeWriteResults(t, m, resizeCmd)
+	afterResizeState := m.nativeScrollbackLedger.AssistantStreamState()
+	if !m.nativeStreamingAwaitingCommit || strings.TrimSpace(afterResizeState.Source) == "" {
+		t.Fatalf("resize must preserve awaiting finalizer identity, awaiting=%t state=%+v", m.nativeStreamingAwaitingCommit, afterResizeState)
+	}
+	if afterResizeState.NeedsReplay || afterResizeState.Width != 80 {
+		t.Fatalf("resize replay must re-render assistant stream at the new width without stale replay state: %+v", afterResizeState)
+	}
+	if got := collectNativeHistoryFlushText(resizeMsgs); !strings.Contains(got, "stable prefix") {
+		t.Fatalf("resize while awaiting commit dropped visible assistant stream, got %q", got)
+	}
+
+	m.nativeScrollbackLedger.ObserveAssistantCommitCandidate(nativescrollback.AssistantCommitCandidate{
+		StepID:          "step-resize-final",
+		StartEntryCount: 1,
+		Entries: []nativescrollback.AssistantCommitEntry{
+			{Role: string(tui.TranscriptRoleAssistant), Text: streamText},
+		},
+	})
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{
+		Role:      tui.TranscriptRoleAssistant,
+		Text:      streamText,
+		Committed: true,
+	})
+	m.transcriptRevision = 2
+	m.transcriptTotalEntries = 2
+	finalCmd := m.syncNativeHistoryFromTranscript()
+	if finalCmd == nil {
+		t.Fatal("expected final assistant commit to schedule native finalizer flush")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, finalCmd)
+	if m.nativeScrollbackInvariantSet {
+		t.Fatalf("final commit after resize reported native divergence: %+v", m.nativeScrollbackInvariant)
+	}
+	if m.nativeStreamingAwaitingCommit {
+		t.Fatal("final native write ack did not clear awaiting assistant commit gate")
+	}
+	if got := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(got, "stable body") {
+		t.Fatalf("final assistant commit did not advance rendered projection, got %q", got)
+	}
+}
+
+func TestNativeWidthResizeBeforeFinalizerAckPreservesStreamingReset(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
+	)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	if startupCmd == nil {
+		t.Fatal("expected startup replay command")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	streamText := "stable prefix\nstable body\n"
+	finalText := streamText + "final tail\n"
+	m.nativeScrollbackLedger.SetAssistantStreamStepID("step-resize-pending-reset")
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
+	streamCmd := m.syncNativeHistoryFromTranscript()
+	if streamCmd == nil {
+		t.Fatal("expected stable streaming promotion before final commit")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, streamCmd)
+	m.nativeStreamingAwaitingCommit = true
+	m.forwardToView(tui.ClearOngoingAssistantMsg{})
+	m.nativeScrollbackLedger.ObserveAssistantCommitCandidate(nativescrollback.AssistantCommitCandidate{
+		StepID:          "step-resize-pending-reset",
+		StartEntryCount: 1,
+		Entries: []nativescrollback.AssistantCommitEntry{
+			{Role: string(tui.TranscriptRoleAssistant), Text: finalText},
+		},
+	})
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{
+		Role:      tui.TranscriptRoleAssistant,
+		Text:      finalText,
+		Committed: true,
+	})
+	m.transcriptRevision = 2
+	m.transcriptTotalEntries = 2
+	finalCmd := m.syncNativeHistoryFromTranscript()
+	if finalCmd == nil {
+		t.Fatal("expected final assistant commit to schedule native finalizer flush")
+	}
+	finalFlush, ok := firstNativeHistoryFlushForTest(t, finalCmd)
+	if !ok {
+		t.Fatal("expected finalizer native flush")
+	}
+	if !m.nativeRenderedProjectionCommitPending() || !m.nativeScrollbackLedger.RenderedProjectionCommitPendingResetStreaming() {
+		t.Fatal("expected finalizer rendered projection reset to wait for native write ack")
+	}
+
+	_, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
+	}
+	resizeFlush, ok := firstNativeHistoryFlushForTest(t, resizeCmd)
+	if !ok {
+		t.Fatal("expected resize native flush")
+	}
+	if cmd := m.handleNativeHistoryFlush(resizeFlush); cmd != nil {
+		t.Fatalf("out-of-order resize flush should wait for finalizer write, got %T", cmd())
+	}
+	if !m.nativeScrollbackLedger.RenderedProjectionCommitPendingResetStreaming() {
+		t.Fatal("resize reflow replaced pending finalizer reset")
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(finalFlush))
+	if m.nativeStreamingAwaitingCommit {
+		t.Fatal("resize ack after finalizer write did not clear awaiting assistant commit gate")
+	}
+	if state := m.nativeScrollbackLedger.AssistantStreamState(); strings.TrimSpace(state.Source) != "" {
+		t.Fatalf("assistant stream state was not reset after ordered finalizer/resize writes: %+v", state)
+	}
+	if got := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(got, "final tail") {
+		t.Fatalf("final resized projection did not remain rendered, got %q", got)
 	}
 }
 
@@ -535,7 +788,7 @@ func TestNativeHeightOnlyResizeDoesNotScheduleFullReplay(t *testing.T) {
 	}
 }
 
-func TestNativeWidthResizeAcrossModeSwitchDoesNotScheduleReplay(t *testing.T) {
+func TestNativeWidthResizeAcrossModeSwitchUsesResidentReflowOnlyOnce(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
 	)
@@ -546,9 +799,10 @@ func TestNativeWidthResizeAcrossModeSwitchDoesNotScheduleReplay(t *testing.T) {
 
 	next, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = next.(*uiModel)
-	if resizeCmd != nil {
-		t.Fatalf("expected width resize not to schedule replay, got %T", resizeCmd)
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, resizeCmd)
 
 	_ = m.toggleTranscriptModeWithNativeReplay(false)
 	if m.view.Mode() != tui.ModeDetail {

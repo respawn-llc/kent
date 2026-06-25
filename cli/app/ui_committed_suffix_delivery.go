@@ -12,8 +12,14 @@ func shouldDeliverCommittedRuntimeEventFromSuffix(m *uiModel, evt clientui.Event
 	if m == nil || !evt.CommittedTranscriptChanged || len(evt.TranscriptEntries) == 0 {
 		return false
 	}
+	if evt.Kind == clientui.EventLocalEntryAdded {
+		return false
+	}
 	state := newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m))
 	if evt.Kind == clientui.EventUserMessageFlushed {
+		return false
+	}
+	if committedRuntimeEventEntriesAreLocalFeedback(evt.TranscriptEntries) {
 		return false
 	}
 	if projectedEventIsLiveOnlyUnresolvedToolStart(state, evt) {
@@ -28,6 +34,36 @@ func shouldDeliverCommittedRuntimeEventFromSuffix(m *uiModel, evt clientui.Event
 		return false
 	}
 	return true
+}
+
+func committedRuntimeEventEntriesAreLocalFeedback(entries []clientui.ChatEntry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	for _, entry := range entries {
+		if !committedRuntimeEventEntryIsLocalFeedback(entry) {
+			return false
+		}
+	}
+	return true
+}
+
+func committedRuntimeEventEntryIsLocalFeedback(entry clientui.ChatEntry) bool {
+	switch tui.TranscriptRoleFromWire(entry.Role) {
+	case tui.TranscriptRoleSystem,
+		tui.TranscriptRoleReviewerStatus,
+		tui.TranscriptRoleReviewerSuggestions,
+		tui.TranscriptRoleWarning,
+		tui.TranscriptRoleCacheWarning,
+		tui.TranscriptRoleError,
+		tui.TranscriptRoleDeveloperFeedback,
+		tui.TranscriptRoleDeveloperErrorFeedback,
+		tui.TranscriptRoleInterruption,
+		tui.TranscriptRoleGoalFeedback:
+		return true
+	default:
+		return false
+	}
 }
 
 func committedTranscriptSuffixFromEvent(m *uiModel, evt clientui.Event) (clientui.CommittedTranscriptSuffix, bool) {

@@ -1524,6 +1524,54 @@ func TestCompactDoneSurfacesQueuedRuntimeWorkProbeFailure(t *testing.T) {
 	}
 }
 
+func TestIdleCompactDoneRefreshesCommittedSteeringOutput(t *testing.T) {
+	client := &runtimeControlFakeClient{
+		sessionView: clientui.RuntimeSessionView{SessionID: "session-1"},
+	}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.sessionID = "session-1"
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+	m.compactionOrigin = uiCompactionOriginManual
+	m.setBusy(true)
+	m.setCompacting(true)
+	m.activity = uiActivityRunning
+
+	next, checkCmd := m.Update(compactDoneMsg{})
+	updated := next.(*uiModel)
+	client.transcript = clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Offset:       0,
+		TotalEntries: 1,
+		Revision:     1,
+		NewerCursor:  1,
+		Entries: []clientui.ChatEntry{
+			{Role: "compaction_notice", Text: "context compacted for the 1st time"},
+		},
+	}
+	updated, syncCmd := applyQueuedRuntimeWorkCheckForTest(t, updated, checkCmd)
+	if syncCmd == nil {
+		t.Fatal("expected idle compaction completion to request committed transcript sync")
+	}
+	for _, msg := range collectCmdMessages(t, syncCmd) {
+		next, followCmd := updated.Update(msg)
+		updated = next.(*uiModel)
+		_ = collectCmdMessagesApplyingNativeWriteResults(t, updated, followCmd)
+	}
+	if client.hasQueuedUserWorkCalls != 1 {
+		t.Fatalf("HasQueuedUserWork calls = %d, want 1", client.hasQueuedUserWorkCalls)
+	}
+	if client.refreshTranscriptCalls != 1 {
+		t.Fatalf("RefreshTranscriptPage calls = %d, want 1", client.refreshTranscriptCalls)
+	}
+	if got := stripANSIText(updated.nativeRenderedSnapshot()); !strings.Contains(got, "context compacted") {
+		t.Fatalf("idle compaction did not flush committed steering output, rendered=%q", got)
+	}
+	if got := strings.Count(stripANSIText(updated.nativeRenderedSnapshot()), "context compacted"); got != 1 {
+		t.Fatalf("idle compaction rendered steering output %d times, want once", got)
+	}
+}
+
 func TestCompactDoneSuppressesQueuedRuntimeWorkProbeCancellation(t *testing.T) {
 	client := &runtimeControlFakeClient{hasQueuedUserWorkErr: context.Canceled}
 	m := newProjectedStaticUIModel()

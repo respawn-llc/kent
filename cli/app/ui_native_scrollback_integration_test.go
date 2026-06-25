@@ -647,7 +647,7 @@ func TestNativeScrollbackInitClearsOnEachProgramRun(t *testing.T) {
 	}
 }
 
-func TestNativeResizeDoesNotReplayOngoingScrollbackAfterRealResize(t *testing.T) {
+func TestNativeResizeReflowsOngoingScrollbackFromResidentHistory(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(
 		nil,
@@ -673,12 +673,13 @@ func TestNativeResizeDoesNotReplayOngoingScrollbackAfterRealResize(t *testing.T)
 	program.QuitAndWaitAllowContextCanceled(2 * time.Second)
 
 	raw := out.String()
-	if count := strings.Count(raw, "\x1b[2J"); count != 1 {
-		t.Fatalf("expected only the startup clear-screen sequence after resize burst, got %d occurrences in %q", count, raw)
+	clearCount := strings.Count(raw, "\x1b[2J")
+	if clearCount < 2 || clearCount > 6 {
+		t.Fatalf("expected bounded clear-screen reflows after resize burst, got %d occurrences in %q", clearCount, raw)
 	}
 	plain := xansi.Strip(raw)
-	if count := strings.Count(normalizedOutput(raw), "seed replay line"); count != 1 {
-		t.Fatalf("expected committed history to remain emitted once after resize burst, got %q", normalizedOutput(raw))
+	if count := strings.Count(normalizedOutput(raw), "seed replay line"); count < 2 || count > 6 {
+		t.Fatalf("expected committed history to be re-emitted only for resident resize reflows, got %q", normalizedOutput(raw))
 	}
 	for _, line := range strings.Split(plain, "\n") {
 		if strings.Count(line, statusStateCircleGlyph+statusLineSpinnerSeparator) > 1 {

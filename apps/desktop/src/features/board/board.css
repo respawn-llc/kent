@@ -15,6 +15,22 @@
   line-clamp: 3;
 }
 
+.board-card-drag-image {
+  position: fixed;
+  top: -10000px;
+  left: -10000px;
+  z-index: 2147483647;
+  pointer-events: none;
+  opacity: 0.94;
+}
+
+.board-card-motion-clone {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
 .board-horizontal-scrollbar {
   height: 16px;
   margin: 0;
