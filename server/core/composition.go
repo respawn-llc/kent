@@ -114,7 +114,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	sessionStoreResolver := registry.NewGlobalPersistenceSessionResolver(cfg.PersistenceRoot, storeOptions...)
 	promptControlService := promptcontrol.NewPromptControlService(runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService).WithCollaborativeRuntimeResolver(sessionRuntimeService)
 	promptActivityService := promptcontrol.NewPromptActivityService(runtimeRegistry)
-	runtimeControlService := runtimecontrol.NewService(runtimeRegistry, runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService).WithCollaborativeRuntimeResolver(sessionRuntimeService).WithPromptHistoryStore(metadataStore).WithWorkflowSessionResolver(sessionStoreResolver)
+	runtimeControlService := runtimecontrol.NewService(runtimeRegistry, runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService).WithCollaborativeRuntimeResolver(sessionRuntimeService).WithPromptHistoryStore(metadataStore).WithWorkflowSessionResolver(sessionStoreResolver).WithShellTokenVerifier(runtimeSupport.Background)
 	worktreeService := worktree.NewService(metadataStore, nil, runtimeRegistry, sessionRuntimeService, runtimeSupport.Background, runtimeControlService, worktree.ServiceOptions{BaseDir: cfg.Settings.Worktrees.BaseDir, SetupScript: cfg.Settings.Worktrees.SetupScript})
 	projectViews := client.NewLoopbackProjectViewClient(projectService)
 	authBootstrapService := authservice.NewBootstrapService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings, rpccontract.AllowedPreAuthMethods())
