@@ -119,18 +119,14 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 		// placement is already completed). Manually moving it overrides the
 		// proposed transition: reject the pending approval so the task leaves
 		// the approval state, then continue with the move below.
-		if err := rejectPendingApprovalTransition(ctx, tx, pendingApprovalTransitionID); err != nil {
+		if err := rejectPendingApprovalTransition(ctx, q, pendingApprovalTransitionID); err != nil {
 			return ManualMoveResult{}, err
 		}
 	} else {
-		updatedResult, err := tx.ExecContext(ctx, `
-UPDATE task_node_placements
-SET state = 'completed', updated_at_unix_ms = ?
-WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
-		if err != nil {
-			return ManualMoveResult{}, err
-		}
-		updated, err := updatedResult.RowsAffected()
+		updated, err := q.CompleteActiveManualMoveSourcePlacement(ctx, sqlitegen.CompleteActiveManualMoveSourcePlacementParams{
+			UpdatedAtUnixMs: now,
+			PlacementID:     string(sourcePlacement),
+		})
 		if err != nil {
 			return ManualMoveResult{}, err
 		}
@@ -138,8 +134,8 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 			return ManualMoveResult{}, sql.ErrNoRows
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = ? WHERE id = ?`, now, string(req.TaskID)); err != nil {
-		return ManualMoveResult{}, fmt.Errorf("update task timestamp: %w", err)
+	if err := touchTaskUpdatedAt(ctx, q, string(req.TaskID), now); err != nil {
+		return ManualMoveResult{}, err
 	}
 	appliedAt := now
 	if transitionState == "pending_approval" {
@@ -163,7 +159,7 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 		if err != nil {
 			return ManualMoveResult{}, err
 		}
-		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, string(req.TaskID), now, string(sourcePlacement), groupSnapshot.Edges[0])
+		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, q, string(req.TaskID), now, string(sourcePlacement), groupSnapshot.Edges[0])
 		if err != nil {
 			return ManualMoveResult{}, err
 		}
@@ -261,32 +257,21 @@ func manualMoveEdgeSnapshot(edge workflow.Edge, sourceNode workflow.Node, target
 }
 
 func (s *Store) latestRunForPlacement(ctx context.Context, placementID workflow.PlacementID) (workflow.RunID, string, error) {
-	var runID string
-	var sessionID sql.NullString
-	err := s.db.QueryRowContext(ctx, strings.TrimSuffix(latestRunForPlacementQuery, "\n"), string(placementID)).Scan(&runID, &sessionID)
+	row, err := s.queries.GetLatestRunForPlacement(ctx, string(placementID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", nil
 	}
 	if err != nil {
 		return "", "", err
 	}
-	return workflow.RunID(runID), strings.TrimSpace(sessionID.String), nil
+	return workflow.RunID(row.ID), strings.TrimSpace(row.SessionID.String), nil
 }
 
 func (s *Store) backwardManualMoveEdge(ctx context.Context, sourcePlacement workflow.PlacementID, targetNode workflow.Node) (workflow.TransitionGroup, workflow.Edge, map[string]string, workflow.RunID, string, bool, error) {
-	var groupID sql.NullString
-	var transitionID string
-	var transitionDisplayName string
-	var outputValuesJSON string
-	var sourceRunID sql.NullString
-	var workflowEdgeID sql.NullString
-	var edgeKey string
-	var contextMode string
-	var requiresApproval int64
-	var inputBindingsJSON string
-	var outputRequirementsJSON string
-	var metadataJSON string
-	err := s.db.QueryRowContext(ctx, strings.TrimSuffix(manualMovePreviousTransitionQuery, "\n"), string(sourcePlacement), string(targetNode.ID)).Scan(&groupID, &transitionID, &transitionDisplayName, &outputValuesJSON, &sourceRunID, &workflowEdgeID, &edgeKey, &contextMode, &requiresApproval, &inputBindingsJSON, &outputRequirementsJSON, &metadataJSON)
+	row, err := s.queries.GetManualMovePreviousTransition(ctx, sqlitegen.GetManualMovePreviousTransitionParams{
+		SourcePlacementID: sql.NullString{String: string(sourcePlacement), Valid: true},
+		TargetNodeID:      string(targetNode.ID),
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, nil
 	}
@@ -294,34 +279,34 @@ func (s *Store) backwardManualMoveEdge(ctx context.Context, sourcePlacement work
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	outputValues := map[string]string{}
-	if err := workflow.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
+	if err := workflow.UnmarshalString(row.OutputValuesJson, &outputValues); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	inputs := []workflow.InputBinding{}
-	if err := workflow.UnmarshalString(inputBindingsJSON, &inputs); err != nil {
+	if err := workflow.UnmarshalString(row.InputBindingsJson, &inputs); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	requirements := []workflow.OutputRequirement{}
-	if err := workflow.UnmarshalString(outputRequirementsJSON, &requirements); err != nil {
+	if err := workflow.UnmarshalString(row.OutputRequirementsJson, &requirements); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
 	metadata := workflowRunMetadata{}
-	if strings.TrimSpace(metadataJSON) != "" {
-		if err := workflow.UnmarshalString(metadataJSON, &metadata); err != nil {
+	if strings.TrimSpace(row.MetadataJson) != "" {
+		if err := workflow.UnmarshalString(row.MetadataJson, &metadata); err != nil {
 			return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 		}
 	}
 	sessionID := ""
-	if sourceRunID.Valid && strings.TrimSpace(sourceRunID.String) != "" {
-		sourceRun, err := s.queries.GetTaskRun(ctx, sourceRunID.String)
+	if row.SourceRunID.Valid && strings.TrimSpace(row.SourceRunID.String) != "" {
+		sourceRun, err := s.queries.GetTaskRun(ctx, row.SourceRunID.String)
 		if err != nil {
 			return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 		}
 		sessionID = strings.TrimSpace(sourceRun.SessionID.String)
 	}
-	group := workflow.TransitionGroup{ID: workflow.TransitionGroupID(groupID.String), TransitionID: workflow.TransitionID(transitionID), DisplayName: transitionDisplayName}
-	edge := workflow.Edge{ID: workflow.EdgeID(workflowEdgeID.String), Key: workflow.ModelKey(edgeKey), TargetNodeID: targetNode.ID, ContextMode: workflow.ContextMode(contextMode), ContextSource: workflow.CanonicalContextSource(metadata.ContextSource), RequiresApproval: requiresApproval != 0, InputBindings: inputs, OutputRequirements: requirements}
-	return group, edge, outputValues, workflow.RunID(sourceRunID.String), sessionID, true, nil
+	group := workflow.TransitionGroup{ID: workflow.TransitionGroupID(row.TransitionGroupID.String), TransitionID: workflow.TransitionID(row.TransitionID), DisplayName: row.TransitionDisplayName}
+	edge := workflow.Edge{ID: workflow.EdgeID(row.WorkflowEdgeID.String), Key: workflow.ModelKey(row.EdgeKey), TargetNodeID: targetNode.ID, ContextMode: workflow.ContextMode(row.ContextMode), ContextSource: workflow.CanonicalContextSource(metadata.ContextSource), RequiresApproval: row.RequiresApproval != 0, InputBindings: inputs, OutputRequirements: requirements}
+	return group, edge, outputValues, workflow.RunID(row.SourceRunID.String), sessionID, true, nil
 }
 
 // manualMoveSource resolves the placement and node a manual move starts from.
@@ -341,33 +326,8 @@ func (s *Store) manualMoveSource(ctx context.Context, taskID workflow.TaskID) (w
 }
 
 func (s *Store) pendingApprovalManualMoveSource(ctx context.Context, taskID workflow.TaskID) (workflow.PlacementID, workflow.NodeID, string, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT tt.id, tt.source_placement_id, p.node_id
-FROM task_transitions tt
-JOIN task_node_placements p ON p.id = tt.source_placement_id
-WHERE tt.task_id = ? AND tt.state = 'pending_approval'
-ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC`, string(taskID))
+	sources, err := s.queries.ListPendingApprovalManualMoveSources(ctx, string(taskID))
 	if err != nil {
-		return "", "", "", err
-	}
-	defer func() { _ = rows.Close() }()
-	var sources []struct {
-		transitionID string
-		placementID  string
-		nodeID       string
-	}
-	for rows.Next() {
-		var source struct {
-			transitionID string
-			placementID  string
-			nodeID       string
-		}
-		if err := rows.Scan(&source.transitionID, &source.placementID, &source.nodeID); err != nil {
-			return "", "", "", err
-		}
-		sources = append(sources, source)
-	}
-	if err := rows.Err(); err != nil {
 		return "", "", "", err
 	}
 	if len(sources) == 0 {
@@ -376,20 +336,13 @@ ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC`, string(taskID))
 	if len(sources) != 1 {
 		return "", "", "", ErrManualMoveMultiplePendingApprovals
 	}
-	return workflow.PlacementID(sources[0].placementID), workflow.NodeID(sources[0].nodeID), sources[0].transitionID, nil
+	return workflow.PlacementID(sources[0].SourcePlacementID.String), workflow.NodeID(sources[0].NodeID), sources[0].ID, nil
 }
 
-func rejectPendingApprovalTransition(ctx context.Context, tx *sql.Tx, transitionID string) error {
-	result, err := tx.ExecContext(ctx, `
-UPDATE task_transitions
-SET state = 'rejected'
-WHERE id = ? AND state = 'pending_approval'`, transitionID)
+func rejectPendingApprovalTransition(ctx context.Context, q *sqlitegen.Queries, transitionID string) error {
+	affected, err := q.RejectPendingApprovalTransition(ctx, transitionID)
 	if err != nil {
 		return fmt.Errorf("reject pending approval: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if affected != 1 {
 		return ErrManualMovePendingApprovalResolved
@@ -398,36 +351,14 @@ WHERE id = ? AND state = 'pending_approval'`, transitionID)
 }
 
 func (s *Store) activeManualMoveSource(ctx context.Context, taskID workflow.TaskID) (workflow.PlacementID, workflow.NodeID, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, node_id, parallel_batch_transition_id
-FROM task_node_placements
-WHERE task_id = ? AND state = 'active'
-ORDER BY created_at_unix_ms DESC, rowid DESC`, string(taskID))
+	placements, err := s.queries.ListActiveManualMoveSources(ctx, string(taskID))
 	if err != nil {
 		return "", "", err
 	}
-	defer func() { _ = rows.Close() }()
-	var placements []struct {
-		id      string
-		nodeID  string
-		batchID sql.NullString
-	}
-	for rows.Next() {
-		var placement struct {
-			id      string
-			nodeID  string
-			batchID sql.NullString
-		}
-		if err := rows.Scan(&placement.id, &placement.nodeID, &placement.batchID); err != nil {
-			return "", "", err
-		}
-		if placement.batchID.Valid && strings.TrimSpace(placement.batchID.String) != "" {
+	for _, placement := range placements {
+		if placement.ParallelBatchTransitionID.Valid && strings.TrimSpace(placement.ParallelBatchTransitionID.String) != "" {
 			return "", "", ErrManualMoveDuringParallelBatch
 		}
-		placements = append(placements, placement)
-	}
-	if err := rows.Err(); err != nil {
-		return "", "", err
 	}
 	if len(placements) == 0 {
 		return "", "", sql.ErrNoRows
@@ -435,7 +366,7 @@ ORDER BY created_at_unix_ms DESC, rowid DESC`, string(taskID))
 	if len(placements) != 1 {
 		return "", "", errors.New("manual move with multiple active placements is not supported")
 	}
-	return workflow.PlacementID(placements[0].id), workflow.NodeID(placements[0].nodeID), nil
+	return workflow.PlacementID(placements[0].ID), workflow.NodeID(placements[0].NodeID), nil
 }
 
 func definitionNode(def workflow.Definition, nodeID workflow.NodeID) (workflow.Node, bool) {

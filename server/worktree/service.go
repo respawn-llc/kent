@@ -442,22 +442,11 @@ func (s *Service) EnsureTaskWorktreeDeletable(ctx context.Context, taskID string
 }
 
 func (s *Service) ensureNoOtherNonTerminalTasksManageWorktree(ctx context.Context, taskID string, record metadata.WorktreeRecord) error {
-	var otherNonTerminalTasks int64
-	if err := s.metadata.DB().QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM tasks t
-WHERE t.managed_worktree_id = ?
-  AND t.id <> ?
-  AND t.canceled_at_unix_ms = 0
-  AND EXISTS (
-    SELECT 1
-    FROM task_node_placements p
-    JOIN workflow_nodes n ON n.id = p.node_id
-    WHERE p.task_id = t.id
-      AND p.state IN ('active', 'waiting_approval')
-      AND n.kind <> 'terminal'
-  )
-`, strings.TrimSpace(record.ID), strings.TrimSpace(taskID)).Scan(&otherNonTerminalTasks); err != nil {
+	otherNonTerminalTasks, err := s.metadata.Queries().CountOtherNonTerminalTasksByManagedWorktree(ctx, sqlitegen.CountOtherNonTerminalTasksByManagedWorktreeParams{
+		ManagedWorktreeID: sql.NullString{String: strings.TrimSpace(record.ID), Valid: strings.TrimSpace(record.ID) != ""},
+		TaskID:            strings.TrimSpace(taskID),
+	})
+	if err != nil {
 		return err
 	}
 	if otherNonTerminalTasks > 0 {

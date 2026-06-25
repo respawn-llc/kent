@@ -28,14 +28,14 @@ type resolvedContextSourceRun struct {
 	sessionID string
 }
 
-func resolvedContextSourceRunFromMetadata(ctx context.Context, tx *sql.Tx, metadata workflowRunMetadata) (resolvedContextSourceRun, bool, error) {
+func resolvedContextSourceRunFromMetadata(ctx context.Context, q *sqlitegen.Queries, metadata workflowRunMetadata) (resolvedContextSourceRun, bool, error) {
 	runID := strings.TrimSpace(metadata.SourceRunID)
 	if runID == "" {
 		return resolvedContextSourceRun{}, false, nil
 	}
 	sessionID := strings.TrimSpace(metadata.SourceSessionID)
 	if sessionID == "" {
-		run, err := sqlitegen.New(tx).GetTaskRun(ctx, runID)
+		run, err := q.GetTaskRun(ctx, runID)
 		if err != nil {
 			return resolvedContextSourceRun{}, true, err
 		}
@@ -44,7 +44,7 @@ func resolvedContextSourceRunFromMetadata(ctx context.Context, tx *sql.Tx, metad
 	return resolvedContextSourceRun{runID: runID, sessionID: sessionID}, true, nil
 }
 
-func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, sourcePlacementID string, immediate *sqlitegen.TaskRunRecord, snapshot runStartSnapshot, edge edgeContractSnapshot) (resolvedContextSourceRun, error) {
+func (s *Store) resolveContextSourceRun(ctx context.Context, q *sqlitegen.Queries, taskID string, beforeUnixMs int64, sourcePlacementID string, immediate *sqlitegen.TaskRunRecord, snapshot runStartSnapshot, edge edgeContractSnapshot) (resolvedContextSourceRun, error) {
 	source := workflow.CanonicalContextSource(edge.ContextSource)
 	switch source.Kind {
 	case workflow.ContextSourceImmediateSource:
@@ -57,15 +57,14 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 		if !ok {
 			return resolvedContextSourceRun{}, fmt.Errorf("selected context source node %q missing from run snapshot", source.NodeKey)
 		}
-		var runID string
-		err := tx.QueryRowContext(ctx, strings.TrimSuffix(resolveContextSourceRunQuery, "\n"), taskID, string(node.ID), beforeUnixMs).Scan(&runID)
+		runID, err := q.GetLatestCompletedContextSourceRun(ctx, sqlitegen.GetLatestCompletedContextSourceRunParams{TaskID: taskID, NodeID: string(node.ID), BeforeUnixMs: beforeUnixMs})
 		if errors.Is(err, sql.ErrNoRows) {
 			return resolvedContextSourceRun{}, ContextSourceNoCompletedRunError{Kind: ContextSourceKindSelected, NodeKey: string(source.NodeKey)}
 		}
 		if err != nil {
 			return resolvedContextSourceRun{}, err
 		}
-		run, err := sqlitegen.New(tx).GetTaskRun(ctx, runID)
+		run, err := q.GetTaskRun(ctx, runID)
 		if err != nil {
 			return resolvedContextSourceRun{}, err
 		}
@@ -75,12 +74,11 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 		if targetID == "" {
 			return resolvedContextSourceRun{}, errors.New("previous target context source target node missing from run snapshot")
 		}
-		batchID, batchScoped, err := contextSourceBatchScope(ctx, tx, sourcePlacementID)
+		batchID, batchScoped, err := contextSourceBatchScope(ctx, q, sourcePlacementID)
 		if err != nil {
 			return resolvedContextSourceRun{}, err
 		}
-		var runID string
-		err = queryLatestCompletedContextSourceRun(ctx, tx, taskID, targetID, beforeUnixMs, batchID, batchScoped).Scan(&runID)
+		runID, err := latestCompletedContextSourceRun(ctx, q, taskID, targetID, beforeUnixMs, batchID, batchScoped)
 		if errors.Is(err, sql.ErrNoRows) {
 			targetKey := strings.TrimSpace(string(edge.TargetNode.Key))
 			if targetKey == "" {
@@ -91,7 +89,7 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 		if err != nil {
 			return resolvedContextSourceRun{}, err
 		}
-		run, err := sqlitegen.New(tx).GetTaskRun(ctx, runID)
+		run, err := q.GetTaskRun(ctx, runID)
 		if err != nil {
 			return resolvedContextSourceRun{}, err
 		}
@@ -101,37 +99,27 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 	}
 }
 
-func contextSourceBatchScope(ctx context.Context, tx *sql.Tx, sourcePlacementID string) (string, bool, error) {
+func contextSourceBatchScope(ctx context.Context, q *sqlitegen.Queries, sourcePlacementID string) (string, bool, error) {
 	placementID := strings.TrimSpace(sourcePlacementID)
 	if placementID == "" {
 		return "", false, nil
 	}
-	var batchID sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT parallel_batch_transition_id FROM task_node_placements WHERE id = ?`, placementID).Scan(&batchID); err != nil {
+	batchID, err := q.GetContextSourceBatchScope(ctx, placementID)
+	if err != nil {
 		return "", false, err
 	}
 	trimmed := strings.TrimSpace(batchID.String)
 	return trimmed, batchID.Valid && trimmed != "", nil
 }
 
-func queryLatestCompletedContextSourceRun(ctx context.Context, tx *sql.Tx, taskID string, nodeID string, beforeUnixMs int64, batchID string, batchScoped bool) *sql.Row {
+func latestCompletedContextSourceRun(ctx context.Context, q *sqlitegen.Queries, taskID string, nodeID string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
 	if !batchScoped {
-		return tx.QueryRowContext(ctx, strings.TrimSuffix(resolveContextSourceRunQuery, "\n"), taskID, nodeID, beforeUnixMs)
+		return q.GetLatestCompletedContextSourceRun(ctx, sqlitegen.GetLatestCompletedContextSourceRunParams{TaskID: taskID, NodeID: nodeID, BeforeUnixMs: beforeUnixMs})
 	}
-	return tx.QueryRowContext(ctx, `
-SELECT r.id
-FROM task_runs r
-JOIN task_node_placements p ON p.id = r.placement_id
-WHERE p.task_id = ?
-  AND p.node_id = ?
-  AND p.parallel_batch_transition_id = ?
-  AND r.completed_at_unix_ms > 0
-  AND r.completed_at_unix_ms <= ?
-ORDER BY r.completed_at_unix_ms DESC, r.rowid DESC
-LIMIT 1`, taskID, nodeID, batchID, beforeUnixMs)
+	return q.GetLatestCompletedContextSourceRunInBatch(ctx, sqlitegen.GetLatestCompletedContextSourceRunInBatchParams{TaskID: taskID, NodeID: nodeID, BatchID: sql.NullString{String: batchID, Valid: true}, BeforeUnixMs: beforeUnixMs})
 }
 
-func (s *Store) resolvePromptPriorParameterValues(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, sourcePlacementID string, edge edgeContractSnapshot) (map[string]map[string]string, error) {
+func (s *Store) resolvePromptPriorParameterValues(ctx context.Context, q *sqlitegen.Queries, taskID string, beforeUnixMs int64, sourcePlacementID string, edge edgeContractSnapshot) (map[string]map[string]string, error) {
 	refs, err := workflow.ExtractPromptTemplateReferences(edge.PromptTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse transition prompt references: %w", err)
@@ -142,7 +130,7 @@ func (s *Store) resolvePromptPriorParameterValues(ctx context.Context, tx *sql.T
 	if len(refs.PriorParams) == 0 {
 		return nil, nil
 	}
-	batchID, batchScoped, err := contextSourceBatchScope(ctx, tx, sourcePlacementID)
+	batchID, batchScoped, err := contextSourceBatchScope(ctx, q, sourcePlacementID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +149,7 @@ func (s *Store) resolvePromptPriorParameterValues(ctx context.Context, tx *sql.T
 			seen[transitionKey] = map[string]bool{}
 		}
 		seen[transitionKey][parameterKey] = true
-		value, err := latestTransitionParameterValue(ctx, tx, taskID, transitionKey, parameterKey, beforeUnixMs, batchID, batchScoped)
+		value, err := latestTransitionParameterValue(ctx, q, taskID, transitionKey, parameterKey, beforeUnixMs, batchID, batchScoped)
 		if err != nil {
 			return nil, err
 		}
@@ -173,8 +161,8 @@ func (s *Store) resolvePromptPriorParameterValues(ctx context.Context, tx *sql.T
 	return out, nil
 }
 
-func latestTransitionParameterValue(ctx context.Context, tx *sql.Tx, taskID string, transitionKey string, parameterKey string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
-	outputValuesJSON, err := latestTransitionOutputValuesJSON(ctx, tx, taskID, transitionKey, beforeUnixMs, batchID, batchScoped)
+func latestTransitionParameterValue(ctx context.Context, q *sqlitegen.Queries, taskID string, transitionKey string, parameterKey string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
+	outputValuesJSON, err := latestTransitionOutputValuesJSON(ctx, q, taskID, transitionKey, beforeUnixMs, batchID, batchScoped)
 	if err != nil {
 		return "", err
 	}
@@ -189,21 +177,9 @@ func latestTransitionParameterValue(ctx context.Context, tx *sql.Tx, taskID stri
 	return value, nil
 }
 
-func latestTransitionOutputValuesJSON(ctx context.Context, tx *sql.Tx, taskID string, transitionKey string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
+func latestTransitionOutputValuesJSON(ctx context.Context, q *sqlitegen.Queries, taskID string, transitionKey string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
 	if batchScoped {
-		var scopedOutputValuesJSON string
-		err := tx.QueryRowContext(ctx, `
-SELECT tr.output_values_json
-FROM task_transitions tr
-JOIN task_node_placements p ON p.id = tr.source_placement_id
-WHERE tr.task_id = ?
-  AND tr.transition_id = ?
-  AND p.parallel_batch_transition_id = ?
-  AND tr.applied_at_unix_ms > 0
-  AND tr.applied_at_unix_ms <= ?
-  AND tr.state != 'rejected'
-ORDER BY tr.applied_at_unix_ms DESC, tr.created_at_unix_ms DESC, tr.rowid DESC
-LIMIT 1`, taskID, transitionKey, batchID, beforeUnixMs).Scan(&scopedOutputValuesJSON)
+		scopedOutputValuesJSON, err := q.GetLatestTransitionOutputValuesInBatch(ctx, sqlitegen.GetLatestTransitionOutputValuesInBatchParams{TaskID: taskID, TransitionID: transitionKey, BatchID: sql.NullString{String: batchID, Valid: true}, BeforeUnixMs: beforeUnixMs})
 		if err == nil {
 			return scopedOutputValuesJSON, nil
 		}
@@ -211,8 +187,7 @@ LIMIT 1`, taskID, transitionKey, batchID, beforeUnixMs).Scan(&scopedOutputValues
 			return "", err
 		}
 	}
-	var outputValuesJSON string
-	err := tx.QueryRowContext(ctx, strings.TrimSuffix(latestTransitionOutputValuesQuery, "\n"), taskID, transitionKey, beforeUnixMs).Scan(&outputValuesJSON)
+	outputValuesJSON, err := q.GetLatestTransitionOutputValues(ctx, sqlitegen.GetLatestTransitionOutputValuesParams{TaskID: taskID, TransitionID: transitionKey, BeforeUnixMs: beforeUnixMs})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("prior transition %q has no completed output for task", transitionKey)
 	}

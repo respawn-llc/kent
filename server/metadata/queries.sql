@@ -148,6 +148,73 @@ SELECT
 FROM workflows
 ORDER BY updated_at_unix_ms DESC, rowid DESC;
 
+-- name: ListWorkflowRecordsPage :many
+WITH workflow_list(
+    id,
+    name,
+    description,
+    version,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    activity_at_unix_ms
+) AS (
+    SELECT
+        workflows.id,
+        workflows.name,
+        workflows.description,
+        workflows.version,
+        workflows.created_at_unix_ms,
+        workflows.updated_at_unix_ms,
+        CAST(MAX(
+            workflows.updated_at_unix_ms,
+            COALESCE((
+                SELECT MAX(task_records.updated_at_unix_ms)
+                FROM task_records
+                WHERE task_records.workflow_id = workflows.id
+            ), 0)
+        ) AS INTEGER) AS activity_at_unix_ms
+    FROM workflows
+    WHERE (sqlc.arg(exact_name) = '' OR workflows.name = sqlc.arg(exact_name))
+      AND (
+          sqlc.arg(search_query) = ''
+          OR lower(workflows.name) LIKE '%' || lower(sqlc.arg(search_query)) || '%'
+          OR lower(workflows.description) LIKE '%' || lower(sqlc.arg(search_query)) || '%'
+      )
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR MAX(
+              workflows.updated_at_unix_ms,
+              COALESCE((
+                  SELECT MAX(task_records.updated_at_unix_ms)
+                  FROM task_records
+                  WHERE task_records.workflow_id = workflows.id
+              ), 0)
+          ) < sqlc.arg(cursor_activity_at_unix_ms)
+          OR (
+              MAX(
+                  workflows.updated_at_unix_ms,
+                  COALESCE((
+                      SELECT MAX(task_records.updated_at_unix_ms)
+                      FROM task_records
+                      WHERE task_records.workflow_id = workflows.id
+                  ), 0)
+              ) = sqlc.arg(cursor_activity_at_unix_ms)
+              AND workflows.id < sqlc.arg(cursor_workflow_id)
+          )
+      )
+)
+SELECT
+    id,
+    name,
+    description,
+    version,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    activity_at_unix_ms
+FROM workflow_list
+ORDER BY activity_at_unix_ms DESC, id DESC
+LIMIT sqlc.arg(page_limit);
+
 -- name: InsertWorkflowNode :exec
 INSERT INTO workflow_nodes (
     id,
@@ -207,6 +274,137 @@ WHERE id = sqlc.arg(id)
 DELETE FROM workflow_node_groups
 WHERE id = sqlc.arg(id)
   AND workflow_id = sqlc.arg(workflow_id);
+
+-- name: DeleteWorkflowTransitionGroupByID :execrows
+DELETE FROM workflow_transition_groups
+WHERE id = sqlc.arg(id);
+
+-- name: UpsertWorkflowNodeGroup :execrows
+INSERT INTO workflow_node_groups (id, workflow_id, group_key, display_name, sort_order)
+VALUES (
+    sqlc.arg(id),
+    sqlc.arg(workflow_id),
+    sqlc.arg(group_key),
+    sqlc.arg(display_name),
+    sqlc.arg(sort_order)
+)
+ON CONFLICT(id) DO UPDATE SET
+    group_key = excluded.group_key,
+    display_name = excluded.display_name,
+    sort_order = excluded.sort_order
+WHERE workflow_node_groups.workflow_id = excluded.workflow_id;
+
+-- name: UpsertWorkflowNode :execrows
+INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, subagent_role, prompt_template, completion_mode, input_fields_json, join_input_providers_json, output_fields_json, group_id, sort_order)
+VALUES (
+    sqlc.arg(id),
+    sqlc.arg(workflow_id),
+    sqlc.arg(node_key),
+    sqlc.arg(kind),
+    sqlc.arg(display_name),
+    sqlc.arg(subagent_role),
+    sqlc.arg(prompt_template),
+    sqlc.arg(completion_mode),
+    sqlc.arg(input_fields_json),
+    sqlc.arg(join_input_providers_json),
+    sqlc.arg(output_fields_json),
+    sqlc.narg(group_id),
+    sqlc.arg(sort_order)
+)
+ON CONFLICT(id) DO UPDATE SET
+    node_key = excluded.node_key,
+    kind = excluded.kind,
+    display_name = excluded.display_name,
+    subagent_role = excluded.subagent_role,
+    prompt_template = excluded.prompt_template,
+    completion_mode = excluded.completion_mode,
+    input_fields_json = excluded.input_fields_json,
+    join_input_providers_json = excluded.join_input_providers_json,
+    output_fields_json = excluded.output_fields_json,
+    group_id = excluded.group_id,
+    sort_order = excluded.sort_order
+WHERE workflow_nodes.workflow_id = excluded.workflow_id;
+
+-- name: UpsertWorkflowTransitionGroup :execrows
+INSERT INTO workflow_transition_groups (id, source_node_id, transition_id, display_name, description, sort_order)
+SELECT
+    sqlc.arg(id),
+    sqlc.arg(source_node_id),
+    sqlc.arg(transition_id),
+    sqlc.arg(display_name),
+    sqlc.arg(description),
+    sqlc.arg(sort_order)
+WHERE EXISTS (
+    SELECT 1
+    FROM workflow_nodes source
+    WHERE source.id = sqlc.arg(source_node_id)
+      AND source.workflow_id = sqlc.arg(workflow_id)
+)
+ON CONFLICT(id) DO UPDATE SET
+    source_node_id = excluded.source_node_id,
+    transition_id = excluded.transition_id,
+    display_name = excluded.display_name,
+    description = excluded.description,
+    sort_order = excluded.sort_order
+WHERE EXISTS (
+    SELECT 1
+    FROM workflow_nodes source
+    WHERE source.id = workflow_transition_groups.source_node_id
+      AND source.workflow_id = (
+          SELECT new_source.workflow_id
+          FROM workflow_nodes new_source
+          WHERE new_source.id = excluded.source_node_id
+      )
+);
+
+-- name: UpsertWorkflowEdge :execrows
+INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, prompt_template, parameters_json, input_bindings_json, output_requirements_json, sort_order)
+SELECT
+    sqlc.arg(id),
+    sqlc.arg(transition_group_id),
+    sqlc.arg(edge_key),
+    sqlc.arg(target_node_id),
+    sqlc.arg(requires_approval),
+    sqlc.arg(context_mode),
+    sqlc.arg(context_source_kind),
+    sqlc.arg(context_source_node_key),
+    sqlc.arg(prompt_template),
+    sqlc.arg(parameters_json),
+    sqlc.arg(input_bindings_json),
+    sqlc.arg(output_requirements_json),
+    sqlc.arg(sort_order)
+WHERE EXISTS (
+    SELECT 1
+    FROM workflow_transition_groups tg
+    JOIN workflow_nodes source ON source.id = tg.source_node_id
+    WHERE tg.id = sqlc.arg(transition_group_id)
+      AND source.workflow_id = sqlc.arg(workflow_id)
+)
+ON CONFLICT(id) DO UPDATE SET
+    transition_group_id = excluded.transition_group_id,
+    edge_key = excluded.edge_key,
+    target_node_id = excluded.target_node_id,
+    requires_approval = excluded.requires_approval,
+    context_mode = excluded.context_mode,
+    context_source_kind = excluded.context_source_kind,
+    context_source_node_key = excluded.context_source_node_key,
+    prompt_template = excluded.prompt_template,
+    parameters_json = excluded.parameters_json,
+    input_bindings_json = excluded.input_bindings_json,
+    output_requirements_json = excluded.output_requirements_json,
+    sort_order = excluded.sort_order
+WHERE EXISTS (
+    SELECT 1
+    FROM workflow_transition_groups tg
+    JOIN workflow_nodes source ON source.id = tg.source_node_id
+    WHERE tg.id = workflow_edges.transition_group_id
+      AND source.workflow_id = (
+          SELECT new_source.workflow_id
+          FROM workflow_transition_groups new_tg
+          JOIN workflow_nodes new_source ON new_source.id = new_tg.source_node_id
+          WHERE new_tg.id = excluded.transition_group_id
+      )
+);
 
 -- name: ListWorkflowNodeGroups :many
 SELECT
@@ -399,6 +597,60 @@ LIMIT 1;
 DELETE FROM workflow_edges
 WHERE id = sqlc.arg(id);
 
+-- name: UpdateWorkflowNode :execrows
+UPDATE workflow_nodes
+SET
+    node_key = sqlc.arg(node_key),
+    kind = sqlc.arg(kind),
+    display_name = sqlc.arg(display_name),
+    subagent_role = sqlc.arg(subagent_role),
+    prompt_template = sqlc.arg(prompt_template),
+    completion_mode = sqlc.arg(completion_mode),
+    input_fields_json = sqlc.arg(input_fields_json),
+    join_input_providers_json = sqlc.arg(join_input_providers_json),
+    output_fields_json = sqlc.arg(output_fields_json),
+    group_id = sqlc.narg(group_id)
+WHERE id = sqlc.arg(id)
+  AND workflow_id = sqlc.arg(workflow_id);
+
+-- name: UpdateWorkflowTransitionGroup :execrows
+UPDATE workflow_transition_groups
+SET
+    source_node_id = sqlc.arg(source_node_id),
+    transition_id = sqlc.arg(transition_id),
+    display_name = sqlc.arg(display_name),
+    description = sqlc.arg(description)
+WHERE workflow_transition_groups.id = sqlc.arg(transition_group_id)
+  AND (
+      SELECT source.workflow_id
+      FROM workflow_transition_groups existing
+      JOIN workflow_nodes source ON source.id = existing.source_node_id
+      WHERE existing.id = sqlc.arg(transition_group_id)
+  ) = sqlc.arg(workflow_id);
+
+-- name: UpdateWorkflowEdge :execrows
+UPDATE workflow_edges
+SET
+    transition_group_id = sqlc.arg(transition_group_id),
+    edge_key = sqlc.arg(edge_key),
+    target_node_id = sqlc.arg(target_node_id),
+    requires_approval = sqlc.arg(requires_approval),
+    context_mode = sqlc.arg(context_mode),
+    context_source_kind = sqlc.arg(context_source_kind),
+    context_source_node_key = sqlc.arg(context_source_node_key),
+    prompt_template = sqlc.arg(prompt_template),
+    parameters_json = sqlc.arg(parameters_json),
+    input_bindings_json = sqlc.arg(input_bindings_json),
+    output_requirements_json = sqlc.arg(output_requirements_json)
+WHERE workflow_edges.id = sqlc.arg(edge_id)
+  AND (
+      SELECT source.workflow_id
+      FROM workflow_edges existing
+      JOIN workflow_transition_groups tg ON tg.id = existing.transition_group_id
+      JOIN workflow_nodes source ON source.id = tg.source_node_id
+      WHERE existing.id = sqlc.arg(edge_id)
+  ) = sqlc.arg(workflow_id);
+
 -- name: ClearProjectDefaultWorkflowLinks :exec
 UPDATE projects
 SET
@@ -471,6 +723,18 @@ FROM project_workflow_link_records
 WHERE project_id = sqlc.arg(project_id)
 ORDER BY is_default DESC, created_at_unix_ms ASC, id ASC;
 
+-- name: ListWorkflowProjectLinks :many
+SELECT
+    id,
+    project_id,
+    workflow_id,
+    is_default,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM project_workflow_link_records
+WHERE workflow_id = sqlc.arg(workflow_id)
+ORDER BY project_id ASC, is_default DESC, created_at_unix_ms ASC;
+
 -- name: CountActiveProjectWorkflowLinks :one
 SELECT CAST(COUNT(*) AS INTEGER) AS active_link_count
 FROM project_workflow_links
@@ -512,6 +776,77 @@ WHERE t.workflow_id = sqlc.arg(workflow_id)
 -- name: DeleteProjectWorkflowLink :execrows
 DELETE FROM project_workflow_links
 WHERE id = sqlc.arg(id);
+
+-- name: SetProjectDefaultWorkflowLink :execrows
+UPDATE projects
+SET
+    default_project_workflow_link_id = sqlc.arg(project_workflow_link_id),
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE id = sqlc.arg(project_id);
+
+-- name: CountProjectWorkflowLinksByIDAndProject :one
+SELECT CAST(COUNT(*) AS INTEGER) AS link_count
+FROM project_workflow_links
+WHERE id = sqlc.arg(project_workflow_link_id)
+  AND project_id = sqlc.arg(project_id);
+
+-- name: DeleteProjectWorkflowLinkUnlessDefaultNeedsReplacement :execrows
+DELETE FROM project_workflow_links
+WHERE project_workflow_links.id = sqlc.arg(id)
+  AND NOT (
+      EXISTS (
+          SELECT 1
+          FROM projects p
+          WHERE p.id = project_workflow_links.project_id
+            AND p.default_project_workflow_link_id = project_workflow_links.id
+      )
+      AND (
+          SELECT COUNT(*)
+          FROM project_workflow_links active
+          WHERE active.project_id = project_workflow_links.project_id
+      ) > 1
+  );
+
+-- name: GetProjectWorkflowUnlinkState :one
+SELECT
+    COALESCE(p.default_project_workflow_link_id, '') AS default_project_workflow_link_id,
+    (SELECT CAST(COUNT(*) AS INTEGER) FROM project_workflow_links active WHERE active.project_id = p.id) AS active_link_count
+FROM projects p
+WHERE p.id = sqlc.arg(project_id);
+
+-- name: DeleteWorkflowTasksByWorkflowID :execrows
+DELETE FROM tasks
+WHERE id IN (
+    SELECT task_records.id
+    FROM task_records
+    WHERE workflow_id = sqlc.arg(workflow_id)
+);
+
+-- name: ClearDeletedWorkflowDefaultProjectLinks :execrows
+UPDATE projects
+SET
+    default_project_workflow_link_id = '',
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE default_project_workflow_link_id IN (
+    SELECT id
+    FROM project_workflow_links
+    WHERE workflow_id = sqlc.arg(workflow_id)
+);
+
+-- name: DeleteProjectWorkflowLinksByWorkflowID :execrows
+DELETE FROM project_workflow_links
+WHERE workflow_id = sqlc.arg(workflow_id);
+
+-- name: DeleteWorkflowByID :execrows
+DELETE FROM workflows
+WHERE id = sqlc.arg(id);
+
+-- name: GetWorkflowTransitionGroupWorkflowID :one
+SELECT source.workflow_id
+FROM workflow_transition_groups tg
+JOIN workflow_nodes source ON source.id = tg.source_node_id
+WHERE tg.id = sqlc.arg(id)
+LIMIT 1;
 
 -- name: DeleteTaskTransitionsByTask :execrows
 DELETE FROM task_transitions
@@ -1263,6 +1598,18 @@ WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
   AND t.canceled_at_unix_ms = 0
   AND n.kind != 'terminal';
 
+-- name: CountOtherNonTerminalTasksByManagedWorktree :one
+SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN task_node_placements p
+    ON p.task_id = t.id
+    AND p.state IN ('active', 'waiting_approval')
+JOIN workflow_nodes n ON n.id = p.node_id
+WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
+  AND t.id != sqlc.arg(task_id)
+  AND t.canceled_at_unix_ms = 0
+  AND n.kind != 'terminal';
+
 -- name: CountNonTerminalTasksBySourceWorkspace :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
 FROM tasks t
@@ -1516,7 +1863,7 @@ SELECT
     r.run_start_snapshot_json,
     r.metadata_json
 FROM task_run_records r
-JOIN tasks t ON t.id = r.task_id
+JOIN task_records t ON t.id = r.task_id
 JOIN task_node_placements p ON p.id = r.placement_id
 JOIN workflow_nodes n ON n.id = r.node_id
 WHERE r.automation_requested_at_unix_ms > 0
@@ -1801,6 +2148,192 @@ ORDER BY (
     WHERE storage.id = task_transition_edge_records.id
 ) ASC;
 
+-- name: GetTaskIdentityForTransition :one
+SELECT t.id, t.project_id, t.workflow_id
+FROM task_transitions tt
+JOIN task_records t ON t.id = tt.task_id
+WHERE tt.id = sqlc.arg(transition_id)
+LIMIT 1;
+
+-- name: GetTransitionApprovalState :one
+SELECT task_id, source_run_id, state, workflow_revision_seen, created_at_unix_ms
+FROM task_transition_records
+WHERE id = sqlc.arg(transition_id)
+LIMIT 1;
+
+-- name: ApprovePendingTransition :execrows
+UPDATE task_transitions
+SET state = 'approved', applied_at_unix_ms = sqlc.arg(applied_at_unix_ms)
+WHERE id = sqlc.arg(transition_id)
+  AND state = 'pending_approval';
+
+-- name: GetTaskTransitionState :one
+SELECT state
+FROM task_transitions
+WHERE id = sqlc.arg(transition_id)
+LIMIT 1;
+
+-- name: ApplyPendingTransitionEdgeToJoin :execrows
+UPDATE task_transition_edges
+SET state = 'applied'
+WHERE id = sqlc.arg(edge_id)
+  AND state = 'pending';
+
+-- name: ApplyPendingTransitionEdgeToPlacement :execrows
+UPDATE task_transition_edges
+SET state = 'applied',
+    target_placement_id = sqlc.arg(target_placement_id)
+WHERE id = sqlc.arg(edge_id)
+  AND state = 'pending';
+
+-- name: ListTaskRunIDsByPlacementForTransitionResult :many
+SELECT id
+FROM task_runs
+WHERE placement_id = sqlc.arg(placement_id)
+ORDER BY created_at_unix_ms ASC, rowid ASC;
+
+-- name: GetContextSourceBatchScope :one
+SELECT parallel_batch_transition_id
+FROM task_node_placements
+WHERE id = sqlc.arg(placement_id)
+LIMIT 1;
+
+-- name: GetLatestCompletedContextSourceRun :one
+SELECT r.id
+FROM task_runs r
+JOIN task_node_placements p ON p.id = r.placement_id
+WHERE p.task_id = sqlc.arg(task_id)
+  AND p.node_id = sqlc.arg(node_id)
+  AND r.completed_at_unix_ms > 0
+  AND r.completed_at_unix_ms <= sqlc.arg(before_unix_ms)
+ORDER BY r.completed_at_unix_ms DESC, r.rowid DESC
+LIMIT 1;
+
+-- name: GetLatestCompletedContextSourceRunInBatch :one
+SELECT r.id
+FROM task_runs r
+JOIN task_node_placements p ON p.id = r.placement_id
+WHERE p.task_id = sqlc.arg(task_id)
+  AND p.node_id = sqlc.arg(node_id)
+  AND p.parallel_batch_transition_id = sqlc.arg(batch_id)
+  AND r.completed_at_unix_ms > 0
+  AND r.completed_at_unix_ms <= sqlc.arg(before_unix_ms)
+ORDER BY r.completed_at_unix_ms DESC, r.rowid DESC
+LIMIT 1;
+
+-- name: GetLatestTransitionOutputValues :one
+SELECT tr.output_values_json
+FROM task_transitions tr
+WHERE tr.task_id = sqlc.arg(task_id)
+  AND tr.transition_id = sqlc.arg(transition_id)
+  AND tr.applied_at_unix_ms > 0
+  AND tr.applied_at_unix_ms <= sqlc.arg(before_unix_ms)
+  AND tr.state != 'rejected'
+ORDER BY tr.applied_at_unix_ms DESC, tr.created_at_unix_ms DESC, tr.rowid DESC
+LIMIT 1;
+
+-- name: GetLatestTransitionOutputValuesInBatch :one
+SELECT tr.output_values_json
+FROM task_transitions tr
+JOIN task_node_placements p ON p.id = tr.source_placement_id
+WHERE tr.task_id = sqlc.arg(task_id)
+  AND tr.transition_id = sqlc.arg(transition_id)
+  AND p.parallel_batch_transition_id = sqlc.arg(batch_id)
+  AND tr.applied_at_unix_ms > 0
+  AND tr.applied_at_unix_ms <= sqlc.arg(before_unix_ms)
+  AND tr.state != 'rejected'
+ORDER BY tr.applied_at_unix_ms DESC, tr.created_at_unix_ms DESC, tr.rowid DESC
+LIMIT 1;
+
+-- name: GetExistingJoinPlacement :one
+SELECT id
+FROM task_node_placements
+WHERE task_id = sqlc.arg(task_id)
+  AND node_id = sqlc.arg(node_id)
+  AND parallel_batch_transition_id = sqlc.arg(batch_id)
+LIMIT 1;
+
+-- name: ListJoinExpectedBranches :many
+SELECT target_placement_id
+FROM task_transition_edges
+WHERE task_transition_id = sqlc.arg(batch_id)
+  AND target_placement_id IS NOT NULL
+ORDER BY rowid ASC;
+
+-- name: ListJoinArrivals :many
+SELECT
+    p.id,
+    p.parallel_branch_edge_id,
+    te.workflow_edge_id,
+    tr.source_node_key,
+    tr.output_values_json
+FROM task_node_placements p
+JOIN task_transitions tr ON tr.source_placement_id = p.id
+JOIN task_transition_edges te ON te.task_transition_id = tr.id
+WHERE p.parallel_batch_transition_id = sqlc.arg(batch_id)
+  AND p.state = 'completed'
+  AND te.target_node_id = sqlc.arg(join_node_id)
+  AND te.state = 'applied'
+ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC, te.rowid ASC;
+
+-- name: GetLatestRunForPlacement :one
+SELECT id, session_id
+FROM task_runs
+WHERE placement_id = sqlc.arg(placement_id)
+ORDER BY created_at_unix_ms DESC, rowid DESC
+LIMIT 1;
+
+-- name: GetManualMovePreviousTransition :one
+SELECT
+    tr.transition_group_id,
+    tr.transition_id,
+    tr.transition_display_name,
+    tr.output_values_json,
+    tr.source_run_id,
+    te.workflow_edge_id,
+    te.edge_key,
+    te.context_mode,
+    te.requires_approval,
+    te.input_bindings_json,
+    te.output_requirements_json,
+    te.metadata_json
+FROM task_transition_records tr
+JOIN task_transitions storage ON storage.id = tr.id
+JOIN task_transition_edges te ON te.task_transition_id = tr.id
+JOIN task_node_placements source_placement ON source_placement.id = tr.source_placement_id
+WHERE te.target_placement_id = sqlc.arg(source_placement_id)
+  AND source_placement.node_id = sqlc.arg(target_node_id)
+ORDER BY tr.created_at_unix_ms DESC, storage.rowid DESC
+LIMIT 1;
+
+-- name: ListPendingApprovalManualMoveSources :many
+SELECT tt.id, tt.source_placement_id, p.node_id
+FROM task_transitions tt
+JOIN task_node_placements p ON p.id = tt.source_placement_id
+WHERE tt.task_id = sqlc.arg(task_id)
+  AND tt.state = 'pending_approval'
+ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC;
+
+-- name: RejectPendingApprovalTransition :execrows
+UPDATE task_transitions
+SET state = 'rejected'
+WHERE id = sqlc.arg(transition_id)
+  AND state = 'pending_approval';
+
+-- name: CompleteActiveManualMoveSourcePlacement :execrows
+UPDATE task_node_placements
+SET state = 'completed',
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE id = sqlc.arg(placement_id)
+  AND state = 'active';
+
+-- name: ListActiveManualMoveSources :many
+SELECT id, node_id, parallel_batch_transition_id
+FROM task_node_placements
+WHERE task_id = sqlc.arg(task_id)
+  AND state = 'active'
+ORDER BY created_at_unix_ms DESC, rowid DESC;
+
 -- name: InsertTaskComment :exec
 INSERT INTO task_comments (
     id,
@@ -1965,7 +2498,7 @@ WHERE workspace_id = sqlc.arg(workspace_id)
 -- name: CountActiveTaskRunsByWorkspace :one
 SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER) AS run_count
 FROM task_run_records r
-JOIN tasks t ON t.id = r.task_id
+JOIN task_records t ON t.id = r.task_id
 LEFT JOIN sessions s ON s.id = r.session_id
 WHERE r.completed_at_unix_ms = 0
   AND r.interrupted_at_unix_ms = 0
@@ -2465,6 +2998,15 @@ SET
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
 WHERE id = sqlc.arg(session_id);
 
+-- name: DeleteSessionRecordByID :execrows
+DELETE FROM sessions
+WHERE id = sqlc.arg(session_id);
+
+-- name: AcquireWorkspaceRegistrationLock :execrows
+UPDATE projects
+SET updated_at_unix_ms = updated_at_unix_ms
+WHERE id = '';
+
 -- name: ListSessionsTargetingWorktree :many
 SELECT
     id,
@@ -2533,3 +3075,848 @@ SELECT text
 FROM session_prompt_history_entries
 WHERE session_id = sqlc.arg(session_id)
 ORDER BY sequence ASC;
+
+-- name: ListWorkflowAttentionCandidates :many
+WITH attention_candidates(
+    kind,
+    id,
+    project_id,
+    workflow_id,
+    task_id,
+    short_id,
+    title,
+    run_id,
+    session_id,
+    ask_id,
+    task_transition_id,
+    interruption_reason,
+    interruption_detail_json,
+    occurred_at_unix_ms
+) AS (
+    SELECT
+        'approval' AS kind,
+        CAST('approval:' || tt.id AS TEXT) AS id,
+        t.project_id,
+        t.workflow_id,
+        t.id AS task_id,
+        t.short_id,
+        t.title,
+        '' AS run_id,
+        '' AS session_id,
+        '' AS ask_id,
+        tt.id AS task_transition_id,
+        '' AS interruption_reason,
+        '' AS interruption_detail_json,
+        tt.created_at_unix_ms AS occurred_at_unix_ms
+    FROM task_transitions tt
+    JOIN task_records t ON t.id = tt.task_id
+    WHERE tt.state = 'pending_approval'
+      AND t.canceled_at_unix_ms = 0
+      AND (sqlc.arg(project_id) = '' OR t.project_id = sqlc.arg(project_id))
+      AND (sqlc.arg(task_id) = '' OR t.id = sqlc.arg(task_id))
+      AND (
+          CAST(sqlc.arg(cursor_active) AS INTEGER) = 0
+          OR tt.created_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (tt.created_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('approval:' || tt.id) < sqlc.arg(cursor_item_id))
+      )
+    UNION ALL
+    SELECT
+        'question' AS kind,
+        CAST('question:' || r.id || ':' || r.waiting_ask_id AS TEXT) AS id,
+        t.project_id,
+        t.workflow_id,
+        t.id AS task_id,
+        t.short_id,
+        t.title,
+        r.id AS run_id,
+        COALESCE(r.session_id, '') AS session_id,
+        r.waiting_ask_id AS ask_id,
+        '' AS task_transition_id,
+        '' AS interruption_reason,
+        '' AS interruption_detail_json,
+        r.updated_at_unix_ms AS occurred_at_unix_ms
+    FROM task_run_records r
+    JOIN task_records t ON t.id = r.task_id
+    WHERE trim(r.waiting_ask_id) != ''
+      AND r.completed_at_unix_ms = 0
+      AND r.interrupted_at_unix_ms = 0
+      AND t.canceled_at_unix_ms = 0
+      AND (sqlc.arg(project_id) = '' OR t.project_id = sqlc.arg(project_id))
+      AND (sqlc.arg(task_id) = '' OR t.id = sqlc.arg(task_id))
+      AND (
+          CAST(sqlc.arg(cursor_active) AS INTEGER) = 0
+          OR r.updated_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (r.updated_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('question:' || r.id || ':' || r.waiting_ask_id) < sqlc.arg(cursor_item_id))
+      )
+    UNION ALL
+    SELECT
+        'interrupted_run' AS kind,
+        CAST('interrupted_run:' || r.id AS TEXT) AS id,
+        t.project_id,
+        t.workflow_id,
+        t.id AS task_id,
+        t.short_id,
+        t.title,
+        r.id AS run_id,
+        COALESCE(r.session_id, '') AS session_id,
+        '' AS ask_id,
+        '' AS task_transition_id,
+        r.interruption_reason,
+        r.interruption_detail_json,
+        r.interrupted_at_unix_ms AS occurred_at_unix_ms
+    FROM task_run_records r
+    JOIN task_records t ON t.id = r.task_id
+    JOIN task_node_placements p ON p.id = r.placement_id
+    WHERE r.interrupted_at_unix_ms > 0
+      AND r.completed_at_unix_ms = 0
+      AND p.state IN ('active', 'waiting_approval')
+      AND t.canceled_at_unix_ms = 0
+      AND (sqlc.arg(project_id) = '' OR t.project_id = sqlc.arg(project_id))
+      AND (sqlc.arg(task_id) = '' OR t.id = sqlc.arg(task_id))
+      AND (
+          CAST(sqlc.arg(cursor_active) AS INTEGER) = 0
+          OR r.interrupted_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (r.interrupted_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('interrupted_run:' || r.id) < sqlc.arg(cursor_item_id))
+      )
+    UNION ALL
+    SELECT
+        'validation_blocker' AS kind,
+        CAST('validation_blocker:' || project_id || ':' || workflow_id AS TEXT) AS id,
+        project_id,
+        workflow_id,
+        '' AS task_id,
+        '' AS short_id,
+        '' AS title,
+        '' AS run_id,
+        '' AS session_id,
+        '' AS ask_id,
+        '' AS task_transition_id,
+        '' AS interruption_reason,
+        '' AS interruption_detail_json,
+        updated_at_unix_ms AS occurred_at_unix_ms
+    FROM project_workflow_links
+    WHERE (sqlc.arg(project_id) = '' OR project_id = sqlc.arg(project_id))
+      AND sqlc.arg(task_id) = ''
+      AND (
+          CAST(sqlc.arg(cursor_active) AS INTEGER) = 0
+          OR updated_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (updated_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('validation_blocker:' || project_id || ':' || workflow_id) < sqlc.arg(cursor_item_id))
+      )
+)
+SELECT
+    kind,
+    id,
+    project_id,
+    workflow_id,
+    task_id,
+    short_id,
+    title,
+    run_id,
+    session_id,
+    ask_id,
+    task_transition_id,
+    interruption_reason,
+    interruption_detail_json,
+    occurred_at_unix_ms
+FROM attention_candidates
+ORDER BY occurred_at_unix_ms DESC, id DESC
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListWorkflowApprovalAttentionItems :many
+SELECT tt.id AS task_transition_id, t.project_id, t.workflow_id, t.id AS task_id, t.short_id, t.title, tt.created_at_unix_ms
+FROM task_transitions tt
+JOIN task_records t ON t.id = tt.task_id
+WHERE tt.state = 'pending_approval'
+  AND t.canceled_at_unix_ms = 0
+  AND (sqlc.arg(project_id) = '' OR t.project_id = sqlc.arg(project_id))
+  AND (sqlc.arg(task_id) = '' OR t.id = sqlc.arg(task_id))
+ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC;
+
+-- name: ListWorkflowQuestionAttentionItems :many
+SELECT r.id AS run_id, COALESCE(r.session_id, '') AS session_id, r.waiting_ask_id, t.project_id, t.workflow_id, t.id AS task_id, t.short_id, t.title, r.updated_at_unix_ms
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+WHERE trim(r.waiting_ask_id) != ''
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND t.canceled_at_unix_ms = 0
+  AND (sqlc.arg(project_id) = '' OR t.project_id = sqlc.arg(project_id))
+  AND (sqlc.arg(task_id) = '' OR t.id = sqlc.arg(task_id))
+ORDER BY r.updated_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ListWorkflowInterruptedRunAttentionItems :many
+SELECT r.id AS run_id, COALESCE(r.session_id, '') AS session_id, r.interruption_reason, r.interruption_detail_json, t.project_id, t.workflow_id, t.id AS task_id, t.short_id, t.title, r.interrupted_at_unix_ms
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+WHERE r.interrupted_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND p.state IN ('active', 'waiting_approval')
+  AND t.canceled_at_unix_ms = 0
+  AND (sqlc.arg(project_id) = '' OR t.project_id = sqlc.arg(project_id))
+  AND (sqlc.arg(task_id) = '' OR t.id = sqlc.arg(task_id))
+ORDER BY r.interrupted_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ListWorkflowValidationAttentionItems :many
+SELECT project_id, workflow_id, updated_at_unix_ms
+FROM project_workflow_links
+WHERE (sqlc.arg(project_id) = '' OR project_id = sqlc.arg(project_id))
+ORDER BY updated_at_unix_ms DESC, rowid DESC;
+
+-- name: ListWorkflowTaskActivityRows :many
+WITH activity(
+    activity_id,
+    kind,
+    source_id,
+    occurred_at_unix_ms,
+    updated_at_unix_ms,
+    actor
+) AS (
+    SELECT
+        CAST('comment:' || c.id AS TEXT) AS activity_id,
+        'comment' AS kind,
+        c.id AS source_id,
+        c.updated_at_unix_ms AS occurred_at_unix_ms,
+        c.updated_at_unix_ms AS updated_at_unix_ms,
+        c.author_kind AS actor
+    FROM task_comments c
+    WHERE c.task_id = sqlc.arg(task_id)
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR c.updated_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (c.updated_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('comment:' || c.id) < sqlc.arg(cursor_activity_id))
+      )
+
+    UNION ALL
+
+    SELECT
+        CAST('transition:' || tt.id AS TEXT) AS activity_id,
+        'transition' AS kind,
+        tt.id AS source_id,
+        tt.created_at_unix_ms AS occurred_at_unix_ms,
+        tt.applied_at_unix_ms AS updated_at_unix_ms,
+        tt.actor AS actor
+    FROM task_transitions tt
+    WHERE tt.task_id = sqlc.arg(task_id)
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR tt.created_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (tt.created_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('transition:' || tt.id) < sqlc.arg(cursor_activity_id))
+      )
+
+    UNION ALL
+
+    SELECT
+        CAST('run_started:' || r.id AS TEXT) AS activity_id,
+        'run_started' AS kind,
+        r.id AS source_id,
+        r.started_at_unix_ms AS occurred_at_unix_ms,
+        r.updated_at_unix_ms AS updated_at_unix_ms,
+        '' AS actor
+    FROM task_run_records r
+    WHERE r.task_id = sqlc.arg(task_id)
+      AND r.started_at_unix_ms > 0
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR r.started_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (r.started_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('run_started:' || r.id) < sqlc.arg(cursor_activity_id))
+      )
+
+    UNION ALL
+
+    SELECT
+        CAST('run_completed:' || r.id AS TEXT) AS activity_id,
+        'run_completed' AS kind,
+        r.id AS source_id,
+        r.completed_at_unix_ms AS occurred_at_unix_ms,
+        r.updated_at_unix_ms AS updated_at_unix_ms,
+        '' AS actor
+    FROM task_run_records r
+    WHERE r.task_id = sqlc.arg(task_id)
+      AND r.completed_at_unix_ms > 0
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR r.completed_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (r.completed_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('run_completed:' || r.id) < sqlc.arg(cursor_activity_id))
+      )
+
+    UNION ALL
+
+    SELECT
+        CAST('run_interrupted:' || r.id AS TEXT) AS activity_id,
+        'run_interrupted' AS kind,
+        r.id AS source_id,
+        r.interrupted_at_unix_ms AS occurred_at_unix_ms,
+        r.updated_at_unix_ms AS updated_at_unix_ms,
+        '' AS actor
+    FROM task_run_records r
+    WHERE r.task_id = sqlc.arg(task_id)
+      AND r.interrupted_at_unix_ms > 0
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR r.interrupted_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (r.interrupted_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('run_interrupted:' || r.id) < sqlc.arg(cursor_activity_id))
+      )
+
+    UNION ALL
+
+    SELECT
+        CAST('task_canceled:' || t.id AS TEXT) AS activity_id,
+        'task_canceled' AS kind,
+        t.id AS source_id,
+        t.canceled_at_unix_ms AS occurred_at_unix_ms,
+        t.updated_at_unix_ms AS updated_at_unix_ms,
+        '' AS actor
+    FROM task_records t
+    WHERE t.id = sqlc.arg(task_id)
+      AND t.canceled_at_unix_ms > 0
+      AND (
+          sqlc.arg(cursor_active) = 0
+          OR t.canceled_at_unix_ms < sqlc.arg(cursor_occurred_at_unix_ms)
+          OR (t.canceled_at_unix_ms = sqlc.arg(cursor_occurred_at_unix_ms) AND ('task_canceled:' || t.id) < sqlc.arg(cursor_activity_id))
+      )
+)
+SELECT activity_id, kind, source_id, occurred_at_unix_ms, updated_at_unix_ms, actor
+FROM activity
+ORDER BY occurred_at_unix_ms DESC, activity_id DESC
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListTaskCommentsByIDs :many
+SELECT
+    id,
+    task_id,
+    body,
+    author_kind,
+    author_id,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM task_comments
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListTaskTransitionsByIDs :many
+SELECT
+    id,
+    task_id,
+    source_run_id,
+    source_placement_id,
+    source_node_id,
+    source_node_key,
+    source_node_display_name,
+    transition_group_id,
+    transition_id,
+    transition_display_name,
+    workflow_revision_seen,
+    actor,
+    state,
+    commentary,
+    output_values_json,
+    created_at_unix_ms,
+    applied_at_unix_ms
+FROM task_transition_records
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListTaskRunsByIDs :many
+SELECT
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    effective_completion_mode,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+FROM task_run_records
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListTaskTransitionEdgesByTransitionIDs :many
+SELECT
+    id,
+    task_transition_id,
+    workflow_edge_id,
+    edge_key,
+    workflow_revision_seen,
+    target_node_id,
+    target_node_key,
+    target_node_display_name,
+    target_node_kind,
+    target_placement_id,
+    state,
+    context_mode,
+    requires_approval,
+    input_bindings_json,
+    output_requirements_json,
+    metadata_json
+FROM task_transition_edge_records
+WHERE task_transition_id IN (sqlc.slice('transition_ids'))
+ORDER BY task_transition_id ASC, (
+    SELECT storage.rowid
+    FROM task_transition_edges storage
+    WHERE storage.id = task_transition_edge_records.id
+) ASC;
+
+-- name: ListSessionNamesByIDs :many
+SELECT id, name
+FROM sessions
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: InterruptRunGeneration :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    interrupted_at_unix_ms = sqlc.arg(interrupted_at_unix_ms),
+    interruption_reason = sqlc.arg(interruption_reason),
+    interruption_detail_json = sqlc.arg(interruption_detail_json),
+    waiting_ask_id = ''
+WHERE id = sqlc.arg(run_id)
+  AND run_generation = sqlc.arg(run_generation)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0;
+
+-- name: ListInterruptTaskRunCandidates :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.task_id = sqlc.arg(task_id)
+  AND (sqlc.arg(run_id) = '' OR r.id = sqlc.arg(run_id))
+  AND r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ListResumeTaskRunCandidates :many
+SELECT
+    r.id,
+    r.run_start_snapshot_json
+FROM task_run_records r
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.task_id = sqlc.arg(task_id)
+  AND (sqlc.arg(run_id) = '' OR r.id = sqlc.arg(run_id))
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms > 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+ORDER BY r.interrupted_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ResumeTaskRun :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    started_at_unix_ms = 0,
+    interrupted_at_unix_ms = 0,
+    interruption_reason = '',
+    interruption_detail_json = '{}',
+    waiting_ask_id = '',
+    run_generation = run_generation + 1
+WHERE id = sqlc.arg(run_id)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms > 0;
+
+-- name: GetRunTransitionContext :one
+SELECT
+    te.context_mode,
+    tr.source_run_id,
+    tr.source_node_display_name,
+    te.target_node_display_name
+FROM task_node_placements p
+JOIN task_transition_edges te ON te.target_placement_id = p.id
+JOIN task_transitions tr ON tr.id = te.task_transition_id
+WHERE p.id = sqlc.arg(placement_id)
+ORDER BY te.rowid ASC
+LIMIT 1;
+
+-- name: GetRunInputValues :one
+SELECT
+    tr.commentary,
+    tr.output_values_json,
+    te.input_bindings_json
+FROM task_node_placements p
+JOIN task_transition_edges te ON te.target_placement_id = p.id
+JOIN task_transitions tr ON tr.id = te.task_transition_id
+WHERE p.id = sqlc.arg(placement_id)
+ORDER BY te.rowid ASC
+LIMIT 1;
+
+-- name: AttachRunSession :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    session_id = sqlc.arg(session_id)
+WHERE id = sqlc.arg(run_id)
+  AND run_generation = sqlc.arg(run_generation)
+  AND started_at_unix_ms > 0
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND (session_id IS NULL OR session_id = sqlc.arg(session_id));
+
+-- name: SetRunWaitingAsk :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    waiting_ask_id = sqlc.arg(ask_id)
+WHERE id = sqlc.arg(run_id)
+  AND run_generation = sqlc.arg(run_generation)
+  AND started_at_unix_ms > 0
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND waiting_ask_id = '';
+
+-- name: ClearRunWaitingAsk :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    waiting_ask_id = ''
+WHERE id = sqlc.arg(run_id)
+  AND run_generation = sqlc.arg(run_generation)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND waiting_ask_id = sqlc.arg(ask_id);
+
+-- name: GetRunWaitingAskEventIdentity :one
+SELECT t.project_id, t.workflow_id, t.id AS task_id
+FROM task_runs r
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN task_records t ON t.id = p.task_id
+WHERE r.id = sqlc.arg(run_id);
+
+-- name: ResolveTaskWaitingAsk :many
+SELECT
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    effective_completion_mode,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+FROM task_run_records
+WHERE task_id = sqlc.arg(task_id)
+  AND waiting_ask_id = sqlc.arg(ask_id)
+  AND (sqlc.arg(run_id) = '' OR id = sqlc.arg(run_id))
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND trim(COALESCE(session_id, '')) != ''
+ORDER BY updated_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = task_run_records.id
+) DESC;
+
+-- name: CompleteRunUpdateRun :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    completed_at_unix_ms = sqlc.arg(completed_at_unix_ms),
+    waiting_ask_id = ''
+WHERE id = sqlc.arg(run_id)
+  AND run_generation = sqlc.arg(run_generation)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0;
+
+-- name: StartTaskCompleteStartPlacement :execrows
+UPDATE task_node_placements
+SET state = sqlc.arg(state), updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE task_node_placements.id = sqlc.arg(placement_id)
+  AND state = 'active'
+  AND task_id IN (
+      SELECT tasks.id
+      FROM tasks
+      WHERE tasks.id = sqlc.arg(task_id)
+        AND tasks.canceled_at_unix_ms = 0
+  );
+
+-- name: TouchTaskUpdatedAt :execrows
+UPDATE tasks
+SET updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE id = sqlc.arg(task_id);
+
+-- name: GetTaskProjectWorkflowIDs :one
+SELECT project_id, workflow_id
+FROM task_records
+WHERE id = sqlc.arg(task_id)
+LIMIT 1;
+
+-- name: GetTaskIdentityForComment :one
+SELECT t.id AS task_id, t.project_id, t.workflow_id
+FROM task_comments c
+JOIN task_records t ON t.id = c.task_id
+WHERE c.id = sqlc.arg(comment_id)
+LIMIT 1;
+
+-- name: RecordInvalidCompletionProtocolViolation :one
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    invalid_completion_count = invalid_completion_count + 1,
+    interrupted_at_unix_ms = CASE WHEN invalid_completion_count + 1 >= sqlc.arg(max_count) THEN sqlc.arg(interrupted_at_unix_ms) ELSE interrupted_at_unix_ms END,
+    interruption_reason = CASE WHEN invalid_completion_count + 1 >= sqlc.arg(max_count) THEN 'workflow_protocol_violation_limit' ELSE interruption_reason END,
+    interruption_detail_json = CASE WHEN invalid_completion_count + 1 >= sqlc.arg(max_count) THEN sqlc.arg(interruption_detail_json) ELSE interruption_detail_json END
+WHERE id = sqlc.arg(run_id)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND (sqlc.arg(require_generation) = 0 OR run_generation = sqlc.arg(expected_generation))
+RETURNING invalid_completion_count, interrupted_at_unix_ms;
+
+-- name: ResolveActiveRunCompletionTargetByRunID :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND trim(COALESCE(r.session_id, '')) != ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+  AND r.id = sqlc.arg(run_id)
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ResolveActiveRunCompletionTargetBySessionID :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND trim(COALESCE(r.session_id, '')) != ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+  AND r.session_id = sqlc.arg(session_id)
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ResolveActiveRunCompletionTargetByTaskID :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND trim(COALESCE(r.session_id, '')) != ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+  AND t.id = sqlc.arg(task_id)
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ResolveActiveRunCompletionTargetByProjectShortID :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND trim(COALESCE(r.session_id, '')) != ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+  AND t.short_id = sqlc.arg(short_id)
+  AND t.project_id = sqlc.arg(project_id)
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;
+
+-- name: ResolveActiveRunCompletionTargetByShortID :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.effective_completion_mode,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_run_records r
+JOIN task_records t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.started_at_unix_ms > 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND trim(COALESCE(r.session_id, '')) != ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+  AND t.short_id = sqlc.arg(short_id)
+ORDER BY r.started_at_unix_ms DESC, (
+    SELECT storage.rowid
+    FROM task_runs storage
+    WHERE storage.id = r.id
+) DESC;

@@ -199,6 +199,7 @@
 ## Persistence And Schema
 
 - Use SQLite for structured workflow/task state. Keep transcripts and large session artifacts file-backed.
+- Production metadata SQL is declared in `server/metadata/queries.sql` and consumed through generated `server/metadata/sqlitegen` APIs. Transaction-scoped SQLite lifecycle SQL that sqlc cannot emit is declared in `server/metadata/lifecycle.sql` and consumed through generated `server/metadata/sqlitelifecyclegen` APIs. Workflow packages do not embed private SQL files or execute raw SQL strings directly.
 - Workflow implementation package boundaries are locked:
 - `server/workflow`: pure domain types, validation, state-machine logic.
 - `server/workflowstore`: metadata persistence adapter.

@@ -28,7 +28,7 @@ func (s *Store) LinkWorkflowWithDefaultPolicy(ctx context.Context, projectID str
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	link, err := s.linkWorkflowInTx(ctx, tx, q, now, strings.TrimSpace(projectID), workflowID, policy)
+	link, err := s.linkWorkflowInTx(ctx, q, now, strings.TrimSpace(projectID), workflowID, policy)
 	if err != nil {
 		return ProjectWorkflowLinkRecord{}, err
 	}
@@ -38,7 +38,7 @@ func (s *Store) LinkWorkflowWithDefaultPolicy(ctx context.Context, projectID str
 	return link, nil
 }
 
-func (s *Store) linkWorkflowInTx(ctx context.Context, exec sqlitegen.DBTX, q *sqlitegen.Queries, now int64, projectID string, workflowID workflow.WorkflowID, policy WorkflowLinkDefaultPolicy) (ProjectWorkflowLinkRecord, error) {
+func (s *Store) linkWorkflowInTx(ctx context.Context, q *sqlitegen.Queries, now int64, projectID string, workflowID workflow.WorkflowID, policy WorkflowLinkDefaultPolicy) (ProjectWorkflowLinkRecord, error) {
 	existing, err := q.GetActiveProjectWorkflowLinkByWorkflow(ctx, sqlitegen.GetActiveProjectWorkflowLinkByWorkflowParams{ProjectID: projectID, WorkflowID: string(workflowID)})
 	if err == nil {
 		link := linkRecordFromRow(existing)
@@ -47,7 +47,7 @@ func (s *Store) linkWorkflowInTx(ctx context.Context, exec sqlitegen.DBTX, q *sq
 			return ProjectWorkflowLinkRecord{}, err
 		}
 		if shouldDefault && !link.IsDefault {
-			if err := setProjectDefaultWorkflowLink(ctx, exec, now, projectID, link.ID); err != nil {
+			if err := setProjectDefaultWorkflowLink(ctx, q, now, projectID, link.ID); err != nil {
 				return ProjectWorkflowLinkRecord{}, err
 			}
 			link.IsDefault = true
@@ -66,7 +66,7 @@ func (s *Store) linkWorkflowInTx(ctx context.Context, exec sqlitegen.DBTX, q *sq
 		return ProjectWorkflowLinkRecord{}, fmt.Errorf("insert project workflow link: %w", err)
 	}
 	if shouldDefault {
-		if err := setProjectDefaultWorkflowLink(ctx, exec, now, projectID, linkID); err != nil {
+		if err := setProjectDefaultWorkflowLink(ctx, q, now, projectID, linkID); err != nil {
 			return ProjectWorkflowLinkRecord{}, err
 		}
 	}
@@ -100,14 +100,16 @@ func (s *Store) shouldSetWorkflowLinkDefault(ctx context.Context, q *sqlitegen.Q
 	}
 }
 
-func setProjectDefaultWorkflowLink(ctx context.Context, exec sqlitegen.DBTX, now int64, projectID string, linkID string) error {
-	updated, err := exec.ExecContext(ctx, `UPDATE projects SET default_project_workflow_link_id = ?, updated_at_unix_ms = ? WHERE id = ?`, linkID, now, projectID)
+func setProjectDefaultWorkflowLink(ctx context.Context, q *sqlitegen.Queries, now int64, projectID string, linkID string) error {
+	count, err := q.SetProjectDefaultWorkflowLink(ctx, sqlitegen.SetProjectDefaultWorkflowLinkParams{
+		ProjectWorkflowLinkID: linkID,
+		UpdatedAtUnixMs:       now,
+		ProjectID:             projectID,
+	})
 	if err != nil {
 		return fmt.Errorf("set default workflow link: %w", err)
 	}
-	if count, err := updated.RowsAffected(); err != nil {
-		return err
-	} else if count != 1 {
+	if count != 1 {
 		return fmt.Errorf("project workflow link is invalid")
 	}
 	return nil
@@ -126,21 +128,13 @@ func (s *Store) ListProjectWorkflowLinks(ctx context.Context, projectID string) 
 }
 
 func (s *Store) ListWorkflowProjectLinks(ctx context.Context, workflowID workflow.WorkflowID) ([]ProjectWorkflowLinkRecord, error) {
-	rows, err := s.db.QueryContext(ctx, strings.TrimSuffix(listWorkflowProjectLinksQuery, "\n"), string(workflowID))
+	rows, err := s.queries.ListWorkflowProjectLinks(ctx, string(workflowID))
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []ProjectWorkflowLinkRecord{}
-	for rows.Next() {
-		var row sqlitegen.ProjectWorkflowLinkRecord
-		if err := rows.Scan(&row.ID, &row.ProjectID, &row.WorkflowID, &row.IsDefault, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
-			return nil, err
-		}
+	out := make([]ProjectWorkflowLinkRecord, 0, len(rows))
+	for _, row := range rows {
 		out = append(out, linkRecordFromRow(row))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -168,14 +162,8 @@ func (s *Store) SetDefaultProjectWorkflowLink(ctx context.Context, projectID str
 	if err := q.ClearProjectDefaultWorkflowLinks(ctx, sqlitegen.ClearProjectDefaultWorkflowLinksParams{ProjectID: projectID, UpdatedAtUnixMs: now}); err != nil {
 		return ProjectWorkflowLinkRecord{}, err
 	}
-	updated, err := tx.ExecContext(ctx, `UPDATE projects SET default_project_workflow_link_id = ?, updated_at_unix_ms = ? WHERE id = ?`, link.ID, now, projectID)
-	if err != nil {
+	if err := setProjectDefaultWorkflowLink(ctx, q, now, projectID, link.ID); err != nil {
 		return ProjectWorkflowLinkRecord{}, err
-	}
-	if count, err := updated.RowsAffected(); err != nil {
-		return ProjectWorkflowLinkRecord{}, err
-	} else if count != 1 {
-		return ProjectWorkflowLinkRecord{}, fmt.Errorf("project workflow link is invalid")
 	}
 	if err := tx.Commit(); err != nil {
 		return ProjectWorkflowLinkRecord{}, err
@@ -223,8 +211,8 @@ func (s *Store) UnlinkProjectWorkflow(ctx context.Context, linkID string, replac
 		return result, nil
 	}
 	if replacementDefaultLinkID != "" {
-		var replacementCount int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM project_workflow_links WHERE id = ? AND project_id = ?`, replacementDefaultLinkID, link.ProjectID).Scan(&replacementCount); err != nil {
+		replacementCount, err := q.CountProjectWorkflowLinksByIDAndProject(ctx, sqlitegen.CountProjectWorkflowLinksByIDAndProjectParams{ProjectWorkflowLinkID: replacementDefaultLinkID, ProjectID: link.ProjectID})
+		if err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
 		}
 		if replacementCount != 1 {
@@ -233,35 +221,24 @@ func (s *Store) UnlinkProjectWorkflow(ctx context.Context, linkID string, replac
 		if _, err := q.DeleteProjectWorkflowLink(ctx, link.ID); err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
 		}
-		updated, err := tx.ExecContext(ctx, `UPDATE projects SET default_project_workflow_link_id = ?, updated_at_unix_ms = ? WHERE id = ?`, replacementDefaultLinkID, now, link.ProjectID)
-		if err != nil {
+		if err := setProjectDefaultWorkflowLink(ctx, q, now, link.ProjectID, replacementDefaultLinkID); err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
-		}
-		if count, err := updated.RowsAffected(); err != nil {
-			return ProjectWorkflowUnlinkResult{}, err
-		} else if count != 1 {
-			return ProjectWorkflowUnlinkResult{}, ErrReplacementDefaultInvalid
 		}
 	} else {
-		deleted, err := tx.ExecContext(ctx, strings.TrimSuffix(unlinkProjectWorkflowQuery, "\n"), link.ID)
-		if err != nil {
-			return ProjectWorkflowUnlinkResult{}, err
-		}
-		deletedCount, err := deleted.RowsAffected()
+		deletedCount, err := q.DeleteProjectWorkflowLinkUnlessDefaultNeedsReplacement(ctx, link.ID)
 		if err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
 		}
 		if deletedCount != 1 {
-			var defaultLinkID string
-			var activeLinkCount int
-			if err := tx.QueryRowContext(ctx, strings.TrimSuffix(projectWorkflowUnlinkStateQuery, "\n"), link.ProjectID).Scan(&defaultLinkID, &activeLinkCount); err != nil {
+			state, err := q.GetProjectWorkflowUnlinkState(ctx, link.ProjectID)
+			if err != nil {
 				return ProjectWorkflowUnlinkResult{}, err
 			}
-			if defaultLinkID == link.ID && activeLinkCount > 1 {
+			if state.DefaultProjectWorkflowLinkID == link.ID && state.ActiveLinkCount > 1 {
 				result.Blockers = append(result.Blockers, ProjectWorkflowUnlinkBlocker{
 					Code:    "default_replacement_required",
 					Message: "Default workflow link requires a replacement before unlinking because this project has other linked workflows.",
-					Count:   activeLinkCount - 1,
+					Count:   int(state.ActiveLinkCount - 1),
 				})
 				return result, nil
 			}

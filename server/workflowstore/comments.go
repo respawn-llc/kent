@@ -60,11 +60,11 @@ func (s *Store) CountTaskComments(ctx context.Context, taskID workflow.TaskID) (
 }
 
 func (s *Store) TaskIdentityForComment(ctx context.Context, commentID string) (taskID string, projectID string, workflowID string, err error) {
-	row := s.metadata.DB().QueryRowContext(ctx, strings.TrimSuffix(taskIdentityForCommentQuery, "\n"), strings.TrimSpace(commentID))
-	if scanErr := row.Scan(&taskID, &projectID, &workflowID); scanErr != nil {
-		return "", "", "", scanErr
+	row, err := s.queries.GetTaskIdentityForComment(ctx, strings.TrimSpace(commentID))
+	if err != nil {
+		return "", "", "", err
 	}
-	return taskID, projectID, workflowID, nil
+	return row.TaskID, row.ProjectID, row.WorkflowID, nil
 }
 
 func (s *Store) ListComments(ctx context.Context, taskID workflow.TaskID) ([]CommentRecord, error) {

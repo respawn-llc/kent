@@ -53,6 +53,48 @@ func TestOpenSuppressesGooseStatusLogging(t *testing.T) {
 	}
 }
 
+func TestOpenConfiguresSQLitePragmasThroughPathSafeDSN(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "db with spaces", "main ? #.sqlite3")
+	store, err := OpenAtPath(root, dbPath)
+	if err != nil {
+		t.Fatalf("OpenAtPath with escaped path characters: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	var foreignKeys int64
+	if err := store.db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+		t.Fatalf("PRAGMA foreign_keys: %v", err)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("foreign_keys = %d, want 1", foreignKeys)
+	}
+	var journalMode string
+	if err := store.db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+	if journalMode != "wal" {
+		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	}
+	var synchronous int64
+	if err := store.db.QueryRow("PRAGMA synchronous").Scan(&synchronous); err != nil {
+		t.Fatalf("PRAGMA synchronous: %v", err)
+	}
+	if synchronous != 1 {
+		t.Fatalf("synchronous = %d, want NORMAL(1)", synchronous)
+	}
+	var busyTimeout int64
+	if err := store.db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("PRAGMA busy_timeout: %v", err)
+	}
+	if busyTimeout != 5000 {
+		t.Fatalf("busy_timeout = %d, want 5000", busyTimeout)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("database path was not created at expected path: %v", err)
+	}
+}
+
 func TestOpenAllowsDatabaseAtRemovedMigrationVersion(t *testing.T) {
 	root := t.TempDir()
 	store, err := Open(root)
@@ -607,12 +649,8 @@ func openDatabaseAtPathWithoutMigrationsForTest(root string, dbPath string) (*sq
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", metadataSQLiteDSN(dbPath))
 	if err != nil {
-		return nil, err
-	}
-	if err := configureDatabase(db); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	return db, nil

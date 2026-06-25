@@ -83,22 +83,18 @@ func (s *Store) DeleteWorkflow(ctx context.Context, req WorkflowDeleteRequest) (
 	}
 
 	now := s.now().UnixMilli()
-	if _, err := tx.ExecContext(ctx, strings.TrimSuffix(deleteWorkflowTasksQuery, "\n"), string(req.WorkflowID)); err != nil {
+	if _, err := q.DeleteWorkflowTasksByWorkflowID(ctx, string(req.WorkflowID)); err != nil {
 		return WorkflowDeleteResult{}, fmt.Errorf("delete workflow tasks: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, strings.TrimSuffix(clearDeletedWorkflowDefaultProjectLinksQuery, "\n"), now, string(req.WorkflowID)); err != nil {
+	if _, err := q.ClearDeletedWorkflowDefaultProjectLinks(ctx, sqlitegen.ClearDeletedWorkflowDefaultProjectLinksParams{UpdatedAtUnixMs: now, WorkflowID: string(req.WorkflowID)}); err != nil {
 		return WorkflowDeleteResult{}, fmt.Errorf("clear workflow default links: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM project_workflow_links WHERE workflow_id = ?`, string(req.WorkflowID)); err != nil {
+	if _, err := q.DeleteProjectWorkflowLinksByWorkflowID(ctx, string(req.WorkflowID)); err != nil {
 		return WorkflowDeleteResult{}, fmt.Errorf("delete workflow project links: %w", err)
 	}
-	deleted, err := tx.ExecContext(ctx, `DELETE FROM workflows WHERE id = ?`, string(req.WorkflowID))
+	deletedCount, err := q.DeleteWorkflowByID(ctx, string(req.WorkflowID))
 	if err != nil {
 		return WorkflowDeleteResult{}, fmt.Errorf("delete workflow: %w", err)
-	}
-	deletedCount, err := deleted.RowsAffected()
-	if err != nil {
-		return WorkflowDeleteResult{}, err
 	}
 	if deletedCount != 1 {
 		return WorkflowDeleteResult{}, fmt.Errorf("workflow %q was not deleted", req.WorkflowID)

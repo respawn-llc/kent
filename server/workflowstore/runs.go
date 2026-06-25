@@ -99,18 +99,14 @@ func (s *Store) InterruptRunGeneration(ctx context.Context, runID workflow.RunID
 		detailJSON = "{}"
 	}
 	now := s.now().UnixMilli()
-	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(interruptRunGenerationQuery, "\n"),
-		now,
-		now,
-		strings.TrimSpace(reason),
-		detailJSON,
-		string(runID),
-		generation,
-	)
-	if err != nil {
-		return err
-	}
-	updated, err := result.RowsAffected()
+	updated, err := s.queries.InterruptRunGeneration(ctx, sqlitegen.InterruptRunGenerationParams{
+		UpdatedAtUnixMs:        now,
+		InterruptedAtUnixMs:    now,
+		InterruptionReason:     strings.TrimSpace(reason),
+		InterruptionDetailJson: detailJSON,
+		RunID:                  string(runID),
+		RunGeneration:          generation,
+	})
 	if err != nil {
 		return err
 	}
@@ -125,22 +121,14 @@ func (s *Store) InterruptTaskRun(ctx context.Context, taskID workflow.TaskID, ru
 		return RunRecord{}, errors.New("task id is required")
 	}
 	trimmedRunID := strings.TrimSpace(string(runID))
-	rows, err := s.db.QueryContext(ctx, strings.TrimSuffix(interruptTaskRunCandidatesQuery, "\n"), string(taskID), trimmedRunID, trimmedRunID)
+	rows, err := s.queries.ListInterruptTaskRunCandidates(ctx, sqlitegen.ListInterruptTaskRunCandidatesParams{
+		TaskID: string(taskID),
+		RunID:  trimmedRunID,
+	})
 	if err != nil {
 		return RunRecord{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	candidates := []RunRecord{}
-	for rows.Next() {
-		var row sqlitegen.TaskRunRecord
-		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.EffectiveCompletionMode, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
-			return RunRecord{}, err
-		}
-		candidates = append(candidates, runRecordFromTaskRun(row))
-	}
-	if err := rows.Err(); err != nil {
-		return RunRecord{}, err
-	}
+	candidates := runRecordsFromTaskRunRecords(rows)
 	if len(candidates) == 0 {
 		return RunRecord{}, errors.New("task has no active workflow run to interrupt")
 	}
@@ -195,24 +183,11 @@ func (s *Store) ResumeTaskRunByID(ctx context.Context, taskID workflow.TaskID, r
 		return RunRecord{}, ErrTaskCanceled
 	}
 	trimmedRunID := strings.TrimSpace(string(runID))
-	rows, err := s.db.QueryContext(ctx, strings.TrimSuffix(resumeTaskRunCandidatesQuery, "\n"), string(taskID), trimmedRunID, trimmedRunID)
+	candidates, err := s.queries.ListResumeTaskRunCandidates(ctx, sqlitegen.ListResumeTaskRunCandidatesParams{
+		TaskID: string(taskID),
+		RunID:  trimmedRunID,
+	})
 	if err != nil {
-		return RunRecord{}, err
-	}
-	defer func() { _ = rows.Close() }()
-	type candidate struct {
-		id           string
-		snapshotJSON string
-	}
-	candidates := []candidate{}
-	for rows.Next() {
-		var next candidate
-		if err := rows.Scan(&next.id, &next.snapshotJSON); err != nil {
-			return RunRecord{}, err
-		}
-		candidates = append(candidates, next)
-	}
-	if err := rows.Err(); err != nil {
 		return RunRecord{}, err
 	}
 	if len(candidates) == 0 {
@@ -222,25 +197,24 @@ func (s *Store) ResumeTaskRunByID(ctx context.Context, taskID workflow.TaskID, r
 		return RunRecord{}, fmt.Errorf("task has multiple interrupted workflow runs; %w", ErrRunIDRequired)
 	}
 	snapshot := runStartSnapshot{}
-	if err := workflow.UnmarshalString(candidates[0].snapshotJSON, &snapshot); err != nil {
+	if err := workflow.UnmarshalString(candidates[0].RunStartSnapshotJson, &snapshot); err != nil {
 		return RunRecord{}, err
 	}
 	if err := s.validateRunnableRole(snapshot.Node.SubagentRole); err != nil {
 		return RunRecord{}, err
 	}
 	now := s.now().UnixMilli()
-	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(resumeTaskRunQuery, "\n"), now, candidates[0].id)
-	if err != nil {
-		return RunRecord{}, err
-	}
-	updated, err := result.RowsAffected()
+	updated, err := s.queries.ResumeTaskRun(ctx, sqlitegen.ResumeTaskRunParams{
+		UpdatedAtUnixMs: now,
+		RunID:           candidates[0].ID,
+	})
 	if err != nil {
 		return RunRecord{}, err
 	}
 	if updated != 1 {
 		return RunRecord{}, sql.ErrNoRows
 	}
-	run, err := s.queries.GetTaskRun(ctx, candidates[0].id)
+	run, err := s.queries.GetTaskRun(ctx, candidates[0].ID)
 	if err != nil {
 		return RunRecord{}, err
 	}
@@ -392,22 +366,19 @@ type runTransitionContext struct {
 }
 
 func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID string, runMetadataJSON string) (runTransitionContext, error) {
-	var contextMode string
-	var sourceRunID sql.NullString
-	var sourceNodeDisplayName string
-	var targetNodeDisplayName string
-	err := s.db.QueryRowContext(ctx, strings.TrimSuffix(resolveRunTransitionContextQuery, "\n"), placementID).Scan(&contextMode, &sourceRunID, &sourceNodeDisplayName, &targetNodeDisplayName)
+	row, err := s.queries.GetRunTransitionContext(ctx, placementID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return runTransitionContext{ContextMode: workflow.ContextModeNewSession}, nil
 	}
 	if err != nil {
 		return runTransitionContext{}, fmt.Errorf("resolve workflow run transition context: %w", err)
 	}
+	sourceRunID := row.SourceRunID
 	resolved := runTransitionContext{
-		ContextMode: workflow.ContextMode(strings.TrimSpace(contextMode)),
+		ContextMode: workflow.ContextMode(strings.TrimSpace(row.ContextMode)),
 		AcceptedTransitionPath: AcceptedTransitionPath{
-			SourceNodeDisplayName: strings.TrimSpace(sourceNodeDisplayName),
-			TargetNodeDisplayName: strings.TrimSpace(targetNodeDisplayName),
+			SourceNodeDisplayName: strings.TrimSpace(row.SourceNodeDisplayName),
+			TargetNodeDisplayName: strings.TrimSpace(row.TargetNodeDisplayName),
 		},
 	}
 	if resolved.ContextMode == "" {
@@ -443,33 +414,22 @@ func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID str
 }
 
 func (s *Store) resolveRunInputValues(ctx context.Context, placementID string, task TaskRecord) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, strings.TrimSuffix(resolveRunInputValuesQuery, "\n"), placementID)
+	row, err := s.queries.GetRunInputValues(ctx, placementID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return map[string]string{}, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve workflow run input values: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return map[string]string{}, nil
-	}
-	var commentary, outputValuesJSON, inputBindingsJSON string
-	if err := rows.Scan(&commentary, &outputValuesJSON, &inputBindingsJSON); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 	outputValues := map[string]string{}
-	if err := workflow.UnmarshalString(outputValuesJSON, &outputValues); err != nil {
+	if err := workflow.UnmarshalString(row.OutputValuesJson, &outputValues); err != nil {
 		return nil, err
 	}
 	bindings := []workflow.InputBinding{}
-	if err := workflow.UnmarshalString(inputBindingsJSON, &bindings); err != nil {
+	if err := workflow.UnmarshalString(row.InputBindingsJson, &bindings); err != nil {
 		return nil, err
 	}
-	return resolveInputBindingValues(task, commentary, outputValues, bindings)
+	return resolveInputBindingValues(task, row.Commentary, outputValues, bindings)
 }
 
 func resolveInputBindingValues(task TaskRecord, commentary string, outputValues map[string]string, bindings []workflow.InputBinding) (map[string]string, error) {
@@ -517,19 +477,14 @@ func taskInputBindingValue(task TaskRecord, field string) string {
 }
 
 func (s *Store) AttachRunSession(ctx context.Context, runID workflow.RunID, expectedGeneration int64, sessionID string) error {
-	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(attachRunSessionQuery, "\n"),
-		s.now().UnixMilli(),
-		strings.TrimSpace(sessionID),
-		string(runID),
-		expectedGeneration,
-		strings.TrimSpace(sessionID),
-	)
+	updated, err := s.queries.AttachRunSession(ctx, sqlitegen.AttachRunSessionParams{
+		UpdatedAtUnixMs: s.now().UnixMilli(),
+		SessionID:       sql.NullString{String: strings.TrimSpace(sessionID), Valid: true},
+		RunID:           string(runID),
+		RunGeneration:   expectedGeneration,
+	})
 	if err != nil {
 		return fmt.Errorf("attach workflow run session: %w", err)
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if updated != 1 {
 		return sql.ErrNoRows
@@ -543,23 +498,19 @@ func (s *Store) SetRunWaitingAsk(ctx context.Context, runID workflow.RunID, expe
 		return fmt.Errorf("ask id is required")
 	}
 	now := s.now().UnixMilli()
-	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(setRunWaitingAskQuery, "\n"),
-		now,
-		trimmedAskID,
-		string(runID),
-		expectedGeneration,
-	)
+	updated, err := s.queries.SetRunWaitingAsk(ctx, sqlitegen.SetRunWaitingAskParams{
+		UpdatedAtUnixMs: now,
+		AskID:           trimmedAskID,
+		RunID:           string(runID),
+		RunGeneration:   expectedGeneration,
+	})
 	if err != nil {
 		return fmt.Errorf("set workflow run waiting ask: %w", err)
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if updated != 1 {
 		return sql.ErrNoRows
 	}
-	event, err := runWaitingAskWorkflowEvent(ctx, s.db, string(runID), "question_waiting", trimmedAskID, now)
+	event, err := runWaitingAskWorkflowEvent(ctx, s.queries, string(runID), "question_waiting", trimmedAskID, now)
 	if err != nil {
 		return err
 	}
@@ -572,23 +523,19 @@ func (s *Store) ClearRunWaitingAsk(ctx context.Context, runID workflow.RunID, ex
 		return fmt.Errorf("ask id is required")
 	}
 	now := s.now().UnixMilli()
-	result, err := s.db.ExecContext(ctx, strings.TrimSuffix(clearRunWaitingAskQuery, "\n"),
-		now,
-		string(runID),
-		expectedGeneration,
-		trimmedAskID,
-	)
+	updated, err := s.queries.ClearRunWaitingAsk(ctx, sqlitegen.ClearRunWaitingAskParams{
+		UpdatedAtUnixMs: now,
+		RunID:           string(runID),
+		RunGeneration:   expectedGeneration,
+		AskID:           trimmedAskID,
+	})
 	if err != nil {
 		return fmt.Errorf("clear workflow run waiting ask: %w", err)
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if updated != 1 {
 		return sql.ErrNoRows
 	}
-	event, err := runWaitingAskWorkflowEvent(ctx, s.db, string(runID), "question_cleared", trimmedAskID, now)
+	event, err := runWaitingAskWorkflowEvent(ctx, s.queries, string(runID), "question_cleared", trimmedAskID, now)
 	if err != nil {
 		return err
 	}
@@ -597,30 +544,22 @@ func (s *Store) ClearRunWaitingAsk(ctx context.Context, runID workflow.RunID, ex
 
 func runWaitingAskWorkflowEvent(
 	ctx context.Context,
-	db *sql.DB,
+	q *sqlitegen.Queries,
 	runID string,
 	action string,
 	askID string,
 	occurredAtUnixMs int64,
 ) (WorkflowEventRecord, error) {
-	var projectID string
-	var workflowID string
-	var taskID string
-	if err := db.QueryRowContext(ctx, `
-SELECT t.project_id, t.workflow_id, t.id
-FROM task_runs r
-JOIN task_node_placements p ON p.id = r.placement_id
-JOIN task_records t ON t.id = p.task_id
-WHERE r.id = ?
-`, strings.TrimSpace(runID)).Scan(&projectID, &workflowID, &taskID); err != nil {
+	row, err := q.GetRunWaitingAskEventIdentity(ctx, strings.TrimSpace(runID))
+	if err != nil {
 		return WorkflowEventRecord{}, fmt.Errorf("load waiting ask event run identity: %w", err)
 	}
 	return WorkflowEventRecord{
-		ProjectID:        projectID,
-		WorkflowID:       workflowID,
+		ProjectID:        row.ProjectID,
+		WorkflowID:       row.WorkflowID,
 		Resource:         "task",
 		Action:           action,
-		ChangedIDs:       []string{taskID, strings.TrimSpace(runID), strings.TrimSpace(askID)},
+		ChangedIDs:       []string{row.TaskID, strings.TrimSpace(runID), strings.TrimSpace(askID)},
 		OccurredAtUnixMs: occurredAtUnixMs,
 	}, nil
 }
@@ -635,22 +574,15 @@ func (s *Store) ResolveTaskWaitingAsk(ctx context.Context, taskID workflow.TaskI
 	if trimmedAskID == "" {
 		return RunRecord{}, errors.New("ask id is required")
 	}
-	rows, err := s.db.QueryContext(ctx, strings.TrimSuffix(resolveTaskWaitingAskQuery, "\n"), trimmedTaskID, trimmedAskID, trimmedRunID, trimmedRunID)
+	rows, err := s.queries.ResolveTaskWaitingAsk(ctx, sqlitegen.ResolveTaskWaitingAskParams{
+		TaskID: trimmedTaskID,
+		AskID:  trimmedAskID,
+		RunID:  trimmedRunID,
+	})
 	if err != nil {
 		return RunRecord{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	matches := []RunRecord{}
-	for rows.Next() {
-		var row sqlitegen.TaskRunRecord
-		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.EffectiveCompletionMode, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
-			return RunRecord{}, err
-		}
-		matches = append(matches, runRecordFromTaskRun(row))
-	}
-	if err := rows.Err(); err != nil {
-		return RunRecord{}, err
-	}
+	matches := runRecordsFromTaskRunRecords(rows)
 	if len(matches) == 0 {
 		return RunRecord{}, ErrTaskAskNotPending
 	}
@@ -661,16 +593,7 @@ func (s *Store) ResolveTaskWaitingAsk(ctx context.Context, taskID workflow.TaskI
 }
 
 func (s *Store) ResolveActiveRunCompletionTarget(ctx context.Context, selector ActiveRunCompletionTargetSelector) (ActiveRunCompletionTarget, error) {
-	clause, args, err := activeRunCompletionTargetSelectorClause(selector)
-	if err != nil {
-		return ActiveRunCompletionTarget{}, err
-	}
-	rows, err := s.db.QueryContext(ctx, activeRunCompletionTargetQuery+clause+activeRunCompletionTargetOrder, args...)
-	if err != nil {
-		return ActiveRunCompletionTarget{}, err
-	}
-	defer func() { _ = rows.Close() }()
-	matches, err := scanTaskRunRecordRows(rows)
+	matches, err := s.activeRunCompletionTargetMatches(ctx, selector)
 	if err != nil {
 		return ActiveRunCompletionTarget{}, err
 	}
@@ -683,7 +606,7 @@ func (s *Store) ResolveActiveRunCompletionTarget(ctx context.Context, selector A
 	return ActiveRunCompletionTarget{Run: matches[0]}, nil
 }
 
-func activeRunCompletionTargetSelectorClause(selector ActiveRunCompletionTargetSelector) (string, []any, error) {
+func (s *Store) activeRunCompletionTargetMatches(ctx context.Context, selector ActiveRunCompletionTargetSelector) ([]RunRecord, error) {
 	runID := strings.TrimSpace(string(selector.RunID))
 	sessionID := strings.TrimSpace(selector.SessionID)
 	taskID := strings.TrimSpace(string(selector.TaskID))
@@ -696,74 +619,32 @@ func activeRunCompletionTargetSelectorClause(selector ActiveRunCompletionTargetS
 		}
 	}
 	if count != 1 {
-		return "", nil, errors.New("exactly one completion target selector is required")
+		return nil, errors.New("exactly one completion target selector is required")
 	}
+	var rows []sqlitegen.TaskRunRecord
+	var err error
 	switch {
 	case runID != "":
-		return " AND r.id = ?", []any{runID}, nil
+		rows, err = s.queries.ResolveActiveRunCompletionTargetByRunID(ctx, runID)
 	case sessionID != "":
-		return " AND r.session_id = ?", []any{sessionID}, nil
+		rows, err = s.queries.ResolveActiveRunCompletionTargetBySessionID(ctx, sql.NullString{String: sessionID, Valid: true})
 	case taskID != "":
-		return " AND t.id = ?", []any{taskID}, nil
+		rows, err = s.queries.ResolveActiveRunCompletionTargetByTaskID(ctx, taskID)
 	case projectID != "":
-		return " AND t.short_id = ? AND t.project_id = ?", []any{shortID, projectID}, nil
+		rows, err = s.queries.ResolveActiveRunCompletionTargetByProjectShortID(ctx, sqlitegen.ResolveActiveRunCompletionTargetByProjectShortIDParams{ShortID: shortID, ProjectID: projectID})
 	default:
-		return " AND t.short_id = ?", []any{shortID}, nil
+		rows, err = s.queries.ResolveActiveRunCompletionTargetByShortID(ctx, shortID)
 	}
-}
-
-const activeRunCompletionTargetQuery = `
-SELECT
-    r.id,
-    r.task_id,
-    r.placement_id,
-    r.node_id,
-    r.session_id,
-    r.run_generation,
-    r.workflow_revision_seen,
-    r.automation_requested_at_unix_ms,
-    r.created_at_unix_ms,
-    r.updated_at_unix_ms,
-    r.started_at_unix_ms,
-    r.completed_at_unix_ms,
-    r.interrupted_at_unix_ms,
-    r.interruption_reason,
-    r.interruption_detail_json,
-    r.waiting_ask_id,
-    r.effective_completion_mode,
-    r.invalid_completion_count,
-    r.run_start_snapshot_json,
-    r.metadata_json
-FROM task_run_records r
-JOIN tasks t ON t.id = r.task_id
-JOIN task_node_placements p ON p.id = r.placement_id
-JOIN workflow_nodes n ON n.id = r.node_id
-WHERE r.started_at_unix_ms > 0
-  AND r.completed_at_unix_ms = 0
-  AND r.interrupted_at_unix_ms = 0
-  AND trim(COALESCE(r.session_id, '')) != ''
-  AND t.canceled_at_unix_ms = 0
-  AND p.state = 'active'
-  AND n.kind = 'agent'`
-
-const activeRunCompletionTargetOrder = `
-ORDER BY r.started_at_unix_ms DESC, (
-    SELECT storage.rowid
-    FROM task_runs storage
-    WHERE storage.id = r.id
-) DESC`
-
-func scanTaskRunRecordRows(rows *sql.Rows) ([]RunRecord, error) {
-	matches := []RunRecord{}
-	for rows.Next() {
-		var row sqlitegen.TaskRunRecord
-		if err := rows.Scan(&row.ID, &row.TaskID, &row.PlacementID, &row.NodeID, &row.SessionID, &row.RunGeneration, &row.WorkflowRevisionSeen, &row.AutomationRequestedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.StartedAtUnixMs, &row.CompletedAtUnixMs, &row.InterruptedAtUnixMs, &row.InterruptionReason, &row.InterruptionDetailJson, &row.WaitingAskID, &row.EffectiveCompletionMode, &row.InvalidCompletionCount, &row.RunStartSnapshotJson, &row.MetadataJson); err != nil {
-			return nil, err
-		}
-		matches = append(matches, runRecordFromTaskRun(row))
-	}
-	if err := rows.Err(); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	return matches, nil
+	return runRecordsFromTaskRunRecords(rows), nil
+}
+
+func runRecordsFromTaskRunRecords(rows []sqlitegen.TaskRunRecord) []RunRecord {
+	out := make([]RunRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, runRecordFromTaskRun(row))
+	}
+	return out
 }
