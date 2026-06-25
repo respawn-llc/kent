@@ -159,7 +159,9 @@ func (m *uiModel) clearAssistantStreamForCommittedAppend() {
 	if m == nil {
 		return
 	}
-	if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) == "" && strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
+	if m.shouldEmitNativeHistory() &&
+		strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) == "" &&
+		strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
 		m.nativeStreamingAwaitingCommit = true
 	}
 	m.sawAssistantDelta = false

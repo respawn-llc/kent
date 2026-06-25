@@ -129,6 +129,9 @@ func (l *Ledger) ScheduleRenderedProjectionCommit(projection tui.TranscriptProje
 	if l == nil {
 		return
 	}
+	if l.projection.renderedCommit.pending && l.projection.renderedCommit.resetStreaming {
+		resetStreaming = true
+	}
 	l.projection.renderedCommit = renderedProjectionCommit{
 		pending:        true,
 		checkpoint:     l.Checkpoint(),
@@ -156,4 +159,8 @@ func (l *Ledger) ApplyRenderedProjectionCommitIfReady() (RenderedProjectionCommi
 
 func (l *Ledger) RenderedProjectionCommitPending() bool {
 	return l != nil && l.projection.renderedCommit.pending
+}
+
+func (l *Ledger) RenderedProjectionCommitPendingResetStreaming() bool {
+	return l != nil && l.projection.renderedCommit.pending && l.projection.renderedCommit.resetStreaming
 }

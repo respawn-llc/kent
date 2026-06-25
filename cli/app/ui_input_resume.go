@@ -60,13 +60,16 @@ func (c uiInputController) handleQueuedRuntimeWorkCheckDone(msg queuedRuntimeWor
 		m.layout().syncViewport()
 		return m, tea.Batch(restoreCmd, appendCmd)
 	}
-	if !msg.hasWork || m.injectedQueueBlocksDrain() || m.isBusy() ||
-		m.isInputSubmitLocked() {
-		if !msg.hasWork {
-			c.notifyUserCompactionCompleted(compactionOrigin, true)
-		} else {
-			c.notifyUserCompactionCompleted(compactionOrigin, false)
+	blocked := m.injectedQueueBlocksDrain() || m.isBusy() || m.isInputSubmitLocked()
+	if !msg.hasWork {
+		c.notifyUserCompactionCompleted(compactionOrigin, true)
+		if blocked {
+			return m, nil
 		}
+		return m, c.requestIdleRuntimeControlCommittedTranscriptSync(compactionOrigin)
+	}
+	if blocked {
+		c.notifyUserCompactionCompleted(compactionOrigin, false)
 		return m, nil
 	}
 	c.notifyUserCompactionCompleted(compactionOrigin, false)
@@ -74,6 +77,14 @@ func (c uiInputController) handleQueuedRuntimeWorkCheckDone(msg queuedRuntimeWor
 	m.logf("step.resume_queued_injected pending_injected=%d", len(m.pendingInjected))
 	m.layout().syncViewport()
 	return m, tea.Batch(c.submitQueuedUserMessagesCmd(), c.model.reconcileSpinnerTicking(false))
+}
+
+func (c uiInputController) requestIdleRuntimeControlCommittedTranscriptSync(origin uiCompactionOrigin) tea.Cmd {
+	m := c.model
+	if m == nil || origin == uiCompactionOriginNone || !m.hasRuntimeClient() {
+		return nil
+	}
+	return m.requestRuntimeCommittedConversationSync()
 }
 
 func (c uiInputController) submitQueuedUserMessagesCmd() tea.Cmd {
