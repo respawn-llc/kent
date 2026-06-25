@@ -148,6 +148,9 @@ func (l *Ledger) BeginCommittedNativeFlush(suffix clientui.CommittedTranscriptSu
 	if l == nil || !l.delivery.initialized {
 		return errors.New("ongoing delivery cursor is required")
 	}
+	if sequence == 0 {
+		return errors.New("native flush sequence is required")
+	}
 	if suffix.StartEntryCount != l.delivery.lastEmittedCommittedEntryCount {
 		if !l.delivery.nativeFlushInFlight || suffix.StartEntryCount < l.delivery.lastEmittedCommittedEntryCount || suffix.StartEntryCount > l.delivery.flushNextEntryCount {
 			return errors.New("suffix start does not match delivery cursor")
@@ -195,6 +198,13 @@ func (l *Ledger) AckCommittedNativeFlush(sequence Sequence) bool {
 
 func (l *Ledger) FailCommittedNativeFlush(sequence Sequence) {
 	if l == nil || !l.delivery.nativeFlushInFlight || sequence != l.delivery.flushSequence {
+		return
+	}
+	l.cancelCommittedNativeFlush()
+}
+
+func (l *Ledger) cancelCommittedNativeFlush() {
+	if l == nil || !l.delivery.nativeFlushInFlight {
 		return
 	}
 	failedNextEntryCount := l.delivery.flushNextEntryCount

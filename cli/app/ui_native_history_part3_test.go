@@ -754,10 +754,12 @@ func TestNativeStreamingDividerPersistsInTightViewport(t *testing.T) {
 func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.pendingRuntimeEvents = []clientui.Event{{Kind: clientui.EventConversationUpdated}}
-	m.waitRuntimeEventAfterFlushSequence = 2
+	firstFlush := nativeHistoryFlushForTest(t, m, "first", nativescrollback.FlushOptions{})
+	secondFlush := nativeHistoryFlushForTest(t, m, "second", nativescrollback.FlushOptions{})
+	m.waitRuntimeEventAfterFlushSequence = uint64(secondFlush.Flush.Sequence)
 
-	firstCmd := m.handleNativeHistoryFlush(nativeHistoryFlushMsg{Text: "first", Sequence: 1})
-	if m.waitRuntimeEventAfterFlushSequence != 2 {
+	firstCmd := m.handleNativeHistoryFlush(firstFlush)
+	if m.waitRuntimeEventAfterFlushSequence != uint64(secondFlush.Flush.Sequence) {
 		t.Fatalf("expected runtime-event wait to remain armed for sequence 2, got %d", m.waitRuntimeEventAfterFlushSequence)
 	}
 	if got := len(m.pendingRuntimeEvents); got != 1 {
@@ -769,7 +771,7 @@ func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *
 		}
 	}
 
-	secondCmd := m.handleNativeHistoryFlush(nativeHistoryFlushMsg{Text: "second", Sequence: 2})
+	secondCmd := m.handleNativeHistoryFlush(secondFlush)
 	if secondCmd == nil {
 		t.Fatal("expected target flush to rearm runtime events")
 	}

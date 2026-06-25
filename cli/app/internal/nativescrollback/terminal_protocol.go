@@ -22,6 +22,9 @@ func EncodeTerminalWrite(write TerminalWrite, token string) string {
 	if write.Sequence == 0 {
 		return write.Text
 	}
+	if len(write.Text) > TerminalWriteMaxPayload {
+		return write.Text
+	}
 	header := strconv.FormatUint(uint64(write.Sequence), 10) + ":" + strconv.Itoa(len(write.Text)) + ":" + token
 	return terminalWriteStartPrefix + header + terminalWriteMarkerEnd + write.Text
 }

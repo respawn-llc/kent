@@ -93,10 +93,11 @@ func nativeRenderedDelta(previous, current string) (string, bool) {
 }
 
 func (m *uiModel) emitNativeRenderedTextWithOptions(rendered string, clearBelowBefore bool) tea.Cmd {
-	if len(rendered) <= 64*1024 {
+	maxChunkBytes := min(64*1024, nativescrollback.TerminalWriteMaxPayload)
+	if len(rendered) <= maxChunkBytes {
 		return m.emitNativeHistoryFlushWithOptions(rendered, false, clearBelowBefore)
 	}
-	chunks := splitNativeScrollbackChunks(rendered, 64*1024)
+	chunks := splitNativeScrollbackChunks(rendered, maxChunkBytes)
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -207,7 +208,7 @@ func (m *uiModel) nativeRenderedProjectionCommitPending() bool {
 
 func (m *uiModel) handleNativeHistoryFlush(msg nativeHistoryFlushMsg) tea.Cmd {
 	flush := msg.scheduledFlush()
-	if msg.Sequence == 0 {
+	if flush.Sequence == 0 {
 		if !msg.AllowBlank && strings.TrimSpace(msg.Text) == "" {
 			if m.waitRuntimeEventAfterFlushSequence != 0 && m.nativeAckedFlushSequence() >= m.waitRuntimeEventAfterFlushSequence {
 				m.waitRuntimeEventAfterFlushSequence = 0
@@ -250,7 +251,9 @@ func (m *uiModel) handleNativeTerminalWriteResult(result nativescrollback.Termin
 		return m.reportNativeTerminalWriteFailure(err)
 	}
 	cmds := make([]tea.Cmd, 0, 1)
-	m.applyNativeRenderedProjectionCommitIfReady()
+	if commitCmd := m.applyNativeRenderedProjectionCommitIfReady(); commitCmd != nil {
+		cmds = append(cmds, commitCmd)
+	}
 	m.nativeScrollbackLedger.AckCommittedNativeFlush(nativescrollback.Sequence(m.nativeAckedFlushSequence()))
 	if update.HasNext {
 		cmds = append(cmds, m.nativeTerminalWriteCmd(update.Next))
@@ -331,6 +334,7 @@ func splitNativeScrollbackChunks(rendered string, maxBytes int) []string {
 	if maxBytes <= 0 {
 		maxBytes = 64 * 1024
 	}
+	maxBytes = min(maxBytes, nativescrollback.TerminalWriteMaxPayload)
 	lines := strings.Split(rendered, "\n")
 	capacity := len(lines) / 32
 	if capacity < 1 {
@@ -339,6 +343,14 @@ func splitNativeScrollbackChunks(rendered string, maxBytes int) []string {
 	chunks := make([]string, 0, capacity)
 	var current strings.Builder
 	for _, line := range lines {
+		if len(line) > maxBytes {
+			if current.Len() > 0 {
+				chunks = append(chunks, current.String())
+				current.Reset()
+			}
+			chunks = append(chunks, splitNativeScrollbackLongLine(line, maxBytes)...)
+			continue
+		}
 		if current.Len() == 0 {
 			current.WriteString(line)
 			continue
@@ -354,6 +366,23 @@ func splitNativeScrollbackChunks(rendered string, maxBytes int) []string {
 	}
 	if current.Len() > 0 {
 		chunks = append(chunks, current.String())
+	}
+	return chunks
+}
+
+func splitNativeScrollbackLongLine(line string, maxBytes int) []string {
+	if maxBytes <= 0 || len(line) <= maxBytes {
+		if line == "" {
+			return nil
+		}
+		return []string{line}
+	}
+	chunks := make([]string, 0, len(line)/maxBytes+1)
+	start := 0
+	for start < len(line) {
+		end := min(start+maxBytes, len(line))
+		chunks = append(chunks, line[start:end])
+		start = end
 	}
 	return chunks
 }

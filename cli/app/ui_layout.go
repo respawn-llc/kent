@@ -341,8 +341,13 @@ func (l uiViewLayout) renderNativeStreamingLines(width, maxLines int, style uiSt
 }
 
 func (l uiViewLayout) visibleNativeStreamingAssistantLines(streamText string, width int) []string {
+	state := l.model.nativeScrollbackLedger.AssistantStreamState()
+	source := streamText
+	if strings.TrimSpace(source) == "" {
+		source = state.Source
+	}
 	return nativeProjectionLineTexts(l.model.nativeScrollbackLedger.AssistantStreamLiveLinesFor(nativescrollback.AssistantStreamInput{
-		Source: streamText,
+		Source: source,
 		Theme:  l.model.theme,
 		Width:  width,
 	}))

@@ -37,7 +37,7 @@
 
 ## Core Tools
 
-- Core tools are `shell`, `write_stdin`, `view_image`, `patch`, and `ask_question`, `trigger_handoff`.
+- Core tools are `shell`, `write_stdin`, `view_image`, `patch`, `ask_question`, and `trigger_handoff`.
 - Goal management is CLI/runtime-owned. Kent must not add model-callable goal tools.
 
 ## Runtime Output Boundary
@@ -116,7 +116,7 @@
 
 ## Sessions And Persistence
 
-- **Full transcript history is expected to weigh dozens of gigabytes. Production code must never load full `events.jsonl` into memory or walk the entire file under any circumstance with no exceptions. The only accepted exception is session forking or cloning, which is a one-time explicit operation that requires a full file walk to the fork point.**
+- **Full transcript history is expected to weigh dozens of gigabytes. Production code must never load full `events.jsonl` into memory or walk the entire file. Session forking or cloning is the only accepted production full-walk operation because it explicitly copies history to the fork point.**
 - Sessions support stop/resume.
 - Persistence root is configurable; default is `~/.kent`.
 - Durable domain model is `project > workspace > worktree`.

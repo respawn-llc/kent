@@ -266,7 +266,8 @@ func (m *uiModel) syncNativeStreamingScrollback() tea.Cmd {
 		return nil
 	}
 	lines := make([]tui.TranscriptProjectionLine, 0, len(update.Stable)+1)
-	if len(committedTranscriptEntriesForApp(m.transcriptEntries)) > 0 && !m.nativeStreamingDividerFlushed {
+	hasNativeCommittedHistory := len(committedNativeScrollbackEntriesForApp(m.transcriptEntries).Entries) > 0
+	if hasNativeCommittedHistory && !m.nativeStreamingDividerFlushed {
 		lines = append(lines, tui.TranscriptProjectionLine{Kind: tui.VisibleLineDivider, Text: tui.TranscriptDivider})
 		m.nativeStreamingDividerFlushed = true
 	}
@@ -416,14 +417,16 @@ func (m *uiModel) scheduleNativeRenderedProjectionCommitAtBase(projection tui.Tr
 	m.applyNativeRenderedProjectionCommitIfReady()
 }
 
-func (m *uiModel) applyNativeRenderedProjectionCommitIfReady() {
+func (m *uiModel) applyNativeRenderedProjectionCommitIfReady() tea.Cmd {
 	update, ok := m.nativeScrollbackLedger.ApplyRenderedProjectionCommitIfReady()
 	if !ok {
-		return
+		return nil
 	}
 	if update.ResetStreaming {
 		m.resetNativeStreamingState()
+		return sequenceCmds(m.releaseDeferredRuntimeSyncs(), m.drainDeferredCommittedDeliveryIfUnblocked())
 	}
+	return nil
 }
 
 func (m *uiModel) reportNativeProjectionDivergence(current tui.TranscriptProjection, rendered tui.TranscriptProjection) tea.Cmd {

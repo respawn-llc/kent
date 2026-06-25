@@ -398,13 +398,25 @@ func TestTerminalCursorWriterTreatsNativeScrollbackShortWriteAsFailure(t *testin
 	if err != nil {
 		t.Fatalf("encode short write native write: %v", err)
 	}
-	if n, err := writer.Write([]byte(encoded)); err == nil || !strings.Contains(err.Error(), "short write") || n != 4 {
-		t.Fatalf("write = (%d, %v), want short write after 4 bytes", n, err)
+	if n, err := writer.Write([]byte(encoded)); err == nil || !strings.Contains(err.Error(), "short write") || n != 0 {
+		t.Fatalf("write = (%d, %v), want short write error with zero consumed encoded bytes", n, err)
 	}
 	if got, want := short.String(), "nati"; got != want {
 		t.Fatalf("terminal payload = %q, want partial short write %q", got, want)
 	}
 	assertNativeScrollbackResult(t, state, write.Sequence, "short write")
+}
+
+func TestTerminalCursorStateRejectsOversizedRegisteredNativeFrame(t *testing.T) {
+	state := newUITerminalCursorState()
+	_, err := state.encodeNativeScrollbackWrite(nativescrollback.TerminalWrite{
+		Sequence: 21,
+		Text:     strings.Repeat("x", nativescrollback.TerminalWriteMaxPayload+1),
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds payload limit") {
+		t.Fatalf("oversized native write err = %v, want payload limit error", err)
+	}
+	assertNoNativeScrollbackResult(t, state)
 }
 
 func assertNativeScrollbackResult(t *testing.T, state *uiTerminalCursorState, sequence nativescrollback.Sequence, errContains string) {

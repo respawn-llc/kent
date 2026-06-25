@@ -121,7 +121,7 @@ func committedOngoingPrefixEnd(entries []tui.TranscriptEntry) int {
 	resultIndex := buildToolResultIndex(entries)
 	for idx, entry := range entries {
 		if entry.Transient {
-			return committedOngoingPrefixEndBefore(entries, idx, resultIndex)
+			return committedOngoingPrefixEndBefore(entries, idx)
 		}
 		if tui.TranscriptRoleFromWire(string(entry.Role)) != tui.TranscriptRoleToolCall {
 			continue
@@ -142,25 +142,13 @@ func committedOngoingPrefixEnd(entries []tui.TranscriptEntry) int {
 	return len(entries)
 }
 
-func committedOngoingPrefixEndBefore(entries []tui.TranscriptEntry, boundary int, resultIndex toolResultIndex) int {
-	consumedResults := make(map[int]struct{})
-	for idx := boundary - 1; idx >= 0; idx-- {
-		entry := entries[idx]
-		if tui.TranscriptRoleFromWire(string(entry.Role)) != tui.TranscriptRoleToolCall {
-			continue
-		}
-		text := entry.Text
-		if strings.TrimSpace(entry.CondensedText) != "" {
-			text = entry.CondensedText
-		}
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		resultIdx := resultIndex.findMatchingToolResultIndex(entries, idx, consumedResults)
-		if resultIdx < 0 || resultIdx >= boundary || entries[resultIdx].Transient {
-			return idx
-		}
-		consumedResults[resultIdx] = struct{}{}
+func committedOngoingPrefixEndBefore(entries []tui.TranscriptEntry, boundary int) int {
+	if boundary <= 0 {
+		return 0
+	}
+	prefixEnd := committedOngoingPrefixEnd(entries[:boundary])
+	if prefixEnd < boundary {
+		return prefixEnd
 	}
 	return boundary
 }

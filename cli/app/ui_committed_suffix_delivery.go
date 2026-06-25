@@ -247,6 +247,7 @@ func (m *uiModel) trackOngoingCommittedSuffixFlush(suffix clientui.CommittedTran
 		return nil
 	}
 	emittedSuffix := suffix
+	emittedSuffix.StartEntryCount = state.LastEmittedCommittedEntryCount
 	emittedSuffix.NextEntryCount = emittedEnd
 	return m.bindOngoingCommittedDeliveryToNativeFlush(emittedSuffix, beforeSequence, state, "suffix")
 }

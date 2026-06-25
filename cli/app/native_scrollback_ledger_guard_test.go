@@ -90,8 +90,9 @@ func TestNativeScrollbackLedgerOwnsFlushSequencingState(t *testing.T) {
 				}
 				for _, field := range structType.Fields.List {
 					for _, name := range field.Names {
-						if name.Name == "ongoingCommittedDelivery" {
-							t.Fatalf("uiTranscriptFeatureState must not store ongoingCommittedDelivery; NativeScrollbackLedger owns committed delivery frontiers")
+						switch name.Name {
+						case "ongoingCommittedDelivery", "ongoingCommittedDeliveryCursor":
+							t.Fatalf("uiTranscriptFeatureState must not store %s; NativeScrollbackLedger owns committed delivery frontiers", name.Name)
 						}
 					}
 				}

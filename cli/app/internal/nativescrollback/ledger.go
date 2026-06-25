@@ -128,6 +128,7 @@ func (l *Ledger) DiscardScheduled() {
 		}
 		l.discardedInFlightAcks[l.inFlight] = struct{}{}
 	}
+	l.cancelCommittedNativeFlush()
 	l.ackedSequence = l.nextSequence
 	l.inFlight = 0
 	clear(l.pending)
@@ -143,8 +144,18 @@ func (l *Ledger) AcceptFlush(flush ScheduledFlush) (TerminalWrite, bool, error) 
 	if flush.Sequence == 0 || flush.Sequence <= l.ackedSequence {
 		return TerminalWrite{}, false, nil
 	}
+	if flush.Sequence > l.nextSequence {
+		l.failed = true
+		return TerminalWrite{}, false, ErrUnexpectedWriteAck
+	}
+	if flush.Sequence == l.inFlight {
+		return TerminalWrite{}, false, nil
+	}
 	if l.pending == nil {
 		l.pending = make(map[Sequence]ScheduledFlush)
+	}
+	if _, exists := l.pending[flush.Sequence]; exists {
+		return TerminalWrite{}, false, nil
 	}
 	l.pending[flush.Sequence] = flush
 	return l.nextReadyWrite()

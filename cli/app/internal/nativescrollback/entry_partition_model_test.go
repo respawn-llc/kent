@@ -54,6 +54,20 @@ func TestLedgerPendingToolFrontierModelPartitionsParallelToolsByStablePrefix(t *
 	}
 }
 
+func TestCommittedOngoingPrefixEndBeforeTransientHandlesRepeatedToolCallID(t *testing.T) {
+	entries := []tui.TranscriptEntry{
+		pendingToolModelEntry(tui.TranscriptRoleToolCall, "repeat", "first call"),
+		pendingToolModelEntry(tui.TranscriptRoleToolResultOK, "repeat", "first result"),
+		pendingToolModelEntry(tui.TranscriptRoleToolCall, "repeat", "second call"),
+		pendingToolModelEntry(tui.TranscriptRoleToolResultOK, "repeat", "second result"),
+		{Role: tui.TranscriptRoleAssistant, Text: "live tail", Transient: true},
+	}
+
+	if got := CommittedOngoingPrefixEnd(entries); got != 4 {
+		t.Fatalf("prefix end = %d, want both resolved repeated tool calls committed", got)
+	}
+}
+
 func walkPendingToolModel(t *testing.T, state pendingToolModel, path []pendingToolModelOp, visited *int) {
 	t.Helper()
 	state.assertInvariants(t, path)

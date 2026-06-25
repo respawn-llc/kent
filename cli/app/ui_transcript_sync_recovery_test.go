@@ -322,6 +322,9 @@ func applyRuntimeEventBatchMessagesFromCommand(t *testing.T, m *uiModel, cmd tea
 		m = next.(*uiModel)
 		msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
 	}
+	if len(msgs) > 0 {
+		t.Fatalf("command drain stopped with %d unprocessed message(s): %+v", len(msgs), msgs)
+	}
 	return m
 }
 

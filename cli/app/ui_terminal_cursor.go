@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"sync"
 
@@ -82,6 +83,9 @@ func (s *uiTerminalCursorState) stripNativeScrollbackWriteMarkers(p []byte) (str
 }
 
 func (s *uiTerminalCursorState) encodeNativeScrollbackWrite(write nativescrollback.TerminalWrite) (string, error) {
+	if len(write.Text) > nativescrollback.TerminalWriteMaxPayload {
+		return "", fmt.Errorf("native scrollback terminal write exceeds payload limit: %d > %d", len(write.Text), nativescrollback.TerminalWriteMaxPayload)
+	}
 	token, err := newNativeScrollbackFrameToken()
 	if err != nil {
 		return "", err
@@ -290,10 +294,10 @@ func (w uiTerminalCursorWriter) Write(p []byte) (int, error) {
 		w.state.writeMu.Lock()
 		defer w.state.writeMu.Unlock()
 	}
-	n, err := w.writePayload(p)
+	_, err := w.writePayload(p)
 	w.state.publishNativeScrollbackWriteResults(nativeWriteSequences, err)
 	if err != nil {
-		return n, err
+		return 0, err
 	}
 	return originalLen, nil
 }

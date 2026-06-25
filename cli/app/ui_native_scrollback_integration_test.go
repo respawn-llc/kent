@@ -270,8 +270,15 @@ type nativeProgramHarness struct {
 
 func startNativeProgram(t *testing.T, model tea.Model, output io.Writer, options ...tea.ProgramOption) *nativeProgramHarness {
 	t.Helper()
-	if typed, ok := model.(*uiModel); ok && typed.terminalCursor != nil {
-		output = newUITerminalCursorWriter(output, typed.terminalCursor)
+	var inner *uiModel
+	switch typed := model.(type) {
+	case *uiModel:
+		inner = typed
+	case *observedUIModel:
+		inner = typed.model
+	}
+	if inner != nil && inner.terminalCursor != nil {
+		output = newUITerminalCursorWriter(output, inner.terminalCursor)
 	}
 	programOptions := append([]tea.ProgramOption{
 		tea.WithInput(strings.NewReader("")),

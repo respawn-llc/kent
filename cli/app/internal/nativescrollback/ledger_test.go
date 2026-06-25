@@ -84,6 +84,62 @@ func TestLedgerWriteFailureFailsClosed(t *testing.T) {
 	}
 }
 
+func TestLedgerRejectsZeroSequenceCommittedNativeFlush(t *testing.T) {
+	var ledger Ledger
+	ledger.EnsureCommittedDelivery(0, 1)
+
+	err := ledger.BeginCommittedNativeFlush(clientui.CommittedTranscriptSuffix{
+		Revision:        1,
+		StartEntryCount: 0,
+		NextEntryCount:  1,
+	}, 0)
+	if err == nil || !strings.Contains(err.Error(), "native flush sequence is required") {
+		t.Fatalf("zero sequence committed flush err = %v, want sequence requirement", err)
+	}
+	if state := ledger.CommittedDeliveryState(); state.NativeFlushInFlight || state.LastEmittedCommittedEntryCount != 0 {
+		t.Fatalf("delivery state advanced after zero sequence: %+v", state)
+	}
+}
+
+func TestLedgerAcceptFlushIsIdempotentForInFlightAndPendingSequences(t *testing.T) {
+	var ledger Ledger
+	first, ok := ledger.Enqueue("first", FlushOptions{})
+	if !ok {
+		t.Fatal("expected first flush")
+	}
+	second, ok := ledger.Enqueue("second", FlushOptions{})
+	if !ok {
+		t.Fatal("expected second flush")
+	}
+
+	firstWrite, ready, err := ledger.AcceptFlush(first)
+	if err != nil || !ready || firstWrite.Sequence != first.Sequence {
+		t.Fatalf("accept first = %+v ready=%v err=%v", firstWrite, ready, err)
+	}
+	if write, ready, err := ledger.AcceptFlush(first); err != nil || ready || write.Sequence != 0 {
+		t.Fatalf("duplicate in-flight accept = %+v ready=%v err=%v, want ignored", write, ready, err)
+	}
+	if _, ready, err := ledger.AcceptFlush(second); err != nil || ready {
+		t.Fatalf("accept pending second ready=%v err=%v, want buffered", ready, err)
+	}
+	if write, ready, err := ledger.AcceptFlush(second); err != nil || ready || write.Sequence != 0 {
+		t.Fatalf("duplicate pending accept = %+v ready=%v err=%v, want ignored", write, ready, err)
+	}
+	if got := ledger.PendingCount(); got != 2 {
+		t.Fatalf("pending count = %d, want in-flight first plus pending second", got)
+	}
+}
+
+func TestLedgerRejectsFabricatedFutureFlush(t *testing.T) {
+	var ledger Ledger
+	if _, _, err := ledger.AcceptFlush(ScheduledFlush{Sequence: 42, Text: "fabricated"}); !errors.Is(err, ErrUnexpectedWriteAck) {
+		t.Fatalf("future flush err = %v, want ErrUnexpectedWriteAck", err)
+	}
+	if !ledger.Failed() {
+		t.Fatal("ledger did not fail closed after fabricated future flush")
+	}
+}
+
 func TestLedgerIgnoresStaleAckAfterDiscard(t *testing.T) {
 	var ledger Ledger
 	flush, ok := ledger.Enqueue("\n", FlushOptions{AllowBlank: true})
@@ -107,6 +163,35 @@ func TestLedgerIgnoresStaleAckAfterDiscard(t *testing.T) {
 	}
 	if ledger.Failed() {
 		t.Fatal("ledger failed after stale discarded ack")
+	}
+}
+
+func TestLedgerDiscardScheduledClearsCommittedNativeFlush(t *testing.T) {
+	var ledger Ledger
+	ledger.EnsureCommittedDelivery(0, 1)
+	flush, ok := ledger.Enqueue("committed", FlushOptions{})
+	if !ok {
+		t.Fatal("expected flush")
+	}
+	if err := ledger.BeginCommittedNativeFlush(clientui.CommittedTranscriptSuffix{
+		Revision:        2,
+		StartEntryCount: 0,
+		NextEntryCount:  3,
+	}, flush.Sequence); err != nil {
+		t.Fatalf("begin committed native flush: %v", err)
+	}
+
+	ledger.DiscardScheduled()
+
+	state := ledger.CommittedDeliveryState()
+	if state.NativeFlushInFlight {
+		t.Fatalf("native flush still in flight after discard: %+v", state)
+	}
+	if state.LastEmittedCommittedEntryCount != 0 {
+		t.Fatalf("discard marked committed rows emitted: %+v", state)
+	}
+	if len(state.PendingCommittedRanges) != 1 || state.PendingCommittedRanges[0].EndEntryCount != 3 {
+		t.Fatalf("discard did not requeue committed range: %+v", state)
 	}
 }
 

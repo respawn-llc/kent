@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -91,20 +92,23 @@ func TestContinuityRecoveryProjectionReplayUpdatesRenderedProjection(t *testing.
 
 func TestNativeHistoryFlushBuffersPendingSequencesInOrder(t *testing.T) {
 	m := newProjectedStaticUIModel()
+	first := nativeHistoryFlushForTest(t, m, "first", nativescrollback.FlushOptions{})
+	second := nativeHistoryFlushForTest(t, m, "second", nativescrollback.FlushOptions{})
+	third := nativeHistoryFlushForTest(t, m, "third", nativescrollback.FlushOptions{})
 
-	if cmd := m.handleNativeHistoryFlush(nativeHistoryFlushMsg{Text: "third", Sequence: 3}); cmd != nil {
+	if cmd := m.handleNativeHistoryFlush(third); cmd != nil {
 		t.Fatalf("out-of-order flush cmd = %v, want nil", cmd)
 	}
 	if m.nativeAckedFlushSequence() != 0 || m.nativeScrollbackLedger.PendingCount() != 1 {
 		t.Fatalf("after seq3 flushed=%d pending=%d, want 0/1", m.nativeAckedFlushSequence(), m.nativeScrollbackLedger.PendingCount())
 	}
 
-	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(nativeHistoryFlushMsg{Text: "first", Sequence: 1}))
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(first))
 	if m.nativeAckedFlushSequence() != 1 || m.nativeScrollbackLedger.PendingCount() != 1 {
 		t.Fatalf("after seq1 ack flushed=%d pending=%d, want 1/1", m.nativeAckedFlushSequence(), m.nativeScrollbackLedger.PendingCount())
 	}
 
-	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(nativeHistoryFlushMsg{Text: "second", Sequence: 2}))
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(second))
 	if m.nativeAckedFlushSequence() != 3 {
 		t.Fatalf("after seq2 flushed=%d, want pending seq3 drained", m.nativeAckedFlushSequence())
 	}
@@ -116,11 +120,8 @@ func TestNativeHistoryFlushBuffersPendingSequencesInOrder(t *testing.T) {
 func TestNativeHistoryFlushClearBelowPrefixesPrintedText(t *testing.T) {
 	m := newProjectedStaticUIModel()
 
-	msgs := collectCmdMessages(t, m.handleNativeHistoryFlush(nativeHistoryFlushMsg{
-		Text:             "committed tail",
-		ClearBelowBefore: true,
-		Sequence:         1,
-	}))
+	flush := nativeHistoryFlushForTest(t, m, "committed tail", nativescrollback.FlushOptions{ClearBelowBefore: true})
+	msgs := collectCmdMessages(t, m.handleNativeHistoryFlush(flush))
 	printed := ""
 	for _, msg := range msgs {
 		if _, ok := msg.(nativeTerminalWriteResultMsg); ok {
@@ -133,6 +134,15 @@ func TestNativeHistoryFlushClearBelowPrefixesPrintedText(t *testing.T) {
 	}
 }
 
+func nativeHistoryFlushForTest(t *testing.T, m *uiModel, text string, opts nativescrollback.FlushOptions) nativeHistoryFlushMsg {
+	t.Helper()
+	flush, ok := m.nativeScrollbackLedger.Enqueue(text, opts)
+	if !ok {
+		t.Fatalf("expected native flush for %q", text)
+	}
+	return nativeHistoryFlushMsg{Flush: flush}
+}
+
 func TestSplitNativeScrollbackChunksKeepsLineBoundaries(t *testing.T) {
 	chunks := splitNativeScrollbackChunks("aaa\nbbb\nccc", 7)
 	want := []string{"aaa\nbbb", "ccc"}
@@ -141,5 +151,21 @@ func TestSplitNativeScrollbackChunksKeepsLineBoundaries(t *testing.T) {
 	}
 	if got := splitNativeScrollbackChunks(" \n\t", 7); got != nil {
 		t.Fatalf("blank chunks = %+v, want nil", got)
+	}
+}
+
+func TestSplitNativeScrollbackChunksSplitsLongUnbrokenLinesWithinFrameLimit(t *testing.T) {
+	longLine := strings.Repeat("x", nativescrollback.TerminalWriteMaxPayload+7)
+	chunks := splitNativeScrollbackChunks(longLine, nativescrollback.TerminalWriteMaxPayload)
+	if len(chunks) != 2 {
+		t.Fatalf("chunk count = %d, want 2", len(chunks))
+	}
+	for idx, chunk := range chunks {
+		if len(chunk) > nativescrollback.TerminalWriteMaxPayload {
+			t.Fatalf("chunk %d len = %d, exceeds terminal payload limit", idx, len(chunk))
+		}
+	}
+	if got := strings.Join(chunks, ""); got != longLine {
+		t.Fatalf("rejoined long line changed: len=%d want=%d", len(got), len(longLine))
 	}
 }
