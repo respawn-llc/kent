@@ -8727,6 +8727,15 @@ WHERE workflow_edges.id = ?12
       JOIN workflow_nodes source ON source.id = tg.source_node_id
       WHERE existing.id = ?12
   ) = ?13
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_transition_groups new_tg
+      JOIN workflow_nodes new_source ON new_source.id = new_tg.source_node_id
+      JOIN workflow_nodes target ON target.id = ?3
+      WHERE new_tg.id = ?1
+        AND new_source.workflow_id = ?13
+        AND target.workflow_id = ?13
+  )
 `
 
 type UpdateWorkflowEdgeParams struct {
@@ -8925,6 +8934,12 @@ WHERE workflow_transition_groups.id = ?5
       JOIN workflow_nodes source ON source.id = existing.source_node_id
       WHERE existing.id = ?5
   ) = ?6
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_nodes new_source
+      WHERE new_source.id = ?1
+        AND new_source.workflow_id = ?6
+  )
 `
 
 type UpdateWorkflowTransitionGroupParams struct {
@@ -9171,8 +9186,10 @@ WHERE EXISTS (
     SELECT 1
     FROM workflow_transition_groups tg
     JOIN workflow_nodes source ON source.id = tg.source_node_id
+    JOIN workflow_nodes target ON target.id = ?4
     WHERE tg.id = ?2
       AND source.workflow_id = ?14
+      AND target.workflow_id = ?14
 )
 ON CONFLICT(id) DO UPDATE SET
     transition_group_id = excluded.transition_group_id,

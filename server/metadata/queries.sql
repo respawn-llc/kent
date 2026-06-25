@@ -377,8 +377,10 @@ WHERE EXISTS (
     SELECT 1
     FROM workflow_transition_groups tg
     JOIN workflow_nodes source ON source.id = tg.source_node_id
+    JOIN workflow_nodes target ON target.id = sqlc.arg(target_node_id)
     WHERE tg.id = sqlc.arg(transition_group_id)
       AND source.workflow_id = sqlc.arg(workflow_id)
+      AND target.workflow_id = sqlc.arg(workflow_id)
 )
 ON CONFLICT(id) DO UPDATE SET
     transition_group_id = excluded.transition_group_id,
@@ -626,7 +628,13 @@ WHERE workflow_transition_groups.id = sqlc.arg(transition_group_id)
       FROM workflow_transition_groups existing
       JOIN workflow_nodes source ON source.id = existing.source_node_id
       WHERE existing.id = sqlc.arg(transition_group_id)
-  ) = sqlc.arg(workflow_id);
+  ) = sqlc.arg(workflow_id)
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_nodes new_source
+      WHERE new_source.id = sqlc.arg(source_node_id)
+        AND new_source.workflow_id = sqlc.arg(workflow_id)
+  );
 
 -- name: UpdateWorkflowEdge :execrows
 UPDATE workflow_edges
@@ -649,7 +657,16 @@ WHERE workflow_edges.id = sqlc.arg(edge_id)
       JOIN workflow_transition_groups tg ON tg.id = existing.transition_group_id
       JOIN workflow_nodes source ON source.id = tg.source_node_id
       WHERE existing.id = sqlc.arg(edge_id)
-  ) = sqlc.arg(workflow_id);
+  ) = sqlc.arg(workflow_id)
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_transition_groups new_tg
+      JOIN workflow_nodes new_source ON new_source.id = new_tg.source_node_id
+      JOIN workflow_nodes target ON target.id = sqlc.arg(target_node_id)
+      WHERE new_tg.id = sqlc.arg(transition_group_id)
+        AND new_source.workflow_id = sqlc.arg(workflow_id)
+        AND target.workflow_id = sqlc.arg(workflow_id)
+  );
 
 -- name: ClearProjectDefaultWorkflowLinks :exec
 UPDATE projects

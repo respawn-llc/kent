@@ -566,8 +566,10 @@ func applyWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, workflowI
 		}
 	}
 	for _, groupID := range removed.transitionGroups {
-		if _, err := q.DeleteWorkflowTransitionGroupByID(ctx, string(groupID)); err != nil {
+		if deleted, err := q.DeleteWorkflowTransitionGroupByID(ctx, string(groupID)); err != nil {
 			return fmt.Errorf("delete removed workflow transition group: %w", err)
+		} else if deleted != 1 {
+			return sql.ErrNoRows
 		}
 	}
 	for _, nodeID := range removed.nodes {

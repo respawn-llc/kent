@@ -65,6 +65,13 @@ func f() { helper("SELECT id FROM sessions") }`,
 			wantParts: []string{"raw SQL string literal"},
 		},
 		{
+			name: "constant concatenated sql literal",
+			path: filepath.Join("server", "example", "store.go"),
+			source: `package example
+func f() { helper("SELECT " + "id FROM sessions") }`,
+			wantParts: []string{"raw SQL string literal"},
+		},
+		{
 			name: "case insensitive select literals",
 			path: filepath.Join("server", "example", "store.go"),
 			source: `package example
@@ -75,7 +82,7 @@ func f() { helper("select id from sessions"); helper("select 1"); helper("SELECT
 			name: "clause fragments",
 			path: filepath.Join("server", "example", "store.go"),
 			source: `package example
-func f() { _, _ = "name = ?", "WHERE project_id = ?" }`,
+func f() { _, _, _ = "name = ?", "WHERE project_id = ?", "WHERE project_id=?" }`,
 			wantParts: []string{"raw SQL string literal"},
 		},
 		{
@@ -219,6 +226,10 @@ func scanGoSourceForRawSQL(path string, source []byte) ([]string, error) {
 			if n.Kind == token.STRING && rawSQLLiteral(n.Value) {
 				violations = append(violations, rawSQLViolation(path, fileSet.Position(n.Pos()).Line, "raw SQL string literal"))
 			}
+		case *ast.BinaryExpr:
+			if text, ok := constantStringExpression(n); ok && rawSQLText(text) {
+				violations = append(violations, rawSQLViolation(path, fileSet.Position(n.Pos()).Line, "raw SQL string literal"))
+			}
 		case *ast.CallExpr:
 			if selector, ok := n.Fun.(*ast.SelectorExpr); ok && context.isDirectDatabaseSQLCall(selector, n) {
 				violations = append(violations, rawSQLViolation(path, fileSet.Position(selector.Sel.Pos()).Line, "direct database SQL call "+selector.Sel.Name))
@@ -310,7 +321,7 @@ func containsViolationPart(violations []string, part string) bool {
 }
 
 func rawSQLViolation(path string, line int, reason string) string {
-	return fmt.Sprintf("%s:%d: %s; declare production SQL in server/metadata/queries.sql or an approved generated seam", path, line, reason)
+	return fmt.Sprintf("%s:%d: %s; declare production SQL in server/metadata/queries.sql or server/metadata/lifecycle.sql and consume it through an approved generated seam", path, line, reason)
 }
 
 func skipRawSQLScanDir(relPath string, name string) bool {
@@ -496,6 +507,41 @@ func rawSQLLiteral(quoted string) bool {
 	if err != nil {
 		return false
 	}
+	return rawSQLText(value)
+}
+
+func constantStringExpression(expr ast.Expr) (string, bool) {
+	switch x := expr.(type) {
+	case *ast.BasicLit:
+		if x.Kind != token.STRING {
+			return "", false
+		}
+		value, err := strconv.Unquote(x.Value)
+		if err != nil {
+			return "", false
+		}
+		return value, true
+	case *ast.BinaryExpr:
+		if x.Op != token.ADD {
+			return "", false
+		}
+		left, ok := constantStringExpression(x.X)
+		if !ok {
+			return "", false
+		}
+		right, ok := constantStringExpression(x.Y)
+		if !ok {
+			return "", false
+		}
+		return left + right, true
+	case *ast.ParenExpr:
+		return constantStringExpression(x.X)
+	default:
+		return "", false
+	}
+}
+
+func rawSQLText(value string) bool {
 	text := trimLeadingSQLTrivia(value)
 	if text == "" {
 		return false
@@ -602,8 +648,10 @@ func startsWithSQLClause(upper string) bool {
 		return startsWithSQLTableReference(rest)
 	case "JOIN":
 		return startsWithSQLTableReference(rest) && containsSQLToken(rest, "ON")
-	case "ON", "SET":
+	case "ON":
 		return containsSQLPredicateFragment(rest) || containsSQLComparison(rest)
+	case "SET":
+		return containsSQLPredicateFragment(rest) || containsSQLEqualityAssignment(rest)
 	case "VALUES":
 		return strings.HasPrefix(strings.TrimSpace(rest), "(")
 	case "RETURNING":
@@ -665,13 +713,33 @@ func containsSQLComparison(text string) bool {
 	if trimmed == "" || !startsWithIdentifier(trimmed) {
 		return false
 	}
-	comparisonMarkers := []string{" = ", " <> ", " != ", " > ", " < ", " >= ", " <= "}
+	comparisonMarkers := []string{"=", "<>", "!=", ">=", "<=", ">", "<"}
+	compact := removeSQLWhitespace(trimmed)
 	for _, marker := range comparisonMarkers {
-		if strings.Contains(trimmed, marker) {
+		if strings.Contains(compact, marker) {
 			return true
 		}
 	}
 	return false
+}
+
+func containsSQLEqualityAssignment(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || !startsWithIdentifier(trimmed) {
+		return false
+	}
+	return strings.Contains(removeSQLWhitespace(trimmed), "=")
+}
+
+func removeSQLWhitespace(text string) string {
+	var out strings.Builder
+	out.Grow(len(text))
+	for _, r := range text {
+		if !unicode.IsSpace(r) {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 func isCommonProseWord(word string) bool {
@@ -719,11 +787,12 @@ func containsSQLPredicateFragment(upper string) bool {
 		return false
 	}
 	predicateMarkers := []string{
-		" = ?", " <> ?", " != ?", " > ?", " < ?", " >= ?", " <= ?",
-		" LIKE ?", " IN (", " IS NULL", " IS NOT NULL",
+		"=?", "<>?", "!=?", ">?", "<?", ">=?", "<=?",
+		"LIKE?", "IN(", "ISNULL", "ISNOTNULL",
 	}
+	compact := removeSQLWhitespace(trimmed)
 	for _, marker := range predicateMarkers {
-		if strings.Contains(trimmed, marker) {
+		if strings.Contains(compact, marker) {
 			return true
 		}
 	}
