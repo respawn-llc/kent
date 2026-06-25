@@ -149,6 +149,11 @@ type workflowTaskListRow struct {
 	titleSort   string
 }
 
+type workflowTaskListSortSlot struct {
+	field string
+	desc  int64
+}
+
 func (s *Service) listWorkflowTaskListRows(ctx context.Context, req workflowTaskListQueryRequest) ([]workflowTaskListRow, error) {
 	if len(req.columns) == 0 {
 		return []workflowTaskListRow{}, nil
@@ -169,7 +174,8 @@ func (s *Service) listWorkflowTaskListRows(ctx context.Context, req workflowTask
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.queries.ListWorkflowTaskListFilteredRows(ctx, sqlitegen.ListWorkflowTaskListFilteredRowsParams{
+	sortSlots := workflowTaskListSortSlots(req.sortSelectors)
+	rows, err := s.queries.ListWorkflowTaskListRows(ctx, sqlitegen.ListWorkflowTaskListRowsParams{
 		StatusFilterSet:        boolInt64(len(req.statusKeys) > 0),
 		StatusKeysJson:         string(statusKeysJSON),
 		RunStatusFilterSet:     boolInt64(len(req.runStatuses) > 0),
@@ -179,6 +185,24 @@ func (s *Service) listWorkflowTaskListRows(ctx context.Context, req workflowTask
 		WorkflowID:             req.workflowID,
 		CanceledTerminalNodeID: req.canceledTerminalID,
 		SentinelStatusOrder:    int64(len(req.columns)),
+		CursorSet:              boolInt64(req.cursorSet),
+		CursorTaskID:           req.cursor.TaskID,
+		CursorCreatedAtUnixMs:  req.cursor.CreatedAtUnixMs,
+		CursorUpdatedAtUnixMs:  req.cursor.UpdatedAtUnixMs,
+		CursorStatusOrder:      int64(req.cursor.StatusOrder),
+		CursorRunCount:         int64(req.cursor.RunCount),
+		CursorTitleSort:        req.cursor.TitleSort,
+		Sort1Field:             sortSlots[0].field,
+		Sort1Desc:              sortSlots[0].desc,
+		Sort2Field:             sortSlots[1].field,
+		Sort2Desc:              sortSlots[1].desc,
+		Sort3Field:             sortSlots[2].field,
+		Sort3Desc:              sortSlots[2].desc,
+		Sort4Field:             sortSlots[3].field,
+		Sort4Desc:              sortSlots[3].desc,
+		Sort5Field:             sortSlots[4].field,
+		Sort5Desc:              sortSlots[4].desc,
+		LimitRows:              int64(req.limit),
 	})
 	if err != nil {
 		return nil, err
@@ -211,22 +235,22 @@ func (s *Service) listWorkflowTaskListRows(ctx context.Context, req workflowTask
 			titleSort:   row.TitleSort,
 		})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return workflowTaskListRowLess(out[i], out[j], req.sortSelectors)
-	})
-	if req.cursorSet {
-		filtered := out[:0]
-		for _, row := range out {
-			if workflowTaskListRowAfterCursor(row, req.sortSelectors, req.cursor) {
-				filtered = append(filtered, row)
-			}
-		}
-		out = filtered
-	}
-	if req.limit >= 0 && len(out) > req.limit {
-		out = out[:req.limit]
-	}
 	return out, nil
+}
+
+func workflowTaskListSortSlots(sortSelectors []serverapi.WorkflowTaskListSort) [5]workflowTaskListSortSlot {
+	var slots [5]workflowTaskListSortSlot
+	for index, selector := range sortSelectors {
+		if index >= len(slots) {
+			break
+		}
+		desc := int64(0)
+		if selector.Direction == serverapi.WorkflowTaskListSortDirectionDesc {
+			desc = 1
+		}
+		slots[index] = workflowTaskListSortSlot{field: string(selector.Field), desc: desc}
+	}
+	return slots
 }
 
 type workflowTaskListVisibleColumn struct {
@@ -258,99 +282,4 @@ func boolInt64(value bool) int64 {
 		return 1
 	}
 	return 0
-}
-
-func workflowTaskListRowLess(left workflowTaskListRow, right workflowTaskListRow, sortSelectors []serverapi.WorkflowTaskListSort) bool {
-	for _, selector := range sortSelectors {
-		cmp := workflowTaskListRowCompare(left, right, selector.Field)
-		if cmp == 0 {
-			continue
-		}
-		if selector.Direction == serverapi.WorkflowTaskListSortDirectionDesc {
-			return cmp > 0
-		}
-		return cmp < 0
-	}
-	return left.task.ID < right.task.ID
-}
-
-func workflowTaskListRowAfterCursor(row workflowTaskListRow, sortSelectors []serverapi.WorkflowTaskListSort, cursor workflowTaskListCursor) bool {
-	for _, selector := range sortSelectors {
-		cmp := workflowTaskListRowCompareCursor(row, cursor, selector.Field)
-		if cmp == 0 {
-			continue
-		}
-		if selector.Direction == serverapi.WorkflowTaskListSortDirectionDesc {
-			return cmp < 0
-		}
-		return cmp > 0
-	}
-	return row.task.ID > cursor.TaskID
-}
-
-func workflowTaskListRowCompare(left workflowTaskListRow, right workflowTaskListRow, field serverapi.WorkflowTaskListSortField) int {
-	switch field {
-	case serverapi.WorkflowTaskListSortFieldCreated:
-		return compareInt64(left.task.CreatedAtUnixMs, right.task.CreatedAtUnixMs)
-	case serverapi.WorkflowTaskListSortFieldUpdated:
-		return compareInt64(left.task.UpdatedAtUnixMs, right.task.UpdatedAtUnixMs)
-	case serverapi.WorkflowTaskListSortFieldStatus:
-		return compareInt(left.statusOrder, right.statusOrder)
-	case serverapi.WorkflowTaskListSortFieldRunCount:
-		return compareInt(left.runCount, right.runCount)
-	case serverapi.WorkflowTaskListSortFieldTitle:
-		return compareString(left.titleSort, right.titleSort)
-	default:
-		return 0
-	}
-}
-
-func workflowTaskListRowCompareCursor(row workflowTaskListRow, cursor workflowTaskListCursor, field serverapi.WorkflowTaskListSortField) int {
-	switch field {
-	case serverapi.WorkflowTaskListSortFieldCreated:
-		return compareInt64(row.task.CreatedAtUnixMs, cursor.CreatedAtUnixMs)
-	case serverapi.WorkflowTaskListSortFieldUpdated:
-		return compareInt64(row.task.UpdatedAtUnixMs, cursor.UpdatedAtUnixMs)
-	case serverapi.WorkflowTaskListSortFieldStatus:
-		return compareInt(row.statusOrder, cursor.StatusOrder)
-	case serverapi.WorkflowTaskListSortFieldRunCount:
-		return compareInt(row.runCount, cursor.RunCount)
-	case serverapi.WorkflowTaskListSortFieldTitle:
-		return compareString(row.titleSort, cursor.TitleSort)
-	default:
-		return 0
-	}
-}
-
-func compareInt(left int, right int) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func compareInt64(left int64, right int64) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func compareString(left string, right string) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
 }

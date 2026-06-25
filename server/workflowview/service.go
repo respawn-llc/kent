@@ -271,6 +271,13 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 		requestedWorkflowID = pageToken.WorkflowID
 	}
 	selected := selectWorkflow(picker, requestedWorkflowID)
+	if explicitWorkflowID && selected.WorkflowID != requestedWorkflowID {
+		return serverapi.WorkflowTaskListResponse{}, serverapi.WorkflowRequestValidationError{
+			Code:    serverapi.WorkflowRequestErrorInvalidValue,
+			Field:   "workflow_id",
+			Message: fmt.Sprintf("unknown workflow %q for project %s", requestedWorkflowID, projectID),
+		}
+	}
 	if selected.WorkflowID == "" {
 		if pageTokenSet {
 			return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
@@ -283,14 +290,7 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 		}, nil
 	}
 	if requestedWorkflowID != "" && selected.WorkflowID != requestedWorkflowID {
-		if pageTokenSet && !explicitWorkflowID {
-			return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
-		}
-		return serverapi.WorkflowTaskListResponse{}, serverapi.WorkflowRequestValidationError{
-			Code:    serverapi.WorkflowRequestErrorInvalidValue,
-			Field:   "workflow_id",
-			Message: fmt.Sprintf("unknown workflow %q for project %s", requestedWorkflowID, projectID),
-		}
+		return serverapi.WorkflowTaskListResponse{}, ErrInvalidPageToken
 	}
 	def := definitions[selected.WorkflowID]
 	nodeKinds := nodeKindsByWorkflowID[selected.WorkflowID]
@@ -304,8 +304,6 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 	if err := validateWorkflowTaskListStatusKeys(req.StatusKeys, columns); err != nil {
 		return serverapi.WorkflowTaskListResponse{}, err
 	}
-	statusFilter := workflowTaskListStatusKeyFilter(req.StatusKeys)
-	runStatusFilter := workflowTaskListRunStatusFilter(req.RunStatuses)
 	rows, err := s.listWorkflowTaskListRows(ctx, workflowTaskListQueryRequest{
 		projectID:          projectID,
 		workflowID:         selected.WorkflowID,
@@ -348,9 +346,6 @@ func (s *Service) ListTasks(ctx context.Context, req serverapi.WorkflowTaskListR
 			},
 			statusOrder: row.statusOrder,
 			titleSort:   row.titleSort,
-		}
-		if !workflowTaskListMatchesFilters(item.item, statusFilter, runStatusFilter) {
-			continue
 		}
 		items = append(items, item)
 	}
@@ -401,41 +396,6 @@ func validateWorkflowTaskListStatusKeys(statusKeys []string, columns []serverapi
 		}
 	}
 	return nil
-}
-
-func workflowTaskListStatusKeyFilter(statusKeys []string) map[string]bool {
-	filter := map[string]bool{}
-	for _, statusKey := range statusKeys {
-		filter[statusKey] = true
-	}
-	return filter
-}
-
-func workflowTaskListRunStatusFilter(statuses []serverapi.WorkflowTaskRunStatus) map[serverapi.WorkflowTaskRunStatus]bool {
-	filter := map[serverapi.WorkflowTaskRunStatus]bool{}
-	for _, status := range statuses {
-		filter[status] = true
-	}
-	return filter
-}
-
-func workflowTaskListMatchesFilters(item serverapi.WorkflowTaskListItem, statusFilter map[string]bool, runStatusFilter map[serverapi.WorkflowTaskRunStatus]bool) bool {
-	if len(statusFilter) > 0 {
-		matchesStatus := false
-		for _, statusKey := range item.StatusKeys {
-			if statusFilter[statusKey] {
-				matchesStatus = true
-				break
-			}
-		}
-		if !matchesStatus {
-			return false
-		}
-	}
-	if len(runStatusFilter) > 0 && !runStatusFilter[item.RunStatus] {
-		return false
-	}
-	return true
 }
 
 func (s *Service) workflowSelectionInputs(ctx context.Context, projectID string, roleResolver workflow.RoleResolver) (map[string]serverapi.WorkflowDefinition, map[string]map[string]workflow.NodeKind, []serverapi.WorkflowPickerItem, error) {

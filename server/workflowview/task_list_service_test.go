@@ -151,6 +151,9 @@ func TestListTasksSelectsDefaultExplicitAndNoWorkflow(t *testing.T) {
 	if emptyResp.WorkflowID != "" || emptyResp.SelectedWorkflow != nil || len(emptyResp.Tasks) != 0 || emptyResp.NextPageToken != "" {
 		t.Fatalf("empty response = %+v, want no selected workflow and no tasks", emptyResp)
 	}
+	if _, err := view.ListTasks(ctx, serverapi.WorkflowTaskListRequest{ProjectID: otherBinding.ProjectID, WorkflowID: "workflow-missing"}, workflow.StaticRoleResolver{"coder": true}); !isWorkflowRequestValidationField(err, "workflow_id") {
+		t.Fatalf("ListTasks unknown workflow without selectable workflows error = %v, want workflow_id validation", err)
+	}
 	raw, err := json.Marshal(emptyResp)
 	if err != nil {
 		t.Fatalf("marshal empty response: %v", err)
