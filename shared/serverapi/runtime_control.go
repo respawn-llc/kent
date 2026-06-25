@@ -216,6 +216,7 @@ type RuntimeGoalStatusRequest struct {
 	ClientRequestID   string `json:"client_request_id"`
 	SessionID         string `json:"session_id"`
 	ControllerLeaseID string `json:"controller_lease_id,omitempty"`
+	ShellToken        string `json:"shell_token,omitempty"`
 	Actor             string `json:"actor"`
 }
 

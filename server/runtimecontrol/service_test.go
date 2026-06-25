@@ -124,6 +124,16 @@ type stubPrimaryRunGate struct {
 	sessions []string
 }
 
+type stubShellTokenVerifier struct {
+	valid bool
+	calls int
+}
+
+func (v *stubShellTokenVerifier) VerifyShellToken(string, string) bool {
+	v.calls++
+	return v.valid
+}
+
 func (g *stubPrimaryRunGate) AcquirePrimaryRun(sessionID string) (primaryrun.Lease, error) {
 	g.acquire++
 	g.sessions = append(g.sessions, sessionID)
@@ -437,6 +447,74 @@ func TestServiceGoalMutationsAllowCollaborativeGoalManageAccess(t *testing.T) {
 	}
 	if gate.acquire != 1 || gate.release != 1 {
 		t.Fatalf("gate acquire/release = %d/%d, want 1/1", gate.acquire, gate.release)
+	}
+}
+
+func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
+	tokens := &stubShellTokenVerifier{valid: true}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).WithCollaborativeRuntimeResolver(collaborative).WithShellTokenVerifier(tokens)
+
+	resp, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{
+		ClientRequestID: "goal-complete-agent-current-turn",
+		SessionID:       store.Meta().SessionID,
+		ShellToken:      "shell-token",
+		Actor:           "agent",
+	})
+	if err != nil {
+		t.Fatalf("CompleteGoal: %v", err)
+	}
+	if resp.Goal == nil || resp.Goal.Status != string(session.GoalStatusComplete) {
+		t.Fatalf("complete response = %+v, want complete goal", resp.Goal)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("persisted goal = %+v, want complete", goal)
+	}
+	if gate.acquire != 0 || gate.release != 0 {
+		t.Fatalf("gate acquire/release = %d/%d, want 0/0", gate.acquire, gate.release)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)
+	}
+	if tokens.calls != 1 {
+		t.Fatalf("token verifier calls = %d, want 1", tokens.calls)
+	}
+}
+
+func TestServiceAgentCompleteGoalWithoutShellTokenKeepsPrimaryRunGate(t *testing.T) {
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
+	tokens := &stubShellTokenVerifier{valid: false}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).WithCollaborativeRuntimeResolver(collaborative).WithShellTokenVerifier(tokens)
+
+	_, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{
+		ClientRequestID: "goal-complete-agent-no-token",
+		SessionID:       store.Meta().SessionID,
+		Actor:           "agent",
+	})
+	if !errors.Is(err, primaryrun.ErrActivePrimaryRun) {
+		t.Fatalf("CompleteGoal error = %v, want active primary run", err)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted goal = %+v, want active", goal)
+	}
+	if gate.acquire != 1 || gate.release != 0 {
+		t.Fatalf("gate acquire/release = %d/%d, want 1/0", gate.acquire, gate.release)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)
+	}
+	if tokens.calls != 1 {
+		t.Fatalf("token verifier calls = %d, want 1", tokens.calls)
 	}
 }
 
@@ -929,6 +1007,23 @@ func TestServiceCollaborativeGoalMutationsRejectActivePrimaryRun(t *testing.T) {
 					ClientRequestID: "goal-set-busy",
 					SessionID:       sessionID,
 					Objective:       "ship goal mode",
+					Actor:           "user",
+				})
+				return err
+			},
+		},
+		{
+			name: "complete-user",
+			prepare: func(t *testing.T, engine *runtime.Engine) {
+				t.Helper()
+				if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+					t.Fatalf("SetGoal: %v", err)
+				}
+			},
+			call: func(ctx context.Context, service *Service, sessionID string) error {
+				_, err := service.CompleteGoal(ctx, serverapi.RuntimeGoalStatusRequest{
+					ClientRequestID: "goal-complete-user-busy",
+					SessionID:       sessionID,
 					Actor:           "user",
 				})
 				return err

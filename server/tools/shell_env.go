@@ -44,6 +44,10 @@ func EnrichShellEnv(base []string) []string {
 }
 
 func EnrichShellEnvForSession(base []string, sessionID string) []string {
+	return EnrichShellEnvForSessionToken(base, sessionID, "")
+}
+
+func EnrichShellEnvForSessionToken(base []string, sessionID string, shellToken string) []string {
 	env := make(map[string]string, len(base)+len(overrides))
 	order := make([]string, 0, len(base)+len(overrides))
 
@@ -74,6 +78,12 @@ func EnrichShellEnvForSession(base []string, sessionID string) []string {
 			order = append(order, sessionenv.SessionIDEnv)
 		}
 		env[sessionenv.SessionIDEnv] = sessionID
+	}
+	if shellToken = strings.TrimSpace(shellToken); shellToken != "" {
+		if _, exists := env[sessionenv.ShellTokenEnv]; !exists {
+			order = append(order, sessionenv.ShellTokenEnv)
+		}
+		env[sessionenv.ShellTokenEnv] = shellToken
 	}
 
 	if _, exists := env["RIPGREP_CONFIG_PATH"]; !exists {

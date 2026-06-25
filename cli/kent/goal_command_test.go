@@ -208,6 +208,7 @@ func TestGoalAgentCompleteRequiresConfirmTripwire(t *testing.T) {
 
 	stdout := new(strings.Builder)
 	stderr.Reset()
+	t.Setenv(sessionenv.ShellTokenEnv, "shell-token-1")
 	if code := goalSubcommand([]string{"complete", "--confirm"}, stdout, stderr); code != 0 {
 		t.Fatalf("goal complete --confirm exit = %d stderr=%q", code, stderr.String())
 	}
@@ -216,6 +217,9 @@ func TestGoalAgentCompleteRequiresConfirmTripwire(t *testing.T) {
 	}
 	if remote.completeReq[0].SessionID != "session-1" || remote.completeReq[0].Actor != "agent" {
 		t.Fatalf("complete req = %+v", remote.completeReq[0])
+	}
+	if remote.completeReq[0].ShellToken != "shell-token-1" {
+		t.Fatalf("complete shell token = %q, want shell-token-1", remote.completeReq[0].ShellToken)
 	}
 }
 
@@ -388,27 +392,23 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("persisted goal after rejected overwrite = %+v", goal)
 	}
 
-	completeOutput, completeErr, completeRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "complete", "--confirm")
-	if completeRunErr == nil {
-		t.Fatalf("goal complete unexpectedly succeeded stdout=%q stderr=%q", completeOutput, completeErr)
-	}
-	if completeOutput != "" {
-		t.Fatalf("goal complete stdout = %q, want empty", completeOutput)
-	}
-
-	setOutput, setErr, setRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
-	if setRunErr == nil {
-		t.Fatalf("goal set after rejected complete unexpectedly succeeded stdout=%q stderr=%q", setOutput, setErr)
+	if err := remote.SubmitUserShellCommand(context.Background(), serverapi.RuntimeSubmitUserShellCommandRequest{
+		ClientRequestID:   "shell-goal-complete-e2e",
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: activateResp.LeaseID,
+		Command:           shellQuote(kentPath) + " goal complete --confirm",
+	}); err != nil {
+		t.Fatalf("shell goal complete: %v", err)
 	}
 	record, err = metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
 	if err != nil {
-		t.Fatalf("ResolvePersistedSession after rejected follow-up set: %v", err)
+		t.Fatalf("ResolvePersistedSession after complete: %v", err)
 	}
 	if record.Meta == nil {
-		t.Fatal("persisted metadata missing after rejected follow-up set")
+		t.Fatal("persisted metadata missing after complete")
 	}
-	if goal := record.Meta.Goal; goal == nil || goal.Objective != "exercise live goal CLI" || goal.Status != session.GoalStatusActive {
-		t.Fatalf("persisted goal after rejected follow-up set = %+v", goal)
+	if goal := record.Meta.Goal; goal == nil || goal.Objective != "exercise live goal CLI" || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("persisted goal after complete = %+v", goal)
 	}
 }
 
