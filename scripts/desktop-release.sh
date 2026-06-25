@@ -20,11 +20,12 @@ Usage:
   scripts/desktop-release.sh assemble [--version X.Y.Z] [--dist-dir dist/desktop] [--base-url URL] [--pub-date RFC3339] [--notes TEXT]
   scripts/desktop-release.sh self-test
 
-Stable staged names (arm64 macOS + x86_64 Linux only, per release-distribution.md):
-  Kent_<ver>_aarch64.dmg
-  Kent_<ver>_aarch64.app.tar.gz(.sig)     macOS updater artifact
-  Kent_<ver>_amd64.AppImage(.sig)         Linux updater artifact
-  Kent_<ver>_amd64.deb
+Stable staged names (host-platform bundles):
+  Kent_<ver>_aarch64.dmg                   macOS installer
+  Kent_<ver>_aarch64.app.tar.gz(.sig)      macOS updater artifact
+  Kent_<ver>_amd64.AppImage(.sig)          Linux updater artifact
+  Kent_<ver>_amd64.deb                     Linux package
+  Kent_<ver>_x64-setup.exe(.sig)           Windows NSIS installer + updater artifact
 
 Defaults:
   --dist-dir : dist/desktop
@@ -103,6 +104,10 @@ cmd_build() {
 		stage_required "$bundle/appimage/Kent_${version}_amd64.AppImage.sig" "$dist_abs/Kent_${version}_amd64.AppImage.sig"
 		stage_required "$bundle/deb/Kent_${version}_amd64.deb" "$dist_abs/Kent_${version}_amd64.deb"
 		;;
+	MINGW* | MSYS* | CYGWIN*)
+		stage_required "$bundle/nsis/Kent_${version}_x64-setup.exe" "$dist_abs/Kent_${version}_x64-setup.exe"
+		stage_required "$bundle/nsis/Kent_${version}_x64-setup.exe.sig" "$dist_abs/Kent_${version}_x64-setup.exe.sig"
+		;;
 	*)
 		echo "Unsupported host platform for desktop build: $(uname -s)" >&2
 		exit 1
@@ -119,6 +124,7 @@ emit_latest_json() {
 	local platforms="{}"
 	local mac_tar="$dist_dir/Kent_${version}_aarch64.app.tar.gz"
 	local linux_img="$dist_dir/Kent_${version}_amd64.AppImage"
+	local win_exe="$dist_dir/Kent_${version}_x64-setup.exe"
 	if [[ -f "$mac_tar.sig" ]]; then
 		platforms="$(jq -n --argjson p "$platforms" \
 			--arg sig "$(cat "$mac_tar.sig")" \
@@ -130,6 +136,12 @@ emit_latest_json() {
 			--arg sig "$(cat "$linux_img.sig")" \
 			--arg url "${base_url}/Kent_${version}_amd64.AppImage" \
 			'$p + {"linux-x86_64": {signature: $sig, url: $url}}')"
+	fi
+	if [[ -f "$win_exe.sig" ]]; then
+		platforms="$(jq -n --argjson p "$platforms" \
+			--arg sig "$(cat "$win_exe.sig")" \
+			--arg url "${base_url}/Kent_${version}_x64-setup.exe" \
+			'$p + {"windows-x86_64": {signature: $sig, url: $url}}')"
 	fi
 	if [[ "$platforms" == "{}" ]]; then
 		echo "no updater artifacts (.sig) found in $dist_dir" >&2
@@ -170,7 +182,7 @@ cmd_assemble() {
 	# platform's bundles are absent from this dist dir.
 	(
 		cd "$dist_dir"
-		for f in *.dmg *.AppImage *.deb *.app.tar.gz; do
+		for f in *.dmg *.AppImage *.deb *.app.tar.gz *-setup.exe; do
 			[[ -f "$f" ]] || continue
 			printf '%s  %s\n' "$(sha256_file "$f")" "$f"
 		done | sort -k2 >desktop-checksums.txt
@@ -188,6 +200,8 @@ cmd_self_test() {
 	printf 'fake-mac-tar' >"$tmp/Kent_${v}_aarch64.app.tar.gz"
 	printf 'LINUX_SIG_CONTENT' >"$tmp/Kent_${v}_amd64.AppImage.sig"
 	printf 'fake-appimage' >"$tmp/Kent_${v}_amd64.AppImage"
+	printf 'WIN_SIG_CONTENT' >"$tmp/Kent_${v}_x64-setup.exe.sig"
+	printf 'fake-setup-exe' >"$tmp/Kent_${v}_x64-setup.exe"
 
 	cmd_assemble --version "$v" --dist-dir "$tmp" --pub-date "2026-01-02T03:04:05Z" --base-url "https://example.test/v$v" >/dev/null
 
@@ -206,8 +220,10 @@ cmd_self_test() {
 	assert_eq "$(jq -r '.platforms["darwin-aarch64"].url' "$json")" "https://example.test/v$v/Kent_${v}_aarch64.app.tar.gz" "mac url"
 	assert_eq "$(jq -r '.platforms["linux-x86_64"].signature' "$json")" "LINUX_SIG_CONTENT" "linux signature"
 	assert_eq "$(jq -r '.platforms["linux-x86_64"].url' "$json")" "https://example.test/v$v/Kent_${v}_amd64.AppImage" "linux url"
-	# checksums.txt covers the two distributable bundles, not the .sig/latest.json.
-	assert_eq "$(wc -l <"$tmp/desktop-checksums.txt" | tr -d ' ')" "2" "checksum line count"
+	assert_eq "$(jq -r '.platforms["windows-x86_64"].signature' "$json")" "WIN_SIG_CONTENT" "windows signature"
+	assert_eq "$(jq -r '.platforms["windows-x86_64"].url' "$json")" "https://example.test/v$v/Kent_${v}_x64-setup.exe" "windows url"
+	# checksums.txt covers the distributable bundles, not the .sig/latest.json.
+	assert_eq "$(wc -l <"$tmp/desktop-checksums.txt" | tr -d ' ')" "3" "checksum line count"
 
 	if [[ "$fail" != "0" ]]; then
 		echo "desktop-release self-test FAILED" >&2
