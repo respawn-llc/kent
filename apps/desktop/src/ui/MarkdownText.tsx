@@ -4,6 +4,7 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
 import { safeExternalUrl } from "./externalLinks";
+import "./MarkdownText.css";
 
 export type MarkdownTextProps = Readonly<{
   value: string;
@@ -12,7 +13,7 @@ export type MarkdownTextProps = Readonly<{
 }>;
 
 export function MarkdownText({ value, onOpenLink, inline = false }: MarkdownTextProps) {
-  return (
+  const rendered = (
     <ReactMarkdown
       components={markdownComponents(onOpenLink, inline)}
       rehypePlugins={[rehypeSanitize]}
@@ -21,6 +22,14 @@ export function MarkdownText({ value, onOpenLink, inline = false }: MarkdownText
     >
       {value}
     </ReactMarkdown>
+  );
+  if (inline) {
+    return <span className="markdown-text markdown-text-inline" data-testid="markdown-text-inline">{rendered}</span>;
+  }
+  return (
+    <div className="markdown-text" data-testid="markdown-text">
+      {rendered}
+    </div>
   );
 }
 
