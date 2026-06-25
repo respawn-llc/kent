@@ -39,18 +39,20 @@
 
 ## Desktop Bundle Artifacts
 
-- The desktop app ships arm64 macOS + x86_64 Linux only. Per-release assets, built
-  by `scripts/desktop-release.sh build` and published by the `release.yml`
-  `build_desktop` → `publish_desktop` jobs:
+- The desktop app ships arm64 macOS, x86_64 Linux, and x86_64 Windows bundles.
+  Per-release assets, built by `scripts/desktop-release.sh build` and published
+  by the `release.yml` `build_desktop` → `publish_desktop` jobs:
   - `Kent_<ver>_aarch64.dmg` (macOS installer),
   - `Kent_<ver>_aarch64.app.tar.gz` (+`.sig`) — macOS updater artifact (Tauri emits
     it as `Kent.app.tar.gz`; the build step renames it to this versioned asset),
   - `Kent_<ver>_amd64.AppImage` (+`.sig`) — Linux updater artifact,
-  - `Kent_<ver>_amd64.deb` (Linux, apt/manual updates).
+  - `Kent_<ver>_amd64.deb` (Linux, apt/manual updates),
+  - `Kent_<ver>_x64-setup.exe` (+`.sig`) — Windows NSIS installer and updater
+    artifact.
 - `latest.json` is the Tauri updater manifest (`scripts/desktop-release.sh assemble`
-  builds it from the `.sig` files), with `darwin-aarch64` and `linux-x86_64` entries
-  pointing at the `.app.tar.gz` / `.AppImage` updater artifacts. It is the
-  `plugins.updater` endpoint target.
+  builds it from the `.sig` files), with `darwin-aarch64`, `linux-x86_64`, and
+  `windows-x86_64` entries pointing at the `.app.tar.gz`, `.AppImage`, and NSIS
+  updater artifacts. It is the `plugins.updater` endpoint target.
 - `desktop-checksums.txt` carries sha256s for the distributable bundles.
 - macOS bundles are Developer ID signed in CI (`APPLE_CERTIFICATE`); notarization is
   off for v1 (Apple-side blocked), so v1 ships signed + un-notarized. The macOS
