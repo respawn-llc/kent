@@ -416,16 +416,33 @@ func (s *Store) SetGoal(objective string, actor GoalActor) (GoalState, error) {
 }
 
 func (s *Store) SetGoalWithEvents(objective string, actor GoalActor, extraEvents []EventInput) (GoalState, error) {
-	trimmedObjective := strings.TrimSpace(objective)
-	if trimmedObjective == "" {
+	return s.SetActiveGoalWithEvents(GoalState{Objective: objective}, actor, extraEvents)
+}
+
+func (s *Store) SetActiveGoalWithEvents(goal GoalState, actor GoalActor, extraEvents []EventInput) (GoalState, error) {
+	goal.Objective = strings.TrimSpace(goal.Objective)
+	if goal.Objective == "" {
 		return GoalState{}, errors.New("goal objective is required")
 	}
+	goal.ID = strings.TrimSpace(goal.ID)
+	if goal.ID == "" {
+		goal.ID = uuid.NewString()
+	}
+	goal.Status = GoalStatusActive
 	normalizedActor, err := normalizeGoalActor(actor)
 	if err != nil {
 		return GoalState{}, err
 	}
 	s.mu.Lock()
 	now := storeTimestamp(s.options)
+	if goal.CreatedAt.IsZero() {
+		goal.CreatedAt = now
+	}
+	if goal.UpdatedAt.IsZero() {
+		goal.UpdatedAt = goal.CreatedAt
+	}
+	goal.CreatedAt = goal.CreatedAt.UTC().Round(0)
+	goal.UpdatedAt = goal.UpdatedAt.UTC().Round(0)
 	replacedGoalID := ""
 	previousGoal := cloneGoalState(s.meta.Goal)
 	if normalizedActor == GoalActorAgent && previousGoal != nil && previousGoal.Status != GoalStatusComplete {
@@ -434,13 +451,6 @@ func (s *Store) SetGoalWithEvents(objective string, actor GoalActor, extraEvents
 	}
 	if s.meta.Goal != nil {
 		replacedGoalID = strings.TrimSpace(s.meta.Goal.ID)
-	}
-	goal := GoalState{
-		ID:        uuid.NewString(),
-		Objective: trimmedObjective,
-		Status:    GoalStatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
 	}
 	events, err := s.buildGoalEventsLocked("goal_set", GoalSetEvent{Goal: goal, Actor: normalizedActor, ReplacedGoalID: replacedGoalID}, extraEvents, now)
 	if err != nil {

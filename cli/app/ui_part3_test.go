@@ -663,6 +663,85 @@ func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
 	}
 }
 
+func TestCtrlCWhileGoalRunWaitsForInterruptedRunStateBeforeCleanup(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.setGoalRun(true)
+	m.activity = uiActivityRunning
+	m.queued = queuedInputsForTest("queued while goal runs")
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated := next.(*uiModel)
+	if !updated.isBusy() || !updated.hasPendingInterrupt() {
+		t.Fatal("expected ctrl+c to request an interrupt while goal run is busy")
+	}
+
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			next, _ = updated.Update(typed)
+			updated = next.(*uiModel)
+		}
+	}
+
+	if client.interruptCalls != 1 {
+		t.Fatalf("interrupt calls = %d, want 1", client.interruptCalls)
+	}
+	if !updated.isBusy() || !updated.hasPendingInterrupt() {
+		t.Fatalf("interrupt control acknowledgement must wait for run-state cleanup, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
+	}
+	if updated.input != "" || len(updated.queued) != 1 {
+		t.Fatalf("interrupt control acknowledgement restored input before run-state event, input=%q queue=%+v", updated.input, updated.queued)
+	}
+
+	updated = applyInterruptedRunStateForTest(t, updated)
+	if updated.isBusy() || updated.hasPendingInterrupt() {
+		t.Fatalf("expected interrupted run-state to unblock CLI, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
+	}
+	if updated.activity != uiActivityInterrupted {
+		t.Fatalf("activity = %v, want interrupted", updated.activity)
+	}
+	if updated.input != "queued while goal runs" || len(updated.queued) != 0 {
+		t.Fatalf("expected queued goal draft restored into input, input=%q queue=%+v", updated.input, updated.queued)
+	}
+}
+
+func TestCtrlCInterruptControlErrorKeepsPendingCleanupForLaterRunState(t *testing.T) {
+	client := &runtimeControlFakeClient{interruptErr: errors.New("interrupt transport failed")}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.setBusy(true)
+	m.queued = queuedInputsForTest("queued after delayed interrupt")
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated := next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			next, _ = updated.Update(typed)
+			updated = next.(*uiModel)
+		}
+	}
+
+	if !updated.hasPendingInterrupt() {
+		t.Fatal("interrupt control error must keep pending cleanup for a later interrupted run-state event")
+	}
+	if !updated.isBusy() {
+		t.Fatal("failed interrupt control call must not locally mark the run idle")
+	}
+	if updated.input != "" || len(updated.queued) != 1 {
+		t.Fatalf("failed interrupt control call restored input early: input=%q queue=%+v", updated.input, updated.queued)
+	}
+
+	updated = applyInterruptedRunStateForTest(t, updated)
+	if updated.isBusy() || updated.hasPendingInterrupt() {
+		t.Fatalf("later interrupted run-state must finish cleanup, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
+	}
+	if updated.input != "queued after delayed interrupt" || len(updated.queued) != 0 {
+		t.Fatalf("later interrupted run-state must restore queued input, input=%q queue=%+v", updated.input, updated.queued)
+	}
+}
+
 func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 	_, eng := newAppRuntimeEngine(t, &runtimeAdapterFakeClient{}, runtime.Config{})
 

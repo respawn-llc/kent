@@ -114,84 +114,177 @@ func TestStaticLocalEntryAppendShowsStatusOnly(t *testing.T) {
 	}
 }
 
-func TestRuntimeStatusLineHidesGoalStatusText(t *testing.T) {
-	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused, clientui.RuntimeGoalStatusComplete} {
+func TestRuntimeStatusLineGoalLabelUsesPresentGoalOnly(t *testing.T) {
+	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused} {
 		client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
 			Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: goalStatus},
 		}}
 		m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 
 		status := stripANSIAndTrimRight(m.layout().renderStatusLine(120, uiThemeStyles("dark")))
-		if strings.Contains(status, "goal active") || strings.Contains(status, "goal paused") || strings.Contains(status, "goal complete") {
-			t.Fatalf("did not expect status line to include goal status text for %s, got %q", goalStatus, status)
+		if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+			t.Fatalf("expected present goal %s to render goal label, got %q", goalStatus, status)
 		}
+	}
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	status := stripANSIAndTrimRight(m.layout().renderStatusLine(120, uiThemeStyles("dark")))
+	if strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("did not expect complete goal to render goal label, got %q", status)
 	}
 }
 
-func TestRuntimeStatusLineShowsGoalProgressWord(t *testing.T) {
+func TestRuntimeStatusLineShowsIdleGoalDotForIdleActiveGoal(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
 		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
 	}}
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
-	status := uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme))
+	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
 
-	if !strings.Contains(stripANSIAndTrimRight(status), "goal") {
-		t.Fatalf("expected status line to include goal progress word, got %q", status)
+	if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("expected idle active goal to render a dot with goal label, got %q", status)
 	}
 }
 
-func TestRuntimeStatusIndicatorSelectsActiveGoalFromCachedStatus(t *testing.T) {
+func TestRuntimeStatusLineGoalLabelOverridesInterruptedActivity(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+	}}
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
+	m.activity = uiActivityInterrupted
+	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
+
+	if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("expected active goal label after interrupt, got %q", status)
+	}
+	if !strings.Contains(status, "interrupted") {
+		t.Fatalf("expected interrupted status after interrupt, got %q", status)
+	}
+}
+
+func TestRuntimeStatusLineShapeUsesOnlyActiveWork(t *testing.T) {
 	tests := []struct {
 		name     string
-		goal     *clientui.RuntimeGoal
 		prepare  func(*uiModel)
-		want     statusLineIndicator
-		wantGoal bool
+		spinning bool
 	}{
 		{
-			name:     "idle active goal",
-			goal:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
-			want:     statusLineIndicatorGoal,
-			wantGoal: true,
+			name: "idle active goal",
+			prepare: func(m *uiModel) {
+				m.engine = &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+					Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+				}}
+			},
 		},
 		{
-			name:     "normal running turn active goal",
-			goal:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
-			prepare:  func(m *uiModel) { m.activity = uiActivityRunning; m.setBusy(true) },
-			want:     statusLineIndicatorGoal,
-			wantGoal: true,
+			name: "paused goal",
+			prepare: func(m *uiModel) {
+				m.engine = &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+					Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused},
+				}}
+			},
 		},
 		{
-			name:     "suspended active goal",
-			goal:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
-			want:     statusLineIndicatorGoal,
-			wantGoal: true,
+			name: "interrupted active goal",
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityInterrupted
+				m.engine = &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+					Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+				}}
+			},
+		},
+		{
+			name:     "agent turn",
+			prepare:  func(m *uiModel) { m.setBusy(true) },
+			spinning: true,
+		},
+		{
+			name: "waiting on question",
+			prepare: func(m *uiModel) {
+				m.setBusy(true)
+				m.activity = uiActivityQuestion
+			},
+		},
+		{
+			name:     "compaction",
+			prepare:  func(m *uiModel) { m.setCompacting(true) },
+			spinning: true,
+		},
+		{
+			name:     "supervisor",
+			prepare:  func(m *uiModel) { m.setReviewerRunning(true) },
+			spinning: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newProjectedStaticUIModel()
+			if tt.prepare != nil {
+				tt.prepare(m)
+			}
+
+			if got := m.statusLineSpinning(); got != tt.spinning {
+				t.Fatalf("spinning = %t, want %t", got, tt.spinning)
+			}
+			status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
+			hasSpinner := !strings.HasPrefix(status, statusStateCircleGlyph+" ")
+			if hasSpinner != tt.spinning {
+				t.Fatalf("rendered spinning = %t, want %t, status=%q", hasSpinner, tt.spinning, status)
+			}
+		})
+	}
+}
+
+func TestRuntimeStatusPhasePrecedence(t *testing.T) {
+	tests := []struct {
+		name    string
+		goal    *clientui.RuntimeGoal
+		prepare func(*uiModel)
+		want    statusLinePhase
+	}{
+		{
+			name: "nil goal",
+			want: statusLinePhasePrimary,
+		},
+		{
+			name: "last event error",
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityError
+			},
+			want: statusLinePhaseError,
+		},
+		{
+			name: "goal active overrides error",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityError
+			},
+			want: statusLinePhasePrimary,
 		},
 		{
 			name: "paused goal",
 			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused},
-			want: statusLineIndicatorActivity,
+			want: statusLinePhasePrimary,
 		},
 		{
-			name: "completed goal",
-			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
-			want: statusLineIndicatorActivity,
+			name: "active goal",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			want: statusLinePhasePrimary,
 		},
 		{
-			name: "nil goal",
-			want: statusLineIndicatorActivity,
-		},
-		{
-			name:    "reviewer overrides active goal",
+			name:    "supervisor overrides active goal",
 			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
 			prepare: func(m *uiModel) { m.setReviewerRunning(true) },
-			want:    statusLineIndicatorReviewer,
+			want:    statusLinePhaseSuccess,
 		},
 		{
 			name:    "compaction overrides active goal",
 			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
 			prepare: func(m *uiModel) { m.setCompacting(true) },
-			want:    statusLineIndicatorCompaction,
+			want:    statusLinePhaseSecondary,
 		},
 	}
 
@@ -203,17 +296,76 @@ func TestRuntimeStatusIndicatorSelectsActiveGoalFromCachedStatus(t *testing.T) {
 				tt.prepare(m)
 			}
 
-			if got := m.statusLineIndicator(); got != tt.want {
-				t.Fatalf("indicator = %v, want %v", got, tt.want)
-			}
-			if tt.wantGoal && m.isGoalRun() {
-				t.Fatalf("test requires active goal indicator without goal-loop lifecycle")
+			if got := m.statusLinePhase(); got != tt.want {
+				t.Fatalf("phase = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestRuntimeStatusIndicatorUsesStartupMainViewGoalFromSessionRuntimeClient(t *testing.T) {
+func TestRuntimeStatusLabelPrecedence(t *testing.T) {
+	tests := []struct {
+		name    string
+		goal    *clientui.RuntimeGoal
+		prepare func(*uiModel)
+		want    string
+	}{
+		{name: "idle", want: ""},
+		{
+			name: "last event error",
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityError
+			},
+			want: "error",
+		},
+		{
+			name: "active goal overrides error",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityError
+			},
+			want: "goal",
+		},
+		{
+			name: "paused goal",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused},
+			want: "goal",
+		},
+		{
+			name: "complete goal omitted",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+			want: "",
+		},
+		{
+			name:    "review overrides active goal",
+			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) { m.setReviewerRunning(true) },
+			want:    "review",
+		},
+		{
+			name:    "compaction overrides active goal",
+			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) { m.setCompacting(true) },
+			want:    "compacting",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{Goal: tt.goal}}
+			m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+			if tt.prepare != nil {
+				tt.prepare(m)
+			}
+
+			if got := m.statusLineLabel(); got != tt.want {
+				t.Fatalf("label = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRuntimeStatusLineReopenActiveGoalFromStartupMainViewUsesIdleDot(t *testing.T) {
 	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{
 		Session: clientui.RuntimeSessionView{SessionID: "session-1"},
 		Status: clientui.RuntimeStatus{
@@ -224,8 +376,15 @@ func TestRuntimeStatusIndicatorUsesStartupMainViewGoalFromSessionRuntimeClient(t
 
 	m := newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents(), WithUISessionID("session-1"))
 
-	if got := m.statusLineIndicator(); got != statusLineIndicatorGoal {
-		t.Fatalf("indicator = %v, want active goal from startup main view", got)
+	if got := m.statusLinePhase(); got != statusLinePhasePrimary {
+		t.Fatalf("phase = %v, want primary active goal from startup main view", got)
+	}
+	if m.statusLineSpinning() {
+		t.Fatal("reopened active goal without active run must not spin")
+	}
+	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
+	if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("expected reopened active goal to render idle dot with goal label, got %q", status)
 	}
 }
 
@@ -425,7 +584,7 @@ func TestRuntimeStatusUsesLiveContextUsageFromRuntimeEvents(t *testing.T) {
 	}
 }
 
-func TestRuntimeGoalStatusEventUpdatesStatusIndicator(t *testing.T) {
+func TestRuntimeGoalStatusEventUpdatesCachedGoal(t *testing.T) {
 	runtimeClient := newTestSessionRuntimeClientWithControls(&leaseRetryRuntimeControlClient{})
 	runtimeClient.storeMainView(clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}})
 	m := newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents(), WithUISessionID("session-1"))
@@ -442,11 +601,8 @@ func TestRuntimeGoalStatusEventUpdatesStatusIndicator(t *testing.T) {
 	}})
 	updated := next.(*uiModel)
 	assertCachedRuntimeGoal(t, runtimeClient, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive})
-	if got := updated.statusLineIndicator(); got != statusLineIndicatorGoal {
-		t.Fatalf("indicator = %v, want active goal", got)
-	}
 	if updated.isGoalRun() {
-		t.Fatalf("test requires active goal indicator without goal-loop lifecycle")
+		t.Fatalf("goal status update must not synthesize goal-loop lifecycle")
 	}
 
 	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{
@@ -459,9 +615,6 @@ func TestRuntimeGoalStatusEventUpdatesStatusIndicator(t *testing.T) {
 	}})
 	updated = next.(*uiModel)
 	assertCachedRuntimeGoal(t, runtimeClient, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused})
-	if got := updated.statusLineIndicator(); got == statusLineIndicatorGoal {
-		t.Fatalf("indicator = %v, want non-goal after pause", got)
-	}
 
 	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{
 		Kind: clientui.EventGoalStatusUpdated,
@@ -473,9 +626,6 @@ func TestRuntimeGoalStatusEventUpdatesStatusIndicator(t *testing.T) {
 	}})
 	updated = next.(*uiModel)
 	assertCachedRuntimeGoal(t, runtimeClient, &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete})
-	if got := updated.statusLineIndicator(); got == statusLineIndicatorGoal {
-		t.Fatalf("indicator = %v, want non-goal after complete", got)
-	}
 
 	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{
 		Kind:       clientui.EventGoalStatusUpdated,
@@ -483,9 +633,6 @@ func TestRuntimeGoalStatusEventUpdatesStatusIndicator(t *testing.T) {
 	}})
 	updated = next.(*uiModel)
 	assertCachedRuntimeGoal(t, runtimeClient, nil)
-	if got := updated.statusLineIndicator(); got == statusLineIndicatorGoal {
-		t.Fatalf("indicator = %v, want non-goal after clear", got)
-	}
 }
 
 func assertCachedRuntimeGoal(t *testing.T, runtimeClient *sessionRuntimeClient, want *clientui.RuntimeGoal) {

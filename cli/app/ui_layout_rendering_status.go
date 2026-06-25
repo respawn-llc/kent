@@ -19,15 +19,7 @@ const (
 
 func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 	m := l.model
-	spin := renderStatusDot(m.theme, m.activity, m.spinnerFrame)
-	switch m.statusLineIndicator() {
-	case statusLineIndicatorReviewer:
-		spin = renderReviewerStatus(m.spinnerFrame)
-	case statusLineIndicatorCompaction:
-		spin = renderCompactionStatus(m.spinnerFrame)
-	case statusLineIndicatorGoal:
-		spin = renderGoalStatus(m.theme, m.spinnerFrame)
-	}
+	indicator := renderStatusIndicator(m.theme, m.statusLinePhase(), m.statusLineSpinning(), m.spinnerFrame, m.statusLineLabel())
 	segments := make([]string, 0, 5)
 	if modeLabel := l.statusModeLabel(); modeLabel != "" {
 		segments = append(segments, style.meta.Render(modeLabel))
@@ -43,7 +35,7 @@ func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 		segments = append(segments, serverOwnershipSection)
 	}
 	separator := style.meta.Render(statusLineSeparator)
-	left := renderStatusLineLeft(spin, segments, separator)
+	left := renderStatusLineLeft(indicator, segments, separator)
 	if lipgloss.Width(left) >= width {
 		return padANSIRight(truncateANSIRight(left, width), width)
 	}
@@ -167,6 +159,9 @@ func (l uiViewLayout) renderActivityStatus(available int, style uiStyles) string
 	if strings.TrimSpace(l.model.transientStatus) != "" {
 		return ""
 	}
+	if l.model.activity == uiActivityInterrupted {
+		return statusNoticeStyle(l.model.theme, uiStatusNoticeNeutral).Render(truncateQueuedMessageLine("interrupted", available))
+	}
 	if action, ok := l.model.view.DetailSelectedExpansionAction(); ok {
 		return style.meta.Render(truncateQueuedMessageLine("Enter to "+action, available))
 	}
@@ -276,37 +271,28 @@ func statusContextZone(themeName string, percent int) sharedtheme.Color {
 
 const statusStateCircleGlyph = "●"
 
-func renderStatusDot(theme string, activity uiActivity, frame int) string {
-	palette := uiPalette(theme)
-	switch activity {
-	case uiActivityRunning:
-		return lipgloss.NewStyle().Foreground(palette.primary).Render(pendingToolSpinnerFrame(frame))
-	case uiActivityQuestion:
-		return lipgloss.NewStyle().Foreground(palette.primary).Render(statusStateCircleGlyph)
-	default:
-		color := sharedtheme.DefaultPalette().Status.Success.Adaptive()
-		if activity == uiActivityError {
-			color = sharedtheme.DefaultPalette().Status.Error.Adaptive()
-		}
-		return lipgloss.NewStyle().Foreground(color).Render(statusStateCircleGlyph)
+func renderStatusIndicator(theme string, phase statusLinePhase, spinning bool, frame int, label string) string {
+	glyph := statusStateCircleGlyph
+	if spinning {
+		glyph = pendingToolSpinnerFrame(frame)
 	}
+	label = strings.TrimSpace(label)
+	if label != "" {
+		glyph += " " + label
+	}
+	return lipgloss.NewStyle().Foreground(statusLinePhaseColor(theme, phase)).Render(glyph)
 }
 
-func renderCompactionStatus(frame int) string {
-	indicator := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Warning.Adaptive()).Render(pendingToolSpinnerFrame(frame))
-	keyword := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Warning.Adaptive()).Bold(true).Render("compacting")
-	return indicator + " " + keyword
-}
-
-func renderReviewerStatus(frame int) string {
-	indicator := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Success.Adaptive()).Render(pendingToolSpinnerFrame(frame))
-	keyword := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Success.Adaptive()).Bold(true).Render("reviewing")
-	return indicator + " " + keyword
-}
-
-func renderGoalStatus(theme string, frame int) string {
-	color := uiPalette(theme).primary
-	indicator := lipgloss.NewStyle().Foreground(color).Render(pendingToolSpinnerFrame(frame))
-	keyword := lipgloss.NewStyle().Foreground(color).Bold(true).Render("goal")
-	return indicator + " " + keyword
+func statusLinePhaseColor(theme string, phase statusLinePhase) lipgloss.TerminalColor {
+	palette := sharedtheme.ResolvePalette(theme)
+	switch phase {
+	case statusLinePhaseSecondary:
+		return palette.App.Secondary.Lipgloss()
+	case statusLinePhaseSuccess:
+		return palette.Status.Success.Lipgloss()
+	case statusLinePhaseError:
+		return palette.Status.Error.Lipgloss()
+	default:
+		return palette.App.Primary.Lipgloss()
+	}
 }

@@ -120,18 +120,29 @@ func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) tea
 		m.setPendingInterrupt(false)
 		return nil
 	}
-	var cmd tea.Cmd
 	if m.hasPendingInterrupt() {
-		if m.activeSubmit.restoreOnInterrupt && !m.activeSubmit.flushed {
-			c := uiInputController{model: m}
-			c.restoreSubmittedTextIntoInput(m.activeSubmit.text)
-		}
-		m.activeSubmit = activeSubmitState{}
-		c := uiInputController{model: m}
-		cmd = tea.Batch(c.releaseLockedInjectedInput(true), c.restorePendingInjectedIntoInput())
-		c.restoreQueuedMessagesIntoInput()
-		m.setPendingInterrupt(false)
+		return m.acknowledgePendingInterrupt()
 	}
+	m.activity = uiActivityInterrupted
+	m.clearReviewerState()
+	return nil
+}
+
+func (m *uiModel) acknowledgePendingInterrupt() tea.Cmd {
+	if m == nil || !m.hasPendingInterrupt() {
+		return nil
+	}
+	var cmd tea.Cmd
+	if m.activeSubmit.restoreOnInterrupt && !m.activeSubmit.flushed {
+		c := uiInputController{model: m}
+		c.restoreSubmittedTextIntoInput(m.activeSubmit.text)
+	}
+	m.activeSubmit = activeSubmitState{}
+	c := uiInputController{model: m}
+	cmd = tea.Batch(c.releaseLockedInjectedInput(true), c.restorePendingInjectedIntoInput())
+	c.restoreQueuedMessagesIntoInput()
+	m.setPendingInterrupt(false)
+	m.setBusy(false)
 	m.activity = uiActivityInterrupted
 	m.clearReviewerState()
 	return cmd
