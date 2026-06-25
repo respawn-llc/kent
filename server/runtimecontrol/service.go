@@ -830,7 +830,7 @@ func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, 
 }
 
 func (s *Service) withGoalSetMutationAccess(ctx context.Context, req serverapi.RuntimeGoalSetRequest, fn func(*runtime.Engine) error) error {
-	if s.agentGoalSetUsesLeaseFreeRuntimeAccess(req) {
+	if s.agentGoalSetUsesLeaseFreeRuntimeAccess(ctx, req) {
 		engine, err := s.resolve(ctx, req.SessionID)
 		if err != nil {
 			return err
@@ -841,7 +841,7 @@ func (s *Service) withGoalSetMutationAccess(ctx context.Context, req serverapi.R
 }
 
 func (s *Service) withGoalStatusMutationAccess(ctx context.Context, req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus, fn func(*runtime.Engine) error) error {
-	if s.agentGoalCompletionUsesLeaseFreeRuntimeAccess(req, status) {
+	if s.agentGoalCompletionUsesLeaseFreeRuntimeAccess(ctx, req, status) {
 		engine, err := s.resolve(ctx, req.SessionID)
 		if err != nil {
 			return err
@@ -851,21 +851,37 @@ func (s *Service) withGoalStatusMutationAccess(ctx context.Context, req serverap
 	return s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, fn)
 }
 
-func (s *Service) agentGoalSetUsesLeaseFreeRuntimeAccess(req serverapi.RuntimeGoalSetRequest) bool {
+func (s *Service) agentGoalSetUsesLeaseFreeRuntimeAccess(ctx context.Context, req serverapi.RuntimeGoalSetRequest) bool {
 	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
 		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
 		s != nil &&
 		s.shellTokens != nil &&
-		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken)
+		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken) &&
+		agentShellOwnsActiveRun(ctx, s, req.SessionID, req.ShellRunID, req.ShellStepID)
 }
 
-func (s *Service) agentGoalCompletionUsesLeaseFreeRuntimeAccess(req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus) bool {
+func (s *Service) agentGoalCompletionUsesLeaseFreeRuntimeAccess(ctx context.Context, req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus) bool {
 	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
 		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
 		status == session.GoalStatusComplete &&
 		s != nil &&
 		s.shellTokens != nil &&
-		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken)
+		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken) &&
+		agentShellOwnsActiveRun(ctx, s, req.SessionID, req.ShellRunID, req.ShellStepID)
+}
+
+func agentShellOwnsActiveRun(ctx context.Context, s *Service, sessionID string, shellRunID string, shellStepID string) bool {
+	shellRunID = strings.TrimSpace(shellRunID)
+	shellStepID = strings.TrimSpace(shellStepID)
+	if s == nil || shellRunID == "" || shellStepID == "" {
+		return false
+	}
+	engine, err := s.resolve(ctx, sessionID)
+	if err != nil {
+		return false
+	}
+	active := engine.ActiveRun()
+	return active != nil && active.RunID == shellRunID && active.StepID == shellStepID
 }
 
 func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {

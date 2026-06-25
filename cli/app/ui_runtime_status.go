@@ -157,7 +157,9 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	return m.isBusy() || m.isCompacting() || m.isReviewerRunning()
+	return (m.runtimeLifecycle.Run.IsRunning() && m.activity != uiActivityQuestion) ||
+		m.runtimeLifecycle.Compaction.IsRunning() ||
+		m.runtimeLifecycle.Reviewer.IsRunning()
 }
 
 func (m *uiModel) refreshRuntimeStatus() clientui.RuntimeStatus {

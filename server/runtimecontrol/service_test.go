@@ -173,6 +173,7 @@ type cancelObservingRuntimeControlClient struct {
 	started     chan struct{}
 	release     chan struct{}
 	ctxCanceled chan struct{}
+	cancelOnce  sync.Once
 }
 
 func newCancelObservingRuntimeControlClient() *cancelObservingRuntimeControlClient {
@@ -193,7 +194,7 @@ func (c *cancelObservingRuntimeControlClient) Generate(ctx context.Context, req 
 	if done := ctx.Done(); done != nil {
 		go func() {
 			<-done
-			close(c.ctxCanceled)
+			c.cancelOnce.Do(func() { close(c.ctxCanceled) })
 		}()
 	}
 	<-c.release
@@ -208,6 +209,45 @@ func (c *cancelObservingRuntimeControlClient) Generate(ctx context.Context, req 
 
 func (c *cancelObservingRuntimeControlClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
 	return llm.ProviderCapabilities{}, nil
+}
+
+func startRuntimeControlActiveRun(t *testing.T, engine *runtime.Engine, client *cancelObservingRuntimeControlClient) *runtime.RunSnapshot {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(context.Background(), "active run")
+		done <- err
+	}()
+	select {
+	case <-client.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for active runtime run")
+	}
+	var snapshot *runtime.RunSnapshot
+	deadline := time.After(3 * time.Second)
+	for snapshot == nil {
+		snapshot = engine.ActiveRun()
+		if snapshot != nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for active runtime snapshot")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	t.Cleanup(func() {
+		close(client.release)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("active run: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("timed out waiting for active run cleanup")
+		}
+	})
+	return snapshot
 }
 
 type fakeShellHandler struct{}
@@ -451,10 +491,12 @@ func TestServiceGoalMutationsAllowCollaborativeGoalManageAccess(t *testing.T) {
 }
 
 func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
-	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	client := newCancelObservingRuntimeControlClient()
+	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
+	active := startRuntimeControlActiveRun(t, engine, client)
 	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
 	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
 	tokens := &stubShellTokenVerifier{valid: true}
@@ -464,6 +506,8 @@ func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 		ClientRequestID: "goal-complete-agent-current-turn",
 		SessionID:       store.Meta().SessionID,
 		ShellToken:      "shell-token",
+		ShellRunID:      active.RunID,
+		ShellStepID:     active.StepID,
 		Actor:           "agent",
 	})
 	if err != nil {
@@ -487,7 +531,9 @@ func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 }
 
 func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
-	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	client := newCancelObservingRuntimeControlClient()
+	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	active := startRuntimeControlActiveRun(t, engine, client)
 	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
 	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
 	tokens := &stubShellTokenVerifier{valid: true}
@@ -497,6 +543,8 @@ func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 		ClientRequestID: "goal-set-agent-current-turn",
 		SessionID:       store.Meta().SessionID,
 		ShellToken:      "shell-token",
+		ShellRunID:      active.RunID,
+		ShellStepID:     active.StepID,
 		Objective:       "new current-turn goal",
 		Actor:           "agent",
 	})
@@ -511,6 +559,41 @@ func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	}
 	if gate.acquire != 0 || gate.release != 0 {
 		t.Fatalf("gate acquire/release = %d/%d, want 0/0", gate.acquire, gate.release)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)
+	}
+	if tokens.calls != 1 {
+		t.Fatalf("token verifier calls = %d, want 1", tokens.calls)
+	}
+}
+
+func TestServiceAgentSetGoalWithStaleShellRunKeepsPrimaryRunGate(t *testing.T) {
+	client := newCancelObservingRuntimeControlClient()
+	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	active := startRuntimeControlActiveRun(t, engine, client)
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
+	tokens := &stubShellTokenVerifier{valid: true}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).WithCollaborativeRuntimeResolver(collaborative).WithShellTokenVerifier(tokens)
+
+	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "goal-set-agent-stale-turn",
+		SessionID:       store.Meta().SessionID,
+		ShellToken:      "shell-token",
+		ShellRunID:      active.RunID + "-stale",
+		ShellStepID:     active.StepID,
+		Objective:       "blocked stale goal",
+		Actor:           "agent",
+	})
+	if !errors.Is(err, primaryrun.ErrActivePrimaryRun) {
+		t.Fatalf("SetGoal error = %v, want active primary run", err)
+	}
+	if goal := store.Meta().Goal; goal != nil {
+		t.Fatalf("persisted goal = %+v, want nil", goal)
+	}
+	if gate.acquire != 1 || gate.release != 0 {
+		t.Fatalf("gate acquire/release = %d/%d, want 1/0", gate.acquire, gate.release)
 	}
 	if collaborative.calls != 0 {
 		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)

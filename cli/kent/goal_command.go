@@ -137,7 +137,8 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if agent {
 		actor = "agent"
 	}
-	resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{ClientRequestID: uuid.NewString(), SessionID: target, Objective: objective, Actor: actor, ShellToken: goalCommandShellToken(agent)})
+	agentShell := goalCommandAgentShell(agent)
+	resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{ClientRequestID: uuid.NewString(), SessionID: target, Objective: objective, Actor: actor, ShellToken: agentShell.Token, ShellRunID: agentShell.RunID, ShellStepID: agentShell.StepID})
 	if err != nil {
 		fmt.Fprintln(stderr, formatGoalCommandError(err))
 		return 1
@@ -235,7 +236,8 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	}
 	completeCtx, completeCancel := context.WithTimeout(context.Background(), goalCommandTimeout)
 	defer completeCancel()
-	resp, err := remote.CompleteGoal(completeCtx, serverapi.RuntimeGoalStatusRequest{ClientRequestID: uuid.NewString(), SessionID: target, Actor: actor, ShellToken: goalCommandShellToken(agent)})
+	agentShell := goalCommandAgentShell(agent)
+	resp, err := remote.CompleteGoal(completeCtx, serverapi.RuntimeGoalStatusRequest{ClientRequestID: uuid.NewString(), SessionID: target, Actor: actor, ShellToken: agentShell.Token, ShellRunID: agentShell.RunID, ShellStepID: agentShell.StepID})
 	if err != nil {
 		fmt.Fprintln(stderr, formatGoalCommandError(err))
 		return 1
@@ -244,12 +246,20 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	return 0
 }
 
-func goalCommandShellToken(agent bool) string {
+type goalCommandAgentShellContext struct {
+	Token  string
+	RunID  string
+	StepID string
+}
+
+func goalCommandAgentShell(agent bool) goalCommandAgentShellContext {
 	if !agent {
-		return ""
+		return goalCommandAgentShellContext{}
 	}
 	token, _ := sessionenv.LookupShellToken(os.LookupEnv)
-	return token
+	runID, _ := sessionenv.LookupShellRunID(os.LookupEnv)
+	stepID, _ := sessionenv.LookupShellStepID(os.LookupEnv)
+	return goalCommandAgentShellContext{Token: token, RunID: runID, StepID: stepID}
 }
 
 func goalAlreadyComplete(goal *serverapi.RuntimeGoal) bool {

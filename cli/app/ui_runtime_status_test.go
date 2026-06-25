@@ -196,6 +196,13 @@ func TestRuntimeStatusLineShapeUsesOnlyActiveWork(t *testing.T) {
 			spinning: true,
 		},
 		{
+			name: "waiting on question",
+			prepare: func(m *uiModel) {
+				m.setBusy(true)
+				m.activity = uiActivityQuestion
+			},
+		},
+		{
 			name:     "compaction",
 			prepare:  func(m *uiModel) { m.setCompacting(true) },
 			spinning: true,

@@ -209,6 +209,8 @@ type RuntimeGoalSetRequest struct {
 	SessionID         string `json:"session_id"`
 	ControllerLeaseID string `json:"controller_lease_id,omitempty"`
 	ShellToken        string `json:"shell_token,omitempty"`
+	ShellRunID        string `json:"shell_run_id,omitempty"`
+	ShellStepID       string `json:"shell_step_id,omitempty"`
 	Objective         string `json:"objective"`
 	Actor             string `json:"actor"`
 }
@@ -218,6 +220,8 @@ type RuntimeGoalStatusRequest struct {
 	SessionID         string `json:"session_id"`
 	ControllerLeaseID string `json:"controller_lease_id,omitempty"`
 	ShellToken        string `json:"shell_token,omitempty"`
+	ShellRunID        string `json:"shell_run_id,omitempty"`
+	ShellStepID       string `json:"shell_step_id,omitempty"`
 	Actor             string `json:"actor"`
 }
 

@@ -134,7 +134,9 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 			return ExecResult{}, err
 		}
 	}
-	cmd.Env = tools.EnrichShellEnvForSessionToken(os.Environ(), ownerSessionID, shellToken)
+	ownerRunID := strings.TrimSpace(req.OwnerRunID)
+	ownerStepID := strings.TrimSpace(req.OwnerStepID)
+	cmd.Env = tools.EnrichShellEnvForSessionRunToken(os.Environ(), ownerSessionID, ownerRunID, ownerStepID, shellToken)
 	prepareManagedExec(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -148,8 +150,8 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		id:             id,
 		ownerSessionID: ownerSessionID,
 		shellToken:     shellToken,
-		ownerRunID:     strings.TrimSpace(req.OwnerRunID),
-		ownerStepID:    strings.TrimSpace(req.OwnerStepID),
+		ownerRunID:     ownerRunID,
+		ownerStepID:    ownerStepID,
 		command:        strings.TrimSpace(req.DisplayCommand),
 		workdir:        workdir,
 		raw:            req.Raw,

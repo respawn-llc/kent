@@ -99,6 +99,8 @@ func TestGoalShowUsesSessionIDEnv(t *testing.T) {
 func TestGoalAgentEnvAllowsSetWithAgentActor(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-1")
 	t.Setenv(sessionenv.ShellTokenEnv, "shell-token-1")
+	t.Setenv(sessionenv.ShellRunIDEnv, "run-1")
+	t.Setenv(sessionenv.ShellStepIDEnv, "step-1")
 	remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "new goal", Status: "active"}}
 	restore := replaceGoalCommandRemoteOpener(t, remote)
 	defer restore()
@@ -116,6 +118,9 @@ func TestGoalAgentEnvAllowsSetWithAgentActor(t *testing.T) {
 	}
 	if remote.setReq[0].ShellToken != "shell-token-1" {
 		t.Fatalf("set shell token = %q, want shell-token-1", remote.setReq[0].ShellToken)
+	}
+	if remote.setReq[0].ShellRunID != "run-1" || remote.setReq[0].ShellStepID != "step-1" {
+		t.Fatalf("set shell run context = %q/%q, want run-1/step-1", remote.setReq[0].ShellRunID, remote.setReq[0].ShellStepID)
 	}
 	if !strings.Contains(stdout.String(), "Goal: new goal") {
 		t.Fatalf("stdout = %q", stdout.String())
@@ -213,6 +218,8 @@ func TestGoalAgentCompleteRequiresConfirmTripwire(t *testing.T) {
 	stdout := new(strings.Builder)
 	stderr.Reset()
 	t.Setenv(sessionenv.ShellTokenEnv, "shell-token-1")
+	t.Setenv(sessionenv.ShellRunIDEnv, "run-1")
+	t.Setenv(sessionenv.ShellStepIDEnv, "step-1")
 	if code := goalSubcommand([]string{"complete", "--confirm"}, stdout, stderr); code != 0 {
 		t.Fatalf("goal complete --confirm exit = %d stderr=%q", code, stderr.String())
 	}
@@ -224,6 +231,9 @@ func TestGoalAgentCompleteRequiresConfirmTripwire(t *testing.T) {
 	}
 	if remote.completeReq[0].ShellToken != "shell-token-1" {
 		t.Fatalf("complete shell token = %q, want shell-token-1", remote.completeReq[0].ShellToken)
+	}
+	if remote.completeReq[0].ShellRunID != "run-1" || remote.completeReq[0].ShellStepID != "step-1" {
+		t.Fatalf("complete shell run context = %q/%q, want run-1/step-1", remote.completeReq[0].ShellRunID, remote.completeReq[0].ShellStepID)
 	}
 }
 
