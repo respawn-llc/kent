@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 func TestRouteContractsAreCompleteAndExplicit(t *testing.T) {
@@ -115,6 +116,19 @@ func TestRouteRequestValidationMetadataMatchesTypes(t *testing.T) {
 		if got := route.RequestType.Implements(validator); got != route.ValidatesRequest {
 			t.Fatalf("route %q validation metadata = %t, want %t", route.Method, route.ValidatesRequest, got)
 		}
+	}
+}
+
+func TestWorkflowTaskListRouteContract(t *testing.T) {
+	route, ok := RouteByMethod(protocol.MethodWorkflowTaskList)
+	if !ok {
+		t.Fatal("workflow task list route missing")
+	}
+	if route.Kind != KindUnary || route.Auth != AuthPreServerAuth || route.Scope != ScopeProjectView || route.Connection != ConnectionUnscoped || route.Dependency != DependencyWorkflow {
+		t.Fatalf("workflow task list route = %+v, want read-only workflow project-view unary route", route)
+	}
+	if route.RequestType != reflect.TypeOf(serverapi.WorkflowTaskListRequest{}) || route.ResponseType != reflect.TypeOf(serverapi.WorkflowTaskListResponse{}) {
+		t.Fatalf("workflow task list route DTOs = %v -> %v", route.RequestType, route.ResponseType)
 	}
 }
 

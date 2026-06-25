@@ -50,6 +50,11 @@ func waitWorkflowProjectActions(t *testing.T, sub serverapi.WorkflowProjectSubsc
 	return events
 }
 
+func isWorkflowServiceRequestFieldError(err error, field string) bool {
+	var validationErr serverapi.WorkflowRequestValidationError
+	return errors.As(err, &validationErr) && validationErr.Field == field
+}
+
 func TestServiceCreatesValidatesLinksAndStartsDefaultWorkflowTask(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 
@@ -99,6 +104,24 @@ func TestServiceCreatesValidatesLinksAndStartsDefaultWorkflowTask(t *testing.T) 
 	started := startWorkflowServiceTask(t, ctx, service, task.Task.ID)
 	if started.RunID == "" || started.PlacementID == "" {
 		t.Fatalf("start response = %+v", started)
+	}
+}
+
+func TestServiceListWorkflowTasksValidatesAndDelegates(t *testing.T) {
+	ctx, service, binding := newWorkflowServiceTestContext(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+
+	if _, err := service.ListWorkflowTasks(ctx, serverapi.WorkflowTaskListRequest{ProjectID: " "}); !isWorkflowServiceRequestFieldError(err, "project_id") {
+		t.Fatalf("blank project error = %#v, want project_id validation", err)
+	}
+	resp, err := service.ListWorkflowTasks(ctx, serverapi.WorkflowTaskListRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("ListWorkflowTasks: %v", err)
+	}
+	if resp.WorkflowID != workflowID || len(resp.Tasks) != 1 || resp.Tasks[0].TaskID != task.Task.ID {
+		t.Fatalf("task list response = %+v, want workflow %s task %s", resp, workflowID, task.Task.ID)
 	}
 }
 

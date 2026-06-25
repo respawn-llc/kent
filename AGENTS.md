@@ -67,6 +67,7 @@ The scope is intentionally narrow and quality-oriented.
 - Make failure paths explicit, observable. Handle and surface errors cleanly. Write easy to understand error messages for both the model and the operator.
 - Maintain good user experience when adding new features (e.g. display loading states, events or ongoing processes).
 - Validate invariants at boundaries (input, filesystem, process execution, API responses).
+- Keep SQL in `server/metadata/queries.sql` and consume it through generated `server/metadata/sqlitegen` APIs. Do not embed SQL query strings in Go production code.
 - Keep behavior configurable only when it serves real operator value.
 - GUI clients are remote-control surfaces over Kent server APIs/read models. The server remains authoritative for runtime, worktrees, DB, orchestration, validation, approvals, asks, workflow state, scheduling, and persistence.
 - Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.

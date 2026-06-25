@@ -32,16 +32,22 @@ var (
 
 type taskListOutput struct {
 	ProjectID     string         `json:"project_id"`
+	WorkflowID    string         `json:"workflow_id"`
 	NextPageToken string         `json:"next_page_token,omitempty"`
 	Tasks         []taskListItem `json:"tasks"`
 }
 
 type taskListItem struct {
-	ShortID    string `json:"short_id"`
-	TaskID     string `json:"task_id"`
-	WorkflowID string `json:"workflow_id"`
-	Status     string `json:"status"`
-	Title      string `json:"title"`
+	ShortID         string   `json:"short_id"`
+	TaskID          string   `json:"task_id"`
+	WorkflowID      string   `json:"workflow_id"`
+	Status          string   `json:"status"`
+	StatusKeys      []string `json:"status_keys"`
+	RunStatus       string   `json:"run_status"`
+	Title           string   `json:"title"`
+	CreatedAtUnixMs int64    `json:"created_at_unix_ms"`
+	UpdatedAtUnixMs int64    `json:"updated_at_unix_ms"`
+	RunCount        int      `json:"run_count"`
 }
 
 type taskShowOutput struct {
@@ -321,6 +327,14 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	projectRef := fs.String("project", ".", "project id or path")
 	pageSize := fs.Int("page-size", taskListDefaultPageSize, "maximum tasks to print")
 	pageToken := fs.String("page-token", "", "page token from a previous task list response")
+	var statusFlags repeatedStringFlag
+	var columnFlags repeatedStringFlag
+	var runStatusFlags repeatedStringFlag
+	var sortFlags repeatedStringFlag
+	fs.Var(&statusFlags, "status", "workflow status key filter; comma-separated or repeatable")
+	fs.Var(&columnFlags, "column", "alias for --status")
+	fs.Var(&runStatusFlags, "run-status", "run status filter: open|running|done|canceled; comma-separated or repeatable")
+	fs.Var(&sortFlags, "sort", "sort selectors such as status:asc,updated:desc")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -333,92 +347,174 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "task list requires --page-size to be positive")
 		return 2
 	}
+	statusKeys, err := parseTaskListFilterValues(append([]string(statusFlags), []string(columnFlags)...), "status")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	runStatuses, err := parseTaskListRunStatuses([]string(runStatusFlags))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	sortSelectors, err := parseTaskListSortSelectors([]string(sortFlags))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if len(sortSelectors) == 0 {
+		sortSelectors = defaultTaskListSortSelectors()
+	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	tasks, statusByTaskID, projectID, nextPageToken, err := workflowTaskPageForProject(context.Background(), cfg, remote, *projectRef, *pageSize, *pageToken)
+	resp, err := workflowTaskListForProject(context.Background(), cfg, remote, *projectRef, serverapi.WorkflowTaskListRequest{
+		StatusKeys:  statusKeys,
+		RunStatuses: runStatuses,
+		Sort:        sortSelectors,
+		PageSize:    *pageSize,
+		PageToken:   *pageToken,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	items := taskListItems(tasks, statusByTaskID)
+	items := taskListItemsFromResponse(resp.Tasks)
 	if *jsonOut {
-		if err := json.NewEncoder(stdout).Encode(taskListOutput{ProjectID: projectID, NextPageToken: nextPageToken, Tasks: items}); err != nil {
+		if err := json.NewEncoder(stdout).Encode(taskListOutput{ProjectID: resp.ProjectID, WorkflowID: resp.WorkflowID, NextPageToken: resp.NextPageToken, Tasks: items}); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		return 0
 	}
 	for _, item := range items {
-		fmt.Fprintf(stdout, "%s: %s.\nStatus: %s\n", item.ShortID, item.Title, item.Status)
+		fmt.Fprintf(stdout, "%s: %s.\nStatus: %s\nRun status: %s\n", item.ShortID, item.Title, taskListStatusKeysText(item.StatusKeys), item.RunStatus)
 	}
-	if strings.TrimSpace(nextPageToken) != "" {
-		fmt.Fprintf(stderr, "Next page token: `%s`\n", nextPageToken)
+	if strings.TrimSpace(resp.NextPageToken) != "" {
+		fmt.Fprintf(stderr, "Next page token: `%s`\n", resp.NextPageToken)
 	}
 	return 0
 }
 
-func taskListItems(tasks []serverapi.WorkflowTaskSummary, statusByTaskID map[string]string) []taskListItem {
+func taskListStatusKeysText(statusKeys []string) string {
+	if len(statusKeys) == 0 {
+		return "(none)"
+	}
+	return strings.Join(statusKeys, ", ")
+}
+
+func defaultTaskListSortSelectors() []serverapi.WorkflowTaskListSort {
+	return []serverapi.WorkflowTaskListSort{
+		{Field: serverapi.WorkflowTaskListSortFieldStatus, Direction: serverapi.WorkflowTaskListSortDirectionAsc},
+		{Field: serverapi.WorkflowTaskListSortFieldUpdated, Direction: serverapi.WorkflowTaskListSortDirectionDesc},
+	}
+}
+
+func taskListItemsFromResponse(tasks []serverapi.WorkflowTaskListItem) []taskListItem {
 	items := make([]taskListItem, 0, len(tasks))
 	for _, task := range tasks {
-		status, ok := statusByTaskID[task.ID]
-		if !ok {
-			status = taskListStatus(task)
-		}
+		runStatus := string(task.RunStatus)
 		items = append(items, taskListItem{
-			ShortID:    task.ShortID,
-			TaskID:     task.ID,
-			WorkflowID: task.WorkflowID,
-			Status:     status,
-			Title:      task.Title,
+			ShortID:         task.ShortID,
+			TaskID:          task.TaskID,
+			WorkflowID:      task.WorkflowID,
+			Status:          runStatus,
+			StatusKeys:      append([]string(nil), task.StatusKeys...),
+			RunStatus:       runStatus,
+			Title:           task.Title,
+			CreatedAtUnixMs: task.CreatedAtUnixMs,
+			UpdatedAtUnixMs: task.UpdatedAtUnixMs,
+			RunCount:        task.RunCount,
 		})
 	}
 	return items
 }
 
-// taskListStatusByID maps each board task to a CLI list status using the
-// board card's authoritative status kind, which distinguishes an actually
-// running task from a backlog task that merely has an active start-node
-// placement. The summary alone can't make that distinction.
-func taskListStatusByID(board serverapi.WorkflowBoard) map[string]string {
-	statuses := make(map[string]string)
-	for _, card := range board.Cards {
-		statuses[card.TaskID] = taskListStatusFromCardStatus(card.Status)
+func parseTaskListFilterValues(raw []string, name string) ([]string, error) {
+	values := []string{}
+	seen := map[string]bool{}
+	for _, entry := range raw {
+		for _, part := range strings.Split(entry, ",") {
+			value := strings.TrimSpace(part)
+			if value == "" {
+				return nil, fmt.Errorf("--%s contains a blank value", name)
+			}
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
 	}
-	for _, card := range board.DonePreview {
-		statuses[card.TaskID] = taskListStatusFromCardStatus(card.Status)
-	}
-	return statuses
+	return values, nil
 }
 
-func taskListStatusFromCardStatus(status serverapi.WorkflowTaskStatus) string {
-	switch status.Kind {
-	case "done":
-		return "done"
-	case "canceled":
-		return "canceled"
-	case "running", "interrupted", "waiting_question", "waiting_approval":
-		return "running"
+func parseTaskListRunStatuses(raw []string) ([]serverapi.WorkflowTaskRunStatus, error) {
+	values, err := parseTaskListFilterValues(raw, "run-status")
+	if err != nil {
+		return nil, err
+	}
+	statuses := make([]serverapi.WorkflowTaskRunStatus, 0, len(values))
+	for _, value := range values {
+		status := serverapi.WorkflowTaskRunStatus(value)
+		switch status {
+		case serverapi.WorkflowTaskRunStatusOpen, serverapi.WorkflowTaskRunStatusRunning, serverapi.WorkflowTaskRunStatusDone, serverapi.WorkflowTaskRunStatusCanceled:
+			statuses = append(statuses, status)
+		default:
+			return nil, fmt.Errorf("--run-status must be open, running, done, or canceled")
+		}
+	}
+	return statuses, nil
+}
+
+func parseTaskListSortSelectors(raw []string) ([]serverapi.WorkflowTaskListSort, error) {
+	values, err := parseTaskListFilterValues(raw, "sort")
+	if err != nil {
+		return nil, err
+	}
+	selectors := make([]serverapi.WorkflowTaskListSort, 0, len(values))
+	seen := map[serverapi.WorkflowTaskListSortField]bool{}
+	for _, value := range values {
+		fieldValue, directionValue, ok := strings.Cut(value, ":")
+		if !ok {
+			return nil, fmt.Errorf("--sort selector %q must be field:direction", value)
+		}
+		field, err := parseTaskListSortField(strings.TrimSpace(fieldValue))
+		if err != nil {
+			return nil, err
+		}
+		if seen[field] {
+			return nil, fmt.Errorf("--sort field %q must not be repeated", field)
+		}
+		seen[field] = true
+		direction := serverapi.WorkflowTaskListSortDirection(strings.TrimSpace(directionValue))
+		switch direction {
+		case serverapi.WorkflowTaskListSortDirectionAsc, serverapi.WorkflowTaskListSortDirectionDesc:
+		default:
+			return nil, fmt.Errorf("--sort direction must be asc or desc")
+		}
+		selectors = append(selectors, serverapi.WorkflowTaskListSort{Field: field, Direction: direction})
+	}
+	return selectors, nil
+}
+
+func parseTaskListSortField(value string) (serverapi.WorkflowTaskListSortField, error) {
+	switch value {
+	case "created", "created_at":
+		return serverapi.WorkflowTaskListSortFieldCreated, nil
+	case "updated", "updated_at":
+		return serverapi.WorkflowTaskListSortFieldUpdated, nil
+	case "status":
+		return serverapi.WorkflowTaskListSortFieldStatus, nil
+	case "run_count":
+		return serverapi.WorkflowTaskListSortFieldRunCount, nil
+	case "title":
+		return serverapi.WorkflowTaskListSortFieldTitle, nil
 	default:
-		// backlog, active, and any future kind: no active run, so it is open.
-		return "open"
+		return "", fmt.Errorf("--sort field must be created, updated, status, run_count, or title")
 	}
-}
-
-func taskListStatus(task serverapi.WorkflowTaskSummary) string {
-	if task.CanceledAt != 0 {
-		return "canceled"
-	}
-	if task.Done {
-		return "done"
-	}
-	if len(task.ActiveNodeIDs) > 0 {
-		return "running"
-	}
-	return "open"
 }
 
 func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1542,40 +1638,15 @@ func workflowBoardForProject(ctx context.Context, cfg config.App, remote workflo
 	return resp.Board, nil
 }
 
-func workflowTaskPageForProject(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, pageSize int, pageToken string) ([]serverapi.WorkflowTaskSummary, map[string]string, string, string, error) {
+func workflowTaskListForProject(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
 	projectID, err := resolveWorkflowProjectID(ctx, cfg, remote, projectRef)
 	if err != nil {
-		return nil, nil, "", "", err
+		return serverapi.WorkflowTaskListResponse{}, err
 	}
+	req.ProjectID = projectID
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.GetWorkflowBoard(rpcCtx, serverapi.WorkflowBoardRequest{
-		ProjectID: projectID,
-		PageSize:  pageSize,
-		PageToken: pageToken,
-	})
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-	board := resp.Board
-	tasks := workflowTasksForListPage(board, pageSize)
-	return tasks, taskListStatusByID(board), board.ProjectID, board.NextPageToken, nil
-}
-
-func workflowTasksForListPage(board serverapi.WorkflowBoard, pageSize int) []serverapi.WorkflowTaskSummary {
-	cards := append([]serverapi.WorkflowBoardTaskCard(nil), board.Cards...)
-	// Board pagination only covers open tasks. When the open stream is
-	// exhausted (no next token), surface the bounded done preview so done tasks
-	// stay reachable from `task list` — including the boundary case where open
-	// cards already fill the page, which previously hid them entirely.
-	if strings.TrimSpace(board.NextPageToken) == "" {
-		donePreview := board.DonePreview
-		if remaining := pageSize - len(cards); remaining > 0 && len(donePreview) > remaining {
-			donePreview = donePreview[:remaining]
-		}
-		cards = append(cards, donePreview...)
-	}
-	return sortedWorkflowTasksFromCards(serverapi.WorkflowBoard{ProjectID: board.ProjectID}, cards)
+	return remote.ListWorkflowTasks(rpcCtx, req)
 }
 
 func resolveWorkflowTaskID(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, ref string) (string, error) {

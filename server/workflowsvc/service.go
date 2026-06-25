@@ -943,6 +943,13 @@ func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req serverapi.Wo
 	return s.view.ListTaskActivity(ctx, req)
 }
 
+func (s *Service) ListWorkflowTasks(ctx context.Context, req serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTaskListResponse{}, err
+	}
+	return s.view.ListTasks(ctx, req, s.roleResolver)
+}
+
 func (s *Service) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowBoardResponse{}, err
