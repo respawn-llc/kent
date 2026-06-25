@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	_ "embed"
-
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
@@ -31,29 +29,6 @@ type Service struct {
 }
 
 const attentionKindInterruptedRun = "interrupted_run"
-
-var (
-	//go:embed queries/task_activity_rows.sql
-	taskActivityRowsQuery string
-	//go:embed queries/transition_edges_by_transition_id.sql
-	transitionEdgesByTransitionIDQuery string
-	//go:embed queries/transitions_by_id.sql
-	transitionsByIDQuery string
-	//go:embed queries/runs_by_id.sql
-	runsByIDQuery string
-	//go:embed queries/comments_by_id.sql
-	commentsByIDQuery string
-	//go:embed queries/attention_item_candidates.sql
-	attentionItemCandidatesQuery string
-	//go:embed queries/approval_attention_items.sql
-	approvalAttentionItemsQuery string
-	//go:embed queries/question_attention_items.sql
-	questionAttentionItemsQuery string
-	//go:embed queries/interrupted_run_attention_items.sql
-	interruptedRunAttentionItemsQuery string
-	//go:embed queries/validation_attention_items.sql
-	validationAttentionItemsQuery string
-)
 
 // Sentinel errors returned by the workflow view service. Callers and tests must
 // match these with errors.Is/errors.As rather than comparing rendered message
@@ -917,20 +892,37 @@ func (s *Service) attentionItemCandidates(ctx context.Context, projectID string,
 	if cursor.hasValue {
 		cursorSet = 1
 	}
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(attentionItemCandidatesQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(taskID), cursorSet, cursor.occurredAtUnixMs, cursor.itemID, int64(limit))
+	rows, err := s.queries.ListWorkflowAttentionCandidates(ctx, sqlitegen.ListWorkflowAttentionCandidatesParams{
+		PageLimit:              int64(limit),
+		ProjectID:              strings.TrimSpace(projectID),
+		TaskID:                 strings.TrimSpace(taskID),
+		CursorActive:           cursorSet,
+		CursorOccurredAtUnixMs: cursor.occurredAtUnixMs,
+		CursorItemID:           cursor.itemID,
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	items := []attentionCandidateRow{}
-	for rows.Next() {
-		var row attentionCandidateRow
-		if err := rows.Scan(&row.kind, &row.id, &row.projectID, &row.workflowID, &row.taskID, &row.shortID, &row.title, &row.runID, &row.sessionID, &row.askID, &row.taskTransitionID, &row.interruptionReason, &row.interruptionDetailJSON, &row.occurredAtUnixMs); err != nil {
-			return nil, err
-		}
-		items = append(items, row)
+	items := make([]attentionCandidateRow, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, attentionCandidateRow{
+			kind:                   row.Kind,
+			id:                     row.ID,
+			projectID:              row.ProjectID,
+			workflowID:             row.WorkflowID,
+			taskID:                 row.TaskID,
+			shortID:                row.ShortID,
+			title:                  row.Title,
+			runID:                  row.RunID,
+			sessionID:              row.SessionID,
+			askID:                  row.AskID,
+			taskTransitionID:       row.TaskTransitionID,
+			interruptionReason:     row.InterruptionReason,
+			interruptionDetailJSON: row.InterruptionDetailJson,
+			occurredAtUnixMs:       row.OccurredAtUnixMs,
+		})
 	}
-	return items, rows.Err()
+	return items, nil
 }
 
 func (s *Service) attentionItemFromCandidate(ctx context.Context, row attentionCandidateRow, roleResolver workflow.RoleResolver, questions *pendingQuestionResolver) (serverapi.WorkflowAttentionItem, bool, error) {
@@ -1155,20 +1147,28 @@ func (s *Service) taskActivityRows(ctx context.Context, taskID string, cursor ac
 	if cursor.hasValue {
 		cursorActive = 1
 	}
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(taskActivityRowsQuery, "\n"), taskID, taskID, taskID, taskID, taskID, taskID, cursorActive, cursor.occurredAtUnixMs, cursor.occurredAtUnixMs, cursor.activityID, limit)
+	rows, err := s.queries.ListWorkflowTaskActivityRows(ctx, sqlitegen.ListWorkflowTaskActivityRowsParams{
+		PageLimit:              int64(limit),
+		TaskID:                 taskID,
+		CursorActive:           cursorActive,
+		CursorOccurredAtUnixMs: cursor.occurredAtUnixMs,
+		CursorActivityID:       cursor.activityID,
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []taskActivityRow{}
-	for rows.Next() {
-		var row taskActivityRow
-		if err := rows.Scan(&row.activityID, &row.kind, &row.sourceID, &row.occurredAtUnixMs, &row.updatedAtUnixMs, &row.actor); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
+	out := make([]taskActivityRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, taskActivityRow{
+			activityID:       row.ActivityID,
+			kind:             row.Kind,
+			sourceID:         row.SourceID,
+			occurredAtUnixMs: row.OccurredAtUnixMs,
+			updatedAtUnixMs:  row.UpdatedAtUnixMs,
+			actor:            row.Actor,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) activityItemsFromRows(task sqlitegen.TaskRecord, rows []taskActivityRow, comments map[string]sqlitegen.TaskComment, transitions map[string]sqlitegen.TaskTransitionRecord, edges map[string][]sqlitegen.TaskTransitionEdgeRecord, runs map[string]sqlitegen.TaskRunRecord, nodes map[string]serverapi.WorkflowNode, sessionNames map[string]string) ([]serverapi.WorkflowTaskActivityItem, error) {
@@ -1321,69 +1321,34 @@ func (s *Service) sessionNamesByRun(ctx context.Context, runs []sqlitegen.TaskRu
 	if len(sessionIDs) == 0 {
 		return map[string]string{}, nil
 	}
-	placeholders := make([]string, 0, len(sessionIDs))
-	args := make([]any, 0, len(sessionIDs))
-	for _, sessionID := range sessionIDs {
-		placeholders = append(placeholders, "?")
-		args = append(args, sessionID)
-	}
-	rows, err := s.metadata.DB().QueryContext(ctx, `SELECT id, name FROM sessions WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	rows, err := s.queries.ListSessionNamesByIDs(ctx, sessionIDs)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 	out := map[string]string{}
-	for rows.Next() {
-		var sessionID, name string
-		if err := rows.Scan(&sessionID, &name); err != nil {
-			return nil, err
-		}
-		out[sessionID] = name
+	for _, row := range rows {
+		out[row.ID] = row.Name
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) transitionEdgesByTransitionID(ctx context.Context, transitions []sqlitegen.TaskTransitionRecord) (map[string][]sqlitegen.TaskTransitionEdgeRecord, error) {
 	transitionIDs := make([]string, 0, len(transitions))
-	args := make([]any, 0, len(transitions))
 	for _, transition := range transitions {
-		transitionIDs = append(transitionIDs, "?")
-		args = append(args, transition.ID)
+		transitionIDs = append(transitionIDs, transition.ID)
 	}
 	out := map[string][]sqlitegen.TaskTransitionEdgeRecord{}
-	if len(args) == 0 {
+	if len(transitionIDs) == 0 {
 		return out, nil
 	}
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.Replace(strings.TrimSuffix(transitionEdgesByTransitionIDQuery, "\n"), "{{placeholders}}", strings.Join(transitionIDs, ","), 1), args...)
+	rows, err := s.queries.ListTaskTransitionEdgesByTransitionIDs(ctx, transitionIDs)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var edge sqlitegen.TaskTransitionEdgeRecord
-		if err := rows.Scan(
-			&edge.ID,
-			&edge.TaskTransitionID,
-			&edge.WorkflowEdgeID,
-			&edge.EdgeKey,
-			&edge.WorkflowRevisionSeen,
-			&edge.TargetNodeID,
-			&edge.TargetNodeKey,
-			&edge.TargetNodeDisplayName,
-			&edge.TargetNodeKind,
-			&edge.TargetPlacementID,
-			&edge.State,
-			&edge.ContextMode,
-			&edge.RequiresApproval,
-			&edge.InputBindingsJson,
-			&edge.OutputRequirementsJson,
-			&edge.MetadataJson,
-		); err != nil {
-			return nil, err
-		}
+	for _, edge := range rows {
 		out[edge.TaskTransitionID] = append(out[edge.TaskTransitionID], edge)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) commentsByID(ctx context.Context, ids []string) (map[string]sqlitegen.TaskComment, error) {
@@ -1391,111 +1356,28 @@ func (s *Service) commentsByID(ctx context.Context, ids []string) (map[string]sq
 	if len(ids) == 0 {
 		return out, nil
 	}
-	placeholders, args := placeholdersAndArgs(ids)
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.Replace(strings.TrimSuffix(commentsByIDQuery, "\n"), "{{placeholders}}", placeholders, 1), args...)
+	rows, err := s.queries.ListTaskCommentsByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var row sqlitegen.TaskComment
-		if err := rows.Scan(&row.ID, &row.TaskID, &row.Body, &row.AuthorKind, &row.AuthorID, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
-			return nil, err
-		}
+	for _, row := range rows {
 		out[row.ID] = row
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Service) transitionsByID(ctx context.Context, ids []string) ([]sqlitegen.TaskTransitionRecord, error) {
 	if len(ids) == 0 {
 		return []sqlitegen.TaskTransitionRecord{}, nil
 	}
-	placeholders, args := placeholdersAndArgs(ids)
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.Replace(strings.TrimSuffix(transitionsByIDQuery, "\n"), "{{placeholders}}", placeholders, 1), args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := []sqlitegen.TaskTransitionRecord{}
-	for rows.Next() {
-		var row sqlitegen.TaskTransitionRecord
-		if err := rows.Scan(
-			&row.ID,
-			&row.TaskID,
-			&row.SourceRunID,
-			&row.SourcePlacementID,
-			&row.SourceNodeID,
-			&row.SourceNodeKey,
-			&row.SourceNodeDisplayName,
-			&row.TransitionGroupID,
-			&row.TransitionID,
-			&row.TransitionDisplayName,
-			&row.WorkflowRevisionSeen,
-			&row.Actor,
-			&row.State,
-			&row.Commentary,
-			&row.OutputValuesJson,
-			&row.CreatedAtUnixMs,
-			&row.AppliedAtUnixMs,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
+	return s.queries.ListTaskTransitionsByIDs(ctx, ids)
 }
 
 func (s *Service) runsByID(ctx context.Context, ids []string) ([]sqlitegen.TaskRunRecord, error) {
 	if len(ids) == 0 {
 		return []sqlitegen.TaskRunRecord{}, nil
 	}
-	placeholders, args := placeholdersAndArgs(ids)
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.Replace(strings.TrimSuffix(runsByIDQuery, "\n"), "{{placeholders}}", placeholders, 1), args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := []sqlitegen.TaskRunRecord{}
-	for rows.Next() {
-		var row sqlitegen.TaskRunRecord
-		if err := rows.Scan(
-			&row.ID,
-			&row.TaskID,
-			&row.PlacementID,
-			&row.NodeID,
-			&row.SessionID,
-			&row.RunGeneration,
-			&row.WorkflowRevisionSeen,
-			&row.AutomationRequestedAtUnixMs,
-			&row.CreatedAtUnixMs,
-			&row.UpdatedAtUnixMs,
-			&row.StartedAtUnixMs,
-			&row.CompletedAtUnixMs,
-			&row.InterruptedAtUnixMs,
-			&row.InterruptionReason,
-			&row.InterruptionDetailJson,
-			&row.WaitingAskID,
-			&row.EffectiveCompletionMode,
-			&row.InvalidCompletionCount,
-			&row.RunStartSnapshotJson,
-			&row.MetadataJson,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
-func placeholdersAndArgs(ids []string) (string, []any) {
-	placeholders := make([]string, 0, len(ids))
-	args := make([]any, 0, len(ids))
-	for _, id := range ids {
-		placeholders = append(placeholders, "?")
-		args = append(args, id)
-	}
-	return strings.Join(placeholders, ","), args
+	return s.queries.ListTaskRunsByIDs(ctx, ids)
 }
 
 func sourceIDsByType(rows []taskActivityRow, kind string) []string {
@@ -1611,56 +1493,36 @@ func attentionPageTokenFor(projectID string, occurredAtUnixMs int64, id string) 
 }
 
 func (s *Service) approvalAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(approvalAttentionItemsQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
+	rows, err := s.queries.ListWorkflowApprovalAttentionItems(ctx, sqlitegen.ListWorkflowApprovalAttentionItemsParams{
+		ProjectID: strings.TrimSpace(projectID),
+		TaskID:    strings.TrimSpace(taskID),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	items := []serverapi.WorkflowAttentionItem{}
-	for rows.Next() {
-		var transitionID, rowProjectID, workflowID, rowTaskID, shortID, title string
-		var occurred int64
-		if err := rows.Scan(&transitionID, &rowProjectID, &workflowID, &rowTaskID, &shortID, &title, &occurred); err != nil {
-			return nil, err
-		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "approval:" + transitionID, Kind: "approval", ProjectID: rowProjectID, WorkflowID: workflowID, TaskID: rowTaskID, TaskShortID: shortID, TaskTitle: title, TaskTransitionID: transitionID, Message: "Approval required", OccurredAtUnixMs: occurred})
+	items := make([]serverapi.WorkflowAttentionItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, serverapi.WorkflowAttentionItem{ID: "approval:" + row.TaskTransitionID, Kind: "approval", ProjectID: row.ProjectID, WorkflowID: row.WorkflowID, TaskID: row.TaskID, TaskShortID: row.ShortID, TaskTitle: row.Title, TaskTransitionID: row.TaskTransitionID, Message: "Approval required", OccurredAtUnixMs: row.CreatedAtUnixMs})
 	}
-	return items, rows.Err()
+	return items, nil
 }
 
 func (s *Service) questionAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(questionAttentionItemsQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
+	rows, err := s.queries.ListWorkflowQuestionAttentionItems(ctx, sqlitegen.ListWorkflowQuestionAttentionItemsParams{
+		ProjectID: strings.TrimSpace(projectID),
+		TaskID:    strings.TrimSpace(taskID),
+	})
 	if err != nil {
-		return nil, err
-	}
-	type questionAttentionRow struct {
-		runID, sessionID, askID, projectID, workflowID, taskID, shortID, title string
-		occurred                                                               int64
-	}
-	rawRows := []questionAttentionRow{}
-	for rows.Next() {
-		var row questionAttentionRow
-		if err := rows.Scan(&row.runID, &row.sessionID, &row.askID, &row.projectID, &row.workflowID, &row.taskID, &row.shortID, &row.title, &row.occurred); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		rawRows = append(rawRows, row)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
 		return nil, err
 	}
 	items := []serverapi.WorkflowAttentionItem{}
 	questions := newPendingQuestionResolver(s.transcripts)
-	for _, row := range rawRows {
-		question, err := questions.Question(ctx, row.sessionID, row.askID)
+	for _, row := range rows {
+		question, err := questions.Question(ctx, row.SessionID, row.WaitingAskID)
 		if err != nil {
 			question = pendingQuestion{message: pendingQuestionFallbackMessage}
 		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question.message, Suggestions: question.suggestions, RecommendedOptionIndex: question.recommendedOptionIndex, OccurredAtUnixMs: row.occurred})
+		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.RunID + ":" + row.WaitingAskID, Kind: "question", ProjectID: row.ProjectID, WorkflowID: row.WorkflowID, TaskID: row.TaskID, TaskShortID: row.ShortID, TaskTitle: row.Title, RunID: row.RunID, SessionID: row.SessionID, AskID: row.WaitingAskID, Message: question.message, Suggestions: question.suggestions, RecommendedOptionIndex: question.recommendedOptionIndex, OccurredAtUnixMs: row.UpdatedAtUnixMs})
 	}
 	return items, nil
 }
@@ -1722,22 +1584,19 @@ func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string
 }
 
 func (s *Service) interruptedRunAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(interruptedRunAttentionItemsQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
+	rows, err := s.queries.ListWorkflowInterruptedRunAttentionItems(ctx, sqlitegen.ListWorkflowInterruptedRunAttentionItemsParams{
+		ProjectID: strings.TrimSpace(projectID),
+		TaskID:    strings.TrimSpace(taskID),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	items := []serverapi.WorkflowAttentionItem{}
-	for rows.Next() {
-		var runID, sessionID, reason, detailJSON, rowProjectID, workflowID, rowTaskID, shortID, title string
-		var occurred int64
-		if err := rows.Scan(&runID, &sessionID, &reason, &detailJSON, &rowProjectID, &workflowID, &rowTaskID, &shortID, &title, &occurred); err != nil {
-			return nil, err
-		}
-		message := interruptedRunMessage(reason, detailJSON)
-		items = append(items, serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + runID, Kind: attentionKindInterruptedRun, ProjectID: rowProjectID, WorkflowID: workflowID, TaskID: rowTaskID, TaskShortID: shortID, TaskTitle: title, RunID: runID, SessionID: sessionID, Message: message, OccurredAtUnixMs: occurred})
+	items := make([]serverapi.WorkflowAttentionItem, 0, len(rows))
+	for _, row := range rows {
+		message := interruptedRunMessage(row.InterruptionReason, row.InterruptionDetailJson)
+		items = append(items, serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + row.RunID, Kind: attentionKindInterruptedRun, ProjectID: row.ProjectID, WorkflowID: row.WorkflowID, TaskID: row.TaskID, TaskShortID: row.ShortID, TaskTitle: row.Title, RunID: row.RunID, SessionID: row.SessionID, Message: message, OccurredAtUnixMs: row.InterruptedAtUnixMs})
 	}
-	return items, rows.Err()
+	return items, nil
 }
 
 func interruptedRunMessage(reason string, detailJSON string) string {
@@ -1765,7 +1624,7 @@ func interruptionErrorDetail(detailJSON string) string {
 }
 
 func (s *Service) validationAttentionItems(ctx context.Context, projectID string, roleResolver workflow.RoleResolver) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(validationAttentionItemsQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(projectID))
+	rows, err := s.queries.ListWorkflowValidationAttentionItems(ctx, strings.TrimSpace(projectID))
 	if err != nil {
 		return nil, err
 	}
@@ -1774,22 +1633,9 @@ func (s *Service) validationAttentionItems(ctx context.Context, projectID string
 		workflowID string
 		occurredAt int64
 	}
-	links := []workflowLink{}
-	for rows.Next() {
-		var rowProjectID, workflowID string
-		var occurred int64
-		if err := rows.Scan(&rowProjectID, &workflowID, &occurred); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		links = append(links, workflowLink{projectID: rowProjectID, workflowID: workflowID, occurredAt: occurred})
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
+	links := make([]workflowLink, 0, len(rows))
+	for _, row := range rows {
+		links = append(links, workflowLink{projectID: row.ProjectID, workflowID: row.WorkflowID, occurredAt: row.UpdatedAtUnixMs})
 	}
 	items := []serverapi.WorkflowAttentionItem{}
 	for _, link := range links {

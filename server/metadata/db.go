@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,15 +41,11 @@ func openDatabaseAtPath(persistenceRoot string, databasePath string) (*sql.DB, e
 	if err := os.MkdirAll(filepath.Dir(trimmedDatabasePath), 0o755); err != nil {
 		return nil, fmt.Errorf("create metadata db dir: %w", err)
 	}
-	db, err := sql.Open("sqlite", trimmedDatabasePath)
+	db, err := sql.Open("sqlite", metadataSQLiteDSN(trimmedDatabasePath))
 	if err != nil {
 		return nil, fmt.Errorf("open metadata db: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	if err := configureDatabase(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	if err := runMigrations(db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -56,19 +53,27 @@ func openDatabaseAtPath(persistenceRoot string, databasePath string) (*sql.DB, e
 	return db, nil
 }
 
-func configureDatabase(db *sql.DB) error {
-	statements := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA busy_timeout = 5000",
+func metadataSQLiteDSN(databasePath string) string {
+	u := url.URL{Scheme: "file", Path: sqliteFileURLPath(databasePath)}
+	q := url.Values{}
+	q.Add("_pragma", "foreign_keys(1)")
+	q.Add("_pragma", "journal_mode(WAL)")
+	q.Add("_pragma", "synchronous(NORMAL)")
+	q.Add("_pragma", "busy_timeout(5000)")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func sqliteFileURLPath(databasePath string) string {
+	slashPath := strings.ReplaceAll(filepath.ToSlash(databasePath), "\\", "/")
+	if len(slashPath) >= 2 && slashPath[1] == ':' && isASCIILetter(rune(slashPath[0])) {
+		return "/" + slashPath
 	}
-	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
-			return fmt.Errorf("configure metadata db: %w", err)
-		}
-	}
-	return nil
+	return slashPath
+}
+
+func isASCIILetter(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
 }
 
 func runMigrations(db *sql.DB) error {

@@ -19,33 +19,28 @@ type joinArrival struct {
 }
 
 func (s *Store) applyJoinIfReady(ctx context.Context, tx *sql.Tx, q *sqlitegen.Queries, now int64, taskID string, sourcePlacementID string, sourceSnapshot runStartSnapshot, joinEdge edgeContractSnapshot) (CompleteRunResult, error) {
-	var batchID sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT parallel_batch_transition_id FROM task_node_placements WHERE id = ?`, sourcePlacementID).Scan(&batchID); err != nil {
+	batchID, err := q.GetContextSourceBatchScope(ctx, sourcePlacementID)
+	if err != nil {
 		return CompleteRunResult{}, err
 	}
 	if !batchID.Valid || strings.TrimSpace(batchID.String) == "" {
 		return CompleteRunResult{}, nil
 	}
-	var existingJoinPlacement string
-	err := tx.QueryRowContext(ctx, `
-SELECT id
-FROM task_node_placements
-WHERE task_id = ? AND node_id = ? AND parallel_batch_transition_id = ?
-LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existingJoinPlacement)
+	_, err = q.GetExistingJoinPlacement(ctx, sqlitegen.GetExistingJoinPlacementParams{TaskID: taskID, NodeID: string(joinEdge.TargetNode.ID), BatchID: sql.NullString{String: batchID.String, Valid: true}})
 	if err == nil {
 		return CompleteRunResult{}, nil
 	}
 	if err != nil && err != sql.ErrNoRows {
 		return CompleteRunResult{}, err
 	}
-	expected, err := joinExpectedBranches(ctx, tx, batchID.String)
+	expected, err := joinExpectedBranches(ctx, q, batchID.String)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
 	if len(expected) == 0 {
 		return CompleteRunResult{}, nil
 	}
-	arrivals, err := joinArrivals(ctx, tx, batchID.String, joinEdge.TargetNode.ID)
+	arrivals, err := joinArrivals(ctx, q, batchID.String, joinEdge.TargetNode.ID)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
@@ -112,11 +107,11 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		source, err := s.resolveContextSourceRun(ctx, tx, taskID, now, joinPlacementID, nil, joinSnapshot, outEdge)
+		source, err := s.resolveContextSourceRun(ctx, q, taskID, now, joinPlacementID, nil, joinSnapshot, outEdge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, taskID, now, joinPlacementID, outEdge)
+		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, q, taskID, now, joinPlacementID, outEdge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -140,59 +135,45 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 	return result, nil
 }
 
-func joinExpectedBranches(ctx context.Context, tx *sql.Tx, batchID string) (map[string]bool, error) {
-	rows, err := tx.QueryContext(ctx, strings.TrimSuffix(joinExpectedBranchesQuery, "\n"), batchID)
+func joinExpectedBranches(ctx context.Context, q *sqlitegen.Queries, batchID string) (map[string]bool, error) {
+	rows, err := q.ListJoinExpectedBranches(ctx, batchID)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 	expected := map[string]bool{}
-	for rows.Next() {
-		var placementID sql.NullString
-		if err := rows.Scan(&placementID); err != nil {
-			return nil, err
-		}
+	for _, placementID := range rows {
 		if placementID.Valid && strings.TrimSpace(placementID.String) != "" {
 			expected[placementID.String] = true
 		}
 	}
-	return expected, rows.Err()
+	return expected, nil
 }
 
-func joinArrivals(ctx context.Context, tx *sql.Tx, batchID string, joinNodeID workflow.NodeID) ([]joinArrival, error) {
-	rows, err := tx.QueryContext(ctx, strings.TrimSuffix(joinArrivalsQuery, "\n"), batchID, string(joinNodeID))
+func joinArrivals(ctx context.Context, q *sqlitegen.Queries, batchID string, joinNodeID workflow.NodeID) ([]joinArrival, error) {
+	rows, err := q.ListJoinArrivals(ctx, sqlitegen.ListJoinArrivalsParams{BatchID: sql.NullString{String: batchID, Valid: true}, JoinNodeID: sql.NullString{String: string(joinNodeID), Valid: true}})
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 	arrivals := []joinArrival{}
-	for rows.Next() {
-		var placementID string
-		var branchEdgeID sql.NullString
-		var joinEdgeID sql.NullString
-		var sourceNodeKey string
-		var outputValuesJSON string
-		if err := rows.Scan(&placementID, &branchEdgeID, &joinEdgeID, &sourceNodeKey, &outputValuesJSON); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(placementID) == "" {
+	for _, row := range rows {
+		if strings.TrimSpace(row.ID) == "" {
 			continue
 		}
-		key := strings.TrimSpace(branchEdgeID.String)
+		key := strings.TrimSpace(row.ParallelBranchEdgeID.String)
 		if key == "" {
 			continue
 		}
-		incomingJoinEdgeID := workflow.EdgeID(strings.TrimSpace(joinEdgeID.String))
+		incomingJoinEdgeID := workflow.EdgeID(strings.TrimSpace(row.WorkflowEdgeID.String))
 		if incomingJoinEdgeID == "" {
 			continue
 		}
 		outputs := map[string]string{}
-		if err := workflow.UnmarshalString(outputValuesJSON, &outputs); err != nil {
+		if err := workflow.UnmarshalString(row.OutputValuesJson, &outputs); err != nil {
 			return nil, err
 		}
-		arrivals = append(arrivals, joinArrival{PlacementID: placementID, BranchEdgeID: key, JoinEdgeID: incomingJoinEdgeID, SourceNodeKey: sourceNodeKey, OutputValues: outputs})
+		arrivals = append(arrivals, joinArrival{PlacementID: row.ID, BranchEdgeID: key, JoinEdgeID: incomingJoinEdgeID, SourceNodeKey: row.SourceNodeKey, OutputValues: outputs})
 	}
-	return arrivals, rows.Err()
+	return arrivals, nil
 }
 
 func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSnapshot, arrivals []joinArrival) (map[string]string, bool, error) {

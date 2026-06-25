@@ -444,7 +444,7 @@ func (s *Store) DeleteSessionRecordByID(ctx context.Context, sessionID string) e
 	if s == nil || s.db == nil {
 		return errors.New("metadata store is required")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, strings.TrimSpace(sessionID)); err != nil {
+	if _, err := s.queries.DeleteSessionRecordByID(ctx, strings.TrimSpace(sessionID)); err != nil {
 		return fmt.Errorf("delete session record: %w", err)
 	}
 	return nil
@@ -1067,10 +1067,10 @@ func (s *Store) registerWorkspaceBindingConverged(ctx context.Context, canonical
 		return Binding{}, fmt.Errorf("begin workspace registration tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `UPDATE projects SET updated_at_unix_ms = updated_at_unix_ms WHERE id = ''`); err != nil {
+	q := s.queries.WithTx(tx)
+	if _, err := q.AcquireWorkspaceRegistrationLock(ctx); err != nil {
 		return Binding{}, fmt.Errorf("acquire workspace registration lock: %w", err)
 	}
-	q := s.queries.WithTx(tx)
 	rows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, canonicalRoot)
 	if err != nil {
 		return Binding{}, fmt.Errorf("lookup workspace binding: %w", err)

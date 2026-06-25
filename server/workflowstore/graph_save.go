@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"core/server/metadata/sqlitegen"
+	"core/server/metadata/sqlitelifecyclegen"
 	"core/server/workflow"
 )
 
@@ -157,7 +158,7 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
+	if err := sqlitelifecyclegen.New(tx).DeferForeignKeys(ctx); err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
 	q := s.queries.WithTx(tx)
@@ -170,7 +171,7 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 	}
 	version := plan.Version
 	if plan.GraphChanged {
-		if err := applyWorkflowGraphSave(ctx, tx, q, plan.WorkflowID, plan.Prepared, plan.Removed); err != nil {
+		if err := applyWorkflowGraphSave(ctx, q, plan.WorkflowID, plan.Prepared, plan.Removed); err != nil {
 			return WorkflowGraphSaveResult{}, err
 		}
 		revision, err := s.incrementWorkflowVersion(ctx, q, plan.WorkflowID)
@@ -556,7 +557,7 @@ func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableW
 	return out
 }
 
-func applyWorkflowGraphSave(ctx context.Context, tx *sql.Tx, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave, removed removedWorkflowGraphRows) error {
+func applyWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave, removed removedWorkflowGraphRows) error {
 	for _, edgeID := range removed.edges {
 		if deleted, err := q.DeleteWorkflowEdge(ctx, string(edgeID)); err != nil {
 			return fmt.Errorf("delete removed workflow edge: %w", err)
@@ -565,8 +566,10 @@ func applyWorkflowGraphSave(ctx context.Context, tx *sql.Tx, q *sqlitegen.Querie
 		}
 	}
 	for _, groupID := range removed.transitionGroups {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_transition_groups WHERE id = ?`, string(groupID)); err != nil {
+		if deleted, err := q.DeleteWorkflowTransitionGroupByID(ctx, string(groupID)); err != nil {
 			return fmt.Errorf("delete removed workflow transition group: %w", err)
+		} else if deleted != 1 {
+			return sql.ErrNoRows
 		}
 	}
 	for _, nodeID := range removed.nodes {
@@ -584,40 +587,40 @@ func applyWorkflowGraphSave(ctx context.Context, tx *sql.Tx, q *sqlitegen.Querie
 		}
 	}
 	for _, group := range prepared.nodeGroups {
-		if err := upsertWorkflowNodeGroup(ctx, tx, group); err != nil {
+		if err := upsertWorkflowNodeGroup(ctx, q, group); err != nil {
 			return err
 		}
 	}
 	for index, node := range prepared.nodes {
-		if err := upsertWorkflowNode(ctx, tx, node, int64(index*100)); err != nil {
+		if err := upsertWorkflowNode(ctx, q, node, int64(index*100)); err != nil {
 			return err
 		}
 	}
 	for index, group := range prepared.transitionGroups {
-		if err := upsertWorkflowTransitionGroup(ctx, tx, group, int64(index*100)); err != nil {
+		if err := upsertWorkflowTransitionGroup(ctx, q, group, int64(index*100)); err != nil {
 			return err
 		}
 	}
 	for index, edge := range prepared.edges {
-		if err := upsertWorkflowEdge(ctx, tx, edge, int64(index*100)); err != nil {
+		if err := upsertWorkflowEdge(ctx, q, edge, int64(index*100)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func upsertWorkflowNodeGroup(ctx context.Context, tx *sql.Tx, group NodeGroupRecord) error {
-	result, err := tx.ExecContext(ctx, strings.TrimSuffix(upsertWorkflowNodeGroupQuery, "\n"),
-		group.ID,
-		string(group.WorkflowID),
-		string(group.Key),
-		strings.TrimSpace(group.DisplayName),
-		group.SortOrder,
-	)
-	return expectAffectedRow(result, err, "save workflow node group")
+func upsertWorkflowNodeGroup(ctx context.Context, q *sqlitegen.Queries, group NodeGroupRecord) error {
+	updated, err := q.UpsertWorkflowNodeGroup(ctx, sqlitegen.UpsertWorkflowNodeGroupParams{
+		ID:          group.ID,
+		WorkflowID:  string(group.WorkflowID),
+		GroupKey:    string(group.Key),
+		DisplayName: strings.TrimSpace(group.DisplayName),
+		SortOrder:   group.SortOrder,
+	})
+	return expectAffectedRowCount(updated, err, "save workflow node group")
 }
 
-func upsertWorkflowNode(ctx context.Context, tx *sql.Tx, node NodeRecord, sortOrder int64) error {
+func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeRecord, sortOrder int64) error {
 	if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
 		return err
 	}
@@ -633,38 +636,38 @@ func upsertWorkflowNode(ctx context.Context, tx *sql.Tx, node NodeRecord, sortOr
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, strings.TrimSuffix(upsertWorkflowNodeQuery, "\n"),
-		string(node.ID),
-		string(node.WorkflowID),
-		string(node.Key),
-		string(node.Kind),
-		strings.TrimSpace(node.DisplayName),
-		strings.TrimSpace(node.SubagentRole),
-		strings.TrimSpace(node.PromptTemplate),
-		nodeCompletionMode(node),
-		inputFields,
-		joinProviders,
-		outputFields,
-		nullableString(node.GroupID),
-		sortOrder,
-	)
-	return expectAffectedRow(result, err, "save workflow node")
+	updated, err := q.UpsertWorkflowNode(ctx, sqlitegen.UpsertWorkflowNodeParams{
+		ID:                     string(node.ID),
+		WorkflowID:             string(node.WorkflowID),
+		NodeKey:                string(node.Key),
+		Kind:                   string(node.Kind),
+		DisplayName:            strings.TrimSpace(node.DisplayName),
+		SubagentRole:           strings.TrimSpace(node.SubagentRole),
+		PromptTemplate:         strings.TrimSpace(node.PromptTemplate),
+		CompletionMode:         nodeCompletionMode(node),
+		InputFieldsJson:        inputFields,
+		JoinInputProvidersJson: joinProviders,
+		OutputFieldsJson:       outputFields,
+		GroupID:                nullableString(node.GroupID),
+		SortOrder:              sortOrder,
+	})
+	return expectAffectedRowCount(updated, err, "save workflow node")
 }
 
-func upsertWorkflowTransitionGroup(ctx context.Context, tx *sql.Tx, group TransitionGroupRecord, sortOrder int64) error {
-	result, err := tx.ExecContext(ctx, strings.TrimSuffix(upsertWorkflowTransitionGroupQuery, "\n"),
-		string(group.ID),
-		string(group.SourceNodeID),
-		strings.TrimSpace(string(group.TransitionID)),
-		strings.TrimSpace(group.DisplayName),
-		strings.TrimSpace(group.Description),
-		sortOrder,
-		string(group.WorkflowID),
-	)
-	return expectAffectedRow(result, err, "save workflow transition group")
+func upsertWorkflowTransitionGroup(ctx context.Context, q *sqlitegen.Queries, group TransitionGroupRecord, sortOrder int64) error {
+	updated, err := q.UpsertWorkflowTransitionGroup(ctx, sqlitegen.UpsertWorkflowTransitionGroupParams{
+		ID:           string(group.ID),
+		SourceNodeID: string(group.SourceNodeID),
+		TransitionID: strings.TrimSpace(string(group.TransitionID)),
+		DisplayName:  strings.TrimSpace(group.DisplayName),
+		Description:  strings.TrimSpace(group.Description),
+		SortOrder:    sortOrder,
+		WorkflowID:   string(group.WorkflowID),
+	})
+	return expectAffectedRowCount(updated, err, "save workflow transition group")
 }
 
-func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOrder int64) error {
+func upsertWorkflowEdge(ctx context.Context, q *sqlitegen.Queries, edge EdgeRecord, sortOrder int64) error {
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
 	parameters, err := marshalJSONArray(edge.Parameters)
 	if err != nil {
@@ -682,32 +685,28 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 	if edge.RequiresApproval {
 		requiresApproval = 1
 	}
-	result, err := tx.ExecContext(ctx, strings.TrimSuffix(upsertWorkflowEdgeQuery, "\n"),
-		string(edge.ID),
-		string(edge.TransitionGroupID),
-		string(edge.Key),
-		string(edge.TargetNodeID),
-		requiresApproval,
-		string(edge.ContextMode),
-		string(contextSource.Kind),
-		string(contextSource.NodeKey),
-		strings.TrimSpace(edge.PromptTemplate),
-		parameters,
-		inputs,
-		requirements,
-		sortOrder,
-		string(edge.WorkflowID),
-	)
-	return expectAffectedRow(result, err, "save workflow edge")
+	updated, err := q.UpsertWorkflowEdge(ctx, sqlitegen.UpsertWorkflowEdgeParams{
+		ID:                     string(edge.ID),
+		TransitionGroupID:      string(edge.TransitionGroupID),
+		EdgeKey:                string(edge.Key),
+		TargetNodeID:           string(edge.TargetNodeID),
+		RequiresApproval:       requiresApproval,
+		ContextMode:            string(edge.ContextMode),
+		ContextSourceKind:      string(contextSource.Kind),
+		ContextSourceNodeKey:   string(contextSource.NodeKey),
+		PromptTemplate:         strings.TrimSpace(edge.PromptTemplate),
+		ParametersJson:         parameters,
+		InputBindingsJson:      inputs,
+		OutputRequirementsJson: requirements,
+		SortOrder:              sortOrder,
+		WorkflowID:             string(edge.WorkflowID),
+	})
+	return expectAffectedRowCount(updated, err, "save workflow edge")
 }
 
-func expectAffectedRow(result sql.Result, err error, op string) error {
+func expectAffectedRowCount(count int64, err error, op string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if count != 1 {
 		return fmt.Errorf("%s: %w", op, sql.ErrNoRows)

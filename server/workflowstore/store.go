@@ -409,7 +409,7 @@ func (s *Store) CreateAndLinkWorkflow(ctx context.Context, req CreateAndLinkWork
 	if err != nil {
 		return WorkflowRecord{}, ProjectWorkflowLinkRecord{}, err
 	}
-	link, err := s.linkWorkflowInTx(ctx, tx, q, now, strings.TrimSpace(req.ProjectID), record.ID, req.DefaultPolicy)
+	link, err := s.linkWorkflowInTx(ctx, q, now, strings.TrimSpace(req.ProjectID), record.ID, req.DefaultPolicy)
 	if err != nil {
 		return WorkflowRecord{}, ProjectWorkflowLinkRecord{}, err
 	}
@@ -467,46 +467,32 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 	if err != nil {
 		return ListWorkflowsResult{}, err
 	}
-	query := strings.TrimSpace(req.Query)
-	exactName := strings.TrimSpace(req.ExactName)
-	args := []any{}
-	where := ""
-	clauses := []string{}
-	if exactName != "" {
-		clauses = append(clauses, "name = ?")
-		args = append(args, exactName)
-	}
-	if query != "" {
-		clauses = append(clauses, "(lower(name) LIKE ? OR lower(description) LIKE ?)")
-		like := "%" + strings.ToLower(query) + "%"
-		args = append(args, like, like)
-	}
-	if len(clauses) > 0 {
-		where = "WHERE " + strings.Join(clauses, " AND ")
-	}
-	cursorClause := ""
+	cursorActive := int64(0)
 	if cursor.hasValue {
-		cursorClause = "WHERE activity_at_unix_ms < ? OR (activity_at_unix_ms = ? AND id < ?)"
-		args = append(args, cursor.activityAtUnixMs, cursor.activityAtUnixMs, cursor.workflowID)
+		cursorActive = 1
 	}
-	args = append(args, pageSize+1)
-	queryText := strings.Replace(strings.TrimSuffix(listWorkflowsQuery, "\n"), "{{clause}}", where, 1)
-	queryText = strings.Replace(queryText, "{{cursor_clause}}", cursorClause, 1)
-	rows, err := s.db.QueryContext(ctx, queryText, args...)
+	rows, err := s.queries.ListWorkflowRecordsPage(ctx, sqlitegen.ListWorkflowRecordsPageParams{
+		PageLimit:              int64(pageSize + 1),
+		ExactName:              strings.TrimSpace(req.ExactName),
+		SearchQuery:            strings.TrimSpace(req.Query),
+		CursorActive:           cursorActive,
+		CursorActivityAtUnixMs: cursor.activityAtUnixMs,
+		CursorWorkflowID:       cursor.workflowID,
+	})
 	if err != nil {
 		return ListWorkflowsResult{}, err
 	}
-	defer func() { _ = rows.Close() }()
 	rowsOut := make([]workflowRecordRow, 0, pageSize+1)
-	for rows.Next() {
-		var row workflowRecordRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Version, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.ActivityAtUnixMs); err != nil {
-			return ListWorkflowsResult{}, err
-		}
-		rowsOut = append(rowsOut, row)
-	}
-	if err := rows.Err(); err != nil {
-		return ListWorkflowsResult{}, err
+	for _, row := range rows {
+		rowsOut = append(rowsOut, workflowRecordRow{
+			ID:               row.ID,
+			Name:             row.Name,
+			Description:      row.Description,
+			Version:          row.Version,
+			CreatedAtUnixMs:  row.CreatedAtUnixMs,
+			UpdatedAtUnixMs:  row.UpdatedAtUnixMs,
+			ActivityAtUnixMs: row.ActivityAtUnixMs,
+		})
 	}
 	nextPageToken := ""
 	if len(rowsOut) > pageSize {
@@ -625,26 +611,22 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 	if err != nil {
 		return 0, err
 	}
-	updated, err := tx.ExecContext(ctx, strings.TrimSuffix(updateWorkflowNodeQuery, "\n"),
-		string(node.Key),
-		string(node.Kind),
-		strings.TrimSpace(node.DisplayName),
-		strings.TrimSpace(node.SubagentRole),
-		strings.TrimSpace(node.PromptTemplate),
-		nodeCompletionMode(node),
-		inputFields,
-		joinProviders,
-		outputFields,
-		nullableString(groupID),
-		string(node.ID),
-		string(node.WorkflowID),
-	)
+	count, err := q.UpdateWorkflowNode(ctx, sqlitegen.UpdateWorkflowNodeParams{
+		NodeKey:                string(node.Key),
+		Kind:                   string(node.Kind),
+		DisplayName:            strings.TrimSpace(node.DisplayName),
+		SubagentRole:           strings.TrimSpace(node.SubagentRole),
+		PromptTemplate:         strings.TrimSpace(node.PromptTemplate),
+		CompletionMode:         nodeCompletionMode(node),
+		InputFieldsJson:        inputFields,
+		JoinInputProvidersJson: joinProviders,
+		OutputFieldsJson:       outputFields,
+		GroupID:                nullableString(groupID),
+		ID:                     string(node.ID),
+		WorkflowID:             string(node.WorkflowID),
+	})
 	if err != nil {
 		return 0, fmt.Errorf("update workflow node: %w", err)
-	}
-	count, err := updated.RowsAffected()
-	if err != nil {
-		return 0, err
 	}
 	if count != 1 {
 		return 0, sql.ErrNoRows
@@ -836,20 +818,16 @@ func (s *Store) UpdateTransitionGroup(ctx context.Context, group TransitionGroup
 		if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
 			return err
 		}
-		updated, err := tx.ExecContext(ctx, strings.TrimSuffix(updateWorkflowTransitionGroupQuery, "\n"),
-			string(group.SourceNodeID),
-			strings.TrimSpace(string(group.TransitionID)),
-			strings.TrimSpace(group.DisplayName),
-			strings.TrimSpace(group.Description),
-			string(group.ID),
-			string(group.WorkflowID),
-		)
+		count, err := q.UpdateWorkflowTransitionGroup(ctx, sqlitegen.UpdateWorkflowTransitionGroupParams{
+			SourceNodeID:      string(group.SourceNodeID),
+			TransitionID:      strings.TrimSpace(string(group.TransitionID)),
+			DisplayName:       strings.TrimSpace(group.DisplayName),
+			Description:       strings.TrimSpace(group.Description),
+			TransitionGroupID: string(group.ID),
+			WorkflowID:        string(group.WorkflowID),
+		})
 		if err != nil {
 			return fmt.Errorf("update transition group: %w", err)
-		}
-		count, err := updated.RowsAffected()
-		if err != nil {
-			return err
 		}
 		if count != 1 {
 			return sql.ErrNoRows
@@ -878,7 +856,7 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	return s.withWorkflowGraphMutation(ctx, edge.WorkflowID, func(currentGraph preparedWorkflowGraphSave) preparedWorkflowGraphSave {
 		return withWorkflowGraphEdge(currentGraph, edge)
 	}, func(ctx context.Context, q *sqlitegen.Queries, tx *sql.Tx) error {
-		if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
+		if err := ensureWorkflowTransitionGroupID(ctx, q, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
 			return err
 		}
 		if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
@@ -918,7 +896,7 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 	return s.withWorkflowGraphMutation(ctx, edge.WorkflowID, func(currentGraph preparedWorkflowGraphSave) preparedWorkflowGraphSave {
 		return withWorkflowGraphEdge(currentGraph, edge)
 	}, func(ctx context.Context, q *sqlitegen.Queries, tx *sql.Tx) error {
-		if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
+		if err := ensureWorkflowTransitionGroupID(ctx, q, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
 			return err
 		}
 		if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
@@ -928,27 +906,23 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 		if edge.RequiresApproval {
 			requiresApproval = 1
 		}
-		updated, err := tx.ExecContext(ctx, strings.TrimSuffix(updateWorkflowEdgeQuery, "\n"),
-			string(edge.TransitionGroupID),
-			string(edge.Key),
-			string(edge.TargetNodeID),
-			requiresApproval,
-			string(edge.ContextMode),
-			string(contextSource.Kind),
-			string(contextSource.NodeKey),
-			strings.TrimSpace(edge.PromptTemplate),
-			parameters,
-			inputs,
-			requirements,
-			string(edge.ID),
-			string(edge.WorkflowID),
-		)
+		count, err := q.UpdateWorkflowEdge(ctx, sqlitegen.UpdateWorkflowEdgeParams{
+			TransitionGroupID:      string(edge.TransitionGroupID),
+			EdgeKey:                string(edge.Key),
+			TargetNodeID:           string(edge.TargetNodeID),
+			RequiresApproval:       requiresApproval,
+			ContextMode:            string(edge.ContextMode),
+			ContextSourceKind:      string(contextSource.Kind),
+			ContextSourceNodeKey:   string(contextSource.NodeKey),
+			PromptTemplate:         strings.TrimSpace(edge.PromptTemplate),
+			ParametersJson:         parameters,
+			InputBindingsJson:      inputs,
+			OutputRequirementsJson: requirements,
+			EdgeID:                 string(edge.ID),
+			WorkflowID:             string(edge.WorkflowID),
+		})
 		if err != nil {
 			return fmt.Errorf("update workflow edge: %w", err)
-		}
-		count, err := updated.RowsAffected()
-		if err != nil {
-			return err
 		}
 		if count != 1 {
 			return sql.ErrNoRows
@@ -1195,13 +1169,12 @@ func ensureWorkflowNodeID(ctx context.Context, q *sqlitegen.Queries, workflowID 
 	return nil
 }
 
-func ensureWorkflowTransitionGroupID(ctx context.Context, tx *sql.Tx, workflowID string, groupID workflow.TransitionGroupID) error {
+func ensureWorkflowTransitionGroupID(ctx context.Context, q *sqlitegen.Queries, workflowID string, groupID workflow.TransitionGroupID) error {
 	trimmedGroupID := strings.TrimSpace(string(groupID))
 	if trimmedGroupID == "" {
 		return errors.New("workflow transition group id is required")
 	}
-	var rowWorkflowID string
-	err := tx.QueryRowContext(ctx, strings.TrimSuffix(ensureWorkflowTransitionGroupIDQuery, "\n"), trimmedGroupID).Scan(&rowWorkflowID)
+	rowWorkflowID, err := q.GetWorkflowTransitionGroupWorkflowID(ctx, trimmedGroupID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("workflow transition group %q not found: %w", trimmedGroupID, sql.ErrNoRows)

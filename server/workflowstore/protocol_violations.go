@@ -35,9 +35,18 @@ func (s *Store) RecordProtocolViolation(ctx context.Context, req RecordProtocolV
 	}
 	switch req.Kind {
 	case ProtocolViolationInvalidCompletion:
-		err = s.db.QueryRowContext(ctx, strings.TrimSuffix(recordInvalidCompletionProtocolViolationQuery, "\n"),
-			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), requireGeneration, req.ExpectedGeneration,
-		).Scan(&count, &interruptedAt)
+		row, recordErr := s.queries.RecordInvalidCompletionProtocolViolation(ctx, sqlitegen.RecordInvalidCompletionProtocolViolationParams{
+			UpdatedAtUnixMs:        now,
+			MaxCount:               int64(req.MaxCount),
+			InterruptedAtUnixMs:    now,
+			InterruptionDetailJson: detail,
+			RunID:                  string(req.RunID),
+			RequireGeneration:      requireGeneration,
+			ExpectedGeneration:     req.ExpectedGeneration,
+		})
+		err = recordErr
+		count = row.InvalidCompletionCount
+		interruptedAt = row.InterruptedAtUnixMs
 	default:
 		return RecordProtocolViolationResult{}, fmt.Errorf("unsupported protocol violation kind %q", req.Kind)
 	}

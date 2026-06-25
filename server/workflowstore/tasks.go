@@ -401,16 +401,19 @@ func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTas
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	updatedStart, err := tx.ExecContext(ctx, strings.TrimSuffix(startTaskCompleteStartPlacementQuery, "\n"), "completed", now, prepared.startPlacement.ID, string(taskID))
+	updatedStart, err := q.StartTaskCompleteStartPlacement(ctx, sqlitegen.StartTaskCompleteStartPlacementParams{
+		State:           "completed",
+		UpdatedAtUnixMs: now,
+		PlacementID:     prepared.startPlacement.ID,
+		TaskID:          string(taskID),
+	})
 	if err != nil {
 		return StartTaskResult{}, err
 	}
-	if updated, err := updatedStart.RowsAffected(); err != nil {
-		return StartTaskResult{}, err
-	} else if updated != 1 {
+	if updatedStart != 1 {
 		return StartTaskResult{}, sql.ErrNoRows
 	}
-	if err := touchTaskUpdatedAt(ctx, tx, string(taskID), now); err != nil {
+	if err := touchTaskUpdatedAt(ctx, q, string(taskID), now); err != nil {
 		return StartTaskResult{}, err
 	}
 	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: transitionID, TaskID: string(taskID), SourcePlacementID: sql.NullString{String: prepared.startPlacement.ID, Valid: true}, SourceNodeKey: string(prepared.start.Key), SourceNodeDisplayName: prepared.start.DisplayName, TransitionID: string(prepared.group.TransitionID), TransitionDisplayName: prepared.group.DisplayName, WorkflowRevisionSeen: prepared.workflow.Version, Actor: "system", State: "applied", OutputValuesJson: "{}", CreatedAtUnixMs: now, AppliedAtUnixMs: now}); err != nil {
@@ -589,18 +592,14 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	updatedRun, err := tx.ExecContext(ctx, strings.TrimSuffix(completeRunUpdateRunQuery, "\n"),
-		now,
-		now,
-		run.ID,
-		run.RunGeneration,
-	)
+	updatedCount, err := q.CompleteRunUpdateRun(ctx, sqlitegen.CompleteRunUpdateRunParams{
+		UpdatedAtUnixMs:   now,
+		CompletedAtUnixMs: now,
+		RunID:             run.ID,
+		RunGeneration:     run.RunGeneration,
+	})
 	if err != nil {
 		return CompleteRunResult{}, fmt.Errorf("complete run: %w", err)
-	}
-	updatedCount, err := updatedRun.RowsAffected()
-	if err != nil {
-		return CompleteRunResult{}, err
 	}
 	if updatedCount != 1 {
 		return CompleteRunResult{}, sql.ErrNoRows
@@ -610,7 +609,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	} else if updated != 1 {
 		return CompleteRunResult{}, sql.ErrNoRows
 	}
-	if err := touchTaskUpdatedAt(ctx, tx, run.TaskID, now); err != nil {
+	if err := touchTaskUpdatedAt(ctx, q, run.TaskID, now); err != nil {
 		return CompleteRunResult{}, err
 	}
 	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: transitionID, TaskID: run.TaskID, SourceRunID: sql.NullString{String: run.ID, Valid: true}, SourcePlacementID: sql.NullString{String: run.PlacementID, Valid: true}, SourceNodeKey: string(snapshot.Node.Key), SourceNodeDisplayName: snapshot.Node.DisplayName, TransitionID: group.TransitionID, TransitionDisplayName: group.DisplayName, WorkflowRevisionSeen: snapshot.WorkflowRevisionSeen, Actor: actor, State: transitionState, Commentary: strings.TrimSpace(req.Commentary), OutputValuesJson: outputValuesJSON, CreatedAtUnixMs: now, AppliedAtUnixMs: appliedAt}); err != nil {
@@ -619,7 +618,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState, RequiresApproval: requiresApproval}
 	for _, edge := range group.Edges {
 		if requiresApproval {
-			source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, run.PlacementID, &run, snapshot, edge)
+			source, err := s.resolveContextSourceRun(ctx, q, run.TaskID, now, run.PlacementID, &run, snapshot, edge)
 			if err != nil {
 				return CompleteRunResult{}, err
 			}
@@ -636,7 +635,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 				if !foundSnapshot {
 					return CompleteRunResult{}, fmt.Errorf("target node %q missing from run-start snapshot", edge.TargetNode.ID)
 				}
-				priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, run.TaskID, now, run.PlacementID, edge)
+				priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, q, run.TaskID, now, run.PlacementID, edge)
 				if err != nil {
 					return CompleteRunResult{}, err
 				}
@@ -684,11 +683,11 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, run.PlacementID, &run, snapshot, edge)
+		source, err := s.resolveContextSourceRun(ctx, q, run.TaskID, now, run.PlacementID, &run, snapshot, edge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, run.TaskID, now, run.PlacementID, edge)
+		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, q, run.TaskID, now, run.PlacementID, edge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -709,7 +708,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		}
 		result.RunIDs = append(result.RunIDs, workflow.RunID(targetRunID))
 	}
-	event, err := runCompletedWorkflowEvent(ctx, tx, run.TaskID, transitionID, run.ID, now)
+	event, err := runCompletedWorkflowEvent(ctx, q, run.TaskID, transitionID, run.ID, now)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
@@ -722,15 +721,14 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	return result, nil
 }
 
-func runCompletedWorkflowEvent(ctx context.Context, tx *sql.Tx, taskID string, transitionID string, runID string, now int64) (WorkflowEventRecord, error) {
-	var projectID string
-	var workflowID string
-	if err := tx.QueryRowContext(ctx, `SELECT project_id, workflow_id FROM task_records WHERE id = ?`, taskID).Scan(&projectID, &workflowID); err != nil {
+func runCompletedWorkflowEvent(ctx context.Context, q *sqlitegen.Queries, taskID string, transitionID string, runID string, now int64) (WorkflowEventRecord, error) {
+	row, err := q.GetTaskProjectWorkflowIDs(ctx, taskID)
+	if err != nil {
 		return WorkflowEventRecord{}, fmt.Errorf("load completion event task identity: %w", err)
 	}
 	return WorkflowEventRecord{
-		ProjectID:        projectID,
-		WorkflowID:       workflowID,
+		ProjectID:        row.ProjectID,
+		WorkflowID:       row.WorkflowID,
 		Resource:         "task",
 		Action:           "completed",
 		ChangedIDs:       []string{taskID, transitionID, runID},
@@ -738,14 +736,10 @@ func runCompletedWorkflowEvent(ctx context.Context, tx *sql.Tx, taskID string, t
 	}, nil
 }
 
-func touchTaskUpdatedAt(ctx context.Context, tx *sql.Tx, taskID string, now int64) error {
-	result, err := tx.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = ? WHERE id = ?`, now, taskID)
+func touchTaskUpdatedAt(ctx context.Context, q *sqlitegen.Queries, taskID string, now int64) error {
+	updated, err := q.TouchTaskUpdatedAt(ctx, sqlitegen.TouchTaskUpdatedAtParams{UpdatedAtUnixMs: now, TaskID: taskID})
 	if err != nil {
 		return fmt.Errorf("update task timestamp: %w", err)
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if updated != 1 {
 		return sql.ErrNoRows

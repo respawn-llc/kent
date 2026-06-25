@@ -53,8 +53,11 @@ func (s *Store) TaskIdentityForTransition(ctx context.Context, transitionID work
 	if id == "" {
 		return "", "", "", ErrTransitionIDRequired
 	}
-	err = s.db.QueryRowContext(ctx, strings.TrimSuffix(taskIdentityForTransitionQuery, "\n"), id).Scan(&taskID, &projectID, &workflowID)
-	return taskID, projectID, workflowID, err
+	row, err := s.queries.GetTaskIdentityForTransition(ctx, id)
+	if err != nil {
+		return "", "", "", err
+	}
+	return row.ID, row.ProjectID, row.WorkflowID, nil
 }
 
 func (s *Store) ApproveTransition(ctx context.Context, transitionID workflow.TransitionID) (CompleteRunResult, error) {
@@ -62,22 +65,14 @@ func (s *Store) ApproveTransition(ctx context.Context, transitionID workflow.Tra
 	if id == "" {
 		return CompleteRunResult{}, ErrTransitionIDRequired
 	}
-	var taskID string
-	var sourceRunID sql.NullString
-	var state string
-	var revision int64
-	var transitionCreatedAt int64
-	err := s.db.QueryRowContext(ctx, `
-SELECT task_id, source_run_id, state, workflow_revision_seen, created_at_unix_ms
-FROM task_transitions
-WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision, &transitionCreatedAt)
+	transition, err := s.queries.GetTransitionApprovalState(ctx, id)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
-	if state == "approved" || state == "applied" {
-		return s.approvedTransitionResult(ctx, id, state)
+	if transition.State == "approved" || transition.State == "applied" {
+		return s.approvedTransitionResult(ctx, id, transition.State)
 	}
-	if state != "pending_approval" {
+	if transition.State != "pending_approval" {
 		return CompleteRunResult{}, fmt.Errorf("transition %s is not pending approval", id)
 	}
 	edges, err := s.queries.ListTaskTransitionEdges(ctx, id)
@@ -87,11 +82,11 @@ WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision, &transitionCre
 	if len(edges) == 0 {
 		return CompleteRunResult{}, errors.New("pending approval has no edge snapshots")
 	}
-	hasSourceRun := sourceRunID.Valid && strings.TrimSpace(sourceRunID.String) != ""
+	hasSourceRun := transition.SourceRunID.Valid && strings.TrimSpace(transition.SourceRunID.String) != ""
 	sourceRun := sqlitegen.TaskRunRecord{}
 	sourceSnapshot := runStartSnapshot{}
 	if hasSourceRun {
-		sourceRun, err = s.queries.GetTaskRun(ctx, sourceRunID.String)
+		sourceRun, err = s.queries.GetTaskRun(ctx, transition.SourceRunID.String)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -106,21 +101,17 @@ WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision, &transitionCre
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	updatedTransition, err := tx.ExecContext(ctx, `
-UPDATE task_transitions
-SET state = 'approved', applied_at_unix_ms = ?
-WHERE id = ? AND state = 'pending_approval'`, now, id)
-	if err != nil {
-		return CompleteRunResult{}, err
-	}
-	updatedCount, err := updatedTransition.RowsAffected()
+	updatedCount, err := q.ApprovePendingTransition(ctx, sqlitegen.ApprovePendingTransitionParams{
+		AppliedAtUnixMs: now,
+		TransitionID:    id,
+	})
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
 	if updatedCount != 1 {
 		_ = tx.Rollback()
-		var currentState string
-		if scanErr := s.db.QueryRowContext(ctx, `SELECT state FROM task_transitions WHERE id = ?`, id).Scan(&currentState); scanErr != nil {
+		currentState, scanErr := s.queries.GetTaskTransitionState(ctx, id)
+		if scanErr != nil {
 			return CompleteRunResult{}, scanErr
 		}
 		if currentState == "approved" || currentState == "applied" {
@@ -128,7 +119,7 @@ WHERE id = ? AND state = 'pending_approval'`, now, id)
 		}
 		return CompleteRunResult{}, sql.ErrNoRows
 	}
-	if err := touchTaskUpdatedAt(ctx, tx, taskID, now); err != nil {
+	if err := touchTaskUpdatedAt(ctx, q, transition.TaskID, now); err != nil {
 		return CompleteRunResult{}, err
 	}
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(id), State: "approved"}
@@ -144,13 +135,10 @@ WHERE id = ? AND state = 'pending_approval'`, now, id)
 			if !hasSourceRun {
 				return CompleteRunResult{}, errors.New("pending approval to join has no source run")
 			}
-			if _, err := tx.ExecContext(ctx, `
-UPDATE task_transition_edges
-SET state = 'applied'
-WHERE id = ? AND state = 'pending'`, edge.ID); err != nil {
+			if _, err := q.ApplyPendingTransitionEdgeToJoin(ctx, edge.ID); err != nil {
 				return CompleteRunResult{}, fmt.Errorf("update approved join edge snapshot: %w", err)
 			}
-			joined, err := s.applyJoinIfReady(ctx, tx, q, now, taskID, sourceRun.PlacementID, sourceSnapshot, targetEdge)
+			joined, err := s.applyJoinIfReady(ctx, tx, q, now, transition.TaskID, sourceRun.PlacementID, sourceSnapshot, targetEdge)
 			if err != nil {
 				return CompleteRunResult{}, err
 			}
@@ -159,14 +147,14 @@ WHERE id = ? AND state = 'pending'`, edge.ID); err != nil {
 			continue
 		}
 		targetPlacementID := prefixedID("placement")
-		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: taskID, NodeID: edge.TargetNodeID.String, State: "active", ParallelBatchTransitionID: sql.NullString{String: id, Valid: len(edges) > 1}, ParallelBranchEdgeID: sql.NullString{String: edge.WorkflowEdgeID.String, Valid: len(edges) > 1 && edge.WorkflowEdgeID.Valid}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: transition.TaskID, NodeID: edge.TargetNodeID.String, State: "active", ParallelBatchTransitionID: sql.NullString{String: id, Valid: len(edges) > 1}, ParallelBranchEdgeID: sql.NullString{String: edge.WorkflowEdgeID.String, Valid: len(edges) > 1 && edge.WorkflowEdgeID.Valid}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("insert approved target placement: %w", err)
 		}
 		result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))
-		if _, err := tx.ExecContext(ctx, `
-UPDATE task_transition_edges
-SET state = 'applied', target_placement_id = ?
-WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
+		if _, err := q.ApplyPendingTransitionEdgeToPlacement(ctx, sqlitegen.ApplyPendingTransitionEdgeToPlacementParams{
+			TargetPlacementID: sql.NullString{String: targetPlacementID, Valid: true},
+			EdgeID:            edge.ID,
+		}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("update approved edge snapshot: %w", err)
 		}
 		if workflow.NodeKind(edge.TargetNodeKind) != workflow.NodeKindAgent {
@@ -195,12 +183,12 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		source, ok, err := resolvedContextSourceRunFromMetadata(ctx, tx, edgeMetadata)
+		source, ok, err := resolvedContextSourceRunFromMetadata(ctx, q, edgeMetadata)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
 		if !ok {
-			source, err = s.resolveContextSourceRun(ctx, tx, taskID, transitionCreatedAt, sourceRun.PlacementID, &sourceRun, sourceSnapshot, targetEdge)
+			source, err = s.resolveContextSourceRun(ctx, q, transition.TaskID, transition.CreatedAtUnixMs, sourceRun.PlacementID, &sourceRun, sourceSnapshot, targetEdge)
 			if err != nil {
 				return CompleteRunResult{}, err
 			}
@@ -244,30 +232,15 @@ func (s *Store) approvedTransitionResult(ctx context.Context, transitionID strin
 		if !edge.TargetPlacementID.Valid || strings.TrimSpace(edge.TargetPlacementID.String) == "" {
 			continue
 		}
-		rows, err := s.db.QueryContext(ctx, `
-SELECT id
-FROM task_runs
-WHERE placement_id = ?
-ORDER BY created_at_unix_ms, id`, strings.TrimSpace(edge.TargetPlacementID.String))
+		rows, err := s.queries.ListTaskRunIDsByPlacementForTransitionResult(ctx, strings.TrimSpace(edge.TargetPlacementID.String))
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		for rows.Next() {
-			var runID string
-			if err := rows.Scan(&runID); err != nil {
-				_ = rows.Close()
-				return CompleteRunResult{}, err
-			}
+		for _, runID := range rows {
 			if trimmed := strings.TrimSpace(runID); trimmed != "" && !runIDs[trimmed] {
 				runIDs[trimmed] = true
 				result.RunIDs = append(result.RunIDs, workflow.RunID(trimmed))
 			}
-		}
-		if err := rows.Close(); err != nil {
-			return CompleteRunResult{}, err
-		}
-		if err := rows.Err(); err != nil {
-			return CompleteRunResult{}, err
 		}
 	}
 	return result, nil
