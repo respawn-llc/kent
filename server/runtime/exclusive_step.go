@@ -75,7 +75,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 	defer func() {
 		panicValue := recover()
 		s.closeActiveRunGate()
-		if panicValue == nil {
+		if panicValue == nil && err == nil {
 			if drainErr := s.engine.drainActiveRunGoalMutations(stepID); drainErr != nil {
 				err = errors.Join(err, fmt.Errorf("drain active-run goal mutations: %w", drainErr))
 			}

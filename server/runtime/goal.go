@@ -104,6 +104,39 @@ func (e *Engine) setGoalStatusForStep(stepID string, status session.GoalStatus, 
 	return goal, nil
 }
 
+func (e *Engine) completeGoalIfActiveForStep(stepID string, goalID string, actor session.GoalActor) (session.GoalState, error) {
+	if e == nil || e.store == nil {
+		return session.GoalState{}, fmt.Errorf("runtime engine is required")
+	}
+	goalID = strings.TrimSpace(goalID)
+	if goalID == "" {
+		return session.GoalState{}, errors.New("goal id is required")
+	}
+	transcriptWorkingDir := e.transcriptWorkingDir()
+	var msg llm.Message
+	e.controlMutationMu.Lock()
+	defer e.controlMutationMu.Unlock()
+	goal, transitioned, err := e.store.CompleteGoalIfActive(goalID, actor, func(goal session.GoalState) ([]session.EventInput, error) {
+		msg = normalizeMessageForTranscript(llm.Message{
+			Role:           llm.RoleDeveloper,
+			MessageType:    llm.MessageTypeGoal,
+			Content:        goalStatusPrompt(goal),
+			CompactContent: goalStatusCompactText(goal),
+		}, transcriptWorkingDir)
+		return []session.EventInput{{Kind: "message", Payload: msg}}, nil
+	})
+	if err != nil {
+		return session.GoalState{}, err
+	}
+	if !transitioned {
+		return session.GoalState{}, nil
+	}
+	if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, false, []llm.Message{msg}), steerGoalStatusUpdateIntent(goalStatusUpdateFromState(goal))); err != nil {
+		return session.GoalState{}, err
+	}
+	return goal, nil
+}
+
 func (e *Engine) QueueAgentShellSetGoal(runID string, stepID string, objective string, actor session.GoalActor) (session.GoalState, bool, error) {
 	if e == nil || e.store == nil {
 		return session.GoalState{}, false, fmt.Errorf("runtime engine is required")
@@ -144,6 +177,7 @@ func (e *Engine) QueueAgentShellCompleteGoal(runID string, stepID string, actor 
 	}
 	queued, err := e.enqueueActiveRunGoalMutation(runID, stepID, activeRunGoalMutation{
 		kind:  activeRunGoalMutationComplete,
+		goal:  *current,
 		actor: actor,
 	})
 	if err != nil || !queued {
@@ -205,12 +239,15 @@ func (e *Engine) shiftActiveRunGoalMutation(stepID string) (activeRunGoalMutatio
 func (e *Engine) applyActiveRunGoalMutation(stepID string, mutation activeRunGoalMutation) error {
 	switch mutation.kind {
 	case activeRunGoalMutationSet:
+		if err := e.RequireGoalLoopStartAllowed(); err != nil {
+			return err
+		}
 		if _, err := e.setGoalStateForStep(stepID, mutation.goal, mutation.actor); err != nil {
 			return err
 		}
 		return e.StartGoalLoop()
 	case activeRunGoalMutationComplete:
-		_, err := e.setGoalStatusForStep(stepID, session.GoalStatusComplete, mutation.actor)
+		_, err := e.completeGoalIfActiveForStep(stepID, mutation.goal.ID, mutation.actor)
 		return err
 	default:
 		return fmt.Errorf("unsupported active-run goal mutation kind %d", mutation.kind)
@@ -453,6 +490,9 @@ func (e *Engine) RequireGoalLoopStartAllowed() error {
 }
 
 func (e *Engine) requireAskQuestionForGoalLoopStart() error {
+	if !e.QuestionsEnabled() {
+		return ErrGoalRequiresAskQuestion
+	}
 	shape, err := e.lockedRequestShape()
 	if err != nil {
 		return err
