@@ -235,13 +235,21 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	}
 	completeCtx, completeCancel := context.WithTimeout(context.Background(), goalCommandTimeout)
 	defer completeCancel()
-	resp, err := remote.CompleteGoal(completeCtx, serverapi.RuntimeGoalStatusRequest{ClientRequestID: uuid.NewString(), SessionID: target, Actor: actor})
+	resp, err := remote.CompleteGoal(completeCtx, serverapi.RuntimeGoalStatusRequest{ClientRequestID: uuid.NewString(), SessionID: target, Actor: actor, ShellToken: goalCommandShellToken(agent)})
 	if err != nil {
 		fmt.Fprintln(stderr, formatGoalCommandError(err))
 		return 1
 	}
 	writeGoalShowText(stdout, resp.Goal)
 	return 0
+}
+
+func goalCommandShellToken(agent bool) string {
+	if !agent {
+		return ""
+	}
+	token, _ := sessionenv.LookupShellToken(os.LookupEnv)
+	return token
 }
 
 func goalAlreadyComplete(goal *serverapi.RuntimeGoal) bool {

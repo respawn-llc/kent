@@ -41,6 +41,10 @@ type WorkflowSessionResolver interface {
 	ResolveSessionStore(ctx context.Context, sessionID string) (*session.Store, error)
 }
 
+type ShellTokenVerifier interface {
+	VerifyShellToken(sessionID string, token string) bool
+}
+
 var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
 
 type Service struct {
@@ -50,6 +54,7 @@ type Service struct {
 	control        ControllerLeaseVerifier
 	promptStore    PromptHistoryStore
 	workflowStates WorkflowSessionResolver
+	shellTokens    ShellTokenVerifier
 	sessionNames   *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	thinkingLevels *requestmemo.Memo[sessionStringMemoRequest, struct{}]
 	fastModes      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetFastModeEnabledResponse]
@@ -190,6 +195,14 @@ func (s *Service) WithWorkflowSessionResolver(resolver WorkflowSessionResolver) 
 		return nil
 	}
 	s.workflowStates = resolver
+	return s
+}
+
+func (s *Service) WithShellTokenVerifier(verifier ShellTokenVerifier) *Service {
+	if s == nil {
+		return nil
+	}
+	s.shellTokens = verifier
 	return s
 }
 
@@ -742,7 +755,7 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 	memoReq := goalStatusMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Status: strings.TrimSpace(string(status)), Actor: strings.TrimSpace(req.Actor)}
 	return s.goalStatuses.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameGoalStatusMemoRequest, func(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
 		var response serverapi.RuntimeGoalShowResponse
-		err := s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
+		err := s.withGoalStatusMutationAccess(ctx, req, status, func(engine *runtime.Engine) error {
 			if status == session.GoalStatusComplete {
 				current := engine.Goal()
 				if current != nil && current.Status == session.GoalStatusComplete {
@@ -814,6 +827,26 @@ func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, 
 		}
 	}
 	return s.withRuntimeAccess(ctx, sessionID, leaseID, serverapi.SessionRuntimeOperationGoalManage, fn)
+}
+
+func (s *Service) withGoalStatusMutationAccess(ctx context.Context, req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus, fn func(*runtime.Engine) error) error {
+	if s.agentGoalCompletionUsesLeaseFreeRuntimeAccess(req, status) {
+		engine, err := s.resolve(ctx, req.SessionID)
+		if err != nil {
+			return err
+		}
+		return fn(engine)
+	}
+	return s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, fn)
+}
+
+func (s *Service) agentGoalCompletionUsesLeaseFreeRuntimeAccess(req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus) bool {
+	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
+		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
+		status == session.GoalStatusComplete &&
+		s != nil &&
+		s.shellTokens != nil &&
+		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken)
 }
 
 func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {
