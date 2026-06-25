@@ -381,6 +381,9 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	}
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
+		if msg.operation == runtimeControlInterrupt {
+			m.setPendingInterrupt(false)
+		}
 		m.clearRuntimeControlPending(msg.operation)
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
@@ -438,7 +441,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		status := serverapi.QuestionsToggleStatusMessage(msg.enabled, msg.changed)
 		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlInterrupt:
-		return followUpCmd
+		return sequenceCmds(m.acknowledgePendingInterrupt(), followUpCmd)
 	default:
 		return followUpCmd
 	}

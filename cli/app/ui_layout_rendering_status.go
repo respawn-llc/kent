@@ -167,6 +167,9 @@ func (l uiViewLayout) renderActivityStatus(available int, style uiStyles) string
 	if strings.TrimSpace(l.model.transientStatus) != "" {
 		return ""
 	}
+	if l.model.activity == uiActivityInterrupted {
+		return statusNoticeStyle(l.model.theme, uiStatusNoticeNeutral).Render(truncateQueuedMessageLine("interrupted", available))
+	}
 	if action, ok := l.model.view.DetailSelectedExpansionAction(); ok {
 		return style.meta.Render(truncateQueuedMessageLine("Enter to "+action, available))
 	}

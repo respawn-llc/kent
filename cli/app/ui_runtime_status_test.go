@@ -140,6 +140,22 @@ func TestRuntimeStatusLineShowsGoalProgressWord(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatusLineShowsInterruptedInsteadOfGoalAfterInterrupt(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+	}}
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
+	m.activity = uiActivityInterrupted
+	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
+
+	if strings.Contains(status, "goal") {
+		t.Fatalf("did not expect active goal indicator after interrupt, got %q", status)
+	}
+	if !strings.Contains(status, "interrupted") {
+		t.Fatalf("expected interrupted status after interrupt, got %q", status)
+	}
+}
+
 func TestRuntimeStatusIndicatorSelectsActiveGoalFromCachedStatus(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -166,6 +182,12 @@ func TestRuntimeStatusIndicatorSelectsActiveGoalFromCachedStatus(t *testing.T) {
 			goal:     &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive, Suspended: true},
 			want:     statusLineIndicatorGoal,
 			wantGoal: true,
+		},
+		{
+			name:    "interrupted overrides active goal",
+			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) { m.activity = uiActivityInterrupted },
+			want:    statusLineIndicatorActivity,
 		},
 		{
 			name: "paused goal",

@@ -144,6 +144,9 @@ func (m *uiModel) statusLineIndicator() statusLineIndicator {
 	if m.isCompacting() {
 		return statusLineIndicatorCompaction
 	}
+	if m.activity == uiActivityInterrupted {
+		return statusLineIndicatorActivity
+	}
 	if goalIsActive(m.cachedRuntimeStatus().Goal) {
 		return statusLineIndicatorGoal
 	}

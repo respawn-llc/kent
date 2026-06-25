@@ -663,6 +663,42 @@ func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
 	}
 }
 
+func TestCtrlCWhileGoalRunReactsOnInterruptAcknowledgement(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.setGoalRun(true)
+	m.activity = uiActivityRunning
+	m.queued = queuedInputsForTest("queued while goal runs")
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated := next.(*uiModel)
+	if !updated.isBusy() || !updated.hasPendingInterrupt() {
+		t.Fatal("expected ctrl+c to request an interrupt while goal run is busy")
+	}
+
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			next, _ = updated.Update(typed)
+			updated = next.(*uiModel)
+		}
+	}
+
+	if client.interruptCalls != 1 {
+		t.Fatalf("interrupt calls = %d, want 1", client.interruptCalls)
+	}
+	if updated.isBusy() || updated.hasPendingInterrupt() {
+		t.Fatalf("expected interrupt acknowledgement to unblock CLI, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
+	}
+	if updated.activity != uiActivityInterrupted {
+		t.Fatalf("activity = %v, want interrupted", updated.activity)
+	}
+	if updated.input != "queued while goal runs" || len(updated.queued) != 0 {
+		t.Fatalf("expected queued goal draft restored into input, input=%q queue=%+v", updated.input, updated.queued)
+	}
+}
+
 func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 	_, eng := newAppRuntimeEngine(t, &runtimeAdapterFakeClient{}, runtime.Config{})
 
