@@ -1,6 +1,9 @@
 package serverapi
 
 import (
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,9 +19,18 @@ type RunPromptRequest struct {
 	Overrides         RunPromptOverrides
 }
 
+func (r RunPromptRequest) Validate() error {
+	if strings.TrimSpace(r.ClientRequestID) == "" {
+		return errors.New("client_request_id is required")
+	}
+	if strings.TrimSpace(r.Prompt) == "" {
+		return errors.New("prompt is required")
+	}
+	return r.Overrides.ValidateAgentRoleOverride()
+}
+
 type RunPromptOverrides struct {
 	AgentRole           string
-	AgentRoleSet        bool
 	Model               string
 	ProviderOverride    string
 	ThinkingLevel       string
@@ -28,9 +40,44 @@ type RunPromptOverrides struct {
 	OpenAIBaseURL       string
 }
 
+var ErrInvalidRunPromptAgentRole = errors.New("invalid agent role")
+
+type RunPromptAgentRoleOverride struct {
+	Present bool
+	Default bool
+	Role    string
+}
+
+func (o RunPromptOverrides) AgentRoleOverride() (RunPromptAgentRoleOverride, error) {
+	raw := strings.TrimSpace(o.AgentRole)
+	if raw == "" {
+		return RunPromptAgentRoleOverride{}, nil
+	}
+	normalized := strings.ToLower(raw)
+	if normalized == config.DefaultSubagentRole {
+		return RunPromptAgentRoleOverride{Present: true, Default: true}, nil
+	}
+	if config.IsReservedSubagentRoleName(normalized) {
+		return RunPromptAgentRoleOverride{}, fmt.Errorf("%w %s", ErrInvalidRunPromptAgentRole, strconv.Quote(raw))
+	}
+	roleName := config.NormalizeSubagentSelector(raw)
+	if roleName == "" {
+		return RunPromptAgentRoleOverride{}, fmt.Errorf("%w %s", ErrInvalidRunPromptAgentRole, strconv.Quote(raw))
+	}
+	return RunPromptAgentRoleOverride{Present: true, Role: roleName}, nil
+}
+
+func (o RunPromptOverrides) ValidateAgentRoleOverride() error {
+	_, err := o.AgentRoleOverride()
+	return err
+}
+
+func (o RunPromptOverrides) HasAgentRoleOverride() bool {
+	return strings.TrimSpace(o.AgentRole) != ""
+}
+
 func (o RunPromptOverrides) HasAny() bool {
-	return o.AgentRoleSet ||
-		strings.TrimSpace(o.AgentRole) != "" ||
+	return strings.TrimSpace(o.AgentRole) != "" ||
 		strings.TrimSpace(o.Model) != "" ||
 		strings.TrimSpace(o.ProviderOverride) != "" ||
 		strings.TrimSpace(o.ThinkingLevel) != "" ||
@@ -51,7 +98,8 @@ func (o RunPromptOverrides) HasConfigOverrides() bool {
 }
 
 func (o RunPromptOverrides) NeedsAuthState() bool {
-	return config.NormalizeSubagentSelector(o.AgentRole) != ""
+	role, err := o.AgentRoleOverride()
+	return err == nil && role.Present && !role.Default
 }
 
 type RunPromptResponse struct {

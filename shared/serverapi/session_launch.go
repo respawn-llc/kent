@@ -54,5 +54,5 @@ func (r SessionPlanRequest) Validate() error {
 	if strings.TrimSpace(r.SelectedSessionID) == "" && !r.ForceNewSession {
 		return errors.New("selected_session_id or force_new_session is required")
 	}
-	return nil
+	return r.Overrides.ValidateAgentRoleOverride()
 }

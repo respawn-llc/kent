@@ -14,6 +14,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 var dialConfiguredRemote = client.DialConfiguredRemoteForProjectWorkspaceID
@@ -118,11 +119,11 @@ var (
 )
 
 func validateRunPromptAgentRole(settings config.Settings, rawRole string, kentSessionCaller bool, contextAgentRole string) error {
-	roleName := config.NormalizeSubagentSelector(rawRole)
-	if roleName == "" {
-		if strings.TrimSpace(rawRole) != "" && !config.IsReservedSubagentRoleName(rawRole) {
-			return errors.New("invalid agent role " + strconv.Quote(rawRole))
-		}
+	override, err := serverapi.RunPromptOverrides{AgentRole: rawRole}.AgentRoleOverride()
+	if err != nil {
+		return err
+	}
+	if !override.Present || override.Default {
 		if kentSessionCaller {
 			if err := validateContextAgentRoleCallable(settings, contextAgentRole); err != nil {
 				return err
@@ -130,6 +131,7 @@ func validateRunPromptAgentRole(settings config.Settings, rawRole string, kentSe
 		}
 		return nil
 	}
+	roleName := override.Role
 	role, exists := settings.Subagents[roleName]
 	if !exists && roleName != config.BuiltInSubagentRoleFast {
 		return fmt.Errorf("%w: %s. It may have been removed by the user during the session. Available roles: [%s]", errUnrecognizedSubagentRole, strconv.Quote(roleName), strings.Join(config.AvailableSubagentRoleNames(settings, kentSessionCaller), ", "))

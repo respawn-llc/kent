@@ -29,6 +29,27 @@ func TestPromptServiceRejectsMissingClientRequestID(t *testing.T) {
 	}
 }
 
+func TestPromptServiceRejectsInvalidAgentRoleBeforePreparingLauncher(t *testing.T) {
+	launcher := &stubHeadlessPromptLauncher{}
+	service := NewPromptService(launcher)
+
+	for _, role := range []string{"none", "self"} {
+		t.Run(role, func(t *testing.T) {
+			_, err := service.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+				ClientRequestID: "req-1",
+				Prompt:          "hello",
+				Overrides:       serverapi.RunPromptOverrides{AgentRole: role},
+			}, nil)
+			if err == nil {
+				t.Fatal("expected invalid agent role error")
+			}
+			if launcher.lastRequest.ClientRequestID != "" {
+				t.Fatal("launcher should not be prepared for invalid role overrides")
+			}
+		})
+	}
+}
+
 func TestPromptServiceRunsPromptThroughPreparedRuntime(t *testing.T) {
 	launcher := &stubHeadlessPromptLauncher{
 		runtime: &stubPromptSessionRuntime{

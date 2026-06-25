@@ -610,7 +610,7 @@ func toolIDEnabled(enabled []toolspec.ID, want toolspec.ID) bool {
 
 func workflowRunPromptOverrides(role string) serverapi.RunPromptOverrides {
 	if workflow.IsDefaultAgentRole(role) {
-		return serverapi.RunPromptOverrides{AgentRoleSet: true}
+		return serverapi.RunPromptOverrides{AgentRole: workflow.DefaultAgentRole}
 	}
 	return serverapi.RunPromptOverrides{AgentRole: role}
 }

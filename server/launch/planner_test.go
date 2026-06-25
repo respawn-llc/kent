@@ -295,7 +295,7 @@ func TestPlannerKeepsRoleBaseURLOutOfBaseSettingsOnResume(t *testing.T) {
 		t.Fatalf("base settings url = %q, want base", plan.BaseSettings.OpenAIBaseURL)
 	}
 
-	cleared, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRoleSet: true}, auth.EmptyState())
+	cleared, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: config.DefaultSubagentRole}, auth.EmptyState())
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverrides clear: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestApplyRunPromptOverridesExplicitDefaultClearsPersistedRole(t *testing.T)
 		BaseSource:          config.SourceReport{Sources: map[string]string{"thinking_level": "file"}},
 	}
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRoleSet: true}, auth.EmptyState())
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: config.DefaultSubagentRole}, auth.EmptyState())
 	if updated.ActiveSettings.ThinkingLevel != "medium" {
 		t.Fatalf("thinking level = %q, want base config", updated.ActiveSettings.ThinkingLevel)
 	}
@@ -477,8 +477,8 @@ func TestApplyRunPromptOverridesResumedRoleMatrix(t *testing.T) {
 			wantAgentRole:    "worker",
 		},
 		{
-			name:             "default alias clears resumed role",
-			overrides:        serverapi.RunPromptOverrides{AgentRoleSet: true},
+			name:             "default clears resumed role",
+			overrides:        serverapi.RunPromptOverrides{AgentRole: config.DefaultSubagentRole},
 			wantModel:        "gpt-5.5",
 			wantThinking:     "medium",
 			wantPatchSetting: true,
@@ -1164,14 +1164,17 @@ func TestResolveSubagentSettingsRejectsRoleReviewerContextWindowBelowMinimum(t *
 func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	plan := newSettingsPlan(t, workspace, config.Settings{Model: "gpt-5.4"})
-
-	_, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: "fast!"}, auth.EmptyState())
-	if err == nil {
-		t.Fatal("expected invalid agent role to fail")
-	}
-	if !errors.Is(err, errInvalidAgentRole) {
-		t.Fatalf("unexpected error: %v", err)
+	for _, role := range []string{"fast!", "none", "self"} {
+		t.Run(role, func(t *testing.T) {
+			plan := newSettingsPlan(t, workspace, config.Settings{Model: "gpt-5.4"})
+			_, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: role}, auth.EmptyState())
+			if err == nil {
+				t.Fatal("expected invalid agent role to fail")
+			}
+			if !errors.Is(err, errInvalidAgentRole) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 

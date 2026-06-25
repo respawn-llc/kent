@@ -63,6 +63,9 @@ func (s *PromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRe
 	if req.Prompt == "" {
 		return serverapi.RunPromptResponse{}, ErrPromptRequired
 	}
+	if err := req.Overrides.ValidateAgentRoleOverride(); err != nil {
+		return serverapi.RunPromptResponse{}, err
+	}
 
 	runtimeHandle, err := s.launcher.PrepareHeadlessPrompt(ctx, req, progress)
 	if err != nil {
