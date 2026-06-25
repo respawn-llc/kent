@@ -19,15 +19,7 @@ const (
 
 func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 	m := l.model
-	spin := renderStatusDot(m.theme, m.activity, m.spinnerFrame)
-	switch m.statusLineIndicator() {
-	case statusLineIndicatorReviewer:
-		spin = renderReviewerStatus(m.spinnerFrame)
-	case statusLineIndicatorCompaction:
-		spin = renderCompactionStatus(m.spinnerFrame)
-	case statusLineIndicatorGoal:
-		spin = renderGoalStatus(m.theme, m.spinnerFrame)
-	}
+	indicator := renderStatusIndicator(m.theme, m.statusLinePhase(), m.statusLineSpinning(), m.spinnerFrame)
 	segments := make([]string, 0, 5)
 	if modeLabel := l.statusModeLabel(); modeLabel != "" {
 		segments = append(segments, style.meta.Render(modeLabel))
@@ -43,7 +35,7 @@ func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 		segments = append(segments, serverOwnershipSection)
 	}
 	separator := style.meta.Render(statusLineSeparator)
-	left := renderStatusLineLeft(spin, segments, separator)
+	left := renderStatusLineLeft(indicator, segments, separator)
 	if lipgloss.Width(left) >= width {
 		return padANSIRight(truncateANSIRight(left, width), width)
 	}
@@ -279,37 +271,24 @@ func statusContextZone(themeName string, percent int) sharedtheme.Color {
 
 const statusStateCircleGlyph = "●"
 
-func renderStatusDot(theme string, activity uiActivity, frame int) string {
-	palette := uiPalette(theme)
-	switch activity {
-	case uiActivityRunning:
-		return lipgloss.NewStyle().Foreground(palette.primary).Render(pendingToolSpinnerFrame(frame))
-	case uiActivityQuestion:
-		return lipgloss.NewStyle().Foreground(palette.primary).Render(statusStateCircleGlyph)
-	default:
-		color := sharedtheme.DefaultPalette().Status.Success.Adaptive()
-		if activity == uiActivityError {
-			color = sharedtheme.DefaultPalette().Status.Error.Adaptive()
-		}
-		return lipgloss.NewStyle().Foreground(color).Render(statusStateCircleGlyph)
+func renderStatusIndicator(theme string, phase statusLinePhase, spinning bool, frame int) string {
+	glyph := statusStateCircleGlyph
+	if spinning {
+		glyph = pendingToolSpinnerFrame(frame)
 	}
+	return lipgloss.NewStyle().Foreground(statusLinePhaseColor(theme, phase)).Render(glyph)
 }
 
-func renderCompactionStatus(frame int) string {
-	indicator := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Warning.Adaptive()).Render(pendingToolSpinnerFrame(frame))
-	keyword := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Warning.Adaptive()).Bold(true).Render("compacting")
-	return indicator + " " + keyword
-}
-
-func renderReviewerStatus(frame int) string {
-	indicator := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Success.Adaptive()).Render(pendingToolSpinnerFrame(frame))
-	keyword := lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Success.Adaptive()).Bold(true).Render("reviewing")
-	return indicator + " " + keyword
-}
-
-func renderGoalStatus(theme string, frame int) string {
-	color := uiPalette(theme).primary
-	indicator := lipgloss.NewStyle().Foreground(color).Render(pendingToolSpinnerFrame(frame))
-	keyword := lipgloss.NewStyle().Foreground(color).Bold(true).Render("goal")
-	return indicator + " " + keyword
+func statusLinePhaseColor(theme string, phase statusLinePhase) lipgloss.TerminalColor {
+	palette := uiPalette(theme)
+	switch phase {
+	case statusLinePhaseSecondary:
+		return palette.secondary
+	case statusLinePhaseSuccess:
+		return sharedtheme.DefaultPalette().Status.Success.Adaptive()
+	case statusLinePhaseError:
+		return sharedtheme.DefaultPalette().Status.Error.Adaptive()
+	default:
+		return palette.primary
+	}
 }

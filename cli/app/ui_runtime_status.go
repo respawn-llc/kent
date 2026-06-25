@@ -7,13 +7,13 @@ import (
 	"core/shared/clientui"
 )
 
-type statusLineIndicator uint8
+type statusLinePhase uint8
 
 const (
-	statusLineIndicatorActivity statusLineIndicator = iota
-	statusLineIndicatorReviewer
-	statusLineIndicatorCompaction
-	statusLineIndicatorGoal
+	statusLinePhasePrimary statusLinePhase = iota
+	statusLinePhaseSecondary
+	statusLinePhaseSuccess
+	statusLinePhaseError
 )
 
 func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {
@@ -134,23 +134,30 @@ func (m *uiModel) cachedRuntimeStatus() clientui.RuntimeStatus {
 	return status
 }
 
-func (m *uiModel) statusLineIndicator() statusLineIndicator {
+func (m *uiModel) statusLinePhase() statusLinePhase {
 	if m == nil {
-		return statusLineIndicatorActivity
-	}
-	if m.isReviewerRunning() {
-		return statusLineIndicatorReviewer
+		return statusLinePhasePrimary
 	}
 	if m.isCompacting() {
-		return statusLineIndicatorCompaction
+		return statusLinePhaseSecondary
 	}
-	if m.activity == uiActivityInterrupted {
-		return statusLineIndicatorActivity
+	if m.isReviewerRunning() {
+		return statusLinePhaseSuccess
 	}
 	if goalIsActive(m.cachedRuntimeStatus().Goal) {
-		return statusLineIndicatorGoal
+		return statusLinePhasePrimary
 	}
-	return statusLineIndicatorActivity
+	if m.activity == uiActivityError {
+		return statusLinePhaseError
+	}
+	return statusLinePhasePrimary
+}
+
+func (m *uiModel) statusLineSpinning() bool {
+	if m == nil {
+		return false
+	}
+	return m.isBusy() || m.isCompacting() || m.isReviewerRunning()
 }
 
 func (m *uiModel) refreshRuntimeStatus() clientui.RuntimeStatus {
