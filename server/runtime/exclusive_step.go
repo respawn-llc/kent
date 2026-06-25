@@ -34,6 +34,7 @@ type exclusiveRunState struct {
 	cancel    context.CancelFunc
 	runID     string
 	stepID    string
+	closing   bool
 	startedAt time.Time
 }
 
@@ -73,6 +74,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 	}
 	defer func() {
 		panicValue := recover()
+		s.closeActiveRunGate()
 		if panicValue == nil {
 			if drainErr := s.engine.drainActiveRunGoalMutations(stepID); drainErr != nil {
 				err = errors.Join(err, fmt.Errorf("drain active-run goal mutations: %w", drainErr))
@@ -179,10 +181,21 @@ func (s *defaultExclusiveStepLifecycle) WithActiveRun(runID string, stepID strin
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active == nil || s.active.runID != runID || s.active.stepID != stepID {
+	if s.active == nil || s.active.closing || s.active.runID != runID || s.active.stepID != stepID {
 		return false, nil
 	}
 	return true, fn()
+}
+
+func (s *defaultExclusiveStepLifecycle) closeActiveRunGate() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active != nil {
+		s.active.closing = true
+	}
 }
 
 func (s *defaultExclusiveStepLifecycle) begin(ctx context.Context, options exclusiveStepOptions) (context.Context, string, error) {

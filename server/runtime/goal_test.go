@@ -111,7 +111,8 @@ func TestQueuedAgentShellGoalSetDrainsAfterToolCompletion(t *testing.T) {
 	})
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
 
-	if _, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent); err != nil || !queued {
+	queuedGoal, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent)
+	if err != nil || !queued {
 		t.Fatalf("QueueAgentShellSetGoal queued=%t err=%v, want queued", queued, err)
 	}
 	assistant := llm.Message{
@@ -136,6 +137,9 @@ func TestQueuedAgentShellGoalSetDrainsAfterToolCompletion(t *testing.T) {
 	}
 	if err := engine.drainActiveRunGoalMutations("step-1"); err != nil {
 		t.Fatalf("drain goal mutations: %v", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.ID != queuedGoal.ID {
+		t.Fatalf("persisted goal id = %+v, want queued id %q", goal, queuedGoal.ID)
 	}
 
 	messages := engine.transcriptRuntimeState().SnapshotMessages()

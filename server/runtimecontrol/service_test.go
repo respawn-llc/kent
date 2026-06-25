@@ -532,6 +532,8 @@ func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	active.finish()
 	if goal := store.Meta().Goal; goal == nil || goal.Status != session.GoalStatusComplete {
 		t.Fatalf("persisted goal = %+v, want complete", goal)
+	} else if resp.Goal.ID != goal.ID {
+		t.Fatalf("complete response goal id = %q, want persisted id %q", resp.Goal.ID, goal.ID)
 	}
 	if gate.acquire != 0 || gate.release != 0 {
 		t.Fatalf("gate acquire/release = %d/%d, want 0/0", gate.acquire, gate.release)
@@ -571,6 +573,8 @@ func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	active.finish()
 	if goal := store.Meta().Goal; goal == nil || goal.Objective != "new current-turn goal" || goal.Status != session.GoalStatusActive {
 		t.Fatalf("persisted goal = %+v, want active current-turn goal", goal)
+	} else if resp.Goal.ID != goal.ID {
+		t.Fatalf("set response goal id = %q, want persisted id %q", resp.Goal.ID, goal.ID)
 	}
 	if gate.acquire != 0 || gate.release != 0 {
 		t.Fatalf("gate acquire/release = %d/%d, want 0/0", gate.acquire, gate.release)

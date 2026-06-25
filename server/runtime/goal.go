@@ -12,6 +12,8 @@ import (
 	"core/server/session"
 	"core/shared/toolspec"
 	"core/shared/transcript"
+
+	"github.com/google/uuid"
 )
 
 const goalObjectivePreviewMaxRunes = 120
@@ -28,9 +30,9 @@ const (
 )
 
 type activeRunGoalMutation struct {
-	kind      activeRunGoalMutationKind
-	objective string
-	actor     session.GoalActor
+	kind  activeRunGoalMutationKind
+	goal  session.GoalState
+	actor session.GoalActor
 }
 
 func (e *Engine) Goal() *session.GoalState {
@@ -52,13 +54,17 @@ func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.Goa
 }
 
 func (e *Engine) setGoalForStep(stepID string, objective string, actor session.GoalActor) (session.GoalState, error) {
+	return e.setGoalStateForStep(stepID, session.GoalState{Objective: objective}, actor)
+}
+
+func (e *Engine) setGoalStateForStep(stepID string, goalState session.GoalState, actor session.GoalActor) (session.GoalState, error) {
 	if e == nil || e.store == nil {
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
 	}
-	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.RenderGoalSetPrompt(strings.TrimSpace(objective)), CompactContent: goalSetCompactText(objective)}, e.transcriptWorkingDir())
+	msg := normalizeMessageForTranscript(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.RenderGoalSetPrompt(strings.TrimSpace(goalState.Objective)), CompactContent: goalSetCompactText(goalState.Objective)}, e.transcriptWorkingDir())
 	e.controlMutationMu.Lock()
 	defer e.controlMutationMu.Unlock()
-	goal, err := e.store.SetGoalWithEvents(objective, actor, []session.EventInput{{Kind: "message", Payload: msg}})
+	goal, err := e.store.SetActiveGoalWithEvents(goalState, actor, []session.EventInput{{Kind: "message", Payload: msg}})
 	if err != nil {
 		return session.GoalState{}, err
 	}
@@ -109,16 +115,23 @@ func (e *Engine) QueueAgentShellSetGoal(runID string, stepID string, objective s
 	if err := e.RequireGoalLoopStartAllowed(); err != nil {
 		return session.GoalState{}, false, err
 	}
+	now := time.Now().UTC()
+	goal := session.GoalState{
+		ID:        uuid.NewString(),
+		Objective: objective,
+		Status:    session.GoalStatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
 	queued, err := e.enqueueActiveRunGoalMutation(runID, stepID, activeRunGoalMutation{
-		kind:      activeRunGoalMutationSet,
-		objective: objective,
-		actor:     actor,
+		kind:  activeRunGoalMutationSet,
+		goal:  goal,
+		actor: actor,
 	})
 	if err != nil || !queued {
 		return session.GoalState{}, queued, err
 	}
-	now := time.Now().UTC()
-	return session.GoalState{Objective: objective, Status: session.GoalStatusActive, CreatedAt: now, UpdatedAt: now}, true, nil
+	return goal, true, nil
 }
 
 func (e *Engine) QueueAgentShellCompleteGoal(runID string, stepID string, actor session.GoalActor) (session.GoalState, bool, error) {
@@ -163,42 +176,36 @@ func (e *Engine) drainActiveRunGoalMutations(stepID string) error {
 		return nil
 	}
 	for {
-		mutation, ok := e.peekActiveRunGoalMutation(stepID)
+		mutation, ok := e.shiftActiveRunGoalMutation(stepID)
 		if !ok {
 			return nil
 		}
 		if err := e.applyActiveRunGoalMutation(stepID, mutation); err != nil {
 			return err
 		}
-		e.shiftActiveRunGoalMutation(stepID)
 	}
 }
 
-func (e *Engine) peekActiveRunGoalMutation(stepID string) (activeRunGoalMutation, bool) {
+func (e *Engine) shiftActiveRunGoalMutation(stepID string) (activeRunGoalMutation, bool) {
 	e.activeRunGoalMutationsMu.Lock()
 	defer e.activeRunGoalMutationsMu.Unlock()
 	pending := e.activeRunGoalMutations[stepID]
 	if len(pending) == 0 {
 		return activeRunGoalMutation{}, false
 	}
-	return pending[0], true
-}
-
-func (e *Engine) shiftActiveRunGoalMutation(stepID string) {
-	e.activeRunGoalMutationsMu.Lock()
-	defer e.activeRunGoalMutationsMu.Unlock()
-	pending := e.activeRunGoalMutations[stepID]
+	mutation := pending[0]
 	if len(pending) <= 1 {
 		delete(e.activeRunGoalMutations, stepID)
-		return
+		return mutation, true
 	}
 	e.activeRunGoalMutations[stepID] = pending[1:]
+	return mutation, true
 }
 
 func (e *Engine) applyActiveRunGoalMutation(stepID string, mutation activeRunGoalMutation) error {
 	switch mutation.kind {
 	case activeRunGoalMutationSet:
-		if _, err := e.setGoalForStep(stepID, mutation.objective, mutation.actor); err != nil {
+		if _, err := e.setGoalStateForStep(stepID, mutation.goal, mutation.actor); err != nil {
 			return err
 		}
 		return e.StartGoalLoop()
