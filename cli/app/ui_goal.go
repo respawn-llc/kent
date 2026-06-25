@@ -49,6 +49,18 @@ func goalIsActive(goal *clientui.RuntimeGoal) bool {
 	return goal != nil && goal.Status == clientui.RuntimeGoalStatusActive
 }
 
+func goalIsPresent(goal *clientui.RuntimeGoal) bool {
+	if goal == nil {
+		return false
+	}
+	switch goal.Status {
+	case clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused:
+		return true
+	default:
+		return false
+	}
+}
+
 func goalRequiresClearConfirmation(goal *clientui.RuntimeGoal) bool {
 	return goalIsActive(goal) && !goal.Suspended
 }

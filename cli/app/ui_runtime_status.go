@@ -153,6 +153,25 @@ func (m *uiModel) statusLinePhase() statusLinePhase {
 	return statusLinePhasePrimary
 }
 
+func (m *uiModel) statusLineLabel() string {
+	if m == nil {
+		return ""
+	}
+	if m.isCompacting() {
+		return "compacting"
+	}
+	if m.isReviewerRunning() {
+		return "review"
+	}
+	if goalIsPresent(m.cachedRuntimeStatus().Goal) {
+		return "goal"
+	}
+	if m.activity == uiActivityError {
+		return "error"
+	}
+	return ""
+}
+
 func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false

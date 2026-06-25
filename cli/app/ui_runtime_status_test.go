@@ -114,36 +114,41 @@ func TestStaticLocalEntryAppendShowsStatusOnly(t *testing.T) {
 	}
 }
 
-func TestRuntimeStatusLineHidesGoalStatusText(t *testing.T) {
-	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused, clientui.RuntimeGoalStatusComplete} {
+func TestRuntimeStatusLineGoalLabelUsesPresentGoalOnly(t *testing.T) {
+	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused} {
 		client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
 			Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: goalStatus},
 		}}
 		m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 
 		status := stripANSIAndTrimRight(m.layout().renderStatusLine(120, uiThemeStyles("dark")))
-		if strings.Contains(status, "goal active") || strings.Contains(status, "goal paused") || strings.Contains(status, "goal complete") {
-			t.Fatalf("did not expect status line to include goal status text for %s, got %q", goalStatus, status)
+		if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+			t.Fatalf("expected present goal %s to render goal label, got %q", goalStatus, status)
 		}
+	}
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	status := stripANSIAndTrimRight(m.layout().renderStatusLine(120, uiThemeStyles("dark")))
+	if strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("did not expect complete goal to render goal label, got %q", status)
 	}
 }
 
-func TestRuntimeStatusLineShowsIdleDotForIdleActiveGoal(t *testing.T) {
+func TestRuntimeStatusLineShowsIdleGoalDotForIdleActiveGoal(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
 		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
 	}}
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
 
-	if !strings.HasPrefix(status, statusStateCircleGlyph+" ") {
-		t.Fatalf("expected idle active goal to render a dot, got %q", status)
-	}
-	if strings.Contains(status, "goal") {
-		t.Fatalf("did not expect idle active goal to render goal indicator text, got %q", status)
+	if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("expected idle active goal to render a dot with goal label, got %q", status)
 	}
 }
 
-func TestRuntimeStatusLineShowsInterruptedInsteadOfGoalAfterInterrupt(t *testing.T) {
+func TestRuntimeStatusLineGoalLabelOverridesInterruptedActivity(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
 		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
 	}}
@@ -151,8 +156,8 @@ func TestRuntimeStatusLineShowsInterruptedInsteadOfGoalAfterInterrupt(t *testing
 	m.activity = uiActivityInterrupted
 	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
 
-	if strings.Contains(status, "goal") {
-		t.Fatalf("did not expect active goal indicator after interrupt, got %q", status)
+	if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("expected active goal label after interrupt, got %q", status)
 	}
 	if !strings.Contains(status, "interrupted") {
 		t.Fatalf("expected interrupted status after interrupt, got %q", status)
@@ -298,6 +303,68 @@ func TestRuntimeStatusPhasePrecedence(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatusLabelPrecedence(t *testing.T) {
+	tests := []struct {
+		name    string
+		goal    *clientui.RuntimeGoal
+		prepare func(*uiModel)
+		want    string
+	}{
+		{name: "idle", want: ""},
+		{
+			name: "last event error",
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityError
+			},
+			want: "error",
+		},
+		{
+			name: "active goal overrides error",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) {
+				m.activity = uiActivityError
+			},
+			want: "goal",
+		},
+		{
+			name: "paused goal",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusPaused},
+			want: "goal",
+		},
+		{
+			name: "complete goal omitted",
+			goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusComplete},
+			want: "",
+		},
+		{
+			name:    "review overrides active goal",
+			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) { m.setReviewerRunning(true) },
+			want:    "review",
+		},
+		{
+			name:    "compaction overrides active goal",
+			goal:    &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
+			prepare: func(m *uiModel) { m.setCompacting(true) },
+			want:    "compacting",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{Goal: tt.goal}}
+			m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+			if tt.prepare != nil {
+				tt.prepare(m)
+			}
+
+			if got := m.statusLineLabel(); got != tt.want {
+				t.Fatalf("label = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRuntimeStatusLineReopenActiveGoalFromStartupMainViewUsesIdleDot(t *testing.T) {
 	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{
 		Session: clientui.RuntimeSessionView{SessionID: "session-1"},
@@ -316,11 +383,8 @@ func TestRuntimeStatusLineReopenActiveGoalFromStartupMainViewUsesIdleDot(t *test
 		t.Fatal("reopened active goal without active run must not spin")
 	}
 	status := stripANSIAndTrimRight(uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme)))
-	if !strings.HasPrefix(status, statusStateCircleGlyph+" ") {
-		t.Fatalf("expected reopened active goal to render idle dot, got %q", status)
-	}
-	if strings.Contains(status, "goal") {
-		t.Fatalf("did not expect reopened active goal to render goal indicator text, got %q", status)
+	if !strings.HasPrefix(status, statusStateCircleGlyph+" goal ") {
+		t.Fatalf("expected reopened active goal to render idle dot with goal label, got %q", status)
 	}
 }
 

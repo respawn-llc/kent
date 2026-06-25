@@ -19,7 +19,7 @@ const (
 
 func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 	m := l.model
-	indicator := renderStatusIndicator(m.theme, m.statusLinePhase(), m.statusLineSpinning(), m.spinnerFrame)
+	indicator := renderStatusIndicator(m.theme, m.statusLinePhase(), m.statusLineSpinning(), m.spinnerFrame, m.statusLineLabel())
 	segments := make([]string, 0, 5)
 	if modeLabel := l.statusModeLabel(); modeLabel != "" {
 		segments = append(segments, style.meta.Render(modeLabel))
@@ -271,10 +271,14 @@ func statusContextZone(themeName string, percent int) sharedtheme.Color {
 
 const statusStateCircleGlyph = "●"
 
-func renderStatusIndicator(theme string, phase statusLinePhase, spinning bool, frame int) string {
+func renderStatusIndicator(theme string, phase statusLinePhase, spinning bool, frame int, label string) string {
 	glyph := statusStateCircleGlyph
 	if spinning {
 		glyph = pendingToolSpinnerFrame(frame)
+	}
+	label = strings.TrimSpace(label)
+	if label != "" {
+		glyph += " " + label
 	}
 	return lipgloss.NewStyle().Foreground(statusLinePhaseColor(theme, phase)).Render(glyph)
 }
