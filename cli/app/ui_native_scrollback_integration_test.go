@@ -270,6 +270,9 @@ type nativeProgramHarness struct {
 
 func startNativeProgram(t *testing.T, model tea.Model, output io.Writer, options ...tea.ProgramOption) *nativeProgramHarness {
 	t.Helper()
+	if typed, ok := model.(*uiModel); ok && typed.terminalCursor != nil {
+		output = newUITerminalCursorWriter(output, typed.terminalCursor)
+	}
 	programOptions := append([]tea.ProgramOption{
 		tea.WithInput(strings.NewReader("")),
 		tea.WithOutput(output),
@@ -637,13 +640,7 @@ func TestNativeScrollbackInitClearsOnEachProgramRun(t *testing.T) {
 	}
 }
 
-func TestNativeResizeReplaysOngoingScreenAfterRealResize(t *testing.T) {
-	previousDebounce := nativeResizeReplayDebounce
-	nativeResizeReplayDebounce = 20 * time.Millisecond
-	t.Cleanup(func() {
-		nativeResizeReplayDebounce = previousDebounce
-	})
-
+func TestNativeResizeDoesNotReplayOngoingScrollbackAfterRealResize(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(
 		nil,
@@ -669,12 +666,12 @@ func TestNativeResizeReplaysOngoingScreenAfterRealResize(t *testing.T) {
 	program.QuitAndWaitAllowContextCanceled(2 * time.Second)
 
 	raw := out.String()
-	if count := strings.Count(raw, "\x1b[2J"); count < 2 || count > 3 {
-		t.Fatalf("expected startup clear plus 1-2 width-resize replay clears, got %d occurrences in %q", count, raw)
+	if count := strings.Count(raw, "\x1b[2J"); count != 1 {
+		t.Fatalf("expected only the startup clear-screen sequence after resize burst, got %d occurrences in %q", count, raw)
 	}
 	plain := xansi.Strip(raw)
-	if count := strings.Count(normalizedOutput(raw), "seed replay line"); count < 2 || count > 3 {
-		t.Fatalf("expected committed history to replay at least once after debounced width resize burst, got %q", normalizedOutput(raw))
+	if count := strings.Count(normalizedOutput(raw), "seed replay line"); count != 1 {
+		t.Fatalf("expected committed history to remain emitted once after resize burst, got %q", normalizedOutput(raw))
 	}
 	for _, line := range strings.Split(plain, "\n") {
 		if strings.Count(line, statusStateCircleGlyph+statusLineSpinnerSeparator) > 1 {
@@ -696,12 +693,6 @@ func TestNativeResizeReplaysOngoingScreenAfterRealResize(t *testing.T) {
 }
 
 func TestNativeResizeClearWithoutHistoryRedrawsSingleLiveRegion(t *testing.T) {
-	previousDebounce := nativeResizeReplayDebounce
-	nativeResizeReplayDebounce = 20 * time.Millisecond
-	t.Cleanup(func() {
-		nativeResizeReplayDebounce = previousDebounce
-	})
-
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.input = "top\ncurrent\nbottom"

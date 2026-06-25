@@ -82,10 +82,6 @@ func (m *uiModel) rollbackCandidateEntries() ([]tui.TranscriptEntry, int) {
 }
 
 func (m *uiModel) startRollbackSelectionMode() bool {
-	if !m.rollback.isActive() && !m.rollback.restoreScrollActive {
-		m.rollback.restoreOngoingScroll = m.view.OngoingScroll()
-		m.rollback.restoreScrollActive = true
-	}
 	m.refreshRollbackCandidates()
 	if len(m.rollback.candidates) == 0 {
 		return false
@@ -118,11 +114,7 @@ func (m *uiModel) startRollbackSelectionMode() bool {
 func (m *uiModel) stopRollbackSelectionMode() {
 	m.rollback.phase = uiRollbackPhaseInactive
 	m.forwardToView(tui.SetSelectedTranscriptEntryMsg{Active: false, EntryIndex: -1, RefreshDetailSnapshot: false})
-	if m.rollback.restoreScrollActive {
-		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.rollback.restoreOngoingScroll})
-		m.forwardToView(tui.SetSelectedTranscriptEntryMsg{Active: false, EntryIndex: -1, RefreshDetailSnapshot: true})
-		m.rollback.restoreScrollActive = false
-	}
+	m.forwardToView(tui.SetSelectedTranscriptEntryMsg{Active: false, EntryIndex: -1, RefreshDetailSnapshot: true})
 	m.restorePrimaryInputMode()
 }
 

@@ -19,7 +19,7 @@ func projectedTranscriptEventSnapshotFromModel(m *uiModel) projectedTranscriptEv
 		busy:                 m.isBusy(),
 		liveAssistantPending: strings.TrimSpace(liveAssistantText) != "" || m.sawAssistantDelta,
 		liveAssistantText:    liveAssistantText,
-		liveAssistantStepID:  m.nativeStreamingStepID,
+		liveAssistantStepID:  m.nativeScrollbackLedger.AssistantStreamState().StepID,
 	}
 }
 
@@ -29,8 +29,7 @@ func projectedActiveAssistantStreamText(m *uiModel) string {
 	}
 	values := []string{
 		m.view.OngoingStreamingText(),
-		m.nativeStreamingController.source,
-		m.nativeStreamingText,
+		m.nativeScrollbackLedger.AssistantStreamState().Source,
 	}
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

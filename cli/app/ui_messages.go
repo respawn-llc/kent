@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 )
@@ -164,19 +165,16 @@ type startupUpdateNoticeMsg struct {
 	version string
 }
 
-type nativeResizeReplayMsg struct {
-	token uint64
-}
-
 type nativeHistoryFlushMsg struct {
 	Text             string
 	AllowBlank       bool
 	ClearBelowBefore bool
 	Sequence         uint64
+	Flush            nativescrollback.ScheduledFlush
 }
 
-type nativeStreamingStableFlushAckMsg struct {
-	Sequence uint64
+type nativeTerminalWriteResultMsg struct {
+	Result nativescrollback.TerminalWriteResult
 }
 
 type runtimeEventMsg struct {
@@ -221,12 +219,6 @@ type runtimeTranscriptRefreshedMsg struct {
 type runtimeCommittedTranscriptSuffixRefreshedMsg struct {
 	token  uint64
 	req    clientui.CommittedTranscriptSuffixRequest
-	suffix clientui.CommittedTranscriptSuffix
-	err    error
-}
-
-type nativeResizeTranscriptSuffixRefreshedMsg struct {
-	token  uint64
 	suffix clientui.CommittedTranscriptSuffix
 	err    error
 }
@@ -277,8 +269,6 @@ type nativeHistoryReplayPermit uint8
 const (
 	nativeHistoryReplayPermitNone nativeHistoryReplayPermit = iota
 	nativeHistoryReplayPermitContinuityRecovery
-	nativeHistoryReplayPermitAuthoritativeHydrate
-	nativeHistoryReplayPermitModeRestore
 )
 
 type runLoggerDiagnosticMsg struct {

@@ -199,8 +199,8 @@ func TestNativeProgramRendersMixedRuntimeEventsFromChannelInRealtime(t *testing.
 			lastTranscript,
 			lastNormalized,
 			model.view.CommittedOngoingProjection().Render(tui.TranscriptDivider),
-			model.nativeProjection.Render(tui.TranscriptDivider),
-			model.nativeRenderedProjection.Render(tui.TranscriptDivider),
+			model.nativeCurrentProjection().Render(tui.TranscriptDivider),
+			model.nativeRenderedProjection().Render(tui.TranscriptDivider),
 		)
 	}
 

@@ -24,18 +24,17 @@ func TestCommittedSuffixFinalizerThatWouldRestructureEmittedBlockIsDeferred(t *t
 		{Role: tui.TranscriptRoleAssistant, Text: "rendered-divergent", Committed: true},
 	}
 	var projector tui.CommittedOngoingProjector
-	m.nativeRenderedProjection = projector.Project(renderedEntries, tui.CommittedOngoingProjectionKey{
+	renderedProjection := projector.Project(renderedEntries, tui.CommittedOngoingProjectionKey{
 		Revision:   m.transcriptRevision,
 		Width:      m.nativeReplayRenderWidth(),
 		Theme:      m.theme,
 		BaseOffset: m.transcriptBaseOffset,
 		EntryCount: len(renderedEntries),
 	})
+	setNativeRenderedProjectionForTest(m, renderedProjection, m.transcriptBaseOffset)
 
 	m.sawAssistantDelta = true
-	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingController.ApplySource("final answer", m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingText = "final answer"
+	seedNativeAssistantStreamForTest(m, "final answer")
 
 	suffix := clientui.CommittedTranscriptSuffix{
 		SessionID:           "session-1",
@@ -281,9 +280,7 @@ func TestCommittedSuffixFinalizerResponseAppliesWhileGateIsActive(t *testing.T) 
 	m.runtimeCommittedSuffixToken = 1
 	m.forwardToView(tui.SetConversationMsg{Ongoing: "final answer"})
 	m.sawAssistantDelta = true
-	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingController.ApplySource("final answer", m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingText = "final answer"
+	seedNativeAssistantStreamForTest(m, "final answer")
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
@@ -322,8 +319,7 @@ func TestCommittedSuffixFinalizerResponseAppliesFromNativeStreamingSourceOnly(t 
 	m.termWidth = 100
 	m.termHeight = 20
 	m.runtimeCommittedSuffixToken = 1
-	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingController.ApplySource("final answer", m.theme, m.nativeReplayRenderWidth())
+	seedNativeAssistantStreamForTest(m, "final answer")
 
 	if !m.ongoingCommittedScrollbackGateActive() {
 		t.Fatal("expected native streaming source to activate committed scrollback gate")
@@ -361,10 +357,8 @@ func TestCommittedSuffixFinalizerResponseDoesNotBypassGateWhenActiveStepIsKnown(
 	m.runtimeCommittedSuffixToken = 1
 	m.forwardToView(tui.SetConversationMsg{Ongoing: "same final text"})
 	m.sawAssistantDelta = true
-	m.nativeStreamingStepID = "new-step"
-	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingController.ApplySource("same final text", m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingText = "same final text"
+	m.nativeScrollbackLedger.SetAssistantStreamStepID("new-step")
+	seedNativeAssistantStreamForTest(m, "same final text")
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
@@ -407,7 +401,7 @@ func TestCommittedSuffixGateEvaluatesTrimmedSuffixRows(t *testing.T) {
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleAssistant, Text: "final answer", Committed: true}}
 	m.transcriptRevision = 1
 	m.transcriptTotalEntries = 1
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(1, 1)
+	setCommittedDeliveryForTest(m, 1, 1)
 	m.forwardToView(tui.SetConversationMsg{
 		BaseOffset:   0,
 		TotalEntries: 1,
@@ -415,9 +409,7 @@ func TestCommittedSuffixGateEvaluatesTrimmedSuffixRows(t *testing.T) {
 		Ongoing:      "final answer",
 	})
 	m.sawAssistantDelta = true
-	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingController.ApplySource("final answer", m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingText = "final answer"
+	seedNativeAssistantStreamForTest(m, "final answer")
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
@@ -564,7 +556,7 @@ func TestDeferredTailDrainAdvancesDeliveryCursorOnlyThroughActuallyEmittedPrefix
 	m.transcriptRevision = 1
 	m.transcriptTotalEntries = 4
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 4, Entries: m.transcriptEntries})
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(1, 1)
+	setCommittedDeliveryForTest(m, 1, 1)
 	m.deferredCommittedTail = []deferredProjectedTranscriptTail{
 		{
 			rangeStart: 1,
@@ -590,6 +582,38 @@ func TestDeferredTailDrainAdvancesDeliveryCursorOnlyThroughActuallyEmittedPrefix
 	}
 }
 
+func TestDeferredTailDrainBindsDeliveryCursorToNativeFlushAck(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
+	m.transcriptRevision = 1
+	m.transcriptTotalEntries = 2
+	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 2, Entries: m.transcriptEntries})
+	projection := m.nativeCommittedProjection(m.transcriptEntries)
+	setNativeCurrentAndRenderedProjectionForTest(m, projection, 0, 1)
+	setCommittedDeliveryForTest(m, 1, 1)
+	m.deferredCommittedTail = []deferredProjectedTranscriptTail{{
+		rangeStart: 1,
+		rangeEnd:   2,
+		revision:   2,
+		entries:    []clientui.ChatEntry{{Role: "assistant", Text: "deferred answer"}},
+	}}
+
+	cmd := m.drainDeferredCommittedDeliveryIfUnblocked()
+	state := committedDeliveryStateForTest(m)
+	if state.LastAppliedCommittedEntryCount != 2 || state.LastEmittedCommittedEntryCount != 1 || !state.NativeFlushInFlight {
+		t.Fatalf("deferred drain should wait for native flush ack, got %+v", state)
+	}
+
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
+	state = committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 2 || state.NativeFlushInFlight {
+		t.Fatalf("deferred drain cursor did not advance after native ack: %+v", state)
+	}
+}
+
 func TestStaleFinalAssistantCommitDoesNotClearNewerLiveStreamOrReleaseDeferredRows(t *testing.T) {
 	client := &runtimeClientWithoutCachedMainView{
 		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
@@ -609,7 +633,7 @@ func TestStaleFinalAssistantCommitDoesNotClearNewerLiveStreamOrReleaseDeferredRo
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: 0, TotalEntries: 1, Entries: m.transcriptEntries, Ongoing: "newer live stream"})
 	m.sawAssistantDelta = true
-	m.nativeStreamingStepID = "new-step"
+	m.nativeScrollbackLedger.SetAssistantStreamStepID("new-step")
 	m.deferredCommittedTail = []deferredProjectedTranscriptTail{{
 		rangeStart: 1,
 		rangeEnd:   2,
@@ -697,9 +721,7 @@ func TestRunIdleClearsAwaitingNativeStreamingCommitAndDrainsDeferredTail(t *test
 	m.termWidth = 100
 	m.termHeight = 20
 	m.nativeStreamingAwaitingCommit = true
-	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingController.ApplySource("orphaned stream", m.theme, m.nativeReplayRenderWidth())
-	m.nativeStreamingText = "orphaned stream"
+	seedNativeAssistantStreamForTest(m, "orphaned stream")
 	m.deferredCommittedTail = []deferredProjectedTranscriptTail{{
 		rangeStart: 0,
 		rangeEnd:   1,
@@ -716,7 +738,7 @@ func TestRunIdleClearsAwaitingNativeStreamingCommitAndDrainsDeferredTail(t *test
 	if m.nativeStreamingAwaitingCommit {
 		t.Fatal("expected idle run state to clear awaiting native streaming commit marker")
 	}
-	if got := strings.TrimSpace(m.nativeStreamingController.source); got != "" {
+	if got := strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source); got != "" {
 		t.Fatalf("native streaming source = %q, want cleared", got)
 	}
 	if got := len(m.deferredCommittedTail); got != 0 {

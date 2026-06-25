@@ -1,6 +1,7 @@
 package app
 
 import (
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 
@@ -95,8 +96,8 @@ func committedTranscriptTailEnd(m *uiModel) int {
 	if m == nil {
 		return 0
 	}
-	if m.ongoingCommittedDelivery.initialized {
-		return m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount
+	if state := m.nativeScrollbackLedger.CommittedDeliveryState(); state.Initialized {
+		return state.LastAppliedCommittedEntryCount
 	}
 	return committedTranscriptLocalFrontierEnd(m)
 }
@@ -122,7 +123,7 @@ func committedOngoingLocalFrontierEnd(m *uiModel) int {
 	if m == nil {
 		return 0
 	}
-	return m.transcriptBaseOffset + len(committedTranscriptEntriesForApp(m.transcriptEntries))
+	return m.transcriptBaseOffset + committedNativeScrollbackEntriesForApp(m.transcriptEntries).PrefixEnd
 }
 
 func loadedTranscriptTailEnd(m *uiModel) int {
@@ -163,9 +164,7 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 	if m == nil {
 		return nil
 	}
-	if !m.ongoingCommittedDelivery.initialized {
-		m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(committedTranscriptTailEnd(m), m.transcriptRevision)
-	}
+	m.nativeScrollbackLedger.EnsureCommittedDelivery(committedTranscriptTailEnd(m), m.transcriptRevision)
 	// Multiple committed events can race their suffix reads while final-answer
 	// streaming is being finalized. Trim any already-delivered overlap so a late
 	// suffix cannot re-emit the final answer that advanced the delivery cursor.
@@ -195,13 +194,13 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 				OngoingError: page.StreamingError,
 			})
 		}
-		return m.syncNativeHistoryFromTranscript()
+		return m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery()
 	}
 	if len(entries) == 0 && suffix.NextEntryCount > suffix.StartEntryCount {
 		m.transcriptRevision = max(m.transcriptRevision, suffix.Revision)
 		m.transcriptTotalEntries = max(m.transcriptTotalEntries, suffix.CommittedEntryCount)
 		m.transcriptLiveDirty = true
-		m.ongoingCommittedDelivery.markApplied(max(committedOngoingLocalFrontierEnd(m), suffix.NextEntryCount), suffix.Revision)
+		m.nativeScrollbackLedger.MarkCommittedApplied(max(committedOngoingLocalFrontierEnd(m), suffix.NextEntryCount), suffix.Revision)
 		m.refreshRollbackCandidates()
 		if m.view.Mode() == tui.ModeDetail {
 			m.detailTranscript.apply(page)
@@ -221,48 +220,105 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 	m.transcriptRevision = max(m.transcriptRevision, suffix.Revision)
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, suffix.CommittedEntryCount)
 	m.transcriptLiveDirty = true
-	m.ongoingCommittedDelivery.markApplied(committedOngoingLocalFrontierEnd(m), suffix.Revision)
+	m.nativeScrollbackLedger.MarkCommittedApplied(committedOngoingLocalFrontierEnd(m), suffix.Revision)
 	m.refreshRollbackCandidates()
 	if m.view.Mode() == tui.ModeDetail {
 		m.detailTranscript.apply(page)
 	}
-	beforeSequence := m.nativeFlushSequence
+	beforeSequence := m.nativeLastScheduledFlushSequence()
 	cmd := m.syncNativeHistoryFromTranscript()
 	return sequenceCmds(cmd, m.trackOngoingCommittedSuffixFlush(suffix, beforeSequence))
 }
 
 func (m *uiModel) trackOngoingCommittedSuffixFlush(suffix clientui.CommittedTranscriptSuffix, beforeSequence uint64) tea.Cmd {
-	if m == nil || !m.ongoingCommittedDelivery.initialized || suffix.NextEntryCount <= suffix.StartEntryCount {
+	if m == nil || suffix.NextEntryCount <= suffix.StartEntryCount {
 		return nil
 	}
-	emittedEnd := committedOngoingLocalFrontierEnd(m)
-	if emittedEnd <= m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount {
+	state := m.nativeScrollbackLedger.CommittedDeliveryState()
+	if !state.Initialized {
+		return nil
+	}
+	emittedEnd := max(committedOngoingLocalFrontierEnd(m), state.LastAppliedCommittedEntryCount)
+	if emittedEnd <= state.LastEmittedCommittedEntryCount {
 		return nil
 	}
 	if !m.shouldEmitNativeHistory() {
-		m.ongoingCommittedDelivery.recordCommittedAdvance(emittedEnd, suffix.Revision)
-		return nil
-	}
-	if m.nativeFlushSequence <= beforeSequence {
-		m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount = emittedEnd
-		m.ongoingCommittedDelivery.lastEmittedTranscriptRevision = suffix.Revision
+		m.nativeScrollbackLedger.RecordCommittedAdvance(emittedEnd, suffix.Revision)
 		return nil
 	}
 	emittedSuffix := suffix
 	emittedSuffix.NextEntryCount = emittedEnd
-	if err := m.ongoingCommittedDelivery.beginNativeFlush(emittedSuffix, m.nativeFlushSequence); err != nil {
+	return m.bindOngoingCommittedDeliveryToNativeFlush(emittedSuffix, beforeSequence, state, "suffix")
+}
+
+func (m *uiModel) trackOngoingCommittedFrontierFlush(committedEnd int, revision int64, beforeSequence uint64) tea.Cmd {
+	if m == nil || m.nativeScrollbackInvariantSet {
+		return nil
+	}
+	state := m.nativeScrollbackLedger.CommittedDeliveryState()
+	committedEnd = max(committedEnd, state.LastAppliedCommittedEntryCount)
+	if !state.Initialized || committedEnd <= state.LastEmittedCommittedEntryCount {
+		return nil
+	}
+	if !m.shouldEmitNativeHistory() {
+		m.nativeScrollbackLedger.RecordCommittedAdvance(committedEnd, revision)
+		return nil
+	}
+	return m.bindOngoingCommittedDeliveryToNativeFlush(clientui.CommittedTranscriptSuffix{
+		Revision:        revision,
+		StartEntryCount: state.LastEmittedCommittedEntryCount,
+		NextEntryCount:  committedEnd,
+	}, beforeSequence, state, "frontier")
+}
+
+func (m *uiModel) bindOngoingCommittedDeliveryToNativeFlush(suffix clientui.CommittedTranscriptSuffix, beforeSequence uint64, state nativescrollback.CommittedDeliveryState, reason string) tea.Cmd {
+	if m == nil || suffix.NextEntryCount <= suffix.StartEntryCount {
+		return nil
+	}
+	if m.nativeLastScheduledFlushSequence() <= beforeSequence {
+		if state.NativeFlushInFlight {
+			return m.beginOngoingCommittedNativeFlush(suffix, state.FlushSequence, state, reason+".extend")
+		}
+		if suffix.StartEntryCount != state.LastEmittedCommittedEntryCount {
+			m.logf(
+				"ui.runtime.committed_delivery.no_write_gap reason=%s start=%d next=%d revision=%d cursor=%d",
+				reason,
+				suffix.StartEntryCount,
+				suffix.NextEntryCount,
+				suffix.Revision,
+				state.LastEmittedCommittedEntryCount,
+			)
+			m.nativeScrollbackLedger.RecordPendingCommittedRange(
+				state.LastEmittedCommittedEntryCount,
+				suffix.NextEntryCount,
+				suffix.Revision,
+			)
+			return m.requestRuntimeCommittedGapSync()
+		}
+		m.nativeScrollbackLedger.MarkCommittedDelivered(suffix.NextEntryCount, suffix.Revision)
+		return nil
+	}
+	return m.beginOngoingCommittedNativeFlush(suffix, nativescrollback.Sequence(m.nativeLastScheduledFlushSequence()), state, reason)
+}
+
+func (m *uiModel) beginOngoingCommittedNativeFlush(suffix clientui.CommittedTranscriptSuffix, sequence nativescrollback.Sequence, state nativescrollback.CommittedDeliveryState, reason string) tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	if err := m.nativeScrollbackLedger.BeginCommittedNativeFlush(suffix, sequence); err != nil {
 		m.logf(
-			"ui.runtime.committed_suffix.begin_flush_failed err=%q sequence=%d start=%d next=%d revision=%d cursor=%d",
+			"ui.runtime.committed_delivery.begin_flush_failed reason=%s err=%q sequence=%d start=%d next=%d revision=%d cursor=%d",
+			reason,
 			err.Error(),
-			m.nativeFlushSequence,
-			emittedSuffix.StartEntryCount,
-			emittedSuffix.NextEntryCount,
-			emittedSuffix.Revision,
-			m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount,
+			sequence,
+			suffix.StartEntryCount,
+			suffix.NextEntryCount,
+			suffix.Revision,
+			state.LastEmittedCommittedEntryCount,
 		)
-		m.ongoingCommittedDelivery.recordPendingRange(
-			m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount,
-			emittedEnd,
+		m.nativeScrollbackLedger.RecordPendingCommittedRange(
+			state.LastEmittedCommittedEntryCount,
+			suffix.NextEntryCount,
 			suffix.Revision,
 		)
 		return m.requestRuntimeCommittedGapSync()

@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 )
 
@@ -340,10 +341,11 @@ func (l uiViewLayout) renderNativeStreamingLines(width, maxLines int, style uiSt
 }
 
 func (l uiViewLayout) visibleNativeStreamingAssistantLines(streamText string, width int) []string {
-	if width == l.model.nativeStreamingWidth && streamText == l.model.nativeStreamingText {
-		return nativeProjectionLineTexts(l.model.nativeStreamingTail)
-	}
-	return renderNativeStreamingAssistantLines(streamText, l.model.theme, width)
+	return nativeProjectionLineTexts(l.model.nativeScrollbackLedger.AssistantStreamLiveLinesFor(nativescrollback.AssistantStreamInput{
+		Source: streamText,
+		Theme:  l.model.theme,
+		Width:  width,
+	}))
 }
 
 func renderNativeStreamingAssistantLines(streamText, theme string, width int) []string {
@@ -363,8 +365,9 @@ func nativeProjectionLineTexts(lines []tui.TranscriptProjectionLine) []string {
 }
 
 func (l uiViewLayout) renderNativePendingLines(width int) []string {
-	rendered := renderNativePendingToolSnapshot(l.model.transcriptEntries, l.model.theme, width, l.model.spinnerFrame)
-	pendingEntries := tui.PendingOngoingEntries(l.model.transcriptEntries)
+	partitionEntries := nativeScrollbackPartitionEntriesForApp(l.model.transcriptEntries)
+	rendered := renderNativePendingToolSnapshot(partitionEntries, l.model.theme, width, l.model.spinnerFrame)
+	pendingEntries := nativescrollback.PendingOngoingEntries(partitionEntries)
 	for _, entry := range pendingEntries {
 		if isNativePendingToolRole(string(entry.Role)) {
 			continue

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"core/cli/app/commands"
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/app/internal/runtimestate"
 	"core/cli/tui"
 	"core/shared/client"
@@ -183,7 +184,6 @@ type uiTranscriptFeatureState struct {
 	transcriptBaseOffset              int
 	transcriptTotalEntries            int
 	transcriptRevision                int64
-	ongoingCommittedDelivery          ongoingCommittedDeliveryCursor
 	deferredCommittedTail             []deferredProjectedTranscriptTail
 	deferredCommittedSuffixRefreshSet bool
 	runtimeConnection                 clientui.RuntimeConnectionLifecycle
@@ -208,38 +208,19 @@ type uiTranscriptFeatureState struct {
 }
 
 type uiNativeHistoryFeatureState struct {
-	nativeFlushedEntryCount            int
-	nativeHistoryReplayed              bool
 	nativeReplayWidth                  int
 	nativeFormatterWidth               int
 	nativeCommittedProjector           tui.CommittedOngoingProjector
-	nativeProjection                   tui.TranscriptProjection
-	nativeProjectionBaseOffset         int
-	nativeRenderedProjection           tui.TranscriptProjection
-	nativeRenderedBaseOffset           int
-	nativeRenderedSnapshot             string
 	nativeHistoryReplayPermit          nativeHistoryReplayPermit
-	nativeFlushSequence                uint64
-	nativeFlushedSequence              uint64
-	nativePendingFlushes               map[uint64]nativeHistoryFlushMsg
+	nativeScrollbackLedger             nativescrollback.Ledger
 	waitRuntimeEventAfterFlushSequence uint64
 	nativeLiveRegionLines              int
 	nativeLiveRegionPad                int
 	nativeStreamingActive              bool
-	nativeStreamingController          nativeAssistantStreamController
-	nativeStreamingTail                []tui.TranscriptProjectionLine
-	nativeStreamingStableFlushSequence uint64
-	nativeStreamingText                string
-	nativeStreamingStepID              string
-	nativeStreamingCommitStart         int
-	nativeStreamingCommitEnd           int
-	nativeStreamingCommitRangeSet      bool
 	nativeStreamingAwaitingCommit      bool
-	nativeStreamingWidth               int
-	nativeStreamingFlushedLineCount    int
 	nativeStreamingDividerFlushed      bool
-	nativeResizeReplayToken            uint64
-	nativeResizeReplayAt               time.Time
+	nativeScrollbackInvariant          nativeScrollbackInvariantViolation
+	nativeScrollbackInvariantSet       bool
 }
 
 type uiKeyboardFeatureState struct {

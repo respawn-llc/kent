@@ -98,11 +98,8 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 		preserveLiveReasoning:          preserveLiveReasoning,
 		shouldSyncNativeHistory:        shouldSyncNativeHistory,
 	}
-	if shouldSyncNativeHistory {
-		reduction.nativeReplayPermit = nativeHistoryReplayPermitAuthoritativeHydrate
-		if recoveryCause != clientui.TranscriptRecoveryCauseNone {
-			reduction.nativeReplayPermit = nativeHistoryReplayPermitContinuityRecovery
-		}
+	if shouldSyncNativeHistory && recoveryCause != clientui.TranscriptRecoveryCauseNone {
+		reduction.nativeReplayPermit = nativeHistoryReplayPermitContinuityRecovery
 	}
 	if reason := runtimeTranscriptPageReplacementRejectReason(state, pageReq, page); reason != "" {
 		reduction.decision = runtimeTranscriptPageDecisionReject
@@ -206,7 +203,7 @@ func (state runtimeTranscriptPageState) effectiveCommittedState() (int64, int) {
 	}
 	count := state.effectiveCommittedCount
 	if count == 0 {
-		count = state.baseOffset + len(committedTranscriptEntriesForApp(state.entries))
+		count = state.baseOffset + committedNativeScrollbackEntriesForApp(state.entries).PrefixEnd
 	}
 	return revision, max(state.totalEntries, count)
 }

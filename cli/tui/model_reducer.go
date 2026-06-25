@@ -17,11 +17,6 @@ type modelUpdateResult struct {
 }
 
 func (m *Model) reduce(msg tea.Msg) {
-	wasAtOngoingBottom := false
-	if m.mode == ModeOngoing {
-		wasAtOngoingBottom = m.isOngoingAtBottom()
-	}
-
 	result := modelUpdateResult{}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -32,8 +27,6 @@ func (m *Model) reduce(msg tea.Msg) {
 		m.reduceToggleModeMsg(msg)
 	case SetModeMsg:
 		m.reduceSetModeMsg(msg)
-	case ScrollOngoingMsg:
-		m.reduceScrollOngoingMsg(msg)
 	case SetViewportLinesMsg:
 		result.viewportChanged = m.reduceViewportLinesMsg(msg)
 	case SetViewportSizeMsg:
@@ -46,8 +39,6 @@ func (m *Model) reduce(msg tea.Msg) {
 		m.reduceSetSelectedTranscriptEntryMsg(msg, &result)
 	case FocusTranscriptEntryMsg:
 		m.reduceFocusTranscriptEntryMsg(msg)
-	case SetOngoingScrollMsg:
-		m.ongoingScroll = clamp(msg.Scroll, 0, m.maxOngoingScroll())
 	case StreamAssistantMsg:
 		m.reduceStreamAssistantMsg(msg, &result)
 	case ClearOngoingAssistantMsg:
@@ -64,7 +55,7 @@ func (m *Model) reduce(msg tea.Msg) {
 		m.ongoingError = ""
 	}
 
-	m.applyUpdateResult(result, wasAtOngoingBottom)
+	m.applyUpdateResult(result)
 }
 
 func (m *Model) reduceKeyMsg(msg tea.KeyMsg) {
@@ -100,18 +91,10 @@ func (m *Model) reduceSetModeMsg(msg SetModeMsg) {
 	*m = m.transitionMode(msg.Mode, msg.SkipDetailWarmup)
 }
 
-func (m *Model) reduceScrollOngoingMsg(msg ScrollOngoingMsg) {
-	*m = m.scrollOngoing(msg.Delta)
-}
-
 func (m *Model) reduceOngoingKeyMsg(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyTab:
 		*m = m.transitionMode(ModeDetail, false)
-	case tea.KeyUp:
-		*m = m.scrollOngoing(-1)
-	case tea.KeyDown:
-		*m = m.scrollOngoing(1)
 	}
 }
 
@@ -135,12 +118,6 @@ func (m *Model) reduceDetailKeyMsg(msg tea.KeyMsg) {
 }
 
 func (m *Model) reduceOngoingMouseMsg(msg tea.MouseMsg) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		*m = m.scrollOngoing(-1)
-	case tea.MouseButtonWheelDown:
-		*m = m.scrollOngoing(1)
-	}
 }
 
 func (m *Model) reduceDetailMouseMsg(msg tea.MouseMsg) {
@@ -419,9 +396,6 @@ func (m *Model) reduceSetSelectedTranscriptEntryMsg(msg SetSelectedTranscriptEnt
 func (m *Model) reduceFocusTranscriptEntryMsg(msg FocusTranscriptEntryMsg) {
 	switch m.mode {
 	case ModeOngoing:
-		if start, end, ok := m.ongoingLineRangeForEntry(msg.EntryIndex); ok {
-			m.ongoingScroll = clamp(focusedScrollTarget(start, end, m.viewportLines, msg), 0, m.maxOngoingScroll())
-		}
 	case ModeDetail:
 		if start, end, ok := m.detailLineRangeForEntry(msg.EntryIndex); ok {
 			m.ensureDetailScrollResolved()
@@ -452,7 +426,6 @@ func (m *Model) reduceClearOngoingAssistantMsg(result *modelUpdateResult) {
 	if hadOngoing {
 		m.advanceTranscriptProjectionRevision()
 	}
-	m.ongoingScroll = 0
 	result.ongoingChanged = true
 	result.detailChanged = true
 }
@@ -544,22 +517,11 @@ func (m *Model) advanceTranscriptEntriesRevision() {
 	}
 }
 
-func (m *Model) applyUpdateResult(result modelUpdateResult, wasAtOngoingBottom bool) {
+func (m *Model) applyUpdateResult(result modelUpdateResult) {
 	if result.forceDetailRefresh || (m.mode == ModeDetail && result.detailChanged) {
 		m.refreshDetailViewport()
 		if m.compactDetail {
 			m.ensureDetailSelection()
-		}
-	}
-	if m.mode == ModeOngoing {
-		maxOngoing := m.maxOngoingScroll()
-		m.ongoingScroll = clamp(m.ongoingScroll, 0, maxOngoing)
-		if result.viewportChanged && m.snapOngoingOnViewportResize {
-			m.ongoingScroll = maxOngoing
-			m.snapOngoingOnViewportResize = false
-		}
-		if result.autoFollowOngoing && wasAtOngoingBottom {
-			m.ongoingScroll = maxOngoing
 		}
 	}
 

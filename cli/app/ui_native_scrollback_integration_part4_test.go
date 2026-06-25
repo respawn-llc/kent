@@ -703,7 +703,7 @@ func TestRuntimeContinuityRecoveryReplaysOngoingScrollbackAndLaterAssistantAppen
 	deadline := time.Now().Add(2 * time.Second)
 	for !strings.Contains(normalizedOutput(out.String()), "after") {
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for continuity recovery replay appended to ongoing scrollback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q busy=%t runtime_busy=%t token=%d ongoing=%q", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, model.isBusy(), model.runtimeTranscriptBusy, model.runtimeTranscriptToken, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
+			t.Fatalf("timed out waiting for continuity recovery replay appended to ongoing scrollback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q busy=%t runtime_busy=%t token=%d ongoing=%q", normalizedOutput(out.String()), model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), model.isBusy(), model.runtimeTranscriptBusy, model.runtimeTranscriptToken, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -827,7 +827,7 @@ func TestNativeOngoingScrollbackContinuesAfterTransientActivityResubscribeTimeou
 	}
 }
 
-func TestRuntimeAuthoritativeHydrateRepairsOngoingScrollbackWithoutContinuityLoss(t *testing.T) {
+func TestRuntimeAuthoritativeHydrateDivergenceRecordsInvariantWithoutContinuityLoss(t *testing.T) {
 	out := &bytes.Buffer{}
 	runtimeEvents := make(chan clientui.Event, 16)
 	client := &runtimeControlFakeClient{
@@ -870,9 +870,8 @@ func TestRuntimeAuthoritativeHydrateRepairsOngoingScrollbackWithoutContinuityLos
 		},
 	}})
 	baselineLen := out.Len()
-	waitForTestCondition(t, 2*time.Second, "authoritative hydrate divergence rebased", func() bool {
-		got := stripANSIAndTrimRight(model.nativeRenderedSnapshot)
-		return strings.Contains(got, "after") && !strings.Contains(got, "before")
+	waitForTestCondition(t, 2*time.Second, "authoritative hydrate divergence recorded", func() bool {
+		return model.nativeScrollbackInvariantSet
 	})
 
 	program.QuitAndWait(2 * time.Second)
@@ -880,8 +879,8 @@ func TestRuntimeAuthoritativeHydrateRepairsOngoingScrollbackWithoutContinuityLos
 	if strings.Contains(out.String()[baselineLen:], "\x1b[2J") {
 		t.Fatalf("did not expect ordinary authoritative hydrate divergence to clear/replay ongoing scrollback, got %q", out.String()[baselineLen:])
 	}
-	if got := stripANSIAndTrimRight(model.nativeRenderedSnapshot); !strings.Contains(got, "after") || strings.Contains(got, "before") {
-		t.Fatalf("expected authoritative hydrate divergence to rebase internal rendered snapshot, got %q", got)
+	if got := stripANSIAndTrimRight(model.nativeRenderedSnapshot()); !strings.Contains(got, "before") || strings.Contains(got, "after") {
+		t.Fatalf("expected authoritative hydrate divergence to keep rendered snapshot unchanged, got %q", got)
 	}
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, "before") {
 		t.Fatalf("expected previously emitted ongoing scrollback to remain intact, got %q", normalized)

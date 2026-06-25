@@ -393,10 +393,10 @@ func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
 		_ = collectCmdMessages(t, cmd)
 	}
 	m.layout().syncViewport()
-	baselineProjection := m.nativeProjection
-	baselineRenderedProjection := m.nativeRenderedProjection
-	baselineRenderedSnapshot := m.nativeRenderedSnapshot
-	baselineFlushedEntryCount := m.nativeFlushedEntryCount
+	baselineProjection := m.nativeCurrentProjection()
+	baselineRenderedProjection := m.nativeRenderedProjection()
+	baselineRenderedSnapshot := m.nativeRenderedSnapshot()
+	baselineFlushedEntryCount := m.nativeCommittedEntryCount()
 
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
 	detail := next.(*uiModel)
@@ -416,17 +416,17 @@ func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
 		_ = collectCmdMessages(t, followUp)
 	}
 	updated := next.(*uiModel)
-	if !reflect.DeepEqual(updated.nativeProjection, baselineProjection) {
+	if !reflect.DeepEqual(updated.nativeCurrentProjection(), baselineProjection) {
 		t.Fatal("deferred detail load changed native projection state")
 	}
-	if !reflect.DeepEqual(updated.nativeRenderedProjection, baselineRenderedProjection) {
+	if !reflect.DeepEqual(updated.nativeRenderedProjection(), baselineRenderedProjection) {
 		t.Fatal("deferred detail load changed rendered native projection state")
 	}
-	if updated.nativeRenderedSnapshot != baselineRenderedSnapshot {
-		t.Fatalf("deferred detail load changed rendered native snapshot: %q -> %q", baselineRenderedSnapshot, updated.nativeRenderedSnapshot)
+	if updated.nativeRenderedSnapshot() != baselineRenderedSnapshot {
+		t.Fatalf("deferred detail load changed rendered native snapshot: %q -> %q", baselineRenderedSnapshot, updated.nativeRenderedSnapshot())
 	}
-	if updated.nativeFlushedEntryCount != baselineFlushedEntryCount {
-		t.Fatalf("deferred detail load changed native flushed entry count: %d -> %d", baselineFlushedEntryCount, updated.nativeFlushedEntryCount)
+	if updated.nativeCommittedEntryCount() != baselineFlushedEntryCount {
+		t.Fatalf("deferred detail load changed native flushed entry count: %d -> %d", baselineFlushedEntryCount, updated.nativeCommittedEntryCount())
 	}
 }
 

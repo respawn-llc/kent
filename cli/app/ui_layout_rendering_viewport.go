@@ -42,8 +42,12 @@ func (l uiViewLayout) calcChatLines() int {
 func (l uiViewLayout) syncViewport() {
 	width := l.effectiveWidth()
 	l.syncNativeLiveRegionState()
-	l.model.nativeReplayWidth = width
-	l.model.nativeFormatterWidth = width
+	if l.model.windowSizeKnown && l.model.nativeReplayWidth <= 0 {
+		l.model.nativeReplayWidth = width
+	}
+	if l.model.windowSizeKnown && l.model.nativeFormatterWidth <= 0 {
+		l.model.nativeFormatterWidth = width
+	}
 	l.model.forwardToView(tui.SetViewportSizeMsg{
 		Lines: l.calcChatLines(),
 		Width: width,

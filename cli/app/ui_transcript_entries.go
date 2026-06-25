@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 	"core/shared/transcript"
@@ -37,6 +38,16 @@ func transcriptEntriesFromPage(page clientui.TranscriptPage) []tui.TranscriptEnt
 }
 
 func committedTranscriptEntriesForApp(entries []tui.TranscriptEntry) []tui.TranscriptEntry {
+	return committedNativeScrollbackEntriesForApp(entries).Entries
+}
+
+type committedNativeScrollbackEntries struct {
+	Entries       []tui.TranscriptEntry
+	SourceIndexes []int
+	PrefixEnd     int
+}
+
+func committedTranscriptEntriesForNativeScrollback(entries []tui.TranscriptEntry) []tui.TranscriptEntry {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -49,7 +60,54 @@ func committedTranscriptEntriesForApp(entries []tui.TranscriptEntry) []tui.Trans
 		copyEntry.Transient = false
 		normalized = append(normalized, copyEntry)
 	}
-	return tui.CommittedOngoingEntries(normalized)
+	return normalized
+}
+
+func nativeScrollbackPartitionEntriesForApp(entries []tui.TranscriptEntry) []tui.TranscriptEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	normalized := make([]tui.TranscriptEntry, 0, len(entries))
+	for _, entry := range entries {
+		copyEntry := entry
+		if copyEntry.Committed {
+			copyEntry.Transient = false
+		}
+		normalized = append(normalized, copyEntry)
+	}
+	return normalized
+}
+
+func committedNativeScrollbackEntriesForApp(entries []tui.TranscriptEntry) committedNativeScrollbackEntries {
+	projection := nativescrollback.CommittedOngoingProjectionEntries(committedTranscriptEntriesForNativeScrollback(entries))
+	return committedNativeScrollbackEntries{
+		Entries:       projection.Entries,
+		SourceIndexes: projection.SourceIndexes,
+		PrefixEnd:     projection.PrefixEnd,
+	}
+}
+
+func (entries committedNativeScrollbackEntries) renderedRangeForSourceRange(baseOffset int, startEntryCount int, endEntryCount int) (int, int, bool) {
+	startLocal := startEntryCount - baseOffset
+	endLocal := endEntryCount - baseOffset
+	if startLocal < 0 || endLocal > entries.PrefixEnd || endLocal <= startLocal {
+		return 0, 0, false
+	}
+	startRendered := -1
+	endRendered := -1
+	for renderedIdx, sourceIdx := range entries.SourceIndexes {
+		if sourceIdx < startLocal || sourceIdx >= endLocal {
+			continue
+		}
+		if startRendered < 0 {
+			startRendered = renderedIdx
+		}
+		endRendered = renderedIdx + 1
+	}
+	if startRendered < 0 {
+		return 0, 0, false
+	}
+	return startRendered, endRendered, true
 }
 
 func transcriptEntryFromProjectedChatEntry(entry clientui.ChatEntry, transient bool, committed bool) tui.TranscriptEntry {

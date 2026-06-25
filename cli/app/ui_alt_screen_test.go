@@ -49,9 +49,8 @@ func TestNativeReplayCmdForModeTransitionPreservesAppendOnlyWhenScreenNotReplace
 	m.termWidth = 80
 	initial := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}}}
 	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}, {Role: "assistant", Lines: []string{"after"}}}}
-	m.nativeProjection = updated
-	m.nativeRenderedProjection = initial
-	m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
+	setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
+	setNativeRenderedProjectionForTest(m, initial, 0)
 
 	cmd := m.nativeReplayCmdForModeTransition(tui.ModeDetail, tui.ModeOngoing, true)
 	if cmd == nil {
@@ -338,9 +337,8 @@ func TestReturningFromFullscreenSurfaceReplaysNativeOngoingDelta(t *testing.T) {
 			m.termWidth = 80
 			initial := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}}}
 			updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}, {Role: "assistant", Lines: []string{"after"}}}}
-			m.nativeProjection = updated
-			m.nativeRenderedProjection = initial
-			m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
+			setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
+			setNativeRenderedProjectionForTest(m, initial, 0)
 			m.activeSurface = tt.surface
 			m.altScreenActive = true
 

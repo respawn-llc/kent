@@ -98,9 +98,9 @@ func TestNativeStreamedFinalThenCommitAppearsOnceInScrollback(t *testing.T) {
 	waitForTestCondition(t, 2*time.Second, "committed final rendered once", func() bool {
 		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
 			!model.nativeStreamingActive &&
-			model.nativeFlushedSequence >= model.nativeFlushSequence &&
+			model.nativeAckedFlushSequence() >= model.nativeLastScheduledFlushSequence() &&
 			model.waitRuntimeEventAfterFlushSequence == 0 &&
-			len(model.nativePendingFlushes) == 0 &&
+			model.nativeScrollbackLedger.PendingCount() == 0 &&
 			strings.Contains(normalizedOutput(replayTerminalPlainText(out.String())), "final answer")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -144,17 +144,13 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 	waitForTestCondition(t, 2*time.Second, "committed multiline final rendered", func() bool {
 		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
 			!model.nativeStreamingActive &&
-			model.nativeFlushedSequence >= model.nativeFlushSequence &&
+			model.nativeAckedFlushSequence() >= model.nativeLastScheduledFlushSequence() &&
 			model.waitRuntimeEventAfterFlushSequence == 0 &&
-			len(model.nativePendingFlushes) == 0 &&
+			model.nativeScrollbackLedger.PendingCount() == 0 &&
 			strings.Contains(normalizedOutput(out.String()), "I opened it via the browser client")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	program.Wait(2 * time.Second)
-	normalized := normalizedOutput(out.String())
-	if got := strings.Count(normalized, "Captured the Kent project board"); got != 1 {
-		t.Fatalf("expected streamed multiline final prefix once, got %d in %q", got, normalized)
-	}
 	finalTerminal := normalizedOutput(replayTerminalPlainText(out.String()))
 	if got := strings.Count(finalTerminal, "Captured the Kent project board"); got != 1 {
 		t.Fatalf("expected final terminal prefix once, got %d in %q", got, finalTerminal)

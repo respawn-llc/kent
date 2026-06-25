@@ -377,7 +377,7 @@ func TestStartupRuntimeTranscriptSeedsFromCommittedSuffix(t *testing.T) {
 	}
 }
 
-func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
+func TestWidthResizeDoesNotFetchCommittedSuffixOrReplay(t *testing.T) {
 	reads := &countingSessionViewClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
 			SessionID: "session-1",
@@ -416,43 +416,21 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "fresh-0"}, {Role: "assistant", Text: "fresh-1"}, {Role: "assistant", Text: "fresh-2"}},
 	}
 	reads.mainViewCount.Store(0)
+	reads.lastSuffixReq = serverapi.SessionCommittedTranscriptSuffixRequest{}
 
 	next, resizeCmd := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	model = next.(*uiModel)
-	if resizeCmd == nil {
-		t.Fatal("expected resize debounce command")
+	if resizeCmd != nil {
+		t.Fatalf("expected width resize not to schedule native replay or suffix fetch, got %T", resizeCmd)
 	}
-	model.nativeResizeReplayAt = time.Time{}
-	next, fetchCmd := model.Update(nativeResizeReplayMsg{token: model.nativeResizeReplayToken})
-	model = next.(*uiModel)
-	if fetchCmd == nil {
-		t.Fatal("expected resize replay to fetch committed suffix")
-	}
-	refresh, ok := fetchCmd().(nativeResizeTranscriptSuffixRefreshedMsg)
-	if !ok {
-		t.Fatalf("expected nativeResizeTranscriptSuffixRefreshedMsg, got %T", fetchCmd())
-	}
-	if reads.lastSuffixReq.SessionID != "session-1" {
-		t.Fatalf("unexpected resize suffix request: %+v", reads.lastSuffixReq)
+	if reads.lastSuffixReq.SessionID != "" {
+		t.Fatalf("expected width resize not to request committed suffix, got %+v", reads.lastSuffixReq)
 	}
 	if got := reads.mainViewCount.Load(); got != 0 {
 		t.Fatalf("native resize requested main view %d time(s), want 0", got)
 	}
-	next, replayCmd := model.Update(refresh)
-	model = next.(*uiModel)
-	msgs := collectCmdMessages(t, replayCmd)
-	foundFreshReplay := false
-	for _, msg := range msgs {
-		flush, ok := msg.(nativeHistoryFlushMsg)
-		if ok && strings.Contains(flush.Text, "fresh-0") && strings.Contains(flush.Text, "fresh-2") {
-			foundFreshReplay = true
-		}
-	}
-	if !foundFreshReplay {
-		t.Fatalf("expected full replay from refreshed suffix, got msgs=%+v", msgs)
-	}
-	if model.transcriptRevision != 11 || model.transcriptTotalEntries != 3 {
-		t.Fatalf("model transcript metadata revision=%d total=%d, want revision 11 total 3", model.transcriptRevision, model.transcriptTotalEntries)
+	if model.transcriptRevision != 10 || model.transcriptTotalEntries != 3 {
+		t.Fatalf("model transcript metadata revision=%d total=%d, want revision 10 total 3", model.transcriptRevision, model.transcriptTotalEntries)
 	}
 }
 
@@ -537,9 +515,12 @@ func TestCommittedRuntimeEventWithForwardGapFallsBackToServerRead(t *testing.T) 
 	}
 }
 
-func TestUserMessageFlushedAdvancesDeliveryCursor(t *testing.T) {
+func TestUserMessageFlushedAdvancesDeliveryCursorAfterNativeAck(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	setCommittedDeliveryForTest(m, 0, 1)
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventUserMessageFlushed,
@@ -550,10 +531,110 @@ func TestUserMessageFlushedAdvancesDeliveryCursor(t *testing.T) {
 		CommittedEntryStartSet:     true,
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "prompt"}},
 	}, true).cmd
-	_ = collectCmdMessages(t, cmd)
+	if state := committedDeliveryStateForTest(m); state.LastAppliedCommittedEntryCount != 1 || state.LastEmittedCommittedEntryCount != 0 || !state.NativeFlushInFlight {
+		t.Fatalf("user echo should wait for native ack, got %+v", state)
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
 
-	if m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount != 1 {
-		t.Fatalf("user echo did not advance delivery cursor: %+v", m.ongoingCommittedDelivery)
+	if got := committedDeliveryStateForTest(m).LastEmittedCommittedEntryCount; got != 1 {
+		t.Fatalf("user echo did not advance delivery cursor: got %d want 1", got)
+	}
+}
+
+func TestUserMessageFlushedWhileDetailBindsDeliveryCursorToNativeRestoreAck(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	setCommittedDeliveryForTest(m, 0, 1)
+
+	_ = collectCmdMessages(t, m.toggleTranscriptModeWithNativeReplay(false))
+	if m.view.Mode() != tui.ModeDetail {
+		t.Fatalf("mode = %q, want detail", m.view.Mode())
+	}
+
+	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
+		Kind:                       clientui.EventUserMessageFlushed,
+		CommittedTranscriptChanged: true,
+		CommittedEntryCount:        1,
+		TranscriptRevision:         2,
+		CommittedEntryStart:        0,
+		CommittedEntryStartSet:     true,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "prompt"}},
+	}, true).cmd
+	if flush := collectNativeHistoryFlushText(collectCmdMessages(t, cmd)); strings.TrimSpace(flush) != "" {
+		t.Fatalf("detail-mode user echo emitted native output before ongoing restore: %q", flush)
+	}
+	if state := committedDeliveryStateForTest(m); state.LastAppliedCommittedEntryCount != 1 || state.LastEmittedCommittedEntryCount != 0 || state.NativeFlushInFlight {
+		t.Fatalf("detail-mode user echo cursor = %+v, want applied 1 emitted 0 without in-flight write", state)
+	}
+
+	returnCmd := m.toggleTranscriptModeWithNativeReplay(true)
+	state := committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 0 || !state.NativeFlushInFlight || state.FlushNextEntryCount != 1 {
+		t.Fatalf("ongoing restore did not bind user echo cursor to native flush ack: %+v", state)
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, returnCmd)
+	state = committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 1 || state.NativeFlushInFlight {
+		t.Fatalf("user echo cursor did not advance after restore native ack: %+v", state)
+	}
+}
+
+func TestAuthoritativeHydrateBindsDeliveryCursorToNativeAck(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+
+	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     2,
+		Offset:       0,
+		TotalEntries: 1,
+		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "authoritative"}},
+	}, clientui.TranscriptRecoveryCauseStreamGap)
+	state := committedDeliveryStateForTest(m)
+	if state.LastAppliedCommittedEntryCount != 1 || state.LastEmittedCommittedEntryCount != 0 || !state.NativeFlushInFlight {
+		t.Fatalf("hydrate should wait for native ack, got %+v", state)
+	}
+
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
+	state = committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 1 || state.NativeFlushInFlight {
+		t.Fatalf("hydrate cursor did not advance after native ack: %+v", state)
+	}
+}
+
+func TestPreWindowAuthoritativeHydrateBindsFirstReplayDeliveryCursorToNativeAck(t *testing.T) {
+	m := newProjectedStaticUIModel()
+
+	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     2,
+		Offset:       0,
+		TotalEntries: 1,
+		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "authoritative before window"}},
+	}, clientui.TranscriptRecoveryCauseStreamGap)
+	if cmd != nil {
+		t.Fatalf("pre-window hydrate emitted native output before terminal size: %T", cmd())
+	}
+	state := committedDeliveryStateForTest(m)
+	if state.LastAppliedCommittedEntryCount != 1 || state.LastEmittedCommittedEntryCount != 0 || state.NativeFlushInFlight {
+		t.Fatalf("pre-window hydrate cursor = %+v, want applied 1 emitted 0 without in-flight write", state)
+	}
+
+	next, replayCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m = next.(*uiModel)
+	state = committedDeliveryStateForTest(m)
+	if state.LastAppliedCommittedEntryCount != 1 || state.LastEmittedCommittedEntryCount != 0 || !state.NativeFlushInFlight || state.FlushNextEntryCount != 1 {
+		t.Fatalf("first native replay after hydrate did not bind cursor to native ack: %+v", state)
+	}
+
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, replayCmd)
+	state = committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 1 || state.NativeFlushInFlight {
+		t.Fatalf("pre-window hydrate cursor did not advance after first replay native ack: %+v", state)
 	}
 }
 
@@ -643,7 +724,7 @@ func TestCommittedSuffixStaleHasMoreDoesNotRequestFollowUp(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 20
 	m.runtimeCommittedSuffixToken = 2
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(2, 3)
+	setCommittedDeliveryForTest(m, 2, 3)
 
 	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
 		token: 1,
@@ -751,7 +832,7 @@ func TestCommittedSuffixAppendUsesLoadedTailWhenDeliveryCursorLags(t *testing.T)
 	m.termHeight = 20
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
 	m.transcriptTotalEntries = 1
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	setCommittedDeliveryForTest(m, 0, 1)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
 
 	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
@@ -770,7 +851,7 @@ func TestCommittedSuffixAppendUsesLoadedTailWhenDeliveryCursorLags(t *testing.T)
 	if len(loaded) != 2 || loaded[0].Text != "prompt" || loaded[1].Text != "answer" {
 		t.Fatalf("loaded transcript = %+v, want prompt then answer", loaded)
 	}
-	if got := m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount; got != 2 {
+	if got := committedDeliveryStateForTest(m).LastAppliedCommittedEntryCount; got != 2 {
 		t.Fatalf("delivery cursor applied count = %d, want 2", got)
 	}
 }
@@ -780,7 +861,7 @@ func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) 
 	m.windowSizeKnown = true
 	m.termWidth = 100
 	m.termHeight = 20
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	setCommittedDeliveryForTest(m, 0, 1)
 
 	firstCmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
@@ -792,11 +873,12 @@ func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) 
 	if firstCmd == nil {
 		t.Fatal("expected first suffix to schedule native flush")
 	}
-	if m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount != 0 {
-		t.Fatalf("expected first suffix to wait for native flush ack before advancing emitted cursor, got %+v", m.ongoingCommittedDelivery)
+	firstState := committedDeliveryStateForTest(m)
+	if firstState.LastEmittedCommittedEntryCount != 0 {
+		t.Fatalf("expected first suffix to wait for native flush ack before advancing emitted cursor, got %+v", firstState)
 	}
-	if m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount != 1 {
-		t.Fatalf("expected first suffix to advance applied cursor immediately, got %+v", m.ongoingCommittedDelivery)
+	if firstState.LastAppliedCommittedEntryCount != 1 {
+		t.Fatalf("expected first suffix to advance applied cursor immediately, got %+v", firstState)
 	}
 
 	overlappedCmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
@@ -836,7 +918,7 @@ func TestCommittedSuffixAppendIncludesServerCommittedEntryWithoutLocalEcho(t *te
 	m.windowSizeKnown = true
 	m.termWidth = 100
 	m.termHeight = 20
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	setCommittedDeliveryForTest(m, 0, 1)
 
 	if cmd := m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1"); cmd == nil {
 		t.Fatal("expected local entry persistence command")
@@ -863,7 +945,7 @@ func TestCommittedSuffixAppendIncludesServerCommittedEntryWithoutLocalEcho(t *te
 	if loaded[0].NoticeID != "notice-1" || loaded[0].Text != "Fast mode enabled" {
 		t.Fatalf("unexpected loaded transcript entry: %+v", loaded[0])
 	}
-	if got := m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount; got != 1 {
+	if got := committedDeliveryStateForTest(m).LastAppliedCommittedEntryCount; got != 1 {
 		t.Fatalf("delivery cursor applied count = %d, want 1", got)
 	}
 }
@@ -875,7 +957,7 @@ func TestCommittedSuffixAppendKeepsCommittedPrefixWithLaterEntries(t *testing.T)
 	m.windowSizeKnown = true
 	m.termWidth = 100
 	m.termHeight = 20
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	setCommittedDeliveryForTest(m, 0, 1)
 
 	_ = m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1")
 	if len(m.transcriptEntries) != 0 {
@@ -905,7 +987,7 @@ func TestCommittedSuffixAppendKeepsCommittedPrefixWithLaterEntries(t *testing.T)
 	if loaded[1].Role != "assistant" || loaded[1].Text != "authoritative answer" {
 		t.Fatalf("unexpected assistant suffix entry: %+v", loaded[1])
 	}
-	if got := m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount; got != 2 {
+	if got := committedDeliveryStateForTest(m).LastAppliedCommittedEntryCount; got != 2 {
 		t.Fatalf("delivery cursor applied count = %d, want 2", got)
 	}
 	if got := committedTranscriptTailEnd(m); got != 2 {
@@ -920,7 +1002,7 @@ func TestCommittedSuffixAppendClearsStreamBeforeFinalAnswerAppend(t *testing.T) 
 	m.termHeight = 20
 	m.sawAssistantDelta = true
 	m.forwardToView(tui.SetConversationMsg{Ongoing: "final answer"})
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	setCommittedDeliveryForTest(m, 0, 1)
 
 	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
@@ -951,7 +1033,7 @@ func TestCommittedSuffixAppendCursorAdvancesAfterNativeFlushAck(t *testing.T) {
 	m.windowSizeKnown = true
 	m.termWidth = 100
 	m.termHeight = 20
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+	setCommittedDeliveryForTest(m, 0, 1)
 
 	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
@@ -963,16 +1045,59 @@ func TestCommittedSuffixAppendCursorAdvancesAfterNativeFlushAck(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected native flush command")
 	}
-	if m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount != 0 {
-		t.Fatalf("cursor advanced before native flush ack: %+v", m.ongoingCommittedDelivery)
+	if state := committedDeliveryStateForTest(m); state.LastEmittedCommittedEntryCount != 0 {
+		t.Fatalf("cursor advanced before native flush ack: %+v", state)
 	}
 	msg, ok := cmd().(nativeHistoryFlushMsg)
 	if !ok {
 		t.Fatalf("expected nativeHistoryFlushMsg, got %T", cmd())
 	}
-	_ = m.handleNativeHistoryFlush(msg)
-	if m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount != 1 {
-		t.Fatalf("cursor did not advance after native flush ack: %+v", m.ongoingCommittedDelivery)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(msg))
+	if state := committedDeliveryStateForTest(m); state.LastEmittedCommittedEntryCount != 1 {
+		t.Fatalf("cursor did not advance after native flush ack: %+v", state)
+	}
+}
+
+func TestCommittedSuffixWhileDetailBindsDeliveryCursorToNativeRestoreAck(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
+	m.transcriptTotalEntries = 1
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
+	projection := m.nativeCommittedProjection(m.transcriptEntries)
+	setNativeCurrentAndRenderedProjectionForTest(m, projection, 0, 1)
+	setCommittedDeliveryForTest(m, 1, 1)
+
+	_ = collectCmdMessages(t, m.toggleTranscriptModeWithNativeReplay(false))
+	if m.view.Mode() != tui.ModeDetail {
+		t.Fatalf("mode = %q, want detail", m.view.Mode())
+	}
+
+	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            2,
+		CommittedEntryCount: 2,
+		StartEntryCount:     1,
+		NextEntryCount:      2,
+		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "answer"}},
+	})
+	if flush := collectNativeHistoryFlushText(collectCmdMessages(t, cmd)); strings.TrimSpace(flush) != "" {
+		t.Fatalf("detail-mode suffix emitted native output before ongoing restore: %q", flush)
+	}
+	if state := committedDeliveryStateForTest(m); state.LastAppliedCommittedEntryCount != 2 || state.LastEmittedCommittedEntryCount != 1 {
+		t.Fatalf("detail-mode suffix cursor = %+v, want applied 2 emitted 1", state)
+	}
+
+	returnCmd := m.toggleTranscriptModeWithNativeReplay(true)
+	state := committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 1 || !state.NativeFlushInFlight || state.FlushNextEntryCount != 2 {
+		t.Fatalf("ongoing restore did not bind delivery cursor to native flush ack: %+v", state)
+	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, returnCmd)
+	state = committedDeliveryStateForTest(m)
+	if state.LastEmittedCommittedEntryCount != 2 || state.NativeFlushInFlight {
+		t.Fatalf("cursor did not advance exactly after restore native ack: %+v", state)
 	}
 }
 
@@ -984,9 +1109,9 @@ func TestCommittedSuffixDeliveryDoesNotAdvancePastUnresolvedToolTail(t *testing.
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt"}}
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
-	m.rebaseNativeProjection(m.nativeCommittedProjection(m.transcriptEntries), 0, 1)
-	m.acceptNativeProjectionWithoutReplay(m.nativeProjection)
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(1, 1)
+	projection := m.nativeCommittedProjection(m.transcriptEntries)
+	setNativeCurrentAndRenderedProjectionForTest(m, projection, 0, 1)
+	setCommittedDeliveryForTest(m, 1, 1)
 
 	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
@@ -1005,7 +1130,7 @@ func TestCommittedSuffixDeliveryDoesNotAdvancePastUnresolvedToolTail(t *testing.
 			}
 		}
 	}
-	if got := m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount; got != 1 {
+	if got := committedDeliveryStateForTest(m).LastEmittedCommittedEntryCount; got != 1 {
 		t.Fatalf("cursor advanced past unresolved tools: got %d want 1", got)
 	}
 	if got := len(m.transcriptEntries); got != 3 {
@@ -1037,12 +1162,12 @@ func TestCommittedSuffixDeliveryDoesNotAdvancePastUnresolvedToolTail(t *testing.
 		if strings.Contains(stripANSIText(flush.Text), "echo b") {
 			t.Fatalf("unresolved sibling flushed as committed history: %q", stripANSIText(flush.Text))
 		}
-		_ = m.handleNativeHistoryFlush(flush)
+		_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.handleNativeHistoryFlush(flush))
 	}
 	if !foundFlush {
 		t.Fatalf("expected native flush for resolved tool prefix, got %+v", flushes)
 	}
-	if got := m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount; got != 3 {
+	if got := committedDeliveryStateForTest(m).LastEmittedCommittedEntryCount; got != 3 {
 		t.Fatalf("cursor after resolved prefix flush = %d, want 3", got)
 	}
 	if got := len(m.transcriptEntries); got != 4 {
@@ -1062,12 +1187,8 @@ func TestCommittedSuffixDeliveryDoesNotAdvancePastUnresolvedToolTail(t *testing.
 			{Role: "tool_result_ok", Text: "out-b", ToolCallID: "call_b"},
 		},
 	})
-	for _, msg := range collectCmdMessages(t, cmd) {
-		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
-			_ = m.handleNativeHistoryFlush(flush)
-		}
-	}
-	if got := m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount; got != 5 {
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
+	if got := committedDeliveryStateForTest(m).LastEmittedCommittedEntryCount; got != 5 {
 		t.Fatalf("cursor after final tool flush = %d, want 5", got)
 	}
 	if pending := tui.PendingOngoingEntries(m.transcriptEntries); len(pending) != 0 {
@@ -1083,9 +1204,9 @@ func TestCommittedSuffixMultiToolDetailRoundTripLeavesNoLiveSpinnerAfterFinalRes
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt"}}
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
-	m.rebaseNativeProjection(m.nativeCommittedProjection(m.transcriptEntries), 0, 1)
-	m.acceptNativeProjectionWithoutReplay(m.nativeProjection)
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(1, 1)
+	projection := m.nativeCommittedProjection(m.transcriptEntries)
+	setNativeCurrentAndRenderedProjectionForTest(m, projection, 0, 1)
+	setCommittedDeliveryForTest(m, 1, 1)
 
 	_ = collectCmdMessages(t, m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            2,
@@ -1118,16 +1239,12 @@ func TestCommittedSuffixMultiToolDetailRoundTripLeavesNoLiveSpinnerAfterFinalRes
 		},
 	}))
 
-	for _, msg := range collectCmdMessages(t, m.toggleTranscriptModeWithNativeReplay(true)) {
-		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
-			_ = m.handleNativeHistoryFlush(flush)
-		}
-	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.toggleTranscriptModeWithNativeReplay(true))
 	if m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("mode = %q, want ongoing", m.view.Mode())
 	}
 
-	for _, msg := range collectCmdMessages(t, m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
 		Revision:            4,
 		CommittedEntryCount: 5,
 		StartEntryCount:     committedTranscriptTailEnd(m),
@@ -1138,11 +1255,7 @@ func TestCommittedSuffixMultiToolDetailRoundTripLeavesNoLiveSpinnerAfterFinalRes
 			{Role: "tool_call", Text: "echo b", ToolCallID: "call_b", ToolCall: &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "echo b"}},
 			{Role: "tool_result_ok", Text: "out-b", ToolCallID: "call_b"},
 		},
-	})) {
-		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
-			_ = m.handleNativeHistoryFlush(flush)
-		}
-	}
+	}))
 
 	if pending := tui.PendingOngoingEntries(m.transcriptEntries); len(pending) != 0 {
 		t.Fatalf("expected no pending live tool entries after all results, got %+v", pending)
@@ -1160,40 +1273,6 @@ func TestCommittedSuffixMultiToolDetailRoundTripLeavesNoLiveSpinnerAfterFinalRes
 		if counts[key] != 1 {
 			t.Fatalf("committed transcript row count %s = %d, want 1; entries=%+v", key, counts[key], m.transcriptEntries)
 		}
-	}
-}
-
-func TestNativeResizeCommittedTranscriptSuffixRequestsWholeSegment(t *testing.T) {
-	client := &runtimeClientWithoutCachedMainView{
-		RuntimeClient: &runtimeControlFakeClient{},
-		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
-			SessionID: "session-1",
-			Transcript: clientui.TranscriptMetadata{
-				Revision:            9,
-				CommittedEntryCount: 900,
-			},
-		}},
-	}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	client.mainViewCalls = 0
-
-	cmd := m.requestNativeResizeCommittedTranscriptSuffix(3)
-	if cmd == nil {
-		t.Fatal("expected native resize suffix request command")
-	}
-	raw := cmd()
-	msg, ok := raw.(nativeResizeTranscriptSuffixRefreshedMsg)
-	if !ok {
-		t.Fatalf("unexpected command message type %T", raw)
-	}
-	if msg.token != 3 || msg.err != nil {
-		t.Fatalf("unexpected resize suffix response: %+v", msg)
-	}
-	if client.mainViewCalls != 0 {
-		t.Fatalf("did not expect a main-view count fallback for a whole-segment suffix request, got %d calls", client.mainViewCalls)
-	}
-	if client.suffixReq != (clientui.CommittedTranscriptSuffixRequest{}) {
-		t.Fatalf("resize suffix request = %+v, want empty (whole newest segment)", client.suffixReq)
 	}
 }
 

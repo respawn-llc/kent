@@ -5,11 +5,12 @@ import (
 	"hash/fnv"
 	"strings"
 
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 )
 
 func renderNativePendingToolSnapshot(entries []tui.TranscriptEntry, theme string, width int, spinnerFrame int) string {
-	pending := tui.PendingToolEntries(entries)
+	pending := nativescrollback.PendingToolEntries(nativeScrollbackPartitionEntriesForApp(entries))
 	if len(pending) == 0 {
 		return ""
 	}

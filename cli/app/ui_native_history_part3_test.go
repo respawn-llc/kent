@@ -1,6 +1,7 @@
 package app
 
 import (
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/server/llm"
 	"core/server/runtime"
@@ -19,7 +20,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionMatchesTrimmedCommittedText
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	lineCount := 8
 	committedText := makeStreamingLines(lineCount)
@@ -28,7 +29,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionMatchesTrimmedCommittedText
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
 	}})
 	m = next.(*uiModel)
-	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, firstCmd))
 	if !strings.Contains(firstFlush, "line-01") {
 		t.Fatalf("expected first promotion to include earliest streaming line, got %q", firstFlush)
 	}
@@ -37,15 +38,92 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionMatchesTrimmedCommittedText
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantMessage, Message: llm.Message{Role: llm.RoleAssistant, Content: committedText, Phase: llm.MessagePhaseFinal}}),
 	}})
 	m = next.(*uiModel)
-	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, finalCmd))
 	if !strings.Contains(finalFlush, fmt.Sprintf("line-%02d", lineCount)) {
 		t.Fatalf("expected finalized append to include remaining streaming tail, got %q", finalFlush)
 	}
 	if got := strings.Count(firstFlush+finalFlush, "line-01"); got != 1 {
 		t.Fatalf("expected earliest streaming line emitted exactly once after trimmed commit, got %d in %q%q", got, firstFlush, finalFlush)
 	}
-	if strings.TrimSpace(m.nativeStreamingText) != "" || m.nativeStreamingFlushedLineCount != 0 || m.nativeStreamingDividerFlushed {
-		t.Fatalf("expected streaming promotion state reset after trimmed commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
+	if streamState := m.nativeScrollbackLedger.AssistantStreamState(); strings.TrimSpace(streamState.Source) != "" || streamState.ScheduledStableLines != 0 || m.nativeStreamingDividerFlushed {
+		t.Fatalf("expected streaming promotion state reset after trimmed commit, got source=%q flushed=%d divider=%v", streamState.Source, streamState.ScheduledStableLines, m.nativeStreamingDividerFlushed)
+	}
+}
+
+func TestProjectedRuntimeAssistantFinalRewriteOfPromotedPrefixFailsClosed(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "rewrite?"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	streamText := "original stable\n\nmutable tail"
+	next, streamCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	streamFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, streamCmd))
+	if !strings.Contains(streamFlush, "original stable") {
+		t.Fatalf("expected streaming prefix to become permanent before final rewrite, got %q", streamFlush)
+	}
+
+	finalText := "rewritten stable\n\nmutable tail"
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantMessage, Message: llm.Message{Role: llm.RoleAssistant, Content: finalText, Phase: llm.MessagePhaseFinal}}),
+	}})
+	m = next.(*uiModel)
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected committed final rewrite of a permanent streamed prefix to fail closed")
+	}
+	if m.nativeRenderedProjectionCommitPending() {
+		t.Fatal("unsafe final rewrite must not schedule an acked rendered projection commit")
+	}
+	if flushText := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd)); strings.TrimSpace(flushText) != "" {
+		t.Fatalf("unsafe final rewrite must not append replacement native scrollback text, got %q", flushText)
+	}
+}
+
+func TestNativeStreamingFinalizerRangeSkipsFilteredEmptyCommittedRows(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 80
+	m.termHeight = 8
+	m.transcriptEntries = []tui.TranscriptEntry{
+		{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true},
+		{Role: tui.TranscriptRoleAssistant, Text: "", Committed: true},
+	}
+	seedProjection := m.nativeCommittedProjection(committedTranscriptEntriesForApp(m.transcriptEntries))
+	setNativeCurrentAndRenderedProjectionForTest(m, seedProjection, m.transcriptBaseOffset, len(committedTranscriptEntriesForApp(m.transcriptEntries)))
+	seedNativeAssistantStreamForTest(m, "final answer\n")
+	m.nativeScrollbackLedger.ObserveAssistantCommitCandidate(nativescrollback.AssistantCommitCandidate{
+		StartEntryCount: 2,
+		Entries: []nativescrollback.AssistantCommitEntry{{
+			Role: string(tui.TranscriptRoleAssistant),
+			Text: "final answer",
+		}},
+	})
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{
+		Role:      tui.TranscriptRoleAssistant,
+		Text:      "final answer",
+		Committed: true,
+	})
+
+	nativeCommittedEntries := committedNativeScrollbackEntriesForApp(m.transcriptEntries)
+	if got := len(nativeCommittedEntries.Entries); got != 2 {
+		t.Fatalf("rendered committed entries = %d, want user plus final assistant after empty row is filtered", got)
+	}
+	if got := nativeCommittedEntries.SourceIndexes; len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("rendered source indexes = %+v, want [0 2]", got)
+	}
+	projection := m.nativeCommittedProjection(nativeCommittedEntries.Entries)
+	cmd, handled := m.finalizeNativeStreamingCommit(projection, nativeCommittedEntries, len(nativeCommittedEntries.Entries))
+	if !handled {
+		t.Fatal("expected assistant finalizer to map absolute committed range through filtered native entries")
+	}
+	flushText := collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
+	if !strings.Contains(flushText, "final answer") {
+		t.Fatalf("expected final assistant tail to flush, got %q", flushText)
 	}
 }
 
@@ -55,7 +133,7 @@ func TestProjectedRuntimeAssistantFinalExtendsPromotedStreamWithoutDuplicatePref
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	streamText := "Yes, currently possible.\n\nCurrent code uses `/status` collector path.\n"
 	committedText := streamText + "\nI recommend changing picker auth to local state only.\n"
@@ -95,13 +173,109 @@ func TestProjectedRuntimeAssistantFinalExtendsPromotedStreamWithoutDuplicatePref
 	}
 }
 
+func TestStreamingFinalRenderedProjectionAdvancesOnlyAfterTerminalAck(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	streamText := "stable prefix\n"
+	next, streamCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-ack", AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, streamCmd)
+	if got := stripANSIText(m.nativeRenderedSnapshot()); strings.Contains(got, "acked tail") {
+		t.Fatalf("test setup unexpectedly rendered final tail before final event: %q", got)
+	}
+
+	committedText := streamText + "acked tail\n"
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{
+			Kind:                       runtime.EventAssistantMessage,
+			StepID:                     "step-ack",
+			CommittedTranscriptChanged: true,
+			CommittedEntryStart:        1,
+			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        2,
+			Message:                    llm.Message{Role: llm.RoleAssistant, Content: committedText, Phase: llm.MessagePhaseFinal},
+		}),
+	}})
+	m = next.(*uiModel)
+	if finalCmd == nil {
+		t.Fatal("expected final commit to schedule native terminal write")
+	}
+	if got := stripANSIText(m.nativeRenderedSnapshot()); strings.Contains(got, "acked tail") {
+		t.Fatalf("rendered projection advanced before terminal ack: %q", got)
+	}
+
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, finalCmd)
+	if got := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(got, "acked tail") {
+		t.Fatalf("rendered projection did not advance after terminal ack: %q", got)
+	}
+}
+
+func TestStreamingFinalPendingResetSurvivesNoOutputRestoreBeforeTerminalAck(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	streamText := "stable prefix\n"
+	next, streamCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-reset", AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, streamCmd)
+
+	committedText := streamText + "final tail\n"
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{
+			Kind:                       runtime.EventAssistantMessage,
+			StepID:                     "step-reset",
+			CommittedTranscriptChanged: true,
+			CommittedEntryStart:        1,
+			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        2,
+			Message:                    llm.Message{Role: llm.RoleAssistant, Content: committedText, Phase: llm.MessagePhaseFinal},
+		}),
+	}})
+	m = next.(*uiModel)
+	if finalCmd == nil {
+		t.Fatal("expected final commit to schedule native terminal write")
+	}
+	if !m.nativeRenderedProjectionCommitPending() {
+		t.Fatal("expected rendered projection commit to stay pending before terminal ack")
+	}
+
+	if restoreCmd := m.emitCurrentNativeScrollbackState(); restoreCmd != nil {
+		for _, msg := range collectCmdMessages(t, restoreCmd) {
+			if _, ok := msg.(nativeHistoryFlushMsg); ok {
+				t.Fatalf("no-output restore before ack must not schedule another native flush, got %+v", msg)
+			}
+		}
+	}
+
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, finalCmd)
+	if m.nativeRenderedProjectionCommitPending() {
+		t.Fatal("rendered projection commit remained pending after terminal ack")
+	}
+	if streamState := m.nativeScrollbackLedger.AssistantStreamState(); strings.TrimSpace(streamState.Source) != "" || len(m.nativeScrollbackLedger.AssistantStreamLiveLines()) != 0 {
+		t.Fatalf("streaming state was not reset after terminal ack: source=%q tail=%+v", streamState.Source, m.nativeScrollbackLedger.AssistantStreamLiveLines())
+	}
+}
+
 func TestProjectedRuntimeAssistantCommentaryFinalizesStreamingPromotion(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "commentary please"}}),
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 32, Height: 6})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	streamText := "commentary **bold**\nline-02\n"
 	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
@@ -132,7 +306,7 @@ func TestProjectedRuntimeAssistantFinalHoldsMarkdownTableUntilFinalize(t *testin
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 60, Height: 6})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	streamText := "| Name | Value |\n| --- | --- |\n| alpha | beta |\n"
 	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
@@ -158,7 +332,7 @@ func TestProjectedRuntimeAssistantFinalMatchesMarkdownProjectionAfterHeldSetextA
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	fullText := "Heading\n---\nThis is [link][id]\n\n[id]: https://example.com\n"
 	var emitted strings.Builder
@@ -187,7 +361,7 @@ func TestNativeStreamingResizeKeepsHeldSetextAndReferenceFromPromotingStaleRende
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "Heading\n"}),
@@ -232,7 +406,7 @@ func TestNativeStreamingToolInterleavingAppendsOnlyUnemittedAssistantTail(t *tes
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	streamText := "assistant prefix\nassistant tail\n"
 	m.setBusy(true)
@@ -273,7 +447,7 @@ func TestNativeStreamingFinalBatchWithPrependedToolRowsSkipsStreamedAssistantDup
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	streamText := "assistant prefix\nassistant tail\n"
 	m.setBusy(true)
@@ -310,7 +484,7 @@ func TestProjectedRuntimeFirstAssistantFinalAfterPromotionDoesNotInsertBogusDivi
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
@@ -325,13 +499,14 @@ func TestProjectedRuntimeFirstAssistantFinalAfterPromotionDoesNotInsertBogusDivi
 	}})
 	m = next.(*uiModel)
 	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, finalCmd)
 	if strings.Contains(finalFlush, strings.Repeat("─", m.termWidth)) {
 		t.Fatalf("expected first assistant promotion commit to avoid bogus divider, got %q", finalFlush)
 	}
-	if got := strings.TrimSpace(stripANSIPreserve(m.nativeRenderedSnapshot)); strings.HasPrefix(got, tui.TranscriptDivider) {
+	if got := strings.TrimSpace(stripANSIPreserve(m.nativeRenderedSnapshot())); strings.HasPrefix(got, tui.TranscriptDivider) {
 		t.Fatalf("expected rendered snapshot to avoid leading divider for first assistant reply, got %q", got)
 	}
-	if got := strings.TrimSpace(stripANSIPreserve(m.nativeProjection.Render(tui.TranscriptDivider))); strings.HasPrefix(got, tui.TranscriptDivider) {
+	if got := strings.TrimSpace(stripANSIPreserve(m.nativeCurrentProjection().Render(tui.TranscriptDivider))); strings.HasPrefix(got, tui.TranscriptDivider) {
 		t.Fatalf("expected committed projection to avoid leading divider for first assistant reply, got %q", got)
 	}
 }
@@ -340,7 +515,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDefersNormalScrollbackAppen
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
@@ -348,7 +523,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDefersNormalScrollbackAppen
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
 	}})
 	m = next.(*uiModel)
-	promotionFlush := collectNativeHistoryFlushText(collectCmdMessages(t, promotionCmd))
+	promotionFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, promotionCmd))
 	if !strings.Contains(promotionFlush, "line-01") {
 		t.Fatalf("expected initial promotion before detail mode, got %q", promotionFlush)
 	}
@@ -369,7 +544,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDefersNormalScrollbackAppen
 	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
 		t.Fatalf("expected live streaming buffer cleared after commit in detail mode, got %q", m.view.OngoingStreamingText())
 	}
-	if strings.TrimSpace(m.nativeStreamingText) == "" {
+	if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) == "" {
 		t.Fatal("expected deferred promotion state preserved until return to ongoing")
 	}
 
@@ -377,25 +552,25 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDefersNormalScrollbackAppen
 	if m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("expected ongoing mode after return, got %q", m.view.Mode())
 	}
-	returnFlush := collectNativeHistoryFlushText(collectCmdMessages(t, returnCmd))
+	returnFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, returnCmd))
 	if strings.Contains(returnFlush, "line-01") {
 		t.Fatalf("expected return append to avoid duplicating already promoted prefix, got %q", returnFlush)
 	}
 	if !strings.Contains(returnFlush, fmt.Sprintf("line-%02d", lineCount)) {
 		t.Fatalf("expected return append to flush deferred tail, got %q", returnFlush)
 	}
-	if strings.TrimSpace(m.nativeStreamingText) != "" || m.nativeStreamingFlushedLineCount != 0 || m.nativeStreamingDividerFlushed {
-		t.Fatalf("expected deferred promotion state cleared after return append, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
+	if streamState := m.nativeScrollbackLedger.AssistantStreamState(); strings.TrimSpace(streamState.Source) != "" || streamState.ScheduledStableLines != 0 || m.nativeStreamingDividerFlushed {
+		t.Fatalf("expected deferred promotion state cleared after return append, got source=%q flushed=%d divider=%v", streamState.Source, streamState.ScheduledStableLines, m.nativeStreamingDividerFlushed)
 	}
 }
 
-func TestNativeStreamingResizeInvalidatesPromotionAtNewWidth(t *testing.T) {
+func TestNativeStreamingResizeKeepsPermanentPromotionWidthFrozen(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	m.setBusy(true)
 	lineCount := 8
@@ -412,8 +587,8 @@ func TestNativeStreamingResizeInvalidatesPromotionAtNewWidth(t *testing.T) {
 	next, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 16, Height: 8})
 	m = next.(*uiModel)
 	_ = resizeCmd
-	if m.nativeStreamingController.width != 16 {
-		t.Fatalf("expected controller width updated immediately after resize, got %d", m.nativeStreamingController.width)
+	if got := m.nativeScrollbackLedger.AssistantStreamState().Width; got != 22 {
+		t.Fatalf("expected permanent stream ledger width to stay frozen at 22 after resize, got %d", got)
 	}
 
 	resizedCount := lineCount + 1
@@ -423,14 +598,11 @@ func TestNativeStreamingResizeInvalidatesPromotionAtNewWidth(t *testing.T) {
 
 	secondCmd := m.syncNativeHistoryFromTranscript()
 	secondFlush := collectNativeHistoryFlushText(collectCmdMessages(t, secondCmd))
-	if strings.TrimSpace(secondFlush) != "" {
-		t.Fatalf("expected resize-invalidated stream to stop native promotion until replay, got %q", secondFlush)
-	}
-	if m.nativeStreamingWidth != 16 {
-		t.Fatalf("expected stream tracking width updated after resize, got %d", m.nativeStreamingWidth)
+	if got := m.nativeScrollbackLedger.AssistantStreamState().Width; got != 22 {
+		t.Fatalf("expected stream tracking width to stay frozen at 22 after resize, got %d", got)
 	}
 	if got := strings.Count(firstFlush+secondFlush, "line-01"); got != 1 {
-		t.Fatalf("expected resize-invalidated stream not to duplicate earliest line, got %d in %q%q", got, firstFlush, secondFlush)
+		t.Fatalf("expected resized stream not to duplicate earliest line, got %d in %q%q", got, firstFlush, secondFlush)
 	}
 	view := stripANSIPreserve(m.View())
 	if !strings.Contains(view, fmt.Sprintf("line-%02d", resizedCount)) {
@@ -591,7 +763,7 @@ func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *
 	if got := len(m.pendingRuntimeEvents); got != 1 {
 		t.Fatalf("expected pending runtime events preserved before target flush, got %d", got)
 	}
-	for _, msg := range collectCmdMessages(t, firstCmd) {
+	for _, msg := range collectCmdMessagesApplyingNativeWriteResults(t, m, firstCmd) {
 		if _, ok := msg.(runtimeEventBatchMsg); ok {
 			t.Fatalf("did not expect runtime rearm before target flush, got %T", msg)
 		}
@@ -603,7 +775,7 @@ func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *
 	}
 	var rearmed runtimeEventBatchMsg
 	foundRearm := false
-	for _, msg := range collectCmdMessages(t, secondCmd) {
+	for _, msg := range collectCmdMessagesApplyingNativeWriteResults(t, m, secondCmd) {
 		batch, ok := msg.(runtimeEventBatchMsg)
 		if !ok {
 			continue
@@ -628,14 +800,14 @@ func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *
 	}
 }
 
-func TestNativeStreamingStableTailIsRemovedBeforeNativeFlushAck(t *testing.T) {
+func TestNativeStreamingStableTailRemainsLiveUntilNativeFlushAck(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
-	m.discardPendingNativeHistoryFlushes()
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+	m.nativeScrollbackLedger.DiscardScheduled()
 
 	m.setBusy(true)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "line1\nline2\n"})
@@ -644,8 +816,8 @@ func TestNativeStreamingStableTailIsRemovedBeforeNativeFlushAck(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected streaming stable flush, got %T", streamCmd())
 	}
-	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
-		t.Fatalf("expected scheduled stable line removed from live tail before flush ack, got %q", got)
+	if got := joinedPlainProjectionLines(m.nativeScrollbackLedger.AssistantStreamLiveLines()); !strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("expected scheduled stable line to remain live before flush ack, got %q", got)
 	}
 
 	laterCmd := m.emitNativeRenderedTextWithOptions("later", false)
@@ -656,39 +828,18 @@ func TestNativeStreamingStableTailIsRemovedBeforeNativeFlushAck(t *testing.T) {
 	if cmd := m.handleNativeHistoryFlush(laterFlush); cmd != nil {
 		t.Fatalf("expected out-of-order later flush to buffer without commands, got %T", cmd())
 	}
-	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
-		t.Fatalf("expected out-of-order flush not to restore scheduled stable line to live tail, got %q", got)
+	if got := joinedPlainProjectionLines(m.nativeScrollbackLedger.AssistantStreamLiveLines()); !strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("expected out-of-order flush to leave scheduled stable line live before ack, got %q", got)
 	}
 
 	flushCmd := m.handleNativeHistoryFlush(streamFlush)
-	msgs := collectCmdMessages(t, flushCmd)
-	var ack nativeStreamingStableFlushAckMsg
-	runtimeEventIndex := -1
-	ackIndex := -1
-	foundAck := false
-	for idx, msg := range msgs {
-		if typed, ok := msg.(nativeStreamingStableFlushAckMsg); ok {
-			ack = typed
-			foundAck = true
-			ackIndex = idx
-		}
+	for _, msg := range collectCmdMessagesApplyingNativeWriteResults(t, m, flushCmd) {
 		if _, ok := msg.(runtimeEventBatchMsg); ok {
-			runtimeEventIndex = idx
+			t.Fatalf("runtime events resumed before stable native flush ack updated live tail")
 		}
 	}
-	if !foundAck {
-		t.Fatalf("expected stable flush ack message after ordered native flush, got %#v", msgs)
-	}
-	if runtimeEventIndex >= 0 && ackIndex > runtimeEventIndex {
-		t.Fatalf("expected stable flush ack before resumed runtime events, got msgs=%#v", msgs)
-	}
-
-	m.ackNativeStreamingStableFlush(ack.Sequence)
-	if m.nativeStreamingStableFlushSequence != 0 {
-		t.Fatalf("expected ack to clear stable flush sequence, got %d", m.nativeStreamingStableFlushSequence)
-	}
-	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
-		t.Fatalf("expected acked live tail to keep only mutable tail, got %q", got)
+	if got := joinedPlainProjectionLines(m.nativeScrollbackLedger.AssistantStreamLiveLines()); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("expected terminal ack to remove only acked stable line from live tail, got %q", got)
 	}
 }
 
@@ -713,8 +864,8 @@ func TestRuntimeBatchNativeFlushArmsFlushFenceBeforeRearmingRuntimeEvents(t *tes
 	if m.waitRuntimeEventAfterFlushSequence == 0 {
 		t.Fatal("expected runtime-event wait to be fenced behind native flush sequence")
 	}
-	if m.waitRuntimeEventAfterFlushSequence != m.nativeFlushSequence {
-		t.Fatalf("wait flush sequence = %d, want native sequence %d", m.waitRuntimeEventAfterFlushSequence, m.nativeFlushSequence)
+	if m.waitRuntimeEventAfterFlushSequence != m.nativeLastScheduledFlushSequence() {
+		t.Fatalf("wait flush sequence = %d, want native sequence %d", m.waitRuntimeEventAfterFlushSequence, m.nativeLastScheduledFlushSequence())
 	}
 	foundFlush := false
 	for _, msg := range collectCmdMessages(t, cmd) {
@@ -822,15 +973,15 @@ func TestNativeHistoryReplayDefersWhileDetailAndFlushesOnReturn(t *testing.T) {
 	if cmd := m.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatalf("expected native replay to stay deferred while detail is active, got %T", cmd())
 	}
-	if strings.Contains(m.nativeRenderedSnapshot, "steered message") {
-		t.Fatalf("expected rendered normal-buffer snapshot to remain stale while detail is active, got %q", m.nativeRenderedSnapshot)
+	if strings.Contains(m.nativeRenderedSnapshot(), "steered message") {
+		t.Fatalf("expected rendered normal-buffer snapshot to remain stale while detail is active, got %q", m.nativeRenderedSnapshot())
 	}
 
 	m.forwardToView(tui.ToggleModeMsg{})
 	if m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("expected ongoing mode, got %q", m.view.Mode())
 	}
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitNone)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	if cmd == nil {
 		t.Fatal("expected deferred native replay when returning to ongoing")
 	}
@@ -852,22 +1003,24 @@ func TestNativeHistorySnapshotDoesNotReplaySameSessionRewriteInOngoingMode(t *te
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
 	}}
-	m.nativeProjection = initial
-	m.nativeRenderedProjection = initial
-	m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	setNativeCurrentAndRenderedProjectionForTest(m, initial, 0, len(initial.Blocks))
+	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ after"}},
 	}}
+	setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitNone)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	for _, msg := range collectCmdMessages(t, cmd) {
 		if _, ok := msg.(nativeHistoryFlushMsg); ok {
 			t.Fatalf("did not expect same-session rewrite to replay committed scrollback, got %+v", msg)
 		}
 	}
-	if got := m.nativeRenderedSnapshot; got != m.nativeProjection.Render(tui.TranscriptDivider) {
-		t.Fatalf("expected rendered snapshot updated without replay, got %q", got)
+	if got := m.nativeRenderedSnapshot(); got == m.nativeCurrentProjection().Render(tui.TranscriptDivider) {
+		t.Fatalf("expected rendered snapshot to remain unchanged after invariant, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected same-session rewrite to record native scrollback invariant")
 	}
 }
 
@@ -879,13 +1032,13 @@ func TestNativeHistorySnapshotAppendsVisibleSuffixAfterHiddenRewriteWithoutRepla
 		{Role: "user", DividerGroup: "user", EntryIndex: 0, EntryEnd: 0, Lines: []string{"❯ before compaction"}},
 		{Role: "assistant", DividerGroup: "assistant", EntryIndex: 1, EntryEnd: 1, Lines: []string{"❮ existing answer"}},
 	}}
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	current := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "compaction_notice", DividerGroup: "notice", EntryIndex: 3, EntryEnd: 3, Lines: []string{"context compacted for the 1st time"}},
 	}}
-	m.nativeRenderedProjection = previous
-	m.nativeRenderedSnapshot = previous.Render(tui.TranscriptDivider)
+	setNativeCurrentProjectionForTest(m, current, 0, len(current.Blocks))
+	setNativeRenderedProjectionForTest(m, previous, 0)
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitNone)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	if cmd == nil {
 		t.Fatal("expected hidden rewrite to append visible suffix")
 	}
@@ -900,7 +1053,8 @@ func TestNativeHistorySnapshotAppendsVisibleSuffixAfterHiddenRewriteWithoutRepla
 	if strings.Contains(plain, "before compaction") || strings.Contains(plain, "existing answer") {
 		t.Fatalf("expected hidden rewrite append to avoid replaying prior visible history, got %q", plain)
 	}
-	if got := m.nativeRenderedSnapshot; got != m.nativeProjection.Render(tui.TranscriptDivider) {
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
+	if got := m.nativeRenderedSnapshot(); got != m.nativeCurrentProjection().Render(tui.TranscriptDivider) {
 		t.Fatalf("expected rendered snapshot rebased to current projection, got %q", got)
 	}
 }
@@ -913,15 +1067,15 @@ func TestNativeHistorySnapshotDoesNotAppendSuffixWhenVisibleRewriteTouchesRender
 		{Role: "user", DividerGroup: "user", EntryIndex: 0, EntryEnd: 0, Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", EntryIndex: 1, EntryEnd: 1, Lines: []string{"❮ before"}},
 	}}
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	current := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "user", DividerGroup: "user", EntryIndex: 0, EntryEnd: 0, Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", EntryIndex: 1, EntryEnd: 1, Lines: []string{"❮ after"}},
 		{Role: "compaction_notice", DividerGroup: "notice", EntryIndex: 3, EntryEnd: 3, Lines: []string{"context compacted for the 1st time"}},
 	}}
-	m.nativeRenderedProjection = previous
-	m.nativeRenderedSnapshot = previous.Render(tui.TranscriptDivider)
+	setNativeCurrentProjectionForTest(m, current, 0, len(current.Blocks))
+	setNativeRenderedProjectionForTest(m, previous, 0)
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitNone)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	for _, msg := range collectCmdMessages(t, cmd) {
 		if _, ok := msg.(nativeHistoryFlushMsg); ok {
 			t.Fatalf("did not expect visible rewrite to append stale suffix after divergence, got %+v", msg)
@@ -929,7 +1083,7 @@ func TestNativeHistorySnapshotDoesNotAppendSuffixWhenVisibleRewriteTouchesRender
 	}
 }
 
-func TestNativeScrollbackResumesAssistantFlushesAfterSameSessionRebase(t *testing.T) {
+func TestNativeScrollbackBlocksAssistantFlushesAfterSameSessionDivergence(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "commit/push"}, {Role: "assistant", Text: "before"}}),
 	)
@@ -937,6 +1091,7 @@ func TestNativeScrollbackResumesAssistantFlushesAfterSameSessionRebase(t *testin
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	m.transcriptEntries[1].Text = "after"
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
@@ -946,30 +1101,100 @@ func TestNativeScrollbackResumesAssistantFlushesAfterSameSessionRebase(t *testin
 			t.Fatalf("did not expect same-session rewrite to replay committed history, got %+v", msg)
 		}
 	}
-	if plain := stripANSIText(m.nativeRenderedSnapshot); !strings.Contains(plain, "commit/push") || !strings.Contains(plain, "after") || strings.Contains(plain, "before") {
-		t.Fatalf("expected same-session rewrite to update rendered baseline without replay, got %q", plain)
+	if plain := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(plain, "commit/push") || !strings.Contains(plain, "before") || strings.Contains(plain, "after") {
+		t.Fatalf("expected same-session rewrite to keep rendered baseline unchanged, got %q", plain)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected same-session rewrite to record native scrollback invariant")
 	}
 
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "next answer"})
 	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "assistant", Text: "next answer"})
 	appendCmd := m.syncNativeHistoryFromTranscript()
-	if appendCmd == nil {
-		t.Fatal("expected native history append to resume after recovery")
-	}
-	appendMsg, ok := appendCmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", appendCmd())
-	}
-	appendPlain := stripANSIText(appendMsg.Text)
-	if !strings.Contains(appendPlain, "next answer") {
-		t.Fatalf("expected resumed append to include new assistant turn, got %q", appendPlain)
-	}
-	if strings.Contains(appendPlain, "commit/push") || strings.Contains(appendPlain, "after") {
-		t.Fatalf("expected resumed append to exclude already rebased history, got %q", appendPlain)
+	if appendCmd != nil {
+		t.Fatalf("expected append blocked after invariant violation, got %T", appendCmd)
 	}
 }
 
-func TestNativeDetailExitRebasesCommittedTranscriptWhenDetailChangedState(t *testing.T) {
+func TestNativeScrollbackEmptyCommittedTailAfterRenderedHistoryRecordsInvariant(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.termWidth = 80
+	m.windowSizeKnown = true
+	rendered := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
+		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
+	}}
+	setNativeCurrentAndRenderedProjectionForTest(m, rendered, 0, len(rendered.Blocks))
+
+	cmd := m.syncNativeHistoryFromTranscript()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if _, ok := msg.(nativeHistoryFlushMsg); ok {
+			t.Fatalf("did not expect empty same-session tail to replay or erase native history, got %+v", msg)
+		}
+	}
+	if got := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(got, "commit/push") || !strings.Contains(got, "before") {
+		t.Fatalf("expected rendered baseline preserved after empty-tail invariant, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected empty same-session tail to record native scrollback invariant")
+	}
+}
+
+func TestNativeScrollbackCommittedCountRegressionRecordsInvariantWithoutRebase(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.termWidth = 80
+	m.windowSizeKnown = true
+	rendered := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
+		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
+	}}
+	setNativeCurrentAndRenderedProjectionForTest(m, rendered, 0, len(rendered.Blocks))
+	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "commit/push"}}
+
+	cmd := m.syncNativeHistoryFromTranscript()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if _, ok := msg.(nativeHistoryFlushMsg); ok {
+			t.Fatalf("did not expect committed-count regression to replay native history, got %+v", msg)
+		}
+	}
+	if got := stripANSIText(m.nativeCurrentProjection().Render(tui.TranscriptDivider)); !strings.Contains(got, "before") {
+		t.Fatalf("expected native current projection not to silently rebase to shorter transcript, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected committed-count regression to record native scrollback invariant")
+	}
+}
+
+func TestNativeScrollbackEmptyContinuityRecoveryClearsThroughTypedPermit(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.termWidth = 80
+	m.termHeight = 10
+	m.windowSizeKnown = true
+	rendered := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
+		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
+	}}
+	setNativeCurrentAndRenderedProjectionForTest(m, rendered, 0, len(rendered.Blocks))
+	m.nativeHistoryReplayPermit = nativeHistoryReplayPermitContinuityRecovery
+
+	cmd := m.syncNativeHistoryFromTranscript()
+	msgs := collectCmdMessages(t, cmd)
+	foundClear := false
+	for _, msg := range msgs {
+		if strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
+			foundClear = true
+			break
+		}
+	}
+	if !foundClear {
+		t.Fatalf("expected typed continuity recovery for empty transcript to clear native scrollback, got messages=%v", msgs)
+	}
+	if m.nativeScrollbackInvariantSet {
+		t.Fatalf("did not expect empty continuity recovery to record invariant: %+v", m.nativeScrollbackInvariant)
+	}
+}
+
+func TestNativeDetailExitRecordsInvariantWhenDetailChangedState(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
 	)
@@ -977,7 +1202,7 @@ func TestNativeDetailExitRebasesCommittedTranscriptWhenDetailChangedState(t *tes
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	enterCmd := m.toggleTranscriptModeWithNativeReplay(false)
 	if m.view.Mode() != tui.ModeDetail {
@@ -1001,30 +1226,19 @@ func TestNativeDetailExitRebasesCommittedTranscriptWhenDetailChangedState(t *tes
 			t.Fatalf("expected detail exit to avoid native replay, got %+v", msg)
 		}
 	}
-	plain := stripANSIText(m.nativeRenderedSnapshot)
-	if !strings.Contains(plain, "fresh root") || !strings.Contains(plain, "rewritten tail") {
-		t.Fatalf("expected detail exit restore to update rendered baseline, got %q", plain)
+	plain := stripANSIText(m.nativeRenderedSnapshot())
+	if !strings.Contains(plain, "seed") || strings.Contains(plain, "fresh root") || strings.Contains(plain, "rewritten tail") {
+		t.Fatalf("expected detail exit divergence to keep previous rendered baseline, got %q", plain)
 	}
-	if strings.Contains(plain, "seed") {
-		t.Fatalf("expected detail exit restore to discard stale transcript root from local baseline, got %q", plain)
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected detail exit divergence to record native scrollback invariant")
 	}
 
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "next answer"})
 	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "assistant", Text: "next answer"})
 	appendCmd := m.syncNativeHistoryFromTranscript()
-	if appendCmd == nil {
-		t.Fatal("expected future append to resume after zero-prefix detail exit rebase")
-	}
-	appendMsg, ok := appendCmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", appendCmd())
-	}
-	appendPlain := stripANSIText(appendMsg.Text)
-	if !strings.Contains(appendPlain, "next answer") {
-		t.Fatalf("expected resumed append after detail exit, got %q", appendPlain)
-	}
-	if strings.Contains(appendPlain, "fresh root") || strings.Contains(appendPlain, "rewritten tail") {
-		t.Fatalf("expected resumed append to exclude already rebuilt transcript root, got %q", appendPlain)
+	if appendCmd != nil {
+		t.Fatalf("expected future append blocked after invariant violation, got %T", appendCmd)
 	}
 }
 
@@ -1036,7 +1250,7 @@ func TestDefaultDetailTranscriptHydrationSyncsNativeProjectionWithoutTailReplace
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	enterCmd := m.toggleTranscriptModeWithNativeReplay(false)
 	if m.view.Mode() != tui.ModeDetail {
@@ -1061,7 +1275,7 @@ func TestDefaultDetailTranscriptHydrationSyncsNativeProjectionWithoutTailReplace
 		}
 	}
 
-	nativePlain := stripANSIText(m.nativeProjection.Render(tui.TranscriptDivider))
+	nativePlain := stripANSIText(m.nativeCurrentProjection().Render(tui.TranscriptDivider))
 	if !strings.Contains(nativePlain, "fresh root") || !strings.Contains(nativePlain, "rewritten tail") || strings.Contains(nativePlain, "seed") {
 		t.Fatalf("expected default detail hydration to sync native projection, got %q", nativePlain)
 	}
@@ -1071,7 +1285,7 @@ func TestDefaultDetailTranscriptHydrationSyncsNativeProjectionWithoutTailReplace
 	}
 }
 
-func TestNativeDetailRepeatedTogglesDoNotPoisonNextAppend(t *testing.T) {
+func TestNativeDetailRepeatedTogglesKeepAppendBlockedAfterInvariant(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
 	)
@@ -1079,7 +1293,7 @@ func TestNativeDetailRepeatedTogglesDoNotPoisonNextAppend(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	_ = collectCmdMessages(t, m.toggleTranscriptModeWithNativeReplay(false))
 	cmd := m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{
@@ -1110,26 +1324,15 @@ func TestNativeDetailRepeatedTogglesDoNotPoisonNextAppend(t *testing.T) {
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "echo hi"})
 	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "assistant", Text: "echo hi"})
 	appendCmd := m.syncNativeHistoryFromTranscript()
-	if appendCmd == nil {
-		t.Fatal("expected next append after repeated detail toggles")
+	if appendCmd != nil {
+		t.Fatalf("expected next append blocked after invariant violation, got %T", appendCmd)
 	}
-	appendMsg, ok := appendCmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", appendCmd())
-	}
-	appendPlain := stripANSIText(appendMsg.Text)
-	if !strings.Contains(appendPlain, "echo hi") {
-		t.Fatalf("expected next append to include only the new assistant turn, got %q", appendPlain)
-	}
-	if strings.Contains(appendPlain, "fresh root") || strings.Contains(appendPlain, "rewritten tail") || strings.Contains(appendPlain, "seed") {
-		t.Fatalf("expected repeated detail toggles to keep prior transcript rebased, got %q", appendPlain)
-	}
-	if m.transientStatus != "" {
-		t.Fatalf("did not expect repeated detail toggles to poison the next append, got status=%q", m.transientStatus)
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected repeated detail toggles to preserve native scrollback invariant")
 	}
 }
 
-func TestNativeScrollbackPanicsInDebugModeOnSameSessionDivergence(t *testing.T) {
+func TestNativeScrollbackRecordsInvariantInDebugModeOnSameSessionDivergence(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIDebug(true),
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "commit/push"}, {Role: "assistant", Text: "before"}}),
@@ -1139,19 +1342,16 @@ func TestNativeScrollbackPanicsInDebugModeOnSameSessionDivergence(t *testing.T) 
 		t.Fatal("expected startup replay command")
 	}
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected debug-mode panic on same-session divergence")
-		}
-		if !strings.Contains(r.(string), "same-session committed transcript divergence requires root-cause fix") {
-			t.Fatalf("unexpected debug-mode panic: %v", r)
-		}
-	}()
-
 	m.transcriptEntries[1].Text = "after"
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
 	_ = m.syncNativeHistoryFromTranscript()
+
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected debug-mode divergence to record native scrollback invariant")
+	}
+	if !strings.Contains(m.nativeScrollbackInvariant.Error(), "same-session committed transcript divergence") {
+		t.Fatalf("unexpected invariant: %+v", m.nativeScrollbackInvariant)
+	}
 }
 
 func TestNativeHistorySnapshotReplaysDuringContinuityRecovery(t *testing.T) {
@@ -1162,16 +1362,15 @@ func TestNativeHistorySnapshotReplaysDuringContinuityRecovery(t *testing.T) {
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
 	}}
-	m.nativeProjection = initial
-	m.nativeRenderedProjection = initial
-	m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
+	setNativeCurrentAndRenderedProjectionForTest(m, initial, 0, len(initial.Blocks))
 	m.nativeHistoryReplayPermit = nativeHistoryReplayPermitContinuityRecovery
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ after"}},
 	}}
+	setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitContinuityRecovery)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitContinuityRecovery)
 	if cmd == nil {
 		t.Fatal("expected continuity recovery to replay committed scrollback")
 	}
@@ -1189,7 +1388,7 @@ func TestNativeHistorySnapshotReplaysDuringContinuityRecovery(t *testing.T) {
 	}
 }
 
-func TestNativeHistorySnapshotRebasesDuringAuthoritativeHydrateWithoutReplay(t *testing.T) {
+func TestNativeHistorySnapshotAuthoritativeHydrateRecordsInvariantWithoutReplay(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 80
 	m.windowSizeKnown = true
@@ -1197,27 +1396,29 @@ func TestNativeHistorySnapshotRebasesDuringAuthoritativeHydrateWithoutReplay(t *
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
 	}}
-	m.nativeProjection = initial
-	m.nativeRenderedProjection = initial
-	m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	setNativeCurrentAndRenderedProjectionForTest(m, initial, 0, len(initial.Blocks))
+	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ after"}},
 	}}
+	setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitAuthoritativeHydrate)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(nativeHistoryFlushMsg); ok {
 			t.Fatalf("did not expect authoritative hydrate divergence to replay normal-buffer history, got %+v", msgs)
 		}
 	}
-	if got := stripANSIPreserve(m.nativeRenderedSnapshot); !strings.Contains(got, "commit/push") || !strings.Contains(got, "after") || strings.Contains(got, "before") {
-		t.Fatalf("expected authoritative hydrate divergence to rebase internal rendered snapshot, got %q", got)
+	if got := stripANSIPreserve(m.nativeRenderedSnapshot()); !strings.Contains(got, "commit/push") || !strings.Contains(got, "before") || strings.Contains(got, "after") {
+		t.Fatalf("expected authoritative hydrate divergence to keep rendered snapshot unchanged, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected authoritative hydrate divergence to record native scrollback invariant")
 	}
 }
 
-func TestNativeHistorySnapshotAuthoritativeHydrateDoesNotReplayInDebugMode(t *testing.T) {
+func TestNativeHistorySnapshotAuthoritativeHydrateRecordsInvariantInDebugMode(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIDebug(true))
 	m.termWidth = 80
 	m.windowSizeKnown = true
@@ -1225,23 +1426,25 @@ func TestNativeHistorySnapshotAuthoritativeHydrateDoesNotReplayInDebugMode(t *te
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ before"}},
 	}}
-	m.nativeProjection = initial
-	m.nativeRenderedProjection = initial
-	m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	setNativeCurrentAndRenderedProjectionForTest(m, initial, 0, len(initial.Blocks))
+	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ commit/push"}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ after"}},
 	}}
+	setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitAuthoritativeHydrate)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(nativeHistoryFlushMsg); ok {
 			t.Fatalf("did not expect debug authoritative hydrate divergence to replay normal-buffer history, got %+v", msgs)
 		}
 	}
-	if got := stripANSIPreserve(m.nativeRenderedSnapshot); !strings.Contains(got, "commit/push") || !strings.Contains(got, "after") || strings.Contains(got, "before") {
-		t.Fatalf("expected debug authoritative hydrate divergence to rebase internal rendered snapshot, got %q", got)
+	if got := stripANSIPreserve(m.nativeRenderedSnapshot()); !strings.Contains(got, "commit/push") || !strings.Contains(got, "before") || strings.Contains(got, "after") {
+		t.Fatalf("expected debug authoritative hydrate divergence to keep rendered snapshot unchanged, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected debug authoritative hydrate divergence to record native scrollback invariant")
 	}
 }
 
@@ -1249,23 +1452,22 @@ func TestNativeHistorySnapshotAppendsAcrossSlidingTailWindowWithoutReplay(t *tes
 	m := newProjectedStaticUIModel()
 	m.termWidth = 100
 	m.windowSizeKnown = true
-	m.nativeProjectionBaseOffset = 101
-	m.nativeProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	current := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "cache_warning", DividerGroup: "warning", Lines: []string{"⚠ Cache miss: postfix-compatible supervisor cache reuse disappeared, -79k tokens"}},
 		{Role: "reviewer_suggestions", DividerGroup: "reviewer", Lines: []string{"§ Supervisor suggested:", "1. Add verification notes."}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ previous answer"}},
 		{Role: "user", DividerGroup: "user", Lines: []string{"❯ did you fix the actual transcript bugs, or only reporting/observability?"}},
 	}}
-	m.nativeRenderedBaseOffset = 100
-	m.nativeRenderedProjection = tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
+	rendered := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{
 		{Role: "system", DividerGroup: "user", Lines: []string{"❯ earlier question"}},
 		{Role: "cache_warning", DividerGroup: "warning", Lines: []string{"⚠ Cache miss: postfix-compatible supervisor cache reuse disappeared, -79k tokens"}},
 		{Role: "reviewer_suggestions", DividerGroup: "reviewer", Lines: []string{"§ Supervisor suggested:", "1. Add verification notes."}},
 		{Role: "assistant", DividerGroup: "assistant", Lines: []string{"❮ previous answer"}},
 	}}
-	m.nativeRenderedSnapshot = m.nativeRenderedProjection.Render(tui.TranscriptDivider)
+	setNativeCurrentProjectionForTest(m, current, 101, 105)
+	setNativeRenderedProjectionForTest(m, rendered, 100)
 
-	cmd := m.emitCurrentNativeHistorySnapshot(false, nativeHistoryReplayPermitNone)
+	cmd := m.emitCurrentNativeHistorySnapshot(nativeHistoryReplayPermitNone)
 	if cmd == nil {
 		t.Fatal("expected sliding tail window to append only the new suffix")
 	}
@@ -1282,7 +1484,7 @@ func TestNativeHistorySnapshotAppendsAcrossSlidingTailWindowWithoutReplay(t *tes
 	}
 }
 
-func TestModeRestorePermitOverridesEarlierAuthoritativeHydratePermitWithoutReplay(t *testing.T) {
+func TestModeRestoreDivergenceRecordsInvariantWithoutReplay(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
 	)
@@ -1290,7 +1492,7 @@ func TestModeRestorePermitOverridesEarlierAuthoritativeHydratePermitWithoutRepla
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	enterCmd := m.toggleTranscriptModeWithNativeReplay(false)
 	if m.view.Mode() != tui.ModeDetail {
@@ -1298,15 +1500,11 @@ func TestModeRestorePermitOverridesEarlierAuthoritativeHydratePermitWithoutRepla
 	}
 	_ = collectCmdMessages(t, enterCmd)
 
-	m.armNativeHistoryReplayPermit(nativeHistoryReplayPermitAuthoritativeHydrate)
 	cmd := m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{
 		Entries: []runtime.ChatEntry{{Role: "user", Text: "fresh root"}, {Role: "assistant", Text: "rewritten tail"}},
 	})
 	if cmd != nil {
 		t.Fatalf("expected hydrate repair replay to stay deferred while detail is active, got %T", cmd())
-	}
-	if got := m.nativeHistoryReplayPermit; got != nativeHistoryReplayPermitAuthoritativeHydrate {
-		t.Fatalf("expected authoritative hydrate permit to remain armed in detail mode, got %v", got)
 	}
 
 	leaveCmd := m.toggleTranscriptModeWithNativeReplay(true)
@@ -1318,41 +1516,14 @@ func TestModeRestorePermitOverridesEarlierAuthoritativeHydratePermitWithoutRepla
 			t.Fatalf("expected mode-restore to avoid native replay, got %+v", msg)
 		}
 	}
-	plain := stripANSIText(m.nativeRenderedSnapshot)
-	if !strings.Contains(plain, "fresh root") || !strings.Contains(plain, "rewritten tail") || strings.Contains(plain, "seed") {
-		t.Fatalf("expected mode-restore to update rendered baseline, got %q", plain)
+	plain := stripANSIText(m.nativeRenderedSnapshot())
+	if !strings.Contains(plain, "seed") || strings.Contains(plain, "fresh root") || strings.Contains(plain, "rewritten tail") {
+		t.Fatalf("expected mode-restore divergence to keep previous rendered baseline, got %q", plain)
 	}
-	if m.transientStatus != "" {
-		t.Fatalf("did not expect authoritative-hydrate warning to win after mode-restore rebase, got status=%q", m.transientStatus)
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected mode-restore divergence to record native scrollback invariant")
 	}
-}
-
-func TestNativeHistorySnapshotForceFullRewriteReplaysInOngoingMode(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 80
-	m.windowSizeKnown = true
-	initial := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}}}
-	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"after"}}}}
-	m.nativeProjection = updated
-	m.nativeRenderedProjection = initial
-	m.nativeRenderedSnapshot = initial.Render(tui.TranscriptDivider)
-
-	cmd := m.emitCurrentNativeHistorySnapshot(true, nativeHistoryReplayPermitNone)
-	if cmd == nil {
-		t.Fatal("expected force-full native replay command")
-	}
-	msgs := collectCmdMessages(t, cmd)
-	if len(msgs) != 2 {
-		t.Fatalf("expected clear-screen plus native history flush for force-full replay, got %d message(s)", len(msgs))
-	}
-	flush, ok := msgs[1].(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg as second force-full replay message, got %T", msgs[1])
-	}
-	if !strings.Contains(stripANSIText(flush.Text), "after") {
-		t.Fatalf("expected force-full replay to include updated history, got %q", flush.Text)
-	}
-	if got := m.nativeRenderedSnapshot; got != updated.Render(tui.TranscriptDivider) {
-		t.Fatalf("expected rendered snapshot updated after force-full replay, got %q", got)
+	if m.transientStatusKind != uiStatusNoticeError {
+		t.Fatalf("expected invariant to mirror an error status, got status=%q kind=%d", m.transientStatus, m.transientStatusKind)
 	}
 }

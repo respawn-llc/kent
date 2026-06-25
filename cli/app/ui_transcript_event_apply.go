@@ -147,9 +147,6 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 			OngoingError: m.view.OngoingErrorText(),
 		})
 	}
-	if showTransientInCurrentView && m.view.Mode() == tui.ModeOngoing {
-		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
-	}
 	if showTransientInCurrentView {
 		m.clearMirroredTransientStatus(convertedEntries)
 	}
@@ -158,7 +155,7 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 		return nil, true, false
 	}
 	m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries, true)
-	return m.syncNativeHistoryFromTranscript(), true, false
+	return m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery(), true, false
 }
 
 func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clientui.Event, flushNativeHistory bool) (tea.Cmd, bool) {
@@ -225,7 +222,7 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 	if !flushNativeHistory {
 		return nil, true
 	}
-	return m.syncNativeHistoryFromTranscript(), true
+	return m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery(), true
 }
 
 func (m *uiModel) clearMirroredTransientStatus(entries []tui.TranscriptEntry) {
@@ -265,15 +262,16 @@ func (m *uiModel) observeDirectCommittedEventDelivery(evt clientui.Event) {
 	if evt.Kind != clientui.EventUserMessageFlushed {
 		return
 	}
-	if !m.ongoingCommittedDelivery.initialized {
-		m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(evt.CommittedEntryCount, evt.TranscriptRevision)
-		return
+	// User echoes still use the direct event path for prompt responsiveness.
+	// Mark them applied so suffix trimming starts after the echoed row, but keep
+	// emitted delivery ack-gated by the native terminal write result.
+	startEntryCount := evt.CommittedEntryCount - len(evt.TranscriptEntries)
+	if evt.CommittedEntryStartSet {
+		startEntryCount = evt.CommittedEntryStart
 	}
-	m.ongoingCommittedDelivery.markApplied(evt.CommittedEntryCount, evt.TranscriptRevision)
-	if evt.CommittedEntryCount > m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount {
-		m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount = evt.CommittedEntryCount
+	if startEntryCount < 0 {
+		startEntryCount = 0
 	}
-	if evt.TranscriptRevision > m.ongoingCommittedDelivery.lastEmittedTranscriptRevision {
-		m.ongoingCommittedDelivery.lastEmittedTranscriptRevision = evt.TranscriptRevision
-	}
+	m.nativeScrollbackLedger.EnsureCommittedDelivery(startEntryCount, evt.TranscriptRevision)
+	m.nativeScrollbackLedger.MarkCommittedApplied(evt.CommittedEntryCount, evt.TranscriptRevision)
 }

@@ -188,15 +188,12 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 			m.refreshRollbackCandidates()
 		}
 	}
-	if m.view.Mode() == tui.ModeOngoing {
-		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
-	}
 	if strings.TrimSpace(page.Streaming) == "" {
 		m.sawAssistantDelta = false
 	}
 	cmds := make([]tea.Cmd, 0, 2)
 	if reduction.shouldSyncNativeHistory {
-		cmds = append(cmds, m.syncNativeHistoryFromTranscript())
+		cmds = append(cmds, m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery())
 	}
 	m.logTranscriptPageDiag("transcript.diag.client.apply_page_commit", pageReq, page, map[string]string{
 		"path":                      "hydrate",
@@ -222,7 +219,8 @@ func (a uiRuntimeAdapter) applyAuthoritativeRecentTailPage(page clientui.Transcr
 	m.transcriptEntries = append(m.transcriptEntries[:0], entries...)
 	m.transcriptTotalEntries = max(page.TotalEntries, page.Offset+len(entries))
 	m.transcriptRevision = max(m.transcriptRevision, page.Revision)
-	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(page.Offset+len(committedTranscriptEntriesForApp(entries)), m.transcriptRevision)
+	hydratedCommittedEnd := page.Offset + committedNativeScrollbackEntriesForApp(entries).PrefixEnd
+	m.nativeScrollbackLedger.ResetCommittedDeliveryAppliedRange(page.Offset, hydratedCommittedEnd, m.transcriptRevision)
 	m.transcriptLiveDirty = false
 	if !preserveLiveReasoning {
 		m.reasoningLiveDirty = false

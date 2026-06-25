@@ -16,9 +16,7 @@ func (m *uiModel) ongoingCommittedScrollbackGateActive() bool {
 	return strings.TrimSpace(m.view.OngoingStreamingText()) != "" ||
 		m.sawAssistantDelta ||
 		m.nativeStreamingActive ||
-		strings.TrimSpace(m.nativeStreamingText) != "" ||
-		strings.TrimSpace(m.nativeStreamingController.source) != "" ||
-		m.nativeStreamingStableFlushSequence != 0
+		strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) != ""
 }
 
 func (m *uiModel) shouldGateCommittedSuffixResponse(suffix clientui.CommittedTranscriptSuffix) bool {
@@ -39,9 +37,9 @@ func (m *uiModel) committedSuffixAppendWouldDivergeNativeProjection(suffix clien
 	if m == nil || len(suffix.Entries) == 0 {
 		return false
 	}
-	previous := m.nativeRenderedProjection
+	previous := m.nativeScheduledRenderedProjectionState().Projection
 	if previous.Empty() {
-		previous = m.nativeProjection
+		previous = m.nativeCurrentProjection()
 	}
 	if previous.Empty() {
 		return false
@@ -78,7 +76,7 @@ func (m *uiModel) committedSuffixCanFinalizeAssistantStream(suffix clientui.Comm
 	// active stream has a step ID, only the direct finalizer event can prove it
 	// belongs to that stream; otherwise a stale in-flight suffix with matching
 	// text could clear a newer assistant.
-	if strings.TrimSpace(m.nativeStreamingStepID) != "" {
+	if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().StepID) != "" {
 		return false
 	}
 	activeStreams := m.activeAssistantStreamTextsForFinalizer()
@@ -86,7 +84,10 @@ func (m *uiModel) committedSuffixCanFinalizeAssistantStream(suffix clientui.Comm
 		return false
 	}
 	for _, entry := range suffix.Entries {
-		if isProjectedAssistantEntry(entry) && stringSetContains(activeStreams, strings.TrimSpace(entry.Text)) {
+		if !isProjectedAssistantEntry(entry) {
+			continue
+		}
+		if m.nativeScrollbackLedger.AssistantSuffixCanFinalizeText(entry.Text) || stringSetContains(activeStreams, strings.TrimSpace(entry.Text)) {
 			return true
 		}
 	}
@@ -99,8 +100,7 @@ func (m *uiModel) activeAssistantStreamTextsForFinalizer() map[string]struct{} {
 	}
 	values := []string{
 		m.view.OngoingStreamingText(),
-		m.nativeStreamingController.source,
-		m.nativeStreamingText,
+		m.nativeScrollbackLedger.AssistantStreamState().Source,
 	}
 	streams := make(map[string]struct{}, len(values))
 	for _, value := range values {
@@ -206,9 +206,10 @@ func (m *uiModel) drainDeferredCommittedTailIfUnblocked() tea.Cmd {
 		TranscriptRevision:         revision,
 		TranscriptEntries:          entries,
 	}
+	beforeSequence := m.nativeLastScheduledFlushSequence()
 	cmd, mutated := m.applyDeferredCommittedTailDelivery(evt, totalEntries)
-	if mutated {
-		m.observeDeferredCommittedTailDelivery(evt)
+	if mutated && !m.nativeScrollbackInvariantSet {
+		return sequenceCmds(cmd, m.trackOngoingCommittedFrontierFlush(evt.CommittedEntryCount, evt.TranscriptRevision, beforeSequence))
 	}
 	return cmd
 }
@@ -246,7 +247,6 @@ func (m *uiModel) applyDeferredCommittedTailDelivery(evt clientui.Event, totalEn
 			Ongoing:      m.view.OngoingStreamingText(),
 			OngoingError: m.view.OngoingErrorText(),
 		})
-		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
 	}
 	if m.detailTranscript.loaded && !m.detailTranscript.hasMoreBelow {
 		page := clientui.TranscriptPage{
@@ -308,17 +308,4 @@ func (m *uiModel) drainDeferredCommittedSuffixRefreshIfUnblocked() tea.Cmd {
 	}
 	m.deferredCommittedSuffixRefreshSet = false
 	return m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{})
-}
-
-func (m *uiModel) observeDeferredCommittedTailDelivery(evt clientui.Event) {
-	if m == nil || !evt.CommittedTranscriptChanged || evt.CommittedEntryCount <= 0 || !m.ongoingCommittedDelivery.initialized {
-		return
-	}
-	m.ongoingCommittedDelivery.markApplied(evt.CommittedEntryCount, evt.TranscriptRevision)
-	if evt.CommittedEntryCount > m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount {
-		m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount = evt.CommittedEntryCount
-	}
-	if evt.TranscriptRevision > m.ongoingCommittedDelivery.lastEmittedTranscriptRevision {
-		m.ongoingCommittedDelivery.lastEmittedTranscriptRevision = evt.TranscriptRevision
-	}
 }

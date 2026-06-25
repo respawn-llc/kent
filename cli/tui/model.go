@@ -61,10 +61,6 @@ type SetModeMsg struct {
 	SkipDetailWarmup bool
 }
 
-type ScrollOngoingMsg struct {
-	Delta int
-}
-
 type SetViewportLinesMsg struct {
 	Lines int
 }
@@ -109,10 +105,6 @@ type FocusTranscriptEntryMsg struct {
 	EntryIndex int
 	Center     bool
 	Bottom     bool
-}
-
-type SetOngoingScrollMsg struct {
-	Scroll int
 }
 
 type StreamAssistantMsg struct {
@@ -186,13 +178,11 @@ func WithCompactDetail() Option {
 type Model struct {
 	mode Mode
 
-	compactDetail               bool
-	viewportLines               int
-	viewportWidth               int
-	ongoingScroll               int
-	detailScroll                int
-	snapOngoingOnViewportResize bool
-	toolSymbolGap               int
+	compactDetail bool
+	viewportLines int
+	viewportWidth int
+	detailScroll  int
+	toolSymbolGap int
 
 	transcriptInput TranscriptProjectionInput
 
@@ -451,7 +441,7 @@ func (m Model) Mode() Mode {
 }
 
 func (m Model) OngoingScroll() int {
-	return m.ongoingScroll
+	return m.maxOngoingScroll()
 }
 
 func (m Model) OngoingSnapshot() string {
@@ -484,7 +474,6 @@ func (m Model) transitionMode(target Mode, skipDetailWarmup bool) Model {
 	switch target {
 	case ModeDetail:
 		m.mode = ModeDetail
-		m.snapOngoingOnViewportResize = false
 		m.detailBottomAnchor = true
 		m.detailBottomOffset = 0
 		if skipDetailWarmup {
@@ -496,18 +485,7 @@ func (m Model) transitionMode(target Mode, skipDetailWarmup bool) Model {
 		}
 	case ModeOngoing:
 		m.mode = ModeOngoing
-		// Ongoing mode is the live tail view, so exiting detail always snaps to
-		// the latest visible transcript content.
-		m.ongoingScroll = m.maxOngoingScroll()
-		// App-level layout shrinks the viewport when returning to ongoing. Re-snap
-		// on the next viewport resize so we stay on the true latest tail.
-		m.snapOngoingOnViewportResize = true
 	}
-	return m
-}
-
-func (m Model) scrollOngoing(delta int) Model {
-	m.ongoingScroll = clamp(m.ongoingScroll+delta, 0, m.maxOngoingScroll())
 	return m
 }
 
@@ -788,14 +766,10 @@ func (m *Model) maxDetailScroll() int {
 	return m.detailViewProjection().DetailViewport(ProjectionViewportState{ViewportLines: m.viewportLines}).MaxScroll
 }
 
-func (m Model) isOngoingAtBottom() bool {
-	return m.ongoingScroll >= m.maxOngoingScroll()
-}
-
 func (m Model) renderOngoing() string {
 	parts := m.ongoingLineParts()
 	lineCount := parts.lineCount()
-	start := clamp(m.ongoingScroll, 0, m.maxOngoingScroll())
+	start := m.maxOngoingScroll()
 	end := start + m.viewportLines
 	if end > lineCount {
 		end = lineCount
@@ -948,7 +922,7 @@ func (m Model) visibleOngoingLineKinds() []VisibleLineKind {
 		return nil
 	}
 	parts := m.ongoingLineParts()
-	start := clamp(m.ongoingScroll, 0, m.maxOngoingScroll())
+	start := m.maxOngoingScroll()
 	end := start + m.viewportLines
 	if end > parts.lineCount() {
 		end = parts.lineCount()

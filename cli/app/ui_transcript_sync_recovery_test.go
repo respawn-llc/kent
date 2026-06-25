@@ -308,6 +308,12 @@ func applyRuntimeEventBatchMessagesFromCommand(t *testing.T, m *uiModel, cmd tea
 			msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
 			continue
 		}
+		if ack, ok := msg.(nativeTerminalWriteResultMsg); ok {
+			next, nextCmd := m.Update(ack)
+			m = next.(*uiModel)
+			msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
+			continue
+		}
 		batch, ok := msg.(runtimeEventBatchMsg)
 		if !ok {
 			continue
