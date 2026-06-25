@@ -155,8 +155,8 @@ func TestAskEventDefersWhileRollbackEditIsActive(t *testing.T) {
 	}
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.rollback.isEditing() || m.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected rollback edit in ongoing mode, editing=%t mode=%q", m.rollback.isEditing(), m.view.Mode())
+	if !m.rollback.isEditing() || m.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected rollback edit in detail overlay, editing=%t mode=%q", m.rollback.isEditing(), m.view.Mode())
 	}
 	original := m.input
 

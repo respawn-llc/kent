@@ -848,22 +848,30 @@ func TestRollbackTransitionsUseFixedDetailAltScreen(t *testing.T) {
 
 		next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m = next.(*uiModel)
-		if cmd == nil {
-			t.Fatal("expected edit transition command")
+		if cmd != nil {
+			for _, msg := range collectCmdMessages(t, cmd) {
+				if _, ok := msg.(nativeHistoryFlushMsg); ok {
+					t.Fatalf("did not expect rollback edit to replay native history, got %+v", msg)
+				}
+			}
 		}
-		if !testRollbackEditing(m) || m.view.Mode() != tui.ModeOngoing {
+		if !testRollbackEditing(m) || m.view.Mode() != tui.ModeDetail {
 			t.Fatalf("unexpected edit state: editing=%t mode=%q", testRollbackEditing(m), m.view.Mode())
 		}
-		beforeScroll := m.view.OngoingScroll()
+		beforeScroll := m.view.DetailScroll()
 		m = updateUIModel(t, m, tea.MouseMsg{Button: tea.MouseButtonWheelUp})
-		if got := m.view.OngoingScroll(); got != beforeScroll {
+		if got := m.view.DetailScroll(); got != beforeScroll {
 			t.Fatalf("expected mouse wheel ignored while editing, got scroll %d want %d", got, beforeScroll)
 		}
 
 		next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		m = next.(*uiModel)
-		if cmd == nil {
-			t.Fatal("expected edit cancel transition command")
+		if cmd != nil {
+			for _, msg := range collectCmdMessages(t, cmd) {
+				if _, ok := msg.(nativeHistoryFlushMsg); ok {
+					t.Fatalf("did not expect rollback edit cancel to replay native history, got %+v", msg)
+				}
+			}
 		}
 		if !testRollbackSelecting(m) || m.view.Mode() != tui.ModeDetail || m.altScreenActive != altOnEntry {
 			t.Fatalf("unexpected picker restore state: selecting=%t mode=%q alt=%t", testRollbackSelecting(m), m.view.Mode(), m.altScreenActive)

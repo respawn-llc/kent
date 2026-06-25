@@ -289,7 +289,7 @@ func (m *uiModel) runtimeSyncBlockedByStreaming() bool {
 	return strings.TrimSpace(m.view.OngoingStreamingText()) != "" ||
 		m.sawAssistantDelta ||
 		m.nativeStreamingActive ||
-		strings.TrimSpace(m.nativeStreamingText) != "" ||
+		strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) != "" ||
 		m.isBusy() ||
 		m.isCompacting() ||
 		m.isReviewerRunning()

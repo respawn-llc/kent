@@ -210,10 +210,10 @@ func TestApplyRuntimeTranscriptPageInDetailModeDoesNotRebuildNativeHistoryState(
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, ongoingPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
-	baselineProjection := m.nativeProjection
-	baselineRenderedProjection := m.nativeRenderedProjection
-	baselineRenderedSnapshot := m.nativeRenderedSnapshot
-	baselineFlushedEntryCount := m.nativeFlushedEntryCount
+	baselineProjection := m.nativeCurrentProjection()
+	baselineRenderedProjection := m.nativeRenderedProjection()
+	baselineRenderedSnapshot := m.nativeRenderedSnapshot()
+	baselineFlushedEntryCount := m.nativeCommittedEntryCount()
 
 	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
 	detailPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 500}
@@ -224,17 +224,17 @@ func TestApplyRuntimeTranscriptPageInDetailModeDoesNotRebuildNativeHistoryState(
 		_ = collectCmdMessages(t, cmd)
 	}
 
-	if !reflect.DeepEqual(m.nativeProjection, baselineProjection) {
+	if !reflect.DeepEqual(m.nativeCurrentProjection(), baselineProjection) {
 		t.Fatal("detail transcript apply unexpectedly changed native projection state")
 	}
-	if !reflect.DeepEqual(m.nativeRenderedProjection, baselineRenderedProjection) {
+	if !reflect.DeepEqual(m.nativeRenderedProjection(), baselineRenderedProjection) {
 		t.Fatal("detail transcript apply unexpectedly changed rendered native projection state")
 	}
-	if m.nativeRenderedSnapshot != baselineRenderedSnapshot {
-		t.Fatalf("detail transcript apply changed rendered native snapshot: %q -> %q", baselineRenderedSnapshot, m.nativeRenderedSnapshot)
+	if m.nativeRenderedSnapshot() != baselineRenderedSnapshot {
+		t.Fatalf("detail transcript apply changed rendered native snapshot: %q -> %q", baselineRenderedSnapshot, m.nativeRenderedSnapshot())
 	}
-	if m.nativeFlushedEntryCount != baselineFlushedEntryCount {
-		t.Fatalf("detail transcript apply changed native flushed entry count: %d -> %d", baselineFlushedEntryCount, m.nativeFlushedEntryCount)
+	if m.nativeCommittedEntryCount() != baselineFlushedEntryCount {
+		t.Fatalf("detail transcript apply changed native flushed entry count: %d -> %d", baselineFlushedEntryCount, m.nativeCommittedEntryCount())
 	}
 }
 

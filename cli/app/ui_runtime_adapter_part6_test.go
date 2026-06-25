@@ -347,7 +347,7 @@ func TestDeferredNativeReplayFlushesAutomaticallyOnDetailExit(t *testing.T) {
 				}
 			}
 			if flushCount == 0 {
-				t.Fatalf("expected native replay flush on detail exit, got messages=%v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q transcript=%+v", msgs, m.nativeProjection, m.nativeRenderedProjection, m.nativeRenderedSnapshot, m.transcriptEntries)
+				t.Fatalf("expected native replay flush on detail exit, got messages=%v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q transcript=%+v", msgs, m.nativeCurrentProjection(), m.nativeRenderedProjection(), m.nativeRenderedSnapshot(), m.transcriptEntries)
 			}
 			if !foundLater {
 				t.Fatalf("expected exit replay to include deferred transcript update, got messages=%v", msgs)
@@ -482,7 +482,7 @@ func TestDeferredNativeReplayFlushesBackgroundNoticeOnDetailExit(t *testing.T) {
 				}
 			}
 			if flushCount == 0 {
-				t.Fatalf("expected native replay flush on detail exit, got messages=%v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q transcript=%+v", msgs, m.nativeProjection, m.nativeRenderedProjection, m.nativeRenderedSnapshot, m.transcriptEntries)
+				t.Fatalf("expected native replay flush on detail exit, got messages=%v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q transcript=%+v", msgs, m.nativeCurrentProjection(), m.nativeRenderedProjection(), m.nativeRenderedSnapshot(), m.transcriptEntries)
 			}
 			if !foundNotice {
 				t.Fatalf("expected exit replay to include deferred background notice, got messages=%v", msgs)

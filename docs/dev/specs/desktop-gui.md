@@ -5,11 +5,8 @@
 - Desktop GUI is a remote-control client over an already-running Kent server.
 - Server remains authoritative for projects, workspaces, workflows, tasks, runtime, scheduler state, validation, approvals, questions, comments, worktrees, persistence, and subscriptions.
 - The Tauri app never bundles or starts the Kent server binary as a sidecar.
-- MVP attaches to Kent config/default host and port only. Endpoint editing is deferred.
 - GUI workflow API/read-model churn before Kent 2.0 is isolated behind GUI-side adapters.
-- MVP does not replace the TUI fully and does not include built-in GUI chat.
 - Long-term GUI vision is broad CLI/TUI parity and eventual replacement for routine desktop workflows, but no detailed design/planning is active now.
-- Workflow authoring is outside the original Kanban/runtime MVP; workflow editor decisions live in `workflow-editor.md`.
 
 ## Stack
 
@@ -22,11 +19,9 @@
 - MVP feature code stays in `apps/desktop/src`; extract packages only for a second consumer, stable independent boundary, or oversized cohesive module.
 - Package manager is pnpm.
 - TypeScript API client is hand-written typed JSON-RPC/WebSocket plus GUI-side DTO adapters and contract tests.
-- Do not use tRPC for MVP protocol typing.
 - Native browser `WebSocket` plus in-repo JSON-RPC transport/reconnect layer owns request IDs, pending-request rejection, typed protocol errors, capped backoff, auth readiness, bounded buffering, and full refresh after reconnect.
 - Do not replay mutations after reconnect; refetch/resubscribe and let the user issue a new command.
 - React Query owns server read models, request cache, mutations, invalidation, and WebSocket-driven cache updates.
-- React local state owns MVP local UI state. Do not add Zustand or Redux Toolkit in MVP.
 - Routing uses TanStack Router boxed behind Kent destination helpers.
 - Route/search params are validated with Zod at the boundary.
 - Forms use React Hook Form, `@hookform/resolvers`, and Zod. TanStack Form is deferred until workflow editor forms are genuinely complex.
@@ -56,7 +51,7 @@
 - MVP uses fixed desktop window shell with scrollable islands/panes.
 - First MVP ships macOS-first with native border, native shape, traffic-light controls integrated into app chrome, and macOS blurred glass/vibrancy background.
 - Island-style rounded surfaces render over glass material with readable contrast in light/dark themes.
-- Tauri identifier `sh.kent` is final. Visible chrome can use `Kent` while rebrand is underway.
+- Tauri identifier `sh.kent` is final.
 - Theme supports dark, light, and config override; system/auto otherwise.
 - Montserrat is the main UI font.
 - Monaspace Neon is used for IDs, paths, session IDs, branch names, code, commands, and log-like values.
@@ -74,11 +69,9 @@
 ## Markdown
 
 - Task bodies, comments, and future text surfaces are plain multiline inputs rendered as Markdown.
-- No WYSIWYG editor in MVP.
-- Markdown rendering uses shared `MarkdownText` wrapping `react-markdown`, `remark-gfm`, and `rehype-sanitize`.
 - Raw HTML is disabled; do not add `rehype-raw`.
 - Links use safe-protocol allowlisting, open through native bridge external-link helper, and add `rel="noreferrer"`.
-- `code`/`pre` use theme-token styling. Syntax highlighting is deferred.
+- `code`/`pre` use theme-token styling.
 
 ## Startup
 
@@ -90,7 +83,7 @@
 - Same blocker is used whether client is newer or older than server.
 - JSON-RPC handshake enforces mismatch.
 - Readiness exposes server protocol, build, and version for blocker UX.
-- If server is unreachable, show instructions to run `kent service install`.
+- If server is unreachable, GUI shows instructions to run the server.
 - Startup failures are summary-first: human-readable failure text plus next action; deeper diagnostics go to local GUI log.
 - Missing/expired/not-ready auth uses the same generic startup failure path as other readiness failures.
 - Home does not show runtime identity/header fluff such as endpoint, Kent version, auth mode, logo identity, or runtime metadata.
@@ -244,14 +237,7 @@
 
 ## Logs, Telemetry, Release Scope
 
-- No external crash reporting or telemetry in MVP.
 - Local GUI log lives under Kent persistence root, bounded to 10 MB, redacting auth headers, tokens, env values, and request bodies by default.
-- macOS ships first. Windows/Linux are later after MVP QA.
-- macOS MVP release polish is tracked as GitHub issue `#292`: final app icon, visible display name, bundle metadata, signing/notarization, and update-channel decision.
-- Windows desktop release is tracked as GitHub issue `#293`.
-- Linux desktop release is tracked as GitHub issue `#294`.
-- First MVP release bundle uses manual QA only for packaged-app smoke; CI still runs build/checks.
-- Accessibility is best-effort until after v1; no stronger post-MVP release bar is locked.
 - GUI CI runs checks/tests/lint/typecheck/web build/native check in regular CI; full bundles ship through release workflow.
 - Do not downgrade GUI toolchain to Node 22 just because it is an LTS floor; use current Node 25+ where available unless concrete issue appears.
 
@@ -270,10 +256,7 @@
 - Q: What is canonical board order? A: Backlog fixed left, workflow-defined nodes, Done fixed right.
 - Q: Where are completed tasks shown? A: Same board in fixed-right Done with per-node infinite scroll.
 - Q: What task fields are required if backend data is missing? A: Hide expected-not-yet-created fields, show continuity fields empty/unassigned, unexpected meaningful missing fields as unavailable/error.
-- Q: Which task edits belong in MVP? A: Title/body/source workspace only while Backlog; source URL is shown read-only in detail Properties, not editable.
-- Q: Are task comments MVP? A: Yes, full create/edit/delete.
 - Q: Where are workflow questions and approvals answered? A: Home Inbox lists/deep-links; task detail Inbox owns action controls.
-- Q: Is approval Reject in MVP? A: No, Approve only.
 - Q: Should cancel require a reason? A: No; confirmation only.
 - Q: Should Interrupt confirm? A: No.
 - Q: Should drag-to-start confirm? A: No.
@@ -283,8 +266,4 @@
 - Q: What happens to drafts during disconnect? A: Keep local drafts, disable submit, refresh on reconnect, user manually saves and overwrites.
 - Q: What should the task detail CLI action do? A: Copy `kent --session=<session-id>` to clipboard and show a success toast. Do not launch terminals from the GUI.
 - Q: How does project creation map directory picker result to Kent project/workspace binding? A: Bound workspace opens existing project; unbound workspace opens project creation with editable project name and key.
-- Q: Should MVP add project-key create/edit API support? A: Yes. Project creation includes an editable project key, and the key stays editable from project edit at any time (including after tasks exist). The backend validates format and collisions; renaming only changes the prefix for future task short IDs while existing short IDs stay frozen.
 - Q: Should board search become current scope? A: No; keep it deferred.
-- Q: Should GUI parity be reopened? A: Document broad future parity vision, but do not design or plan it now.
-- Q: Should accessibility become a stronger release bar now? A: No; keep best-effort until after v1.
-- Q: What release work should be tracked now? A: Track macOS MVP release polish and separate Windows/Linux release tickets.

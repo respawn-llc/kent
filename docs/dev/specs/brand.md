@@ -1,4 +1,4 @@
-Draft doc for branding guidelines.
+Authoritative branding guidelines.
 
 - The ASCII art of the banner is using the "Big money NW" font, diagonal gradient using primary and secondary colors.
 

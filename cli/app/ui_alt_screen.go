@@ -59,9 +59,6 @@ func (m *uiModel) transitionTranscriptModeWithOptions(options transcriptModeTran
 	if prevMode != nextMode && nextMode == tui.ModeOngoing {
 		m.syncRecentTailViewFromRuntimeState()
 	}
-	if prevMode != nextMode {
-		m.invalidateNativeResizeReplay()
-	}
 	if !options.preserveSurface && (nextMode == tui.ModeOngoing || nextMode == tui.ModeDetail) {
 		m.activeSurface = surfaceForTranscriptMode(nextMode)
 	}
@@ -124,28 +121,31 @@ func (m *uiModel) nativeReplayCmdForModeTransition(prev, next tui.Mode, enabled 
 	}
 	// Detail-mode transcript changes may append newly committed suffix rows on return.
 	// If a spilled streaming assistant committed while detail was active, finalize that
-	// deferred tail through the normal sync path; otherwise preserve the existing
-	// append-only replay path for deferred committed deltas.
-	m.armNativeHistoryReplayPermit(nativeHistoryReplayPermitModeRestore)
-	committedEntries := committedTranscriptEntriesForApp(m.transcriptEntries)
-	if m.canFinalizeNativeStreamingCommit(committedEntries, len(committedEntries)) {
-		return m.syncNativeHistoryFromTranscript()
+	// deferred tail through the normal sync path; otherwise preserve append-only
+	// delivery for deferred committed deltas.
+	nativeCommittedEntries := committedNativeScrollbackEntriesForApp(m.transcriptEntries)
+	committedEntries := nativeCommittedEntries.Entries
+	if m.canFinalizeNativeStreamingCommit(nativeCommittedEntries, len(committedEntries)) {
+		beforeSequence := m.nativeLastScheduledFlushSequence()
+		cmd := m.syncNativeHistoryFromTranscript()
+		if m.nativeScrollbackInvariantSet {
+			return cmd
+		}
+		return sequenceCmds(cmd, m.trackOngoingCommittedFrontierFlush(committedOngoingLocalFrontierEnd(m), m.transcriptRevision, beforeSequence))
 	}
-	if len(committedEntries) > 0 && !m.nativeProjection.Empty() {
+	if len(committedEntries) > 0 && !m.nativeCurrentProjection().Empty() {
 		projection := m.nativeCommittedProjection(committedEntries)
-		if _, ok := projection.RenderAppendDeltaFrom(m.nativeProjection, tui.TranscriptDivider); !ok {
-			m.rebaseNativeProjection(projection, m.transcriptBaseOffset, len(committedEntries))
-			m.acceptNativeProjectionWithoutReplay(projection)
-			return nil
+		currentProjection := m.nativeCurrentProjection()
+		if _, ok := projection.RenderAppendDeltaFrom(currentProjection, tui.TranscriptDivider); !ok {
+			return m.reportNativeProjectionDivergence(projection, currentProjection)
 		}
 	}
-	if m.nativeProjection.Empty() && len(committedEntries) > 0 {
+	if m.nativeCurrentProjection().Empty() && len(committedEntries) > 0 {
 		projection := m.nativeCommittedProjection(committedEntries)
 		m.rebaseNativeProjection(projection, m.transcriptBaseOffset, len(committedEntries))
-		m.acceptNativeProjectionWithoutReplay(projection)
-		return nil
+		return m.emitCurrentNativeScrollbackStateAndTrackCommittedDelivery()
 	}
-	return m.emitCurrentNativeScrollbackState(false)
+	return m.emitCurrentNativeScrollbackStateAndTrackCommittedDelivery()
 }
 
 func sequenceCmds(cmds ...tea.Cmd) tea.Cmd {

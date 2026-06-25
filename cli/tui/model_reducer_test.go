@@ -188,20 +188,20 @@ func TestReduceSetConversationMsgNormalizesEntriesAndClearsInvalidSelection(t *t
 	}
 }
 
-func TestApplyUpdateResultAutoFollowsOngoingAtBottom(t *testing.T) {
+func TestOngoingScrollIsDerivedFromLiveTail(t *testing.T) {
 	m := NewModel(WithPreviewLines(2))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "one"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "two"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "three"})
-	if got, want := m.ongoingScroll, m.maxOngoingScroll(); got != want {
+	if got, want := m.OngoingScroll(), m.maxOngoingScroll(); got != want {
 		t.Fatalf("expected setup at bottom, got %d want %d", got, want)
 	}
 
-	m.transcriptInput.Ongoing = ""
-	m.applyUpdateResult(modelUpdateResult{autoFollowOngoing: true, ongoingChanged: true}, true)
+	m.transcriptInput.Ongoing = "four"
+	m.applyUpdateResult(modelUpdateResult{autoFollowOngoing: true, ongoingChanged: true})
 
-	if got, want := m.ongoingScroll, m.maxOngoingScroll(); got != want {
-		t.Fatalf("expected auto follow to keep ongoing at bottom, got %d want %d", got, want)
+	if got, want := m.OngoingScroll(), m.maxOngoingScroll(); got != want {
+		t.Fatalf("expected ongoing tail offset to be derived from content, got %d want %d", got, want)
 	}
 }
 

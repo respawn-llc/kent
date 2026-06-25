@@ -40,7 +40,6 @@ func TestDetailScrollStepAllocsStayBounded(t *testing.T) {
 	m = updateModel(t, m, SetViewportSizeMsg{Lines: 40, Width: 120})
 	m = updateModel(t, m, SetConversationMsg{Entries: entries})
 	m = updateModel(t, m, ToggleModeMsg{})
-	m = updateModel(t, m, ScrollOngoingMsg{Delta: -120})
 
 	allocs := testing.AllocsPerRun(20, func() {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -70,12 +69,11 @@ func TestDetailSelectableLookupHotPathAllocsStayBounded(t *testing.T) {
 	}
 }
 
-func TestOngoingScrollStepAllocsStayBounded(t *testing.T) {
+func TestOngoingKeyNoopAllocsStayBounded(t *testing.T) {
 	entries := benchmarkDetailEntries(300)
 	m := NewModel(WithTheme("dark"))
 	m = updateModel(t, m, SetViewportSizeMsg{Lines: 40, Width: 120})
 	m = updateModel(t, m, SetConversationMsg{Entries: entries})
-	m = updateModel(t, m, ScrollOngoingMsg{Delta: -120})
 
 	allocs := testing.AllocsPerRun(20, func() {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})

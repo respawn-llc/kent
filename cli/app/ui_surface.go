@@ -70,7 +70,7 @@ func (m *uiModel) restoreTranscriptSurface() tea.Cmd {
 	next := surfaceForTranscriptMode(m.view.Mode())
 	transitionCmd := m.activateSurface(next)
 	if !prev.isTranscript() && next == uiSurfaceOngoingTranscript {
-		return sequenceCmds(transitionCmd, m.emitCurrentNativeScrollbackState(false))
+		return sequenceCmds(transitionCmd, m.emitCurrentNativeScrollbackStateAndTrackCommittedDelivery())
 	}
 	return transitionCmd
 }

@@ -169,7 +169,7 @@ func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
 		if model.sawAssistantDelta {
 			return false
 		}
-		if strings.Count(model.nativeRenderedSnapshot, "TAIL-ONCE") != 1 {
+		if strings.Count(model.nativeRenderedSnapshot(), "TAIL-ONCE") != 1 {
 			return false
 		}
 		for _, entry := range eng.RecentTailTranscriptWindow(1 << 20).Snapshot.Entries {
@@ -182,8 +182,8 @@ func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
 	waitForSubmitResult(t, 2*time.Second, submitDone)
 	program.QuitAndWait(2 * time.Second)
 
-	if count := strings.Count(model.nativeRenderedSnapshot, "TAIL-ONCE"); count != 1 {
-		t.Fatalf("expected native rendered snapshot to contain tail token once, count=%d snapshot=%q", count, model.nativeRenderedSnapshot)
+	if count := strings.Count(model.nativeRenderedSnapshot(), "TAIL-ONCE"); count != 1 {
+		t.Fatalf("expected native rendered snapshot to contain tail token once, count=%d snapshot=%q", count, model.nativeRenderedSnapshot())
 	}
 }
 
@@ -221,7 +221,7 @@ func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			snapshot := eng.RecentTailTranscriptWindow(1 << 20).Snapshot
-			t.Fatalf("timed out waiting for final commit to clear ongoing state output=%q flush_seq=%d flushed_seq=%d pending_flushes=%d runtime_transcript=%+v ui_transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q", normalizedOutput(out.String()), model.nativeFlushSequence, model.nativeFlushedSequence, len(model.nativePendingFlushes), snapshot.Entries, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
+			t.Fatalf("timed out waiting for final commit to clear ongoing state output=%q flush_seq=%d flushed_seq=%d pending_flushes=%d runtime_transcript=%+v ui_transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q", normalizedOutput(out.String()), model.nativeLastScheduledFlushSequence(), model.nativeAckedFlushSequence(), model.nativeScrollbackLedger.PendingCount(), snapshot.Entries, model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), stripANSIAndTrimRight(model.view.OngoingSnapshot()))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -230,7 +230,7 @@ func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
 	normalized := normalizedOutput(out.String())
 	if !strings.Contains(normalized, "FINAL-CONTENT") {
 		snapshot := eng.RecentTailTranscriptWindow(1 << 20).Snapshot
-		t.Fatalf("expected final content in output, got output=%q flush_seq=%d flushed_seq=%d pending_flushes=%d runtime_transcript=%+v ui_transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q", normalized, model.nativeFlushSequence, model.nativeFlushedSequence, len(model.nativePendingFlushes), snapshot.Entries, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
+		t.Fatalf("expected final content in output, got output=%q flush_seq=%d flushed_seq=%d pending_flushes=%d runtime_transcript=%+v ui_transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q", normalized, model.nativeLastScheduledFlushSequence(), model.nativeAckedFlushSequence(), model.nativeScrollbackLedger.PendingCount(), snapshot.Entries, model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), stripANSIAndTrimRight(model.view.OngoingSnapshot()))
 	}
 	if strings.Contains(normalized, "LATE-BLINK") {
 		t.Fatalf("expected late async delta to be suppressed after finalize, got %q", normalized)
@@ -264,7 +264,7 @@ func TestNativeSubmitErrorShowsStatusOnlyWhenRuntimeAppendFails(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for submit append error status output=%q status=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transientStatus, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for submit append error status output=%q status=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transientStatus, model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed(), model.nativeCommittedEntryCount())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -301,7 +301,7 @@ func TestNativeDisconnectedSubmissionShowsStatusOnlyWhenRuntimeAppendFails(t *te
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for disconnected append error status output=%q status=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transientStatus, model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for disconnected append error status output=%q status=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transientStatus, model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed(), model.nativeCommittedEntryCount())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -361,7 +361,7 @@ func TestNativeDisconnectedSubmissionAfterRealRemoteDisconnectAppendsToScrollbac
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for real disconnect status output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for real disconnect status output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed(), model.nativeCommittedEntryCount())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -396,7 +396,7 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for back command status output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed, model.nativeFlushedEntryCount)
+			t.Fatalf("timed out waiting for back command status output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q ongoing=%q window=%t replayed=%t flushed=%d", normalizedOutput(out.String()), model.transcriptEntries, model.nativeCurrentProjection(), model.nativeRenderedProjection(), model.nativeRenderedSnapshot(), stripANSIAndTrimRight(model.view.OngoingSnapshot()), model.windowSizeKnown, model.nativeHistoryReplayed(), model.nativeCommittedEntryCount())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

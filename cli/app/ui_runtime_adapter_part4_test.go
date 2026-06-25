@@ -68,7 +68,7 @@ func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenAuthor
 	if m.transcriptLiveDirty {
 		t.Fatal("expected corrective equal-revision refresh to clear transcriptLiveDirty")
 	}
-	rawCommitted := renderStyledNativeProjectionLines(m.nativeProjection.Lines(tui.TranscriptDivider), m.theme, m.termWidth)
+	rawCommitted := renderStyledNativeProjectionLines(m.nativeCurrentProjection().Lines(tui.TranscriptDivider), m.theme, m.termWidth)
 	if plain := stripANSIPreserve(rawCommitted); !strings.Contains(plain, "$ pwd") {
 		t.Fatalf("expected corrected shell row in committed native projection, got %q", plain)
 	}

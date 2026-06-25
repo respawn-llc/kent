@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -313,11 +312,11 @@ func TestNativeScrollbackStartupEmptyConversationEmitsBlankScreenSpacer(t *testi
 	if got := strings.Count(msg.Text, "\n"); got != 30 {
 		t.Fatalf("expected blank spacer to emit one empty screen worth of lines, got %d newlines", got)
 	}
-	if !m.nativeHistoryReplayed {
+	if !m.nativeHistoryReplayed() {
 		t.Fatal("expected empty-history startup to mark native scrollback as replayed")
 	}
-	if m.nativeRenderedSnapshot != "" {
-		t.Fatalf("expected empty-history startup to keep rendered history snapshot empty, got %q", m.nativeRenderedSnapshot)
+	if m.nativeRenderedSnapshot() != "" {
+		t.Fatalf("expected empty-history startup to keep rendered history snapshot empty, got %q", m.nativeRenderedSnapshot())
 	}
 	if cmd := m.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatalf("expected empty-history replay to emit spacer only once without resize, got %T", cmd())
@@ -328,9 +327,8 @@ func TestNativeScrollbackEmitsOnlyNewTranscriptLines(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
 	)
-	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	m.nativeHistoryReplayed = true
-	m.nativeFlushedEntryCount = len(m.transcriptEntries)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	if cmd := m.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatal("expected no delta command without transcript changes")
@@ -355,6 +353,51 @@ func TestNativeScrollbackEmitsOnlyNewTranscriptLines(t *testing.T) {
 	}
 }
 
+func TestNativeScrollbackAppendPlanningUsesScheduledProjectionBeforeTerminalAck(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
+	)
+	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+
+	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "first queued line"})
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "assistant", Text: "first queued line"})
+	firstCmd := m.syncNativeHistoryFromTranscript()
+	firstMsgs := collectCmdMessages(t, firstCmd)
+	if len(firstMsgs) != 1 {
+		t.Fatalf("first append messages = %d, want one native flush", len(firstMsgs))
+	}
+	firstFlush, ok := firstMsgs[0].(nativeHistoryFlushMsg)
+	if !ok {
+		t.Fatalf("first append message = %T, want nativeHistoryFlushMsg", firstMsgs[0])
+	}
+	if plain := stripANSIText(firstFlush.Text); !strings.Contains(plain, "first queued line") || strings.Contains(plain, "old line") {
+		t.Fatalf("first append flush = %q, want first line only", plain)
+	}
+	if strings.Contains(m.nativeRenderedSnapshot(), "first queued line") {
+		t.Fatalf("acked rendered snapshot advanced before terminal ack: %q", m.nativeRenderedSnapshot())
+	}
+
+	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "second queued line"})
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "assistant", Text: "second queued line"})
+	secondCmd := m.syncNativeHistoryFromTranscript()
+	secondMsgs := collectCmdMessages(t, secondCmd)
+	if len(secondMsgs) != 1 {
+		t.Fatalf("second append messages = %d, want one native flush", len(secondMsgs))
+	}
+	secondFlush, ok := secondMsgs[0].(nativeHistoryFlushMsg)
+	if !ok {
+		t.Fatalf("second append message = %T, want nativeHistoryFlushMsg", secondMsgs[0])
+	}
+	plain := stripANSIText(secondFlush.Text)
+	if !strings.Contains(plain, "second queued line") {
+		t.Fatalf("second append flush omitted new line: %q", plain)
+	}
+	if strings.Contains(plain, "first queued line") || strings.Contains(plain, "old line") {
+		t.Fatalf("second append flush duplicated already scheduled history: %q", plain)
+	}
+}
+
 func TestNativeScrollbackDoesNotReplaySameSessionNonAppendMutation(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}, {Role: "assistant", Text: "old line"}, {Role: "assistant", Text: "tail line"}}),
@@ -363,6 +406,7 @@ func TestNativeScrollbackDoesNotReplaySameSessionNonAppendMutation(t *testing.T)
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	m.transcriptEntries[1].Text = "mutated line"
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
@@ -372,12 +416,15 @@ func TestNativeScrollbackDoesNotReplaySameSessionNonAppendMutation(t *testing.T)
 			t.Fatalf("did not expect same-session divergence to replay normal-buffer history, got %+v", msg)
 		}
 	}
-	if got := stripANSIText(m.nativeRenderedSnapshot); !strings.Contains(got, "mutated line") || strings.Contains(got, "old line") {
-		t.Fatalf("expected rendered baseline rebased without replay, got %q", got)
+	if got := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(got, "old line") || strings.Contains(got, "mutated line") {
+		t.Fatalf("expected rendered baseline to remain unchanged after divergence, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected same-session divergence to record native scrollback invariant")
 	}
 }
 
-func TestNativeScrollbackRebasesWhenNoSharedPrefixExists(t *testing.T) {
+func TestNativeScrollbackBlocksWhenNoSharedPrefixExists(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}, {Role: "assistant", Text: "tail line"}}),
 	)
@@ -385,6 +432,7 @@ func TestNativeScrollbackRebasesWhenNoSharedPrefixExists(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "fresh root"}, {Role: "assistant", Text: "rewritten tail"}}
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
@@ -394,30 +442,22 @@ func TestNativeScrollbackRebasesWhenNoSharedPrefixExists(t *testing.T) {
 			t.Fatalf("did not expect same-session zero-prefix divergence to replay scrollback, got %+v", msg)
 		}
 	}
-	if got := m.nativeRenderedSnapshot; got != m.nativeProjection.Render(tui.TranscriptDivider) {
-		t.Fatalf("expected zero-prefix divergence to update rendered snapshot baseline without replay, got %q", got)
+	if got := stripANSIText(m.nativeRenderedSnapshot()); !strings.Contains(got, "old line") || strings.Contains(got, "fresh root") {
+		t.Fatalf("expected zero-prefix divergence to keep rendered snapshot unchanged, got %q", got)
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected zero-prefix divergence to record native scrollback invariant")
 	}
 
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "next answer"})
 	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: "assistant", Text: "next answer"})
 	appendCmd := m.syncNativeHistoryFromTranscript()
-	if appendCmd == nil {
-		t.Fatal("expected future append to resume after silent zero-prefix rebase")
-	}
-	appendMsg, ok := appendCmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", appendCmd())
-	}
-	appendPlain := stripANSIText(appendMsg.Text)
-	if !strings.Contains(appendPlain, "next answer") {
-		t.Fatalf("expected resumed append to include new assistant turn, got %q", appendPlain)
-	}
-	if strings.Contains(appendPlain, "fresh root") || strings.Contains(appendPlain, "rewritten tail") {
-		t.Fatalf("expected resumed append to exclude already rebuilt history, got %q", appendPlain)
+	if appendCmd != nil {
+		t.Fatalf("expected future append to stay blocked after invariant violation, got %T", appendCmd)
 	}
 }
 
-func TestNativeScrollbackResizeRebasesFormatterWidth(t *testing.T) {
+func TestNativeScrollbackResizeFreezesFormatterWidth(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
 	)
@@ -425,13 +465,14 @@ func TestNativeScrollbackResizeRebasesFormatterWidth(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 	if m.nativeFormatterWidth != 40 {
 		t.Fatalf("expected initial formatter width 40, got %d", m.nativeFormatterWidth)
 	}
 
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	if m.nativeFormatterWidth != 100 {
-		t.Fatalf("expected formatter width rebased to 100 after resize, got %d", m.nativeFormatterWidth)
+	if m.nativeFormatterWidth != 40 {
+		t.Fatalf("expected formatter width to stay frozen at 40 after resize, got %d", m.nativeFormatterWidth)
 	}
 
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: "new line"})
@@ -453,17 +494,7 @@ func TestNativeScrollbackResizeRebasesFormatterWidth(t *testing.T) {
 	}
 }
 
-func TestNativeResizeReplayDebouncedToLatestResize(t *testing.T) {
-	previousDebounce := nativeResizeReplayDebounce
-	previousNow := nativeResizeReplayNow
-	nativeResizeReplayDebounce = time.Millisecond
-	now := time.Unix(1, 0)
-	nativeResizeReplayNow = func() time.Time { return now }
-	t.Cleanup(func() {
-		nativeResizeReplayDebounce = previousDebounce
-		nativeResizeReplayNow = previousNow
-	})
-
+func TestNativeWidthResizeDoesNotScheduleReplayOrRebaseRenderedHistory(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "old line"}}),
 	)
@@ -471,67 +502,20 @@ func TestNativeResizeReplayDebouncedToLatestResize(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+	renderedSnapshot := m.nativeRenderedSnapshot()
+	formatterWidth := m.nativeFormatterWidth
 
 	next, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected debounced resize replay command")
+	if cmd != nil {
+		t.Fatalf("expected width resize not to schedule native replay, got %T", cmd)
 	}
-	firstToken := m.nativeResizeReplayToken
-
-	next, cmd = m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	m = next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected debounced resize replay command for later resize")
+	if m.nativeRenderedSnapshot() != renderedSnapshot {
+		t.Fatalf("expected width resize not to mutate rendered native snapshot, got %q want %q", m.nativeRenderedSnapshot(), renderedSnapshot)
 	}
-	secondToken := m.nativeResizeReplayToken
-	if secondToken <= firstToken {
-		t.Fatalf("expected resize replay token to advance, first=%d second=%d", firstToken, secondToken)
-	}
-
-	next, staleCmd := m.Update(nativeResizeReplayMsg{token: firstToken})
-	m = next.(*uiModel)
-	if staleCmd != nil {
-		t.Fatalf("expected stale resize replay token ignored, got %T", staleCmd)
-	}
-
-	now = now.Add(500 * time.Microsecond)
-	next, replayCmd := m.Update(nativeResizeReplayMsg{token: secondToken})
-	m = next.(*uiModel)
-	if replayCmd == nil {
-		t.Fatal("expected latest resize replay token to stay deferred until quiet period elapses")
-	}
-	deferredMsgs := collectCmdMessages(t, replayCmd)
-	if len(deferredMsgs) != 1 {
-		t.Fatalf("expected deferred resize replay to reschedule exactly one timer, got %d message(s)", len(deferredMsgs))
-	}
-	deferred, ok := deferredMsgs[0].(nativeResizeReplayMsg)
-	if !ok {
-		t.Fatalf("expected deferred nativeResizeReplayMsg, got %T", deferredMsgs[0])
-	}
-	if deferred.token != secondToken {
-		t.Fatalf("expected deferred resize replay token %d, got %d", secondToken, deferred.token)
-	}
-
-	now = now.Add(500 * time.Microsecond)
-	next, replayCmd = m.Update(nativeResizeReplayMsg{token: secondToken})
-	m = next.(*uiModel)
-	if replayCmd == nil {
-		t.Fatal("expected latest resize replay token to trigger full history replay after quiet period")
-	}
-	msgs := collectCmdMessages(t, replayCmd)
-	if len(msgs) != 2 {
-		t.Fatalf("expected clear-screen plus native history flush for resize replay, got %d message(s)", len(msgs))
-	}
-	flush, ok := msgs[1].(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg as second replay message, got %T", msgs[1])
-	}
-	if !strings.Contains(stripANSIText(flush.Text), "old line") {
-		t.Fatalf("expected full resize replay to include existing transcript, got %q", flush.Text)
-	}
-	if m.nativeFormatterWidth != 100 {
-		t.Fatalf("expected formatter width rebased to latest resize width 100, got %d", m.nativeFormatterWidth)
+	if m.nativeFormatterWidth != formatterWidth {
+		t.Fatalf("expected width resize not to change frozen formatter width, got %d want %d", m.nativeFormatterWidth, formatterWidth)
 	}
 }
 
@@ -549,12 +533,9 @@ func TestNativeHeightOnlyResizeDoesNotScheduleFullReplay(t *testing.T) {
 	if cmd != nil {
 		t.Fatalf("expected height-only resize to avoid full native replay scheduling, got %T", cmd)
 	}
-	if m.nativeResizeReplayToken != 0 {
-		t.Fatalf("expected height-only resize to avoid changing replay token, got %d", m.nativeResizeReplayToken)
-	}
 }
 
-func TestNativeResizeReplayInvalidatedAcrossModeSwitch(t *testing.T) {
+func TestNativeWidthResizeAcrossModeSwitchDoesNotScheduleReplay(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
 	)
@@ -565,10 +546,9 @@ func TestNativeResizeReplayInvalidatedAcrossModeSwitch(t *testing.T) {
 
 	next, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = next.(*uiModel)
-	if resizeCmd == nil {
-		t.Fatal("expected debounced resize replay command")
+	if resizeCmd != nil {
+		t.Fatalf("expected width resize not to schedule replay, got %T", resizeCmd)
 	}
-	staleToken := m.nativeResizeReplayToken
 
 	_ = m.toggleTranscriptModeWithNativeReplay(false)
 	if m.view.Mode() != tui.ModeDetail {
@@ -577,15 +557,6 @@ func TestNativeResizeReplayInvalidatedAcrossModeSwitch(t *testing.T) {
 	_ = m.toggleTranscriptModeWithNativeReplay(false)
 	if m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("expected ongoing mode, got %q", m.view.Mode())
-	}
-	if m.nativeResizeReplayToken == staleToken {
-		t.Fatalf("expected mode switch to invalidate stale resize replay token %d", staleToken)
-	}
-
-	next, staleCmd := m.Update(nativeResizeReplayMsg{token: staleToken})
-	m = next.(*uiModel)
-	if staleCmd != nil {
-		t.Fatalf("expected stale resize replay ignored after mode switch, got %T", staleCmd)
 	}
 }
 
@@ -630,7 +601,7 @@ func TestNativeStreamingContractViewportDuringStreamCommittedReplayOnFinish(t *t
 	}
 }
 
-func TestNativeScrollbackShrinkRebasesWithoutReemittingHistory(t *testing.T) {
+func TestNativeScrollbackShrinkRecordsInvariantWithoutReemittingHistory(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "line one"}, {Role: "assistant", Text: "line two"}}),
 	)
@@ -642,8 +613,13 @@ func TestNativeScrollbackShrinkRebasesWithoutReemittingHistory(t *testing.T) {
 	m.transcriptEntries = m.transcriptEntries[:1]
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
 	cmd := m.syncNativeHistoryFromTranscript()
-	if cmd != nil {
-		t.Fatalf("expected no replay emission after transcript shrink, got %T", cmd())
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if _, ok := msg.(nativeHistoryFlushMsg); ok {
+			t.Fatalf("did not expect transcript shrink to replay native history, got %+v", msg)
+		}
+	}
+	if !m.nativeScrollbackInvariantSet {
+		t.Fatal("expected transcript shrink to record native scrollback invariant")
 	}
 }
 
@@ -752,6 +728,8 @@ func TestNativeScrollbackFlowIntegration(t *testing.T) {
 	}
 	if _, cmd := m.Update(startupMsg); cmd == nil {
 		t.Fatal("expected non-nil command for startup flush")
+	} else {
+		_ = collectCmdMessagesApplyingNativeWriteResults(t, m, cmd)
 	}
 
 	modeBefore := m.view.Mode()

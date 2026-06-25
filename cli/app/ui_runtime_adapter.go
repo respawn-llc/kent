@@ -35,7 +35,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEventsBatch(events []clientui.Eve
 	if !transcriptMutated {
 		return runtimeEventApplyResult{cmd: batchedCmd, awaitsHydration: awaitsHydration}
 	}
-	nativeCmd := a.model.syncNativeHistoryFromTranscript()
+	nativeCmd := a.model.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery()
 	deferredCmd := a.model.drainDeferredCommittedDeliveryIfUnblocked()
 	return runtimeEventApplyResult{cmd: sequenceCmds(nativeCmd, deferredCmd, batchedCmd), transcriptMutated: true, awaitsHydration: awaitsHydration}
 }
@@ -82,8 +82,11 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	}
 	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
 	if evt.Kind == clientui.EventToolCallStarted {
-		if stepID := strings.TrimSpace(evt.StepID); stepID != "" && m.nativeStreamingStepID != "" && stepID != m.nativeStreamingStepID {
-			cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
+		if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
+			streamState := m.nativeScrollbackLedger.AssistantStreamState()
+			if streamState.StepID != "" && stepID != streamState.StepID {
+				cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
+			}
 		}
 	}
 	transcriptMutated := false
@@ -123,11 +126,11 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 				continue
 			}
 			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
-				if m.nativeStreamingStepID != "" && stepID != m.nativeStreamingStepID {
+				streamState := m.nativeScrollbackLedger.AssistantStreamState()
+				if streamState.StepID != "" && stepID != streamState.StepID {
 					cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
 				}
-				m.nativeStreamingStepID = stepID
-				m.nativeStreamingCommitRangeSet = false
+				m.nativeScrollbackLedger.SetAssistantStreamStepID(stepID)
 			}
 			m.sawAssistantDelta = true
 			m.forwardToView(tui.StreamAssistantMsg{Delta: delta})
@@ -135,7 +138,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
 				m.lastCommittedAssistantStepID = stepID
 			}
-			if strings.TrimSpace(m.nativeStreamingController.source) != "" || strings.TrimSpace(m.nativeStreamingText) != "" {
+			if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) != "" {
 				m.nativeStreamingAwaitingCommit = true
 			}
 			m.sawAssistantDelta = false

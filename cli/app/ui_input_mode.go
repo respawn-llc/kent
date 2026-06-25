@@ -69,8 +69,6 @@ type uiRollbackState struct {
 	selectedTargetID          string
 	pendingSelectionAnchor    int
 	pendingSelectionDelta     int
-	restoreOngoingScroll      int
-	restoreScrollActive       bool
 }
 
 type uiStatusOverlayState struct {

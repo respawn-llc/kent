@@ -1,18 +1,19 @@
 ---
 name: ui-design
-description: Builder GUI design constraints for desktop/web UI work. Use when designing or implementing Builder GUI screens, layouts, visual tokens, animations, or native window surfaces.
+description: Kent GUI design guide for desktop/web UI work. Use when designing or implementing Kent GUI screens, layouts, visual tokens, animations, writing React or Compose UI code.
 ---
 
 ## Product Principles
 
 - 3 Big Principles: **Clean, elegant, effective.** . Everything reachable, everything dynamic.
 - GUI is a remote-control surface. Server owns workflow/runtime truth; UI presents read models and sends explicit actions. Never try to circumvent server communication in GUI clients. Assume server api expansion as needed is part of feature work.
-- Every visible state must explain what the operator can do next or why they cannot continue. Example: errors include "Try again" or "Go back" CTAs. Terminal states include "Return" or "Close" (for modals). Empty states include "Create project"/"Create task" etc.
+- Every visible state must explain what the operator can do next or why they cannot continue. Example: errors include "Try again" or "Go back" CTAs. Terminal states include "Return" or "Close" (for modals). Empty states include "Create project"/"Create task" etc. Error or empty state without at least one button is a failure.
 - NEVER hardcode fonts or color HEX values. Always use theme tokens instead. If new color/typography style is added, introduce runtime-overridable theme token, not a compilation constant and not hardcoded string.
 
 ## Visual Model
 
 - Use island-style UI: every major surface is a floating rounded island over a native blurred/glass window background.
+- Keep island nesting low. Maximum is 4 island stack, with 4 reserved only for truly floating elements. Keep it at 1 or 2 for 80% of UI.
 - Avoid flat full-bleed panels except for the underlying glass/material background.
 - Use generous radius, soft borders, translucent fills, and subtle shadows to separate islands.
 - Follow design system constants, do not hardcode colors, paddings, spacing, font settings, styles, shadows, animations.
@@ -25,22 +26,18 @@ description: Builder GUI design constraints for desktop/web UI work. Use when de
 ## Native Window
 
 - Native window shape, border, and platform controls are part of the app surface.
-- Traffic-light/window controls must feel integrated with app chrome, not like a detached ugly title bar.
 - macOS uses blurred glass/vibrancy. Windows should map the same principle to acrylic surfaces.
 - Window background adapts to light/dark theme.
 - Feature components must not import Tauri/native APIs directly. Native window/material commands stay behind bridge/shell boundaries.
 
 ## Typography
 
-- Main UI font: Montserrat.
-- Monospace font: Monaspace Neon.
 - Use mono for IDs, paths, command snippets, status codes, session IDs, branch names, and log-like values.
 - Use main font for headings, navigation, controls, and normal body text.
 
 ## Theme And Palette
 
-- Support light and dark themes.
-- Use config-driven override when set; otherwise use auto/system theme.
+- Always support both light and dark themes.
 - Treat the palette as easy to change. Build semantic tokens first; do not hardcode final color choices in feature components.
 
 ## Layout

@@ -20,16 +20,9 @@ type uiLogger interface {
 	Logf(format string, args ...any)
 }
 
-var nativeResizeReplayDebounce = time.Second
-var nativeResizeReplayNow = time.Now
-
 func (m *uiModel) clearReviewerState() {
 	m.setReviewerRunning(false)
 	m.setReviewerBlocking(false)
-}
-
-func (m *uiModel) invalidateNativeResizeReplay() {
-	m.nativeResizeReplayToken++
 }
 
 type rollbackCandidate struct {
@@ -154,7 +147,7 @@ func (m *uiModel) applyRunLoggerDiagnostic(diag runLoggerDiagnostic) tea.Cmd {
 }
 
 func (m *uiModel) handleRuntimeEventBatch(events []clientui.Event) (*uiModel, tea.Cmd) {
-	flushSequenceBefore := m.nativeFlushSequence
+	flushSequenceBefore := m.nativeLastScheduledFlushSequence()
 	m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.runtime_batch", map[string]string{
 		"session_id":             strings.TrimSpace(m.sessionID),
 		"mode":                   string(m.view.Mode()),
@@ -181,18 +174,18 @@ func (m *uiModel) handleRuntimeEventBatch(events []clientui.Event) (*uiModel, te
 			"session_id":             strings.TrimSpace(m.sessionID),
 			"mode":                   string(m.view.Mode()),
 			"pending_runtime_events": strconv.Itoa(len(m.pendingRuntimeEvents)),
-			"native_flush_sequence":  strconv.FormatUint(m.nativeFlushSequence, 10),
+			"native_flush_sequence":  strconv.FormatUint(m.nativeLastScheduledFlushSequence(), 10),
 		}))
 		m.waitRuntimeEventAfterHydration = true
 	}
-	if m.nativeFlushSequence != flushSequenceBefore {
+	if m.nativeLastScheduledFlushSequence() != flushSequenceBefore {
 		m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.runtime_batch_wait_flush", map[string]string{
 			"session_id":             strings.TrimSpace(m.sessionID),
 			"mode":                   string(m.view.Mode()),
 			"pending_runtime_events": strconv.Itoa(len(m.pendingRuntimeEvents)),
-			"native_flush_sequence":  strconv.FormatUint(m.nativeFlushSequence, 10),
+			"native_flush_sequence":  strconv.FormatUint(m.nativeLastScheduledFlushSequence(), 10),
 		}))
-		m.waitRuntimeEventAfterFlushSequence = m.nativeFlushSequence
+		m.waitRuntimeEventAfterFlushSequence = m.nativeLastScheduledFlushSequence()
 		if result.awaitsHydration {
 			return m, cmd
 		}
@@ -239,6 +232,7 @@ func (m *uiModel) Init() tea.Cmd {
 		m.waitRuntimeEventCmd(),
 		waitAskEvent(m.askEvents),
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
+		waitNativeTerminalWriteResult(m.nativeTerminalWriteResults()),
 		tea.SetWindowTitle(sessionTitle(m.sessionName)),
 		tea.WindowSize(),
 	}

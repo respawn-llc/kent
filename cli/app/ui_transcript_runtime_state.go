@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 
+	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 	"core/shared/transcript"
@@ -48,9 +49,6 @@ func (m *uiModel) invalidateTransientTranscriptState() {
 		Ongoing:      "",
 		OngoingError: "",
 	})
-	if m.view.Mode() == tui.ModeOngoing {
-		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
-	}
 }
 
 func shouldReplaceLoadedTransientEntriesWithCommittedAppend(m *uiModel, entries []tui.TranscriptEntry) bool {
@@ -161,7 +159,7 @@ func (m *uiModel) clearAssistantStreamForCommittedAppend() {
 	if m == nil {
 		return
 	}
-	if strings.TrimSpace(m.nativeStreamingController.source) == "" && strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
+	if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) == "" && strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
 		m.nativeStreamingAwaitingCommit = true
 	}
 	m.sawAssistantDelta = false
@@ -186,36 +184,19 @@ func (m *uiModel) observeNativeStreamingAssistantCommitCandidate(evt clientui.Ev
 	if m == nil || evt.Kind != clientui.EventAssistantMessage {
 		return
 	}
-	streamStepID := strings.TrimSpace(m.nativeStreamingStepID)
-	eventStepID := strings.TrimSpace(evt.StepID)
-	if streamStepID != "" {
-		if eventStepID == "" || streamStepID != eventStepID {
-			return
-		}
-	}
 	start, _, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
 	if !ok {
 		return
 	}
-	assistantStart := -1
-	assistantEnd := -1
-	for idx, entry := range evt.TranscriptEntries {
-		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
-			continue
-		}
-		if assistantStart >= 0 {
-			m.nativeStreamingCommitRangeSet = false
-			return
-		}
-		assistantStart = start + idx
-		assistantEnd = assistantStart + 1
+	entries := make([]nativescrollback.AssistantCommitEntry, 0, len(evt.TranscriptEntries))
+	for _, entry := range evt.TranscriptEntries {
+		entries = append(entries, nativescrollback.AssistantCommitEntry{Role: entry.Role, Text: entry.Text})
 	}
-	if assistantStart < 0 {
-		return
-	}
-	m.nativeStreamingCommitStart = assistantStart
-	m.nativeStreamingCommitEnd = assistantEnd
-	m.nativeStreamingCommitRangeSet = true
+	m.nativeScrollbackLedger.ObserveAssistantCommitCandidate(nativescrollback.AssistantCommitCandidate{
+		StepID:          evt.StepID,
+		StartEntryCount: start,
+		Entries:         entries,
+	})
 }
 
 func skippedAssistantCommitMatchesActiveLiveStream(m *uiModel, evt clientui.Event) bool {
@@ -335,7 +316,7 @@ func committedTranscriptStateIncludingDeferredTail(m *uiModel) (int64, int) {
 		return 0, 0
 	}
 	revision := m.transcriptRevision
-	count := m.transcriptBaseOffset + len(committedTranscriptEntriesForApp(m.transcriptEntries))
+	count := m.transcriptBaseOffset + committedNativeScrollbackEntriesForApp(m.transcriptEntries).PrefixEnd
 	chainEnd := count
 	for _, deferred := range m.deferredCommittedTail {
 		if deferred.rangeStart != chainEnd {

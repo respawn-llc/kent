@@ -124,13 +124,13 @@ func TestRuntimeEventCoversDeferredCommittedConversationUpdate(t *testing.T) {
 
 func TestNativeStreamingAssistantCommitCandidateRequiresMatchingStepID(t *testing.T) {
 	m := &uiModel{}
-	m.nativeStreamingStepID = "step-1"
+	m.nativeScrollbackLedger.SetAssistantStreamStepID("step-1")
 	m.observeNativeStreamingAssistantCommitCandidate(clientui.Event{
 		Kind:                clientui.EventAssistantMessage,
 		CommittedEntryCount: 1,
 		TranscriptEntries:   []clientui.ChatEntry{{Role: "assistant", Text: "done"}},
 	})
-	if m.nativeStreamingCommitRangeSet {
+	if m.nativeScrollbackLedger.AssistantStreamState().CommitRangeSet {
 		t.Fatal("expected empty event step id to be rejected while native stream is step-bound")
 	}
 
@@ -140,8 +140,9 @@ func TestNativeStreamingAssistantCommitCandidateRequiresMatchingStepID(t *testin
 		CommittedEntryCount: 1,
 		TranscriptEntries:   []clientui.ChatEntry{{Role: "assistant", Text: "done"}},
 	})
-	if !m.nativeStreamingCommitRangeSet || m.nativeStreamingCommitStart != 0 || m.nativeStreamingCommitEnd != 1 {
-		t.Fatalf("commit range = [%d,%d] set=%t, want [0,1] set", m.nativeStreamingCommitStart, m.nativeStreamingCommitEnd, m.nativeStreamingCommitRangeSet)
+	state := m.nativeScrollbackLedger.AssistantStreamState()
+	if !state.CommitRangeSet || state.CommitStartEntryCount != 0 || state.CommitEndEntryCount != 1 {
+		t.Fatalf("commit range = [%d,%d] set=%t, want [0,1] set", state.CommitStartEntryCount, state.CommitEndEntryCount, state.CommitRangeSet)
 	}
 }
 

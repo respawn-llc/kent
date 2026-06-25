@@ -85,8 +85,8 @@ func TestNativePendingToolCallStaysLiveUntilResultThenAppendsFinalBlock(t *testi
 	if cmd := m.syncNativeHistoryFromTranscript(); cmd != nil {
 		t.Fatalf("expected pending tool call to stay out of committed scrollback, got %T", cmd())
 	}
-	if strings.Contains(m.nativeRenderedSnapshot, "pwd") {
-		t.Fatalf("expected pending tool call absent from committed snapshot, got %q", m.nativeRenderedSnapshot)
+	if strings.Contains(m.nativeRenderedSnapshot(), "pwd") {
+		t.Fatalf("expected pending tool call absent from committed snapshot, got %q", m.nativeRenderedSnapshot())
 	}
 
 	result := tui.TranscriptEntry{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call_1"}
@@ -177,7 +177,7 @@ func TestProjectedRuntimeBatchesPreserveImmediateLiveEventsAndLaterCommittedAppe
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	callMeta := transcript.ToolCallMeta{ToolName: "shell", Command: "pwd", CompactText: "pwd", IsShell: true}
 	firstBatch := []clientui.Event{
@@ -234,7 +234,7 @@ func TestProjectedRuntimeBatchPreservesQueuedUserFlushBetweenToolCompletionAndAs
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	callMeta := transcript.ToolCallMeta{ToolName: "shell", Command: "pwd", CompactText: "pwd", IsShell: true}
 	firstBatch := []clientui.Event{
@@ -398,7 +398,7 @@ func TestApplyRuntimeTranscriptPagePromotesHydratedStreamingStableLinesWithoutPr
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	m.setBusy(true)
 	lineCount := 8
@@ -427,8 +427,8 @@ func TestApplyRuntimeTranscriptPagePromotesHydratedStreamingStableLinesWithoutPr
 	if !strings.Contains(view, fmt.Sprintf("line-%02d", lineCount)) {
 		t.Fatalf("expected live region to keep latest streaming tail, got %q", view)
 	}
-	if m.nativeStreamingFlushedLineCount <= 0 {
-		t.Fatalf("expected flushed streaming line count to advance, got %d", m.nativeStreamingFlushedLineCount)
+	if got := m.nativeScrollbackLedger.AssistantStreamState().ScheduledStableLines; got <= 0 {
+		t.Fatalf("expected flushed streaming line count to advance, got %d", got)
 	}
 	if m.sawAssistantDelta {
 		t.Fatal("expected hydrate promotion to work without synthesizing assistant delta flag")
@@ -441,7 +441,7 @@ func TestProjectedRuntimeAssistantDeltaPromotesStableLinesIntoScrollback(t *test
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
@@ -468,7 +468,7 @@ func TestProjectedRuntimeAssistantDeltaPromotesNarrowMarkdownWithoutHeightBudget
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 18, Height: 4})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	streamText := "This **bold** assistant markdown wraps under pressure.\nproof line\nmutable tail"
 	next, cmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
@@ -479,7 +479,7 @@ func TestProjectedRuntimeAssistantDeltaPromotesNarrowMarkdownWithoutHeightBudget
 	if !strings.Contains(flushText, "bold") || strings.Contains(flushText, "**bold**") {
 		t.Fatalf("expected narrow stable markdown promotion to render styling markers, got %q", flushText)
 	}
-	tail := joinedPlainProjectionLines(m.nativeStreamingTail)
+	tail := joinedPlainProjectionLines(m.nativeScrollbackLedger.AssistantStreamLiveLines())
 	if !strings.Contains(tail, "mutable tail") {
 		t.Fatalf("expected narrow live region state to keep mutable tail, got %q", tail)
 	}
@@ -491,7 +491,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDoesNotDuplicateEarlierStre
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
@@ -499,7 +499,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDoesNotDuplicateEarlierStre
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
 	}})
 	m = next.(*uiModel)
-	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, firstCmd))
 	if !strings.Contains(firstFlush, "line-01") {
 		t.Fatalf("expected first promotion to include earliest streaming line, got %q", firstFlush)
 	}
@@ -508,7 +508,7 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDoesNotDuplicateEarlierStre
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantMessage, Message: llm.Message{Role: llm.RoleAssistant, Content: streamText, Phase: llm.MessagePhaseFinal}}),
 	}})
 	m = next.(*uiModel)
-	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessagesApplyingNativeWriteResults(t, m, finalCmd))
 	if strings.Contains(finalFlush, "line-01") {
 		t.Fatalf("expected finalized append to skip already promoted prefix, got %q", finalFlush)
 	}
@@ -521,8 +521,8 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDoesNotDuplicateEarlierStre
 	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
 		t.Fatalf("expected live streaming buffer cleared after commit, got %q", m.view.OngoingStreamingText())
 	}
-	if m.nativeStreamingText != "" || m.nativeStreamingFlushedLineCount != 0 || m.nativeStreamingDividerFlushed {
-		t.Fatalf("expected streaming promotion state reset after commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
+	if streamState := m.nativeScrollbackLedger.AssistantStreamState(); strings.TrimSpace(streamState.Source) != "" || streamState.ScheduledStableLines != 0 || m.nativeStreamingDividerFlushed {
+		t.Fatalf("expected streaming promotion state reset after commit, got source=%q flushed=%d divider=%v pending_commit=%t acked=%d scheduled=%d pending=%d", streamState.Source, streamState.ScheduledStableLines, m.nativeStreamingDividerFlushed, m.nativeRenderedProjectionCommitPending(), m.nativeAckedFlushSequence(), m.nativeLastScheduledFlushSequence(), m.nativeScrollbackLedger.PendingCount())
 	}
 }
 
@@ -532,8 +532,8 @@ func TestRuntimeBatchDefersFinalUntilStreamingPromotionFlushes(t *testing.T) {
 	)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = next.(*uiModel)
-	_ = collectCmdMessages(t, startupCmd)
-	m.discardPendingNativeHistoryFlushes()
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+	m.nativeScrollbackLedger.DiscardScheduled()
 
 	prefix := "Captured the Kent project board in the browser:\n\n"
 	path := "/Users/nek/.kent/worktrees/kent-cli-c2f75fc8-68f5-4deb-a23c-21cc5820436d/gui-fixes/.kent/proofs/gui-browser-kent-board/screenshot-1779219845652.png"
@@ -569,7 +569,7 @@ func TestRuntimeBatchDefersFinalUntilStreamingPromotionFlushes(t *testing.T) {
 	}
 
 	resumeCmd := m.handleNativeHistoryFlush(firstNativeHistoryFlushMsg(t, firstCmd))
-	msgs := collectCmdMessages(t, resumeCmd)
+	msgs := collectCmdMessagesApplyingNativeWriteResults(t, m, resumeCmd)
 	var resumed runtimeEventBatchMsg
 	found := false
 	for _, msg := range msgs {
@@ -592,7 +592,7 @@ func TestRuntimeBatchDefersFinalUntilStreamingPromotionFlushes(t *testing.T) {
 	}
 
 	resumeFinalCmd := m.handleNativeHistoryFlush(firstNativeHistoryFlushMsg(t, secondCmd))
-	finalMsgs := collectCmdMessages(t, resumeFinalCmd)
+	finalMsgs := collectCmdMessagesApplyingNativeWriteResults(t, m, resumeFinalCmd)
 	found = false
 	for _, msg := range finalMsgs {
 		if typed, ok := msg.(runtimeEventBatchMsg); ok {

@@ -432,7 +432,6 @@ func runtimeTranscriptRefreshOrReleaseDeferredForTest(t *testing.T, m *uiModel, 
 		t.Fatalf("expected transcript refresh or deferred pending sync, got msgs=%+v", msgs)
 	}
 	m.nativeStreamingActive = false
-	m.nativeStreamingText = ""
 	m.sawAssistantDelta = false
 	refresh, ok := findRuntimeTranscriptRefreshMsg(collectCmdMessages(t, m.releaseDeferredRuntimeSyncs()))
 	if !ok {

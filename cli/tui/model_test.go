@@ -15,19 +15,14 @@ import (
 func TestModeToggleReturnsToLatestRecentTail(t *testing.T) {
 	m := NewModel(WithPreviewLines(2))
 	m = updateModel(t, m, StreamAssistantMsg{Delta: "l1\nl2\nl3\nl4"})
-	m = updateModel(t, m, ScrollOngoingMsg{Delta: -1})
-
-	if got := m.OngoingScroll(); got != 1 {
-		t.Fatalf("scroll before toggle = %d, want 1", got)
-	}
 
 	before := m.View()
 	linesBefore := strings.Split(before, "\n")
 	if len(linesBefore) != 2 {
 		t.Fatalf("ongoing lines = %d, want 2", len(linesBefore))
 	}
-	if strings.TrimSpace(linesBefore[0]) != "l2" || strings.TrimSpace(linesBefore[1]) != "l3" {
-		t.Fatalf("unexpected ongoing view before toggle: %q", before)
+	if strings.TrimSpace(linesBefore[0]) != "l3" || strings.TrimSpace(linesBefore[1]) != "l4" {
+		t.Fatalf("unexpected ongoing tail before toggle: %q", before)
 	}
 
 	m = updateModel(t, m, ToggleModeMsg{})
@@ -80,11 +75,6 @@ func TestModeToggleReturnsToBottomWhenConversationGrewInDetail(t *testing.T) {
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a1"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a2"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a3"})
-	m = updateModel(t, m, ScrollOngoingMsg{Delta: -1})
-	before := m.OngoingScroll()
-	if before >= m.maxOngoingScroll() {
-		t.Fatalf("expected to start above bottom, got %d", before)
-	}
 
 	m = updateModel(t, m, ToggleModeMsg{})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a4"})
@@ -356,7 +346,7 @@ func TestOngoingAutoFollowsWhenUserIsAtBottom(t *testing.T) {
 	}
 }
 
-func TestOngoingDoesNotAutoFollowWhenUserScrolledUp(t *testing.T) {
+func TestOngoingAlwaysRendersLatestTailAfterAppend(t *testing.T) {
 	m := NewModel(WithPreviewLines(2))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a1"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a2"})
@@ -366,18 +356,16 @@ func TestOngoingDoesNotAutoFollowWhenUserScrolledUp(t *testing.T) {
 		t.Fatalf("expected to start at bottom, got %d want %d", got, want)
 	}
 
-	m = updateModel(t, m, ScrollOngoingMsg{Delta: -1})
-	pinned := m.OngoingScroll()
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a5"})
-	if got := m.OngoingScroll(); got != pinned {
-		t.Fatalf("scroll should stay pinned when user scrolled up, got %d want %d", got, pinned)
+	if got, want := m.OngoingScroll(), m.maxOngoingScroll(); got != want {
+		t.Fatalf("expected ongoing tail offset after append, got %d want %d", got, want)
 	}
-	if m.OngoingScroll() == m.maxOngoingScroll() {
-		t.Fatalf("expected to remain above bottom after new message")
+	if view := plainTranscript(m.View()); !strings.Contains(view, "a5") {
+		t.Fatalf("expected latest append visible in ongoing tail, got %q", view)
 	}
 }
 
-func TestMouseWheelScrollsOngoingView(t *testing.T) {
+func TestMouseWheelDoesNotScrollOngoingView(t *testing.T) {
 	m := NewModel(WithPreviewLines(2))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a1"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a2"})
@@ -389,11 +377,15 @@ func TestMouseWheelScrollsOngoingView(t *testing.T) {
 	if start == 0 {
 		t.Fatalf("expected ongoing mode to start at bottom, got ongoingScroll=%d", start)
 	}
+	before := plainTranscript(m.View())
 
 	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonWheelUp})
 	afterUp := m.OngoingScroll()
-	if afterUp >= start {
-		t.Fatalf("expected wheel up to scroll ongoing view up, got %d from %d", afterUp, start)
+	if afterUp != start {
+		t.Fatalf("expected wheel up not to mutate ongoing view, got %d from %d", afterUp, start)
+	}
+	if got := plainTranscript(m.View()); got != before {
+		t.Fatalf("expected wheel up to leave ongoing tail unchanged, got %q want %q", got, before)
 	}
 
 	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonWheelDown})
@@ -411,7 +403,7 @@ func TestMouseWheelScrollsDetailView(t *testing.T) {
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "u3"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a3"})
 	m = updateModel(t, m, ToggleModeMsg{})
-	ongoingStart := m.ongoingScroll
+	ongoingStart := m.OngoingScroll()
 	if m.DetailMetricsResolved() {
 		t.Fatal("expected detail mode to defer global scroll metric resolution until navigation")
 	}
@@ -428,7 +420,7 @@ func TestMouseWheelScrollsDetailView(t *testing.T) {
 	if plainTranscript(m.View()) == initial {
 		t.Fatal("expected detail wheel up to change the visible viewport")
 	}
-	if got := m.ongoingScroll; got != ongoingStart {
+	if got := m.OngoingScroll(); got != ongoingStart {
 		t.Fatalf("expected detail wheel scroll to leave ongoing scroll untouched, got %d want %d", got, ongoingStart)
 	}
 
@@ -436,7 +428,7 @@ func TestMouseWheelScrollsDetailView(t *testing.T) {
 	if got := m.DetailScroll(); got != 0 {
 		t.Fatalf("expected wheel down to return lazy detail offset to bottom, got %d", got)
 	}
-	if got := m.ongoingScroll; got != ongoingStart {
+	if got := m.OngoingScroll(); got != ongoingStart {
 		t.Fatalf("expected detail wheel scroll to keep ongoing scroll unchanged, got %d want %d", got, ongoingStart)
 	}
 }
@@ -468,7 +460,7 @@ func TestPageKeysDoNotScrollOngoingView(t *testing.T) {
 	}
 }
 
-func TestFocusTranscriptEntryCentersOngoingViewport(t *testing.T) {
+func TestFocusTranscriptEntryDoesNotMoveOngoingViewport(t *testing.T) {
 	m := NewModel(WithPreviewLines(6))
 	for i := 0; i < 40; i++ {
 		role := "assistant"
@@ -479,20 +471,19 @@ func TestFocusTranscriptEntryCentersOngoingViewport(t *testing.T) {
 	}
 
 	entryIndex := 10
-	start, end, ok := m.ongoingLineRangeForEntry(entryIndex)
-	if !ok {
-		t.Fatalf("expected line range for transcript entry %d", entryIndex)
-	}
-	midpoint := (start + end) / 2
-	expected := clamp(midpoint-m.viewportLines/2, 0, m.maxOngoingScroll())
+	beforeScroll := m.OngoingScroll()
+	beforeView := plainTranscript(m.View())
 
 	m = updateModel(t, m, FocusTranscriptEntryMsg{EntryIndex: entryIndex, Center: true})
-	if got := m.OngoingScroll(); got != expected {
-		t.Fatalf("expected centered scroll %d for entry %d, got %d", expected, entryIndex, got)
+	if got := m.OngoingScroll(); got != beforeScroll {
+		t.Fatalf("expected ongoing focus to leave tail offset unchanged, got %d want %d", got, beforeScroll)
+	}
+	if got := plainTranscript(m.View()); got != beforeView {
+		t.Fatalf("expected ongoing focus to leave rendered tail unchanged, got %q want %q", got, beforeView)
 	}
 }
 
-func TestFocusTranscriptEntryClampsNearTopAndBottom(t *testing.T) {
+func TestFocusTranscriptEntryKeepsOngoingTailForTopAndBottomTargets(t *testing.T) {
 	m := NewModel(WithPreviewLines(6))
 	for i := 0; i < 40; i++ {
 		role := "assistant"
@@ -502,13 +493,15 @@ func TestFocusTranscriptEntryClampsNearTopAndBottom(t *testing.T) {
 		m = updateModel(t, m, AppendTranscriptMsg{Role: TranscriptRoleFromWire(role), Text: fmt.Sprintf("line %d", i)})
 	}
 
+	beforeScroll := m.OngoingScroll()
+	beforeView := plainTranscript(m.View())
 	topEntry := 0
 	m = updateModel(t, m, FocusTranscriptEntryMsg{EntryIndex: topEntry, Center: true})
-	if got := m.OngoingScroll(); got != 0 {
-		t.Fatalf("expected top entry focus to clamp to scroll 0, got %d", got)
+	if got := m.OngoingScroll(); got != beforeScroll {
+		t.Fatalf("expected top focus not to move ongoing tail, got %d want %d", got, beforeScroll)
 	}
-	if start, end, ok := m.ongoingLineRangeForEntry(topEntry); !ok || end < m.OngoingScroll() || start >= m.OngoingScroll()+m.viewportLines {
-		t.Fatalf("expected top entry visible after focus, range=(%d,%d) scroll=%d", start, end, m.OngoingScroll())
+	if got := plainTranscript(m.View()); got != beforeView {
+		t.Fatalf("expected top focus not to change ongoing tail, got %q want %q", got, beforeView)
 	}
 
 	bottomEntry := len(m.transcriptInput.Entries) - 1
@@ -516,8 +509,8 @@ func TestFocusTranscriptEntryClampsNearTopAndBottom(t *testing.T) {
 	if got, want := m.OngoingScroll(), m.maxOngoingScroll(); got != want {
 		t.Fatalf("expected bottom entry focus to clamp to max scroll %d, got %d", want, got)
 	}
-	if start, end, ok := m.ongoingLineRangeForEntry(bottomEntry); !ok || end < m.OngoingScroll() || start >= m.OngoingScroll()+m.viewportLines {
-		t.Fatalf("expected bottom entry visible after focus, range=(%d,%d) scroll=%d", start, end, m.OngoingScroll())
+	if got := plainTranscript(m.View()); got != beforeView {
+		t.Fatalf("expected bottom focus not to change ongoing tail, got %q want %q", got, beforeView)
 	}
 }
 

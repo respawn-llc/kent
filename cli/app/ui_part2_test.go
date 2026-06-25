@@ -277,13 +277,28 @@ func TestRollbackTransitionsUseDetailOverlayInNativeMode(t *testing.T) {
 	}
 }
 
-func TestNativeRollbackOverlayUsesClearScreenWhenAltScreenNever(t *testing.T) {
+func TestNativeRollbackOverlayUsesAltScreenWithoutNormalBufferClear(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "u1"}, {Role: "assistant", Text: "a1"}, {Role: "user", Text: "u2"}}),
 	)
+	assertNoNormalBufferRewrite := func(t *testing.T, cmd tea.Cmd) {
+		t.Helper()
+		msgs := collectCmdMessages(t, cmd)
+		for _, msg := range msgs {
+			if strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
+				t.Fatalf("rollback overlay must not clear normal-buffer scrollback, got messages=%v", msgs)
+			}
+			if flush, ok := msg.(nativeHistoryFlushMsg); ok {
+				t.Fatalf("rollback overlay must not replay native history, got flush %q", stripANSIPreserve(flush.Text))
+			}
+		}
+	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, updated, startupCmd)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = next.(*uiModel)
 	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated = next.(*uiModel)
 	if !testRollbackSelecting(updated) {
@@ -292,9 +307,13 @@ func TestNativeRollbackOverlayUsesClearScreenWhenAltScreenNever(t *testing.T) {
 	if updated.view.Mode() != tui.ModeDetail {
 		t.Fatalf("expected detail overlay mode, got %q", updated.view.Mode())
 	}
-	if cmd == nil {
-		t.Fatal("expected explicit clear-screen command when native rollback overlay enters with alt-screen disabled")
+	if !updated.altScreenActive {
+		t.Fatal("expected rollback overlay to use alt-screen")
 	}
+	if cmd == nil {
+		t.Fatal("expected rollback overlay enter command")
+	}
+	assertNoNormalBufferRewrite(t, cmd)
 
 	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated = next.(*uiModel)
@@ -304,9 +323,13 @@ func TestNativeRollbackOverlayUsesClearScreenWhenAltScreenNever(t *testing.T) {
 	if updated.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("expected return to ongoing mode, got %q", updated.view.Mode())
 	}
-	if cmd == nil {
-		t.Fatal("expected explicit clear-screen command when native rollback overlay exits with alt-screen disabled")
+	if updated.altScreenActive {
+		t.Fatal("expected rollback overlay exit to leave alt-screen")
 	}
+	if cmd == nil {
+		t.Fatal("expected rollback overlay exit command")
+	}
+	assertNoNormalBufferRewrite(t, cmd)
 }
 
 func TestNativeRollbackOverlayFullSelectionFlowPreservesHistory(t *testing.T) {
@@ -368,8 +391,8 @@ func TestNativeRollbackOverlayFullSelectionFlowPreservesHistory(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
-	if !testRollbackEditing(updated) || updated.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected rollback editing in ongoing mode, mode=%q editing=%t", updated.view.Mode(), testRollbackEditing(updated))
+	if !testRollbackEditing(updated) || updated.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected rollback editing in detail overlay, mode=%q editing=%t", updated.view.Mode(), testRollbackEditing(updated))
 	}
 
 	updated.input = ""
@@ -422,8 +445,8 @@ func TestNativeRollbackEditCancelPreservesCommittedHistory(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
-	if !testRollbackEditing(updated) || updated.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected rollback editing in ongoing mode, mode=%q editing=%t", updated.view.Mode(), testRollbackEditing(updated))
+	if !testRollbackEditing(updated) || updated.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected rollback editing in detail overlay, mode=%q editing=%t", updated.view.Mode(), testRollbackEditing(updated))
 	}
 
 	updated.input = ""
@@ -511,7 +534,7 @@ func TestRollbackEditCancelChainRestoresPriorOngoingScroll(t *testing.T) {
 	}
 }
 
-func TestNativeRollbackEditAnchorsToSelectedConversationPoint(t *testing.T) {
+func TestNativeRollbackEditStaysInDetailOverlayWithoutAnchoredNativeReplay(t *testing.T) {
 	entries := make([]UITranscriptEntry, 0, 40)
 	for i := 0; i < 20; i++ {
 		entries = append(entries,
@@ -526,6 +549,7 @@ func TestNativeRollbackEditAnchorsToSelectedConversationPoint(t *testing.T) {
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 	if !m.startRollbackSelectionMode() {
 		t.Fatal("expected rollback selection mode")
 	}
@@ -535,31 +559,30 @@ func TestNativeRollbackEditAnchorsToSelectedConversationPoint(t *testing.T) {
 	m.rollback.selection = 3
 	m.applyRollbackSelectionHighlight()
 	target := testRollbackCandidates(m)[testRollbackSelection(m)].TranscriptIndex
-	laterTail := m.transcriptEntries[len(m.transcriptEntries)-1].Text
+	beforeSnapshot := m.nativeRenderedSnapshot()
 
 	cmd := m.inputController().beginRollbackEditingFlowCmd()
-	if cmd == nil {
-		t.Fatal("expected rollback edit transition command")
+	msgs := collectCmdMessages(t, cmd)
+	for _, msg := range msgs {
+		if _, ok := msg.(nativeHistoryFlushMsg); ok {
+			t.Fatalf("rollback edit must not replay native scrollback, got %+v", msg)
+		}
+		if strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
+			t.Fatalf("rollback edit must not clear normal-buffer scrollback, got messages=%v", msgs)
+		}
 	}
-	if !testRollbackEditing(m) || m.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected rollback editing in ongoing mode, mode=%q editing=%t", m.view.Mode(), testRollbackEditing(m))
+	if !testRollbackEditing(m) || m.view.Mode() != tui.ModeDetail || !m.altScreenActive {
+		t.Fatalf("expected rollback editing to stay in detail alt-screen, mode=%q editing=%t alt=%t", m.view.Mode(), testRollbackEditing(m), m.altScreenActive)
 	}
-	expected := ""
-	if len(m.transcriptEntries[:target+1]) > 0 {
-		expected = tui.ProjectCommittedOngoingTranscript(m.transcriptEntries[:target+1], m.theme, m.nativeReplayRenderWidth()).Render(tui.TranscriptDivider)
+	if m.nativeRenderedSnapshot() != beforeSnapshot {
+		t.Fatalf("expected native rendered snapshot unchanged after rollback edit entry")
 	}
-	if m.nativeRenderedSnapshot != expected {
-		t.Fatalf("expected native rendered snapshot anchored through selected entry")
-	}
-	if !strings.Contains(m.nativeRenderedSnapshot, m.transcriptEntries[target].Text) {
-		t.Fatalf("expected anchored snapshot to include selected message %q, got %q", m.transcriptEntries[target].Text, m.nativeRenderedSnapshot)
-	}
-	if strings.Contains(m.nativeRenderedSnapshot, laterTail) {
-		t.Fatalf("expected anchored snapshot to exclude later tail %q, got %q", laterTail, m.nativeRenderedSnapshot)
+	if !strings.Contains(stripANSIAndTrimRight(m.View()), m.transcriptEntries[target].Text) {
+		t.Fatalf("expected selected rollback message %q visible in detail overlay", m.transcriptEntries[target].Text)
 	}
 }
 
-func TestNativeRollbackEditCommandSequenceClearsBeforeAnchoredReplay(t *testing.T) {
+func TestNativeRollbackEditCommandSequenceDoesNotClearOrReplayNormalBuffer(t *testing.T) {
 	entries := make([]UITranscriptEntry, 0, 20)
 	for i := 0; i < 10; i++ {
 		entries = append(entries,
@@ -575,7 +598,7 @@ func TestNativeRollbackEditCommandSequenceClearsBeforeAnchoredReplay(t *testing.
 	if startupCmd == nil {
 		t.Fatal("expected startup replay command")
 	}
-	_ = collectCmdMessages(t, startupCmd)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
 
 	next, firstEscCmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = next.(*uiModel)
@@ -591,55 +614,48 @@ func TestNativeRollbackEditCommandSequenceClearsBeforeAnchoredReplay(t *testing.
 
 	m.rollback.selection = 2
 	m.applyRollbackSelectionHighlight()
-	target := testRollbackCandidates(m)[testRollbackSelection(m)].TranscriptIndex
-	targetText := m.transcriptEntries[target].Text
-	laterTail := m.transcriptEntries[len(m.transcriptEntries)-1].Text
+	beforeSnapshot := m.nativeRenderedSnapshot()
 
 	cmd := m.inputController().beginRollbackEditingFlowCmd()
-	if cmd == nil {
-		t.Fatal("expected rollback edit command")
-	}
 	msgs := collectCmdMessages(t, cmd)
-	clearIndex := -1
-	flushIndex := -1
-	flushText := ""
-	for idx, msg := range msgs {
-		if clearIndex < 0 && strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
-			clearIndex = idx
+	for _, msg := range msgs {
+		if strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
+			t.Fatalf("rollback edit command must not clear normal-buffer scrollback, got messages=%v", msgs)
 		}
 		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
-			flushIndex = idx
-			flushText = stripANSIPreserve(flush.Text)
-			break
+			t.Fatalf("rollback edit command must not replay native history, got flush %q", stripANSIPreserve(flush.Text))
 		}
 	}
-	if clearIndex < 0 {
-		t.Fatalf("expected rollback edit command to clear screen before replay, got messages=%v", msgs)
+	if !testRollbackEditing(m) || m.view.Mode() != tui.ModeDetail || !m.altScreenActive {
+		t.Fatalf("expected rollback editing to remain in detail alt-screen, mode=%q editing=%t alt=%t", m.view.Mode(), testRollbackEditing(m), m.altScreenActive)
 	}
-	if flushIndex < 0 {
-		t.Fatalf("expected rollback edit command to emit anchored native replay, got messages=%v", msgs)
-	}
-	if clearIndex > flushIndex {
-		t.Fatalf("expected clear screen before native replay, got messages=%v", msgs)
-	}
-	if !strings.Contains(flushText, targetText) {
-		t.Fatalf("expected anchored replay to include selected message %q, got %q", targetText, flushText)
-	}
-	if strings.Contains(flushText, laterTail) {
-		t.Fatalf("expected anchored replay to exclude later tail %q, got %q", laterTail, flushText)
-	}
-	if !testRollbackEditing(m) || m.view.Mode() != tui.ModeOngoing {
-		t.Fatalf("expected rollback editing in ongoing mode after command, mode=%q editing=%t", m.view.Mode(), testRollbackEditing(m))
+	if m.nativeRenderedSnapshot() != beforeSnapshot {
+		t.Fatalf("expected native rendered snapshot unchanged by rollback edit command")
 	}
 }
 
-func TestRollbackTransitionsDoNotClearScreenWhenNotInAltScreen(t *testing.T) {
+func TestRollbackTransitionsDoNotClearOrReplayNormalBuffer(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "u1"}, {Role: "assistant", Text: "a1"}, {Role: "user", Text: "u2"}}),
 	)
+	assertNoNormalBufferRewrite := func(t *testing.T, cmd tea.Cmd) {
+		t.Helper()
+		msgs := collectCmdMessages(t, cmd)
+		for _, msg := range msgs {
+			if strings.Contains(fmt.Sprintf("%T", msg), "clearScreenMsg") {
+				t.Fatalf("rollback transition must not clear normal-buffer scrollback, got messages=%v", msgs)
+			}
+			if flush, ok := msg.(nativeHistoryFlushMsg); ok {
+				t.Fatalf("rollback transition must not replay native history, got flush %q", stripANSIPreserve(flush.Text))
+			}
+		}
+	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, updated, startupCmd)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = next.(*uiModel)
 	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated = next.(*uiModel)
 	if !testRollbackSelecting(updated) {
@@ -648,15 +664,14 @@ func TestRollbackTransitionsDoNotClearScreenWhenNotInAltScreen(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected overlay transition command when entering rollback selection")
 	}
+	assertNoNormalBufferRewrite(t, cmd)
 
 	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 	if !testRollbackEditing(updated) {
 		t.Fatal("expected rollback editing mode after enter")
 	}
-	if cmd == nil {
-		t.Fatal("expected transition command when entering rollback edit outside alt-screen")
-	}
+	assertNoNormalBufferRewrite(t, cmd)
 
 	updated.input = ""
 	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -664,9 +679,7 @@ func TestRollbackTransitionsDoNotClearScreenWhenNotInAltScreen(t *testing.T) {
 	if !testRollbackSelecting(updated) {
 		t.Fatal("expected rollback mode after esc from empty rollback edit")
 	}
-	if cmd == nil {
-		t.Fatal("expected transition command when canceling rollback edit outside alt-screen")
-	}
+	assertNoNormalBufferRewrite(t, cmd)
 
 	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updated = next.(*uiModel)
@@ -676,6 +689,7 @@ func TestRollbackTransitionsDoNotClearScreenWhenNotInAltScreen(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected transition command when canceling rollback selection outside alt-screen")
 	}
+	assertNoNormalBufferRewrite(t, cmd)
 }
 
 func absInt(v int) int {

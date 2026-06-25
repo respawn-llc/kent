@@ -308,6 +308,12 @@ func applyRuntimeEventBatchMessagesFromCommand(t *testing.T, m *uiModel, cmd tea
 			msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
 			continue
 		}
+		if ack, ok := msg.(nativeTerminalWriteResultMsg); ok {
+			next, nextCmd := m.Update(ack)
+			m = next.(*uiModel)
+			msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
+			continue
+		}
 		batch, ok := msg.(runtimeEventBatchMsg)
 		if !ok {
 			continue
@@ -315,6 +321,9 @@ func applyRuntimeEventBatchMessagesFromCommand(t *testing.T, m *uiModel, cmd tea
 		next, nextCmd := m.Update(batch)
 		m = next.(*uiModel)
 		msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
+	}
+	if len(msgs) > 0 {
+		t.Fatalf("command drain stopped with %d unprocessed message(s): %+v", len(msgs), msgs)
 	}
 	return m
 }

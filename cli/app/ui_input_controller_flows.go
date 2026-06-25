@@ -9,13 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (c uiInputController) rollbackTransitionCmd() tea.Cmd {
-	if !c.model.altScreenActive {
-		return nil
-	}
-	return tea.ClearScreen
-}
-
 func (c uiInputController) startRollbackSelectionFlowCmd() tea.Cmd {
 	m := c.model
 	if !m.startRollbackSelectionMode() {
@@ -27,7 +20,7 @@ func (c uiInputController) startRollbackSelectionFlowCmd() tea.Cmd {
 		m.focusRollbackSelection()
 		return overlayCmd
 	}
-	return sequenceCmds(m.suppressRollbackAlternateScrollIfNeeded(), c.rollbackTransitionCmd())
+	return m.suppressRollbackAlternateScrollIfNeeded()
 }
 
 func (c uiInputController) stopRollbackSelectionFlowCmd() tea.Cmd {
@@ -38,7 +31,7 @@ func (c uiInputController) stopRollbackSelectionFlowCmd() tea.Cmd {
 	if overlayCmd != nil {
 		return sequenceCmds(alternateScrollCmd, overlayCmd)
 	}
-	return sequenceCmds(alternateScrollCmd, c.rollbackTransitionCmd())
+	return alternateScrollCmd
 }
 
 func (c uiInputController) beginRollbackEditingFlowCmd() tea.Cmd {
@@ -47,14 +40,8 @@ func (c uiInputController) beginRollbackEditingFlowCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	overlayCmd := m.popRollbackOverlayWithNativeReplay(false)
-	alternateScrollCmd := m.restoreRollbackAlternateScrollIfNeeded()
 	m.forwardToView(tui.FocusTranscriptEntryMsg{EntryIndex: targetEntry, Bottom: true})
-	if overlayCmd == nil {
-		return sequenceCmds(alternateScrollCmd, c.rollbackTransitionCmd())
-	}
-	anchorCmd := m.replayNativeTranscriptThroughEntry(targetEntry)
-	return sequenceCmds(alternateScrollCmd, overlayCmd, anchorCmd)
+	return nil
 }
 
 func (c uiInputController) cancelRollbackEditingToSelectionFlowCmd() tea.Cmd {
@@ -68,7 +55,7 @@ func (c uiInputController) cancelRollbackEditingToSelectionFlowCmd() tea.Cmd {
 		m.focusRollbackSelection()
 		return overlayCmd
 	}
-	return sequenceCmds(m.suppressRollbackAlternateScrollIfNeeded(), c.rollbackTransitionCmd())
+	return m.suppressRollbackAlternateScrollIfNeeded()
 }
 
 func (c uiInputController) startRollbackFork(text string) (tea.Model, tea.Cmd) {
