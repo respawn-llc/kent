@@ -19,6 +19,7 @@ const (
 
 const WorkflowListMaxPageSize = 100
 const WorkflowTaskListMaxPageSize = 100
+const WorkflowTaskListMaxSortSelectors = 5
 
 const (
 	WorkflowGraphDraftMaxNodeGroups       = 200
@@ -1854,6 +1855,9 @@ func (r WorkflowTaskListRequest) Validate() error {
 	}
 	if strings.TrimSpace(r.PageToken) != r.PageToken {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
+	if len(r.Sort) > WorkflowTaskListMaxSortSelectors {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "sort", fmt.Sprintf("sort must include at most %d fields", WorkflowTaskListMaxSortSelectors))
 	}
 	for index, statusKey := range r.StatusKeys {
 		if !workflowkey.Valid(statusKey) {

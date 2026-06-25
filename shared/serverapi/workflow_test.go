@@ -324,6 +324,19 @@ func TestWorkflowTaskListRequestValidation(t *testing.T) {
 			code:  WorkflowRequestErrorInvalidValue,
 		},
 		{
+			name: "too many sort fields",
+			req: WorkflowTaskListRequest{ProjectID: "project-1", Sort: []WorkflowTaskListSort{
+				{Field: WorkflowTaskListSortFieldCreated, Direction: WorkflowTaskListSortDirectionAsc},
+				{Field: WorkflowTaskListSortFieldUpdated, Direction: WorkflowTaskListSortDirectionAsc},
+				{Field: WorkflowTaskListSortFieldStatus, Direction: WorkflowTaskListSortDirectionAsc},
+				{Field: WorkflowTaskListSortFieldRunCount, Direction: WorkflowTaskListSortDirectionAsc},
+				{Field: WorkflowTaskListSortFieldTitle, Direction: WorkflowTaskListSortDirectionAsc},
+				{Field: WorkflowTaskListSortField("future"), Direction: WorkflowTaskListSortDirectionAsc},
+			}},
+			field: "sort",
+			code:  WorkflowRequestErrorInvalidValue,
+		},
+		{
 			name:  "invalid run status",
 			req:   WorkflowTaskListRequest{ProjectID: "project-1", RunStatuses: []WorkflowTaskRunStatus{"waiting"}},
 			field: "run_statuses[0]",
