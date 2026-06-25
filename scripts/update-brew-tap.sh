@@ -221,6 +221,8 @@ class ${formula_class} < Formula
   depends_on "ripgrep"
 
   on_macos do
+    depends_on arch: :arm64
+
     on_arm do
       url "${release_base}/kent_${bare_version}_darwin_arm64.tar.gz"
       sha256 "$darwin_arm64_sha256"
