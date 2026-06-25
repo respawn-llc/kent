@@ -90,7 +90,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req serverapi.SessionPl
 			SelectedSessionID:                   req.SelectedSessionID,
 			ForceNewSession:                     req.ForceNewSession,
 			ParentSessionID:                     req.ParentSessionID,
-			SkipContinuationAgentRoleValidation: req.Overrides.HasAny(),
+			SkipContinuationAgentRoleValidation: req.Overrides.HasAgentRoleOverride(),
 		})
 		if err != nil {
 			return PlanResult{}, err

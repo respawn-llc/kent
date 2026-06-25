@@ -1,6 +1,10 @@
 package workflow
 
-import "strings"
+import (
+	"strings"
+
+	"core/shared/config"
+)
 
 type WorkflowID string
 type NodeID string
@@ -176,7 +180,7 @@ type RoleResolver interface {
 	RoleExists(role string) bool
 }
 
-const DefaultAgentRole = "default"
+const DefaultAgentRole = config.DefaultSubagentRole
 
 func IsDefaultAgentRole(role string) bool {
 	return strings.TrimSpace(role) == DefaultAgentRole

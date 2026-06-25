@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -262,12 +263,15 @@ func runSubcommand(args []string) int {
 		emitRunUsageError(usageOutputMode, err.Error())
 		return 2
 	}
+	if flagExplicit(runFS, "agent") && strings.TrimSpace(*agentRoleRaw) == "" {
+		emitRunUsageError(outputMode, "invalid --agent value "+strconv.Quote(*agentRoleRaw))
+		return 2
+	}
 	agentRole, err := effectiveRunAgentRole(*agentRoleRaw, *fastRole)
 	if err != nil {
 		emitRunUsageError(outputMode, err.Error())
 		return 2
 	}
-	agentRoleSet := flagExplicit(runFS, "agent") || *fastRole
 
 	remaining := runFS.Args()
 	if len(remaining) == 0 {
@@ -304,7 +308,6 @@ func runSubcommand(args []string) int {
 		SessionID:                 sessionID,
 		WorkspaceContextSessionID: workspaceContextSessionID,
 		AgentRole:                 agentRole,
-		AgentRoleSet:              agentRoleSet,
 		Model:                     flags.Model,
 		ProviderOverride:          flags.ProviderOverride,
 		ThinkingLevel:             flags.ThinkingLevel,
@@ -562,9 +565,17 @@ func emitWarnings(w io.Writer, warnings []string) {
 
 func effectiveRunAgentRole(raw string, fast bool) (string, error) {
 	trimmed := strings.TrimSpace(raw)
-	normalized := config.NormalizeSubagentSelector(trimmed)
-	if trimmed != "" && normalized == "" && !config.IsReservedSubagentRoleName(trimmed) {
-		return "", fmt.Errorf("invalid --agent value %q", raw)
+	normalized := ""
+	if trimmed != "" {
+		lower := strings.ToLower(trimmed)
+		if lower == config.DefaultSubagentRole {
+			normalized = config.DefaultSubagentRole
+		} else {
+			normalized = config.NormalizeSubagentSelector(trimmed)
+			if normalized == "" {
+				return "", fmt.Errorf("invalid --agent value %q", raw)
+			}
+		}
 	}
 	if fast {
 		if normalized != "" && normalized != config.BuiltInSubagentRoleFast {

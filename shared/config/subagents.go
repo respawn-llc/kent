@@ -8,12 +8,13 @@ import (
 )
 
 const BuiltInSubagentRoleFast = "fast"
+const DefaultSubagentRole = "default"
 const MaxSubagentDescriptionChars = 5000
 
 var reservedSubagentRoleNames = map[string]bool{
-	"default": true,
-	"none":    true,
-	"self":    true,
+	DefaultSubagentRole: true,
+	"none":              true,
+	"self":              true,
 }
 
 func NormalizeSubagentRole(raw string) string {

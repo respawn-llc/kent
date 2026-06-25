@@ -121,12 +121,19 @@ func TestStartRunPromptClientDefaultAliasBlocksNonCallableContextRole(t *testing
 	}
 }
 
-func TestValidateRunPromptAgentRoleAliasesDefaultSelectors(t *testing.T) {
+func TestValidateRunPromptAgentRoleAllowsDefaultSelector(t *testing.T) {
 	settings := config.Settings{Subagents: map[string]config.SubagentRole{}}
-	for _, alias := range []string{"default", "none", "self"} {
+	if err := validateRunPromptAgentRole(settings, "default", true, ""); err != nil {
+		t.Fatalf("validateRunPromptAgentRole(default): %v", err)
+	}
+}
+
+func TestValidateRunPromptAgentRoleRejectsRemovedDefaultAliases(t *testing.T) {
+	settings := config.Settings{Subagents: map[string]config.SubagentRole{}}
+	for _, alias := range []string{"none", "self"} {
 		t.Run(alias, func(t *testing.T) {
-			if err := validateRunPromptAgentRole(settings, alias, true, ""); err != nil {
-				t.Fatalf("validateRunPromptAgentRole(%q): %v", alias, err)
+			if err := validateRunPromptAgentRole(settings, alias, true, ""); err == nil {
+				t.Fatalf("expected validateRunPromptAgentRole(%q) to fail", alias)
 			}
 		})
 	}
@@ -136,7 +143,7 @@ func TestValidateRunPromptAgentRoleBlocksDefaultAliasFromNonCallableContextRole(
 	settings := config.Settings{Subagents: map[string]config.SubagentRole{
 		"blocked": {AgentCallable: false, AgentCallableSet: true, Sources: map[string]string{"model": "file"}},
 	}}
-	for _, rawRole := range []string{"", "default", "none", "self"} {
+	for _, rawRole := range []string{"", "default"} {
 		t.Run(rawRole, func(t *testing.T) {
 			err := validateRunPromptAgentRole(settings, rawRole, true, "blocked")
 			if err == nil {

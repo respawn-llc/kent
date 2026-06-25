@@ -25,7 +25,7 @@ kent run --continue <session-id> "<follow-up>"
 
 Roles are needed to create specialized subagent types for different tasks. Treat them like different employees or specialists.
 
-`--agent <role>` selects a named subagent role from `[subagents.<role>]` in the local or global config file. To define a new role, edit the config:
+`--agent <role>` selects a named subagent role from `[subagents.<role>]` in the local or global config file. `--agent default` clears a resumed role and uses the base settings; `none` and `self` are not run-agent selectors. To define a new role, edit the config:
 
 ```toml
 [subagents.research]
@@ -114,5 +114,5 @@ Supported run-specific flags:
 | `--output-mode` | `final-text` or `json`. Default is `final-text`. |
 | `--progress-mode` | `quiet` or `stderr`. Default is `quiet`. |
 | `--continue` | Continue a previous session by id. |
-| `--agent` | Select a named subagent role from `config.toml`. |
+| `--agent` | Select a named subagent role from `config.toml`; use `default` for the base role. |
 | `--fast` | Shortcut for the built-in `fast` subagent role. |

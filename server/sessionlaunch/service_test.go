@@ -281,7 +281,7 @@ func TestServicePlanSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T)
 		ClientRequestID: "req-1",
 		Mode:            serverapi.SessionLaunchModeInteractive,
 		ForceNewSession: true,
-		Overrides:       serverapi.RunPromptOverrides{AgentRoleSet: true},
+		Overrides:       serverapi.RunPromptOverrides{AgentRole: config.DefaultSubagentRole},
 	}); err != nil {
 		t.Fatalf("PlanSession with default role clear should not read auth state: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestServicePlanSessionCanClearInvalidPersistedRoleBeforeValidation(t *testi
 		ClientRequestID:   "req-1",
 		Mode:              serverapi.SessionLaunchModeInteractive,
 		SelectedSessionID: store.Meta().SessionID,
-		Overrides:         serverapi.RunPromptOverrides{AgentRoleSet: true},
+		Overrides:         serverapi.RunPromptOverrides{AgentRole: config.DefaultSubagentRole},
 	})
 	if err != nil {
 		t.Fatalf("PlanSession: %v", err)
@@ -332,5 +332,91 @@ func TestServicePlanSessionCanClearInvalidPersistedRoleBeforeValidation(t *testi
 	}
 	if got := reopened.Meta().Continuation; got != nil && got.AgentRole != "" {
 		t.Fatalf("continuation = %+v, want cleared agent role", got)
+	}
+}
+
+func TestServicePlanSessionConfigOnlyOverrideDoesNotSkipInvalidPersistedRoleValidation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	persistenceRoot := t.TempDir()
+	containerDir := t.TempDir()
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	roleSettings := cfg.Settings
+	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.ContextCompactionThresholdTokens = 200_000
+	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+		},
+	}
+	service := NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+	}, registry.NewSessionStoreRegistry())
+
+	_, err = service.PlanSession(context.Background(), serverapi.SessionPlanRequest{
+		ClientRequestID:   "req-1",
+		Mode:              serverapi.SessionLaunchModeInteractive,
+		SelectedSessionID: store.Meta().SessionID,
+		Overrides:         serverapi.RunPromptOverrides{Model: "gpt-5.5"},
+	})
+	if err == nil {
+		t.Fatal("expected invalid persisted role validation to fail")
+	}
+	if errors.Is(err, serverapi.ErrInvalidRunPromptAgentRole) {
+		t.Fatalf("error = %v, want persisted role validation error", err)
+	}
+}
+
+func TestServicePlanSessionInvalidRoleOverridePrecedesPersistedRoleValidation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	persistenceRoot := t.TempDir()
+	containerDir := t.TempDir()
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "worker"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	cfg := loadSessionLaunchTestConfig(t, workspace, persistenceRoot)
+	roleSettings := cfg.Settings
+	roleSettings.Model = "gpt-5.3-codex-spark"
+	roleSettings.ContextCompactionThresholdTokens = 200_000
+	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: roleSettings,
+			Sources:  map[string]string{"model": "file", "context_compaction_threshold_tokens": "file"},
+		},
+	}
+	service := NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+	}, registry.NewSessionStoreRegistry())
+
+	for _, role := range []string{"none", "self"} {
+		t.Run(role, func(t *testing.T) {
+			_, err := service.PlanSession(context.Background(), serverapi.SessionPlanRequest{
+				ClientRequestID:   "req-" + role,
+				Mode:              serverapi.SessionLaunchModeInteractive,
+				SelectedSessionID: store.Meta().SessionID,
+				Overrides:         serverapi.RunPromptOverrides{AgentRole: role},
+			})
+			if err == nil {
+				t.Fatal("expected invalid role override to fail")
+			}
+			if !errors.Is(err, serverapi.ErrInvalidRunPromptAgentRole) {
+				t.Fatalf("error = %v, want malformed role error before persisted role validation", err)
+			}
+		})
 	}
 }

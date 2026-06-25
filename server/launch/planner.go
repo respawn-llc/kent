@@ -282,19 +282,19 @@ func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides server
 			AgentRole:     continuationAgentRole,
 		})
 	}
-	if trimmedRole := strings.TrimSpace(overrides.AgentRole); trimmedRole != "" && config.NormalizeSubagentSelector(trimmedRole) == "" && !config.IsReservedSubagentRoleName(trimmedRole) {
-		return SessionPlan{}, nil, fmt.Errorf("%w %q", errInvalidAgentRole, trimmedRole)
+	roleOverride, err := overrides.AgentRoleOverride()
+	if err != nil {
+		return SessionPlan{}, nil, fmt.Errorf("%w: %v", errInvalidAgentRole, err)
 	}
-	roleName := config.NormalizeSubagentSelector(overrides.AgentRole)
-	if overrides.AgentRoleSet || roleName != "" {
+	if roleOverride.Present {
 		shouldPersistContinuation = true
-		continuationAgentRole = roleName
+		continuationAgentRole = roleOverride.Role
 		next.ActiveSettings = cloneSettings(baseSettings)
 		next.Source = baseSource
 		if !plan.ModelContractLocked {
 			next.ConfiguredModelName = next.ActiveSettings.Model
 		}
-		if roleName == "" {
+		if roleOverride.Default {
 			enabledTools, err := ActiveToolIDsForPlan(next.ActiveSettings, next.Source, plan.Store.Meta().Locked)
 			if err != nil {
 				return SessionPlan{}, nil, err
@@ -302,7 +302,7 @@ func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides server
 			next.EnabledTools = enabledTools
 		}
 	}
-	if roleName != "" {
+	if roleOverride.Role != "" {
 		providerBase := cloneSettings(baseSettings)
 		if value := strings.TrimSpace(overrides.ProviderOverride); value != "" {
 			providerBase.ProviderOverride = value
@@ -310,7 +310,7 @@ func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides server
 		if value := strings.TrimSpace(overrides.OpenAIBaseURL); value != "" {
 			providerBase.OpenAIBaseURL = value
 		}
-		resolved, warning, err := resolveSubagentSettingsWithValidation(baseSettings, providerBase, baseSource.Sources, roleName, authState, !plan.ModelContractLocked, !overrides.HasConfigOverrides())
+		resolved, warning, err := resolveSubagentSettingsWithValidation(baseSettings, providerBase, baseSource.Sources, roleOverride.Role, authState, !plan.ModelContractLocked, !overrides.HasConfigOverrides())
 		if err != nil {
 			return SessionPlan{}, nil, err
 		}
@@ -318,7 +318,7 @@ func applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, overrides server
 		if !plan.ModelContractLocked {
 			next.ConfiguredModelName = resolved.Model
 		}
-		roleSource := sourceReportWithSubagentRoleSources(baseSource, baseSettings, roleName, !plan.ModelContractLocked)
+		roleSource := sourceReportWithSubagentRoleSources(baseSource, baseSettings, roleOverride.Role, !plan.ModelContractLocked)
 		enabledTools, err := ActiveToolIDsForPlan(next.ActiveSettings, roleSource, plan.Store.Meta().Locked)
 		if err != nil {
 			return SessionPlan{}, nil, err
