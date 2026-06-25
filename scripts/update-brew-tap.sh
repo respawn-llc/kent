@@ -182,7 +182,12 @@ fi
 
 formula_path="$tap_dir/Formula/${formula}.rb"
 formula_class="$(printf '%s\n' "$formula" | awk -F'[-_]' '{for (i = 1; i <= NF; i++) if ($i != "") printf toupper(substr($i, 1, 1)) substr($i, 2)}')"
-url="https://github.com/${repo}/archive/refs/tags/${version}.tar.gz"
+case "$version" in
+v*) tag="$version" ;;
+*) tag="v$version" ;;
+esac
+bare_version="${tag#v}"
+release_base="https://github.com/${repo}/releases/download/${tag}"
 
 tmp_file="$(mktemp)"
 tmp_formula="$(mktemp)"
@@ -192,30 +197,51 @@ cleanup() {
 }
 trap cleanup EXIT
 
-curl -fsSL "$url" -o "$tmp_file"
-sha256="$(sha256_of "$tmp_file")"
+binary_sha256() {
+	curl -fsSL "${release_base}/$1" -o "$tmp_file"
+	sha256_of "$tmp_file"
+}
+
+darwin_arm64_sha256="$(binary_sha256 "kent_${bare_version}_darwin_arm64.tar.gz")"
+linux_arm64_sha256="$(binary_sha256 "kent_${bare_version}_linux_arm64.tar.gz")"
+linux_amd64_sha256="$(binary_sha256 "kent_${bare_version}_linux_amd64.tar.gz")"
 
 mkdir -p "$(dirname "$formula_path")"
 cat >"$tmp_formula" <<EOF
 class ${formula_class} < Formula
   desc "Minimal terminal coding agent for professional engineering workflows"
   homepage "https://github.com/respawn-llc/kent"
-  url "$url"
-  sha256 "$sha256"
+  version "$bare_version"
   license "AGPL-3.0-only"
 
   bottle do
     root_url "https://ghcr.io/v2/respawn-llc/tap"
   end
 
-  depends_on "go" => :build
-  depends_on "node" => :build
-  depends_on "pnpm" => :build
   depends_on "ripgrep"
 
+  on_macos do
+    on_arm do
+      url "${release_base}/kent_${bare_version}_darwin_arm64.tar.gz"
+      sha256 "$darwin_arm64_sha256"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "${release_base}/kent_${bare_version}_linux_arm64.tar.gz"
+      sha256 "$linux_arm64_sha256"
+    end
+    on_intel do
+      url "${release_base}/kent_${bare_version}_linux_amd64.tar.gz"
+      sha256 "$linux_amd64_sha256"
+    end
+  end
+
   def install
-    ENV["KENT_VERSION"] = version.to_s
-    system "bash", "scripts/build.sh", "--output", bin/"kent"
+    os = OS.mac? ? "darwin" : "linux"
+    arch = Hardware::CPU.arm? ? "arm64" : "amd64"
+    bin.install "kent_#{version}_#{os}_#{arch}" => "kent"
   end
 
   def post_install
@@ -330,8 +356,9 @@ if [[ "$do_push" == "true" ]]; then
 fi
 
 echo "Updated ${formula_path}"
-echo "  url: $url"
-echo "  sha256: $sha256"
+echo "  darwin_arm64 sha256: $darwin_arm64_sha256"
+echo "  linux_arm64 sha256:  $linux_arm64_sha256"
+echo "  linux_amd64 sha256:  $linux_amd64_sha256"
 if [[ -n "$cask_path" ]]; then
 	echo "Updated ${cask_path}"
 	echo "  url: $cask_url"
