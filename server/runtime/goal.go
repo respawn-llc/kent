@@ -524,6 +524,9 @@ func (e *Engine) requireAskQuestionForActiveGoal() error {
 	if goal == nil || goal.Status != session.GoalStatusActive {
 		return nil
 	}
+	if e.workflowRunActive() {
+		return nil
+	}
 	return e.requireAskQuestionForGoalLoopStart()
 }
 

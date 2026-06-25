@@ -514,6 +514,22 @@ func TestActiveGoalRequiresAskQuestionBeforeModelTurn(t *testing.T) {
 	assertModelCallCount(t, client, 0)
 }
 
+func TestWorkflowActiveGoalSkipsAskQuestionBeforeModelTurn(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+		WorkflowRun:  &workflowruntime.Config{Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("workflow-run-1")}},
+	})
+	engine.SetQuestionsEnabled(false)
+	if _, err := engine.SetGoal("ship workflow goal", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+
+	if err := engine.requireAskQuestionForActiveGoal(); err != nil {
+		t.Fatalf("workflow active goal preflight with questions disabled: %v", err)
+	}
+}
+
 func TestActiveGoalAllowsModelTurnWithAskQuestionEnabled(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
