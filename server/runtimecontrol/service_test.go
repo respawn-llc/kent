@@ -587,6 +587,64 @@ func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	}
 }
 
+func TestServiceAgentShellCompleteThenSetGoalUsesQueuedEffectiveGoal(t *testing.T) {
+	client := newCancelObservingRuntimeControlClient()
+	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if _, err := engine.SetGoal("finished current goal", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal initial: %v", err)
+	}
+	active := startRuntimeControlActiveRun(t, engine, client)
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
+	tokens := &stubShellTokenVerifier{valid: true}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).WithCollaborativeRuntimeResolver(collaborative).WithShellTokenVerifier(tokens)
+
+	complete, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{
+		ClientRequestID: "goal-complete-agent-current-turn-chain",
+		SessionID:       store.Meta().SessionID,
+		ShellToken:      "shell-token",
+		ShellRunID:      active.Snapshot.RunID,
+		ShellStepID:     active.Snapshot.StepID,
+		Actor:           "agent",
+	})
+	if err != nil {
+		t.Fatalf("CompleteGoal: %v", err)
+	}
+	if complete.Goal == nil || complete.Goal.Status != string(session.GoalStatusComplete) {
+		t.Fatalf("complete response = %+v, want completed queued goal", complete.Goal)
+	}
+	set, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "goal-set-agent-current-turn-chain",
+		SessionID:       store.Meta().SessionID,
+		ShellToken:      "shell-token",
+		ShellRunID:      active.Snapshot.RunID,
+		ShellStepID:     active.Snapshot.StepID,
+		Objective:       "follow-up queued goal",
+		Actor:           "agent",
+	})
+	if err != nil {
+		t.Fatalf("SetGoal after queued complete: %v", err)
+	}
+	if set.Goal == nil || set.Goal.Objective != "follow-up queued goal" || set.Goal.Status != string(session.GoalStatusActive) {
+		t.Fatalf("set response = %+v, want follow-up active goal", set.Goal)
+	}
+	active.finish()
+	if goal := store.Meta().Goal; goal == nil || goal.Objective != "follow-up queued goal" || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted goal = %+v, want follow-up active goal", goal)
+	} else if set.Goal.ID != goal.ID {
+		t.Fatalf("set response goal id = %q, want persisted id %q", set.Goal.ID, goal.ID)
+	}
+	if gate.acquire != 0 || gate.release != 0 {
+		t.Fatalf("gate acquire/release = %d/%d, want 0/0", gate.acquire, gate.release)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)
+	}
+	if tokens.calls != 2 {
+		t.Fatalf("token verifier calls = %d, want 2", tokens.calls)
+	}
+}
+
 func TestServiceAgentSetGoalWithStaleShellRunKeepsPrimaryRunGate(t *testing.T) {
 	client := newCancelObservingRuntimeControlClient()
 	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -723,6 +781,7 @@ func TestServiceWorkflowRuntimeAllowsGoalControl(t *testing.T) {
 		},
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
+	engine.SetQuestionsEnabled(false)
 	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
 		ClientRequestID: "req-goal-workflow",
 		SessionID:       store.Meta().SessionID,
@@ -785,6 +844,7 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusPaused {
 		t.Fatalf("goal after pause = %+v, want paused", goal)
 	}
+	engine.SetQuestionsEnabled(false)
 	if _, err := service.ResumeGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "resume", SessionID: sessionID, Actor: "user"}); err != nil {
 		t.Fatalf("ResumeGoal: %v", err)
 	}

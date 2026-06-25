@@ -679,13 +679,13 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		if err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
+		if response, queued, err := s.queueAgentShellGoalSet(ctx, req, rejectEngine, trimmedObjective); err != nil || queued {
+			return response, err
+		}
 		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 			if currentGoal := rejectEngine.Goal(); goalBlocksAgentSet(currentGoal) {
 				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
 			}
-		}
-		if response, queued, err := s.queueAgentShellGoalSet(ctx, req, rejectEngine, trimmedObjective); err != nil || queued {
-			return response, err
 		}
 		err = s.withGoalSetMutationAccess(ctx, req, func(engine *runtime.Engine) error {
 			if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
@@ -727,6 +727,12 @@ func (s *Service) queueAgentShellGoalSet(ctx context.Context, req serverapi.Runt
 		}
 	}
 	goal, queued, err := engine.QueueAgentShellSetGoal(req.ShellRunID, req.ShellStepID, objective, session.GoalActor(req.Actor))
+	if err != nil {
+		var blocked session.GoalAgentOverwriteBlockedError
+		if errors.As(err, &blocked) {
+			return serverapi.RuntimeGoalShowResponse{}, queued, goalAgentOverwriteDeniedError{Objective: blocked.Goal.Objective, Status: string(blocked.Goal.Status)}
+		}
+	}
 	if err != nil || !queued {
 		return serverapi.RuntimeGoalShowResponse{}, queued, err
 	}

@@ -156,10 +156,17 @@ func (e *Engine) QueueAgentShellSetGoal(runID string, stepID string, objective s
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	queued, err := e.enqueueActiveRunGoalMutation(runID, stepID, activeRunGoalMutation{
-		kind:  activeRunGoalMutationSet,
-		goal:  goal,
-		actor: actor,
+	queued, err := e.enqueueActiveRunGoalMutation(runID, stepID, func(stepID string) (activeRunGoalMutation, error) {
+		if actor == session.GoalActorAgent {
+			if current := e.effectiveActiveRunGoalForStepLocked(stepID); activeRunGoalBlocksAgentSet(current) {
+				return activeRunGoalMutation{}, session.GoalAgentOverwriteBlockedError{Goal: *current}
+			}
+		}
+		return activeRunGoalMutation{
+			kind:  activeRunGoalMutationSet,
+			goal:  goal,
+			actor: actor,
+		}, nil
 	})
 	if err != nil || !queued {
 		return session.GoalState{}, queued, err
@@ -171,37 +178,72 @@ func (e *Engine) QueueAgentShellCompleteGoal(runID string, stepID string, actor 
 	if e == nil || e.store == nil {
 		return session.GoalState{}, false, fmt.Errorf("runtime engine is required")
 	}
-	current := e.Goal()
-	if current == nil {
-		return session.GoalState{}, false, errors.New("goal is not set")
-	}
-	queued, err := e.enqueueActiveRunGoalMutation(runID, stepID, activeRunGoalMutation{
-		kind:  activeRunGoalMutationComplete,
-		goal:  *current,
-		actor: actor,
+	var accepted session.GoalState
+	queued, err := e.enqueueActiveRunGoalMutation(runID, stepID, func(stepID string) (activeRunGoalMutation, error) {
+		current := e.effectiveActiveRunGoalForStepLocked(stepID)
+		if current == nil {
+			return activeRunGoalMutation{}, errors.New("goal is not set")
+		}
+		accepted = *current
+		accepted.Status = session.GoalStatusComplete
+		accepted.UpdatedAt = time.Now().UTC()
+		return activeRunGoalMutation{
+			kind:  activeRunGoalMutationComplete,
+			goal:  *current,
+			actor: actor,
+		}, nil
 	})
 	if err != nil || !queued {
 		return session.GoalState{}, queued, err
 	}
-	accepted := *current
-	accepted.Status = session.GoalStatusComplete
-	accepted.UpdatedAt = time.Now().UTC()
 	return accepted, true, nil
 }
 
-func (e *Engine) enqueueActiveRunGoalMutation(runID string, stepID string, mutation activeRunGoalMutation) (bool, error) {
+func (e *Engine) enqueueActiveRunGoalMutation(runID string, stepID string, build func(stepID string) (activeRunGoalMutation, error)) (bool, error) {
 	if e == nil || e.stepLifecycle == nil {
 		return false, nil
 	}
+	stepID = strings.TrimSpace(stepID)
 	return e.stepLifecycle.WithActiveRun(runID, stepID, func() error {
 		e.activeRunGoalMutationsMu.Lock()
 		defer e.activeRunGoalMutationsMu.Unlock()
 		if e.activeRunGoalMutations == nil {
 			e.activeRunGoalMutations = make(map[string][]activeRunGoalMutation)
 		}
-		e.activeRunGoalMutations[strings.TrimSpace(stepID)] = append(e.activeRunGoalMutations[strings.TrimSpace(stepID)], mutation)
+		mutation, err := build(stepID)
+		if err != nil {
+			return err
+		}
+		e.activeRunGoalMutations[stepID] = append(e.activeRunGoalMutations[stepID], mutation)
 		return nil
 	})
+}
+
+func (e *Engine) effectiveActiveRunGoalForStepLocked(stepID string) *session.GoalState {
+	var effective *session.GoalState
+	if current := e.Goal(); current != nil {
+		clone := *current
+		effective = &clone
+	}
+	for _, mutation := range e.activeRunGoalMutations[strings.TrimSpace(stepID)] {
+		switch mutation.kind {
+		case activeRunGoalMutationSet:
+			clone := mutation.goal
+			effective = &clone
+		case activeRunGoalMutationComplete:
+			if effective != nil && strings.TrimSpace(effective.ID) == strings.TrimSpace(mutation.goal.ID) {
+				clone := *effective
+				clone.Status = session.GoalStatusComplete
+				clone.UpdatedAt = time.Now().UTC()
+				effective = &clone
+			}
+		}
+	}
+	return effective
+}
+
+func activeRunGoalBlocksAgentSet(goal *session.GoalState) bool {
+	return goal != nil && goal.Status != session.GoalStatusComplete
 }
 
 func (e *Engine) drainActiveRunGoalMutations(stepID string) error {
@@ -486,6 +528,9 @@ func (e *Engine) requireAskQuestionForActiveGoal() error {
 }
 
 func (e *Engine) RequireGoalLoopStartAllowed() error {
+	if e.workflowRunActive() {
+		return nil
+	}
 	return e.requireAskQuestionForGoalLoopStart()
 }
 
