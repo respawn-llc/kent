@@ -149,6 +149,7 @@ func (m *Manager) emitEvent(evt Event) {
 func (m *Manager) waitForExit(entry *processEntry) {
 	defer close(entry.done)
 	err := entry.cmd.Wait()
+	m.unregisterEntryShellToken(entry)
 	exitCode, state := processExitState(err)
 	if !entry.isBackgrounded() {
 		entry.setExited(exitCode, state)
@@ -240,6 +241,15 @@ func (m *Manager) releaseEntry(id string) {
 	if entry != nil {
 		m.unregisterSessionTokenLocked(entry.ownerSessionID, entry.shellToken)
 	}
+}
+
+func (m *Manager) unregisterEntryShellToken(entry *processEntry) {
+	if m == nil || entry == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unregisterSessionTokenLocked(entry.ownerSessionID, entry.shellToken)
 }
 
 func (m *Manager) VerifyShellToken(sessionID string, token string) bool {
