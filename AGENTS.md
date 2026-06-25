@@ -83,7 +83,9 @@ Examples: `feat: add state recovery`, `feat!: change Saver API`
 If user asks you to fix a github issue and you commit the fix, use 'closes #xx' in description.
 
 ## Important rules:
-- All business logic covered by tests. Production code is written to be unit-testable.
+- Production API shape is dictated by product/domain seams, runtime contracts, and operator-visible behavior. Do not add or widen production APIs, exported hooks, global overrides, interfaces, or configuration only so tests can fake, mock, or inspect internals.
+- Tests must adapt to product shape. Prefer product-boundary tests, package-local tests, or harness-level verification when a unit test would require fake-only interfaces or test-only production hooks.
+- Delete or rewrite tests that only preserve implementation shape, fake call order, literal human-readable text, colors/styles, private route tables, file layout, or compatibility shims without a current product contract.
 - Use red/green TDD when developing new features.
 - Never write tests that assert literal prompt strings, log lines, colors, styles, or other textual/visual content. Such tests check the wording of an artifact rather than its behavior, break on every copy edit, and provide no signal — the prompt/log itself is the source of truth. Test behavior, parsing, structure, or invariants instead.
 - Before handing off to the user after Go code changes, rebuild via `./scripts/build.sh --output ./bin/kent`. Don't ask for confirmation to run/write tests and run checks.
