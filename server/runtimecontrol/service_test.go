@@ -486,6 +486,70 @@ func TestServiceAgentCompleteGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
 	}
 }
 
+func TestServiceAgentSetGoalAllowsCurrentTurnPrimaryRun(t *testing.T) {
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
+	tokens := &stubShellTokenVerifier{valid: true}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).WithCollaborativeRuntimeResolver(collaborative).WithShellTokenVerifier(tokens)
+
+	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "goal-set-agent-current-turn",
+		SessionID:       store.Meta().SessionID,
+		ShellToken:      "shell-token",
+		Objective:       "new current-turn goal",
+		Actor:           "agent",
+	})
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if resp.Goal == nil || resp.Goal.Objective != "new current-turn goal" || resp.Goal.Status != string(session.GoalStatusActive) {
+		t.Fatalf("set response = %+v, want active current-turn goal", resp.Goal)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.Objective != "new current-turn goal" || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted goal = %+v, want active current-turn goal", goal)
+	}
+	if gate.acquire != 0 || gate.release != 0 {
+		t.Fatalf("gate acquire/release = %d/%d, want 0/0", gate.acquire, gate.release)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)
+	}
+	if tokens.calls != 1 {
+		t.Fatalf("token verifier calls = %d, want 1", tokens.calls)
+	}
+}
+
+func TestServiceAgentSetGoalWithoutShellTokenKeepsPrimaryRunGate(t *testing.T) {
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	gate := &stubPrimaryRunGate{err: primaryrun.ErrActivePrimaryRun}
+	collaborative := &stubCollaborativeRuntimeResolver{engine: engine}
+	tokens := &stubShellTokenVerifier{valid: false}
+	service := NewService(stubRuntimeResolver{engine: engine}, gate).WithCollaborativeRuntimeResolver(collaborative).WithShellTokenVerifier(tokens)
+
+	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "goal-set-agent-no-token",
+		SessionID:       store.Meta().SessionID,
+		Objective:       "blocked goal",
+		Actor:           "agent",
+	})
+	if !errors.Is(err, primaryrun.ErrActivePrimaryRun) {
+		t.Fatalf("SetGoal error = %v, want active primary run", err)
+	}
+	if goal := store.Meta().Goal; goal != nil {
+		t.Fatalf("persisted goal = %+v, want nil", goal)
+	}
+	if gate.acquire != 1 || gate.release != 0 {
+		t.Fatalf("gate acquire/release = %d/%d, want 1/0", gate.acquire, gate.release)
+	}
+	if collaborative.calls != 0 {
+		t.Fatalf("collaborative calls = %d, want 0", collaborative.calls)
+	}
+	if tokens.calls != 1 {
+		t.Fatalf("token verifier calls = %d, want 1", tokens.calls)
+	}
+}
+
 func TestServiceAgentCompleteGoalWithoutShellTokenKeepsPrimaryRunGate(t *testing.T) {
 	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {

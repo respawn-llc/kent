@@ -137,7 +137,7 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if agent {
 		actor = "agent"
 	}
-	resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{ClientRequestID: uuid.NewString(), SessionID: target, Objective: objective, Actor: actor})
+	resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{ClientRequestID: uuid.NewString(), SessionID: target, Objective: objective, Actor: actor, ShellToken: goalCommandShellToken(agent)})
 	if err != nil {
 		fmt.Fprintln(stderr, formatGoalCommandError(err))
 		return 1

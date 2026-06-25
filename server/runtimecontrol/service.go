@@ -684,7 +684,7 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
 			}
 		}
-		err = s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, func(engine *runtime.Engine) error {
+		err = s.withGoalSetMutationAccess(ctx, req, func(engine *runtime.Engine) error {
 			if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 				currentGoal := engine.Goal()
 				if goalBlocksAgentSet(currentGoal) {
@@ -829,6 +829,17 @@ func (s *Service) withGoalMutationAccess(ctx context.Context, sessionID string, 
 	return s.withRuntimeAccess(ctx, sessionID, leaseID, serverapi.SessionRuntimeOperationGoalManage, fn)
 }
 
+func (s *Service) withGoalSetMutationAccess(ctx context.Context, req serverapi.RuntimeGoalSetRequest, fn func(*runtime.Engine) error) error {
+	if s.agentGoalSetUsesLeaseFreeRuntimeAccess(req) {
+		engine, err := s.resolve(ctx, req.SessionID)
+		if err != nil {
+			return err
+		}
+		return fn(engine)
+	}
+	return s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, fn)
+}
+
 func (s *Service) withGoalStatusMutationAccess(ctx context.Context, req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus, fn func(*runtime.Engine) error) error {
 	if s.agentGoalCompletionUsesLeaseFreeRuntimeAccess(req, status) {
 		engine, err := s.resolve(ctx, req.SessionID)
@@ -838,6 +849,14 @@ func (s *Service) withGoalStatusMutationAccess(ctx context.Context, req serverap
 		return fn(engine)
 	}
 	return s.withGoalMutationAccess(ctx, req.SessionID, req.ControllerLeaseID, fn)
+}
+
+func (s *Service) agentGoalSetUsesLeaseFreeRuntimeAccess(req serverapi.RuntimeGoalSetRequest) bool {
+	return strings.TrimSpace(req.ControllerLeaseID) == "" &&
+		strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) &&
+		s != nil &&
+		s.shellTokens != nil &&
+		s.shellTokens.VerifyShellToken(req.SessionID, req.ShellToken)
 }
 
 func (s *Service) agentGoalCompletionUsesLeaseFreeRuntimeAccess(req serverapi.RuntimeGoalStatusRequest, status session.GoalStatus) bool {

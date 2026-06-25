@@ -663,7 +663,7 @@ func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
 	}
 }
 
-func TestCtrlCWhileGoalRunReactsOnInterruptAcknowledgement(t *testing.T) {
+func TestCtrlCWhileGoalRunWaitsForInterruptedRunStateBeforeCleanup(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
 		Goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: clientui.RuntimeGoalStatusActive},
 	}}
@@ -688,8 +688,16 @@ func TestCtrlCWhileGoalRunReactsOnInterruptAcknowledgement(t *testing.T) {
 	if client.interruptCalls != 1 {
 		t.Fatalf("interrupt calls = %d, want 1", client.interruptCalls)
 	}
+	if !updated.isBusy() || !updated.hasPendingInterrupt() {
+		t.Fatalf("interrupt control acknowledgement must wait for run-state cleanup, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
+	}
+	if updated.input != "" || len(updated.queued) != 1 {
+		t.Fatalf("interrupt control acknowledgement restored input before run-state event, input=%q queue=%+v", updated.input, updated.queued)
+	}
+
+	updated = applyInterruptedRunStateForTest(t, updated)
 	if updated.isBusy() || updated.hasPendingInterrupt() {
-		t.Fatalf("expected interrupt acknowledgement to unblock CLI, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
+		t.Fatalf("expected interrupted run-state to unblock CLI, busy=%t pending=%t", updated.isBusy(), updated.hasPendingInterrupt())
 	}
 	if updated.activity != uiActivityInterrupted {
 		t.Fatalf("activity = %v, want interrupted", updated.activity)

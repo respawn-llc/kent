@@ -438,7 +438,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		status := serverapi.QuestionsToggleStatusMessage(msg.enabled, msg.changed)
 		return sequenceCmds(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeNeutral, transientStatusDuration, uiStatusNoticeReplace, ""), followUpCmd)
 	case runtimeControlInterrupt:
-		return sequenceCmds(m.acknowledgePendingInterrupt(), followUpCmd)
+		return followUpCmd
 	default:
 		return followUpCmd
 	}

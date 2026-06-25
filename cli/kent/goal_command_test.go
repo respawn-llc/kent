@@ -98,6 +98,7 @@ func TestGoalShowUsesSessionIDEnv(t *testing.T) {
 
 func TestGoalAgentEnvAllowsSetWithAgentActor(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-1")
+	t.Setenv(sessionenv.ShellTokenEnv, "shell-token-1")
 	remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "new goal", Status: "active"}}
 	restore := replaceGoalCommandRemoteOpener(t, remote)
 	defer restore()
@@ -112,6 +113,9 @@ func TestGoalAgentEnvAllowsSetWithAgentActor(t *testing.T) {
 	}
 	if remote.setReq[0].SessionID != "session-1" || remote.setReq[0].Actor != "agent" || remote.setReq[0].Objective != "new goal" {
 		t.Fatalf("set request = %+v", remote.setReq[0])
+	}
+	if remote.setReq[0].ShellToken != "shell-token-1" {
+		t.Fatalf("set shell token = %q, want shell-token-1", remote.setReq[0].ShellToken)
 	}
 	if !strings.Contains(stdout.String(), "Goal: new goal") {
 		t.Fatalf("stdout = %q", stdout.String())
