@@ -280,15 +280,15 @@ func renderStatusIndicator(theme string, phase statusLinePhase, spinning bool, f
 }
 
 func statusLinePhaseColor(theme string, phase statusLinePhase) lipgloss.TerminalColor {
-	palette := uiPalette(theme)
+	palette := sharedtheme.ResolvePalette(theme)
 	switch phase {
 	case statusLinePhaseSecondary:
-		return palette.secondary
+		return palette.App.Secondary.Lipgloss()
 	case statusLinePhaseSuccess:
-		return sharedtheme.DefaultPalette().Status.Success.Adaptive()
+		return palette.Status.Success.Lipgloss()
 	case statusLinePhaseError:
-		return sharedtheme.DefaultPalette().Status.Error.Adaptive()
+		return palette.Status.Error.Lipgloss()
 	default:
-		return palette.primary
+		return palette.App.Primary.Lipgloss()
 	}
 }
