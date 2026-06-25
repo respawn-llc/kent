@@ -72,6 +72,47 @@ func TestCommittedSuffixFinalizerThatWouldRestructureEmittedBlockIsDeferred(t *t
 	}
 }
 
+func TestCommittedLocalEntryNeverUsesSuffixDelivery(t *testing.T) {
+	client := &runtimeClientWithoutCachedMainView{
+		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}},
+	}
+	m := newProjectedClosedUIModel(client)
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+
+	committedLocal := clientui.Event{
+		Kind:                       clientui.EventLocalEntryAdded,
+		CommittedTranscriptChanged: true,
+		CommittedEntryCount:        1,
+		CommittedEntryStart:        0,
+		CommittedEntryStartSet:     true,
+		TranscriptRevision:         1,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "system", Text: "local diagnostic"}},
+	}
+	if shouldDeliverCommittedRuntimeEventFromSuffix(m, committedLocal) {
+		t.Fatal("committed local row must use direct transcript application, not async suffix delivery")
+	}
+
+	committedGoalFeedback := clientui.Event{
+		Kind:                       clientui.EventConversationUpdated,
+		CommittedTranscriptChanged: true,
+		CommittedEntryCount:        1,
+		CommittedEntryStart:        0,
+		CommittedEntryStartSet:     true,
+		TranscriptRevision:         1,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:          "goal_feedback",
+			Text:          "goal detail",
+			CondensedText: `Goal resumed: "ship feature"`,
+			Visibility:    clientui.EntryVisibilityAll,
+		}},
+	}
+	if shouldDeliverCommittedRuntimeEventFromSuffix(m, committedGoalFeedback) {
+		t.Fatal("committed goal_feedback conversation update must use direct transcript application, not async suffix delivery")
+	}
+}
+
 func TestCommittedLocalEntryWhileAssistantStreamingIsDeferredUntilFinalCommit(t *testing.T) {
 	m := newProjectedClosedUIModel(nil)
 	m.windowSizeKnown = true

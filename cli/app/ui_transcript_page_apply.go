@@ -220,7 +220,12 @@ func (a uiRuntimeAdapter) applyAuthoritativeRecentTailPage(page clientui.Transcr
 	m.transcriptTotalEntries = max(page.TotalEntries, page.Offset+len(entries))
 	m.transcriptRevision = max(m.transcriptRevision, page.Revision)
 	hydratedCommittedEnd := page.Offset + committedNativeScrollbackEntriesForApp(entries).PrefixEnd
-	m.nativeScrollbackLedger.ResetCommittedDeliveryAppliedRange(page.Offset, hydratedCommittedEnd, m.transcriptRevision)
+	emittedCommittedEnd := page.Offset
+	if state := m.nativeScrollbackLedger.CommittedDeliveryState(); state.Initialized && state.LastEmittedCommittedEntryCount <= hydratedCommittedEnd {
+		emittedCommittedEnd = max(emittedCommittedEnd, state.LastEmittedCommittedEntryCount)
+		hydratedCommittedEnd = max(hydratedCommittedEnd, state.LastAppliedCommittedEntryCount)
+	}
+	m.nativeScrollbackLedger.ResetCommittedDeliveryAppliedRange(emittedCommittedEnd, hydratedCommittedEnd, m.transcriptRevision)
 	m.transcriptLiveDirty = false
 	if !preserveLiveReasoning {
 		m.reasoningLiveDirty = false

@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const nativeClearScreenAndHomeSequence = "\x1b[2J\x1b[H"
+
 func nativeProjectionRenderedFrontier(projection tui.TranscriptProjection) (int, bool) {
 	if len(projection.Blocks) == 0 {
 		return 0, false
@@ -90,6 +92,10 @@ func nativeRenderedDelta(previous, current string) (string, bool) {
 	delta := strings.TrimPrefix(current, previous)
 	delta = strings.TrimPrefix(delta, "\n")
 	return delta, true
+}
+
+func (m *uiModel) emitNativeClearScreen() tea.Cmd {
+	return m.emitNativeHistoryFlushWithOptions(nativeClearScreenAndHomeSequence, false, false)
 }
 
 func (m *uiModel) emitNativeRenderedTextWithOptions(rendered string, clearBelowBefore bool) tea.Cmd {

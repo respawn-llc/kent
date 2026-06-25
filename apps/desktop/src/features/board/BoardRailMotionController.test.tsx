@@ -7,16 +7,7 @@ import type { BoardCard, BoardColumn, WorkflowBoard, WorkflowPickerItem } from "
 import { appI18n, initializeI18n } from "../../i18n/setup";
 import type { PendingBoardCardMove } from "./BoardCardMotionModel";
 
-// ---- view-transition spy (jsdom has no startViewTransition; emulate immediate) ----
-const runViewTransitionMock = vi.fn(async (options: { scope: string; update: () => void | Promise<void> }) => {
-  await options.update();
-  const resolved = Promise.resolve();
-  return { mode: "immediate" as const, finished: resolved, updateCallbackDone: resolved };
-});
-vi.mock("../../app/viewTransitions", () => ({
-  runViewTransition: async (options: { scope: string; update: () => void | Promise<void> }) => runViewTransitionMock(options),
-  viewTransitionScopeClass: (scope: string) => `view-transition-${scope}`,
-}));
+const animateElementMock = vi.fn(() => ({ finished: Promise.resolve() }));
 
 // ---- controllable fake board-node-cards query ----
 type NodeSnapshot = Readonly<{ cards: readonly BoardCard[]; isFetching: boolean; isPending: boolean; hasData: boolean }>;
@@ -186,8 +177,8 @@ async function settleStaleTimer(): Promise<void> {
   });
 }
 
-function boardCardTransitionCalls(): number {
-  return runViewTransitionMock.mock.calls.filter((args) => args[0].scope === "board-card").length;
+function boardCardMotionCalls(): number {
+  return animateElementMock.mock.calls.length;
 }
 
 describe("BoardRailMotionController manual-drag animation", () => {
@@ -197,7 +188,11 @@ describe("BoardRailMotionController manual-drag animation", () => {
 
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    runViewTransitionMock.mockClear();
+    animateElementMock.mockClear();
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animateElementMock,
+    });
     nodeStore.clear();
     harnessState = { board: board(1, 0), pending: null };
   });
@@ -218,7 +213,7 @@ describe("BoardRailMotionController manual-drag animation", () => {
       </I18nextProvider>,
     );
     await flush();
-    runViewTransitionMock.mockClear();
+    animateElementMock.mockClear();
 
     // Drop happens: pending move is registered, backlog query refetches without the card.
     await act(async () => {
@@ -235,7 +230,7 @@ describe("BoardRailMotionController manual-drag animation", () => {
 
   it("server-driven move animates the card leaving the backlog (control)", async () => {
     await driveBacklogExit(null);
-    expect(boardCardTransitionCalls()).toBeGreaterThan(0);
+    expect(boardCardMotionCalls()).toBeGreaterThan(0);
   });
 
   it("manual drag animates the card leaving the backlog like a server-driven move", async () => {
@@ -243,6 +238,6 @@ describe("BoardRailMotionController manual-drag animation", () => {
     // Previously the stale-snapshot timer kept deferring while the destination
     // column was still empty, so a manual drag played no transition at all.
     await driveBacklogExit({ taskID: "task-1", targetColumnID: "recon" });
-    expect(boardCardTransitionCalls()).toBeGreaterThan(0);
+    expect(boardCardMotionCalls()).toBeGreaterThan(0);
   });
 });

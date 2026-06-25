@@ -310,6 +310,7 @@ function TaskCard({
             event.dataTransfer.setData("text/plain", card.id);
             event.dataTransfer.setData(boardCardDragPayloadType, encodeBoardCardDragPayload(dragPayload));
             event.dataTransfer.effectAllowed = "move";
+            setBoardCardDragImage(event.currentTarget, event.dataTransfer);
             onDragStart(dragPayload);
           }}
           onKeyDown={(event) => {
@@ -380,6 +381,22 @@ function TaskCard({
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function setBoardCardDragImage(cardElement: HTMLElement, dataTransfer: DataTransfer): void {
+  const rect = cardElement.getBoundingClientRect();
+  const dragImage = cardElement.cloneNode(true);
+  if (!(dragImage instanceof HTMLElement)) {
+    return;
+  }
+  dragImage.classList.add("board-card-drag-image");
+  dragImage.style.width = `${rect.width.toString()}px`;
+  dragImage.style.height = `${rect.height.toString()}px`;
+  document.body.append(dragImage);
+  dataTransfer.setDragImage(dragImage, rect.width / 2, Math.min(24, rect.height / 2));
+  window.setTimeout(() => {
+    dragImage.remove();
+  }, 0);
 }
 
 function hasBoardCardDragData(dataTransfer: DataTransfer): boolean {

@@ -377,7 +377,7 @@ func TestStartupRuntimeTranscriptSeedsFromCommittedSuffix(t *testing.T) {
 	}
 }
 
-func TestWidthResizeDoesNotFetchCommittedSuffixOrReplay(t *testing.T) {
+func TestWidthResizeReflowsResidentHistoryWithoutFetchingCommittedSuffix(t *testing.T) {
 	reads := &countingSessionViewClient{
 		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
 			SessionID: "session-1",
@@ -420,9 +420,10 @@ func TestWidthResizeDoesNotFetchCommittedSuffixOrReplay(t *testing.T) {
 
 	next, resizeCmd := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	model = next.(*uiModel)
-	if resizeCmd != nil {
-		t.Fatalf("expected width resize not to schedule native replay or suffix fetch, got %T", resizeCmd)
+	if resizeCmd == nil {
+		t.Fatal("expected width resize to schedule resident native history reflow")
 	}
+	_ = collectCmdMessagesApplyingNativeWriteResults(t, model, resizeCmd)
 	if reads.lastSuffixReq.SessionID != "" {
 		t.Fatalf("expected width resize not to request committed suffix, got %+v", reads.lastSuffixReq)
 	}

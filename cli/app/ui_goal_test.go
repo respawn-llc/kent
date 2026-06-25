@@ -3,9 +3,15 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"core/cli/tui"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/shared/clientui"
+	"core/shared/toolspec"
 	"core/shared/transcript"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -198,6 +204,79 @@ func TestGoalSetRendersCommittedGoalFeedbackBeforeLaterRuntimeEvents(t *testing.
 	}
 	if view := stripANSIAndTrimRight(updated.view.OngoingSnapshot()); strings.Contains(view, "later model output") {
 		t.Fatalf("later runtime event rendered before explicit delivery: %q", view)
+	}
+}
+
+func TestGoalResumeSlashCommandViaRuntimeRouteRendersGoalFeedbackOnce(t *testing.T) {
+	runtimeEvents := make(chan clientui.Event, 16)
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{
+		WorkflowRun: &workflowruntime.Config{
+			Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("run-1")},
+		},
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+		OnEvent: func(evt runtime.Event) {
+			runtimeEvents <- projectRuntimeEvent(evt)
+		},
+	})
+	t.Cleanup(func() { _ = eng.Close() })
+	if _, err := eng.SetGoal("ship native scrollback", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := eng.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoalStatus paused: %v", err)
+	}
+	drainRuntimeEvents(runtimeEvents)
+
+	m := newSizedProjectedRuntimeEventsUIModel(newUIRuntimeClient(eng), runtimeEvents, 120, 30)
+	m.input = "/goal resume"
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if goal := eng.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("goal after /goal resume = %+v, want active", goal)
+	}
+
+	goalEvent := waitForGoalFeedbackEvent(t, runtimeEvents)
+	if shouldDeliverCommittedRuntimeEventFromSuffix(updated, goalEvent) {
+		t.Fatal("real /goal resume feedback event must not use async suffix delivery")
+	}
+
+	next, cmd := updated.Update(runtimeEventMsg{event: goalEvent})
+	updated = next.(*uiModel)
+	_ = collectCmdMessages(t, cmd)
+
+	view := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
+	if got := strings.Count(view, "Goal resumed:"); got != 1 {
+		t.Fatalf("goal resumed feedback count = %d, want 1 in %q", got, view)
+	}
+	if !strings.Contains(view, `Goal resumed: "ship native scrollback"`) {
+		t.Fatalf("expected resumed goal feedback in ongoing transcript, got %q", view)
+	}
+}
+
+func drainRuntimeEvents(events <-chan clientui.Event) {
+	for {
+		select {
+		case <-events:
+		default:
+			return
+		}
+	}
+}
+
+func waitForGoalFeedbackEvent(t *testing.T, events <-chan clientui.Event) clientui.Event {
+	t.Helper()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case evt := <-events:
+			for _, entry := range evt.TranscriptEntries {
+				if entry.Role == string(transcript.EntryRoleGoalFeedback) && strings.Contains(entry.CondensedText, "Goal resumed:") {
+					return evt
+				}
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for /goal resume goal_feedback event")
+		}
 	}
 }
 
