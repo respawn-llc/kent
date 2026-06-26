@@ -19,7 +19,7 @@ import (
 const goalObjectivePreviewMaxRunes = 120
 const goalLoopBusyRetryDelay = 50 * time.Millisecond
 
-var ErrGoalRequiresAskQuestion = errors.New("active goal requires ask_question to be enabled; enable ask_question or pause/clear the goal")
+var ErrGoalRequiresAskQuestion = errors.New("active goal requires ask_question tool visibility; start with ask_question available or pause/clear the goal")
 var errGoalLoopInactive = errors.New("goal loop inactive")
 
 type activeRunGoalMutationKind uint8
@@ -81,6 +81,11 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 func (e *Engine) setGoalStatusForStep(stepID string, status session.GoalStatus, actor session.GoalActor) (session.GoalState, error) {
 	if e == nil || e.store == nil {
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
+	}
+	if status == session.GoalStatusActive {
+		if err := e.requireAskQuestionForGoalActivation(); err != nil {
+			return session.GoalState{}, err
+		}
 	}
 	transcriptWorkingDir := e.transcriptWorkingDir()
 	var msg llm.Message
@@ -384,9 +389,6 @@ func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 		return nil
 	}
 	if err := e.requireAskQuestionForGoalLoopStart(); err != nil {
-		if errors.Is(err, ErrGoalRequiresAskQuestion) {
-			e.goalLoopState().Suspend()
-		}
 		return err
 	}
 	if !e.goalLoopState().Start() {
@@ -524,23 +526,26 @@ func (e *Engine) requireAskQuestionForActiveGoal() error {
 	if goal == nil || goal.Status != session.GoalStatusActive {
 		return nil
 	}
-	if e.workflowRunActive() {
-		return nil
-	}
 	return e.requireAskQuestionForGoalLoopStart()
 }
 
 func (e *Engine) RequireGoalLoopStartAllowed() error {
-	if e.workflowRunActive() {
+	return e.requireAskQuestionForGoalLoopStart()
+}
+
+func (e *Engine) requireAskQuestionForGoalActivation() error {
+	goal := e.Goal()
+	if goal == nil || goal.Status == session.GoalStatusActive {
 		return nil
 	}
 	return e.requireAskQuestionForGoalLoopStart()
 }
 
 func (e *Engine) requireAskQuestionForGoalLoopStart() error {
-	if !e.QuestionsEnabled() {
-		return ErrGoalRequiresAskQuestion
-	}
+	// Goals require ask_question to be part of the session's locked tool surface,
+	// because goal work may need user decisions. The /questions command only
+	// toggles whether ask_question calls are answered; it must not block or stop
+	// an already-visible goal loop.
 	shape, err := e.lockedRequestShape()
 	if err != nil {
 		return err

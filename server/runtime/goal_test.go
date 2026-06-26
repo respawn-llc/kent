@@ -190,21 +190,36 @@ func TestQueuedAgentShellGoalCompleteSkipsReplacedGoal(t *testing.T) {
 	}
 }
 
-func TestQueuedAgentShellGoalSetRechecksLoopPreflightBeforePersist(t *testing.T) {
+func TestQueuedAgentShellGoalSetAllowsQuestionsDisabledWhenToolVisible(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
-	if _, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent); err != nil || !queued {
+	queuedGoal, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent)
+	if err != nil || !queued {
 		t.Fatalf("QueueAgentShellSetGoal queued=%t err=%v, want queued", queued, err)
 	}
 	engine.SetQuestionsEnabled(false)
-	if err := engine.drainActiveRunGoalMutations("step-1"); !errors.Is(err, ErrGoalRequiresAskQuestion) {
-		t.Fatalf("drain error = %v, want ErrGoalRequiresAskQuestion", err)
+	if err := engine.drainActiveRunGoalMutations("step-1"); err != nil {
+		t.Fatalf("drain goal mutations with questions disabled: %v", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.ID != queuedGoal.ID {
+		t.Fatalf("goal after deferred mutation = %+v, want queued id %q", goal, queuedGoal.ID)
+	}
+}
+
+func TestQueuedAgentShellGoalSetRequiresAskQuestionToolVisibility(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+	})
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
+	if _, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent); !errors.Is(err, ErrGoalRequiresAskQuestion) || queued {
+		t.Fatalf("QueueAgentShellSetGoal queued=%t err=%v, want ErrGoalRequiresAskQuestion", queued, err)
 	}
 	if goal := engine.Goal(); goal != nil {
-		t.Fatalf("goal after failed deferred preflight = %+v, want nil", goal)
+		t.Fatalf("goal after failed visibility preflight = %+v, want nil", goal)
 	}
 }
 
@@ -243,6 +258,7 @@ func TestGoalMutationsEmitGoalStatusEventsAfterFeedback(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	events := make([]Event, 0, 10)
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 		},
@@ -388,7 +404,9 @@ func assertGoalFeedbackThenStatusEvent(t *testing.T, events []Event, start int, 
 
 func TestGoalStatusAndClearPersistDeveloperPrompts(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -499,7 +517,7 @@ func TestGoalCompleteCompactTextIncludesCookDuration(t *testing.T) {
 	}
 }
 
-func TestActiveGoalRequiresAskQuestionBeforeModelTurn(t *testing.T) {
+func TestActiveGoalRequiresAskQuestionToolVisibilityBeforeModelTurn(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}})
@@ -514,7 +532,7 @@ func TestActiveGoalRequiresAskQuestionBeforeModelTurn(t *testing.T) {
 	assertModelCallCount(t, client, 0)
 }
 
-func TestWorkflowActiveGoalSkipsAskQuestionBeforeModelTurn(t *testing.T) {
+func TestWorkflowActiveGoalRequiresAskQuestionToolVisibilityBeforeModelTurn(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
 		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
@@ -525,8 +543,8 @@ func TestWorkflowActiveGoalSkipsAskQuestionBeforeModelTurn(t *testing.T) {
 		t.Fatalf("SetGoal: %v", err)
 	}
 
-	if err := engine.requireAskQuestionForActiveGoal(); err != nil {
-		t.Fatalf("workflow active goal preflight with questions disabled: %v", err)
+	if err := engine.requireAskQuestionForActiveGoal(); !errors.Is(err, ErrGoalRequiresAskQuestion) {
+		t.Fatalf("workflow active goal preflight error = %v, want ErrGoalRequiresAskQuestion", err)
 	}
 }
 
@@ -542,6 +560,62 @@ func TestActiveGoalAllowsModelTurnWithAskQuestionEnabled(t *testing.T) {
 		t.Fatalf("runStepLoop: %v", err)
 	}
 	assertModelCallCount(t, client, 1)
+}
+
+func TestActiveGoalAllowsModelTurnWithQuestionsDisabledWhenAskQuestionToolVisible(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	engine.SetQuestionsEnabled(false)
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+
+	if _, err := engine.runStepLoop(t.Context(), "step-1"); err != nil {
+		t.Fatalf("runStepLoop with questions disabled: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+}
+
+func TestGoalResumeRequiresAskQuestionToolVisibilityAtEngineBoundary(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+	})
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := engine.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser); err != nil {
+		t.Fatalf("pause goal: %v", err)
+	}
+
+	if _, err := engine.SetGoalStatus(session.GoalStatusActive, session.GoalActorUser); !errors.Is(err, ErrGoalRequiresAskQuestion) {
+		t.Fatalf("resume goal error = %v, want ErrGoalRequiresAskQuestion", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusPaused {
+		t.Fatalf("goal after failed resume = %+v, want paused", goal)
+	}
+}
+
+func TestGoalResumeAllowsQuestionsDisabledWhenAskQuestionToolVisible(t *testing.T) {
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if _, err := engine.SetGoalStatus(session.GoalStatusPaused, session.GoalActorUser); err != nil {
+		t.Fatalf("pause goal: %v", err)
+	}
+	engine.SetQuestionsEnabled(false)
+
+	if _, err := engine.SetGoalStatus(session.GoalStatusActive, session.GoalActorUser); err != nil {
+		t.Fatalf("resume goal with questions disabled: %v", err)
+	}
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("goal after resume = %+v, want active", goal)
+	}
 }
 
 func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
