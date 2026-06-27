@@ -136,7 +136,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = native_glass::apply_to_window_now(&window) {
                     eprintln!("Apply native window glass failed: {error}");
