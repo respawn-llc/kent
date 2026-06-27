@@ -88,12 +88,20 @@ func writeLaunchdServicePlist(spec serviceSpec, force bool) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("create LaunchAgents dir: %w", err)
 	}
+	rendered := []byte(renderLaunchdPlist(spec))
 	if !force {
-		if existing, err := os.ReadFile(path); err == nil && !bytes.Equal(existing, []byte(renderLaunchdPlist(spec))) {
-			return "", fmt.Errorf(brand.ServiceDisplayName+" is already installed at %s; use --force to rewrite it", path)
+		existing, err := os.ReadFile(path)
+		switch {
+		case err == nil:
+			if !bytes.Equal(existing, rendered) {
+				return "", fmt.Errorf(brand.ServiceDisplayName+" is already installed at %s; use --force to rewrite it", path)
+			}
+		case errors.Is(err, os.ErrNotExist):
+		default:
+			return "", fmt.Errorf("read launchd plist: %w", err)
 		}
 	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
+	if err := os.WriteFile(path, rendered, 0o644); err != nil {
 		return "", fmt.Errorf("write launchd plist: %w", err)
 	}
 	return path, nil

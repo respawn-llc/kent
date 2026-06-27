@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,6 +90,36 @@ func TestLaunchdInstallReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Fatalf("calls = %#v, want %#v", *calls, want)
+	}
+}
+
+func TestLaunchdInstallFailsClosedWhenExistingPlistCannotBeRead(t *testing.T) {
+	spec := newLaunchdTestSpec(t)
+	path := mustLaunchdPlistPath(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir launch agents: %v", err)
+	}
+	original := []byte("unreadable existing plist")
+	if err := os.WriteFile(path, original, 0o200); err != nil {
+		t.Fatalf("write unreadable plist: %v", err)
+	}
+
+	err := (launchdServiceBackend{}).Install(context.Background(), spec, false, false)
+	if err == nil {
+		t.Fatal("expected install to fail when existing plist cannot be read")
+	}
+	if !strings.Contains(err.Error(), "read launchd plist") {
+		t.Fatalf("error = %v, want read failure", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("restore plist permissions: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read preserved plist: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatalf("plist was overwritten despite unreadable existing registration")
 	}
 }
 
