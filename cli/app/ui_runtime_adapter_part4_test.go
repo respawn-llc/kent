@@ -68,13 +68,15 @@ func TestApplyRuntimeTranscriptPageAcceptsEqualRevisionTailReplacementWhenAuthor
 	if m.transcriptLiveDirty {
 		t.Fatal("expected corrective equal-revision refresh to clear transcriptLiveDirty")
 	}
-	projectionLines := m.nativeCommittedProjectionForEntries(m.transcriptEntries).Lines(tui.TranscriptDivider)
-	projectionText := make([]string, 0, len(projectionLines))
-	for _, line := range projectionLines {
-		projectionText = append(projectionText, line.Text)
+	projection := m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+	if len(projection.Blocks) != 2 {
+		t.Fatalf("projection block count = %d, want 2: %#v", len(projection.Blocks), projection.Blocks)
 	}
-	if plain := strings.Join(projectionText, "\n"); !strings.Contains(plain, "$ pwd") {
-		t.Fatalf("expected corrected shell row in committed native projection, got %q", plain)
+	if got := projection.Blocks[1].Role; got != tui.RenderIntentToolShellSuccess {
+		t.Fatalf("corrected projection tool block role = %q, want %q: %#v", got, tui.RenderIntentToolShellSuccess, projection.Blocks[1])
+	}
+	if projection.Blocks[1].EntryIndex != 1 {
+		t.Fatalf("corrected projection tool block entry index = %d, want 1: %#v", projection.Blocks[1].EntryIndex, projection.Blocks[1])
 	}
 }
 
