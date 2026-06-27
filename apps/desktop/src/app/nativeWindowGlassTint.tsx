@@ -8,7 +8,8 @@ const windowGlassFillClassName = "window-glass-fill";
 
 export function useNativeWindowGlassTintSync(nativeBridge: NativeBridge): void {
   useEffect(() => {
-    if (nativeBridge.capabilities.platform !== "macos" || typeof document === "undefined") {
+    const platform = nativeBridge.capabilities.platform;
+    if ((platform !== "macos" && platform !== "windows") || typeof document === "undefined") {
       return;
     }
 
