@@ -2,6 +2,7 @@ package app
 
 import (
 	"strconv"
+	"strings"
 
 	"core/cli/tui"
 	"core/shared/clientui"
@@ -9,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, flushNativeHistory bool) (tea.Cmd, bool, bool) {
+func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event) (tea.Cmd, bool, bool) {
 	m := a.model
 	if len(evt.TranscriptEntries) == 0 {
 		return nil, false, false
@@ -41,7 +42,7 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 		})
 		return nil, false, false
 	case projectedTranscriptDecisionHydrate:
-		if cmd, applied := a.applyActiveAssistantFinalizerGapAsRecentTail(evt, flushNativeHistory); applied {
+		if cmd, applied := a.applyActiveAssistantFinalizerGapAsRecentTail(evt); applied {
 			m.logTranscriptEventDiag("transcript.diag.client.append_entries", evt, map[string]string{
 				"path":           "live_event",
 				"incoming_count": strconv.Itoa(incomingCount),
@@ -51,11 +52,7 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 			})
 			return cmd, true, false
 		}
-		activeAssistantFinalizerGap := isAssistantStreamFinalizerEvent(newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m)), evt)
 		m.beginCommittedTranscriptContinuityRecovery()
-		if activeAssistantFinalizerGap {
-			m.resetNativeStreamingState()
-		}
 		m.logTranscriptEventDiag("transcript.diag.client.append_entries", evt, map[string]string{
 			"path":           "live_event",
 			"incoming_count": strconv.Itoa(incomingCount),
@@ -81,13 +78,24 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 		return nil, false, false
 	}
 	entries := plan.entries
+	previousNativeStableProjection := tui.TranscriptProjection{}
+	nativeSurfaceConfigured := m.nativeSurfaceConfigured()
+	nativeStableReady := nativeSurfaceConfigured && m.nativeSurface.StableBuffer() != nil
+	if nativeSurfaceConfigured {
+		previousNativeStableProjection = m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+	}
 	m.transcriptLiveDirty = true
 	startOffset := m.transcriptBaseOffset + plan.rangeStart
 	convertedEntries := make([]tui.TranscriptEntry, 0, len(entries))
 	for _, entry := range entries {
 		convertedEntries = append(convertedEntries, transcriptEntryFromProjectedChatEntry(entry, reduction.projectedTransient, reduction.projectedCommitted))
 	}
-	if shouldClearAssistantStreamForCommittedTranscriptEntries(convertedEntries, m.view.OngoingStreamingText()) {
+	committedAppendClearsAssistantStream := shouldClearAssistantStreamForCommittedTranscriptEntries(convertedEntries, m.view.OngoingStreamingText())
+	nativeAssistantStreamWasIncomplete := m.nativeAssistantStreamIncomplete
+	nativeAssistantStreamActive := m.nativeSurfaceConfigured() &&
+		m.nativeSurface.AssistantStreaming() &&
+		committedAppendClearsAssistantStream
+	if committedAppendClearsAssistantStream {
 		m.clearAssistantStreamForCommittedAppend()
 	}
 	showTransientInCurrentView := m.view.Mode() != tui.ModeDetail || !allTranscriptEntriesTransient(convertedEntries)
@@ -107,7 +115,6 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	}
 	m.transcriptRevision = max(m.transcriptRevision, evt.TranscriptRevision)
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, max(evt.CommittedEntryCount, m.transcriptBaseOffset+len(m.transcriptEntries)))
-	m.observeDirectCommittedEventDelivery(evt)
 	m.refreshRollbackCandidates()
 	if plan.mode == projectedTranscriptEntryPlanAppend && replaceLoadedTransientEntries {
 		m.forwardToView(tui.SetConversationMsg{
@@ -150,15 +157,37 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	if showTransientInCurrentView {
 		m.clearMirroredTransientStatus(convertedEntries)
 	}
-	if !flushNativeHistory {
-		m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries, false)
-		return nil, true, false
+	if (plan.mode == projectedTranscriptEntryPlanAppend || plan.mode == projectedTranscriptEntryPlanReplace) && nativeSurfaceConfigured {
+		currentNativeStableProjection := m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+		nativeStableNeedsDelivery := nativeStableProjectionNeedsDelivery(previousNativeStableProjection, currentNativeStableProjection)
+		if !nativeStableNeedsDelivery {
+			if nativeAssistantStreamActive {
+				if err := m.finishNativeAssistantStreaming(); err != nil {
+					return m.nativeSurfaceErrorCmd("finish assistant stream", err), true, false
+				}
+			}
+		} else if !nativeStableReady {
+			m.nativeAssistantStreamIncomplete = strings.TrimSpace(m.view.OngoingStreamingText()) != ""
+		} else if nativeAssistantStreamActive {
+			if err := m.finishNativeAssistantStreaming(); err != nil {
+				return m.nativeSurfaceErrorCmd("finish assistant stream", err), true, false
+			}
+			if nativeAssistantStreamWasIncomplete {
+				if err := m.steerNativeStableAppend(previousNativeStableProjection, currentNativeStableProjection); err != nil {
+					return m.nativeSurfaceErrorCmd("steer committed transcript", err), true, false
+				}
+			}
+		} else {
+			if err := m.steerNativeStableAppend(previousNativeStableProjection, currentNativeStableProjection); err != nil {
+				return m.nativeSurfaceErrorCmd("steer committed transcript", err), true, false
+			}
+		}
 	}
-	m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries, true)
-	return m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery(), true, false
+	m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries)
+	return nil, true, false
 }
 
-func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clientui.Event, flushNativeHistory bool) (tea.Cmd, bool) {
+func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clientui.Event) (tea.Cmd, bool) {
 	m := a.model
 	if m == nil || len(evt.TranscriptEntries) == 0 || !evt.CommittedTranscriptChanged {
 		return nil, false
@@ -191,7 +220,7 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 	}
 	detailPinnedAwayFromTail := m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
 	if detailPinnedAwayFromTail {
-		return m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}), true
+		return m.requestRuntimeCommittedGapSync(), true
 	}
 	a.applyAuthoritativeRecentTailPage(page, entries, false)
 	if m.detailTranscript.loaded {
@@ -219,10 +248,7 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 			OngoingError: page.StreamingError,
 		})
 	}
-	if !flushNativeHistory {
-		return nil, true
-	}
-	return m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery(), true
+	return nil, true
 }
 
 func (m *uiModel) clearMirroredTransientStatus(entries []tui.TranscriptEntry) {
@@ -250,28 +276,4 @@ func (m *uiModel) clearMirroredTransientStatusByNoticeID(noticeID string) {
 	m.transientStatus = ""
 	m.transientStatusKind = uiStatusNoticeNeutral
 	m.transientStatusNoticeID = ""
-}
-
-func (m *uiModel) observeDirectCommittedEventDelivery(evt clientui.Event) {
-	if m == nil || !evt.CommittedTranscriptChanged || evt.CommittedEntryCount <= 0 {
-		return
-	}
-	// User echoes still use the direct event path to preserve prompt responsiveness.
-	// Keep the SSOT delivery cursor in step so the following committed suffix starts
-	// after that already-emitted user row instead of duplicating it from SSOT.
-	if evt.Kind != clientui.EventUserMessageFlushed {
-		return
-	}
-	// User echoes still use the direct event path for prompt responsiveness.
-	// Mark them applied so suffix trimming starts after the echoed row, but keep
-	// emitted delivery ack-gated by the native terminal write result.
-	startEntryCount := evt.CommittedEntryCount - len(evt.TranscriptEntries)
-	if evt.CommittedEntryStartSet {
-		startEntryCount = evt.CommittedEntryStart
-	}
-	if startEntryCount < 0 {
-		startEntryCount = 0
-	}
-	m.nativeScrollbackLedger.EnsureCommittedDelivery(startEntryCount, evt.TranscriptRevision)
-	m.nativeScrollbackLedger.MarkCommittedApplied(evt.CommittedEntryCount, evt.TranscriptRevision)
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io"
 	"strings"
 
 	"core/cli/app/commands"
@@ -71,6 +72,24 @@ func WithUIDebug(enabled bool) UIOption {
 func WithUITerminalCursorState(state *uiTerminalCursorState) UIOption {
 	return func(m *uiModel) {
 		m.terminalCursor = state
+	}
+}
+
+func WithUIRendererOutputGateState(state *uiRendererOutputGateState) UIOption {
+	return func(m *uiModel) {
+		m.rendererOutputGate = state
+		m.syncRendererOutputGate()
+	}
+}
+
+func WithUINativeSurfaceWriter(writer io.Writer) UIOption {
+	return func(m *uiModel) {
+		m.closeNativeSurface()
+		if writer != nil {
+			writer = uiMainThreadTerminalWriter{model: m, out: writer, kind: "native surface"}
+		}
+		m.nativeSurface = newUINativeSurface(writer, m.nativeNormalBufferAvailable, m.handleNativeDelayedWriteError)
+		m.syncRendererOutputGate()
 	}
 }
 

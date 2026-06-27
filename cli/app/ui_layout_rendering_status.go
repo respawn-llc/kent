@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -128,6 +129,10 @@ func (l uiViewLayout) renderStatusNotice(available int) string {
 	}
 	text := strings.TrimSpace(m.runtimeDisconnectStatusText())
 	kind := uiStatusNoticeError
+	if text == "" && m.nativeLiveAreaError != nil {
+		text = "native terminal write failed: " + rootCauseErrorText(m.nativeLiveAreaError)
+		kind = uiStatusNoticeError
+	}
 	if text == "" {
 		if strings.TrimSpace(m.worktrees.visibleErrorText()) != "" {
 			return ""
@@ -142,6 +147,19 @@ func (l uiViewLayout) renderStatusNotice(available int) string {
 	return statusNoticeStyle(m.theme, kind).Render(text)
 }
 
+func rootCauseErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	for {
+		unwrapped := errors.Unwrap(err)
+		if unwrapped == nil {
+			return err.Error()
+		}
+		err = unwrapped
+	}
+}
+
 func (l uiViewLayout) renderActivityStatus(available int, style uiStyles) string {
 	if available <= 0 {
 		return ""
@@ -151,6 +169,9 @@ func (l uiViewLayout) renderActivityStatus(available int, style uiStyles) string
 		return statusNoticeStyle(l.model.theme, uiStatusNoticeNeutral).Render(text)
 	}
 	if l.model.runtimeDisconnectStatusVisible() {
+		return ""
+	}
+	if l.model.nativeLiveAreaError != nil {
 		return ""
 	}
 	if strings.TrimSpace(l.model.worktrees.visibleErrorText()) != "" {

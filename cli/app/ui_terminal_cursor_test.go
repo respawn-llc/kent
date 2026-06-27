@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -112,7 +110,7 @@ func (f *fakeTerminalCursorFile) Close() error {
 func TestMainUIProgramOptionsPreservesTerminalFileOutput(t *testing.T) {
 	state := newUITerminalCursorState()
 	file := &fakeTerminalCursorFile{fd: 42}
-	options := mainUIProgramOptionsWithOutput(config.Settings{}, state, file)
+	options := mainUIProgramOptionsWithOutput(config.Settings{}, state, newUIRendererOutputGateState(), file)
 	if len(options) != 3 {
 		t.Fatalf("main options length = %d, want filter, focus reporting, and output options", len(options))
 	}
@@ -227,222 +225,6 @@ func TestTerminalCursorWriterTreatsEmptyWriteAsNoop(t *testing.T) {
 	}
 	if !state.hasPlacement() {
 		t.Fatal("empty write should not mutate placement state")
-	}
-}
-
-func TestTerminalCursorWriterStripsNativeScrollbackMarkersAndPublishesAck(t *testing.T) {
-	state := newUITerminalCursorState()
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-
-	write := nativescrollback.TerminalWrite{Sequence: 7, Text: "native line"}
-	encoded, err := state.encodeNativeScrollbackWrite(write)
-	if err != nil {
-		t.Fatalf("encode native write: %v", err)
-	}
-	if _, err := writer.Write([]byte("prefix" + encoded + "suffix")); err != nil {
-		t.Fatalf("write native payload: %v", err)
-	}
-
-	if got, want := out.String(), "prefixnative linesuffix"; got != want {
-		t.Fatalf("terminal payload = %q, want %q", got, want)
-	}
-	assertNativeScrollbackResult(t, state, write.Sequence, "")
-}
-
-func TestTerminalCursorWriterPreservesNativePayloadContainingMarkerLikeBytes(t *testing.T) {
-	state := newUITerminalCursorState()
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-
-	payload := "native \x1b]777;KentNativeScrollback=7:999\x07 payload \x1b]777;KentNativeScrollbackEnd=7\x07"
-	write := nativescrollback.TerminalWrite{Sequence: 8, Text: payload}
-	encoded, err := state.encodeNativeScrollbackWrite(write)
-	if err != nil {
-		t.Fatalf("encode marker-like native payload: %v", err)
-	}
-	if _, err := writer.Write([]byte(encoded)); err != nil {
-		t.Fatalf("write marker-like native payload: %v", err)
-	}
-	if got := out.String(); got != payload {
-		t.Fatalf("marker-like native payload mutated: got %q want %q", got, payload)
-	}
-	assertNativeScrollbackResult(t, state, write.Sequence, "")
-}
-
-func TestTerminalCursorWriterPreservesUnregisteredValidFrameLikeNormalOutput(t *testing.T) {
-	state := newUITerminalCursorState()
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-
-	payload := nativescrollback.EncodeTerminalWrite(
-		nativescrollback.TerminalWrite{Sequence: 99, Text: "fake native line"},
-		"unregistered-token",
-	)
-	if n, err := writer.Write([]byte(payload)); err != nil || n != len(payload) {
-		t.Fatalf("unregistered frame-like normal write = (%d, %v), want (%d, nil)", n, err, len(payload))
-	}
-	if got := out.String(); got != payload {
-		t.Fatalf("unregistered frame-like output mutated: got %q want %q", got, payload)
-	}
-	assertNoNativeScrollbackResult(t, state)
-}
-
-func TestTerminalCursorWriterPreservesOversizedFrameLikeOutputWithoutHoldingLaterWrites(t *testing.T) {
-	state := newUITerminalCursorState()
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-
-	payload := "\x1b]777;KentNativeScrollback=1:" + strconv.Itoa(nativescrollback.TerminalWriteMaxPayload+1) + ":fake-token\x07"
-	if n, err := writer.Write([]byte(payload)); err != nil || n != len(payload) {
-		t.Fatalf("oversized frame-like write = (%d, %v), want (%d, nil)", n, err, len(payload))
-	}
-	if n, err := writer.Write([]byte("after")); err != nil || n != len("after") {
-		t.Fatalf("post-oversized normal write = (%d, %v), want (%d, nil)", n, err, len("after"))
-	}
-	if got, want := out.String(), payload+"after"; got != want {
-		t.Fatalf("oversized frame-like output = %q, want %q", got, want)
-	}
-	assertNoNativeScrollbackResult(t, state)
-}
-
-func TestTerminalCursorWriterPreservesMalformedMarkerLikeNormalOutput(t *testing.T) {
-	state := newUITerminalCursorState()
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-
-	payload := "\x1b]777;KentNativeScrollback=7\x07native line\x1b]777;KentNativeScrollbackEnd=7\x07"
-	if n, err := writer.Write([]byte(payload)); err != nil || n != len(payload) {
-		t.Fatalf("marker-like normal write = (%d, %v), want (%d, nil)", n, err, len(payload))
-	}
-	if got := out.String(); got != payload {
-		t.Fatalf("marker-like normal output mutated: got %q want %q", got, payload)
-	}
-}
-
-func TestTerminalCursorWriterStripsNativeScrollbackMarkersAcrossSplitWrites(t *testing.T) {
-	state := newUITerminalCursorState()
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-
-	encoded, err := state.encodeNativeScrollbackWrite(nativescrollback.TerminalWrite{Sequence: 7, Text: "native line"})
-	if err != nil {
-		t.Fatalf("encode split native write: %v", err)
-	}
-	split := strings.Index(encoded, "native line")
-	if split <= 0 {
-		t.Fatalf("unexpected encoded native write: %q", encoded)
-	}
-	if n, err := writer.Write([]byte(encoded[:split])); err != nil || n != split {
-		t.Fatalf("first split write = (%d, %v), want (%d, nil)", n, err, split)
-	}
-	if got := out.String(); got != "" {
-		t.Fatalf("first split write leaked partial frame bytes: %q", got)
-	}
-	assertNoNativeScrollbackResult(t, state)
-
-	if n, err := writer.Write([]byte(encoded[split:])); err != nil || n != len(encoded)-split {
-		t.Fatalf("second split write = (%d, %v), want (%d, nil)", n, err, len(encoded)-split)
-	}
-	if got, want := out.String(), "native line"; got != want {
-		t.Fatalf("terminal payload = %q, want %q", got, want)
-	}
-	assertNativeScrollbackResult(t, state, 7, "")
-}
-
-func TestTerminalCursorWriterPublishesNativeScrollbackFailure(t *testing.T) {
-	state := newUITerminalCursorState()
-	failing := &failingTerminalCursorWriter{failAfter: 0}
-	writer := newUITerminalCursorWriter(failing, state)
-
-	write := nativescrollback.TerminalWrite{Sequence: 9, Text: "native line"}
-	encoded, err := state.encodeNativeScrollbackWrite(write)
-	if err != nil {
-		t.Fatalf("encode failing native write: %v", err)
-	}
-	if _, err := writer.Write([]byte(encoded)); !errors.Is(err, errTerminalCursorTestWrite) {
-		t.Fatalf("write err = %v, want %v", err, errTerminalCursorTestWrite)
-	}
-	assertNativeScrollbackResult(t, state, write.Sequence, errTerminalCursorTestWrite.Error())
-}
-
-func TestTerminalCursorWriterPublishesNativeScrollbackFailureWhenAnchorRestoreFails(t *testing.T) {
-	state := newUITerminalCursorState()
-	state.Set(uiTerminalCursorPlacement{Visible: true, CursorRow: 2, CursorCol: 4, AnchorRow: 5})
-	var out bytes.Buffer
-	writer := newUITerminalCursorWriter(&out, state)
-	if _, err := writer.Write([]byte("frame")); err != nil {
-		t.Fatalf("prime cursor placement: %v", err)
-	}
-
-	failing := &failingTerminalCursorWriter{failAfter: 0}
-	writer = newUITerminalCursorWriter(failing, state)
-	write := nativescrollback.TerminalWrite{Sequence: 11, Text: "native line"}
-	encoded, err := state.encodeNativeScrollbackWrite(write)
-	if err != nil {
-		t.Fatalf("encode anchor failure native write: %v", err)
-	}
-	if _, err := writer.Write([]byte(encoded)); !errors.Is(err, errTerminalCursorTestWrite) {
-		t.Fatalf("write err = %v, want %v", err, errTerminalCursorTestWrite)
-	}
-	assertNativeScrollbackResult(t, state, write.Sequence, errTerminalCursorTestWrite.Error())
-}
-
-func TestTerminalCursorWriterTreatsNativeScrollbackShortWriteAsFailure(t *testing.T) {
-	state := newUITerminalCursorState()
-	short := &shortTerminalCursorWriter{limit: 4}
-	writer := newUITerminalCursorWriter(short, state)
-
-	write := nativescrollback.TerminalWrite{Sequence: 13, Text: "native line"}
-	encoded, err := state.encodeNativeScrollbackWrite(write)
-	if err != nil {
-		t.Fatalf("encode short write native write: %v", err)
-	}
-	if n, err := writer.Write([]byte(encoded)); err == nil || !strings.Contains(err.Error(), "short write") || n != 0 {
-		t.Fatalf("write = (%d, %v), want short write error with zero consumed encoded bytes", n, err)
-	}
-	if got, want := short.String(), "nati"; got != want {
-		t.Fatalf("terminal payload = %q, want partial short write %q", got, want)
-	}
-	assertNativeScrollbackResult(t, state, write.Sequence, "short write")
-}
-
-func TestTerminalCursorStateRejectsOversizedRegisteredNativeFrame(t *testing.T) {
-	state := newUITerminalCursorState()
-	_, err := state.encodeNativeScrollbackWrite(nativescrollback.TerminalWrite{
-		Sequence: 21,
-		Text:     strings.Repeat("x", nativescrollback.TerminalWriteMaxPayload+1),
-	})
-	if err == nil || !strings.Contains(err.Error(), "exceeds payload limit") {
-		t.Fatalf("oversized native write err = %v, want payload limit error", err)
-	}
-	assertNoNativeScrollbackResult(t, state)
-}
-
-func assertNativeScrollbackResult(t *testing.T, state *uiTerminalCursorState, sequence nativescrollback.Sequence, errContains string) {
-	t.Helper()
-	select {
-	case result := <-state.nativeScrollbackWriteResults():
-		if result.Sequence != sequence {
-			t.Fatalf("result sequence = %d, want %d", result.Sequence, sequence)
-		}
-		if errContains == "" && result.Err != "" {
-			t.Fatalf("result err = %q, want success", result.Err)
-		}
-		if errContains != "" && !strings.Contains(result.Err, errContains) {
-			t.Fatalf("result err = %q, want containing %q", result.Err, errContains)
-		}
-	default:
-		t.Fatal("expected native scrollback write result")
-	}
-}
-
-func assertNoNativeScrollbackResult(t *testing.T, state *uiTerminalCursorState) {
-	t.Helper()
-	select {
-	case result := <-state.nativeScrollbackWriteResults():
-		t.Fatalf("unexpected native scrollback write result: %+v", result)
-	default:
 	}
 }
 
@@ -937,7 +719,7 @@ func TestTerminalCursorProgramStartupReplayAfterClearScreenKeepsOngoingOutputVis
 	program.Send(tea.WindowSizeMsg{Width: 80, Height: 20})
 	waitForTestCondition(t, 2*time.Second, "visible ongoing output after startup clear-screen replay", func() bool {
 		tail := terminalOutputAfterLastClearScreen(out.String())
-		plain := normalizedOutput(tail)
+		plain := stripANSIAndTrimRight(tail)
 		return strings.Contains(plain, "startup replay marker")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -950,7 +732,7 @@ func TestTerminalCursorProgramStartupReplayAfterClearScreenKeepsOngoingOutputVis
 		t.Fatal("program did not terminate")
 	}
 
-	if plain := normalizedOutput(terminalOutputAfterLastClearScreen(out.String())); strings.TrimSpace(plain) == "" {
+	if plain := stripANSIAndTrimRight(terminalOutputAfterLastClearScreen(out.String())); strings.TrimSpace(plain) == "" {
 		t.Fatalf("expected nonblank ongoing output after final clear screen, got raw %q", out.String())
 	}
 }

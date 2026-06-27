@@ -62,7 +62,7 @@ func TestWaitRuntimeEventDoesNotDeferCommittedGoalFeedback(t *testing.T) {
 	}
 }
 
-func TestSplitRuntimeBatchAtAssistantDeltaKeepsMultipleDeltasOrdered(t *testing.T) {
+func TestSplitRuntimeBatchAtAssistantDeltaKeepsBatchTogether(t *testing.T) {
 	events := []clientui.Event{
 		{Kind: clientui.EventAssistantDelta, AssistantDelta: "first"},
 		{Kind: clientui.EventAssistantDelta, AssistantDelta: "second"},
@@ -70,25 +70,14 @@ func TestSplitRuntimeBatchAtAssistantDeltaKeepsMultipleDeltasOrdered(t *testing.
 	}
 
 	head, tail, split := splitRuntimeBatchAtAssistantDelta(events)
-	if !split {
-		t.Fatal("expected first assistant delta to split later events into pending tail")
+	if split {
+		t.Fatal("assistant deltas should stay in their runtime batch")
 	}
-	if len(head) != 1 || head[0].AssistantDelta != "first" {
-		t.Fatalf("head = %+v, want only first assistant delta", head)
+	if len(tail) != 0 {
+		t.Fatalf("tail = %+v, want empty", tail)
 	}
-	if len(tail) != 2 || tail[0].AssistantDelta != "second" || tail[1].Kind != clientui.EventAssistantMessage {
-		t.Fatalf("tail = %+v, want second assistant delta followed by final commit", tail)
-	}
-
-	nextHead, nextTail, nextSplit := splitRuntimeBatchAtAssistantDelta(tail)
-	if !nextSplit {
-		t.Fatal("expected second assistant delta to split final commit into pending tail")
-	}
-	if len(nextHead) != 1 || nextHead[0].AssistantDelta != "second" {
-		t.Fatalf("next head = %+v, want only second assistant delta", nextHead)
-	}
-	if len(nextTail) != 1 || nextTail[0].Kind != clientui.EventAssistantMessage {
-		t.Fatalf("next tail = %+v, want final commit", nextTail)
+	if len(head) != len(events) || head[0].AssistantDelta != "first" || head[1].AssistantDelta != "second" || head[2].Kind != clientui.EventAssistantMessage {
+		t.Fatalf("head = %+v, want original batch order", head)
 	}
 }
 
@@ -119,30 +108,6 @@ func TestRuntimeEventCoversDeferredCommittedConversationUpdate(t *testing.T) {
 	next.StepID = "other"
 	if runtimeEventCoversDeferredCommittedConversationUpdate(update, next) {
 		t.Fatal("expected different step not to cover deferred update")
-	}
-}
-
-func TestNativeStreamingAssistantCommitCandidateRequiresMatchingStepID(t *testing.T) {
-	m := &uiModel{}
-	m.nativeScrollbackLedger.SetAssistantStreamStepID("step-1")
-	m.observeNativeStreamingAssistantCommitCandidate(clientui.Event{
-		Kind:                clientui.EventAssistantMessage,
-		CommittedEntryCount: 1,
-		TranscriptEntries:   []clientui.ChatEntry{{Role: "assistant", Text: "done"}},
-	})
-	if m.nativeScrollbackLedger.AssistantStreamState().CommitRangeSet {
-		t.Fatal("expected empty event step id to be rejected while native stream is step-bound")
-	}
-
-	m.observeNativeStreamingAssistantCommitCandidate(clientui.Event{
-		Kind:                clientui.EventAssistantMessage,
-		StepID:              "step-1",
-		CommittedEntryCount: 1,
-		TranscriptEntries:   []clientui.ChatEntry{{Role: "assistant", Text: "done"}},
-	})
-	state := m.nativeScrollbackLedger.AssistantStreamState()
-	if !state.CommitRangeSet || state.CommitStartEntryCount != 0 || state.CommitEndEntryCount != 1 {
-		t.Fatalf("commit range = [%d,%d] set=%t, want [0,1] set", state.CommitStartEntryCount, state.CommitEndEntryCount, state.CommitRangeSet)
 	}
 }
 

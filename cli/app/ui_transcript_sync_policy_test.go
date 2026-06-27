@@ -72,7 +72,8 @@ func TestRuntimeSyncPolicyReleasesDeferredTranscriptWhenProcessOverlayCloses(t *
 		CommittedTranscriptChanged: true,
 		TranscriptRevision:         4,
 		CommittedEntryCount:        3,
-	}, true).cmd
+	}).
+		cmd
 	assertNoRuntimeTranscriptRefreshMsg(t, collectCmdMessages(t, cmd))
 	if !m.runtimeTranscriptPendingSet {
 		t.Fatal("expected routine transcript sync deferred while /ps is open")
@@ -431,7 +432,6 @@ func runtimeTranscriptRefreshOrReleaseDeferredForTest(t *testing.T, m *uiModel, 
 	if !m.runtimeTranscriptPendingSet {
 		t.Fatalf("expected transcript refresh or deferred pending sync, got msgs=%+v", msgs)
 	}
-	m.nativeStreamingActive = false
 	m.sawAssistantDelta = false
 	refresh, ok := findRuntimeTranscriptRefreshMsg(collectCmdMessages(t, m.releaseDeferredRuntimeSyncs()))
 	if !ok {

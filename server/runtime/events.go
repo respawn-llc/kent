@@ -73,6 +73,7 @@ type Event struct {
 	CommittedEntryStartSet       bool
 	Error                        string
 	AssistantDelta               string
+	AssistantDeltaPhase          llm.MessagePhase
 	ReasoningDelta               *llm.ReasoningSummaryDelta
 	UserMessage                  string
 	UserMessageBatch             []string

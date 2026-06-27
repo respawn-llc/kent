@@ -1160,8 +1160,8 @@ func TestInterruptedSubmitDoneRestoresQueueIntoInputAndDoesNotAutoDrain(t *testi
 		t.Fatalf("unexpected restored input text: %q", updated.input)
 	}
 	plain := stripANSIAndTrimRight(updated.View())
-	if strings.Contains(strings.ToLower(plain), "interrupted") {
-		t.Fatalf("did not expect interruption to be rendered as error transcript, got %q", plain)
+	if count := strings.Count(strings.ToLower(plain), "interrupted"); count != 1 {
+		t.Fatalf("expected interruption rendered only as status state, got count=%d view=%q", count, plain)
 	}
 }
 
@@ -1531,7 +1531,7 @@ func TestIdleCompactDoneRefreshesCommittedSteeringOutput(t *testing.T) {
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.sessionID = "session-1"
 	_, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-	_ = collectCmdMessagesApplyingNativeWriteResults(t, m, startupCmd)
+	_ = collectCmdMessages(t, startupCmd)
 	m.compactionOrigin = uiCompactionOriginManual
 	m.setBusy(true)
 	m.setCompacting(true)
@@ -1556,7 +1556,7 @@ func TestIdleCompactDoneRefreshesCommittedSteeringOutput(t *testing.T) {
 	for _, msg := range collectCmdMessages(t, syncCmd) {
 		next, followCmd := updated.Update(msg)
 		updated = next.(*uiModel)
-		_ = collectCmdMessagesApplyingNativeWriteResults(t, updated, followCmd)
+		_ = collectCmdMessages(t, followCmd)
 	}
 	if client.hasQueuedUserWorkCalls != 1 {
 		t.Fatalf("HasQueuedUserWork calls = %d, want 1", client.hasQueuedUserWorkCalls)
@@ -1564,10 +1564,11 @@ func TestIdleCompactDoneRefreshesCommittedSteeringOutput(t *testing.T) {
 	if client.refreshTranscriptCalls != 1 {
 		t.Fatalf("RefreshTranscriptPage calls = %d, want 1", client.refreshTranscriptCalls)
 	}
-	if got := stripANSIText(updated.nativeRenderedSnapshot()); !strings.Contains(got, "context compacted") {
-		t.Fatalf("idle compaction did not flush committed steering output, rendered=%q", got)
+	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
+	if !strings.Contains(plain, "context compacted") {
+		t.Fatalf("idle compaction did not render committed steering output, rendered=%q", plain)
 	}
-	if got := strings.Count(stripANSIText(updated.nativeRenderedSnapshot()), "context compacted"); got != 1 {
+	if got := strings.Count(plain, "context compacted"); got != 1 {
 		t.Fatalf("idle compaction rendered steering output %d times, want once", got)
 	}
 }

@@ -56,10 +56,6 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.handleRuntimeTranscriptRefreshed(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
-	case runtimeCommittedTranscriptSuffixRefreshedMsg:
-		cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(msg)
-		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, cmd)
 	case runtimeTranscriptRetryMsg:
 		if msg.token != m.runtimeTranscriptRetry {
 			m.layout().syncViewport()
@@ -81,24 +77,5 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 }
 
 func splitRuntimeBatchAtAssistantDelta(events []clientui.Event) ([]clientui.Event, []clientui.Event, bool) {
-	for idx, evt := range events {
-		if evt.Kind != clientui.EventAssistantDelta {
-			continue
-		}
-		// Assistant deltas can schedule native scrollback flushes. Anything after
-		// the first delta must wait for the normal-buffer flush fence so a final
-		// commit cannot render before the promoted streaming prefix is immutable.
-		if idx == len(events)-1 {
-			return events, nil, false
-		}
-		if idx == 0 {
-			head := append([]clientui.Event(nil), events[:1]...)
-			tail := append([]clientui.Event(nil), events[1:]...)
-			return head, tail, true
-		}
-		head := append([]clientui.Event(nil), events[:idx]...)
-		tail := append([]clientui.Event(nil), events[idx:]...)
-		return head, tail, true
-	}
 	return events, nil, false
 }

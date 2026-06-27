@@ -589,7 +589,8 @@ func TestRuntimeClientSubmitShowsUserMessageInTranscriptWhenFlushedEventArrives(
 		Kind:        runtime.EventUserMessageFlushed,
 		StepID:      "step-1",
 		UserMessage: "say hi",
-	}), true).cmd
+	})).
+		cmd
 	if got := len(updated.transcriptEntries); got != 1 {
 		t.Fatalf("expected one transcript entry after flushed user message, got %d", got)
 	}

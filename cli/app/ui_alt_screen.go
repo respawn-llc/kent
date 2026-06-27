@@ -20,26 +20,12 @@ func (m *uiModel) toggleTranscriptMode() tea.Cmd {
 	return m.transitionTranscriptModeWithOptions(transcriptModeTransitionOptions{
 		target:           target,
 		skipDetailWarmup: false,
-		emitNativeReplay: true,
-	})
-}
-
-func (m *uiModel) toggleTranscriptModeWithNativeReplay(emitNativeReplay bool) tea.Cmd {
-	target := tui.ModeDetail
-	if m.view.Mode() == tui.ModeDetail {
-		target = tui.ModeOngoing
-	}
-	return m.transitionTranscriptModeWithOptions(transcriptModeTransitionOptions{
-		target:           target,
-		skipDetailWarmup: false,
-		emitNativeReplay: emitNativeReplay,
 	})
 }
 
 type transcriptModeTransitionOptions struct {
 	target            tui.Mode
 	skipDetailWarmup  bool
-	emitNativeReplay  bool
 	suppressAltScreen bool
 	preserveSurface   bool
 }
@@ -61,18 +47,18 @@ func (m *uiModel) transitionTranscriptModeWithOptions(options transcriptModeTran
 	}
 	if !options.preserveSurface && (nextMode == tui.ModeOngoing || nextMode == tui.ModeDetail) {
 		m.activeSurface = surfaceForTranscriptMode(nextMode)
+		m.syncRendererOutputGate()
 	}
 	clearCmd := m.clearCmdForModeTransition(prevMode, nextMode)
 	transitionCmd := tea.Cmd(nil)
 	if !options.suppressAltScreen {
 		transitionCmd = m.altScreenCmdForModeTransition(prevMode, nextMode)
 	}
-	nativeReplayCmd := m.nativeReplayCmdForModeTransition(prevMode, nextMode, options.emitNativeReplay)
 	detailLoadCmd := m.detailLoadCmdForModeTransition(prevMode, nextMode)
-	if clearCmd == nil && transitionCmd == nil && nativeReplayCmd == nil && detailLoadCmd == nil {
+	if clearCmd == nil && transitionCmd == nil && detailLoadCmd == nil {
 		return nil
 	}
-	return sequenceCmds(clearCmd, transitionCmd, nativeReplayCmd, detailLoadCmd)
+	return sequenceCmds(clearCmd, transitionCmd, detailLoadCmd)
 }
 
 func (m *uiModel) syncRecentTailViewFromRuntimeState() {
@@ -110,42 +96,6 @@ func (m *uiModel) detailLoadCmdForModeTransition(prev, next tui.Mode) tea.Cmd {
 	return tea.Tick(time.Millisecond, func(time.Time) tea.Msg {
 		return detailTranscriptLoadMsg{}
 	})
-}
-
-func (m *uiModel) nativeReplayCmdForModeTransition(prev, next tui.Mode, enabled bool) tea.Cmd {
-	if !enabled {
-		return nil
-	}
-	if prev != tui.ModeDetail || next != tui.ModeOngoing {
-		return nil
-	}
-	// Detail-mode transcript changes may append newly committed suffix rows on return.
-	// If a spilled streaming assistant committed while detail was active, finalize that
-	// deferred tail through the normal sync path; otherwise preserve append-only
-	// delivery for deferred committed deltas.
-	nativeCommittedEntries := committedNativeScrollbackEntriesForApp(m.transcriptEntries)
-	committedEntries := nativeCommittedEntries.Entries
-	if m.canFinalizeNativeStreamingCommit(nativeCommittedEntries, len(committedEntries)) {
-		beforeSequence := m.nativeLastScheduledFlushSequence()
-		cmd := m.syncNativeHistoryFromTranscript()
-		if m.nativeScrollbackInvariantSet {
-			return cmd
-		}
-		return sequenceCmds(cmd, m.trackOngoingCommittedFrontierFlush(committedOngoingLocalFrontierEnd(m), m.transcriptRevision, beforeSequence))
-	}
-	if len(committedEntries) > 0 && !m.nativeCurrentProjection().Empty() {
-		projection := m.nativeCommittedProjection(committedEntries)
-		currentProjection := m.nativeCurrentProjection()
-		if _, ok := projection.RenderAppendDeltaFrom(currentProjection, tui.TranscriptDivider); !ok {
-			return m.reportNativeProjectionDivergence(projection, currentProjection)
-		}
-	}
-	if m.nativeCurrentProjection().Empty() && len(committedEntries) > 0 {
-		projection := m.nativeCommittedProjection(committedEntries)
-		m.rebaseNativeProjection(projection, m.transcriptBaseOffset, len(committedEntries))
-		return m.emitCurrentNativeScrollbackStateAndTrackCommittedDelivery()
-	}
-	return m.emitCurrentNativeScrollbackStateAndTrackCommittedDelivery()
 }
 
 func sequenceCmds(cmds ...tea.Cmd) tea.Cmd {

@@ -43,32 +43,6 @@ func TestToggleTranscriptModeUsesFixedDetailAltScreen(t *testing.T) {
 	}
 }
 
-func TestNativeReplayCmdForModeTransitionPreservesAppendOnlyWhenScreenNotReplaced(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.windowSizeKnown = true
-	m.termWidth = 80
-	initial := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}}}
-	updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}, {Role: "assistant", Lines: []string{"after"}}}}
-	setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
-	setNativeRenderedProjectionForTest(m, initial, 0)
-
-	cmd := m.nativeReplayCmdForModeTransition(tui.ModeDetail, tui.ModeOngoing, true)
-	if cmd == nil {
-		t.Fatal("expected append-only replay command")
-	}
-	msgs := collectCmdMessages(t, cmd)
-	if len(msgs) != 1 {
-		t.Fatalf("expected append-only replay without clear-screen, got %d message(s)", len(msgs))
-	}
-	flush, ok := msgs[0].(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", msgs[0])
-	}
-	if got := stripANSIText(flush.Text); got != "after" {
-		t.Fatalf("expected append-only replay of deferred delta, got %q", got)
-	}
-}
-
 func TestFullscreenSurfaceOpenClosePolicy(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -147,7 +121,7 @@ func TestFullscreenSurfaceOpenClosePolicy(t *testing.T) {
 				return m.pushRollbackOverlayIfNeeded()
 			},
 			close: func(m *uiModel) tea.Cmd {
-				cmd := m.popRollbackOverlayWithNativeReplay(true)
+				cmd := m.popRollbackOverlay()
 				m.stopRollbackSelectionMode()
 				return cmd
 			},
@@ -274,7 +248,7 @@ func TestDetailOverlaySurfacesPreserveAlternateScroll(t *testing.T) {
 			m.windowSizeKnown = true
 			m.termWidth = 80
 			m.termHeight = 24
-			enterDetailCmd := m.toggleTranscriptModeWithNativeReplay(false)
+			enterDetailCmd := m.toggleTranscriptMode()
 			if enterDetailCmd == nil {
 				t.Fatal("expected detail-mode open command")
 			}
@@ -308,90 +282,28 @@ func TestDetailOverlaySurfacesPreserveAlternateScroll(t *testing.T) {
 	}
 }
 
-func TestReturningFromFullscreenSurfaceReplaysNativeOngoingDelta(t *testing.T) {
-	tests := []struct {
-		name    string
-		surface uiSurface
-		restore func(*uiModel) tea.Cmd
-	}{
-		{name: "status", surface: uiSurfaceStatus, restore: func(m *uiModel) tea.Cmd { return m.restoreTranscriptSurface() }},
-		{name: "process", surface: uiSurfaceProcessList, restore: func(m *uiModel) tea.Cmd { return m.restoreTranscriptSurface() }},
-		{name: "goal", surface: uiSurfaceGoal, restore: func(m *uiModel) tea.Cmd { return m.restoreTranscriptSurface() }},
-		{name: "worktree", surface: uiSurfaceWorktree, restore: func(m *uiModel) tea.Cmd { return m.restoreTranscriptSurface() }},
-		{
-			name:    "rollback",
-			surface: uiSurfaceRollbackSelection,
-			restore: func(m *uiModel) tea.Cmd {
-				m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-				m.activeSurface = uiSurfaceRollbackSelection
-				m.rollback.restoreTranscriptMode = tui.ModeOngoing
-				return m.popRollbackOverlayWithNativeReplay(true)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newProjectedStaticUIModel()
-			m.windowSizeKnown = true
-			m.termWidth = 80
-			initial := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}}}
-			updated := tui.TranscriptProjection{Blocks: []tui.TranscriptProjectionBlock{{Role: "assistant", Lines: []string{"before"}}, {Role: "assistant", Lines: []string{"after"}}}}
-			setNativeCurrentProjectionForTest(m, updated, 0, len(updated.Blocks))
-			setNativeRenderedProjectionForTest(m, initial, 0)
-			m.activeSurface = tt.surface
-			m.altScreenActive = true
-
-			cmd := tt.restore(m)
-			if cmd == nil {
-				t.Fatal("expected restore command")
-			}
-			assertNativeFlushText(t, collectCmdMessages(t, cmd), "after")
-			if m.surface() != uiSurfaceOngoingTranscript {
-				t.Fatalf("surface=%q want ongoing", m.surface())
-			}
-		})
-	}
-}
-
-func assertNativeFlushText(t *testing.T, msgs []tea.Msg, want string) {
-	t.Helper()
-	var flush nativeHistoryFlushMsg
-	foundFlush := false
-	for _, msg := range msgs {
-		if typed, ok := msg.(nativeHistoryFlushMsg); ok {
-			flush = typed
-			foundFlush = true
-		}
-	}
-	if !foundFlush {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", msgs)
-	}
-	if got := stripANSIText(flush.Text); got != want {
-		t.Fatalf("expected native replay %q, got %q", want, got)
-	}
-}
-
 func TestReturningFromDetailSyncsCommittedSuffixTailIntoOngoingView(t *testing.T) {
 	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
 
-	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	_ = m.toggleTranscriptMode()
 	if m.view.Mode() != tui.ModeDetail {
 		t.Fatalf("mode=%q want detail", m.view.Mode())
 	}
 
-	_ = m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
-		Revision:            2,
-		CommittedEntryCount: 2,
-		StartEntryCount:     1,
-		NextEntryCount:      2,
-		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "answer"}},
-	})
+	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		TranscriptRevision:         2,
+		CommittedEntryCount:        2,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "answer"}},
+	}).cmd
 
-	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	_ = m.toggleTranscriptMode()
 	if m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("mode=%q want ongoing", m.view.Mode())
 	}
@@ -406,7 +318,7 @@ func TestReturningFromDetailPreservesLiveTransientTailInOngoingView(t *testing.T
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
 
-	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	_ = m.toggleTranscriptMode()
 	if m.view.Mode() != tui.ModeDetail {
 		t.Fatalf("mode=%q want detail", m.view.Mode())
 	}
@@ -418,7 +330,7 @@ func TestReturningFromDetailPreservesLiveTransientTailInOngoingView(t *testing.T
 	})
 	m.transcriptTotalEntries = 2
 
-	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	_ = m.toggleTranscriptMode()
 	if m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("mode=%q want ongoing", m.view.Mode())
 	}
@@ -433,7 +345,7 @@ func TestReturningFromDetailPreservesTransientTailAndNextLiveAppendInOngoingView
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
 
-	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	_ = m.toggleTranscriptMode()
 	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{
 		Role:      tui.TranscriptRoleToolCall,
 		Text:      "echo live",
@@ -441,7 +353,7 @@ func TestReturningFromDetailPreservesTransientTailAndNextLiveAppendInOngoingView
 	})
 	m.transcriptTotalEntries = 2
 
-	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	_ = m.toggleTranscriptMode()
 	if got := stripANSIAndTrimRight(m.view.OngoingSnapshot()); !strings.Contains(got, "echo live") {
 		t.Fatalf("expected transient tail after detail restore, got %q", got)
 	}

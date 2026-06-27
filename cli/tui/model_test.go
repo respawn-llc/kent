@@ -944,6 +944,39 @@ func TestPendingOngoingAskQuestionsUseQuestionGroupAndEllipsizeQuestionText(t *t
 	}
 }
 
+func TestLiveOngoingLinesUseProvidedPendingToolSpinnerFrame(t *testing.T) {
+	m := NewModel(WithPreviewLines(20))
+	m = updateModel(t, m, SetViewportSizeMsg{Lines: 20, Width: 80})
+	m = updateModel(t, m, AppendTranscriptMsg{
+		Role: "user",
+		Text: "run pwd",
+	})
+	m = updateModel(t, m, AppendTranscriptMsg{
+		Role:       "tool_call",
+		Text:       "pwd",
+		ToolCallID: "call_shell",
+		ToolCall: &transcript.ToolCallMeta{
+			ToolName: "exec_command",
+			IsShell:  true,
+			Command:  "pwd",
+		},
+	})
+
+	lines := m.LiveOngoingLinesWithPendingSpinnerFrame("*")
+	renderedLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		renderedLines = append(renderedLines, line.Text)
+	}
+	plain := plainTranscript(strings.Join(renderedLines, "\n"))
+
+	if !strings.Contains(plain, "* pwd") {
+		t.Fatalf("expected pending shell tool to render provided spinner frame, got %q", plain)
+	}
+	if strings.Contains(plain, "$ pwd") {
+		t.Fatalf("expected pending shell tool not to render static shell symbol, got %q", plain)
+	}
+}
+
 func TestOngoingMultilineToolBlocksRenderTreeGuides(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
 	m = updateModel(t, m, AppendTranscriptMsg{

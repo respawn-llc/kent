@@ -26,7 +26,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEventsBatch(events []clientui.Eve
 	transcriptMutated := false
 	awaitsHydration := false
 	for _, evt := range events {
-		result := a.applyProjectedRuntimeEvent(evt, false)
+		result := a.applyProjectedRuntimeEvent(evt)
 		cmds = append(cmds, result.cmd)
 		transcriptMutated = transcriptMutated || result.transcriptMutated
 		awaitsHydration = awaitsHydration || result.awaitsHydration
@@ -35,12 +35,10 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEventsBatch(events []clientui.Eve
 	if !transcriptMutated {
 		return runtimeEventApplyResult{cmd: batchedCmd, awaitsHydration: awaitsHydration}
 	}
-	nativeCmd := a.model.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery()
-	deferredCmd := a.model.drainDeferredCommittedDeliveryIfUnblocked()
-	return runtimeEventApplyResult{cmd: sequenceCmds(nativeCmd, deferredCmd, batchedCmd), transcriptMutated: true, awaitsHydration: awaitsHydration}
+	return runtimeEventApplyResult{cmd: batchedCmd, transcriptMutated: true, awaitsHydration: awaitsHydration}
 }
 
-func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNativeHistory bool) runtimeEventApplyResult {
+func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event) runtimeEventApplyResult {
 	m := a.model
 	projectedState := newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m))
 	skipDeferredTailMerge := projectedEventIsLiveOnlyUnresolvedToolStart(projectedState, evt)
@@ -76,43 +74,30 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		m.applyBackgroundProcessEventToCache(evt.Background)
 	}
 	cmds := make([]tea.Cmd, 0, 5)
-	cmds = append(cmds, a.applyRuntimeEventReduction(reduction))
-	if m.clearAwaitingNativeStreamingCommitOnIdle(evt) {
-		cmds = append(cmds, m.drainDeferredCommittedDeliveryIfUnblocked())
-	}
-	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
-	if evt.Kind == clientui.EventToolCallStarted {
-		if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
-			streamState := m.nativeScrollbackLedger.AssistantStreamState()
-			if streamState.StepID != "" && stepID != streamState.StepID {
-				cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
-			}
+	if evt.Kind == clientui.EventStreamingErrorUpdated {
+		if err := m.finishNativeAssistantStreaming(); err != nil {
+			cmds = append(cmds, m.nativeSurfaceErrorCmd("finish assistant stream", err))
 		}
 	}
+	cmds = append(cmds, a.applyRuntimeEventReduction(reduction))
+	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
 	transcriptMutated := false
 	awaitsHydration := false
 	if len(evt.TranscriptEntries) > 0 {
-		if shouldDeliverCommittedRuntimeEventFromSuffix(m, evt) {
-			m.observeNativeStreamingAssistantCommitCandidate(evt)
-			if localSuffix, ok := committedTranscriptSuffixFromEvent(m, evt); ok {
-				cmds = append(cmds, m.applyCommittedTranscriptSuffixFromEvent(localSuffix))
-			} else {
-				cmds = append(cmds, m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}))
+		cmd, mutated, needsHydration := a.applyProjectedTranscriptEntries(evt)
+		cmds = append(cmds, cmd)
+		transcriptMutated = transcriptMutated || mutated
+		awaitsHydration = awaitsHydration || needsHydration
+		streamFinalizer := mutated && isAssistantStreamFinalizerEvent(projectedState, evt)
+		if (shouldClearAssistantStreamForCommittedAssistantEvent(evt, m.view.OngoingStreamingText()) && (mutated || skippedAssistantCommitMatchesActiveLiveStream(m, evt))) || streamFinalizer {
+			if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
+				m.lastCommittedAssistantStepID = stepID
 			}
-		} else {
-			m.observeNativeStreamingAssistantCommitCandidate(evt)
-			cmd, mutated, needsHydration := a.applyProjectedTranscriptEntries(evt, flushNativeHistory)
-			cmds = append(cmds, cmd)
-			transcriptMutated = transcriptMutated || mutated
-			awaitsHydration = awaitsHydration || needsHydration
-			streamFinalizer := mutated && isAssistantStreamFinalizerEvent(projectedState, evt)
-			if (shouldClearAssistantStreamForCommittedAssistantEvent(evt, m.view.OngoingStreamingText()) && (mutated || skippedAssistantCommitMatchesActiveLiveStream(m, evt))) || streamFinalizer {
-				if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
-					m.lastCommittedAssistantStepID = stepID
-				}
-				m.sawAssistantDelta = false
-				m.forwardToView(tui.ClearOngoingAssistantMsg{})
+			if err := m.finishNativeAssistantStreaming(); err != nil {
+				cmds = append(cmds, m.nativeSurfaceErrorCmd("finish assistant stream", err))
 			}
+			m.sawAssistantDelta = false
+			m.forwardToView(tui.ClearOngoingAssistantMsg{})
 		}
 	}
 	for _, streamCommand := range reduction.Transcript.AssistantStream {
@@ -125,21 +110,17 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 			if isNoopFinalText(delta) {
 				continue
 			}
-			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
-				streamState := m.nativeScrollbackLedger.AssistantStreamState()
-				if streamState.StepID != "" && stepID != streamState.StepID {
-					cmds = append(cmds, m.flushSupersededAssistantStreamTurn())
-				}
-				m.nativeScrollbackLedger.SetAssistantStreamStepID(stepID)
-			}
 			m.sawAssistantDelta = true
+			if handled, err := m.streamNativeAssistantDelta(delta, streamCommand.Phase); handled && err != nil {
+				cmds = append(cmds, m.nativeSurfaceErrorCmd("stream assistant content", err))
+			}
 			m.forwardToView(tui.StreamAssistantMsg{Delta: delta})
 		case runtimestate.RuntimeAssistantStreamClear:
 			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
 				m.lastCommittedAssistantStepID = stepID
 			}
-			if strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) != "" {
-				m.nativeStreamingAwaitingCommit = true
+			if err := m.finishNativeAssistantStreaming(); err != nil {
+				cmds = append(cmds, m.nativeSurfaceErrorCmd("finish assistant stream", err))
 			}
 			m.sawAssistantDelta = false
 			m.forwardToView(tui.ClearOngoingAssistantMsg{})
@@ -189,6 +170,65 @@ func runtimeTranscriptSyncReasonLabel(sync runtimestate.RuntimeTranscriptSyncCom
 		return ""
 	}
 	return string(sync.Reason)
+}
+
+func (m *uiModel) streamNativeAssistantDelta(delta string, phase clientui.MessagePhase) (bool, error) {
+	if m == nil || !m.nativeSurfaceConfigured() {
+		return false, nil
+	}
+	if m.nativeResizeRehydratePending() {
+		m.nativeAssistantStreamIncomplete = true
+		return false, nil
+	}
+	switch phase {
+	case clientui.MessagePhaseCommentary:
+		if m.nativeAssistantStreamIncomplete {
+			return false, nil
+		}
+		if m.nativeSurface.StableBuffer() == nil {
+			m.nativeAssistantStreamIncomplete = true
+			return false, nil
+		}
+		return true, m.nativeSurface.StreamAssistantCommentaryContent(delta)
+	case clientui.MessagePhaseFinal:
+		if m.nativeAssistantStreamIncomplete {
+			return false, nil
+		}
+		if m.nativeSurface.StableBuffer() == nil {
+			m.nativeAssistantStreamIncomplete = true
+			return false, nil
+		}
+		return true, m.nativeSurface.StreamAssistantFinalAnswerContent(delta)
+	default:
+		m.nativeAssistantStreamIncomplete = true
+		return false, nil
+	}
+}
+
+func (m *uiModel) finishNativeAssistantStreaming() error {
+	if m == nil || m.nativeSurface == nil {
+		return nil
+	}
+	defer func() {
+		m.nativeAssistantStreamIncomplete = false
+	}()
+	if m.nativeSurface.StableBuffer() == nil {
+		return nil
+	}
+	return m.nativeSurface.FinishAssistantStreaming()
+}
+
+func (m *uiModel) nativeSurfaceErrorCmd(action string, err error) tea.Cmd {
+	if m == nil || err == nil {
+		return nil
+	}
+	m.nativeLiveAreaError = err
+	action = strings.TrimSpace(action)
+	if action == "" {
+		action = "native terminal write"
+	}
+	m.logf("native.surface action=%q err=%q", action, err.Error())
+	return m.sendTransientStatusWithNoticeID(action+" failed: "+err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 }
 
 func (a uiRuntimeAdapter) syncConversationFromRuntimeTranscriptCommand(sync runtimestate.RuntimeTranscriptSyncCommand) runtimeTranscriptSyncDecision {

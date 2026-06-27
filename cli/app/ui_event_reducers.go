@@ -253,22 +253,3 @@ func (r uiClipboardFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	}
 	return uiFeatureUpdateResult{}
 }
-
-type uiNativeFlushFeatureReducer struct {
-	model *uiModel
-}
-
-func (m *uiModel) nativeFlushReducer() uiNativeFlushFeatureReducer {
-	return uiNativeFlushFeatureReducer{model: m}
-}
-
-func (r uiNativeFlushFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
-	m := r.model
-	switch msg := msg.(type) {
-	case nativeHistoryFlushMsg:
-		return handledUIFeatureUpdate(m, m.handleNativeHistoryFlush(msg))
-	case nativeTerminalWriteResultMsg:
-		return handledUIFeatureUpdate(m, sequenceCmds(m.handleNativeTerminalWriteResult(msg.Result), waitNativeTerminalWriteResult(m.nativeTerminalWriteResults())))
-	}
-	return uiFeatureUpdateResult{}
-}

@@ -5,6 +5,7 @@ import (
 
 	"core/cli/tui"
 	"core/shared/clientui"
+	"core/shared/transcript"
 )
 
 func TestActiveAssistantFinalizerGapPreservesRecentTailWhenDetailPinned(t *testing.T) {
@@ -43,7 +44,7 @@ func TestActiveAssistantFinalizerGapPreservesRecentTailWhenDetailPinned(t *testi
 		CommittedEntryStartSet:     true,
 		CommittedEntryCount:        41,
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "final answer"}},
-	}, false)
+	})
 	if !handled {
 		t.Fatal("finalizer-gap event in detail mode should be handled")
 	}
@@ -52,56 +53,6 @@ func TestActiveAssistantFinalizerGapPreservesRecentTailWhenDetailPinned(t *testi
 	}
 	if m.transcriptBaseOffset != 37 {
 		t.Fatalf("recent-tail base offset = %d, want preserved 37", m.transcriptBaseOffset)
-	}
-}
-
-func TestDeferredCommittedTailDrainPreservesPinnedDetailWindow(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.windowSizeKnown = true
-	m.termWidth = 100
-	m.termHeight = 20
-	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-
-	m.transcriptBaseOffset = 0
-	m.transcriptEntries = []tui.TranscriptEntry{
-		{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true},
-		{Role: tui.TranscriptRoleAssistant, Text: "answer", Committed: true},
-	}
-	m.transcriptTotalEntries = 2
-
-	pinned := []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "older prompt", Committed: true}}
-	m.detailTranscript = uiDetailTranscriptWindow{
-		sessionID:    "session-1",
-		offset:       0,
-		totalEntries: 50,
-		entries:      pinned,
-		loaded:       true,
-		hasMoreBelow: true,
-		newerCursor:  1234,
-		segments:     []residentSegmentMeta{{startLocal: 0, hasMoreBelow: true, newerCursor: 1234}},
-	}
-
-	cmd, mutated := m.applyDeferredCommittedTailDelivery(clientui.Event{
-		Kind:                       clientui.EventConversationUpdated,
-		CommittedTranscriptChanged: true,
-		CommittedEntryStart:        2,
-		CommittedEntryStartSet:     true,
-		CommittedEntryCount:        3,
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "drained finalizer"}},
-	}, 3)
-	if !mutated {
-		t.Fatal("deferred committed tail drain should mutate the recent-tail model")
-	}
-	_ = cmd
-
-	if got := len(m.detailTranscript.entries); got != len(pinned) {
-		t.Fatalf("pinned detail window entry count = %d, want preserved %d", got, len(pinned))
-	}
-	if m.detailTranscript.entries[0].Text != "older prompt" {
-		t.Fatal("pinned detail window content was mutated by the deferred committed tail drain")
-	}
-	if got := len(m.transcriptEntries); got != 3 {
-		t.Fatalf("recent-tail backing entries = %d, want 3 after drain insert", got)
 	}
 }
 
@@ -142,7 +93,7 @@ func TestActiveAssistantFinalizerGapPreservesPinnedDetailWindow(t *testing.T) {
 			Role: "assistant",
 			Text: "final answer",
 		}},
-	}, false)
+	})
 	if !handled {
 		t.Fatal("finalizer-gap event in detail mode should be handled")
 	}
@@ -407,5 +358,35 @@ func TestReduceProjectedTranscriptEventAllowsLiveOnlyUnresolvedToolStartWhileLiv
 
 	if reduction.decision != projectedTranscriptDecisionApply {
 		t.Fatalf("decision = %+v, want live-only tool start to apply", reduction)
+	}
+}
+
+func TestReduceProjectedTranscriptEventAllowsToolCompletionForVisiblePendingToolWhileLiveAssistantPending(t *testing.T) {
+	state := projectedTranscriptEventState{
+		entries: []tui.TranscriptEntry{{
+			Role:       tui.TranscriptRoleToolCall,
+			Text:       "pwd",
+			ToolCallID: "call-1",
+			ToolCall:   &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
+			Committed:  true,
+		}},
+		liveAssistantPending: true,
+	}
+	reduction := reduceProjectedTranscriptEvent(state, clientui.Event{
+		Kind:                       clientui.EventToolCallCompleted,
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        2,
+		TranscriptRevision:         2,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:       "tool_result_ok",
+			Text:       "/tmp",
+			ToolCallID: "call-1",
+		}},
+	})
+
+	if reduction.decision != projectedTranscriptDecisionApply {
+		t.Fatalf("decision = %+v, want visible pending tool completion to apply", reduction)
 	}
 }

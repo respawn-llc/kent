@@ -104,7 +104,7 @@ func (l uiViewLayout) mainInputRenderSpec() uiEditableInputRenderSpec {
 }
 
 func (l uiViewLayout) inputPaneCursor(width int) uiInputFieldCursor {
-	if l.model.terminalCursor == nil || width < 1 {
+	if !l.shouldUseRealTerminalCursor() || width < 1 {
 		return uiInputFieldCursor{}
 	}
 	inputState := l.model.inputModeState()

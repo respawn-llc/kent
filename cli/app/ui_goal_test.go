@@ -235,10 +235,6 @@ func TestGoalResumeSlashCommandViaRuntimeRouteRendersGoalFeedbackOnce(t *testing
 	}
 
 	goalEvent := waitForGoalFeedbackEvent(t, runtimeEvents)
-	if shouldDeliverCommittedRuntimeEventFromSuffix(updated, goalEvent) {
-		t.Fatal("real /goal resume feedback event must not use async suffix delivery")
-	}
-
 	next, cmd := updated.Update(runtimeEventMsg{event: goalEvent})
 	updated = next.(*uiModel)
 	_ = collectCmdMessages(t, cmd)

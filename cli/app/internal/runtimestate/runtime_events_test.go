@@ -354,12 +354,12 @@ func TestReduceRuntimeEvent_AssistantDeltaStreamsAppendAndReset(t *testing.T) {
 		PendingInputState{},
 		RuntimeReasoningState{},
 		false,
-		clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "hello", StepID: "step-1"},
+		clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "hello", AssistantDeltaPhase: clientui.MessagePhaseFinal, StepID: "step-1"},
 	)
 	if len(appended.Transcript.AssistantStream) != 1 {
 		t.Fatalf("expected assistant append command, got %+v", appended.Transcript.AssistantStream)
 	}
-	if appended.Transcript.AssistantStream[0] != (RuntimeAssistantStreamCommand{Kind: RuntimeAssistantStreamAppend, Delta: "hello", StepID: "step-1"}) {
+	if appended.Transcript.AssistantStream[0] != (RuntimeAssistantStreamCommand{Kind: RuntimeAssistantStreamAppend, Delta: "hello", Phase: clientui.MessagePhaseFinal, StepID: "step-1"}) {
 		t.Fatalf("assistant append command = %+v", appended.Transcript.AssistantStream[0])
 	}
 

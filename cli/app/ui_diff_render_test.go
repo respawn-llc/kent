@@ -30,7 +30,8 @@ func TestCustomPatchToolCallRendersSummaryOngoingAndHighlightedDiffDetail(t *tes
 			Custom:      true,
 			CustomInput: patchText,
 		},
-	}), true).cmd
+	})).
+		cmd
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind:   runtime.EventToolCallCompleted,
 		StepID: "step-1",
@@ -39,7 +40,8 @@ func TestCustomPatchToolCallRendersSummaryOngoingAndHighlightedDiffDetail(t *tes
 			Name:   toolspec.ToolPatch,
 			Output: []byte("{}"),
 		},
-	}), true).cmd
+	})).
+		cmd
 
 	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
 	if !strings.Contains(ongoing, "⇄ ./cli/app/ui_status.go -1 +2") || strings.Contains(ongoing, "Edited:") {

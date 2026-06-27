@@ -55,6 +55,7 @@ type Event struct {
 	CommittedEntryStartSet       bool
 	Error                        string
 	AssistantDelta               string
+	AssistantDeltaPhase          MessagePhase
 	ReasoningDelta               *ReasoningDelta
 	UserMessage                  string
 	UserMessageBatch             []string

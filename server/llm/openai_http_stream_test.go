@@ -41,22 +41,31 @@ func newOpenAIStreamTestTransport(t *testing.T, events ...string) *HTTPTransport
 	return transport
 }
 
+func joinedAssistantDeltas(deltas []AssistantDelta) string {
+	var text strings.Builder
+	for _, delta := range deltas {
+		text.WriteString(delta.Text)
+	}
+	return text.String()
+}
+
 func TestGenerateStream_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","name":"shell","call_id":"call_1","arguments":""}}`,
 		`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"command\":\"pwd\"}"}`,
-		`{"type":"response.output_text.delta","delta":"Hel"}`,
-		`{"type":"response.output_text.delta","delta":"lo"}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"type":"message","role":"assistant","phase":"commentary","content":[]}}`,
+		`{"type":"response.output_text.delta","output_index":1,"delta":"Hel"}`,
+		`{"type":"response.output_text.delta","output_index":1,"delta":"lo"}`,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":1,"summary_index":0,"delta":"Plan"}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":4},"output_tokens":7,"output_tokens_details":{"reasoning_tokens":2},"total_tokens":18},"output":[{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Hello"}]},{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plan"}],"content":[{"type":"reasoning_text","text":"internal trace"}],"encrypted_content":"enc_1"},{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
 	)
 
-	var deltas []string
+	var deltas []AssistantDelta
 	var reasoning []ReasoningSummaryDelta
 	resp, err := transport.GenerateStreamWithEvents(context.Background(), OpenAIRequest{Model: "gpt-5"}, StreamCallbacks{
-		OnAssistantDelta: func(text string) {
-			deltas = append(deltas, text)
+		OnAssistantDelta: func(delta AssistantDelta) {
+			deltas = append(deltas, delta)
 		},
 		OnReasoningSummaryDelta: func(delta ReasoningSummaryDelta) {
 			reasoning = append(reasoning, delta)
@@ -66,8 +75,11 @@ func TestGenerateStream_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 		t.Fatalf("GenerateStream failed: %v", err)
 	}
 
-	if strings.Join(deltas, "") != "Hello" {
+	if joinedAssistantDeltas(deltas) != "Hello" {
 		t.Fatalf("unexpected deltas: %+v", deltas)
+	}
+	if len(deltas) != 2 || deltas[0].Phase != MessagePhaseCommentary || deltas[1].Phase != MessagePhaseCommentary {
+		t.Fatalf("unexpected delta phases: %+v", deltas)
 	}
 	if resp.AssistantText != "Hello" {
 		t.Fatalf("unexpected assistant text: %q", resp.AssistantText)
@@ -98,6 +110,42 @@ func TestGenerateStream_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 	}
 	if len(reasoning) != 1 || reasoning[0].Key == "" || reasoning[0].Role != "reasoning" || reasoning[0].Text != "Plan" {
 		t.Fatalf("unexpected reasoning delta callbacks: %+v", reasoning)
+	}
+}
+
+func TestGenerateStream_EmitsUnknownPhaseWhenDeltaPrecedesAssistantItem(t *testing.T) {
+	transport := newOpenAIStreamTestTransport(t,
+		`{"type":"response.output_text.delta","output_index":0,"delta":"Hel"}`,
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
+		`{"type":"response.output_text.delta","output_index":0,"delta":"lo"}`,
+		`{"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello"}]}]}}`,
+		`[DONE]`,
+	)
+
+	var deltas []AssistantDelta
+	resp, err := transport.GenerateStreamWithEvents(context.Background(), OpenAIRequest{Model: "gpt-5"}, StreamCallbacks{
+		OnAssistantDelta: func(delta AssistantDelta) {
+			deltas = append(deltas, delta)
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateStream failed: %v", err)
+	}
+
+	if joinedAssistantDeltas(deltas) != "Hello" {
+		t.Fatalf("unexpected deltas: %+v", deltas)
+	}
+	if len(deltas) != 2 {
+		t.Fatalf("expected two deltas, got %+v", deltas)
+	}
+	if deltas[0].Phase != "" {
+		t.Fatalf("expected unknown phase before assistant item, got %+v", deltas[0])
+	}
+	if deltas[1].Phase != MessagePhaseFinal {
+		t.Fatalf("expected structured phase after assistant item, got %+v", deltas[1])
+	}
+	if resp.AssistantPhase != MessagePhaseFinal {
+		t.Fatalf("unexpected final assistant phase: %q", resp.AssistantPhase)
 	}
 }
 

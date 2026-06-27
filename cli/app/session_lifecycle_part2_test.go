@@ -143,21 +143,14 @@ func TestForkRollbackNativeStartupReplayUsesForkedHistory(t *testing.T) {
 	eng := newAppRuntimeEngineWithStore(t, forkedStore, statusLineFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
-	next, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected native startup replay command for fork session")
-	}
-	flushMsg, ok := cmd().(nativeHistoryFlushMsg)
-	if !ok {
-		t.Fatalf("expected nativeHistoryFlushMsg, got %T", cmd())
-	}
-	plain := stripANSIAndTrimRight(flushMsg.Text)
+	plain := stripANSIAndTrimRight(updated.view.View())
 	if !strings.Contains(plain, "u1") || !strings.Contains(plain, "a1") {
-		t.Fatalf("expected startup replay to include fork base history, got %q", plain)
+		t.Fatalf("expected fork startup view to include fork base history, got %q", plain)
 	}
 	if strings.Contains(plain, "u2") || strings.Contains(plain, "a2") {
-		t.Fatalf("expected startup replay to exclude trimmed history after fork point, got %q", plain)
+		t.Fatalf("expected fork startup view to exclude trimmed history after fork point, got %q", plain)
 	}
 	if len(updated.transcriptEntries) != 2 {
 		t.Fatalf("expected forked transcript to include only two committed entries, got %d", len(updated.transcriptEntries))

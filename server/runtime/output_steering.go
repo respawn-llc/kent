@@ -54,7 +54,7 @@ type steeringHistoryReplacement struct {
 }
 
 type steeringStreamingOutput struct {
-	assistantDelta *string
+	assistantDelta *llm.AssistantDelta
 	reasoningDelta *llm.ReasoningSummaryDelta
 	clear          bool
 }
@@ -156,7 +156,7 @@ func steerEventIntent(evt Event) steeringIntent {
 	}
 }
 
-func steerAssistantDeltaIntent(delta string) steeringIntent {
+func steerAssistantDeltaIntent(delta llm.AssistantDelta) steeringIntent {
 	copyDelta := delta
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
@@ -294,8 +294,8 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 	if item.streaming != nil {
 		if item.streaming.assistantDelta != nil {
 			delta := *item.streaming.assistantDelta
-			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendStreamingDelta(delta)
-			e.emitRaw(Event{Kind: EventAssistantDelta, StepID: stepID, AssistantDelta: delta})
+			newTranscriptPersistenceCoordinator(e.transcriptRuntimeState()).AppendStreamingDelta(delta.Text)
+			e.emitRaw(Event{Kind: EventAssistantDelta, StepID: stepID, AssistantDelta: delta.Text, AssistantDeltaPhase: delta.Phase})
 			return nil
 		}
 		if item.streaming.reasoningDelta != nil {

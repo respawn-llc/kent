@@ -58,7 +58,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 				}
 				return requestPlan.Request, nil
 			},
-			func(delta string) {
+			func(delta llm.AssistantDelta) {
 				_ = e.steer(stepID, steerAssistantDeltaIntent(delta))
 			},
 			func(delta llm.ReasoningSummaryDelta) {
