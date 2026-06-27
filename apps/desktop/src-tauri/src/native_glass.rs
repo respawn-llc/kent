@@ -327,7 +327,99 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+mod platform {
+    use tauri::window::{Color, Effect, EffectsBuilder};
+    use tauri::{Manager, Runtime, WebviewWindow};
+
+    const ACRYLIC_EFFECT_NAME: &str = "windowEffect.acrylic";
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase", tag = "status")]
+    pub enum NativeGlassStatus {
+        Applied { effect: &'static str },
+    }
+
+    #[derive(Clone, Copy, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct NativeGlassTint {
+        red: f64,
+        green: f64,
+        blue: f64,
+        alpha: f64,
+    }
+
+    pub async fn apply_to_label<R: Runtime>(
+        app: tauri::AppHandle<R>,
+        label: String,
+    ) -> Result<NativeGlassStatus, String> {
+        let window = app
+            .get_webview_window(&label)
+            .ok_or_else(|| format!("Window '{label}' was not found."))?;
+        apply_acrylic(&window, None)
+    }
+
+    pub async fn set_tint_for_label<R: Runtime>(
+        app: tauri::AppHandle<R>,
+        label: String,
+        tint: Option<NativeGlassTint>,
+    ) -> Result<NativeGlassStatus, String> {
+        let window = app
+            .get_webview_window(&label)
+            .ok_or_else(|| format!("Window '{label}' was not found."))?;
+        apply_acrylic(&window, tint)
+    }
+
+    pub fn apply_to_window_now<R: Runtime>(
+        window: &WebviewWindow<R>,
+    ) -> Result<NativeGlassStatus, String> {
+        apply_acrylic(window, None)
+    }
+
+    fn apply_acrylic<R: Runtime>(
+        window: &WebviewWindow<R>,
+        tint: Option<NativeGlassTint>,
+    ) -> Result<NativeGlassStatus, String> {
+        let mut effects = EffectsBuilder::new().effect(Effect::Acrylic);
+        if let Some(tint) = tint {
+            effects = effects.color(native_acrylic_color(tint));
+        }
+        window
+            .set_effects(effects.build())
+            .map_err(|error| format!("Apply Windows acrylic failed: {error}"))?;
+        Ok(NativeGlassStatus::Applied {
+            effect: ACRYLIC_EFFECT_NAME,
+        })
+    }
+
+    fn native_acrylic_color(tint: NativeGlassTint) -> Color {
+        Color(
+            channel_to_u8(tint.red),
+            channel_to_u8(tint.green),
+            channel_to_u8(tint.blue),
+            channel_to_u8(tint.alpha),
+        )
+    }
+
+    fn channel_to_u8(value: f64) -> u8 {
+        (value.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn maps_tint_channels_to_bytes() {
+            assert_eq!(channel_to_u8(-1.0), 0);
+            assert_eq!(channel_to_u8(0.0), 0);
+            assert_eq!(channel_to_u8(1.0), 255);
+            assert_eq!(channel_to_u8(2.0), 255);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 mod platform {
     use tauri::Runtime;
 
@@ -355,7 +447,7 @@ mod platform {
         _label: String,
     ) -> Result<NativeGlassStatus, String> {
         Ok(NativeGlassStatus::Unsupported {
-            reason: "Native Liquid Glass is only available on macOS.",
+            reason: "Native window blur is unavailable on this platform.",
         })
     }
 
@@ -365,11 +457,11 @@ mod platform {
         _tint: Option<NativeGlassTint>,
     ) -> Result<NativeGlassStatus, String> {
         Ok(NativeGlassStatus::Unsupported {
-            reason: "Native Liquid Glass is only available on macOS.",
+            reason: "Native window blur is unavailable on this platform.",
         })
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 pub use platform::apply_to_window_now;
 pub use platform::{apply_to_label, set_tint_for_label, NativeGlassStatus, NativeGlassTint};
