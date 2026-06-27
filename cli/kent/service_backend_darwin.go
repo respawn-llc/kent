@@ -65,23 +65,9 @@ func (launchdServiceBackend) Name() string {
 }
 
 func (launchdServiceBackend) Install(ctx context.Context, spec serviceSpec, force bool, start bool) error {
-	if err := ensureServiceLogDir(spec); err != nil {
-		return err
-	}
-	path, err := launchdPlistPath()
+	path, err := writeLaunchdServicePlist(spec, force)
 	if err != nil {
 		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create LaunchAgents dir: %w", err)
-	}
-	if !force {
-		if existing, err := os.ReadFile(path); err == nil && !bytes.Equal(existing, []byte(renderLaunchdPlist(spec))) {
-			return fmt.Errorf(brand.ServiceDisplayName+" is already installed at %s; use --force to rewrite it", path)
-		}
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		return fmt.Errorf("write launchd plist: %w", err)
 	}
 	if start {
 		if err := reloadLaunchdService(ctx, spec, path); err != nil {
@@ -89,6 +75,28 @@ func (launchdServiceBackend) Install(ctx context.Context, spec serviceSpec, forc
 		}
 	}
 	return nil
+}
+
+func writeLaunchdServicePlist(spec serviceSpec, force bool) (string, error) {
+	if err := ensureServiceLogDir(spec); err != nil {
+		return "", err
+	}
+	path, err := launchdPlistPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("create LaunchAgents dir: %w", err)
+	}
+	if !force {
+		if existing, err := os.ReadFile(path); err == nil && !bytes.Equal(existing, []byte(renderLaunchdPlist(spec))) {
+			return "", fmt.Errorf(brand.ServiceDisplayName+" is already installed at %s; use --force to rewrite it", path)
+		}
+	}
+	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
+		return "", fmt.Errorf("write launchd plist: %w", err)
+	}
+	return path, nil
 }
 
 func (launchdServiceBackend) Uninstall(ctx context.Context, spec serviceSpec, stop bool) error {
@@ -142,8 +150,9 @@ func (launchdServiceBackend) Restart(ctx context.Context, spec serviceSpec) erro
 		}
 		return fmt.Errorf("stat launchd plist: %w", err)
 	}
-	if loaded, _ := launchdLoaded(ctx); !loaded {
-		return reloadLaunchdService(ctx, spec, path)
+	path, err = writeLaunchdServicePlist(spec, true)
+	if err != nil {
+		return err
 	}
 	return reloadLaunchdService(ctx, spec, path)
 }
@@ -179,7 +188,6 @@ func (launchdServiceBackend) Status(ctx context.Context, spec serviceSpec) (serv
 }
 
 func reloadLaunchdService(ctx context.Context, spec serviceSpec, path string) error {
-	verifyStartup := false
 	if loaded, _ := launchdLoaded(ctx); loaded {
 		if _, err := runServiceCommand(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d", os.Getuid())+"/"+serviceLaunchdLabel); err != nil {
 			return err
@@ -189,22 +197,19 @@ func reloadLaunchdService(ctx context.Context, spec serviceSpec, path string) er
 			if stopErr != nil {
 				return errors.Join(err, stopErr)
 			}
-			verifyStartup = stopped
+			if !stopped {
+				return err
+			}
 		}
 	} else {
-		stopped, err := stopHealthyServerBeforeLaunchdBootstrap(ctx, spec)
-		if err != nil {
+		if _, err := stopHealthyServerBeforeLaunchdBootstrap(ctx, spec); err != nil {
 			return err
 		}
-		verifyStartup = stopped
 	}
 	if err := bootstrapLaunchdService(ctx, spec, path); err != nil {
 		return err
 	}
-	if verifyStartup {
-		return waitForLaunchdServiceStartup(ctx, spec)
-	}
-	return nil
+	return waitForLaunchdServiceStartup(ctx, spec)
 }
 
 func stopHealthyServerBeforeLaunchdBootstrap(ctx context.Context, spec serviceSpec) (bool, error) {
@@ -274,12 +279,27 @@ func waitForLaunchdServiceStartup(ctx context.Context, spec serviceSpec) error {
 	for {
 		loaded, output := launchdLoaded(ctx)
 		launchdPID := launchdPID(output)
+		loadedCommand := parseLaunchdPrintProgramArguments(output)
 		healthStatus, healthPID := probeServiceHealth(ctx, spec)
-		healthOwnedByLaunchd := healthStatus == "ok" && (healthPID == 0 || healthPID == launchdPID)
-		if loaded && launchdPID > 0 && healthOwnedByLaunchd {
+		healthOwnedByLaunchd := healthStatus == "ok" && launchdPID > 0 && healthPID == launchdPID
+		commandVerified := commandArgsEqual(loadedCommand, serviceCommand(spec))
+		if loaded && launchdPID > 0 && healthOwnedByLaunchd && commandVerified {
 			return nil
 		}
-		lastDetail = fmt.Sprintf("launchd loaded=%t pid=%d state=%s health=%s health_pid=%d", loaded, launchdPID, launchdState(output), healthStatus, healthPID)
+		commandDetail := commandString(loadedCommand)
+		if len(loadedCommand) == 0 {
+			commandDetail = "<missing>"
+		}
+		lastDetail = fmt.Sprintf(
+			"launchd loaded=%t pid=%d state=%s command=%s expected_command=%s health=%s health_pid=%d",
+			loaded,
+			launchdPID,
+			launchdState(output),
+			commandDetail,
+			commandString(serviceCommand(spec)),
+			healthStatus,
+			healthPID,
+		)
 		if time.Now().After(deadline) {
 			return fmt.Errorf("%w: %s", errLaunchdServerNotHealthy, lastDetail)
 		}
