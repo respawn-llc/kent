@@ -233,7 +233,7 @@ func waitRuntimeConnectionStateChange(ch <-chan runtimeConnectionStateChangedMsg
 	}
 }
 
-func waitRuntimeLeaseRecoveryWarning(ch <-chan runtimeLeaseRecoveryWarningMsg) tea.Cmd {
+func waitRuntimeReconnectWarning(ch <-chan runtimeReconnectWarningMsg) tea.Cmd {
 	if ch == nil {
 		return nil
 	}

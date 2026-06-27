@@ -194,7 +194,7 @@ type runtimeConnectionStateChangedMsg struct {
 	err error
 }
 
-type runtimeLeaseRecoveryWarningMsg struct {
+type runtimeReconnectWarningMsg struct {
 	text       string
 	visibility clientui.EntryVisibility
 }
