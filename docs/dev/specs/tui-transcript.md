@@ -14,7 +14,6 @@
 - Main UI startup stays in the normal buffer because ongoing-mode replay must remain visible in terminal scrollback.
 - **ongoing normal-buffer history is append-only.** 
 - **Once a transcript line is emitted into scrollback, it is immutable: no retroactive restyling, no in-place rewrites, no clear-and-replay, and no full-buffer re-emission to paper over same-session divergence.**
-- Terminal width resize is the only normal-buffer reflow exception: ongoing may clear and re-emit the resident active committed history at the new width, using in-memory active transcript state only.
 - Compaction is same-session committed transcript progression, not a same-session transcript rewrite.
 - User-visible transcript history is never truncated by compaction or handoff. It is durable on disk and served by streaming the persisted event log through a windowed projector (page or recent-tail), never by holding the full transcript in memory; the live conversation storage keeps only the bounded model working set.
 - Latest-compaction boundary/floor is tail/model metadata only; detail paging and rendering ignore it.
