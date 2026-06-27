@@ -105,6 +105,14 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		m.sessionName = strings.TrimSpace(page.SessionName)
 	}
 	m.conversationFreshness = page.ConversationFreshness
+	nativeSurfaceConfigured := m.nativeSurfaceConfigured()
+	nativeStableReady := nativeSurfaceConfigured && m.nativeSurface.StableBuffer() != nil
+	nativeAssistantStreamActive := nativeSurfaceConfigured && m.nativeSurface.AssistantStreaming()
+	nativeAssistantStreamWasIncomplete := m.nativeAssistantStreamIncomplete
+	previousNativeStableProjection := tui.TranscriptProjection{}
+	if nativeSurfaceConfigured {
+		previousNativeStableProjection = m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+	}
 	reduction := reduceRuntimeTranscriptPage(newRuntimeTranscriptPageState(runtimeTranscriptPageSnapshotFromModel(m)), req, page, recoveryCause)
 	pageReq := reduction.request
 	page = reduction.page
@@ -188,7 +196,9 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	nativeFinishErr := error(nil)
 	if strings.TrimSpace(page.Streaming) == "" {
 		m.sawAssistantDelta = false
-		nativeFinishErr = m.finishNativeAssistantStreaming()
+		if !nativeSurfaceConfigured || !reduction.shouldApplyRecentTail {
+			nativeFinishErr = m.finishNativeAssistantStreaming()
+		}
 	}
 	cmds := make([]tea.Cmd, 0, 1)
 	m.logTranscriptPageDiag("transcript.diag.client.apply_page_commit", pageReq, page, map[string]string{
@@ -201,6 +211,12 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 	})
 	if previousWindowTitle != sessionTitle(m.sessionName) {
 		cmds = append(cmds, tea.SetWindowTitle(sessionTitle(m.sessionName)))
+	}
+	if nativeSurfaceConfigured && reduction.shouldApplyRecentTail {
+		currentNativeStableProjection := m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+		if err := m.deliverNativeStableProjectionChange(previousNativeStableProjection, currentNativeStableProjection, nativeStableReady, nativeAssistantStreamActive, nativeAssistantStreamWasIncomplete); err != nil {
+			cmds = append(cmds, m.nativeSurfaceErrorCmd("steer committed transcript", err))
+		}
 	}
 	if nativeFinishErr != nil {
 		cmds = append(cmds, m.nativeSurfaceErrorCmd("finish assistant stream", nativeFinishErr))

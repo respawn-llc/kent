@@ -110,6 +110,50 @@ func TestActiveAssistantFinalizerGapPreservesPinnedDetailWindow(t *testing.T) {
 	}
 }
 
+func TestActiveAssistantFinalizerGapRequestsRecentTailWhenDetailPinned(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
+	m.forwardToView(tui.SetConversationMsg{Ongoing: "final answer"})
+	m.detailTranscript = uiDetailTranscriptWindow{
+		sessionID:    "session-1",
+		offset:       0,
+		totalEntries: 50,
+		entries:      []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "older prompt", Committed: true}},
+		loaded:       true,
+		hasMoreBelow: true,
+		newerCursor:  1234,
+		olderCursor:  10,
+		hasMoreAbove: true,
+		segments:     []residentSegmentMeta{{startLocal: 0, hasMoreBelow: true, newerCursor: 1234}},
+	}
+
+	a := uiRuntimeAdapter{model: m}
+	cmd, handled := a.applyActiveAssistantFinalizerGapAsRecentTail(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		CommittedEntryStart:        40,
+		CommittedEntryStartSet:     true,
+		CommittedEntryCount:        41,
+		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "final answer"}},
+	})
+	if !handled {
+		t.Fatal("finalizer-gap event in pinned detail mode should be handled")
+	}
+	if cmd == nil {
+		t.Fatal("expected pinned detail finalizer gap to request recent-tail sync")
+	}
+	if got := m.runtimeTranscriptActiveRequest.page; got != (clientui.TranscriptPageRequest{}) {
+		t.Fatalf("finalizer-gap sync request = %+v, want recent tail request", got)
+	}
+	if got := m.runtimeTranscriptActiveRequest.syncCause; got != runtimeTranscriptSyncCauseCommittedGap {
+		t.Fatalf("finalizer-gap sync cause = %q, want %q", got, runtimeTranscriptSyncCauseCommittedGap)
+	}
+}
+
 func TestReduceProjectedTranscriptEventSkipsDuplicateToolStart(t *testing.T) {
 	state := projectedTranscriptEventState{
 		entries: []tui.TranscriptEntry{{

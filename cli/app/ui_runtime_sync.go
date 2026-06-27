@@ -100,6 +100,13 @@ func (m *uiModel) requestRuntimeCommittedGapSync() tea.Cmd {
 	return m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(m.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseCommittedGap, clientui.TranscriptRecoveryCauseNone)).cmd
 }
 
+func (m *uiModel) requestRuntimeCommittedGapRecentTailSync() tea.Cmd {
+	if !m.hasRuntimeClient() {
+		return nil
+	}
+	return m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(clientui.TranscriptPageRequest{}, false, runtimeTranscriptSyncCauseCommittedGap, clientui.TranscriptRecoveryCauseNone)).cmd
+}
+
 func (m *uiModel) requestRuntimeQueuedDrainTranscriptSync() tea.Cmd {
 	if !m.hasRuntimeClient() {
 		return nil

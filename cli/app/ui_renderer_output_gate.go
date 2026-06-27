@@ -2,6 +2,7 @@ package app
 
 import (
 	"io"
+	"strings"
 	"sync"
 
 	xansi "github.com/charmbracelet/x/ansi"
@@ -41,6 +42,9 @@ func (s *uiRendererOutputGateState) shouldDrop(payload []byte) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if rendererOutputGatePayloadEntersAltScreen(payload) {
+		return false
+	}
 	return s.suppressRendererWrites &&
 		!s.physicalAltScreenActive &&
 		!rendererOutputGateAllowsSuppressedControlWrite(payload)
@@ -52,11 +56,10 @@ func (s *uiRendererOutputGateState) observeWrittenPayload(payload []byte) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if string(payload) == xansi.SetModeAltScreenSaveCursor {
+	switch rendererOutputGateAltScreenStateAfterPayload(payload, s.physicalAltScreenActive) {
+	case rendererOutputGateAltScreenActive:
 		s.physicalAltScreenActive = true
-		return
-	}
-	if string(payload) == xansi.ResetModeAltScreenSaveCursor {
+	case rendererOutputGateAltScreenInactive:
 		s.physicalAltScreenActive = false
 	}
 }
@@ -101,11 +104,41 @@ func (w uiRendererOutputGateFileWriter) Read(payload []byte) (int, error) {
 }
 
 func (w uiRendererOutputGateFileWriter) Close() error {
-	return nil
+	return w.file.Close()
 }
 
 func (w uiRendererOutputGateFileWriter) Fd() uintptr {
 	return w.file.Fd()
+}
+
+type rendererOutputGateAltScreenState uint8
+
+const (
+	rendererOutputGateAltScreenUnchanged rendererOutputGateAltScreenState = iota
+	rendererOutputGateAltScreenActive
+	rendererOutputGateAltScreenInactive
+)
+
+func rendererOutputGatePayloadEntersAltScreen(payload []byte) bool {
+	return strings.Contains(string(payload), xansi.SetModeAltScreenSaveCursor)
+}
+
+func rendererOutputGateAltScreenStateAfterPayload(payload []byte, current bool) rendererOutputGateAltScreenState {
+	text := string(payload)
+	enterIndex := strings.LastIndex(text, xansi.SetModeAltScreenSaveCursor)
+	exitIndex := strings.LastIndex(text, xansi.ResetModeAltScreenSaveCursor)
+	switch {
+	case enterIndex < 0 && exitIndex < 0:
+		return rendererOutputGateAltScreenUnchanged
+	case enterIndex > exitIndex:
+		return rendererOutputGateAltScreenActive
+	case exitIndex > enterIndex:
+		return rendererOutputGateAltScreenInactive
+	case current:
+		return rendererOutputGateAltScreenActive
+	default:
+		return rendererOutputGateAltScreenInactive
+	}
 }
 
 func rendererOutputGateAllowsSuppressedControlWrite(payload []byte) bool {

@@ -85,10 +85,11 @@ func WithUIRendererOutputGateState(state *uiRendererOutputGateState) UIOption {
 func WithUINativeSurfaceWriter(writer io.Writer) UIOption {
 	return func(m *uiModel) {
 		m.closeNativeSurface()
+		out := writer
 		if writer != nil {
-			writer = uiMainThreadTerminalWriter{model: m, out: writer, kind: "native surface"}
+			out = uiMainThreadTerminalWriter{model: m, out: writer, kind: "native surface"}
 		}
-		m.nativeSurface = newUINativeSurface(writer, m.nativeNormalBufferAvailable, m.handleNativeDelayedWriteError)
+		m.nativeSurface = newUINativeSurface(out, m.nativeNormalBufferAvailable, m.handleNativeDelayedWriteError)
 		m.syncRendererOutputGate()
 	}
 }

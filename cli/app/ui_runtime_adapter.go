@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -218,11 +219,44 @@ func (m *uiModel) finishNativeAssistantStreaming() error {
 	return m.nativeSurface.FinishAssistantStreaming()
 }
 
+func (m *uiModel) deliverNativeStableProjectionChange(previous tui.TranscriptProjection, current tui.TranscriptProjection, nativeStableReady bool, nativeAssistantStreamActive bool, nativeAssistantStreamWasIncomplete bool) error {
+	if m == nil {
+		return nil
+	}
+	nativeStableNeedsDelivery := nativeStableProjectionNeedsDelivery(previous, current)
+	if !nativeStableNeedsDelivery {
+		if nativeAssistantStreamActive {
+			return m.finishNativeAssistantStreaming()
+		}
+		return nil
+	}
+	if !nativeStableReady {
+		m.nativeAssistantStreamIncomplete = strings.TrimSpace(m.view.OngoingStreamingText()) != ""
+		return nil
+	}
+	if !nativeAssistantStreamActive {
+		return m.steerNativeStableAppend(previous, current)
+	}
+	if err := m.finishNativeAssistantStreaming(); err != nil {
+		return err
+	}
+	if nativeAssistantStreamWasIncomplete {
+		return m.steerNativeStableAppend(previous, current)
+	}
+	if _, ok := current.RenderAppendDeltaFrom(previous, tui.TranscriptDivider); !ok {
+		return errors.New("native stable append is not contiguous with current transcript projection")
+	}
+	return m.steerNativeStableAppendFromBlock(current, len(previous.Blocks)+1)
+}
+
 func (m *uiModel) nativeSurfaceErrorCmd(action string, err error) tea.Cmd {
 	if m == nil || err == nil {
 		return nil
 	}
 	m.nativeLiveAreaError = err
+	if m.nativeSurface != nil {
+		m.closeNativeSurface()
+	}
 	action = strings.TrimSpace(action)
 	if action == "" {
 		action = "native terminal write"

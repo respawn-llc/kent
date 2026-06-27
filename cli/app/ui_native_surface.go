@@ -208,6 +208,9 @@ func (m *uiModel) handleNativeDelayedWriteError(err error) {
 		return
 	}
 	m.nativeLiveAreaError = err
+	if m.nativeSurface != nil {
+		m.closeNativeSurface()
+	}
 	m.logf("native.surface delayed_write err=%q", err.Error())
 }
 
@@ -264,6 +267,16 @@ func (m *uiModel) steerNativeStableAppend(previous tui.TranscriptProjection, cur
 		return errors.New("native stable append is not contiguous with current transcript projection")
 	}
 	return m.steerNativeProjectionLines(current.LinesFromBlock(len(previous.Blocks), tui.TranscriptDivider))
+}
+
+func (m *uiModel) steerNativeStableAppendFromBlock(current tui.TranscriptProjection, startBlock int) error {
+	if m == nil || m.nativeSurface == nil || m.nativeSurface.StableBuffer() == nil {
+		return nil
+	}
+	if current.Empty() || startBlock >= len(current.Blocks) {
+		return nil
+	}
+	return m.steerNativeProjectionLines(current.LinesFromBlock(startBlock, tui.TranscriptDivider))
 }
 
 func nativeStableProjectionNeedsDelivery(previous tui.TranscriptProjection, current tui.TranscriptProjection) bool {

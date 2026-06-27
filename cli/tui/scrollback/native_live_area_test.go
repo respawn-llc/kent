@@ -205,7 +205,7 @@ func TestStableSteerErasesAndRestoresLiveAreaInOneFrame(t *testing.T) {
 	}
 }
 
-func TestStableStreamingErasesAndRestoresLiveAreaInOneFrame(t *testing.T) {
+func TestStableStreamingErasesLiveAreaUntilFinish(t *testing.T) {
 	var out bytes.Buffer
 	buffer := NewOngoingScrollbackBufferImpl(context.Background(), 80, 24, &out, nil)
 	defer buffer.Close()
@@ -218,9 +218,80 @@ func TestStableStreamingErasesAndRestoresLiveAreaInOneFrame(t *testing.T) {
 		t.Fatalf("stream returned error: %v", err)
 	}
 
-	want := "live" + xansi.HideCursor + liveAreaEraseSequence(1) + "he" + "live" + xansi.HideCursor
+	want := "live" + xansi.HideCursor + liveAreaEraseSequence(1) + "he"
 	if got := out.String(); got != want {
 		t.Fatalf("terminal output = %q, want %q", got, want)
+	}
+}
+
+func TestNativeLiveAreaRenderDuringAssistantStreamingUsesStreamAnchor(t *testing.T) {
+	var out bytes.Buffer
+	buffer := NewOngoingScrollbackBufferImpl(context.Background(), 80, 24, &out, nil)
+	defer buffer.Close()
+	liveArea := NewNativeLiveAreaImpl(buffer, 80, 24)
+	if err := liveArea.Render(nativeLiveAreaFrame("old live")); err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+	if err := buffer.StreamMarkdownAssistantContent("stream"); err != nil {
+		t.Fatalf("stream returned error: %v", err)
+	}
+	if err := liveArea.Render(nativeLiveAreaFrame("latest live")); err != nil {
+		t.Fatalf("render during stream returned error: %v", err)
+	}
+	wantAfterRender := "old live" + xansi.HideCursor + liveAreaEraseSequence(1) + "stream" +
+		terminalSaveCursor + terminalLineBreak + "latest live" + xansi.HideCursor + terminalRestoreCursor
+	if got := out.String(); got != wantAfterRender {
+		t.Fatalf("live render during stream output = %q, want %q", got, wantAfterRender)
+	}
+	if err := buffer.FinishAssistantStreaming(); err != nil {
+		t.Fatalf("finish returned error: %v", err)
+	}
+
+	streamAnchoredErase := terminalSaveCursor + xansi.CursorDown(1) + "\r" + liveAreaEraseSequence(1) + terminalRestoreCursor
+	want := wantAfterRender + streamAnchoredErase + terminalLineBreak + "latest live" + xansi.HideCursor
+	if got := out.String(); got != want {
+		t.Fatalf("terminal output = %q, want %q", got, want)
+	}
+}
+
+func TestNativeLiveAreaHoldoffFlushDuringAssistantStreamingDefersLiveRestore(t *testing.T) {
+	var out bytes.Buffer
+	available := true
+	buffer := NewOngoingScrollbackBufferImpl(
+		context.Background(),
+		80,
+		24,
+		&out,
+		nil,
+		WithNormalBufferAvailability(func() bool { return available }),
+	)
+	defer buffer.Close()
+	liveArea := NewNativeLiveAreaImpl(buffer, 80, 24)
+	if err := liveArea.Render(nativeLiveAreaFrame("old live")); err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+	available = false
+	if err := buffer.StreamMarkdownAssistantContent("he"); err != nil {
+		t.Fatalf("held stream returned error: %v", err)
+	}
+	if err := liveArea.Render(nativeLiveAreaFrame("latest live")); err != nil {
+		t.Fatalf("held live render returned error: %v", err)
+	}
+
+	available = true
+	if err := buffer.FlushHoldoff(); err != nil {
+		t.Fatalf("flush holdoff returned error: %v", err)
+	}
+	wantAfterFlush := "old live" + xansi.HideCursor + liveAreaEraseSequence(1) + "he"
+	if got := out.String(); got != wantAfterFlush {
+		t.Fatalf("holdoff flush during stream output = %q, want %q", got, wantAfterFlush)
+	}
+	if err := buffer.FinishAssistantStreaming(); err != nil {
+		t.Fatalf("finish returned error: %v", err)
+	}
+	wantAfterFinish := wantAfterFlush + terminalLineBreak + "latest live" + xansi.HideCursor
+	if got := out.String(); got != wantAfterFinish {
+		t.Fatalf("finish output = %q, want %q", got, wantAfterFinish)
 	}
 }
 
@@ -253,8 +324,8 @@ func TestQueuedSteeringFlushErasesOnceAndRestoresOnce(t *testing.T) {
 	}
 
 	want := "live" +
-		xansi.HideCursor + liveAreaEraseSequence(1) + "stream" + "live" + xansi.HideCursor +
-		liveAreaEraseSequence(1) + "first" + terminalLineBreak + "second" + terminalLineBreak + "live" + xansi.HideCursor
+		xansi.HideCursor + liveAreaEraseSequence(1) + "stream" + terminalLineBreak +
+		"first" + terminalLineBreak + "second" + terminalLineBreak + "live" + xansi.HideCursor
 	if got := out.String(); got != want {
 		t.Fatalf("terminal output = %q, want %q", got, want)
 	}

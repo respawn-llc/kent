@@ -860,6 +860,33 @@ func TestNativeSurfaceStreamWriteErrorDoesNotMarkAssistantStreamActive(t *testin
 	}
 }
 
+func TestNativeStableWriteErrorDisablesNativeSurface(t *testing.T) {
+	writeErr := errors.New("terminal closed")
+	writer := &nativeSurfaceScriptedWriter{errors: []error{nil, nil, writeErr}}
+	m := newSizedProjectedClosedUIModel(nil, 120, 30, WithUINativeSurfaceWriter(writer))
+
+	if rendered := m.View(); rendered != "" {
+		t.Fatalf("native ongoing View() returned %q, want empty renderer payload", rendered)
+	}
+	result := applyNativeSurfaceRuntimeEventForTest(t, m, clientui.Event{
+		Kind:                clientui.EventAssistantDelta,
+		StepID:              "step-final",
+		AssistantDelta:      "partial",
+		AssistantDeltaPhase: clientui.MessagePhaseFinal,
+	})
+	_ = collectCmdMessages(t, result.cmd)
+
+	if m.nativeLiveAreaError == nil {
+		t.Fatal("expected native stable write error to be recorded")
+	}
+	if !errors.Is(m.nativeLiveAreaError, writeErr) {
+		t.Fatalf("native stable write error = %v, want %v", m.nativeLiveAreaError, writeErr)
+	}
+	if m.nativeSurface != nil {
+		t.Fatal("expected native stable write error to disable native surface")
+	}
+}
+
 func TestNativeLiveRenderErrorSurfacesInStatusLine(t *testing.T) {
 	writeErr := errors.New("terminal closed")
 	m := newSizedProjectedClosedUIModel(nil, 120, 30, WithUINativeSurfaceWriter(nativeSurfaceFailingWriter{err: writeErr}))
@@ -882,6 +909,84 @@ func TestNativeLiveRenderErrorSurfacesInStatusLine(t *testing.T) {
 	plain := xansi.Strip(statusLine)
 	if !strings.Contains(plain, "native terminal write failed") || !strings.Contains(plain, "terminal closed") {
 		t.Fatalf("native live render error was not surfaced in status line, got %q", plain)
+	}
+}
+
+func TestNativeRecentTailHydrateDeliversRecoveredCommittedRows(t *testing.T) {
+	var out bytes.Buffer
+	m := newNativeSurfaceTestModel(&out)
+	seedNativeSurfaceTranscript(m, []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}})
+	if rendered := m.View(); rendered != "" {
+		t.Fatalf("native ongoing View() returned %q, want empty renderer payload", rendered)
+	}
+	out.Reset()
+
+	exitMainThread := m.enterUIMainThread("native recent-tail hydrate test")
+	cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     2,
+		Offset:       0,
+		TotalEntries: 2,
+		NewerCursor:  2,
+		HasMoreBelow: false,
+		HasMoreAbove: false,
+		OlderCursor:  0,
+		Entries: []clientui.ChatEntry{
+			{Role: "user", Text: "prompt"},
+			{Role: "assistant", Text: "recovered answer", Phase: string(clientui.MessagePhaseFinal)},
+		},
+	}, clientui.TranscriptRecoveryCauseStreamGap)
+	exitMainThread()
+	_ = collectCmdMessages(t, cmd)
+
+	plain := stripANSIAndTrimRight(out.String())
+	if !strings.Contains(plain, "recovered answer") {
+		t.Fatalf("native recent-tail hydrate did not deliver recovered row, got %q", plain)
+	}
+	if strings.Contains(plain, "prompt") {
+		t.Fatalf("native recent-tail hydrate replayed already-emitted row, got %q", plain)
+	}
+}
+
+func TestNativeCompleteStreamFinalizerDeliversMergedCommittedRows(t *testing.T) {
+	var out bytes.Buffer
+	m := newNativeSurfaceTestModel(&out)
+	seedNativeSurfaceTranscript(m, []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}})
+	if rendered := m.View(); rendered != "" {
+		t.Fatalf("native ongoing View() returned %q, want empty renderer payload", rendered)
+	}
+	out.Reset()
+
+	streamed := applyNativeSurfaceRuntimeEventForTest(t, m, clientui.Event{
+		Kind:                clientui.EventAssistantDelta,
+		StepID:              "step-final",
+		AssistantDelta:      "done",
+		AssistantDeltaPhase: clientui.MessagePhaseFinal,
+	})
+	_ = collectCmdMessages(t, streamed.cmd)
+	if m.nativeSurface == nil || !m.nativeSurface.AssistantStreaming() {
+		t.Fatal("expected native assistant stream to be active after typed delta")
+	}
+	finalized := applyNativeSurfaceRuntimeEventForTest(t, m, clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		TranscriptRevision:         2,
+		CommittedEntryCount:        3,
+		CommittedEntryStart:        1,
+		CommittedEntryStartSet:     true,
+		TranscriptEntries: []clientui.ChatEntry{
+			{Role: "assistant", Text: "done", Phase: string(clientui.MessagePhaseFinal)},
+			{Role: "user", Text: "next prompt"},
+		},
+	})
+	_ = collectCmdMessages(t, finalized.cmd)
+
+	plain := stripANSIAndTrimRight(out.String())
+	if got := strings.Count(plain, "done"); got != 1 {
+		t.Fatalf("native complete stream finalizer wrote assistant text %d times, want once; output=%q", got, plain)
+	}
+	if !strings.Contains(plain, "next prompt") {
+		t.Fatalf("native complete stream finalizer skipped merged committed row, got %q", plain)
 	}
 }
 
@@ -1006,6 +1111,23 @@ type nativeSurfaceFailingWriter struct {
 
 func (w nativeSurfaceFailingWriter) Write([]byte) (int, error) {
 	return 0, w.err
+}
+
+type nativeSurfaceScriptedWriter struct {
+	errors []error
+	writes []string
+}
+
+func (w *nativeSurfaceScriptedWriter) Write(p []byte) (int, error) {
+	if len(w.errors) > 0 {
+		err := w.errors[0]
+		w.errors = w.errors[1:]
+		if err != nil {
+			return 0, err
+		}
+	}
+	w.writes = append(w.writes, string(p))
+	return len(p), nil
 }
 
 func captureNativeSurfacePanicText(t *testing.T, fn func()) (panicText string) {

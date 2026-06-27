@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 type OngoingScrollbackBufferImpl struct {
@@ -24,6 +25,7 @@ type OngoingScrollbackBufferImpl struct {
 	terminalWidth             int
 	terminalHeight            int
 	isStreaming               bool
+	assistantStreamOpenLine   bool
 	closed                    bool
 	normalBufferAvailable     func() bool
 	delayedWriteErrorListener func(error)
@@ -103,6 +105,7 @@ func (buffer *OngoingScrollbackBufferImpl) Close() {
 		buffer.mu.Lock()
 		buffer.closed = true
 		buffer.isStreaming = false
+		buffer.assistantStreamOpenLine = false
 		buffer.turnEndedDuringActiveFlow.Store(false)
 		buffer.queuedSteers = nil
 		buffer.heldStableOps = nil
@@ -188,11 +191,14 @@ func (buffer *OngoingScrollbackBufferImpl) StreamMarkdownAssistantContent(ansi s
 	if _, err := buffer.flushHeldStableOpsLocked(); err != nil {
 		delayedErr = err
 	}
-	err := buffer.withLiveErasedForStableLocked(func() error {
-		payload := normalizeTerminalLineBreaks(ansi)
-		written, writeErr := io.WriteString(buffer.stableWriter, payload)
-		return buffer.stableWriteResult("streamMarkdownAssistantContent", payload, written, writeErr)
+	err := buffer.withLiveErasedForAssistantStreamLocked(func() error {
+		return buffer.writeAssistantStreamPayloadLocked(ansi)
 	})
+	if err != nil {
+		buffer.isStreaming = false
+		buffer.assistantStreamOpenLine = false
+		buffer.turnEndedDuringActiveFlow.Store(false)
+	}
 	buffer.mu.Unlock()
 	buffer.notifyDelayedWriteError(delayedErr)
 	return err
@@ -308,7 +314,7 @@ func (buffer *OngoingScrollbackBufferImpl) flushHoldoffLocked() (bool, error) {
 		return false, nil
 	}
 	flushed, firstErr := buffer.flushHeldStableOpsLocked()
-	if buffer.liveArea != nil && buffer.liveArea.pendingPhysicalRender {
+	if !buffer.isStreaming && buffer.liveArea != nil && buffer.liveArea.pendingPhysicalRender {
 		if err := buffer.liveArea.erasePhysicalLocked(); firstErr == nil && err != nil {
 			firstErr = err
 		} else if err == nil {
@@ -327,6 +333,11 @@ func (buffer *OngoingScrollbackBufferImpl) flushHeldStableOpsLocked() (bool, err
 	}
 	operations := append([]stableHoldoffOperation(nil), buffer.heldStableOps...)
 	buffer.heldStableOps = nil
+	if buffer.isStreaming {
+		return true, buffer.withLiveErasedForAssistantStreamLocked(func() error {
+			return buffer.writeStableHoldoffOperationsLocked(operations)
+		})
+	}
 	return true, buffer.withLiveErasedForStableLocked(func() error {
 		return buffer.writeStableHoldoffOperationsLocked(operations)
 	})
@@ -342,7 +353,7 @@ func (buffer *OngoingScrollbackBufferImpl) writeStableHoldoffOperationsLocked(op
 		case stableHoldoffAssistantStream:
 			err = buffer.writeAssistantStreamPayloadLocked(operation.payload)
 		case stableHoldoffFinishAssistantStream:
-			err = buffer.writeQueuedSteersLocked(operation.queuedSteers)
+			err = buffer.writeAssistantStreamTerminatorAndQueuedSteersLocked(operation.queuedSteers)
 		default:
 			panicScrollbackInvariant("flushHoldoff", "unknown stable holdoff operation kind", operation.payload, buffer.terminalWidth, buffer.terminalHeight, lipgloss.Width(operation.payload))
 		}
@@ -354,12 +365,29 @@ func (buffer *OngoingScrollbackBufferImpl) writeStableHoldoffOperationsLocked(op
 }
 
 func (buffer *OngoingScrollbackBufferImpl) finishAssistantStreamingLocked(queuedSteers []stableSteerRequest) error {
-	if len(queuedSteers) == 0 {
+	return buffer.withLiveErasedForStableLocked(func() error {
+		return buffer.writeAssistantStreamTerminatorAndQueuedSteersLocked(queuedSteers)
+	})
+}
+
+func (buffer *OngoingScrollbackBufferImpl) writeAssistantStreamTerminatorAndQueuedSteersLocked(queuedSteers []stableSteerRequest) error {
+	firstErr := buffer.writeAssistantStreamTerminatorLocked()
+	if err := buffer.writeQueuedSteersLocked(queuedSteers); firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
+func (buffer *OngoingScrollbackBufferImpl) writeAssistantStreamTerminatorLocked() error {
+	if !buffer.assistantStreamOpenLine {
 		return nil
 	}
-	return buffer.withLiveErasedForStableLocked(func() error {
-		return buffer.writeQueuedSteersLocked(queuedSteers)
-	})
+	written, writeErr := io.WriteString(buffer.stableWriter, terminalLineBreak)
+	err := buffer.stableWriteResult("finishAssistantStreaming", terminalLineBreak, written, writeErr)
+	if err == nil {
+		buffer.assistantStreamOpenLine = false
+	}
+	return err
 }
 
 func (buffer *OngoingScrollbackBufferImpl) writeQueuedSteersLocked(queuedSteers []stableSteerRequest) error {
@@ -381,7 +409,11 @@ func (buffer *OngoingScrollbackBufferImpl) writeSteerPayloadLocked(line string) 
 func (buffer *OngoingScrollbackBufferImpl) writeAssistantStreamPayloadLocked(ansi string) error {
 	payload := normalizeTerminalLineBreaks(ansi)
 	written, writeErr := io.WriteString(buffer.stableWriter, payload)
-	return buffer.stableWriteResult("streamMarkdownAssistantContent", payload, written, writeErr)
+	err := buffer.stableWriteResult("streamMarkdownAssistantContent", payload, written, writeErr)
+	if err == nil {
+		buffer.assistantStreamOpenLine = assistantStreamPayloadLeavesOpenLine(buffer.assistantStreamOpenLine, payload)
+	}
+	return err
 }
 
 func (buffer *OngoingScrollbackBufferImpl) withLiveErasedForStableLocked(writeStable func() error) error {
@@ -398,6 +430,17 @@ func (buffer *OngoingScrollbackBufferImpl) withLiveErasedForStableLocked(writeSt
 		if restoreErr := liveArea.renderPhysicalLocked(); err == nil {
 			err = restoreErr
 		}
+	}
+	return err
+}
+
+func (buffer *OngoingScrollbackBufferImpl) withLiveErasedForAssistantStreamLocked(writeStable func() error) error {
+	err := error(nil)
+	if liveArea := buffer.liveArea; liveArea != nil {
+		err = liveArea.erasePhysicalLocked()
+	}
+	if err == nil && writeStable != nil {
+		err = writeStable()
 	}
 	return err
 }
@@ -476,6 +519,17 @@ func normalizeTerminalLineBreaks(payload string) string {
 		previousWasCarriageReturn = char == '\r'
 	}
 	return out.String()
+}
+
+func assistantStreamPayloadLeavesOpenLine(previous bool, payload string) bool {
+	if payload == "" {
+		return previous
+	}
+	plain := xansi.Strip(payload)
+	if plain == "" {
+		return previous
+	}
+	return !strings.HasSuffix(plain, terminalLineBreak) && !strings.HasSuffix(plain, "\n") && !strings.HasSuffix(plain, "\r")
 }
 
 func panicScrollbackInvariant(operation string, reason string, payload string, terminalWidth int, terminalHeight int, visualWidth int) {

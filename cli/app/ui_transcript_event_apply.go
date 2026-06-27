@@ -2,7 +2,6 @@ package app
 
 import (
 	"strconv"
-	"strings"
 
 	"core/cli/tui"
 	"core/shared/clientui"
@@ -159,28 +158,8 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event) (t
 	}
 	if (plan.mode == projectedTranscriptEntryPlanAppend || plan.mode == projectedTranscriptEntryPlanReplace) && nativeSurfaceConfigured {
 		currentNativeStableProjection := m.nativeCommittedProjectionForEntries(m.transcriptEntries)
-		nativeStableNeedsDelivery := nativeStableProjectionNeedsDelivery(previousNativeStableProjection, currentNativeStableProjection)
-		if !nativeStableNeedsDelivery {
-			if nativeAssistantStreamActive {
-				if err := m.finishNativeAssistantStreaming(); err != nil {
-					return m.nativeSurfaceErrorCmd("finish assistant stream", err), true, false
-				}
-			}
-		} else if !nativeStableReady {
-			m.nativeAssistantStreamIncomplete = strings.TrimSpace(m.view.OngoingStreamingText()) != ""
-		} else if nativeAssistantStreamActive {
-			if err := m.finishNativeAssistantStreaming(); err != nil {
-				return m.nativeSurfaceErrorCmd("finish assistant stream", err), true, false
-			}
-			if nativeAssistantStreamWasIncomplete {
-				if err := m.steerNativeStableAppend(previousNativeStableProjection, currentNativeStableProjection); err != nil {
-					return m.nativeSurfaceErrorCmd("steer committed transcript", err), true, false
-				}
-			}
-		} else {
-			if err := m.steerNativeStableAppend(previousNativeStableProjection, currentNativeStableProjection); err != nil {
-				return m.nativeSurfaceErrorCmd("steer committed transcript", err), true, false
-			}
+		if err := m.deliverNativeStableProjectionChange(previousNativeStableProjection, currentNativeStableProjection, nativeStableReady, nativeAssistantStreamActive, nativeAssistantStreamWasIncomplete); err != nil {
+			return m.nativeSurfaceErrorCmd("steer committed transcript", err), true, false
 		}
 	}
 	m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries)
@@ -220,7 +199,7 @@ func (a uiRuntimeAdapter) applyActiveAssistantFinalizerGapAsRecentTail(evt clien
 	}
 	detailPinnedAwayFromTail := m.detailTranscript.loaded && m.detailTranscript.hasMoreBelow
 	if detailPinnedAwayFromTail {
-		return m.requestRuntimeCommittedGapSync(), true
+		return m.requestRuntimeCommittedGapRecentTailSync(), true
 	}
 	a.applyAuthoritativeRecentTailPage(page, entries, false)
 	if m.detailTranscript.loaded {

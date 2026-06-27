@@ -33,6 +33,7 @@ type NativeLiveAreaImpl struct {
 	renderedLines         int
 	cursorPlaced          bool
 	placedCursor          NativeLiveAreaCursor
+	streamAnchored        bool
 	pendingPhysicalRender bool
 }
 
@@ -73,11 +74,24 @@ func (area *NativeLiveAreaImpl) Render(frame NativeLiveAreaFrame) error {
 	}
 	if len(area.buffer.heldStableOps) > 0 {
 		_, err := area.buffer.flushHoldoffLocked()
-		area.buffer.mu.Unlock()
 		if err != nil {
+			area.buffer.mu.Unlock()
 			area.buffer.notifyDelayedWriteError(err)
+			return nil
 		}
-		return nil
+		if !area.buffer.isStreaming {
+			area.buffer.mu.Unlock()
+			return nil
+		}
+	}
+	if area.buffer.isStreaming {
+		if err := area.erasePhysicalLocked(); err != nil {
+			area.buffer.mu.Unlock()
+			return err
+		}
+		err := area.renderPhysicalDuringAssistantStreamLocked()
+		area.buffer.mu.Unlock()
+		return err
 	}
 	if err := area.erasePhysicalLocked(); err != nil {
 		area.buffer.mu.Unlock()
@@ -93,6 +107,9 @@ func (area *NativeLiveAreaImpl) erasePhysicalLocked() error {
 		return nil
 	}
 	sequence := liveAreaCursorRestoreAnchorSequence(area.cursorPlaced, area.placedCursor, area.renderedLines) + liveAreaEraseSequence(area.renderedLines)
+	if area.streamAnchored {
+		sequence = terminalSaveCursor + xansi.CursorDown(1) + "\r" + liveAreaEraseSequence(area.renderedLines) + terminalRestoreCursor
+	}
 	written, err := io.WriteString(area.buffer.stableWriter, sequence)
 	if err != nil {
 		return fmt.Errorf("erase live area failed: %s: %w", liveAreaWriteDiagnostics(sequence, area.terminalWidth, area.terminalHeight, written), err)
@@ -103,6 +120,7 @@ func (area *NativeLiveAreaImpl) erasePhysicalLocked() error {
 	area.renderedLines = 0
 	area.cursorPlaced = false
 	area.placedCursor = NativeLiveAreaCursor{}
+	area.streamAnchored = false
 	return nil
 }
 
@@ -126,6 +144,27 @@ func (area *NativeLiveAreaImpl) renderPhysicalLocked() error {
 	} else {
 		area.placedCursor = NativeLiveAreaCursor{}
 	}
+	area.streamAnchored = false
+	return nil
+}
+
+func (area *NativeLiveAreaImpl) renderPhysicalDuringAssistantStreamLocked() error {
+	if area == nil || len(area.frame.Lines) == 0 {
+		return nil
+	}
+	payload := terminalSaveCursor + terminalLineBreak + strings.Join(area.frame.Lines, terminalLineBreak) + xansi.HideCursor + terminalRestoreCursor
+	written, err := io.WriteString(area.buffer.stableWriter, payload)
+	if err != nil {
+		return fmt.Errorf("render live area during assistant stream failed: %s: %w", liveAreaWriteDiagnostics(payload, area.terminalWidth, area.terminalHeight, written), err)
+	}
+	if written != len(payload) {
+		return fmt.Errorf("render live area during assistant stream short write: %s: %w", liveAreaWriteDiagnostics(payload, area.terminalWidth, area.terminalHeight, written), io.ErrShortWrite)
+	}
+	area.renderedLines = len(area.frame.Lines)
+	area.pendingPhysicalRender = false
+	area.cursorPlaced = false
+	area.placedCursor = NativeLiveAreaCursor{}
+	area.streamAnchored = true
 	return nil
 }
 
@@ -251,6 +290,9 @@ func liveAreaWriteDiagnostics(payload string, terminalWidth int, terminalHeight 
 		[]byte(payload),
 	)
 }
+
+const terminalSaveCursor = "\x1b7"
+const terminalRestoreCursor = "\x1b8"
 
 func panicLiveAreaInvariant(operation string, reason string, frame NativeLiveAreaFrame, terminalWidth int, terminalHeight int) {
 	panic(fmt.Sprintf(

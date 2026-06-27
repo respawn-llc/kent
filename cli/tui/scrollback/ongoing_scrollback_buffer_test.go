@@ -52,7 +52,24 @@ func TestOngoingScrollbackBufferSteerWaitsForStreamingAndFlushesFIFO(t *testing.
 		t.Fatalf("second steer returned error: %v", err)
 	}
 
-	if got, want := out.String(), "stream first"+terminalLineBreak+" second"+terminalLineBreak; got != want {
+	if got, want := out.String(), "stream"+terminalLineBreak+" first"+terminalLineBreak+" second"+terminalLineBreak; got != want {
+		t.Fatalf("stable output = %q, want %q", got, want)
+	}
+}
+
+func TestOngoingScrollbackBufferFinishTerminatesOpenAssistantLine(t *testing.T) {
+	var out bytes.Buffer
+	buffer := NewOngoingScrollbackBufferImpl(context.Background(), 80, 24, &out, nil)
+	defer buffer.Close()
+
+	if err := buffer.StreamMarkdownAssistantContent("done"); err != nil {
+		t.Fatalf("stream returned error: %v", err)
+	}
+	if err := buffer.FinishAssistantStreaming(); err != nil {
+		t.Fatalf("finish returned error: %v", err)
+	}
+
+	if got, want := out.String(), "done"+terminalLineBreak; got != want {
 		t.Fatalf("stable output = %q, want %q", got, want)
 	}
 }
@@ -147,9 +164,27 @@ func TestOngoingScrollbackBufferWriteFailuresReturnErrors(t *testing.T) {
 	}
 }
 
+func TestOngoingScrollbackBufferFailedFirstStreamDoesNotKeepStreamingState(t *testing.T) {
+	writeErr := errors.New("terminal closed")
+	writer := &scriptedWriter{errors: []error{writeErr, nil}}
+	buffer := NewOngoingScrollbackBufferImpl(context.Background(), 80, 24, writer, nil)
+	defer buffer.Close()
+
+	if err := buffer.StreamMarkdownAssistantContent("chunk"); !errors.Is(err, writeErr) {
+		t.Fatalf("stream error = %v, want %v", err, writeErr)
+	}
+	if err := buffer.Steer("stable"); err != nil {
+		t.Fatalf("steer after failed first stream returned error: %v", err)
+	}
+
+	if got, want := strings.Join(writer.Writes(), "|"), "stable"+terminalLineBreak; got != want {
+		t.Fatalf("successful writes = %q, want %q", got, want)
+	}
+}
+
 func TestOngoingScrollbackBufferQueuedFlushKeepsAttemptingAfterWriteFailure(t *testing.T) {
 	writeErr := errors.New("first queued write failed")
-	writer := &scriptedWriter{errors: []error{nil, writeErr, nil}}
+	writer := &scriptedWriter{errors: []error{nil, nil, writeErr, nil}}
 	buffer := NewOngoingScrollbackBufferImpl(context.Background(), 80, 24, writer, nil)
 	defer buffer.Close()
 
@@ -174,7 +209,7 @@ func TestOngoingScrollbackBufferQueuedFlushKeepsAttemptingAfterWriteFailure(t *t
 		t.Fatalf("finish error = %v, want %v", err, writeErr)
 	}
 
-	if got, want := strings.Join(writer.Writes(), "|"), "stream| second"+terminalLineBreak; got != want {
+	if got, want := strings.Join(writer.Writes(), "|"), "stream|"+terminalLineBreak+"| second"+terminalLineBreak; got != want {
 		t.Fatalf("successful writes = %q, want %q", got, want)
 	}
 }
@@ -241,7 +276,7 @@ func TestOngoingScrollbackBufferHoldoffBuffersAssistantStreamingAndQueuedSteers(
 	if err := buffer.FlushHoldoff(); err != nil {
 		t.Fatalf("flush holdoff returned error: %v", err)
 	}
-	if got, want := out.String(), "hello queued"+terminalLineBreak; got != want {
+	if got, want := out.String(), "hello"+terminalLineBreak+" queued"+terminalLineBreak; got != want {
 		t.Fatalf("held output = %q, want %q", got, want)
 	}
 }

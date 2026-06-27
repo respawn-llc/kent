@@ -64,6 +64,24 @@ func TestRendererOutputGateAllowsAltScreenPayloadsWhileSuppressed(t *testing.T) 
 	}
 }
 
+func TestRendererOutputGateAllowsBatchedAltScreenEnterFrameWhileSuppressed(t *testing.T) {
+	state := newUIRendererOutputGateState()
+	state.SetSuppressRendererWrites(true)
+
+	var out bytes.Buffer
+	writer := newUIRendererOutputGateWriter(&out, state)
+	payload := []byte(xansi.SetModeAltScreenSaveCursor + xansi.EraseEntireScreen + "detail frame")
+	if _, err := writer.Write(payload); err != nil {
+		t.Fatalf("write batched alt-screen enter frame: %v", err)
+	}
+	if got := out.String(); got != string(payload) {
+		t.Fatalf("batched alt-screen output = %q, want %q", got, string(payload))
+	}
+	if !state.PhysicalAltScreenActive() {
+		t.Fatal("batched alt-screen enter did not mark physical alt-screen active")
+	}
+}
+
 func TestRendererOutputGatePreservesTerminalFileDescriptor(t *testing.T) {
 	file := &rendererOutputGateTerminalFile{fd: 42}
 	writer := newUIRendererOutputGateWriter(file, newUIRendererOutputGateState())
@@ -76,9 +94,25 @@ func TestRendererOutputGatePreservesTerminalFileDescriptor(t *testing.T) {
 	}
 }
 
+func TestRendererOutputGateClosesWrappedTerminalFile(t *testing.T) {
+	file := &rendererOutputGateTerminalFile{fd: 42}
+	writer := newUIRendererOutputGateWriter(file, newUIRendererOutputGateState())
+	closer, ok := writer.(interface{ Close() error })
+	if !ok {
+		t.Fatalf("expected renderer output gate to preserve Close for Bubble Tea file cleanup, got %T", writer)
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatalf("close returned error: %v", err)
+	}
+	if !file.closed {
+		t.Fatal("wrapped terminal file was not closed")
+	}
+}
+
 type rendererOutputGateTerminalFile struct {
 	bytes.Buffer
-	fd uintptr
+	fd     uintptr
+	closed bool
 }
 
 func (f *rendererOutputGateTerminalFile) Fd() uintptr {
@@ -86,5 +120,6 @@ func (f *rendererOutputGateTerminalFile) Fd() uintptr {
 }
 
 func (f *rendererOutputGateTerminalFile) Close() error {
+	f.closed = true
 	return nil
 }
