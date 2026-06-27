@@ -14,11 +14,12 @@ import (
 )
 
 type stubExclusiveStepLifecycle struct {
-	mu       sync.Mutex
-	busy     bool
-	runCalls int
-	runFn    func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
-	snapshot *RunSnapshot
+	mu           sync.Mutex
+	busy         bool
+	runCalls     int
+	runFn        func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
+	snapshot     *RunSnapshot
+	activeStepID string
 }
 
 type stubBackgroundNoticeScheduler struct {
@@ -62,16 +63,14 @@ func (s *stubExclusiveStepLifecycle) Snapshot() *RunSnapshot {
 	return cloneRunSnapshot(s.snapshot)
 }
 
-func (s *stubExclusiveStepLifecycle) WithActiveRun(runID string, stepID string, fn func() error) (bool, error) {
+func (s *stubExclusiveStepLifecycle) WithActiveStep(fn func(stepID string) error) (bool, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.snapshot == nil || s.snapshot.RunID != runID || s.snapshot.StepID != stepID {
+	stepID := s.activeStepID
+	s.mu.Unlock()
+	if stepID == "" || fn == nil {
 		return false, nil
 	}
-	if fn == nil {
-		return true, nil
-	}
-	return true, fn()
+	return true, fn(stepID)
 }
 
 func (s *stubExclusiveStepLifecycle) setBusy(busy bool) {

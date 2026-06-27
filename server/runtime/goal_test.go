@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -110,11 +109,13 @@ func TestQueuedAgentShellGoalSetDrainsAfterToolCompletion(t *testing.T) {
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 		WorkflowRun:  &workflowruntime.Config{Contract: workflowruntime.CompletionContract{RunID: workflow.RunID("workflow-run-1")}},
 	})
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: "step-1", snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
 
-	queuedGoal, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent)
-	if err != nil || !queued {
+	if _, queued, err := engine.QueueAgentShellSetGoal("queued goal", session.GoalActorAgent); err != nil || !queued {
 		t.Fatalf("QueueAgentShellSetGoal queued=%t err=%v, want queued", queued, err)
+	}
+	if g := engine.Goal(); g != nil {
+		t.Fatalf("goal applied before drain: %+v", g)
 	}
 	assistant := llm.Message{
 		Role:  llm.RoleAssistant,
@@ -136,13 +137,13 @@ func TestQueuedAgentShellGoalSetDrainsAfterToolCompletion(t *testing.T) {
 	if err := engine.steer("step-1", steerToolCompletionIntent(result)); err != nil {
 		t.Fatalf("append tool completion: %v", err)
 	}
-	if err := engine.drainActiveRunGoalMutations("step-1"); err != nil {
+	if err := engine.drainActiveStepGoalMutations("step-1"); err != nil {
 		t.Fatalf("drain goal mutations: %v", err)
 	}
-	if goal := engine.Goal(); goal == nil || goal.ID != queuedGoal.ID {
-		t.Fatalf("persisted goal id = %+v, want queued id %q", goal, queuedGoal.ID)
-	}
 
+	if g := engine.Goal(); g == nil || g.Objective != "queued goal" || g.Status != session.GoalStatusActive {
+		t.Fatalf("goal after drain = %+v, want active 'queued goal'", g)
+	}
 	messages := engine.transcriptRuntimeState().SnapshotMessages()
 	assistantIdx, toolIdx, goalIdx := -1, -1, -1
 	for idx, msg := range messages {
@@ -161,96 +162,6 @@ func TestQueuedAgentShellGoalSetDrainsAfterToolCompletion(t *testing.T) {
 	}
 	if !(assistantIdx < toolIdx && toolIdx < goalIdx) {
 		t.Fatalf("message order assistant/tool/goal = %d/%d/%d, want tool result before goal mutation", assistantIdx, toolIdx, goalIdx)
-	}
-}
-
-func TestQueuedAgentShellGoalCompleteSkipsReplacedGoal(t *testing.T) {
-	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
-	accepted, err := engine.SetGoal("accepted goal", session.GoalActorUser)
-	if err != nil {
-		t.Fatalf("SetGoal accepted: %v", err)
-	}
-	if _, queued, err := engine.QueueAgentShellCompleteGoal("run-1", "step-1", session.GoalActorAgent); err != nil || !queued {
-		t.Fatalf("QueueAgentShellCompleteGoal queued=%t err=%v, want queued", queued, err)
-	}
-	replacement, err := engine.SetGoal("replacement goal", session.GoalActorUser)
-	if err != nil {
-		t.Fatalf("SetGoal replacement: %v", err)
-	}
-	if err := engine.drainActiveRunGoalMutations("step-1"); err != nil {
-		t.Fatalf("drain goal mutations: %v", err)
-	}
-	if goal := engine.Goal(); goal == nil || goal.ID != replacement.ID || goal.Status != session.GoalStatusActive {
-		t.Fatalf("goal after stale completion = %+v, want active replacement %+v", goal, replacement)
-	}
-	if accepted.ID == replacement.ID {
-		t.Fatalf("test setup reused goal id %q", accepted.ID)
-	}
-}
-
-func TestQueuedAgentShellGoalSetAllowsQuestionsDisabledWhenToolVisible(t *testing.T) {
-	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
-	})
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
-	queuedGoal, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent)
-	if err != nil || !queued {
-		t.Fatalf("QueueAgentShellSetGoal queued=%t err=%v, want queued", queued, err)
-	}
-	engine.SetQuestionsEnabled(false)
-	if err := engine.drainActiveRunGoalMutations("step-1"); err != nil {
-		t.Fatalf("drain goal mutations with questions disabled: %v", err)
-	}
-	if goal := engine.Goal(); goal == nil || goal.ID != queuedGoal.ID {
-		t.Fatalf("goal after deferred mutation = %+v, want queued id %q", goal, queuedGoal.ID)
-	}
-}
-
-func TestQueuedAgentShellGoalSetRequiresAskQuestionToolVisibility(t *testing.T) {
-	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
-	})
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
-	if _, queued, err := engine.QueueAgentShellSetGoal("run-1", "step-1", "queued goal", session.GoalActorAgent); !errors.Is(err, ErrGoalRequiresAskQuestion) || queued {
-		t.Fatalf("QueueAgentShellSetGoal queued=%t err=%v, want ErrGoalRequiresAskQuestion", queued, err)
-	}
-	if goal := engine.Goal(); goal != nil {
-		t.Fatalf("goal after failed visibility preflight = %+v, want nil", goal)
-	}
-}
-
-type failingQueuedGoalTool struct {
-	engine *Engine
-}
-
-func (t failingQueuedGoalTool) Call(_ context.Context, call tools.Call) (tools.Result, error) {
-	if _, queued, err := t.engine.QueueAgentShellSetGoal(call.RunID, call.StepID, "queued goal", session.GoalActorAgent); err != nil || !queued {
-		return tools.Result{}, fmt.Errorf("queue goal queued=%t err=%w", queued, err)
-	}
-	return tools.Result{}, errors.New("tool failed after queuing goal")
-}
-
-func TestQueuedAgentShellGoalMutationDoesNotDrainAfterToolFailure(t *testing.T) {
-	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
-	})
-	engine.registry.ReplaceHandlers(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: failingQueuedGoalTool{engine: engine}})
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{snapshot: &RunSnapshot{RunID: "run-1", StepID: "step-1"}}
-	executor := &defaultToolExecutor{engine: engine}
-	_, err := executor.ExecuteToolCalls(context.Background(), "step-1", []llm.ToolCall{{
-		ID:   "call-shell",
-		Name: string(toolspec.ToolExecCommand),
-	}})
-	if err == nil {
-		t.Fatal("ExecuteToolCalls error = nil, want tool failure")
-	}
-	if goal := engine.Goal(); goal != nil {
-		t.Fatalf("goal after failed tool = %+v, want nil", goal)
 	}
 }
 
