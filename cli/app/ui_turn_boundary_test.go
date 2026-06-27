@@ -42,8 +42,8 @@ func TestNewAssistantTurnFlushesSupersededStuckCommentary(t *testing.T) {
 	}})
 	_ = collectCmdMessages(t, c2)
 
-	if got := len(m.deferredCommittedTail); got == 0 {
-		t.Fatal("precondition: commentary commit with a stale step id should be deferred")
+	if got := len(m.deferredCommittedTail); got != 0 {
+		t.Fatalf("prior-turn commentary commit should not remain deferred, got %d", got)
 	}
 
 	_, c3 := m.handleRuntimeEventBatch([]clientui.Event{{
@@ -51,16 +51,13 @@ func TestNewAssistantTurnFlushesSupersededStuckCommentary(t *testing.T) {
 		StepID:         "step-2",
 		AssistantDelta: "Now running tools.",
 	}})
-	flush := collectNativeHistoryFlushText(collectCmdMessages(t, c3))
+	_ = collectCmdMessages(t, c3)
 
 	if got := len(m.deferredCommittedTail); got != 0 {
 		t.Fatalf("turn-1 commentary still stuck in deferred tail after the next turn began: %d", got)
 	}
 	if got := m.view.OngoingStreamingText(); got != "Now running tools." {
 		t.Fatalf("live area carried prior-turn commentary into the new turn: %q", got)
-	}
-	if !strings.Contains(flush, "Continuing now.") {
-		t.Fatalf("superseded commentary was not flushed to scrollback: %q", flush)
 	}
 	foundAssistant := false
 	for _, entry := range committedTranscriptEntriesForApp(m.transcriptEntries) {
@@ -106,8 +103,8 @@ func TestNewToolTurnFlushesSupersededStuckCommentary(t *testing.T) {
 	}})
 	_ = collectCmdMessages(t, c2)
 
-	if got := len(m.deferredCommittedTail); got == 0 {
-		t.Fatal("precondition: commentary commit with a stale step id should be deferred")
+	if got := len(m.deferredCommittedTail); got != 0 {
+		t.Fatalf("prior-turn commentary commit should not remain deferred, got %d", got)
 	}
 
 	_, c3 := m.handleRuntimeEventBatch([]clientui.Event{{
@@ -122,12 +119,19 @@ func TestNewToolTurnFlushesSupersededStuckCommentary(t *testing.T) {
 			ToolCall:   &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
 		}},
 	}})
-	flush := collectNativeHistoryFlushText(collectCmdMessages(t, c3))
+	_ = collectCmdMessages(t, c3)
 
 	if got := len(m.deferredCommittedTail); got != 0 {
 		t.Fatalf("turn-1 commentary still stuck after a tools-only next turn began: %d", got)
 	}
-	if !strings.Contains(flush, "Continuing now.") {
-		t.Fatalf("superseded commentary was not flushed to scrollback by the tool turn: %q", flush)
+	foundAssistant := false
+	for _, entry := range committedTranscriptEntriesForApp(m.transcriptEntries) {
+		if entry.Role == tui.TranscriptRoleAssistant && strings.TrimSpace(entry.Text) == "Continuing now." {
+			foundAssistant = true
+			break
+		}
+	}
+	if !foundAssistant {
+		t.Fatal("superseded commentary was not committed into the working set by the tool turn")
 	}
 }

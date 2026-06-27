@@ -123,7 +123,13 @@ func (t *HTTPTransport) Generate(ctx context.Context, request OpenAIRequest) (Op
 }
 
 func (t *HTTPTransport) GenerateStream(ctx context.Context, request OpenAIRequest, onDelta func(text string)) (OpenAIResponse, error) {
-	return t.GenerateStreamWithEvents(ctx, request, StreamCallbacks{OnAssistantDelta: onDelta})
+	var callback func(AssistantDelta)
+	if onDelta != nil {
+		callback = func(delta AssistantDelta) {
+			onDelta(delta.Text)
+		}
+	}
+	return t.GenerateStreamWithEvents(ctx, request, StreamCallbacks{OnAssistantDelta: callback})
 }
 
 func (t *HTTPTransport) GenerateStreamWithEvents(ctx context.Context, request OpenAIRequest, callbacks StreamCallbacks) (OpenAIResponse, error) {

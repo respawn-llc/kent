@@ -845,18 +845,18 @@ func TestRuntimeClientServerRestartFirstPromptRecoversAndWarnsOngoing(t *testing
 
 	updated := model
 	eventCount := 0
-	flushText := ""
 	for len(runtimeEvents) > 0 {
 		msg := <-runtimeEvents
 		eventCount++
 		next, cmd := updated.Update(runtimeEventMsg{event: msg})
 		updated = next.(*uiModel)
-		flushText += collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
+		_ = collectCmdMessages(t, cmd)
 	}
-	if !strings.Contains(flushText, runtimeReconnectWarningText) {
-		t.Fatalf("expected ongoing warning flush, events=%d entries=%+v flush=%q", eventCount, updated.transcriptEntries, flushText)
+	view := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
+	if !strings.Contains(view, runtimeReconnectWarningText) {
+		t.Fatalf("expected ongoing warning in view, events=%d entries=%+v view=%q", eventCount, updated.transcriptEntries, view)
 	}
-	if strings.Contains(flushText, "runtime for session") {
-		t.Fatalf("did not expect runtime unavailable error in ongoing flush, got %q", flushText)
+	if strings.Contains(view, "runtime for session") {
+		t.Fatalf("did not expect runtime unavailable error in ongoing view, got %q", view)
 	}
 }

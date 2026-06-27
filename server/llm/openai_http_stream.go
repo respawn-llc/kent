@@ -47,7 +47,7 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		}
 		a.assistantText.WriteString(evt.Delta)
 		if a.callbacks.OnAssistantDelta != nil {
-			a.callbacks.OnAssistantDelta(evt.Delta)
+			a.callbacks.OnAssistantDelta(AssistantDelta{Text: evt.Delta, Phase: a.assistantMessages.Phase(evt.OutputIndex)})
 		}
 	case "response.output_item.added", "response.output_item.done":
 		a.assistantMessages.Upsert(evt.Item, evt.OutputIndex)
@@ -324,6 +324,17 @@ func (a *assistantMessageAccumulator) Resolve() (string, MessagePhase, int64, bo
 		segments = append(segments, assistantOutputSegment{Text: item.Content, Phase: item.Phase, OutputIndex: outputIndex})
 	}
 	return resolveAssistantOutput(segments)
+}
+
+func (a *assistantMessageAccumulator) Phase(outputIndex int64) MessagePhase {
+	if a == nil {
+		return ""
+	}
+	item, ok := a.byIndex[outputIndex]
+	if !ok || item.Type != ResponseItemTypeMessage || item.Role != RoleAssistant {
+		return ""
+	}
+	return item.Phase
 }
 
 func newReasoningAccumulator() *reasoningAccumulator {

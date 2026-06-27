@@ -77,12 +77,9 @@ func TestReduceRuntimeTranscriptPagePreservesLiveOngoingForEqualRevisionDetailPa
 	if reduction.page.Streaming != "working" || reduction.page.StreamingError != "boom" {
 		t.Fatalf("ongoing = %q/%q, want working/boom", reduction.page.Streaming, reduction.page.StreamingError)
 	}
-	if reduction.shouldSyncNativeHistory {
-		t.Fatal("detail page should not sync native history")
-	}
 }
 
-func TestReduceRuntimeTranscriptPageDefaultDetailHydrationSyncsNativeWithoutTailReplacement(t *testing.T) {
+func TestReduceRuntimeTranscriptPageDefaultDetailHydrationUsesDetailMerge(t *testing.T) {
 	reduction := reduceRuntimeTranscriptPage(newRuntimeTranscriptPageState(runtimeTranscriptPageSnapshot{
 		entries:                 []tui.TranscriptEntry{{Role: tui.TranscriptRoleAssistant, Text: "seed", Committed: true}},
 		revision:                10,
@@ -98,9 +95,6 @@ func TestReduceRuntimeTranscriptPageDefaultDetailHydrationSyncsNativeWithoutTail
 
 	if reduction.decision != runtimeTranscriptPageDecisionApply {
 		t.Fatalf("decision = %+v, want apply", reduction)
-	}
-	if !reduction.shouldSyncNativeHistory {
-		t.Fatal("default hydration should sync native history even in detail mode")
 	}
 	if reduction.branch != "detail_merge" {
 		t.Fatalf("branch = %q, want detail_merge", reduction.branch)
@@ -131,12 +125,6 @@ func TestReduceRuntimeTranscriptPageAcceptsEqualRevisionTailCorrection(t *testin
 
 	if reduction.decision != runtimeTranscriptPageDecisionApply {
 		t.Fatalf("decision = %+v, want apply", reduction)
-	}
-	if !reduction.shouldSyncNativeHistory {
-		t.Fatal("tail correction should sync native history")
-	}
-	if reduction.nativeReplayPermit != nativeHistoryReplayPermitContinuityRecovery {
-		t.Fatalf("native permit = %v, want continuity recovery", reduction.nativeReplayPermit)
 	}
 	if reduction.branch != "recent_tail_replace" {
 		t.Fatalf("branch = %q", reduction.branch)

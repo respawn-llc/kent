@@ -58,7 +58,7 @@ func TestSessionActivityGapRecoveryEventuallyHydratesCommittedTranscriptInBothMo
 		t.Fatalf("expected stream-gap recovery cause, got %+v", evt)
 	}
 
-	firstCmd := m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd
+	firstCmd := m.runtimeAdapter().applyProjectedRuntimeEvent(evt).cmd
 	if firstCmd == nil {
 		t.Fatal("expected first authoritative refresh command")
 	}
@@ -97,11 +97,7 @@ func TestSessionActivityGapRecoveryEventuallyHydratesCommittedTranscriptInBothMo
 	}
 	next, followUp := next.(*uiModel).Update(secondRefresh)
 	m = next.(*uiModel)
-	if followUp != nil {
-		if _, ok := followUp().(nativeHistoryFlushMsg); !ok {
-			// Window-title updates are allowed here; transcript correctness is asserted below.
-		}
-	}
+	m = applyRuntimeEventBatchMessagesFromCommand(t, m, followUp)
 
 	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
 	if !strings.Contains(ongoing, "final answer after retry") {
@@ -268,26 +264,13 @@ func newSupervisorTerminalFenceRepro(t *testing.T) (*uiModel, string) {
 	m = next.(*uiModel)
 	msgs := collectCmdMessages(t, cmd)
 	var refresh runtimeTranscriptRefreshedMsg
-	nativeFlushSeen := false
 	for _, msg := range msgs {
 		if typed, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			refresh = typed
 		}
-		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
-			nativeFlushSeen = true
-			if next, flushCmd := m.Update(flush); flushCmd != nil {
-				m = next.(*uiModel)
-				m = applyRuntimeEventBatchMessagesFromCommand(t, m, flushCmd)
-			} else {
-				m = next.(*uiModel)
-			}
-		}
 	}
 	if refresh.token == 0 {
 		t.Fatalf("expected committed-advance hydration command, got %+v", msgs)
-	}
-	if !nativeFlushSeen {
-		t.Fatalf("expected committed user flush to arm native flush fence, got %+v", msgs)
 	}
 
 	next, cmd = m.Update(refresh)
@@ -302,18 +285,6 @@ func applyRuntimeEventBatchMessagesFromCommand(t *testing.T, m *uiModel, cmd tea
 	for guard := 0; len(msgs) > 0 && guard < 20; guard++ {
 		msg := msgs[0]
 		msgs = msgs[1:]
-		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
-			next, nextCmd := m.Update(flush)
-			m = next.(*uiModel)
-			msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
-			continue
-		}
-		if ack, ok := msg.(nativeTerminalWriteResultMsg); ok {
-			next, nextCmd := m.Update(ack)
-			m = next.(*uiModel)
-			msgs = append(msgs, collectCmdMessages(t, nextCmd)...)
-			continue
-		}
 		batch, ok := msg.(runtimeEventBatchMsg)
 		if !ok {
 			continue

@@ -792,7 +792,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	m.transcriptRevision = 6
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "working"})
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "working"}, true).cmd
+	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "working"}).cmd
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                         clientui.EventUserMessageFlushed,
@@ -803,7 +803,8 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 		UserMessage:                  "steered message",
 		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
-	}, true).cmd
+	}).
+		cmd
 	if got := len(m.deferredCommittedTail); got != 1 {
 		t.Fatalf("expected queued user flush to use deferred committed tail while assistant stream is live, got %d", got)
 	}

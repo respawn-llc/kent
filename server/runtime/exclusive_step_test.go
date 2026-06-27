@@ -373,7 +373,7 @@ func TestExclusiveStepLifecycleDiscardsStreamingMessageOnInterrupt(t *testing.T)
 	done := make(chan error, 1)
 	go func() {
 		done <- lifecycle.Run(context.Background(), exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
-			_ = eng.steer(stepID, steerAssistantDeltaIntent("partial streamed answer"))
+			_ = eng.steer(stepID, steerAssistantDeltaIntent(llm.AssistantDelta{Text: "partial streamed answer"}))
 			close(started)
 			<-stepCtx.Done()
 			return stepCtx.Err()

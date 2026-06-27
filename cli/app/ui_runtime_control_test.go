@@ -817,12 +817,12 @@ func TestExternalOwnerStatusEventKeepsIdleRunStateBusy(t *testing.T) {
 	adapter.applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                  clientui.EventExternalRuntimeStatus,
 		ExternalRuntimeStatus: &clientui.ExternalRuntimeStatus{State: clientui.ExternalRuntimeStateDraining},
-	}, false)
+	})
 
 	adapter.applyProjectedRuntimeEvent(clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
 		RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()},
-	}, false)
+	})
 
 	if !m.isBusy() || m.activity != uiActivityRunning {
 		t.Fatalf("busy=%t activity=%v, want busy running while external owner drains", m.isBusy(), m.activity)

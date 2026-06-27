@@ -624,7 +624,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 // each iteration so the retry observes the appended synthetic outputs. When the
 // 400 is unrelated to missing outputs (nothing to repair), the original error is
 // returned unchanged.
-func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
 	for {
 		req, err := rebuild()
 		if err != nil {
@@ -633,8 +633,8 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 		var emitted atomic.Bool
 		wrappedDelta := onDelta
 		if onDelta != nil {
-			wrappedDelta = func(delta string) {
-				if delta != "" {
+			wrappedDelta = func(delta llm.AssistantDelta) {
+				if delta.Text != "" {
 					emitted.Store(true)
 				}
 				onDelta(delta)
@@ -669,7 +669,7 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 	}
 }
 
-func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client llm.Client, req llm.Request, onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client llm.Client, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
 	prepared, err := e.modelRequests().RequestCache().Prepare(req)
 	if err != nil {
 		return llm.Response{}, err
@@ -685,16 +685,16 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 			attemptErr              error
 			attemptEmitted          bool
 			reasoningEmitted        bool
-			attemptOnDelta          func(string)
+			attemptOnDelta          func(llm.AssistantDelta)
 			attemptOnReasoningDelta func(llm.ReasoningSummaryDelta)
 			attemptDone             atomic.Bool
 		)
 		if onDelta != nil {
-			attemptOnDelta = func(delta string) {
+			attemptOnDelta = func(delta llm.AssistantDelta) {
 				if attemptDone.Load() {
 					return
 				}
-				if delta == "" {
+				if delta.Text == "" {
 					return
 				}
 				attemptEmitted = true
@@ -719,11 +719,17 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 				OnReasoningSummaryDelta: attemptOnReasoningDelta,
 			})
 		} else if streamingClient, ok := client.(llm.StreamClient); ok {
-			resp, attemptErr = streamingClient.GenerateStream(ctx, req, attemptOnDelta)
+			var onTextDelta func(string)
+			if attemptOnDelta != nil {
+				onTextDelta = func(text string) {
+					attemptOnDelta(llm.AssistantDelta{Text: text})
+				}
+			}
+			resp, attemptErr = streamingClient.GenerateStream(ctx, req, onTextDelta)
 		} else {
 			resp, attemptErr = client.Generate(ctx, req)
 			if attemptErr == nil && attemptOnDelta != nil && resp.Assistant.Content != "" {
-				attemptOnDelta(resp.Assistant.Content)
+				attemptOnDelta(llm.AssistantDelta{Text: resp.Assistant.Content, Phase: resp.Assistant.Phase})
 			}
 		}
 		attemptDone.Store(true)

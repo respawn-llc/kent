@@ -59,6 +59,10 @@ func stripANSIAndTrimRight(view string) string {
 	return strings.Join(lines, "\n")
 }
 
+func stripANSIPreserve(view string) string {
+	return ansi.Strip(view)
+}
+
 func containsInOrder(text string, parts ...string) bool {
 	offset := 0
 	for _, part := range parts {

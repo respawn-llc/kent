@@ -17,9 +17,8 @@ func projectedTranscriptEventSnapshotFromModel(m *uiModel) projectedTranscriptEv
 		revision:             m.transcriptRevision,
 		hasRuntimeClient:     m.hasRuntimeClient(),
 		busy:                 m.isBusy(),
-		liveAssistantPending: strings.TrimSpace(liveAssistantText) != "" || m.sawAssistantDelta || m.nativeStreamingAwaitingCommit,
+		liveAssistantPending: strings.TrimSpace(liveAssistantText) != "" || m.sawAssistantDelta,
 		liveAssistantText:    liveAssistantText,
-		liveAssistantStepID:  m.nativeScrollbackLedger.AssistantStreamState().StepID,
 	}
 }
 
@@ -29,7 +28,6 @@ func projectedActiveAssistantStreamText(m *uiModel) string {
 	}
 	values := []string{
 		m.view.OngoingStreamingText(),
-		m.nativeScrollbackLedger.AssistantStreamState().Source,
 	}
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -44,11 +42,7 @@ func deferredCommittedTailSnapshotFromModel(m *uiModel) deferredCommittedTailSna
 		return deferredCommittedTailSnapshot{}
 	}
 	return deferredCommittedTailSnapshot{
-		tails: m.deferredCommittedTail,
-		// Deferred tails reconcile against the loaded committed model frontier,
-		// including unresolved tool calls. The ongoing projection frontier stops
-		// before unresolved tools, which is correct for scrollback output but
-		// would make later tool results/finalizers look non-contiguous here.
+		tails:            m.deferredCommittedTail,
 		committedEntries: committedTranscriptEntriesForDeferredTail(m.transcriptEntries),
 		baseOffset:       m.transcriptBaseOffset,
 		revision:         m.transcriptRevision,

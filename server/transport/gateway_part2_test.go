@@ -609,7 +609,7 @@ func (c *gatewayTestStreamingClient) GenerateStreamWithEvents(_ context.Context,
 	c.mu.Unlock()
 	if call == 0 {
 		if callbacks.OnAssistantDelta != nil {
-			callbacks.OnAssistantDelta("inspecting")
+			callbacks.OnAssistantDelta(llm.AssistantDelta{Text: "inspecting", Phase: llm.MessagePhaseCommentary})
 		}
 		return llm.Response{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "Inspecting now", Phase: llm.MessagePhaseCommentary},

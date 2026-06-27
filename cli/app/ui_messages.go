@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 )
@@ -117,6 +116,14 @@ type compactDoneMsg struct {
 	err error
 }
 
+type nativeSurfaceResumeMsg struct{}
+
+type nativeSurfaceResizeRehydrateMsg struct {
+	token  uint64
+	width  int
+	height int
+}
+
 // Active submit is the in-flight turn only. uiModel.queued stores future work;
 // never mirror active submit there or it can run again after completion.
 type activeSubmitState struct {
@@ -165,18 +172,6 @@ type startupUpdateNoticeMsg struct {
 	version string
 }
 
-type nativeHistoryFlushMsg struct {
-	Text             string
-	AllowBlank       bool
-	ClearBelowBefore bool
-	Sequence         uint64
-	Flush            nativescrollback.ScheduledFlush
-}
-
-type nativeTerminalWriteResultMsg struct {
-	Result nativescrollback.TerminalWriteResult
-}
-
 type runtimeEventMsg struct {
 	event clientui.Event
 }
@@ -214,13 +209,6 @@ type runtimeTranscriptRefreshedMsg struct {
 	transcript    clientui.TranscriptPage
 	recoveryCause clientui.TranscriptRecoveryCause
 	err           error
-}
-
-type runtimeCommittedTranscriptSuffixRefreshedMsg struct {
-	token  uint64
-	req    clientui.CommittedTranscriptSuffixRequest
-	suffix clientui.CommittedTranscriptSuffix
-	err    error
 }
 
 type runtimeTranscriptRetryMsg struct {
@@ -263,13 +251,6 @@ type deferredProjectedTranscriptTail struct {
 	entries    []clientui.ChatEntry
 	pending    []string
 }
-
-type nativeHistoryReplayPermit uint8
-
-const (
-	nativeHistoryReplayPermitNone nativeHistoryReplayPermit = iota
-	nativeHistoryReplayPermitContinuityRecovery
-)
 
 type runLoggerDiagnosticMsg struct {
 	diagnostic runLoggerDiagnostic

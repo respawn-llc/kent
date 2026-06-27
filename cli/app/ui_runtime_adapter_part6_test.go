@@ -8,8 +8,6 @@ import (
 	"core/shared/transcript"
 	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestProjectedConversationUpdatedSkipsHydrationAfterDeferredUserFlush(t *testing.T) {
@@ -28,7 +26,7 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterDeferredUserFlush(t *tes
 	m.transcriptRevision = 6
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "foreground done"})
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}, true).cmd
+	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}).cmd
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                         clientui.EventUserMessageFlushed,
@@ -39,7 +37,8 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterDeferredUserFlush(t *tes
 		UserMessage:                  "steered message",
 		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
-	}, true).cmd
+	}).
+		cmd
 	if got := len(m.transcriptEntries); got != 1 {
 		t.Fatalf("expected queued user flush to wait while assistant stream is live, got %d entries", got)
 	}
@@ -53,7 +52,8 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterDeferredUserFlush(t *tes
 		CommittedTranscriptChanged: true,
 		TranscriptRevision:         7,
 		CommittedEntryCount:        2,
-	}, true).cmd
+	}).
+		cmd
 	for _, msg := range collectCmdMessages(t, cmd) {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect committed conversation_updated to hydrate after immediate user append, got %+v", msg)
@@ -80,7 +80,7 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 	m.transcriptRevision = 6
 	m.transcriptTotalEntries = 1
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
-	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}, true).cmd
+	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}).cmd
 
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                         clientui.EventUserMessageFlushed,
@@ -91,7 +91,8 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 		UserMessage:                  "steered message",
 		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
-	}, true).cmd
+	}).
+		cmd
 
 	cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,
@@ -100,7 +101,8 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 		TranscriptRevision:         8,
 		CommittedEntryCount:        3,
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "foreground done", Phase: string(llm.MessagePhaseFinal)}},
-	}, true).cmd
+	}).
+		cmd
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
@@ -156,7 +158,8 @@ func TestProjectedAssistantMessageReplacesNonTailCommittedRangeWithoutHydration(
 			Text:  "reviewed final",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-	}, true).cmd
+	}).
+		cmd
 	for _, msg := range collectCmdMessages(t, cmd) {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect non-tail committed assistant replacement to trigger hydration, got %+v", msg)
@@ -208,7 +211,8 @@ func TestProjectedCommittedGapClearsDeferredCommittedTailBeforeHydration(t *test
 			Text:  "authoritative tail",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-	}, true).cmd
+	}).
+		cmd
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
@@ -247,7 +251,8 @@ func TestProjectedUserMessageFlushedDefersAfterCommittedAssistantToolProgress(t 
 			Role: "user",
 			Text: "steered message",
 		}},
-	}, true).cmd
+	}).
+		cmd
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
@@ -284,7 +289,8 @@ func TestProjectedUserMessageFlushedDefersWhenLiveAssistantStateIsPresent(t *tes
 			Role: "user",
 			Text: "steered message",
 		}},
-	}, true).cmd
+	}).
+		cmd
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
@@ -296,63 +302,6 @@ func TestProjectedUserMessageFlushedDefersWhenLiveAssistantStateIsPresent(t *tes
 	}
 	if got := len(m.deferredCommittedTail); got != 1 {
 		t.Fatalf("expected deferred committed tail, got %d", got)
-	}
-}
-
-func TestDeferredNativeReplayFlushesAutomaticallyOnDetailExit(t *testing.T) {
-	policies := []string{"fixed-detail-alt-screen"}
-	for _, policy := range policies {
-		t.Run(policy, func(t *testing.T) {
-			m := newProjectedStaticUIModel(
-				WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
-			)
-
-			next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-			m = next.(*uiModel)
-			if startupCmd == nil {
-				t.Fatal("expected startup replay command")
-			}
-			_ = collectCmdMessages(t, startupCmd)
-
-			next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-			m = next.(*uiModel)
-			if m.view.Mode() != tui.ModeDetail {
-				t.Fatalf("expected detail mode, got %q", m.view.Mode())
-			}
-			_ = collectCmdMessages(t, enterCmd)
-
-			cmd := m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{
-				Entries: []runtime.ChatEntry{{Role: "assistant", Text: "seed"}, {Role: "user", Text: "steered later"}},
-			})
-			if cmd != nil {
-				t.Fatalf("expected replay to stay deferred while detail is active, got %T", cmd())
-			}
-
-			next, leaveCmd := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-			m = next.(*uiModel)
-			if m.view.Mode() != tui.ModeOngoing {
-				t.Fatalf("expected ongoing mode, got %q", m.view.Mode())
-			}
-			msgs := collectCmdMessages(t, leaveCmd)
-			flushCount := 0
-			foundLater := false
-			for _, msg := range msgs {
-				flush, ok := msg.(nativeHistoryFlushMsg)
-				if !ok {
-					continue
-				}
-				flushCount++
-				if strings.Contains(stripANSIPreserve(flush.Text), "steered later") {
-					foundLater = true
-				}
-			}
-			if flushCount == 0 {
-				t.Fatalf("expected native replay flush on detail exit, got messages=%v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q transcript=%+v", msgs, m.nativeCurrentProjection(), m.nativeRenderedProjection(), m.nativeRenderedSnapshot(), m.transcriptEntries)
-			}
-			if !foundLater {
-				t.Fatalf("expected exit replay to include deferred transcript update, got messages=%v", msgs)
-			}
-		})
 	}
 }
 
@@ -427,67 +376,6 @@ func TestBackgroundUpdatedWithSuppressedNoticeSkipsTransientStatus(t *testing.T)
 	}
 	if m.transientStatus != "existing" {
 		t.Fatalf("expected transient status unchanged, got %q", m.transientStatus)
-	}
-}
-
-func TestDeferredNativeReplayFlushesBackgroundNoticeOnDetailExit(t *testing.T) {
-	policies := []string{"fixed-detail-alt-screen"}
-	for _, policy := range policies {
-		t.Run(policy, func(t *testing.T) {
-			m := newProjectedStaticUIModel(
-				WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
-			)
-
-			next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
-			m = next.(*uiModel)
-			if startupCmd == nil {
-				t.Fatal("expected startup replay command")
-			}
-			_ = collectCmdMessages(t, startupCmd)
-
-			next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-			m = next.(*uiModel)
-			if m.view.Mode() != tui.ModeDetail {
-				t.Fatalf("expected detail mode, got %q", m.view.Mode())
-			}
-			_ = collectCmdMessages(t, enterCmd)
-
-			cmd := m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{
-				Entries: []runtime.ChatEntry{
-					{Role: "assistant", Text: "seed"},
-					{Role: "system", Text: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone", CondensedText: "Background shell 1000 completed (exit 0)"},
-				},
-			})
-			if cmd != nil {
-				t.Fatalf("expected replay to stay deferred while detail is active, got %T", cmd())
-			}
-
-			next, leaveCmd := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-			m = next.(*uiModel)
-			if m.view.Mode() != tui.ModeOngoing {
-				t.Fatalf("expected ongoing mode, got %q", m.view.Mode())
-			}
-			msgs := collectCmdMessages(t, leaveCmd)
-			flushCount := 0
-			foundNotice := false
-			for _, msg := range msgs {
-				flush, ok := msg.(nativeHistoryFlushMsg)
-				if !ok {
-					continue
-				}
-				flushCount++
-				plain := stripANSIPreserve(flush.Text)
-				if strings.Contains(plain, "Background shell 1000 completed (exit 0)") {
-					foundNotice = true
-				}
-			}
-			if flushCount == 0 {
-				t.Fatalf("expected native replay flush on detail exit, got messages=%v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q transcript=%+v", msgs, m.nativeCurrentProjection(), m.nativeRenderedProjection(), m.nativeRenderedSnapshot(), m.transcriptEntries)
-			}
-			if !foundNotice {
-				t.Fatalf("expected exit replay to include deferred background notice, got messages=%v", msgs)
-			}
-		})
 	}
 }
 

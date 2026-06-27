@@ -525,7 +525,7 @@ func (fakeReasoningStreamClient) GenerateStreamWithEvents(_ context.Context, _ l
 		callbacks.OnReasoningSummaryDelta(llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: "Plan summary"})
 	}
 	if callbacks.OnAssistantDelta != nil {
-		callbacks.OnAssistantDelta("done")
+		callbacks.OnAssistantDelta(llm.AssistantDelta{Text: "done", Phase: llm.MessagePhaseFinal})
 	}
 	return llm.Response{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"},

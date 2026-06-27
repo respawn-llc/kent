@@ -125,7 +125,7 @@ func TestPathReferenceEnterDoesNotSubmitWhileQueryIsPending(t *testing.T) {
 	}
 }
 
-func TestPathReferencePickerSharedAcrossFramesAndViewport(t *testing.T) {
+func TestPathReferencePickerSharedWithViewport(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.theme = "dark"
 	m.termWidth = 24
@@ -140,16 +140,9 @@ func TestPathReferencePickerSharedAcrossFramesAndViewport(t *testing.T) {
 	if !ok {
 		t.Fatal("expected standard frame")
 	}
-	native, status := m.layout().composeNativeSizedFrame(style)
-	if status != nativeFrameReady {
-		t.Fatalf("expected native frame ready, got %v", status)
-	}
 	expectedPicker := m.layout().renderActivePicker(m.termWidth)
 	if !reflect.DeepEqual(standard.pickerPane, expectedPicker) {
 		t.Fatalf("standard picker pane = %+v, want %+v", standard.pickerPane, expectedPicker)
-	}
-	if !reflect.DeepEqual(native.pickerPane, expectedPicker) {
-		t.Fatalf("native picker pane = %+v, want %+v", native.pickerPane, expectedPicker)
 	}
 	wantChat := m.termHeight - len(standard.inputPane) - len(standard.queuePane) - len(expectedPicker) - len(standard.helpPane) - 1
 	if wantChat < 1 {

@@ -3,7 +3,6 @@ package app
 import (
 	"strings"
 
-	"core/cli/app/internal/nativescrollback"
 	"core/cli/tui"
 	"core/shared/clientui"
 	"core/shared/transcript"
@@ -159,46 +158,9 @@ func (m *uiModel) clearAssistantStreamForCommittedAppend() {
 	if m == nil {
 		return
 	}
-	if m.shouldEmitNativeHistory() &&
-		strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) == "" &&
-		strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
-		m.nativeStreamingAwaitingCommit = true
-	}
 	m.sawAssistantDelta = false
+	m.nativeAssistantStreamIncomplete = false
 	m.forwardToView(tui.ClearOngoingAssistantMsg{})
-}
-
-func (m *uiModel) clearAwaitingNativeStreamingCommitOnIdle(evt clientui.Event) bool {
-	if m == nil || evt.Kind != clientui.EventRunStateChanged || evt.RunState == nil || evt.RunState.Lifecycle.IsRunning() {
-		return false
-	}
-	if !m.nativeStreamingAwaitingCommit {
-		return false
-	}
-	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" || m.sawAssistantDelta {
-		return false
-	}
-	m.resetNativeStreamingState()
-	return true
-}
-
-func (m *uiModel) observeNativeStreamingAssistantCommitCandidate(evt clientui.Event) {
-	if m == nil || evt.Kind != clientui.EventAssistantMessage {
-		return
-	}
-	start, _, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
-	if !ok {
-		return
-	}
-	entries := make([]nativescrollback.AssistantCommitEntry, 0, len(evt.TranscriptEntries))
-	for _, entry := range evt.TranscriptEntries {
-		entries = append(entries, nativescrollback.AssistantCommitEntry{Role: entry.Role, Text: entry.Text})
-	}
-	m.nativeScrollbackLedger.ObserveAssistantCommitCandidate(nativescrollback.AssistantCommitCandidate{
-		StepID:          evt.StepID,
-		StartEntryCount: start,
-		Entries:         entries,
-	})
 }
 
 func skippedAssistantCommitMatchesActiveLiveStream(m *uiModel, evt clientui.Event) bool {
@@ -318,7 +280,7 @@ func committedTranscriptStateIncludingDeferredTail(m *uiModel) (int64, int) {
 		return 0, 0
 	}
 	revision := m.transcriptRevision
-	count := m.transcriptBaseOffset + committedNativeScrollbackEntriesForApp(m.transcriptEntries).PrefixEnd
+	count := m.transcriptBaseOffset + len(committedTranscriptEntriesForApp(m.transcriptEntries))
 	chainEnd := count
 	for _, deferred := range m.deferredCommittedTail {
 		if deferred.rangeStart != chainEnd {

@@ -102,7 +102,7 @@ func reduceProjectedTranscriptEvent(state projectedTranscriptEventState, evt cli
 		hydrationCause:     evt.RecoveryCause,
 	}
 	reduction.projectedTransient = state.hasRuntimeClient && evt.Kind != clientui.EventConversationUpdated && !reduction.projectedCommitted
-	if plan.mode != projectedTranscriptEntryPlanSkip && shouldDeferCommittedTranscriptEventWhileStreaming(state, evt) {
+	if plan.mode != projectedTranscriptEntryPlanSkip && shouldDeferCommittedTranscriptEventWhileStreaming(state, evt) && !projectedEventResolvesExistingToolCall(state, evt) {
 		reduction.decision = projectedTranscriptDecisionDefer
 		reduction.shouldDeferTail = true
 		reduction.skipReason = "deferred_tail"
@@ -321,6 +321,24 @@ func projectedEventIsLiveOnlyUnresolvedToolStart(state projectedTranscriptEventS
 		projectedEntries = append(projectedEntries, transcriptEntryFromProjectedChatEntry(entry, false, evt.CommittedTranscriptChanged))
 	}
 	return len(committedTranscriptEntriesForApp(projectedEntries)) == currentCommittedOngoing
+}
+
+func projectedEventResolvesExistingToolCall(state projectedTranscriptEventState, evt clientui.Event) bool {
+	if !evt.CommittedTranscriptChanged || len(evt.TranscriptEntries) == 0 {
+		return false
+	}
+	matched := false
+	for _, entry := range evt.TranscriptEntries {
+		if !tui.TranscriptRoleFromWire(entry.Role).IsToolResult() {
+			return false
+		}
+		toolCallID := strings.TrimSpace(entry.ToolCallID)
+		if toolCallID == "" || !transcriptContainsToolCallID(state.entries, toolCallID) {
+			return false
+		}
+		matched = true
+	}
+	return matched
 }
 
 func liveOnlyToolStartProjectedTranscriptPlan(state projectedTranscriptEventState, entries []clientui.ChatEntry) projectedTranscriptEntryPlan {

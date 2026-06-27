@@ -93,29 +93,18 @@ func (m *uiModel) requestRuntimeCommittedConversationSync() tea.Cmd {
 	return m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(m.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseCommittedConversation, clientui.TranscriptRecoveryCauseNone)).cmd
 }
 
-func (m *uiModel) requestRuntimeCommittedTranscriptSuffix(req clientui.CommittedTranscriptSuffixRequest) tea.Cmd {
-	if !m.hasRuntimeClient() {
-		return nil
-	}
-	client, ok := m.runtimeClient().(interface {
-		RefreshCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest) (clientui.CommittedTranscriptSuffix, error)
-	})
-	if !ok {
-		return nil
-	}
-	m.runtimeCommittedSuffixToken++
-	token := m.runtimeCommittedSuffixToken
-	return func() tea.Msg {
-		suffix, err := client.RefreshCommittedTranscriptSuffix(req)
-		return runtimeCommittedTranscriptSuffixRefreshedMsg{token: token, req: req, suffix: suffix, err: err}
-	}
-}
-
 func (m *uiModel) requestRuntimeCommittedGapSync() tea.Cmd {
 	if !m.hasRuntimeClient() {
 		return nil
 	}
 	return m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(m.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseCommittedGap, clientui.TranscriptRecoveryCauseNone)).cmd
+}
+
+func (m *uiModel) requestRuntimeCommittedGapRecentTailSync() tea.Cmd {
+	if !m.hasRuntimeClient() {
+		return nil
+	}
+	return m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(clientui.TranscriptPageRequest{}, false, runtimeTranscriptSyncCauseCommittedGap, clientui.TranscriptRecoveryCauseNone)).cmd
 }
 
 func (m *uiModel) requestRuntimeQueuedDrainTranscriptSync() tea.Cmd {
@@ -288,8 +277,6 @@ func (m *uiModel) runtimeSyncBlockedByStreaming() bool {
 	}
 	return strings.TrimSpace(m.view.OngoingStreamingText()) != "" ||
 		m.sawAssistantDelta ||
-		m.nativeStreamingActive ||
-		strings.TrimSpace(m.nativeScrollbackLedger.AssistantStreamState().Source) != "" ||
 		m.isBusy() ||
 		m.isCompacting() ||
 		m.isReviewerRunning()
@@ -556,46 +543,6 @@ func (m *uiModel) handleRuntimeTranscriptRefreshed(msg runtimeTranscriptRefreshe
 		m.queuedDrainReadyAfterHydration = true
 	}
 	return sequenceCmds(applyCmd, drain.cmd, m.flushQueuedInputsAfterHydration(), resumeCmd)
-}
-
-func (m *uiModel) handleRuntimeCommittedTranscriptSuffixRefreshed(msg runtimeCommittedTranscriptSuffixRefreshedMsg) tea.Cmd {
-	if msg.token <= 0 {
-		return nil
-	}
-	if suffixSessionChanged(m, msg.suffix) {
-		return nil
-	}
-	if msg.err != nil {
-		if msg.token < m.runtimeCommittedSuffixToken {
-			return nil
-		}
-		m.observeRuntimeRequestResult(msg.err)
-		m.logf("ui.runtime.committed_suffix err=%q", msg.err.Error())
-		return m.requestRuntimeCommittedGapSync()
-	}
-	m.observeRuntimeRequestResult(nil)
-	if m.shouldGateCommittedSuffixResponse(msg.suffix) {
-		m.deferRuntimeCommittedSuffixRefresh()
-		return nil
-	}
-	if committedTranscriptSuffixStartsAfterDeliveryCursor(m, msg.suffix) {
-		return m.requestRuntimeCommittedGapSync()
-	}
-	staleResponse := msg.token < m.runtimeCommittedSuffixToken
-	trimmedSuffix := m.trimCommittedTranscriptSuffixToDeliveryCursor(msg.suffix)
-	applyCmd := m.applyCommittedTranscriptSuffixAppend(msg.suffix)
-	deferredCmd := m.drainDeferredCommittedDeliveryIfUnblocked()
-	hasMore := msg.suffix.HasMore
-	if staleResponse {
-		hasMore = trimmedSuffix.HasMore
-		if trimmedSuffix.NextEntryCount <= trimmedSuffix.StartEntryCount {
-			return sequenceCmds(applyCmd, deferredCmd)
-		}
-	}
-	if !hasMore {
-		return sequenceCmds(applyCmd, deferredCmd)
-	}
-	return sequenceCmds(applyCmd, deferredCmd, m.requestRuntimeCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{}))
 }
 
 func (m *uiModel) flushQueuedInputsAfterHydration() tea.Cmd {

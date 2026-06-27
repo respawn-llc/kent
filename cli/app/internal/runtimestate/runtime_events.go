@@ -72,6 +72,7 @@ const (
 type RuntimeAssistantStreamCommand struct {
 	Kind   RuntimeAssistantStreamCommandKind
 	Delta  string
+	Phase  clientui.MessagePhase
 	StepID string
 }
 
@@ -197,7 +198,7 @@ func ReduceRuntimeTranscriptEvent(evt clientui.Event) RuntimeTranscriptReduction
 	case clientui.EventStreamingErrorUpdated:
 		return RuntimeTranscriptReduction{Sync: RuntimeTranscriptSyncCommand{Reason: RuntimeTranscriptSyncStreamingErrorUpdated}}
 	case clientui.EventAssistantDelta:
-		return RuntimeTranscriptReduction{AssistantStream: []RuntimeAssistantStreamCommand{{Kind: RuntimeAssistantStreamAppend, Delta: evt.AssistantDelta, StepID: evt.StepID}}}
+		return RuntimeTranscriptReduction{AssistantStream: []RuntimeAssistantStreamCommand{{Kind: RuntimeAssistantStreamAppend, Delta: evt.AssistantDelta, Phase: evt.AssistantDeltaPhase, StepID: evt.StepID}}}
 	case clientui.EventAssistantDeltaReset:
 		return RuntimeTranscriptReduction{AssistantStream: []RuntimeAssistantStreamCommand{{Kind: RuntimeAssistantStreamClear, StepID: evt.StepID}}}
 	}
