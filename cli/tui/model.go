@@ -448,6 +448,22 @@ func (m Model) OngoingSnapshot() string {
 	return strings.Join(m.ongoingLines(), "\n")
 }
 
+func (m Model) LiveOngoingLines() []TranscriptProjectionLine {
+	return m.liveOngoingLines(uniformPendingSpinnerFrame(""))
+}
+
+func (m Model) LiveOngoingLinesWithPendingSpinnerFrame(spinner string) []TranscriptProjectionLine {
+	return m.liveOngoingLines(uniformPendingSpinnerFrame(spinner))
+}
+
+func (m Model) PendingOngoingLines() []TranscriptProjectionLine {
+	return m.pendingLiveOngoingLines(uniformPendingSpinnerFrame("")).lines
+}
+
+func (m Model) PendingOngoingLinesWithPendingSpinnerFrame(spinner string) []TranscriptProjectionLine {
+	return m.pendingLiveOngoingLines(uniformPendingSpinnerFrame(spinner)).lines
+}
+
 func (m Model) OngoingStreamingText() string {
 	return m.transcriptInput.Ongoing
 }
@@ -834,7 +850,7 @@ func (m Model) ongoingLineParts() ongoingLineParts {
 			lastGroup = projection.Blocks[blockCount-1].DividerGroup
 		}
 	}
-	if pending := m.pendingOngoingProjectionLines(input, state, lastGroup); len(pending.lines) > 0 {
+	if pending := m.pendingOngoingProjectionLines(input, state, lastGroup, uniformPendingSpinnerFrame("")); len(pending.lines) > 0 {
 		base = append(base, pending.lines...)
 		lastGroup = pending.lastGroup
 	}
@@ -844,17 +860,57 @@ func (m Model) ongoingLineParts() ongoingLineParts {
 	return parts
 }
 
-type pendingOngoingLines struct {
-	lines     []TranscriptProjectionLine
-	lastGroup string
+func (m Model) liveOngoingLines(spinnerForEntry PendingSpinnerFrameFunc) []TranscriptProjectionLine {
+	pending := m.pendingLiveOngoingLines(spinnerForEntry)
+	lines := append([]TranscriptProjectionLine(nil), pending.lines...)
+	lastGroup := pending.lastGroup
+	hasStableBefore := pending.previousGroup != ""
+	streamingLines := m.streamingOngoingProjectionLines()
+	if len(streamingLines) == 0 {
+		return lines
+	}
+	if (len(lines) > 0 || hasStableBefore) && lastGroup != ongoingDividerGroup(RenderIntentAssistant) {
+		lines = append(lines, TranscriptProjectionLine{Kind: VisibleLineDivider, Text: TranscriptDivider})
+	}
+	lines = append(lines, streamingLines...)
+	return lines
 }
 
-func (m Model) pendingOngoingProjectionLines(input TranscriptProjectionInput, state TranscriptProjectionViewState, previousGroup string) pendingOngoingLines {
+func (m Model) pendingLiveOngoingLines(spinnerForEntry PendingSpinnerFrameFunc) pendingOngoingLines {
+	input := m.transcriptProjectionInput()
+	state := m.TranscriptProjectionViewState()
+	lastGroup := ""
+	if m.viewProjector != nil {
+		_, lastGroup = m.viewProjector.CommittedOngoingLines(input, state)
+	} else {
+		projection := projectCommittedOngoingTranscriptWithRenderer(
+			transcriptProjectionRenderer(state.Theme, state.ViewportWidth, input.BaseOffset),
+			input.Entries,
+		)
+		if blockCount := len(projection.Blocks); blockCount > 0 {
+			lastGroup = projection.Blocks[blockCount-1].DividerGroup
+		}
+	}
+	pending := m.pendingOngoingProjectionLines(input, state, lastGroup, spinnerForEntry)
+	pending.previousGroup = lastGroup
+	if len(pending.lines) == 0 {
+		pending.lastGroup = lastGroup
+	}
+	return pending
+}
+
+type pendingOngoingLines struct {
+	lines         []TranscriptProjectionLine
+	lastGroup     string
+	previousGroup string
+}
+
+func (m Model) pendingOngoingProjectionLines(input TranscriptProjectionInput, state TranscriptProjectionViewState, previousGroup string, spinnerForEntry PendingSpinnerFrameFunc) pendingOngoingLines {
 	pendingEntries := PendingOngoingEntries(input.Entries)
 	if len(pendingEntries) == 0 {
 		return pendingOngoingLines{}
 	}
-	projection := renderPendingOngoingSnapshotProjection(pendingEntries, state.Theme, state.ViewportWidth, uniformPendingSpinnerFrame(""))
+	projection := renderPendingOngoingSnapshotProjection(pendingEntries, state.Theme, state.ViewportWidth, spinnerForEntry)
 	if len(projection.Blocks) == 0 {
 		return pendingOngoingLines{}
 	}

@@ -25,7 +25,7 @@ func (c uiInputController) startRollbackSelectionFlowCmd() tea.Cmd {
 
 func (c uiInputController) stopRollbackSelectionFlowCmd() tea.Cmd {
 	m := c.model
-	overlayCmd := m.popRollbackOverlayWithNativeReplay(true)
+	overlayCmd := m.popRollbackOverlay()
 	alternateScrollCmd := m.restoreRollbackAlternateScrollIfNeeded()
 	m.stopRollbackSelectionMode()
 	if overlayCmd != nil {

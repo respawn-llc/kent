@@ -36,7 +36,6 @@ func (a uiRuntimeAdapter) applyProjectedSessionMetadata(view clientui.RuntimeSes
 		m.transcriptLiveDirty = false
 		m.reasoningLiveDirty = false
 		m.clearDeferredCommittedTail("session_switch")
-		m.nativeHistoryReplayPermit = nativeHistoryReplayPermitNone
 	}
 	m.sessionID = strings.TrimSpace(view.SessionID)
 	m.sessionName = strings.TrimSpace(view.SessionName)
@@ -100,13 +99,20 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		m.transcriptLiveDirty = false
 		m.reasoningLiveDirty = false
 		m.clearDeferredCommittedTail("session_switch")
-		m.nativeHistoryReplayPermit = nativeHistoryReplayPermitNone
 	}
 	m.sessionID = strings.TrimSpace(page.SessionID)
 	if strings.TrimSpace(page.SessionName) != "" {
 		m.sessionName = strings.TrimSpace(page.SessionName)
 	}
 	m.conversationFreshness = page.ConversationFreshness
+	nativeSurfaceConfigured := m.nativeSurfaceConfigured()
+	nativeStableReady := nativeSurfaceConfigured && m.nativeSurface.StableBuffer() != nil
+	nativeAssistantStreamActive := nativeSurfaceConfigured && m.nativeSurface.AssistantStreaming()
+	nativeAssistantStreamWasIncomplete := m.nativeAssistantStreamIncomplete
+	previousNativeStableProjection := tui.TranscriptProjection{}
+	if nativeSurfaceConfigured {
+		previousNativeStableProjection = m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+	}
 	reduction := reduceRuntimeTranscriptPage(newRuntimeTranscriptPageState(runtimeTranscriptPageSnapshotFromModel(m)), req, page, recoveryCause)
 	pageReq := reduction.request
 	page = reduction.page
@@ -124,8 +130,7 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		}
 		return nil
 	}
-	if reduction.shouldSyncNativeHistory {
-		m.armNativeHistoryReplayPermit(reduction.nativeReplayPermit)
+	if reduction.shouldApplyRecentTail {
 		m.clearDeferredCommittedTail("authoritative_hydrate")
 		a.applyAuthoritativeRecentTailPage(page, entries, reduction.preserveLiveReasoning)
 	}
@@ -188,13 +193,14 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 			m.refreshRollbackCandidates()
 		}
 	}
+	nativeFinishErr := error(nil)
 	if strings.TrimSpace(page.Streaming) == "" {
 		m.sawAssistantDelta = false
+		if !nativeSurfaceConfigured || !reduction.shouldApplyRecentTail {
+			nativeFinishErr = m.finishNativeAssistantStreaming()
+		}
 	}
-	cmds := make([]tea.Cmd, 0, 2)
-	if reduction.shouldSyncNativeHistory {
-		cmds = append(cmds, m.syncNativeHistoryFromTranscriptAndTrackCommittedDelivery())
-	}
+	cmds := make([]tea.Cmd, 0, 1)
 	m.logTranscriptPageDiag("transcript.diag.client.apply_page_commit", pageReq, page, map[string]string{
 		"path":                      "hydrate",
 		"recovery_cause":            string(recoveryCause),
@@ -202,10 +208,18 @@ func (a uiRuntimeAdapter) applyRuntimeTranscriptPageWithRecovery(req clientui.Tr
 		"preserve_live_reasoning":   strconv.FormatBool(reduction.preserveLiveReasoning),
 		"transcript_revision_after": strconv.FormatInt(m.transcriptRevision, 10),
 		"transcript_total_after":    strconv.Itoa(m.transcriptTotalEntries),
-		"native_history_sync":       strconv.FormatBool(reduction.shouldSyncNativeHistory),
 	})
 	if previousWindowTitle != sessionTitle(m.sessionName) {
 		cmds = append(cmds, tea.SetWindowTitle(sessionTitle(m.sessionName)))
+	}
+	if nativeSurfaceConfigured && reduction.shouldApplyRecentTail {
+		currentNativeStableProjection := m.nativeCommittedProjectionForEntries(m.transcriptEntries)
+		if err := m.deliverNativeStableProjectionChange(previousNativeStableProjection, currentNativeStableProjection, nativeStableReady, nativeAssistantStreamActive, nativeAssistantStreamWasIncomplete); err != nil {
+			cmds = append(cmds, m.nativeSurfaceErrorCmd("steer committed transcript", err))
+		}
+	}
+	if nativeFinishErr != nil {
+		cmds = append(cmds, m.nativeSurfaceErrorCmd("finish assistant stream", nativeFinishErr))
 	}
 	return sequenceCmds(cmds...)
 }
@@ -219,13 +233,6 @@ func (a uiRuntimeAdapter) applyAuthoritativeRecentTailPage(page clientui.Transcr
 	m.transcriptEntries = append(m.transcriptEntries[:0], entries...)
 	m.transcriptTotalEntries = max(page.TotalEntries, page.Offset+len(entries))
 	m.transcriptRevision = max(m.transcriptRevision, page.Revision)
-	hydratedCommittedEnd := page.Offset + committedNativeScrollbackEntriesForApp(entries).PrefixEnd
-	emittedCommittedEnd := page.Offset
-	if state := m.nativeScrollbackLedger.CommittedDeliveryState(); state.Initialized && state.LastEmittedCommittedEntryCount <= hydratedCommittedEnd {
-		emittedCommittedEnd = max(emittedCommittedEnd, state.LastEmittedCommittedEntryCount)
-		hydratedCommittedEnd = max(hydratedCommittedEnd, state.LastAppliedCommittedEntryCount)
-	}
-	m.nativeScrollbackLedger.ResetCommittedDeliveryAppliedRange(emittedCommittedEnd, hydratedCommittedEnd, m.transcriptRevision)
 	m.transcriptLiveDirty = false
 	if !preserveLiveReasoning {
 		m.reasoningLiveDirty = false

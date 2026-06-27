@@ -127,7 +127,13 @@ func (c *OpenAIClient) Generate(ctx context.Context, request Request) (Response,
 }
 
 func (c *OpenAIClient) GenerateStream(ctx context.Context, request Request, onDelta func(text string)) (Response, error) {
-	return c.GenerateStreamWithEvents(ctx, request, StreamCallbacks{OnAssistantDelta: onDelta})
+	var callback func(AssistantDelta)
+	if onDelta != nil {
+		callback = func(delta AssistantDelta) {
+			onDelta(delta.Text)
+		}
+	}
+	return c.GenerateStreamWithEvents(ctx, request, StreamCallbacks{OnAssistantDelta: callback})
 }
 
 func (c *OpenAIClient) GenerateStreamWithEvents(ctx context.Context, request Request, callbacks StreamCallbacks) (Response, error) {
@@ -176,7 +182,13 @@ func (c *OpenAIClient) GenerateStreamWithEvents(ctx context.Context, request Req
 	}
 
 	if streamTransport, ok := c.transport.(OpenAIStreamingTransport); ok {
-		providerResp, err := streamTransport.GenerateStream(ctx, providerReq, callbacks.OnAssistantDelta)
+		var onTextDelta func(string)
+		if callbacks.OnAssistantDelta != nil {
+			onTextDelta = func(text string) {
+				callbacks.OnAssistantDelta(AssistantDelta{Text: text})
+			}
+		}
+		providerResp, err := streamTransport.GenerateStream(ctx, providerReq, onTextDelta)
 		if err != nil {
 			return Response{}, fmt.Errorf("openai generate stream: %w", err)
 		}
@@ -201,7 +213,7 @@ func (c *OpenAIClient) GenerateStreamWithEvents(ctx context.Context, request Req
 		return Response{}, err
 	}
 	if callbacks.OnAssistantDelta != nil && resp.Assistant.Content != "" {
-		callbacks.OnAssistantDelta(resp.Assistant.Content)
+		callbacks.OnAssistantDelta(AssistantDelta{Text: resp.Assistant.Content, Phase: resp.Assistant.Phase})
 	}
 	return resp, nil
 }

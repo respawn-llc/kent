@@ -111,7 +111,7 @@ func (m *uiModel) logProjectedTranscriptPlanDiag(evt clientui.Event, plan projec
 	m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.projected_plan", fields))
 }
 
-func (m *uiModel) logProjectedTranscriptAppliedDiag(evt clientui.Event, plan projectedTranscriptEntryPlan, incomingCount int, appliedCount int, startOffset int, entries []clientui.ChatEntry, nativeHistorySync bool) {
+func (m *uiModel) logProjectedTranscriptAppliedDiag(evt clientui.Event, plan projectedTranscriptEntryPlan, incomingCount int, appliedCount int, startOffset int, entries []clientui.ChatEntry) {
 	if m == nil || !m.transcriptDiagnosticsEnabled() {
 		return
 	}
@@ -128,9 +128,6 @@ func (m *uiModel) logProjectedTranscriptAppliedDiag(evt clientui.Event, plan pro
 		"event_committed_count": strconv.Itoa(evt.CommittedEntryCount),
 		"transcript_revision":   strconv.FormatInt(m.transcriptRevision, 10),
 		"transcript_total":      strconv.Itoa(m.transcriptTotalEntries),
-	}
-	if nativeHistorySync {
-		fields["native_history_sync"] = "true"
 	}
 	m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.append_entries", fields))
 }

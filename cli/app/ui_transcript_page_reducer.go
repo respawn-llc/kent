@@ -53,8 +53,7 @@ type runtimeTranscriptPageReduction struct {
 	preserveLiveAssistantOngoing   bool
 	duplicateCommittedAssistantEnd bool
 	preserveLiveReasoning          bool
-	shouldSyncNativeHistory        bool
-	nativeReplayPermit             nativeHistoryReplayPermit
+	shouldApplyRecentTail          bool
 }
 
 func newRuntimeTranscriptPageState(snapshot runtimeTranscriptPageSnapshot) runtimeTranscriptPageState {
@@ -86,7 +85,7 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 		page.StreamingError = ""
 	}
 	preserveLiveReasoning := shouldPreserveLiveReasoningForRuntimeTranscriptPage(state, page)
-	shouldSyncNativeHistory := shouldSyncNativeHistoryForRuntimeTranscriptPage(state, pageReq)
+	shouldApplyRecentTail := isRecentTailTranscriptRequest(pageReq)
 	reduction := runtimeTranscriptPageReduction{
 		decision:                       runtimeTranscriptPageDecisionApply,
 		request:                        pageReq,
@@ -96,20 +95,13 @@ func reduceRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.
 		preserveLiveAssistantOngoing:   page.Streaming == state.liveOngoing && strings.TrimSpace(state.liveOngoing) != "",
 		duplicateCommittedAssistantEnd: duplicateCommittedAssistantEnd,
 		preserveLiveReasoning:          preserveLiveReasoning,
-		shouldSyncNativeHistory:        shouldSyncNativeHistory,
-	}
-	if shouldSyncNativeHistory && recoveryCause != clientui.TranscriptRecoveryCauseNone {
-		reduction.nativeReplayPermit = nativeHistoryReplayPermitContinuityRecovery
+		shouldApplyRecentTail:          shouldApplyRecentTail,
 	}
 	if reason := runtimeTranscriptPageReplacementRejectReason(state, pageReq, page); reason != "" {
 		reduction.decision = runtimeTranscriptPageDecisionReject
 		reduction.rejectReason = reason
 	}
 	return reduction
-}
-
-func shouldSyncNativeHistoryForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
-	return isRecentTailTranscriptRequest(req)
 }
 
 func replacesRecentTailForRuntimeTranscriptPage(state runtimeTranscriptPageState, req clientui.TranscriptPageRequest) bool {
@@ -203,7 +195,7 @@ func (state runtimeTranscriptPageState) effectiveCommittedState() (int64, int) {
 	}
 	count := state.effectiveCommittedCount
 	if count == 0 {
-		count = state.baseOffset + committedNativeScrollbackEntriesForApp(state.entries).PrefixEnd
+		count = state.baseOffset + len(committedTranscriptEntriesForApp(state.entries))
 	}
 	return revision, max(state.totalEntries, count)
 }

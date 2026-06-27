@@ -414,7 +414,7 @@ func TestHelpPaneRendersPlatformSuperKeyAtNarrowWidth(t *testing.T) {
 	m.helpVisible = true
 	width := 60
 	lines := m.layout().renderHelpPane(width, 18, uiThemeStyles("dark"))
-	plain := stripANSIText(strings.Join(lines, "\n"))
+	plain := stripANSIPreserve(strings.Join(lines, "\n"))
 	expected := "Alt/" + shortcutLabelsForGOOS(goruntime.GOOS).super
 	if !strings.Contains(plain, expected) {
 		t.Fatalf("expected rendered help pane to contain %q binding, got %q", expected, plain)

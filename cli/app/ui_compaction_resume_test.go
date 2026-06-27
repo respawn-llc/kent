@@ -161,7 +161,7 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 		t.Fatal("expected interrupted resumed steering cleanup to discard runtime queued work")
 	}
 	plain := stripANSIAndTrimRight(updated.View())
-	if strings.Contains(strings.ToLower(plain), "interrupted") {
-		t.Fatalf("did not expect interruption rendered as error transcript, got %q", plain)
+	if count := strings.Count(strings.ToLower(plain), "interrupted"); count != 1 {
+		t.Fatalf("expected interruption rendered only as status state, got count=%d view=%q", count, plain)
 	}
 }

@@ -1,13 +1,8 @@
 package app
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 	"io"
 	"sync"
-
-	"core/cli/app/internal/nativescrollback"
 
 	xansi "github.com/charmbracelet/x/ansi"
 )
@@ -28,85 +23,15 @@ type uiTerminalCursorPlacement struct {
 }
 
 type uiTerminalCursorState struct {
-	mu                          sync.Mutex
-	writeMu                     sync.Mutex
-	latest                      uiTerminalCursorPlacement
-	previous                    uiTerminalCursorPlacement
-	placed                      bool
-	nativeScrollbackWriteResult chan nativescrollback.TerminalWriteResult
-	nativeScrollbackStripper    nativescrollback.TerminalWriteStripper
-	nativeScrollbackFrames      []nativescrollback.TerminalWriteFrame
+	mu       sync.Mutex
+	writeMu  sync.Mutex
+	latest   uiTerminalCursorPlacement
+	previous uiTerminalCursorPlacement
+	placed   bool
 }
 
 func newUITerminalCursorState() *uiTerminalCursorState {
-	return &uiTerminalCursorState{
-		nativeScrollbackWriteResult: make(chan nativescrollback.TerminalWriteResult, 4096),
-	}
-}
-
-func (s *uiTerminalCursorState) nativeScrollbackWriteResults() <-chan nativescrollback.TerminalWriteResult {
-	if s == nil {
-		return nil
-	}
-	return s.nativeScrollbackWriteResult
-}
-
-func (s *uiTerminalCursorState) publishNativeScrollbackWriteResults(sequences []nativescrollback.Sequence, err error) {
-	if s == nil || len(sequences) == 0 || s.nativeScrollbackWriteResult == nil {
-		return
-	}
-	errText := ""
-	if err != nil {
-		errText = err.Error()
-	}
-	for _, sequence := range sequences {
-		result := nativescrollback.TerminalWriteResult{Sequence: sequence, Err: errText}
-		select {
-		case s.nativeScrollbackWriteResult <- result:
-		default:
-			// A full acknowledgement channel is a correctness failure: do not
-			// silently claim the terminal accepted output that the app cannot ack.
-			s.nativeScrollbackWriteResult <- result
-		}
-	}
-}
-
-func (s *uiTerminalCursorState) stripNativeScrollbackWriteMarkers(p []byte) (string, []nativescrollback.Sequence) {
-	if s == nil {
-		return nativescrollback.StripTerminalWriteMarkers(string(p))
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	clean, sequences, frames := s.nativeScrollbackStripper.StripExpected(string(p), s.nativeScrollbackFrames)
-	s.nativeScrollbackFrames = frames
-	return clean, sequences
-}
-
-func (s *uiTerminalCursorState) encodeNativeScrollbackWrite(write nativescrollback.TerminalWrite) (string, error) {
-	if len(write.Text) > nativescrollback.TerminalWriteMaxPayload {
-		return "", fmt.Errorf("native scrollback terminal write exceeds payload limit: %d > %d", len(write.Text), nativescrollback.TerminalWriteMaxPayload)
-	}
-	token, err := newNativeScrollbackFrameToken()
-	if err != nil {
-		return "", err
-	}
-	frame := nativescrollback.TerminalWriteFrame{
-		Sequence: write.Sequence,
-		Length:   len(write.Text),
-		Token:    token,
-	}
-	s.mu.Lock()
-	s.nativeScrollbackFrames = append(s.nativeScrollbackFrames, frame)
-	s.mu.Unlock()
-	return nativescrollback.EncodeTerminalWrite(write, token), nil
-}
-
-func newNativeScrollbackFrameToken() (string, error) {
-	var token [16]byte
-	if _, err := rand.Read(token[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(token[:]), nil
+	return &uiTerminalCursorState{}
 }
 
 func (s *uiTerminalCursorState) Set(placement uiTerminalCursorPlacement) {
@@ -284,22 +209,15 @@ func (w uiTerminalCursorWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	originalLen := len(p)
-	cleaned, nativeWriteSequences := w.state.stripNativeScrollbackWriteMarkers(p)
-	if cleaned == "" && len(nativeWriteSequences) == 0 {
-		return originalLen, nil
-	}
-	p = []byte(cleaned)
 	if w.state != nil {
 		w.state.writeMu.Lock()
 		defer w.state.writeMu.Unlock()
 	}
 	_, err := w.writePayload(p)
-	w.state.publishNativeScrollbackWriteResults(nativeWriteSequences, err)
 	if err != nil {
 		return 0, err
 	}
-	return originalLen, nil
+	return len(p), nil
 }
 
 func (w uiTerminalCursorWriter) writePayload(p []byte) (int, error) {

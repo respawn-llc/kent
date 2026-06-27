@@ -87,6 +87,7 @@ func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 		StepID:                     "step-1",
 		CommittedTranscriptChanged: true,
 		AssistantDelta:             "delta",
+		AssistantDeltaPhase:        llm.MessagePhaseFinal,
 		ReasoningDelta:             &llm.ReasoningSummaryDelta{Key: "k", Role: "reasoning", Text: "thinking"},
 		RunState:                   &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn), RunID: "run-1", Status: runtime.RunStatusRunning},
 		Background: &runtime.BackgroundShellEvent{
@@ -113,6 +114,9 @@ func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 	}
 	if view.ReasoningDelta == nil || view.ReasoningDelta.Text != "thinking" {
 		t.Fatalf("expected reasoning delta projection, got %+v", view.ReasoningDelta)
+	}
+	if view.AssistantDeltaPhase != clientui.MessagePhaseFinal {
+		t.Fatalf("expected assistant delta phase projection, got %q", view.AssistantDeltaPhase)
 	}
 	if view.RunState == nil || !view.RunState.Lifecycle.IsRunning() {
 		t.Fatalf("expected busy run state, got %+v", view.RunState)

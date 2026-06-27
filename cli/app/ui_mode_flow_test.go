@@ -378,58 +378,6 @@ func TestDeferredDetailLoadRefreshesWhenTranscriptDirty(t *testing.T) {
 	}
 }
 
-func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
-	seed := clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}
-	for i := 0; i < 200; i++ {
-		seed.Entries = append(seed.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
-	}
-	detailPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 500}
-	for i := 0; i < 250; i++ {
-		detailPage.Entries = append(detailPage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("history %03d", i)})
-	}
-	client := &recordingTranscriptRuntimeClient{loadPage: detailPage}
-	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, seed, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	m.layout().syncViewport()
-	baselineProjection := m.nativeCurrentProjection()
-	baselineRenderedProjection := m.nativeRenderedProjection()
-	baselineRenderedSnapshot := m.nativeRenderedSnapshot()
-	baselineFlushedEntryCount := m.nativeCommittedEntryCount()
-
-	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
-	detail := next.(*uiModel)
-	_ = collectCmdMessages(t, enterCmd)
-	detail.transcriptLiveDirty = true
-	next, refreshCmd := detail.Update(detailTranscriptLoadMsg{})
-	detail = next.(*uiModel)
-	if refreshCmd == nil {
-		t.Fatal("expected deferred detail load to refresh when transcript is dirty")
-	}
-	refreshed, ok := refreshCmd().(runtimeTranscriptRefreshedMsg)
-	if !ok {
-		t.Fatalf("expected runtimeTranscriptRefreshedMsg, got %T", refreshCmd())
-	}
-	next, followUp := detail.Update(refreshed)
-	if followUp != nil {
-		_ = collectCmdMessages(t, followUp)
-	}
-	updated := next.(*uiModel)
-	if !reflect.DeepEqual(updated.nativeCurrentProjection(), baselineProjection) {
-		t.Fatal("deferred detail load changed native projection state")
-	}
-	if !reflect.DeepEqual(updated.nativeRenderedProjection(), baselineRenderedProjection) {
-		t.Fatal("deferred detail load changed rendered native projection state")
-	}
-	if updated.nativeRenderedSnapshot() != baselineRenderedSnapshot {
-		t.Fatalf("deferred detail load changed rendered native snapshot: %q -> %q", baselineRenderedSnapshot, updated.nativeRenderedSnapshot())
-	}
-	if updated.nativeCommittedEntryCount() != baselineFlushedEntryCount {
-		t.Fatalf("deferred detail load changed native flushed entry count: %d -> %d", baselineFlushedEntryCount, updated.nativeCommittedEntryCount())
-	}
-}
-
 func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing.T) {
 	workspace := t.TempDir()
 	store := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
@@ -618,9 +566,7 @@ func TestStartupHydrationKeepsCompactionSummaryVerbose(t *testing.T) {
 
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)
-	if startupCmd == nil {
-		t.Fatal("expected startup native history replay command")
-	}
+	_ = startupCmd
 	seededOngoing := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
 	if !strings.Contains(seededOngoing, "context compacted for the 1st time") {
 		t.Fatalf("expected compaction notice visible in ongoing startup seed, got %q", seededOngoing)
@@ -676,9 +622,7 @@ func TestStartupHydrationKeepsDefaultCacheWarningVerbose(t *testing.T) {
 
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)
-	if startupCmd == nil {
-		t.Fatal("expected startup native history replay command")
-	}
+	_ = startupCmd
 	seededOngoing := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
 	if !strings.Contains(seededOngoing, "latest answer") {
 		t.Fatalf("expected assistant answer visible in ongoing startup seed, got %q", seededOngoing)

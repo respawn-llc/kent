@@ -1,6 +1,9 @@
 package app
 
 import (
+	"testing"
+	"time"
+
 	"core/server/runtime"
 	"core/server/runtimecontrol"
 	"core/server/runtimeview"
@@ -13,6 +16,26 @@ func closedProjectedRuntimeEvents() <-chan clientui.Event {
 	ch := make(chan clientui.Event)
 	close(ch)
 	return ch
+}
+
+func closedAskEvents() <-chan askEvent {
+	ch := make(chan askEvent)
+	close(ch)
+	return ch
+}
+
+func waitForTestCondition(t *testing.T, timeout time.Duration, label string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if condition() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", label)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func newProjectedTestUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-chan clientui.Event, askEvents <-chan askEvent, opts ...UIOption) *uiModel {

@@ -341,7 +341,7 @@ func (c uiInputController) handleRollbackSelectionKey(msg tea.KeyMsg) (tea.Model
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		m.exitAction = UIActionExit
-		if overlayCmd := m.popRollbackOverlayWithNativeReplay(true); overlayCmd != nil {
+		if overlayCmd := m.popRollbackOverlay(); overlayCmd != nil {
 			m.stopRollbackSelectionMode()
 			return m, tea.Sequence(overlayCmd, tea.Quit)
 		}

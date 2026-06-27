@@ -19,8 +19,8 @@ func (strictBlockingProbeMsg) probeUIModel(m *uiModel) {
 	m.checkTUIBlockingOperation("test blocking read", "probe")
 }
 
-func TestTUIStrictIOPanicsInsideUpdateWhenDebugEnabled(t *testing.T) {
-	m := newProjectedStaticUIModel(WithUIDebug(true))
+func TestTUIStrictIOPanicsInsideUpdate(t *testing.T) {
+	m := newProjectedStaticUIModel()
 
 	defer func() {
 		recovered := recover()

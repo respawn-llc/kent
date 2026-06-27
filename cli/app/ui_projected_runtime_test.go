@@ -430,7 +430,7 @@ func TestHydratingClientAndLiveClientConvergeWithoutDuplicateCommittedRows(t *te
 	}
 	hydratingEvents <- committedFinal
 	close(hydratingEvents)
-	liveCmd := live.runtimeAdapter().applyProjectedRuntimeEvent(committedFinal, true).cmd
+	liveCmd := live.runtimeAdapter().applyProjectedRuntimeEvent(committedFinal).cmd
 	for _, msg := range collectCmdMessages(t, liveCmd) {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect live client committed event to require hydration, got %+v", msg)

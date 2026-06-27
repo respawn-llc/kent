@@ -586,6 +586,11 @@ type StreamClient interface {
 	GenerateStream(ctx context.Context, request Request, onDelta func(text string)) (Response, error)
 }
 
+type AssistantDelta struct {
+	Text  string
+	Phase MessagePhase
+}
+
 type ReasoningSummaryDelta struct {
 	Key  string
 	Role string
@@ -593,7 +598,7 @@ type ReasoningSummaryDelta struct {
 }
 
 type StreamCallbacks struct {
-	OnAssistantDelta        func(text string)
+	OnAssistantDelta        func(delta AssistantDelta)
 	OnReasoningSummaryDelta func(delta ReasoningSummaryDelta)
 }
 

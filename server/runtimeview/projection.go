@@ -107,6 +107,7 @@ func EventFromRuntime(evt runtime.Event) clientui.Event {
 		CommittedEntryStartSet:       evt.CommittedEntryStartSet,
 		Error:                        evt.Error,
 		AssistantDelta:               evt.AssistantDelta,
+		AssistantDeltaPhase:          clientui.MessagePhase(evt.AssistantDeltaPhase),
 		UserMessage:                  evt.UserMessage,
 		UserMessageBatch:             append([]string(nil), evt.UserMessageBatch...),
 		UserMessageBatchQueueItemIDs: append([]string(nil), evt.UserMessageBatchQueueItemIDs...),

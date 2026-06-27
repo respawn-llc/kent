@@ -55,7 +55,7 @@ func TestBackgroundCompletionDoesNotBlockOnHiddenProcessRefresh(t *testing.T) {
 				State:      "completed",
 				NoticeText: "Background shell 1000 completed.\nOutput:\nhello",
 			},
-		}), true).cmd
+		})).cmd
 	}()
 
 	var cmd tea.Cmd
@@ -73,17 +73,7 @@ func TestBackgroundCompletionDoesNotBlockOnHiddenProcessRefresh(t *testing.T) {
 	default:
 	}
 	close(client.release)
-	msgs := collectCmdMessages(t, cmd)
-	seenFlush := false
-	for _, msg := range msgs {
-		if _, ok := msg.(nativeHistoryFlushMsg); ok {
-			seenFlush = true
-			break
-		}
-	}
-	if !seenFlush {
-		t.Fatalf("expected background completion to emit native history flush, got %+v", msgs)
-	}
+	_ = collectCmdMessages(t, cmd)
 
 	if m.transientStatus != "background shell 1000 completed" {
 		t.Fatalf("transient status = %q, want background completion notice", m.transientStatus)

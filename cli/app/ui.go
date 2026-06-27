@@ -64,12 +64,13 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 	if !m.hasRuntimeClient() {
 		m.reviewerEnabled = strings.TrimSpace(m.reviewerMode) != "" && strings.TrimSpace(m.reviewerMode) != "off"
 	}
-	var startupNativeHistoryCmd tea.Cmd
 	if m.hasRuntimeClient() {
 		seedView := mainView.Session
 		_ = m.runtimeAdapter().applyProjectedSessionMetadata(seedView)
 		_ = m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, m.startupRuntimeTranscript(), clientui.TranscriptRecoveryCauseNone)
-		startupNativeHistoryCmd = m.requestRuntimeBootstrapTranscriptSync()
+		if startupCmd := m.requestRuntimeBootstrapTranscriptSync(); startupCmd != nil {
+			m.startupCmds = append(m.startupCmds, startupCmd)
+		}
 		m.runtimeTranscriptBusy = false
 	} else {
 		for _, entry := range m.initialTranscript {
@@ -83,10 +84,6 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 		m.transcriptBaseOffset = 0
 		m.transcriptTotalEntries = len(m.transcriptEntries)
 		m.refreshRollbackCandidates()
-		startupNativeHistoryCmd = m.syncNativeHistoryFromTranscript()
-	}
-	if startupNativeHistoryCmd != nil {
-		m.startupCmds = append(m.startupCmds, startupNativeHistoryCmd)
 	}
 	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
 		m.statusGitBackgroundInFlight = true
@@ -147,13 +144,11 @@ func (m *uiModel) applyRunLoggerDiagnostic(diag runLoggerDiagnostic) tea.Cmd {
 }
 
 func (m *uiModel) handleRuntimeEventBatch(events []clientui.Event) (*uiModel, tea.Cmd) {
-	flushSequenceBefore := m.nativeLastScheduledFlushSequence()
 	m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.runtime_batch", map[string]string{
 		"session_id":             strings.TrimSpace(m.sessionID),
 		"mode":                   string(m.view.Mode()),
 		"event_count":            strconv.Itoa(len(events)),
 		"pending_runtime_events": strconv.Itoa(len(m.pendingRuntimeEvents)),
-		"wait_after_flush":       strconv.FormatUint(m.waitRuntimeEventAfterFlushSequence, 10),
 		"wait_after_hydration":   strconv.FormatBool(m.waitRuntimeEventAfterHydration),
 	}))
 	result := m.runtimeAdapter().applyProjectedRuntimeEventsBatch(events)
@@ -164,32 +159,13 @@ func (m *uiModel) handleRuntimeEventBatch(events []clientui.Event) (*uiModel, te
 		cmd = sequenceCmds(cmd, m.inputController().resumeQueuedInputsAfterIdleRuntime())
 	}
 	m.layout().syncViewport()
-	if !result.transcriptMutated {
-		streamCmd := m.syncNativeStreamingScrollback()
-		deferredCmd := m.drainDeferredCommittedDeliveryIfUnblocked()
-		cmd = sequenceCmds(cmd, streamCmd, deferredCmd)
-	}
 	if result.awaitsHydration {
 		m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.runtime_batch_pause", map[string]string{
 			"session_id":             strings.TrimSpace(m.sessionID),
 			"mode":                   string(m.view.Mode()),
 			"pending_runtime_events": strconv.Itoa(len(m.pendingRuntimeEvents)),
-			"native_flush_sequence":  strconv.FormatUint(m.nativeLastScheduledFlushSequence(), 10),
 		}))
 		m.waitRuntimeEventAfterHydration = true
-	}
-	if m.nativeLastScheduledFlushSequence() != flushSequenceBefore {
-		m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.runtime_batch_wait_flush", map[string]string{
-			"session_id":             strings.TrimSpace(m.sessionID),
-			"mode":                   string(m.view.Mode()),
-			"pending_runtime_events": strconv.Itoa(len(m.pendingRuntimeEvents)),
-			"native_flush_sequence":  strconv.FormatUint(m.nativeLastScheduledFlushSequence(), 10),
-		}))
-		m.waitRuntimeEventAfterFlushSequence = m.nativeLastScheduledFlushSequence()
-		if result.awaitsHydration {
-			return m, cmd
-		}
-		return m, cmd
 	}
 	if result.awaitsHydration {
 		return m, cmd
@@ -201,12 +177,11 @@ func (m *uiModel) waitRuntimeEventCmd() tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	if m.waitRuntimeEventAfterFlushSequence != 0 || m.waitRuntimeEventAfterHydration {
+	if m.waitRuntimeEventAfterHydration {
 		m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.wait_runtime_event_blocked", map[string]string{
 			"session_id":             strings.TrimSpace(m.sessionID),
 			"mode":                   string(m.view.Mode()),
 			"pending_runtime_events": strconv.Itoa(len(m.pendingRuntimeEvents)),
-			"wait_after_flush":       strconv.FormatUint(m.waitRuntimeEventAfterFlushSequence, 10),
 			"wait_after_hydration":   strconv.FormatBool(m.waitRuntimeEventAfterHydration),
 		}))
 		return nil
@@ -232,7 +207,6 @@ func (m *uiModel) Init() tea.Cmd {
 		m.waitRuntimeEventCmd(),
 		waitAskEvent(m.askEvents),
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
-		waitNativeTerminalWriteResult(m.nativeTerminalWriteResults()),
 		tea.SetWindowTitle(sessionTitle(m.sessionName)),
 		tea.WindowSize(),
 	}
@@ -314,6 +288,7 @@ func (m *uiModel) forwardToView(msg tea.Msg) {
 	}
 	if prevMode != m.view.Mode() && m.surface().isTranscript() {
 		m.activeSurface = surfaceForTranscriptMode(m.view.Mode())
+		m.syncRendererOutputGate()
 	}
 	if prevMode != m.view.Mode() && m.view.Mode() == tui.ModeDetail && m.hasRuntimeClient() {
 		m.primeDetailTranscriptFromCurrentTail()
@@ -332,12 +307,16 @@ func (m *uiModel) forwardToView(msg tea.Msg) {
 }
 
 func (m *uiModel) Close() {
-	if m == nil || m.pathReferenceSearch == nil {
+	if m == nil {
 		return
 	}
-	m.pathReferenceSearch.Stop()
-	m.pathReferenceSearch = nil
-	m.pathReferenceEvents = nil
+	m.closeNativeSurface()
+	m.syncRendererOutputGate()
+	if m.pathReferenceSearch != nil {
+		m.pathReferenceSearch.Stop()
+		m.pathReferenceSearch = nil
+		m.pathReferenceEvents = nil
+	}
 }
 
 func (m *uiModel) Transition() UITransition {

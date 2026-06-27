@@ -7,7 +7,6 @@ import (
 	"core/shared/clientui"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -198,46 +197,6 @@ func TestApplyRuntimeTranscriptPageSkipsDuplicateDetailRefresh(t *testing.T) {
 	}
 }
 
-func TestApplyRuntimeTranscriptPageInDetailModeDoesNotRebuildNativeHistoryState(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
-	ongoingPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}
-	for i := 0; i < 200; i++ {
-		ongoingPage.Entries = append(ongoingPage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail %03d", 300+i)})
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, ongoingPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-	baselineProjection := m.nativeCurrentProjection()
-	baselineRenderedProjection := m.nativeRenderedProjection()
-	baselineRenderedSnapshot := m.nativeRenderedSnapshot()
-	baselineFlushedEntryCount := m.nativeCommittedEntryCount()
-
-	m.forwardToView(tui.SetModeMsg{Mode: tui.ModeDetail, SkipDetailWarmup: true})
-	detailPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 500}
-	for i := 0; i < 250; i++ {
-		detailPage.Entries = append(detailPage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("history %03d", i)})
-	}
-	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{Cursor: 4096}, detailPage, clientui.TranscriptRecoveryCauseNone); cmd != nil {
-		_ = collectCmdMessages(t, cmd)
-	}
-
-	if !reflect.DeepEqual(m.nativeCurrentProjection(), baselineProjection) {
-		t.Fatal("detail transcript apply unexpectedly changed native projection state")
-	}
-	if !reflect.DeepEqual(m.nativeRenderedProjection(), baselineRenderedProjection) {
-		t.Fatal("detail transcript apply unexpectedly changed rendered native projection state")
-	}
-	if m.nativeRenderedSnapshot() != baselineRenderedSnapshot {
-		t.Fatalf("detail transcript apply changed rendered native snapshot: %q -> %q", baselineRenderedSnapshot, m.nativeRenderedSnapshot())
-	}
-	if m.nativeCommittedEntryCount() != baselineFlushedEntryCount {
-		t.Fatalf("detail transcript apply changed native flushed entry count: %d -> %d", baselineFlushedEntryCount, m.nativeCommittedEntryCount())
-	}
-}
-
 func TestApplyRuntimeTranscriptPageInDetailModeAdvancesRevisionEvenWhenPageMatches(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.termWidth = 100
@@ -300,9 +259,7 @@ func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenCommittedT
 	if m.sawAssistantDelta {
 		t.Fatal("expected same-revision authoritative page to clear assistant delta flag")
 	}
-	if cmd == nil {
-		t.Fatal("expected native sync command after authoritative page apply")
-	}
+	_ = cmd
 }
 
 func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenPageCommitsLiveAssistantBeforeCommittedSuffix(t *testing.T) {
@@ -345,9 +302,7 @@ func TestApplyRuntimeTranscriptPageAcceptsSameRevisionEmptyOngoingWhenPageCommit
 	if got := m.transcriptEntries[2].Role; got != "reviewer_status" {
 		t.Fatalf("suffix role = %q, want reviewer_status", got)
 	}
-	if cmd == nil {
-		t.Fatal("expected native sync command after authoritative page apply")
-	}
+	_ = cmd
 }
 
 func TestApplyRuntimeTranscriptPageRejectsSameRevisionEmptyOngoingWhenOnlyOlderAssistantMatchesLiveText(t *testing.T) {
@@ -414,7 +369,8 @@ func TestApplyRuntimeTranscriptPageRejectsStaleAuthoritativePageWhileDeferredCom
 		CommittedEntryCount:        1,
 		UserMessage:                "steered message",
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
-	}, true).cmd
+	}).
+		cmd
 	if got := len(m.deferredCommittedTail); got != 1 {
 		t.Fatalf("expected deferred committed user tail before stale hydrate, got %d", got)
 	}
@@ -444,7 +400,8 @@ func TestApplyRuntimeTranscriptPageRejectsStaleAuthoritativePageWhileDeferredCom
 			Text:  "done",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-	}, true).cmd
+	}).
+		cmd
 	for _, msg := range collectCmdMessages(t, cmd) {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect assistant commit after stale hydrate rejection to require hydration, got %+v", msg)
@@ -527,7 +484,7 @@ func TestApplyRuntimeTranscriptPageRejectsEqualRevisionTailReplacementAfterLiveA
 		t.Fatalf("transcript revision = %d, want 10", got)
 	}
 
-	if cmd, mutated, needsHydration := m.runtimeAdapter().applyProjectedTranscriptEntries(clientui.Event{Kind: clientui.EventAssistantMessage, TranscriptEntries: []clientui.ChatEntry{{Role: "assistant", Text: "live append"}}}, false); cmd != nil || !mutated || needsHydration {
+	if cmd, mutated, needsHydration := m.runtimeAdapter().applyProjectedTranscriptEntries(clientui.Event{Kind: clientui.EventAssistantMessage, TranscriptEntries: []clientui.ChatEntry{{Role: "assistant", Text: "live append"}}}); cmd != nil || !mutated || needsHydration {
 		t.Fatalf("expected live append without extra command, mutated=%t needsHydration=%t cmd=%v", mutated, needsHydration, cmd)
 	}
 	if !m.transcriptLiveDirty {
@@ -786,9 +743,7 @@ func TestProjectedAssistantMessageAdvancesTranscriptRevisionForReplayDedupe(t *t
 			Phase: string(llm.MessagePhaseFinal),
 		}},
 	}
-	if cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd; cmd == nil {
-		t.Fatal("expected native replay command for projected assistant message")
-	}
+	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(evt).cmd
 	if got := m.transcriptRevision; got != 11 {
 		t.Fatalf("transcript revision after live append = %d, want 11", got)
 	}
@@ -796,7 +751,7 @@ func TestProjectedAssistantMessageAdvancesTranscriptRevisionForReplayDedupe(t *t
 		t.Fatalf("transcript entry count after live append = %d, want 2", got)
 	}
 
-	if cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd; cmd != nil {
+	if cmd := m.runtimeAdapter().applyProjectedRuntimeEvent(evt).cmd; cmd != nil {
 		if msg := cmd(); msg != nil {
 			t.Fatalf("expected replayed assistant message to be skipped, got %T", msg)
 		}

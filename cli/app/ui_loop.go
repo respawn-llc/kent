@@ -12,7 +12,8 @@ import (
 
 func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, logger *runLogger, commandRegistry *commands.Registry, initialPrompt string, initialPromptHistoryRecorded bool, initialInput string, sessionName string, modelContractLocked bool, configuredModelName string, statusConfig uiStatusConfig, startupUpdateNotice bool) (tea.Model, error) {
 	terminalCursor := newUITerminalCursorState()
-	options := mainUIProgramOptionsWithOutput(active, terminalCursor, os.Stdout)
+	rendererOutputGate := newUIRendererOutputGateState()
+	options := mainUIProgramOptionsWithOutput(active, terminalCursor, rendererOutputGate, os.Stdout)
 	runtimeClient := wiring.runtimeClient
 	if runtimeClient == nil {
 		return nil, errors.New("runtime client is required")
@@ -56,7 +57,9 @@ func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, l
 		WithUIStatusConfig(statusConfig),
 		WithUIStartupUpdateNotice(startupUpdateNotice),
 		WithUITerminalCursorState(terminalCursor),
+		WithUIRendererOutputGateState(rendererOutputGate),
 		WithUITerminalFocusState(wiring.terminalFocus),
+		WithUINativeSurfaceWriter(os.Stdout),
 	)
 	if closable, ok := model.(interface{ Close() }); ok {
 		defer closable.Close()
@@ -72,10 +75,17 @@ func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, l
 	return finalModel, nil
 }
 
-func mainUIProgramOptionsWithOutput(active config.Settings, terminalCursor *uiTerminalCursorState, output io.Writer) []tea.ProgramOption {
+func mainUIProgramOptionsWithOutput(active config.Settings, terminalCursor *uiTerminalCursorState, rendererOutputGate *uiRendererOutputGateState, output io.Writer) []tea.ProgramOption {
 	options := []tea.ProgramOption{tea.WithFilter(terminalCursorProgramFilter(terminalCursor)), tea.WithReportFocus()}
+	rendererOutput := output
 	if terminalCursor != nil {
-		options = append(options, tea.WithOutput(newUITerminalCursorWriter(output, terminalCursor)))
+		rendererOutput = newUITerminalCursorWriter(rendererOutput, terminalCursor)
+	}
+	if rendererOutputGate != nil {
+		rendererOutput = newUIRendererOutputGateWriter(rendererOutput, rendererOutputGate)
+	}
+	if rendererOutput != nil && rendererOutput != output {
+		options = append(options, tea.WithOutput(rendererOutput))
 	}
 	return options
 }

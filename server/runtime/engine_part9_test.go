@@ -500,7 +500,12 @@ func TestStreamingEmitsReasoningSummaryDeltaEvents(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	var reasoningTexts []string
+	var assistantDeltaPhases []llm.MessagePhase
 	for _, evt := range events {
+		if evt.Kind == EventAssistantDelta {
+			assistantDeltaPhases = append(assistantDeltaPhases, evt.AssistantDeltaPhase)
+			continue
+		}
 		if evt.Kind != EventReasoningDelta || evt.ReasoningDelta == nil {
 			continue
 		}
@@ -508,6 +513,9 @@ func TestStreamingEmitsReasoningSummaryDeltaEvents(t *testing.T) {
 	}
 	if len(reasoningTexts) != 2 || reasoningTexts[0] != "Plan" || reasoningTexts[1] != "Plan summary" {
 		t.Fatalf("unexpected reasoning delta events: %+v", reasoningTexts)
+	}
+	if len(assistantDeltaPhases) != 1 || assistantDeltaPhases[0] != llm.MessagePhaseFinal {
+		t.Fatalf("unexpected assistant delta phases: %+v", assistantDeltaPhases)
 	}
 }
 

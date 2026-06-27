@@ -31,7 +31,8 @@ func TestProjectedCommittedGoalFeedbackAppendsImmediately(t *testing.T) {
 			CondensedText: `Goal set: "ship feature"`,
 			Visibility:    clientui.EntryVisibilityAll,
 		}},
-	}, false)
+	})
+
 	if cmd != nil || !mutated || needsHydration {
 		t.Fatalf("expected direct goal feedback append, mutated=%t needsHydration=%t cmd=%v", mutated, needsHydration, cmd)
 	}
@@ -74,7 +75,8 @@ func TestProjectedAssistantMessageUsesCommittedEntryStartWhenPersistedToolCallsS
 			Text:  "working",
 			Phase: string(llm.MessagePhaseCommentary),
 		}},
-	}, false)
+	})
+
 	if cmd != nil || !mutated || needsHydration {
 		t.Fatalf("expected direct live append using explicit committed start, mutated=%t needsHydration=%t cmd=%v", mutated, needsHydration, cmd)
 	}
@@ -117,7 +119,8 @@ func TestProjectedToolCallStartedUsesCommittedEntryStartWithinSharedCommittedCou
 			ToolCallID: "call-1",
 			ToolCall:   &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
 		}},
-	}, false)
+	})
+
 	if cmd != nil || !mutated || needsHydration {
 		t.Fatalf("expected direct tool-call append using explicit committed start, mutated=%t needsHydration=%t cmd=%v", mutated, needsHydration, cmd)
 	}
@@ -160,7 +163,8 @@ func TestProjectedAssistantMessageUpdatesDetailViewImmediatelyWhenCommitted(t *t
 			Text:  "committed after",
 			Phase: string(llm.MessagePhaseFinal),
 		}},
-	}, true).cmd
+	}).
+		cmd
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
@@ -221,7 +225,8 @@ func TestProjectedReviewerCompletedUpdatesDetailViewImmediatelyWhenCommitted(t *
 			Role: "reviewer_status",
 			Text: "Supervisor ran and applied 2 suggestions.",
 		}},
-	}, true).cmd
+	}).
+		cmd
 	msgs := collectCmdMessages(t, cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
@@ -297,16 +302,13 @@ func TestHandleProjectedRuntimeEventSkipsReplayedToolCallStartWithSameToolCallID
 			ToolCallID: "call-1",
 			ToolCall:   &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
 		}},
-	}, true).cmd
+	}).
+		cmd
 
 	if got := len(m.transcriptEntries); got != 2 {
 		t.Fatalf("expected replayed tool call start skipped, got %+v", m.transcriptEntries)
 	}
-	if cmd != nil {
-		if _, ok := cmd().(nativeHistoryFlushMsg); ok {
-			t.Fatal("expected no native replay for replayed tool call start")
-		}
-	}
+	_ = cmd
 }
 
 func TestHandleProjectedRuntimeEventCommittedToolCallStartReplacesMatchingTransientToolRow(t *testing.T) {
@@ -337,11 +339,10 @@ func TestHandleProjectedRuntimeEventCommittedToolCallStartReplacesMatchingTransi
 			ToolCallID: "call-1",
 			ToolCall:   &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
 		}},
-	}, true).cmd
+	}).
+		cmd
 
-	if cmd == nil {
-		t.Fatal("expected native history sync after committed tool call replaced transient row")
-	}
+	_ = cmd
 	if got := len(m.transcriptEntries); got != 2 {
 		t.Fatalf("transcript entry count = %d, want 2", got)
 	}
@@ -372,7 +373,8 @@ func TestHandleProjectedRuntimeEventAppendsDistinctToolCallStartByToolCallID(t *
 			ToolCallID: "call-2",
 			ToolCall:   &clientui.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"},
 		}},
-	}, true).cmd
+	}).
+		cmd
 
 	if got := len(m.transcriptEntries); got != 2 {
 		t.Fatalf("expected distinct tool call id to append, got %+v", m.transcriptEntries)
@@ -402,7 +404,8 @@ func TestHandleProjectedRuntimeEventDoesNotSuppressReviewerStatusEntry(t *testin
 			Role: "reviewer_status",
 			Text: "Supervisor ran and applied 2 suggestions.",
 		}},
-	}, true).cmd
+	}).
+		cmd
 
 	if got := len(m.transcriptEntries); got != 2 {
 		t.Fatalf("expected reviewer status appended immediately, got %+v", m.transcriptEntries)
@@ -435,7 +438,8 @@ func TestHandleProjectedRuntimeEventSkipsHydratedReviewerStatusEntry(t *testing.
 			Role: "reviewer_status",
 			Text: "Supervisor ran and applied 2 suggestions.",
 		}},
-	}, true).cmd
+	}).
+		cmd
 
 	if got := len(m.transcriptEntries); got != 2 {
 		t.Fatalf("expected hydrated reviewer status to be skipped, got %+v", m.transcriptEntries)
@@ -457,7 +461,8 @@ func TestHandleProjectedRuntimeEventDoesNotAppendPrePersistCompactionStatusEntry
 			Mode:  "auto",
 			Count: 1,
 		},
-	}), true).cmd
+	})).
+		cmd
 
 	if got := len(m.transcriptEntries); got != 1 {
 		t.Fatalf("expected pre-persist compaction status to avoid transcript mutation, got %+v", m.transcriptEntries)
@@ -489,7 +494,8 @@ func TestProjectedCompactionStatusClearsCompactingWithoutTranscriptNotice(t *tes
 			Mode:  "auto",
 			Count: 1,
 		},
-	}), true).cmd)
+	})).
+		cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect compaction status to trigger transcript hydration, got %+v", msgs)
@@ -532,7 +538,8 @@ func TestProjectedCompactionStatusDoesNotDuplicateCommittedSummary(t *testing.T)
 			Mode:  "auto",
 			Count: 1,
 		},
-	}), true).cmd
+	})).
+		cmd
 
 	loaded := m.view.LoadedTranscriptEntries()
 	if got, want := len(loaded), 2; got != want {
@@ -576,7 +583,8 @@ func TestProjectedCompactionStatusDoesNotAppendOngoingNoticeInDetailMode(t *test
 			Mode:  "auto",
 			Count: 1,
 		},
-	}), true).cmd
+	})).
+		cmd
 
 	loaded := m.view.LoadedTranscriptEntries()
 	if got, want := len(loaded), 1; got != want {
@@ -612,7 +620,8 @@ func TestProjectedCompactionStatusUsesPersistedLocalEntryAsTranscriptSource(t *t
 			Mode:  "auto",
 			Count: 1,
 		},
-	}), true).cmd)
+	})).
+		cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect pre-persist compaction status to trigger transcript hydration, got %+v", msgs)
@@ -634,7 +643,8 @@ func TestProjectedCompactionStatusUsesPersistedLocalEntryAsTranscriptSource(t *t
 			Role: "compaction_notice",
 			Text: "context compacted for the 1st time",
 		}},
-	}, true).cmd)
+	}).
+		cmd)
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 			t.Fatalf("did not expect persisted compaction notice to trigger transcript hydration, got %+v", msgs)
@@ -715,7 +725,7 @@ func TestProjectedCompactionReplacementEntriesAndNoticeAppendWithoutHydration(t 
 			}},
 		},
 	} {
-		msgs := collectCmdMessages(t, m.runtimeAdapter().applyProjectedRuntimeEvent(evt, true).cmd)
+		msgs := collectCmdMessages(t, m.runtimeAdapter().applyProjectedRuntimeEvent(evt).cmd)
 		for _, msg := range msgs {
 			if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
 				t.Fatalf("did not expect projected compaction transcript entries to trigger hydration, got %+v", msgs)
@@ -753,7 +763,8 @@ func TestHandleProjectedRuntimeEventAppendsLocalEntryImmediately(t *testing.T) {
 			Text:          "Supervisor suggested:\n1. Add verification notes.",
 			CondensedText: "Supervisor made 1 suggestion.",
 		}},
-	}, true).cmd
+	}).
+		cmd
 
 	if got := len(m.transcriptEntries); got != 1 {
 		t.Fatalf("expected local entry appended immediately, got %+v", m.transcriptEntries)
@@ -795,7 +806,8 @@ func TestLocalEntryAddedRemainsVisibleAfterHydrationSync(t *testing.T) {
 			Text:          "Supervisor suggested:\n1. Add verification notes.",
 			CondensedText: "Supervisor made 1 suggestion.",
 		}},
-	}, true).cmd
+	}).
+		cmd
 
 	hydrated := clientui.TranscriptPage{
 		SessionID:    "session-1",
@@ -848,7 +860,8 @@ func TestLocalFirstEntryHydrationAcknowledgesNoticeIDWithoutDroppingDistinctEntr
 		TranscriptRevision:  2,
 		CommittedEntryCount: 1,
 		TranscriptEntries:   []clientui.ChatEntry{{Role: "system", Text: "same feedback", NoticeID: "notice-1"}},
-	}, true).cmd
+	}).
+		cmd
 
 	hydrated := clientui.TranscriptPage{
 		SessionID:    "session-1",
@@ -881,7 +894,8 @@ func TestHandleProjectedRuntimeEventAppendsCleanupAndBackgroundEntriesImmediatel
 		Kind:   runtime.EventInFlightClearFailed,
 		StepID: "step-1",
 		Error:  "mark in-flight false",
-	}), true).cmd
+	})).
+		cmd
 	_ = m.runtimeAdapter().applyProjectedRuntimeEvent(projectRuntimeEvent(runtime.Event{
 		Kind: runtime.EventBackgroundUpdated,
 		Background: &runtime.BackgroundShellEvent{
@@ -891,7 +905,8 @@ func TestHandleProjectedRuntimeEventAppendsCleanupAndBackgroundEntriesImmediatel
 			NoticeText:  "Background shell 1000 completed.\nNo output",
 			CompactText: "Background shell 1000 completed",
 		},
-	}), true).cmd
+	})).
+		cmd
 
 	if len(m.transcriptEntries) != 2 {
 		t.Fatalf("expected two immediate transcript entries, got %+v", m.transcriptEntries)

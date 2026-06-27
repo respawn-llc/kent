@@ -41,3 +41,26 @@ func TestOpenAIClientGenerateStreamDoesNotReplayFinalTextAsDelta(t *testing.T) {
 		t.Fatalf("expected only incremental stream deltas, got %+v", deltas)
 	}
 }
+
+func TestOpenAIClientLegacyStreamTransportEmitsUnknownDeltaPhase(t *testing.T) {
+	client := NewOpenAIClient(streamingOnlyTransport{})
+	req := Request{Model: "gpt-5"}
+
+	var deltas []AssistantDelta
+	_, err := client.GenerateStreamWithEvents(context.Background(), req, StreamCallbacks{
+		OnAssistantDelta: func(delta AssistantDelta) {
+			deltas = append(deltas, delta)
+		},
+	})
+	if err != nil {
+		t.Fatalf("generate stream failed: %v", err)
+	}
+	if len(deltas) != 2 {
+		t.Fatalf("expected two deltas, got %+v", deltas)
+	}
+	for _, delta := range deltas {
+		if delta.Phase != "" {
+			t.Fatalf("expected unknown phase for legacy text-only stream delta, got %+v", deltas)
+		}
+	}
+}
