@@ -2,7 +2,6 @@ package app
 
 import (
 	"io"
-	"strings"
 	"sync"
 
 	xansi "github.com/charmbracelet/x/ansi"
@@ -12,6 +11,7 @@ type uiRendererOutputGateState struct {
 	mu                      sync.Mutex
 	suppressRendererWrites  bool
 	physicalAltScreenActive bool
+	altScreenParser         rendererOutputGateAltScreenParser
 }
 
 func newUIRendererOutputGateState() *uiRendererOutputGateState {
@@ -42,7 +42,8 @@ func (s *uiRendererOutputGateState) shouldDrop(payload []byte) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if rendererOutputGatePayloadEntersAltScreen(payload) {
+	_, transition := s.altScreenParser.preview(payload)
+	if transition.entered {
 		return false
 	}
 	return s.suppressRendererWrites &&
@@ -56,7 +57,8 @@ func (s *uiRendererOutputGateState) observeWrittenPayload(payload []byte) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	switch rendererOutputGateAltScreenStateAfterPayload(payload, s.physicalAltScreenActive) {
+	transition := s.altScreenParser.apply(payload)
+	switch transition.state {
 	case rendererOutputGateAltScreenActive:
 		s.physicalAltScreenActive = true
 	case rendererOutputGateAltScreenInactive:
@@ -111,34 +113,126 @@ func (w uiRendererOutputGateFileWriter) Fd() uintptr {
 	return w.file.Fd()
 }
 
-type rendererOutputGateAltScreenState uint8
+type rendererOutputGateAltScreenMode uint8
 
 const (
-	rendererOutputGateAltScreenUnchanged rendererOutputGateAltScreenState = iota
+	rendererOutputGateAltScreenUnchanged rendererOutputGateAltScreenMode = iota
 	rendererOutputGateAltScreenActive
 	rendererOutputGateAltScreenInactive
 )
 
-func rendererOutputGatePayloadEntersAltScreen(payload []byte) bool {
-	return strings.Contains(string(payload), xansi.SetModeAltScreenSaveCursor)
+type rendererOutputGateAltScreenTransition struct {
+	entered bool
+	state   rendererOutputGateAltScreenMode
 }
 
-func rendererOutputGateAltScreenStateAfterPayload(payload []byte, current bool) rendererOutputGateAltScreenState {
-	text := string(payload)
-	enterIndex := strings.LastIndex(text, xansi.SetModeAltScreenSaveCursor)
-	exitIndex := strings.LastIndex(text, xansi.ResetModeAltScreenSaveCursor)
-	switch {
-	case enterIndex < 0 && exitIndex < 0:
-		return rendererOutputGateAltScreenUnchanged
-	case enterIndex > exitIndex:
-		return rendererOutputGateAltScreenActive
-	case exitIndex > enterIndex:
-		return rendererOutputGateAltScreenInactive
-	case current:
-		return rendererOutputGateAltScreenActive
-	default:
-		return rendererOutputGateAltScreenInactive
+type rendererOutputGateAltScreenParser struct {
+	state       rendererOutputGateAltScreenParserState
+	private     bool
+	param       int
+	paramSet    bool
+	hasMode1049 bool
+}
+
+type rendererOutputGateAltScreenParserState uint8
+
+const (
+	rendererOutputGateAltScreenParserGround rendererOutputGateAltScreenParserState = iota
+	rendererOutputGateAltScreenParserEscape
+	rendererOutputGateAltScreenParserCSI
+)
+
+func (p rendererOutputGateAltScreenParser) preview(payload []byte) (rendererOutputGateAltScreenParser, rendererOutputGateAltScreenTransition) {
+	transition := rendererOutputGateAltScreenTransition{}
+	for _, b := range payload {
+		if state := p.advance(b); state != rendererOutputGateAltScreenUnchanged {
+			transition.state = state
+			if state == rendererOutputGateAltScreenActive {
+				transition.entered = true
+			}
+		}
 	}
+	return p, transition
+}
+
+func (p *rendererOutputGateAltScreenParser) apply(payload []byte) rendererOutputGateAltScreenTransition {
+	next, transition := p.preview(payload)
+	*p = next
+	return transition
+}
+
+func (p *rendererOutputGateAltScreenParser) advance(b byte) rendererOutputGateAltScreenMode {
+	switch p.state {
+	case rendererOutputGateAltScreenParserGround:
+		if b == '\x1b' {
+			p.state = rendererOutputGateAltScreenParserEscape
+		} else if b == 0x9b {
+			p.resetCSI()
+		}
+	case rendererOutputGateAltScreenParserEscape:
+		switch b {
+		case '[':
+			p.resetCSI()
+		case '\x1b':
+			p.state = rendererOutputGateAltScreenParserEscape
+		default:
+			p.reset()
+		}
+	case rendererOutputGateAltScreenParserCSI:
+		return p.advanceCSI(b)
+	}
+	return rendererOutputGateAltScreenUnchanged
+}
+
+func (p *rendererOutputGateAltScreenParser) advanceCSI(b byte) rendererOutputGateAltScreenMode {
+	switch {
+	case b == '?' && !p.private && !p.paramSet && !p.hasMode1049:
+		p.private = true
+	case b >= '0' && b <= '9':
+		p.paramSet = true
+		p.param = p.param*10 + int(b-'0')
+	case b == ';':
+		p.finishParam()
+	case b >= 0x40 && b <= 0x7e:
+		p.finishParam()
+		state := rendererOutputGateAltScreenUnchanged
+		if p.private && p.hasMode1049 {
+			if b == 'h' {
+				state = rendererOutputGateAltScreenActive
+			} else if b == 'l' {
+				state = rendererOutputGateAltScreenInactive
+			}
+		}
+		p.reset()
+		return state
+	case b == '\x1b':
+		p.state = rendererOutputGateAltScreenParserEscape
+	default:
+		if b < 0x20 {
+			return rendererOutputGateAltScreenUnchanged
+		}
+	}
+	return rendererOutputGateAltScreenUnchanged
+}
+
+func (p *rendererOutputGateAltScreenParser) finishParam() {
+	if p.paramSet && p.param == 1049 {
+		p.hasMode1049 = true
+	}
+	p.param = 0
+	p.paramSet = false
+}
+
+func (p *rendererOutputGateAltScreenParser) resetCSI() {
+	p.state = rendererOutputGateAltScreenParserCSI
+	p.private = false
+	p.param = 0
+	p.paramSet = false
+	p.hasMode1049 = false
+}
+
+func (p *rendererOutputGateAltScreenParser) reset() {
+	*p = rendererOutputGateAltScreenParser{}
 }
 
 func rendererOutputGateAllowsSuppressedControlWrite(payload []byte) bool {

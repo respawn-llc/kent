@@ -82,6 +82,34 @@ func TestRendererOutputGateAllowsBatchedAltScreenEnterFrameWhileSuppressed(t *te
 	}
 }
 
+func TestRendererOutputGateTracksSplitAltScreenExitWhileSuppressed(t *testing.T) {
+	state := newUIRendererOutputGateState()
+	state.SetSuppressRendererWrites(true)
+
+	var out bytes.Buffer
+	writer := newUIRendererOutputGateWriter(&out, state)
+	if _, err := writer.Write([]byte(xansi.SetModeAltScreenSaveCursor)); err != nil {
+		t.Fatalf("write alt-screen enter: %v", err)
+	}
+	for _, chunk := range [][]byte{[]byte("\x1b[?10"), []byte("49"), []byte("l")} {
+		if _, err := writer.Write(chunk); err != nil {
+			t.Fatalf("write split alt-screen exit chunk %q: %v", string(chunk), err)
+		}
+	}
+	if state.PhysicalAltScreenActive() {
+		t.Fatal("split alt-screen exit did not clear physical alt-screen state")
+	}
+
+	out.Reset()
+	payload := []byte("\rnormal frame" + xansi.EraseLineRight + "\r")
+	if _, err := writer.Write(payload); err != nil {
+		t.Fatalf("write suppressed normal frame: %v", err)
+	}
+	if got := out.String(); got != "" {
+		t.Fatalf("normal-buffer renderer payload leaked after split alt-screen exit: %q", got)
+	}
+}
+
 func TestRendererOutputGatePreservesTerminalFileDescriptor(t *testing.T) {
 	file := &rendererOutputGateTerminalFile{fd: 42}
 	writer := newUIRendererOutputGateWriter(file, newUIRendererOutputGateState())

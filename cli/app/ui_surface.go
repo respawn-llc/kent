@@ -124,20 +124,22 @@ func (r uiPresentationFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult 
 		if m.nativePhysicalAltScreenActive() {
 			return handledUIFeatureUpdate(m, nativeSurfaceResizeRehydrateRetryCmd(msg))
 		}
-		m.nativeSurface.Close()
+		surfaceReady := m.nativeSurface.ready(msg.width, msg.height)
 		m.nativeResizeRehydrateActive = true
-		if !m.nativeSurface.ensure(msg.width, msg.height) {
+		if !surfaceReady {
+			m.nativeSurface.Close()
+		}
+		if !surfaceReady && !m.nativeSurface.ensure(msg.width, msg.height) {
 			m.nativeResizeRehydrateActive = false
 			m.nativeResizeRehydrateToken = 0
 			m.nativeResizeRehydrateSettled = false
 			return handledUIFeatureUpdate(m, nil)
 		}
-		err := m.rehydrateNativeStableFromCurrentTranscript()
 		m.nativeResizeRehydrateActive = false
 		m.nativeResizeRehydrateToken = 0
 		m.nativeResizeRehydrateSettled = false
-		if err != nil {
-			return handledUIFeatureUpdate(m, m.nativeSurfaceErrorCmd("resize rehydrate native stable", err))
+		if err := m.flushNativeSurfaceHoldoff(); err != nil {
+			return handledUIFeatureUpdate(m, m.nativeSurfaceErrorCmd("resize flush native stable", err))
 		}
 		return handledUIFeatureUpdate(m, nil)
 	}

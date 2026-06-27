@@ -304,7 +304,7 @@ func TestNativeFinalAssistantCommitFinishesStreamWithoutDuplicateStableWrite(t *
 	}
 }
 
-func TestNativeSurfaceResizeRecreatesAndRehydratesFromTranscriptState(t *testing.T) {
+func TestNativeSurfaceResizeRecreatesWithoutReplayingStableTranscript(t *testing.T) {
 	var out bytes.Buffer
 	m := newNativeSurfaceTestModel(&out)
 	seedNativeSurfaceTranscript(m, []tui.TranscriptEntry{
@@ -324,12 +324,12 @@ func TestNativeSurfaceResizeRecreatesAndRehydratesFromTranscriptState(t *testing
 		t.Fatal("expected resize to recreate native stable buffer")
 	}
 	plain := stripANSIAndTrimRight(out.String())
-	if !strings.Contains(plain, "resize rehydrate prompt") {
-		t.Fatalf("resize rehydrate did not write current committed transcript, got %q", plain)
+	if strings.Contains(plain, "resize rehydrate prompt") {
+		t.Fatalf("resize replayed already-emitted committed transcript, got %q", plain)
 	}
 }
 
-func TestNativeSurfaceResizeRehydratesOnlyAfterDebounceMessage(t *testing.T) {
+func TestNativeSurfaceResizeSettlesWithoutReplayingStableTranscript(t *testing.T) {
 	var out bytes.Buffer
 	m := newNativeSurfaceTestModel(&out)
 	seedNativeSurfaceTranscript(m, []tui.TranscriptEntry{
@@ -369,8 +369,8 @@ func TestNativeSurfaceResizeRehydratesOnlyAfterDebounceMessage(t *testing.T) {
 		t.Fatalf("resize rehydrate token = %d, want cleared after successful rehydrate", m.nativeResizeRehydrateToken)
 	}
 	plain := stripANSIAndTrimRight(out.String())
-	if !strings.Contains(plain, "debounced resize prompt") {
-		t.Fatalf("settled resize did not rehydrate stable transcript, got %q", plain)
+	if strings.Contains(plain, "debounced resize prompt") {
+		t.Fatalf("settled resize replayed already-emitted transcript, got %q", plain)
 	}
 }
 
@@ -403,8 +403,8 @@ func TestNativeSurfaceResizeRehydrateIgnoresStaleDebounceMessages(t *testing.T) 
 	next, _ = m.Update(nativeSurfaceResizeRehydrateMsg{token: secondToken, width: 90, height: 30})
 	m = next.(*uiModel)
 	plain := stripANSIAndTrimRight(out.String())
-	if !strings.Contains(plain, "latest resize prompt") {
-		t.Fatalf("latest resize did not rehydrate stable transcript, got %q", plain)
+	if strings.Contains(plain, "latest resize prompt") {
+		t.Fatalf("latest resize replayed already-emitted transcript, got %q", plain)
 	}
 }
 
@@ -581,8 +581,8 @@ func TestNativeSurfaceResizeRehydrateWaitsForReturnFromDetail(t *testing.T) {
 	next, _ = m.Update(resizeMsg)
 	m = next.(*uiModel)
 	plain := stripANSIAndTrimRight(out.String())
-	if !strings.Contains(plain, "detail resize prompt") {
-		t.Fatalf("return from detail did not rehydrate pending resize transcript, got %q", plain)
+	if strings.Contains(plain, "detail resize prompt") {
+		t.Fatalf("return from detail replayed already-emitted transcript, got %q", plain)
 	}
 	if m.nativeResizeRehydrateToken != 0 {
 		t.Fatalf("resize token = %d, want cleared after return rehydrate", m.nativeResizeRehydrateToken)
@@ -622,8 +622,8 @@ func TestNativeSurfaceResizeReturnBeforeDebounceDoesNotRehydrateEarly(t *testing
 	next, _ = m.Update(nativeSurfaceResizeRehydrateMsg{token: token, width: 100, height: 30})
 	m = next.(*uiModel)
 	plain := stripANSIAndTrimRight(out.String())
-	if !strings.Contains(plain, "early return resize prompt") {
-		t.Fatalf("debounce tick after return did not rehydrate transcript, got %q", plain)
+	if strings.Contains(plain, "early return resize prompt") {
+		t.Fatalf("debounce tick after return replayed already-emitted transcript, got %q", plain)
 	}
 }
 

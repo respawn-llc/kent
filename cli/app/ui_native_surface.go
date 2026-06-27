@@ -158,11 +158,11 @@ func (m *uiModel) ensureNativeSurface(width int, height int) bool {
 	if !m.nativeSurface.ensure(width, height) {
 		return false
 	}
-	if recreate && shouldRehydrate {
+	if recreate && shouldRehydrate && !wasInitialized {
 		if err := m.rehydrateNativeStableFromCurrentTranscript(); err != nil {
 			m.nativeLiveAreaError = err
 			m.logf("native.stable.rehydrate err=%q", err.Error())
-		} else if !wasInitialized {
+		} else {
 			if strings.TrimSpace(m.view.OngoingStreamingText()) == "" {
 				m.nativeAssistantStreamIncomplete = false
 			}
