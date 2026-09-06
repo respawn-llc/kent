@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/goalview"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
@@ -109,7 +110,7 @@ func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) *c
 		return nil
 	}
 	return &clientui.TranscriptGoalStatus{Goal: &clientui.TranscriptGoal{
-		Goal:      GoalCoreFromSessionState(goal),
+		Goal:      goalview.CoreFromSessionState(goal),
 		Suspended: suspended,
 	}}
 }
@@ -327,7 +328,7 @@ func transcriptGoalStatus(update runtime.GoalStatusUpdate) clientui.TranscriptGo
 		return clientui.TranscriptGoalStatus{}
 	}
 	return clientui.TranscriptGoalStatus{Goal: &clientui.TranscriptGoal{
-		Goal: GoalCoreFromSessionState(&update.State),
+		Goal: goalview.CoreFromSessionState(&update.State),
 	}}
 }
 

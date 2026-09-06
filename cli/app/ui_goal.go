@@ -45,14 +45,14 @@ func (m *uiModel) workflowSessionActive() bool {
 }
 
 func goalIsActive(goal *clientui.RuntimeGoal) bool {
-	return goal != nil && goal.Goal != nil && goal.Status == clientui.RuntimeGoalStatusActive
+	return goal != nil && goal.Goal != nil && goal.Goal.Status == clientui.RuntimeGoalStatusActive
 }
 
 func goalIsPresent(goal *clientui.RuntimeGoal) bool {
 	if goal == nil || goal.Goal == nil {
 		return false
 	}
-	switch goal.Status {
+	switch goal.Goal.Status {
 	case clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused:
 		return true
 	default:
@@ -328,7 +328,7 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 		if msg.mutationSerial != m.goalRuntimeMutationSerial {
 			return followUpCmd
 		}
-		m.goal.pending = nil
+		m.goal.pending = msg.mutation.Pending
 		if goal := goalCoreFromMutationResult(msg.mutation); goal != nil {
 			m.goal.goal = goal
 		}

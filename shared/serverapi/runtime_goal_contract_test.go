@@ -45,6 +45,28 @@ func TestRuntimeGoalShowResponseRejectsUnknownGoalStatus(t *testing.T) {
 	}
 }
 
+func TestRuntimeGoalMutationResponseCarriesClosedAuthoritativeClear(t *testing.T) {
+	response := RuntimeGoalMutationResponse{Result: clientui.GoalMutationResult{
+		Kind: clientui.GoalMutationResultAuthoritativeClear,
+	}}
+	if err := response.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	wire, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded struct {
+		Result clientui.GoalMutationResult `json:"result"`
+	}
+	if err := json.Unmarshal(wire, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Result.Kind != clientui.GoalMutationResultAuthoritativeClear {
+		t.Fatalf("result kind = %q, want authoritative clear", decoded.Result.Kind)
+	}
+}
+
 func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
 	err := (RuntimeSubmitUserShellCommandRequest{
 		SessionID: "session-1",

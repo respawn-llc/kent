@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,9 +60,10 @@ type WorktreeSessionBlocker struct {
 }
 
 type Store struct {
-	persistenceRoot string
-	db              *sql.DB
-	queries         *sqlitegen.Queries
+	persistenceRoot  string
+	db               *sql.DB
+	queries          *sqlitegen.Queries
+	goalObservations *goalObservationBroker
 }
 
 type sessionMetadataDocument struct {
@@ -204,9 +206,10 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		persistenceRoot: trimmedRoot,
-		db:              db,
-		queries:         sqlitegen.New(db),
+		persistenceRoot:  trimmedRoot,
+		db:               db,
+		queries:          sqlitegen.New(db),
+		goalObservations: newGoalObservationBroker(),
 	}
 	if err := store.BackfillProjectKeys(context.Background()); err != nil {
 		_ = db.Close()
@@ -2149,6 +2152,27 @@ func (s *Store) WorkflowTaskIDForSession(ctx context.Context, sessionID string) 
 	return &taskID, nil
 }
 
+func (s *Store) SessionWorkflowStatus(
+	ctx context.Context,
+	sessionID string,
+) (*clientui.WorkflowSessionStatus, error) {
+	taskID, err := s.WorkflowTaskIDForSession(ctx, sessionID)
+	if err != nil || taskID == nil {
+		return nil, err
+	}
+	task, err := s.queries.GetTask(ctx, *taskID)
+	if err != nil {
+		return nil, fmt.Errorf("get Session workflow Task: %w", err)
+	}
+	if task.WorkflowID.IsZero() {
+		return nil, fmt.Errorf("Session workflow Task %q has no Workflow ID", *taskID)
+	}
+	return &clientui.WorkflowSessionStatus{
+		TaskID:     *taskID,
+		WorkflowID: task.WorkflowID,
+	}, nil
+}
+
 func (s *Store) resolveSessionExecutionTargetRow(ctx context.Context, sessionID string) (sqlitegen.GetSessionExecutionTargetByIDRow, error) {
 	if s == nil || s.queries == nil {
 		return sqlitegen.GetSessionExecutionTargetByIDRow{}, errors.New("metadata store is required")
@@ -2941,7 +2965,16 @@ func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot ses
 	if o.store == nil {
 		return nil
 	}
-	return o.store.upsertSessionSnapshot(ctx, snapshot)
+	if err := o.store.upsertSessionSnapshot(ctx, snapshot); err != nil {
+		return err
+	}
+	status, err := goalProjection(&snapshot.Meta)
+	if err != nil {
+		log.Printf("publish Goal observation for Session %q: %v", snapshot.Meta.SessionID, err)
+		return nil
+	}
+	o.store.goalObservations.publish(snapshot.Meta.SessionID, status)
+	return nil
 }
 
 func (o sessionObserver) ObserveEventLogReconciliation(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {

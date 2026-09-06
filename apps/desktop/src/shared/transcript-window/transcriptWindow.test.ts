@@ -202,6 +202,25 @@ describe("bounded transcript window", () => {
     }
   });
 
+  it("begins in-place recovery by invalidating only active page admission", () => {
+    const window = new TranscriptWindow();
+    open(window, page([row(30)], 300));
+    const request = visit(window, "older");
+    const before = window.snapshot.items;
+
+    expect(window.dispatch({ kind: "recovery-begin" }).kind).toBe("accepted");
+    expect(window.snapshot.items).toBe(before);
+    expect(window.snapshot.older).toEqual({ kind: "idle", cursor: 300 });
+    expect(
+      window.dispatch({
+        kind: "page-success",
+        request,
+        page: page([row(20)], 200, 300),
+      }).kind,
+    ).toBe("obsolete");
+    expect(visit(window, "older").admission).not.toBe(request.admission);
+  });
+
   it("installs an initial hydration tail and closes the outstanding opening permit", () => {
     const window = new TranscriptWindow();
     const tail: ChatTranscriptPayloadByKind["hydration"]["TailSegment"] = {

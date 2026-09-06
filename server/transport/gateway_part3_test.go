@@ -7,6 +7,7 @@ import (
 	"core/server/core"
 	"core/server/session"
 	remoteclient "core/shared/client"
+	"core/shared/clientui"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
@@ -14,6 +15,7 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"encoding/json"
@@ -216,6 +218,111 @@ func createGatewayAuthoritativeSession(t *testing.T, appCore *core.Core) *sessio
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 	return store
+}
+
+func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	store := createGatewayAuthoritativeSession(t, appCore)
+	if _, _, err := store.SetGoal("ship the dormant projection", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("ParseSessionID: %v", err)
+	}
+	remote, err := remoteclient.DialRemoteURLForProject(
+		t.Context(),
+		"ws"+server.URL[len("http"):],
+		appCore.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("DialRemoteURLForProject: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	contextResponse, err := remote.GetChatContext(t.Context(), serverapi.NewSessionChatContextRequest(sessionID))
+	if err != nil {
+		t.Fatalf("GetChatContext: %v", err)
+	}
+	response, err := remote.GetSessionMainView(t.Context(), serverapi.SessionMainViewRequest{
+		SessionID: sessionID.String(),
+	})
+	if err != nil {
+		t.Fatalf("GetSessionMainView: %v", err)
+	}
+	if err := response.Validate(); err != nil {
+		t.Fatalf("dormant Main View contract: %v", err)
+	}
+	status := response.MainView.Status
+	if status.ReviewerFrequency == "" || status.ThinkingLevel == "" || status.CompactionMode == "" {
+		t.Fatalf("dormant status strings = %+v", status)
+	}
+	if status.ContextUsage.WindowTokens != int(contextResponse.Context.ContextWindowTokens) ||
+		status.ContextUsage.UsedTokens != int(contextResponse.Context.UsedTokens) ||
+		status.CompactionCount != int(contextResponse.Context.CompletedCompactionCount) {
+		t.Fatalf("Main View Context = %+v, Context response = %+v", status.ContextUsage, contextResponse.Context)
+	}
+	if status.Goal == nil || status.Goal.Goal == nil ||
+		status.Goal.Goal.Status != clientui.RuntimeGoalStatusActive ||
+		status.Goal.Goal.Objective != "ship the dormant projection" {
+		t.Fatalf("dormant active Goal = %+v", status.Goal)
+	}
+	if response.MainView.Activity.State != clientui.RuntimeActivityUnavailable {
+		t.Fatalf("dormant activity = %+v, want unavailable", response.MainView.Activity)
+	}
+	wantTarget, err := appCore.MetadataStore().ResolveSessionExecutionTarget(t.Context(), sessionID.String())
+	if err != nil {
+		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
+	}
+	if response.MainView.Session.ExecutionTarget != wantTarget {
+		t.Fatalf("execution target = %+v, want %+v", response.MainView.Session.ExecutionTarget, wantTarget)
+	}
+}
+
+func TestGatewayGoalObservationHydratesDormantSessionAndPublishesMutation(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	store := createGatewayAuthoritativeSession(t, appCore)
+	remote, err := remoteclient.DialRemoteURLForProject(
+		t.Context(),
+		"ws"+server.URL[len("http"):],
+		appCore.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("DialRemoteURLForProject: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+	subscription, err := remote.SubscribeGoalObservation(t.Context(), serverapi.GoalObserveRequest{
+		SessionID: store.Meta().SessionID,
+	})
+	if err != nil {
+		t.Fatalf("SubscribeGoalObservation: %v", err)
+	}
+	defer func() { _ = subscription.Close() }()
+	hydration, err := subscription.Next(t.Context())
+	if err != nil {
+		t.Fatalf("read hydration: %v", err)
+	}
+	if hydration.Kind != clientui.GoalObservationHydration || hydration.Status.Goal != nil {
+		t.Fatalf("hydration = %+v", hydration)
+	}
+	goal, _, err := store.SetGoal("observe through Gateway", session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	update, err := subscription.Next(t.Context())
+	if err != nil {
+		t.Fatalf("read update: %v", err)
+	}
+	if update.Sequence != 2 ||
+		update.Kind != clientui.GoalObservationUpdate ||
+		update.Status.Goal == nil ||
+		update.Status.Goal.ID != goal.ID {
+		t.Fatalf("update = %+v, want Goal %q", update, goal.ID)
+	}
 }
 
 func dialGateway(t *testing.T, server *httptest.Server) *websocket.Conn {

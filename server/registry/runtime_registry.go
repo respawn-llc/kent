@@ -45,15 +45,12 @@ type authorityRuntimeEntry struct {
 	ref         runtimeids.SessionResourceRef
 	engine      *runtime.Engine
 	sessionFeed *sessionFeedSequencer
-	retain      func() (io.Closer, error)
 	mainView    atomic.Pointer[clientui.RuntimeMainView]
 
 	publicationMu sync.Mutex
 	mu            sync.Mutex
 	lifecycle     authorityRuntimeEntryLifecycle
 	feedReady     bool
-	nextRetention uint64
-	retentions    map[uint64]io.Closer
 }
 
 type authorityRuntimeEntryLifecycle uint8
@@ -96,8 +93,6 @@ func (r *RuntimeRegistry) ResourceReady(
 		ref:         ref,
 		engine:      engine,
 		sessionFeed: newSessionFeedSequencer(newTranscriptSubscriptionBroker()),
-		retain:      retain,
-		retentions:  make(map[uint64]io.Closer),
 	}
 	r.authorityMu.Lock()
 	if existing := r.authorityEntryBySession(sessionID); existing != nil {
@@ -156,8 +151,6 @@ func (r *RuntimeRegistry) ResourceDraining(_ context.Context, resource sessionru
 		return nil
 	}
 	entry.lifecycle = authorityRuntimeEntryDraining
-	retentions := entry.retentions
-	entry.retentions = nil
 	entry.mu.Unlock()
 	entry.mainView.Store(nil)
 	entry.publicationMu.Unlock()
@@ -182,17 +175,13 @@ func (r *RuntimeRegistry) ResourceDraining(_ context.Context, resource sessionru
 		entry.sessionFeed.Close(io.EOF)
 	}
 	r.updateAggregateRuntimeActivityState(sessionID, false)
-	var retentionErr error
-	for _, retention := range retentions {
-		retentionErr = errors.Join(retentionErr, retention.Close())
-	}
 	r.authorityMu.Lock()
 	if r.authorityEntryBySession(sessionID) == entry {
 		r.authorityBySession.Delete(sessionID)
 		r.signalAuthorityChangeLocked()
 	}
 	r.authorityMu.Unlock()
-	return errors.Join(retentionErr, err)
+	return err
 }
 
 func (r *RuntimeRegistry) authorityEntryBySession(sessionID string) *authorityRuntimeEntry {
@@ -244,41 +233,13 @@ func (r *RuntimeRegistry) withCurrentAuthorityEntry(ref runtimeids.SessionResour
 	return entry.lifecycle == authorityRuntimeEntryReady && entry.feedReady && mutate(entry)
 }
 
-func (e *authorityRuntimeEntry) retainSubscription() (uint64, error) {
-	if e == nil || e.retain == nil {
-		return 0, fmt.Errorf("authority runtime subscription is unavailable: %w", serverapi.ErrStreamUnavailable)
+func (e *authorityRuntimeEntry) transcriptAttachable() bool {
+	if e == nil {
+		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.lifecycle != authorityRuntimeEntryReady || !e.feedReady {
-		return 0, fmt.Errorf("authority runtime subscription is not ready: %w", serverapi.ErrStreamUnavailable)
-	}
-	retention, err := e.retain()
-	if err != nil {
-		return 0, err
-	}
-	e.nextRetention++
-	id := e.nextRetention
-	if id == 0 {
-		_ = retention.Close()
-		panic("authority runtime subscription retention id overflow")
-	}
-	e.retentions[id] = retention
-	return id, nil
-}
-
-func (e *authorityRuntimeEntry) releaseSubscription(id uint64) error {
-	if e == nil || id == 0 {
-		return nil
-	}
-	e.mu.Lock()
-	retention := e.retentions[id]
-	delete(e.retentions, id)
-	e.mu.Unlock()
-	if retention == nil {
-		return nil
-	}
-	return retention.Close()
+	return e.lifecycle == authorityRuntimeEntryReady && e.feedReady
 }
 
 func (r *RuntimeRegistry) WithExecutionTargetResolver(resolver func(context.Context, string) (*clientui.SessionExecutionTarget, error)) *RuntimeRegistry {
@@ -676,15 +637,11 @@ func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req se
 }
 
 func (r *RuntimeRegistry) subscribeAuthorityTranscript(ctx context.Context, id string, entry *authorityRuntimeEntry) (serverapi.TranscriptSubscription, error) {
-	retentionID, err := entry.retainSubscription()
-	if err != nil {
-		return nil, err
-	}
-	releaseRetention := func() {
-		_ = entry.releaseSubscription(retentionID)
+	if !entry.transcriptAttachable() {
+		return nil, fmt.Errorf("authority runtime subscription is not ready: %w", serverapi.ErrStreamUnavailable)
 	}
 	var sub *transcriptSubscription
-	err = entry.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
+	err := entry.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
 		tailPage, pageErr := entry.engine.TranscriptNewestSegmentPage()
 		if pageErr != nil {
 			return fmt.Errorf("read transcript hydration tail segment: %w", pageErr)
@@ -696,12 +653,12 @@ func (r *RuntimeRegistry) subscribeAuthorityTranscript(ctx context.Context, id s
 		return subscribeErr
 	})
 	if err != nil {
-		releaseRetention()
+		if !entry.transcriptAttachable() {
+			return nil, fmt.Errorf("authority runtime subscription became unavailable: %w", serverapi.ErrStreamUnavailable)
+		}
 		return nil, err
 	}
-	return &notifyingSessionTranscriptSubscription{TranscriptSubscription: sub, onClose: func() {
-		releaseRetention()
-	}}, nil
+	return sub, nil
 }
 
 func (r *RuntimeRegistry) PromptPendingScope(scope sessionruntime.ExecutionScope, req askquestion.AskQuestionRequest, createdAt time.Time) error {
@@ -854,26 +811,4 @@ func (r *RuntimeRegistry) updateAggregateRuntimeActivityState(sessionID string, 
 	if observer != nil {
 		observer(active)
 	}
-}
-
-type notifyingSessionTranscriptSubscription struct {
-	serverapi.TranscriptSubscription
-	once    sync.Once
-	onClose func()
-}
-
-func (s *notifyingSessionTranscriptSubscription) Close() error {
-	if s == nil {
-		return nil
-	}
-	var err error
-	if s.TranscriptSubscription != nil {
-		err = s.TranscriptSubscription.Close()
-	}
-	s.once.Do(func() {
-		if s.onClose != nil {
-			s.onClose()
-		}
-	})
-	return err
 }

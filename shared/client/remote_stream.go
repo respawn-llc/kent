@@ -145,6 +145,23 @@ func (c *Remote) SubscribeSessionTranscript(ctx context.Context, req serverapi.T
 	}), nil
 }
 
+func (c *Remote) SubscribeGoalObservation(ctx context.Context, req serverapi.GoalObserveRequest) (serverapi.GoalObservationSubscription, error) {
+	conn, route, err := c.subscribeRPC(
+		ctx,
+		protocol.MethodGoalObserve,
+		"subscribe-goal-observation",
+		req,
+		req.SessionID,
+		true,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return newRemoteSubscriptionWithError(conn, route, func(params protocol.GoalObservationEventParams) (clientui.GoalObservation, error) {
+		return params.Observation, params.Observation.Validate()
+	}), nil
+}
+
 func (c *Remote) SubscribeQuestionHistory(ctx context.Context, req serverapi.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error) {
 	conn, route, err := c.subscribeRPC(ctx, protocol.MethodSessionQuestionHistorySubscribe, "subscribe-question-history", req, req.SessionID, true)
 	if err != nil {

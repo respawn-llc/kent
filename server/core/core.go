@@ -542,6 +542,13 @@ func (s *Core) SessionTranscriptClient() apicontract.SessionTranscriptService {
 	return s.safeBundles().Runtime.sessionTranscript
 }
 
+func (s *Core) GoalObservationClient() apicontract.GoalObservationService {
+	if s == nil {
+		return nil
+	}
+	return s.MetadataStore()
+}
+
 func (s *Core) SessionLaunchClient() apicontract.SessionLaunchService {
 	if s == nil {
 		return nil

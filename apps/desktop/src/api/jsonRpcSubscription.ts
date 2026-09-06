@@ -26,9 +26,10 @@ export async function runJsonSubscription(
     params: JsonValue;
     handler: RpcEventHandler;
     signal: AbortSignal;
+    establishmentTimeoutMs?: number | null;
   }>,
 ): Promise<void> {
-  const { socket, method, params, handler, signal } = input;
+  const { socket, method, params, handler, signal, establishmentTimeoutMs = 30_000 } = input;
   let terminal: Readonly<
     | { kind: "complete"; code: number; message: string; reason: string | null }
     | { kind: "error"; error: Error }
@@ -79,7 +80,9 @@ export async function runJsonSubscription(
   };
   try {
     socket.addEventListener("message", listener);
-    await sendSocketRequest(socket, method, params, { timeoutMilliseconds: 30_000 });
+    await sendSocketRequest(socket, method, params, {
+      timeoutMilliseconds: establishmentTimeoutMs,
+    });
     try {
       handler.onOpen?.();
     } catch (cause) {

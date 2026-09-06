@@ -112,6 +112,19 @@ func (g *Gateway) serveSessionTranscriptSubscription(conn rpcwire.Conn, ctx cont
 	})
 }
 
+func (g *Gateway) serveGoalObservationSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
+	serveGatewaySubscription(
+		conn,
+		ctx,
+		route,
+		req,
+		g.deps.GoalObservationClient().SubscribeGoalObservation,
+		func(observation clientui.GoalObservation) protocol.GoalObservationEventParams {
+			return protocol.GoalObservationEventParams{Observation: observation}
+		},
+	)
+}
+
 func (g *Gateway) serveQuestionHistorySubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
 	serveGatewaySubscription(
 		conn,

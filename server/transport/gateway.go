@@ -102,6 +102,7 @@ type GatewaySessionDependencies interface {
 	SessionLifecycleClient() apicontract.SessionLifecycleService
 	SessionRuntimeClient() apicontract.SessionRuntimeService
 	SessionTranscriptClient() apicontract.SessionTranscriptService
+	GoalObservationClient() apicontract.GoalObservationService
 	SessionLaunchClientForProjectWorkspace(context.Context, string, string) (apicontract.SessionLaunchService, error)
 	SessionLaunchClientForProjectWorkspaceID(context.Context, string, string) (apicontract.SessionLaunchService, error)
 	SessionChatContextOwner() chatcontext.SessionOwner
@@ -187,6 +188,7 @@ type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.
 
 var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
 	protocol.MethodSessionSubscribeTranscript:            (*Gateway).serveSessionTranscriptSubscription,
+	protocol.MethodGoalObserve:                           (*Gateway).serveGoalObservationSubscription,
 	protocol.MethodSessionQuestionHistorySubscribe:       (*Gateway).serveQuestionHistorySubscription,
 	protocol.MethodAttentionNotificationSubscribe:        (*Gateway).serveAttentionNotificationSubscription,
 	protocol.MethodAttentionSessionNotificationSubscribe: (*Gateway).serveSessionAttentionNotificationSubscription,

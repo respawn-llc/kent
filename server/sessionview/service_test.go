@@ -44,6 +44,22 @@ type staticExecutionTargetResolver struct {
 	target clientui.SessionExecutionTarget
 }
 
+func newDormantMainViewTestService(
+	t *testing.T,
+	store *session.Store,
+	target clientui.SessionExecutionTarget,
+) *Service {
+	t.Helper()
+	settings := config.DefaultOnboardingSettings()
+	return NewService(
+		newTestSessionResolver(store),
+		nil,
+		staticExecutionTargetResolver{target: target},
+	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
+		app: config.App{Settings: settings},
+	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+}
+
 func TestValidateSessionTranscriptPageResponseUsesInvariantFailurePolicy(t *testing.T) {
 	response := serverapi.SessionTranscriptPageResponse{
 		Transcript: clientui.TranscriptPage{
@@ -161,7 +177,7 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	}
 	appendSessionViewMessage(t, store, "step-1", session.MessageRoleUser, "hello", nil, nil)
 	appendSessionViewMessage(t, store, "step-1", session.MessageRoleAssistant, "final answer", sessionViewMessagePhasePointer(session.MessagePhaseFinal), nil)
-	svc := NewService(newTestSessionResolver(store), nil, nil)
+	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
 	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)
@@ -181,12 +197,73 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 		*resp.MainView.Status.LastCommittedAssistantFinalAnswer != "final answer" {
 		t.Fatalf("unexpected dormant status: %+v", resp.MainView.Status)
 	}
-	if resp.MainView.Status.Goal == nil || resp.MainView.Status.Goal.Status != clientui.RuntimeGoalStatusActive || resp.MainView.Status.Goal.Objective != "ship dormant goal" {
+	if resp.MainView.Status.Goal == nil ||
+		resp.MainView.Status.Goal.Goal == nil ||
+		resp.MainView.Status.Goal.Goal.Status != clientui.RuntimeGoalStatusActive ||
+		resp.MainView.Status.Goal.Goal.Objective != "ship dormant goal" {
 		t.Fatalf("unexpected dormant goal status: %+v", resp.MainView.Status.Goal)
 	}
 	if resp.MainView.Activity.State != clientui.RuntimeActivityUnavailable ||
 		resp.MainView.Activity.Reviewer != clientui.ReviewerActivityInactive {
 		t.Fatalf("dormant activity = %+v, want unavailable", resp.MainView.Activity)
+	}
+}
+
+func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	executionRoot := t.TempDir()
+	store := newSessionViewStore(t, t.TempDir(), "workspace", workspaceRoot)
+	if _, err := store.SetUsageState(&session.UsageState{InputTokens: 25_000}); err != nil {
+		t.Fatalf("SetUsageState: %v", err)
+	}
+	if err := store.SetSessionContextFacts(2, true); err != nil {
+		t.Fatalf("SetSessionContextFacts: %v", err)
+	}
+	settings := config.DefaultOnboardingSettings()
+	settings.Reviewer.Frequency = "edits"
+	settings.ThinkingLevel = "high"
+	settings.ModelContextWindow = 100_000
+	settings.ContextCompactionThresholdTokens = 75_000
+	settings.CompactionMode = config.CompactionModeLocal
+	target := availableSessionExecutionTarget(executionRoot)
+	service := NewService(
+		newTestSessionResolver(store),
+		nil,
+		staticExecutionTargetResolver{target: target},
+	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
+		app: config.App{Settings: settings},
+	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
+
+	response, err := service.GetSessionMainView(t.Context(), serverapi.SessionMainViewRequest{
+		SessionID: store.Meta().SessionID,
+	})
+	if err != nil {
+		t.Fatalf("GetSessionMainView: %v", err)
+	}
+	if err := response.Validate(); err != nil {
+		t.Fatalf("dormant Main View contract: %v", err)
+	}
+	status := response.MainView.Status
+	if status.ReviewerFrequency != "edits" ||
+		status.ThinkingLevel != "high" ||
+		status.CompactionMode != string(config.CompactionModeLocal) {
+		t.Fatalf("dormant status settings = %+v", status)
+	}
+	if status.ContextUsage.UsedTokens != 25_000 ||
+		status.ContextUsage.WindowTokens != 100_000 ||
+		status.CompactionCount != 2 {
+		t.Fatalf("dormant Context status = %+v", status)
+	}
+	if status.Goal == nil || status.Goal.Goal != nil ||
+		status.Goal.Availability == nil ||
+		*status.Goal.Availability != clientui.GoalAvailabilityAvailable {
+		t.Fatalf("dormant no-Goal projection = %+v", status.Goal)
+	}
+	if response.MainView.Activity.State != clientui.RuntimeActivityUnavailable {
+		t.Fatalf("dormant activity = %+v, want unavailable", response.MainView.Activity)
+	}
+	if response.MainView.Session.ExecutionTarget != target {
+		t.Fatalf("execution target = %+v, want %+v", response.MainView.Session.ExecutionTarget, target)
 	}
 }
 
@@ -199,7 +276,7 @@ func TestServiceGetSessionMainViewIncludesExecutionTarget(t *testing.T) {
 		CwdRelpath:       ".",
 		EffectiveWorkdir: dir,
 	}
-	svc := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target})
+	svc := newDormantMainViewTestService(t, store, target)
 
 	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
@@ -231,7 +308,7 @@ func TestServiceWithCacheWarningModeChangesSubsequentDormantReads(t *testing.T) 
 		Scope:  session.CacheScopeConversation,
 		Reason: session.CacheWarningReasonNonPostfix,
 	})
-	svc := NewService(newTestSessionResolver(store), nil, nil)
+	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
 
 	first, err := svc.SessionTranscriptTailEntries(context.Background(), store.Meta().SessionID)
 	if err != nil {
@@ -255,7 +332,7 @@ func TestServiceSessionTranscriptTailEntriesObservesRevisionAdvance(t *testing.T
 	dir := t.TempDir()
 	store := newSessionViewStore(t, dir, "ws", dir)
 	appendSessionViewMessage(t, store, "11111111-1111-4111-8111-111111111111", session.MessageRoleAssistant, "line 0", sessionViewMessagePhasePointer(session.MessagePhaseFinal), nil)
-	svc := NewService(newTestSessionResolver(store), nil, nil)
+	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
 
 	first, err := svc.SessionTranscriptTailEntries(context.Background(), store.Meta().SessionID)
 	if err != nil {
@@ -286,7 +363,7 @@ func TestServiceDormantHistoryReplacementStartsNewTranscriptSegment(t *testing.T
 		Mode:   session.CompactionModeAuto,
 	})
 
-	svc := NewService(newTestSessionResolver(store), nil, nil)
+	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
 
 	entries, err := svc.SessionTranscriptTailEntries(context.Background(), store.Meta().SessionID)
 	if err != nil {
@@ -319,7 +396,7 @@ func TestServiceSessionTranscriptTailEntriesKeepsDormantPersistedCompactionSumma
 		Text:       sessionViewStringPointer("condensed summary"),
 	})
 	appendSessionViewMessage(t, store, "step-1", session.MessageRoleDeveloper, "Last user message before handoff\n\ncarry this forward", nil, sessionViewMessageTypePointer(session.MessageTypeCompactionPreservedUserMessage))
-	svc := NewService(newTestSessionResolver(store), nil, nil)
+	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
 
 	entries, err := svc.SessionTranscriptTailEntries(context.Background(), store.Meta().SessionID)
 	if err != nil {
@@ -356,7 +433,7 @@ func TestServiceDormantReadsDoNotMutatePersistedEvents(t *testing.T) {
 		t.Fatalf("read events file before: %v", err)
 	}
 
-	svc := NewService(newTestSessionResolver(store), nil, nil)
+	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
 	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)

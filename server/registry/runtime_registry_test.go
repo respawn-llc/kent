@@ -58,17 +58,6 @@ func (retention registryRetention) Close() error {
 	return nil
 }
 
-type registryBlockingRetention struct {
-	closeStarted chan struct{}
-	release      <-chan struct{}
-}
-
-func (retention *registryBlockingRetention) Close() error {
-	close(retention.closeStarted)
-	<-retention.release
-	return nil
-}
-
 const (
 	registryTestRunID  = "11111111-1111-4111-8111-111111111111"
 	registryTestStepID = "22222222-2222-4222-8222-222222222222"
@@ -345,19 +334,23 @@ func newRegistryRuntime(t *testing.T, client llm.Client, toolRegistry *askquesti
 	return engine
 }
 
-func TestAuthorityRuntimeDrainClosesSubscriptionsAndReleasesRetention(t *testing.T) {
+func TestAuthorityRuntimeDrainClosesSubscriptionsWithoutRetainingRuntime(t *testing.T) {
 	registry := NewRuntimeRegistry()
 	engine := newRegistryTestRuntime(t, nil)
-	retentionClosed := make(registryRetention)
+	retainCalls := 0
 	ref := registryTestResourceRef(engine.SessionID())
 	if err := registry.ResourceReady(context.Background(), registryTestResource(ref), engine, func() (io.Closer, error) {
-		return retentionClosed, nil
+		retainCalls++
+		return make(registryRetention), nil
 	}); err != nil {
 		t.Fatalf("register authority runtime resource: %v", err)
 	}
 	sub, err := registry.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{SessionID: engine.SessionID()})
 	if err != nil {
 		t.Fatalf("subscribe authority transcript: %v", err)
+	}
+	if retainCalls != 0 {
+		t.Fatalf("transcript observation retained Runtime %d time(s), want none", retainCalls)
 	}
 	if err := registry.ResourceDraining(context.Background(), registryTestResource(ref)); err != nil {
 		t.Fatalf("drain authority runtime resource: %v", err)
@@ -381,10 +374,70 @@ func TestAuthorityRuntimeDrainClosesSubscriptionsAndReleasesRetention(t *testing
 		transcriptPayload[clientui.RuntimeReadModelUpdate](t, lastMessage).Activity.State != clientui.RuntimeActivityUnavailable {
 		t.Fatalf("last transcript message before EOF = %+v, want unavailable runtime read-model update", lastMessage)
 	}
-	select {
-	case <-retentionClosed:
-	default:
-		t.Fatal("registry drain did not release transcript retention")
+}
+
+func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := newRegistryTestRuntime(t, nil)
+	ref := registryTestResourceRef(engine.SessionID())
+	registerResource(t, registry, ref, engine)
+	hydrationResolverStarted := make(chan struct{})
+	releaseHydrationResolver := make(chan struct{})
+	registry.WithExecutionTargetResolver(func(context.Context, string) (*clientui.SessionExecutionTarget, error) {
+		close(hydrationResolverStarted)
+		<-releaseHydrationResolver
+		return nil, nil
+	})
+	type subscriptionResult struct {
+		sub serverapi.TranscriptSubscription
+		err error
+	}
+	subscriptionDone := make(chan subscriptionResult, 1)
+	go func() {
+		sub, err := registry.SubscribeSessionTranscript(t.Context(), serverapi.TranscriptSubscribeRequest{
+			SessionID: engine.SessionID(),
+		})
+		subscriptionDone <- subscriptionResult{sub: sub, err: err}
+	}()
+	<-hydrationResolverStarted
+	drainDone := make(chan error, 1)
+	go func() {
+		drainDone <- registry.ResourceDraining(t.Context(), registryTestResource(ref))
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, available := registry.RuntimeMainViewSnapshot(engine.SessionID()); !available {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Runtime did not enter drain while hydration was unresolved")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(releaseHydrationResolver)
+
+	result := <-subscriptionDone
+	if result.err != nil {
+		t.Fatalf("SubscribeSessionTranscript: %v", result.err)
+	}
+	defer func() { _ = result.sub.Close() }()
+	var last clientui.TranscriptMessage
+	for {
+		message, err := result.sub.Next(t.Context())
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				t.Fatalf("terminal subscription error = %v, want EOF", err)
+			}
+			break
+		}
+		last = message
+	}
+	if last.Kind() != clientui.TranscriptMessageRuntimeReadModelUpdate ||
+		transcriptPayload[clientui.RuntimeReadModelUpdate](t, last).Activity.State != clientui.RuntimeActivityUnavailable {
+		t.Fatalf("last message before EOF = %+v, want unavailable Runtime Activity", last)
+	}
+	if err := <-drainDone; err != nil {
+		t.Fatalf("ResourceDraining: %v", err)
 	}
 }
 
@@ -438,64 +491,6 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 		publishedFeedback.Sequence != state.Sequence+1 ||
 		transcriptPayload[clientui.TranscriptSessionSettingFeedback](t, publishedFeedback).Kind != feedback.Kind {
 		t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
-	}
-}
-
-func TestRuntimeSnapshotsStopExposingRuntimeBeforeDrainCleanupCompletes(t *testing.T) {
-	registry := NewRuntimeRegistry()
-	engine := newRegistryTestRuntime(t, nil)
-	ref := registryTestResourceRef(engine.SessionID())
-	closeStarted := make(chan struct{})
-	releaseClose := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(releaseClose) }) }
-	t.Cleanup(release)
-	if err := registry.ResourceReady(
-		context.Background(),
-		registryTestResource(ref),
-		engine,
-		func() (io.Closer, error) {
-			return &registryBlockingRetention{closeStarted: closeStarted, release: releaseClose}, nil
-		},
-	); err != nil {
-		t.Fatalf("ResourceReady: %v", err)
-	}
-	registry.PublishRuntimeReadModelUpdate(
-		engine.SessionID(),
-		registryTestReadModelUpdate(t, 2, clientui.RuntimeActivityRunning),
-	)
-	subscription, err := registry.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{
-		SessionID: engine.SessionID(),
-	})
-	if err != nil {
-		t.Fatalf("SubscribeSessionTranscript: %v", err)
-	}
-	if _, err := subscription.Next(context.Background()); err != nil {
-		t.Fatalf("read hydration: %v", err)
-	}
-
-	drainDone := make(chan error, 1)
-	go func() {
-		drainDone <- registry.ResourceDraining(context.Background(), registryTestResource(ref))
-	}()
-	select {
-	case <-closeStarted:
-	case <-time.After(time.Second):
-		t.Fatal("Runtime drain did not reach retention cleanup")
-	}
-	if view, ok := registry.RuntimeMainViewSnapshot(engine.SessionID()); ok {
-		t.Fatalf("Runtime Main View remained available during drain cleanup: %+v", view)
-	}
-	snapshots, err := registry.ActiveRuntimeActivitySnapshots(context.Background())
-	if err != nil {
-		t.Fatalf("ActiveRuntimeActivitySnapshots: %v", err)
-	}
-	if len(snapshots) != 0 {
-		t.Fatalf("active snapshots during drain cleanup = %+v, want none", snapshots)
-	}
-	release()
-	if err := <-drainDone; err != nil {
-		t.Fatalf("ResourceDraining: %v", err)
 	}
 }
 
@@ -659,15 +654,8 @@ func TestAuthorityRuntimeDrainCannotRestoreAggregateActivityAfterTerminalState(t
 	registry := NewRuntimeRegistry()
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
-	retentionCloseStarted := make(chan struct{})
-	retentionRelease := make(chan struct{})
-	var releaseRetention sync.Once
-	release := func() {
-		releaseRetention.Do(func() { close(retentionRelease) })
-	}
-	t.Cleanup(release)
 	if err := registry.ResourceReady(context.Background(), registryTestResource(ref), engine, func() (io.Closer, error) {
-		return &registryBlockingRetention{closeStarted: retentionCloseStarted, release: retentionRelease}, nil
+		return make(registryRetention), nil
 	}); err != nil {
 		t.Fatalf("register authority runtime resource: %v", err)
 	}
@@ -678,14 +666,8 @@ func TestAuthorityRuntimeDrainCannotRestoreAggregateActivityAfterTerminalState(t
 	registry.SetSleepObserver(func(active bool) { notifications <- active })
 	defer registry.SetSleepObserver(nil)
 
-	drainResult := make(chan error, 1)
-	go func() {
-		drainResult <- registry.ResourceDraining(context.Background(), registryTestResource(ref))
-	}()
-	select {
-	case <-retentionCloseStarted:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for retention close")
+	if err := registry.ResourceDraining(context.Background(), registryTestResource(ref)); err != nil {
+		t.Fatalf("drain authority runtime resource: %v", err)
 	}
 	if active := receiveSleepObserverState(t, notifications); !active {
 		t.Fatal("expected draining runtime to activate aggregate activity")
@@ -695,12 +677,6 @@ func TestAuthorityRuntimeDrainCannotRestoreAggregateActivityAfterTerminalState(t
 	}
 
 	publishRunState(registry, engine.SessionID(), true)
-	assertNoSleepObserverState(t, notifications)
-
-	release()
-	if err := <-drainResult; err != nil {
-		t.Fatalf("drain authority runtime resource: %v", err)
-	}
 	assertNoSleepObserverState(t, notifications)
 }
 

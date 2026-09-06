@@ -1,6 +1,13 @@
 export type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
 export type { DesktopProcess } from "./processes";
 export { committedRowSchema as chatTranscriptCommittedRowSchema } from "./chatSchemas";
+export {
+  goalFactFromMainView,
+  goalFactFromTranscript,
+  parseGoalEnvelope,
+  parseGoalMutationResult,
+  parseGoalObservation,
+} from "./chatGoal";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -13,9 +20,11 @@ export type {
   ChatInitialSettings,
   ChatInputMutationResult,
   ChatMainView,
+  ChatMainViewRead,
   ChatMutationTarget,
   ChatNotAcceptedReason,
   ChatProjectTarget,
+  ChatRuntimeActivity,
   ChatRuntimeAttachment,
   ChatRuntimeRelease,
   ChatSessionTarget,
@@ -24,6 +33,16 @@ export type {
   ChatTranscriptCompletion,
   ChatTranscriptCommittedRow,
   ChatTranscriptHandler,
+  ChatGoalObservationHandler,
+  ChatGoal,
+  ChatGoalAvailability,
+  ChatGoalFact,
+  ChatGoalMutation,
+  ChatGoalMutationResult,
+  ChatGoalObservation,
+  ChatGoalPreview,
+  ChatGoalProjection,
+  ChatGoalStatus,
   ChatTranscriptKind,
   ChatTranscriptMessage,
   ChatTranscriptMessageByKind,

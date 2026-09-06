@@ -69,11 +69,16 @@ export const runtimeStatusSchema = z
     CompactionCount: z.number().int().nonnegative(),
     Goal: z
       .object({
-        ...goalSchema.shape,
-        Availability: z.enum(["available", "agent_capability_missing"]),
+        Goal: goalSchema.nullable(),
+        Availability: z.enum(["available", "agent_capability_missing"]).nullable(),
         Suspended: z.boolean(),
       })
       .strict()
+      .superRefine((goal, context) => {
+        if (goal.Suspended && goal.Goal?.status !== "active") {
+          context.addIssue({ code: "custom", message: "Goal suspension requires an active Goal." });
+        }
+      })
       .nullable(),
     WorkflowSession: z.object({ TaskID: identifier, WorkflowID: identifier }).strict().nullable(),
   })

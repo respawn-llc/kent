@@ -1,6 +1,12 @@
 export type { AppLogger, AppLogLevel } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";
+export * from "./chatGoalDestination";
+export * from "./chatRuntime";
+export * from "./chatRuntimeHooks";
+export * from "./chatRuntimeProvider";
+export * from "./chatTranscriptObservation";
+export * from "./chatTranscriptHost";
 export * from "./formatters";
 export * from "./nativeHooks";
 export * from "./navigation";

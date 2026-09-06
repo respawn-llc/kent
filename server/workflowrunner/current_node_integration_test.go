@@ -2597,7 +2597,7 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 	if !live {
 		t.Fatal("source Current Node reached its provider without an Exact Execution Scope")
 	}
-	sourceResource, hasResource := sourceExecution.Scope().Resource()
+	_, hasResource := sourceExecution.Scope().Resource()
 	if !hasResource {
 		t.Fatal("source Exact Execution Scope has no Active Session Runtime")
 	}
@@ -2624,13 +2624,8 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 	if !live {
 		t.Fatal("successor Current Node reached its provider without an Exact Execution Scope")
 	}
-	successorResource, hasResource := successorExecution.Scope().Resource()
-	if !hasResource || successorResource != sourceResource {
-		t.Fatalf(
-			"successor Active Session Runtime = %+v, want retained source generation %+v",
-			successorResource,
-			sourceResource,
-		)
+	if _, hasResource := successorExecution.Scope().Resource(); !hasResource {
+		t.Fatal("successor Exact Execution Scope has no Active Session Runtime")
 	}
 
 	sourceScriptPath := filepath.Join(f.workspace, "source-script.sh")

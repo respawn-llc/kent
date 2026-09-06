@@ -7,6 +7,11 @@ const smallID = "11111111-1111-4111-8111-111111111111";
 const featureID = "22222222-2222-4222-8222-222222222222";
 
 describe("board query identities", () => {
+  it("keys Chat Main View only by exact Session identity", () => {
+    expect(queryKeys.chatMainView("session-1")).toEqual(["chat", "session-1", "main-view"]);
+    expect(queryKeys.chatMainView("session-1")).not.toEqual(queryKeys.chatMainView("session-2"));
+  });
+
   it("canonicalizes equivalent Label filters and keeps board/card scopes distinct", () => {
     const namedLabelFilter = {
       kind: "named" as const,

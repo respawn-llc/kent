@@ -31,6 +31,20 @@ enum GoalAvailability {
   GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING = 2;
 }
 
+enum GoalMutationResultKind {
+  GOAL_MUTATION_RESULT_KIND_UNSPECIFIED = 0;
+  GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL = 1;
+  GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR = 2;
+  GOAL_MUTATION_RESULT_KIND_PENDING_PREVIEW = 3;
+  GOAL_MUTATION_RESULT_KIND_ACCEPTANCE_ONLY = 4;
+}
+
+enum GoalObservationKind {
+  GOAL_OBSERVATION_KIND_UNSPECIFIED = 0;
+  GOAL_OBSERVATION_KIND_HYDRATION = 1;
+  GOAL_OBSERVATION_KIND_UPDATE = 2;
+}
+
 enum ActivityState {
   RUNTIME_ACTIVITY_STATE_UNSPECIFIED = 0;
   RUNTIME_ACTIVITY_UNAVAILABLE = 1;
@@ -121,30 +135,17 @@ message ContextUsage {
 }
 
 message GoalView {
-  string id = 1 [(buf.validate.field).string.min_len = 1];
-  string objective = 2 [(buf.validate.field).string.min_len = 1];
-  GoalStatus status = 3 [(buf.validate.field).enum = {
+  optional Goal goal = 1;
+  optional GoalAvailability availability = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp created_at = 4 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
-  google.protobuf.Timestamp updated_at = 5 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
-  optional GoalAvailability availability = 6 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  bool suspended = 7;
+  bool suspended = 3;
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_suspension"
-    message: "paused and complete goals cannot be suspended"
-    expression: "this.status == 1 || !this.suspended"
+    message: "goal suspension requires an active goal"
+    expression: "!this.suspended || (has(this.goal) && this.goal.status == 1)"
   };
 }
 
@@ -725,17 +726,51 @@ message GoalShowSuccess {
 }
 
 message GoalMutationSuccess {
-  optional Goal goal = 1;
-  optional GoalPreview pending = 2;
-  optional GoalAvailability availability = 3 [(buf.validate.field).enum = {
+  GoalMutationResultKind kind = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional Goal goal = 2;
+  optional GoalPreview pending = 3;
+  optional GoalAvailability availability = 4 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_mutation_result"
-    message: "goal mutation success cannot contain both a goal and pending preview"
-    expression: "!(has(this.goal) && has(this.pending))"
+    message: "goal mutation success fields must match its kind"
+    expression: "(this.kind == 1 && has(this.goal) && !has(this.pending)) || (this.kind == 2 && !has(this.goal) && !has(this.pending)) || (this.kind == 3 && !has(this.goal) && has(this.pending)) || (this.kind == 4 && !has(this.goal) && !has(this.pending))"
+  };
+}
+
+message GoalObserveRequest {
+  string session_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
+}
+
+message GoalProjection {
+  optional Goal goal = 1;
+  optional GoalAvailability availability = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
+message GoalObservation {
+  uint64 sequence = 1 [(buf.validate.field).uint64.gt = 0];
+  GoalObservationKind kind = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  GoalProjection status = 3 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_observation_sequence"
+    message: "goal observation hydration must be sequence 1 and updates must follow it"
+    expression: "(this.kind == 1 && this.sequence == 1) || (this.kind == 2 && this.sequence >= 2)"
   };
 }
 
@@ -910,6 +945,7 @@ message GoalPauseError { string code = 1 [(buf.validate.field).string.min_len = 
 message GoalResumeError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
 message GoalCompleteError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
 message GoalClearError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
+message GoalObserveError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
 
 message SetSessionNameResult {
   oneof outcome {
@@ -1019,6 +1055,7 @@ message GoalPauseResult { oneof outcome { option (buf.validate.oneof).required =
 message GoalResumeResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalResumeError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
 message GoalCompleteResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalCompleteError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
 message GoalClearResult { oneof outcome { option (buf.validate.oneof).required = true; GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalClearError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
+message GoalObserveResult { oneof outcome { option (buf.validate.oneof).required = true; google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS]; GoalObserveError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR]; } }
 
 service SettingsService {
   rpc SetSessionName(SetSessionNameRequest) returns (SetSessionNameResult) {
@@ -1198,6 +1235,35 @@ service GoalService {
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
       legacy_wire_name: "runtime.goal.clear"
+    };
+  }
+  rpc Observe(GoalObserveRequest) returns (GoalObserveResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_SUBSCRIPTION
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_GOAL_SESSION
+      direction: DIRECTION_CLIENT_TO_SERVER
+      event: {package: "kent.api.runtime" service: "GoalService" method: "Observation"}
+      completion: {package: "kent.api.runtime" service: "GoalService" method: "ObservationComplete"}
+      legacy_wire_name: "goal.observe"
+    };
+  }
+  rpc Observation(GoalObservation) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+      legacy_wire_name: "goal.observation"
+    };
+  }
+  rpc ObservationComplete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+      legacy_wire_name: "goal.observation.complete"
     };
   }
 }

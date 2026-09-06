@@ -54,11 +54,11 @@ type reconnectRetryRuntimeControlClient struct {
 	recordRequestID  []string
 	localEntries     []serverapi.RuntimeAppendCommittedEntryRequest
 	showGoalResp     serverapi.RuntimeGoalShowResponse
-	setGoalResp      serverapi.RuntimeGoalShowResponse
-	pauseGoalResp    serverapi.RuntimeGoalShowResponse
-	resumeGoalResp   serverapi.RuntimeGoalShowResponse
-	completeGoalResp serverapi.RuntimeGoalShowResponse
-	clearGoalResp    serverapi.RuntimeGoalShowResponse
+	setGoalResp      serverapi.RuntimeGoalMutationResponse
+	pauseGoalResp    serverapi.RuntimeGoalMutationResponse
+	resumeGoalResp   serverapi.RuntimeGoalMutationResponse
+	completeGoalResp serverapi.RuntimeGoalMutationResponse
+	clearGoalResp    serverapi.RuntimeGoalMutationResponse
 	interruptResp    serverapi.RuntimeInterruptResponse
 	interruptReq     serverapi.RuntimeInterruptRequest
 }
@@ -147,23 +147,23 @@ func (c *reconnectRetryRuntimeControlClient) ShowGoal(context.Context, serverapi
 	return c.showGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (c *reconnectRetryRuntimeControlClient) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return c.setGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (c *reconnectRetryRuntimeControlClient) PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return c.pauseGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) ResumeGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (c *reconnectRetryRuntimeControlClient) ResumeGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return c.resumeGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) CompleteGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (c *reconnectRetryRuntimeControlClient) CompleteGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return c.completeGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) ClearGoal(context.Context, serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (c *reconnectRetryRuntimeControlClient) ClearGoal(context.Context, serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return c.clearGoalResp, nil
 }
 
@@ -202,9 +202,9 @@ func TestCloneRuntimeGoalReturnsIndependentCopy(t *testing.T) {
 	availability := clientui.GoalAvailabilityAgentCapabilityMissing
 	original.Availability = &availability
 	cloned := cloneRuntimeGoal(original)
-	original.ID = "goal-2"
-	original.Objective = "mutated"
-	original.Status = clientui.RuntimeGoalStatusPaused
+	original.Goal.ID = "goal-2"
+	original.Goal.Objective = "mutated"
+	original.Goal.Status = clientui.RuntimeGoalStatusPaused
 	*original.Availability = clientui.GoalAvailabilityAvailable
 	original.Suspended = false
 
@@ -523,7 +523,10 @@ func deletedTestRuntimeClientShowGoalRecoversRuntimeUnavailableSilently(t *testi
 	if controls.showGoalCalls != 2 {
 		t.Fatalf("show goal call count = %d, want 2", controls.showGoalCalls)
 	}
-	if got == nil || got.ID != "goal-1" || got.Objective != "ship" || got.Status != clientui.RuntimeGoalStatusActive {
+	if got == nil || got.Goal == nil ||
+		got.Goal.ID != "goal-1" ||
+		got.Goal.Objective != "ship" ||
+		got.Goal.Status != clientui.RuntimeGoalStatusActive {
 		t.Fatalf("goal = %+v, want recovered active goal", got)
 	}
 	if entries := controls.appendedLocalEntries(); len(entries) != 0 {

@@ -421,6 +421,8 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.RuntimeGoalClearRequest:
 		return p.SessionID, true
+	case serverapi.GoalObserveRequest:
+		return p.SessionID, true
 	case serverapi.AskListPendingBySessionRequest:
 		return p.SessionID, true
 	case serverapi.PromptAnswerBatchRequest:

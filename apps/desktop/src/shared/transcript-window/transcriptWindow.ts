@@ -154,10 +154,17 @@ export class TranscriptWindow {
   private reduce(
     input: Exclude<TranscriptWindowInput, { kind: "dispose" } | { hydration: Hydration }>,
   ): TranscriptWindowResult {
+    if (input.kind === "recovery-begin") return this.beginRecovery();
+    if ("permit" in input) return this.opening(input);
+    if (input.kind === "committed-row") {
+      this.state = admitRows(this.state, [input.row]);
+      return { kind: "accepted", effects: [] };
+    }
+    if (input.kind === "live-fact") {
+      this.state = project({ ...this.state, provisional: reduceLive(this.state.provisional, input.fact) });
+      return { kind: "accepted", effects: [] };
+    }
     switch (input.kind) {
-      case "opening-failure":
-      case "opening-success":
-        return this.opening(input);
       case "replace-window":
         return this.replace(input.page);
       case "edge-visit":
@@ -167,12 +174,6 @@ export class TranscriptWindow {
       case "page-failure":
       case "page-success":
         return this.completePage(input);
-      case "committed-row":
-        this.state = admitRows(this.state, [input.row]);
-        return { kind: "accepted", effects: [] };
-      case "live-fact":
-        this.state = project({ ...this.state, provisional: reduceLive(this.state.provisional, input.fact) });
-        return { kind: "accepted", effects: [] };
       case "runtime-activity":
         return this.activity(input.activity);
       case "compaction-status":
@@ -202,6 +203,20 @@ export class TranscriptWindow {
       admitted: segment.entries,
       stagingPresentation: "page-only",
     });
+    return { kind: "accepted", effects: [] };
+  }
+
+  private beginRecovery(): TranscriptWindowResult {
+    const pending = this.state.pending;
+    if (pending === null) return { kind: "accepted", effects: [] };
+    this.state = {
+      ...this.state,
+      pending: null,
+      snapshot: {
+        ...this.snapshot,
+        [pending.request.direction]: pending.previous,
+      },
+    };
     return { kind: "accepted", effects: [] };
   }
 
