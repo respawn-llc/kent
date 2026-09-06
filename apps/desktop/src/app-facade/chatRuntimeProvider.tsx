@@ -24,10 +24,7 @@ export function ChatRuntimeProvider({ api, target, host, children }: ChatRuntime
     [api.chat, host, queryClient, target],
   );
   useEffect(() => {
-    owner.start();
-    return () => {
-      void owner.dispose();
-    };
+    return owner.mount();
   }, [owner]);
   useEffect(() => {
     let armed = false;

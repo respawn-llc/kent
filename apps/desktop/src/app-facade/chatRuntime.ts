@@ -6,12 +6,13 @@ import type {
   ChatMainView,
   ChatMainViewRead,
   ChatSessionTarget,
-  ChatTranscriptPage,
   ChatTranscriptMessage,
   ChatTranscriptPayloadByKind,
 } from "@/api";
 import { ChatGoalProjectionSource } from "./chatGoalDestination";
-import type { ChatTranscriptSink } from "./chatTranscriptHost";
+import type { AppLogger } from "./logging";
+import { recoverOrThrowDebugFailure } from "./debugFailure";
+import { ChatTranscriptHost } from "./chatTranscriptHost";
 import { ChatTranscriptObservation, type ChatTranscriptObservationState } from "./chatTranscriptObservation";
 import {
   emptyChatProjectionState,
@@ -35,11 +36,9 @@ export type {
   ChatProjectionResult,
   ChatProjectionState,
 } from "./chatRuntimeProjection";
-export type ChatTranscriptPageInput =
-  Readonly<{ kind: "newest" }> | Readonly<{ kind: "older" | "newer"; cursor: number }>;
 export type ChatRuntimeApi = Pick<ChatApi, "getMainView" | "getTranscriptPage" | "subscribeTranscript">;
 export type ChatRuntimeHost = Readonly<{
-  transcript: ChatTranscriptSink;
+  logger: AppLogger;
   onHumanInputInterrupted?(items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"]): void;
   onWorktreeTransitionOutcome?(outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]): void;
   onTranscriptError?(error: Error): void;
@@ -47,6 +46,7 @@ export type ChatRuntimeHost = Readonly<{
 export type ChatRuntimeOwnerSnapshot = Readonly<{
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
+  transcript: ChatTranscriptHost["snapshot"];
   disposed: boolean;
 }>;
 interface ActiveMainViewRead {
@@ -75,25 +75,9 @@ export const chatMainViewQueryOptions = (
     refetchOnReconnect: false,
   });
 
-export async function executeChatTranscriptPage(
-  api: ChatRuntimeApi,
-  target: ChatSessionTarget,
-  input: ChatTranscriptPageInput,
-): Promise<ChatTranscriptPage> {
-  switch (input.kind) {
-    case "newest":
-      return api.getTranscriptPage(target);
-    case "older":
-    case "newer":
-      return api.getTranscriptPage(target, {
-        direction: input.kind,
-        value: input.cursor,
-      });
-  }
-}
-
 export class ChatRuntimeOwner {
   readonly goal = new ChatGoalProjectionSource();
+  readonly transcript: ChatTranscriptHost;
   readonly #api: ChatRuntimeApi;
   readonly #target: ChatSessionTarget;
   readonly #queryClient: QueryClient;
@@ -104,6 +88,7 @@ export class ChatRuntimeOwner {
   #projection: ChatProjectionState = emptyChatProjectionState();
   #snapshotCache: ChatRuntimeOwnerSnapshot;
   #mainViewToken = 0;
+  #mountGeneration = 0;
   #activeMainViewRead: ActiveMainViewRead | null = null;
   #started = false;
   #disposed = false;
@@ -119,8 +104,29 @@ export class ChatRuntimeOwner {
     this.#queryClient = queryClient;
     this.#host = host;
     this.#queryKey = queryKeys.chatMainView(target.sessionID);
+    this.transcript = new ChatTranscriptHost(api, target, {
+      onContractFailure: (error) => {
+        void recoverOrThrowDebugFailure({
+          context: { sessionID: this.#target.sessionID },
+          error,
+          logger: this.#host.logger,
+          message: "Transcript admission violated its internal contract.",
+          recover: () => {
+            this.#host.onTranscriptError?.(error);
+            this.recoverTranscriptContinuity();
+          },
+        });
+      },
+      onOpeningFailure: (error) => this.#host.onTranscriptError?.(error),
+      onScratchRehydration: () => {
+        this.recoverTranscriptContinuity();
+      },
+    });
     this.#snapshotCache = this.#projectSnapshot();
     this.goal.subscribe(() => {
+      this.#notify();
+    });
+    this.transcript.subscribe(() => {
       this.#notify();
     });
   }
@@ -145,17 +151,17 @@ export class ChatRuntimeOwner {
     if (this.#started || this.#disposed) return;
     this.#started = true;
     void this.forceMainViewRead();
-    this.#startOpeningPage();
+    this.transcript.open();
     this.#observation = new ChatTranscriptObservation(this.#api, this.#target, {
       onHydration: (kind, hydration) => {
-        this.#host.transcript.hydration(kind, hydration);
+        this.transcript.hydration(kind, hydration);
         this.#admitProjection({ kind: "hydration", hydration });
       },
       onEvent: (event) => {
         this.#admitTranscriptEvent(event);
       },
       onRecoveryBegin: () => {
-        this.#host.transcript.recoveryStarted();
+        this.transcript.recoveryStarted();
       },
       onForceMainViewRead: () => {
         void this.forceMainViewRead();
@@ -166,6 +172,16 @@ export class ChatRuntimeOwner {
       },
     });
     this.#observation.start();
+  }
+
+  mount(): () => void {
+    const generation = ++this.#mountGeneration;
+    this.start();
+    return () => {
+      queueMicrotask(() => {
+        if (generation === this.#mountGeneration) void this.dispose();
+      });
+    };
   }
 
   async forceMainViewRead(): Promise<void> {
@@ -213,7 +229,7 @@ export class ChatRuntimeOwner {
     this.#activeMainViewRead = null;
     this.#observation?.close();
     this.#observation = null;
-    this.#host.transcript.dispose();
+    this.transcript.dispose();
     this.goal.dispose();
     await this.#queryClient.cancelQueries(
       { queryKey: this.#queryKey, exact: true },
@@ -291,7 +307,7 @@ export class ChatRuntimeOwner {
 
   #admitTranscriptEvent(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void {
     if (this.#disposed) return;
-    this.#host.transcript.event(event);
+    this.transcript.event(event);
     this.#admitProjection({ kind: "event", event });
   }
 
@@ -324,20 +340,6 @@ export class ChatRuntimeOwner {
     };
   }
 
-  #startOpeningPage(): void {
-    this.#host.transcript.openingStarted();
-    void executeChatTranscriptPage(this.#api, this.#target, { kind: "newest" }).then(
-      (page) => {
-        this.#host.transcript.openingSucceeded(page);
-      },
-      (error: unknown) => {
-        this.#host.transcript.openingFailed(
-          error instanceof Error ? error : new Error("Transcript page failed."),
-        );
-      },
-    );
-  }
-
   #applyHostEffects(effects: readonly ChatProjectionHostEffect[]): void {
     for (const effect of effects) {
       if (effect.kind === "human-input-interrupted") {
@@ -357,6 +359,7 @@ export class ChatRuntimeOwner {
     return {
       goal: this.goal.snapshot,
       observation: this.#observation?.state ?? { kind: "loading" },
+      transcript: this.transcript.snapshot,
       disposed: this.#disposed,
     };
   }

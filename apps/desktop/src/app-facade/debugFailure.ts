@@ -1,7 +1,6 @@
 import { errorMessage } from "@/api";
-import type { AppServices } from "@/app-facade";
 
-type Logger = AppServices["logger"];
+import type { AppLogger } from "./logging";
 
 export type RecoverableFailureContext = Readonly<Record<string, string>>;
 
@@ -14,7 +13,7 @@ export async function recoverOrThrowDebugFailure({
 }: Readonly<{
   context: RecoverableFailureContext;
   error: unknown;
-  logger: Logger;
+  logger: AppLogger;
   message: string;
   recover: () => void;
 }>): Promise<void> {

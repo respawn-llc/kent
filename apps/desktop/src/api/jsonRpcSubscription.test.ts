@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TransportError } from "./errors";
 import { runJsonSubscription } from "./jsonRpcSubscription";
 
 const sockets: SubscriptionSocket[] = [];
@@ -65,7 +66,7 @@ describe("JSON subscription establishment", () => {
       },
       signal: controller.signal,
     });
-    const rejected = expect(pending).rejects.toThrow("timed out");
+    const rejected = expect(pending).rejects.toBeInstanceOf(TransportError);
 
     await vi.advanceTimersByTimeAsync(30_001);
     await rejected;

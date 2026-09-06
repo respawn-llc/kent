@@ -6,7 +6,7 @@ import type {
   ChatTranscriptMessage,
   ChatTranscriptPayloadByKind,
 } from "@/api";
-import { goalFactFromTranscript } from "@/api";
+import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript } from "@/api";
 
 export type ChatAuthorityTuple = ChatMainView["version"];
 export type ChatProjectionHostEffect =
@@ -96,7 +96,7 @@ function admitHydration(
     contextUsage: hydration.ContextUsage,
     runtime: {
       version: runtimeVersion(hydration.RuntimeReadModelUpdate.Version),
-      activity: runtimeActivity(hydration.RuntimeReadModelUpdate.Activity),
+      activity: chatRuntimeActivity(hydration.RuntimeReadModelUpdate.Activity),
     },
   };
   return {
@@ -135,7 +135,7 @@ function admitIncrementalRuntime(
   if (current === null) {
     return result(
       admitRuntime(state, {
-        runtime: { version: incoming, activity: runtimeActivity(update.Activity) },
+        runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
       }),
     );
   }
@@ -143,7 +143,7 @@ function admitIncrementalRuntime(
   if (comparison === "newer-sequence") {
     return result(
       admitRuntime(state, {
-        runtime: { version: incoming, activity: runtimeActivity(update.Activity) },
+        runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
       }),
     );
   }
@@ -198,7 +198,9 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
       sessionID: identity.SessionID,
       sessionName: identity.SessionName,
       executionTarget:
-        identity.ExecutionTarget === null ? next.executionTarget : executionTarget(identity.ExecutionTarget),
+        identity.ExecutionTarget === null
+          ? next.executionTarget
+          : chatExecutionTarget(identity.ExecutionTarget),
       status: {
         ...next.status,
         conversationFreshness: identity.ConversationFreshness,
@@ -292,39 +294,6 @@ function runtimeVersion(
   input: ChatTranscriptPayloadByKind["runtime_read_model_update"]["Version"],
 ): ChatAuthorityTuple {
   return { epoch: input.Epoch, generation: input.Generation, sequence: input.Sequence };
-}
-
-function runtimeActivity(
-  input: ChatTranscriptPayloadByKind["runtime_read_model_update"]["Activity"],
-): ChatRuntimeActivity {
-  return {
-    state: input.State,
-    activeStep:
-      input.ActiveStep === null
-        ? null
-        : {
-            runID: input.ActiveStep.RunID,
-            stepID: input.ActiveStep.StepID,
-            activeKind: input.ActiveStep.ActiveKind,
-          },
-    reviewer: input.Reviewer,
-    queueAccepting: input.QueueAccepting,
-    diagnosticRecovery: input.DiagnosticRecovery,
-  };
-}
-
-function executionTarget(
-  input: NonNullable<ChatTranscriptPayloadByKind["session_identity"]["ExecutionTarget"]>,
-): ChatMainView["executionTarget"] {
-  return {
-    workspaceID: input.WorkspaceID,
-    workspaceName: input.WorkspaceName,
-    workspaceRoot: input.WorkspaceRoot,
-    workspaceAvailability: input.WorkspaceAvailability,
-    worktree: input.Worktree,
-    cwdRelpath: input.CwdRelpath,
-    effectiveWorkdir: input.EffectiveWorkdir,
-  };
 }
 
 function result(

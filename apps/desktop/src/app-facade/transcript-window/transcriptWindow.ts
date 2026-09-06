@@ -208,15 +208,19 @@ export class TranscriptWindow {
 
   private beginRecovery(): TranscriptWindowResult {
     const pending = this.state.pending;
-    if (pending === null) return { kind: "accepted", effects: [] };
-    this.state = {
+    const snapshot =
+      pending === null
+        ? this.snapshot
+        : {
+            ...this.snapshot,
+            [pending.request.direction]: pending.previous,
+          };
+    this.state = project({
       ...this.state,
       pending: null,
-      snapshot: {
-        ...this.snapshot,
-        [pending.request.direction]: pending.previous,
-      },
-    };
+      provisional: [],
+      snapshot,
+    });
     return { kind: "accepted", effects: [] };
   }
 

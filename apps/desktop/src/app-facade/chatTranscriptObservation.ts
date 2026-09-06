@@ -98,6 +98,8 @@ export type ChatTranscriptObservationHost = Readonly<{
   onStateChange?(): void;
 }>;
 
+type CommittedRowLocator = Readonly<{ eventSequence: number; rowOrdinal: number }>;
+
 export class ChatTranscriptObservation {
   readonly #api: TranscriptSubscriber;
   readonly #target: ChatSessionTarget;
@@ -106,6 +108,8 @@ export class ChatTranscriptObservation {
   #state: ChatTranscriptObservationState = { kind: "loading" };
   #hydrationKind: ChatTranscriptHydrationKind = "initial";
   #nextSequence = 0;
+  #hydratedCommittedEventSequence: number | null = null;
+  #lastLiveCommittedLocator: CommittedRowLocator | null = null;
   #replacementInFlight = false;
   #hasHydrated = false;
   #disposed = false;
@@ -126,16 +130,16 @@ export class ChatTranscriptObservation {
   }
 
   recoverContinuity(): void {
-    this.#beginRecovery(true);
+    if (this.#state.kind !== "recovering") this.#replaceObservation(true);
   }
 
   replaceForReconnect(): void {
-    this.#beginRecovery(true);
+    this.#replaceObservation(true);
   }
 
   retry(): void {
     if (this.#state.kind !== "error") return;
-    this.#beginRecovery(false);
+    this.#replaceObservation(false);
   }
 
   close(): void {
@@ -158,6 +162,8 @@ export class ChatTranscriptObservation {
           this.#hydrationKind = "reattachment";
         }
         this.#nextSequence = 0;
+        this.#hydratedCommittedEventSequence = null;
+        this.#lastLiveCommittedLocator = null;
       },
       onEvent: (event) => {
         this.#admit(event);
@@ -179,33 +185,48 @@ export class ChatTranscriptObservation {
   #admit(event: ChatTranscriptMessage): void {
     if (this.#disposed) return;
     if (this.#nextSequence === 0) {
-      if (event.kind !== "hydration" || event.sequence !== 1) {
-        this.#continuityFailure(
-          new ContractError("Transcript observation must begin with sequence-1 hydration."),
-        );
-        return;
-      }
-      try {
-        this.#host.onHydration(this.#hydrationKind, event.payload);
-      } catch (error) {
-        this.#continuityFailure(
-          error instanceof Error ? error : new ContractError("Transcript hydration admission failed."),
-        );
-        return;
-      }
-      this.#nextSequence = 1;
-      this.#hydrationKind = "initial";
-      this.#replacementInFlight = false;
-      this.#hasHydrated = true;
-      this.#state = { kind: "observing" };
-      this.#host.onStateChange?.();
+      this.#admitHydration(event);
       return;
     }
+    this.#admitUpdate(event);
+  }
+
+  #admitHydration(event: ChatTranscriptMessage): void {
+    if (event.kind !== "hydration" || event.sequence !== 1) {
+      this.#continuityFailure(
+        new ContractError("Transcript observation must begin with sequence-1 hydration."),
+      );
+      return;
+    }
+    try {
+      this.#host.onHydration(this.#hydrationKind, event.payload);
+    } catch (error) {
+      this.#continuityFailure(
+        error instanceof Error ? error : new ContractError("Transcript hydration admission failed."),
+      );
+      return;
+    }
+    this.#hydratedCommittedEventSequence =
+      event.payload.TailSegment.Entries.at(-1)?.Locator.event_sequence ?? null;
+    this.#lastLiveCommittedLocator = null;
+    this.#nextSequence = 1;
+    this.#hydrationKind = "initial";
+    this.#replacementInFlight = false;
+    this.#hasHydrated = true;
+    this.#state = { kind: "observing" };
+    this.#host.onStateChange?.();
+  }
+
+  #admitUpdate(event: ChatTranscriptMessage): void {
     if (event.kind === "hydration" || event.sequence !== this.#nextSequence + 1) {
       this.#continuityFailure(new ContractError("Transcript observation sequence is not continuous."));
       return;
     }
+    let committedLocator: CommittedRowLocator | null = null;
     try {
+      if (event.kind === "committed_row") {
+        committedLocator = this.#nextCommittedRowLocator(event.payload.Locator);
+      }
       this.#host.onEvent(event);
     } catch (error) {
       this.#continuityFailure(
@@ -213,7 +234,36 @@ export class ChatTranscriptObservation {
       );
       return;
     }
+    if (committedLocator !== null) this.#lastLiveCommittedLocator = committedLocator;
     this.#nextSequence = event.sequence;
+  }
+
+  #nextCommittedRowLocator(
+    locator: ChatTranscriptPayloadByKind["committed_row"]["Locator"],
+  ): CommittedRowLocator {
+    const next = {
+      eventSequence: locator.event_sequence,
+      rowOrdinal: locator.row_ordinal,
+    };
+    const previous = this.#lastLiveCommittedLocator;
+    if (previous === null) {
+      if (
+        (this.#hydratedCommittedEventSequence !== null &&
+          next.eventSequence <= this.#hydratedCommittedEventSequence) ||
+        next.rowOrdinal !== 1
+      ) {
+        throw new ContractError("Live committed transcript rows must advance beyond hydration.");
+      }
+      return next;
+    }
+    if (
+      next.eventSequence < previous.eventSequence ||
+      (next.eventSequence === previous.eventSequence && next.rowOrdinal !== previous.rowOrdinal + 1) ||
+      (next.eventSequence > previous.eventSequence && next.rowOrdinal !== 1)
+    ) {
+      throw new ContractError("Live committed transcript row locators are not continuous.");
+    }
+    return next;
   }
 
   #continuityFailure(error: Error): void {
@@ -226,11 +276,11 @@ export class ChatTranscriptObservation {
       this.#host.onStateChange?.();
       return;
     }
-    this.#beginRecovery(true);
+    this.#replaceObservation(true);
   }
 
-  #beginRecovery(forceMainViewRead: boolean): void {
-    if (this.#disposed || this.#state.kind === "recovering") return;
+  #replaceObservation(forceMainViewRead: boolean): void {
+    if (this.#disposed) return;
     this.#physical?.close();
     this.#physical = null;
     this.#nextSequence = 0;

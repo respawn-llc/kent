@@ -76,7 +76,6 @@ interface ActiveMutation {
   handle: ChatGoalMutationHandle;
   capturedGeneration: number;
   intent: ChatGoalMutationIntent;
-  phase: "unresolved" | "accepted";
 }
 
 export class ChatGoalDestinationController {
@@ -89,6 +88,7 @@ export class ChatGoalDestinationController {
   #nextSequence = 0;
   #observation: ChatGoalObservationState = { kind: "loading" };
   #mutation: ActiveMutation | null = null;
+  #acceptedIntent: ChatGoalMutationIntent | null = null;
   #automaticReplacementAvailable = false;
   #started = false;
   #disposed = false;
@@ -103,9 +103,11 @@ export class ChatGoalDestinationController {
 
   get snapshot(): ChatGoalDestinationSnapshot {
     const presentation: ChatGoalPresentation =
-      this.#mutation === null
-        ? { kind: "authority" }
-        : { kind: this.#mutation.phase, intent: this.#mutation.intent };
+      this.#mutation !== null
+        ? { kind: "unresolved", intent: this.#mutation.intent }
+        : this.#acceptedIntent !== null
+          ? { kind: "accepted", intent: this.#acceptedIntent }
+          : { kind: "authority" };
     return {
       authority: this.source.snapshot,
       presentation,
@@ -138,12 +140,12 @@ export class ChatGoalDestinationController {
     if (this.source.snapshot.kind !== "observed")
       throw new ContractError("Goal mutation requires successful hydration.");
     if (this.#mutation !== null) throw new ContractError("Goal mutation is already pending.");
+    this.#acceptedIntent = null;
     const handle = { token: Symbol("Goal mutation") };
     this.#mutation = {
       handle,
       capturedGeneration: this.source.generation,
       intent: cloneIntent(intent),
-      phase: "unresolved",
     };
     this.#notify();
     return handle;
@@ -157,22 +159,20 @@ export class ChatGoalDestinationController {
       case "authoritative_goal":
       case "authoritative_clear":
         this.#mutation = null;
+        this.#acceptedIntent = null;
         if (authorityUnchanged) this.source.admit(result.fact);
         break;
       case "pending_preview":
       case "acceptance_only":
+        this.#mutation = null;
         if (!authorityUnchanged) {
-          this.#mutation = null;
+          this.#acceptedIntent = null;
           break;
         }
-        this.#mutation = {
-          ...mutation,
-          phase: "accepted",
-          intent:
-            result.kind === "pending_preview"
-              ? { kind: "goal", preview: { ...result.preview } }
-              : mutation.intent,
-        };
+        this.#acceptedIntent =
+          result.kind === "pending_preview"
+            ? { kind: "goal", preview: { ...result.preview } }
+            : mutation.intent;
         this.#replaceAvailability(result.availability);
         break;
     }
@@ -194,6 +194,7 @@ export class ChatGoalDestinationController {
     this.#subscription?.close();
     this.#subscription = null;
     this.#mutation = null;
+    this.#acceptedIntent = null;
     this.#observation = { kind: "disposed" };
     this.source.dispose();
     this.#notify();
@@ -223,8 +224,7 @@ export class ChatGoalDestinationController {
           return;
         }
         this.#nextSequence = observation.sequence;
-        const retireAccepted = this.#mutation?.phase === "accepted";
-        if (retireAccepted) this.#mutation = null;
+        this.#acceptedIntent = null;
         this.#automaticReplacementAvailable = true;
         this.#observation = { kind: "observed" };
         this.source.admit(observation.fact);
@@ -270,12 +270,7 @@ export class ChatGoalDestinationController {
   }
 
   #currentMutation(handle: ChatGoalMutationHandle): ActiveMutation | null {
-    if (
-      this.#disposed ||
-      this.#mutation === null ||
-      this.#mutation.handle.token !== handle.token ||
-      this.#mutation.phase !== "unresolved"
-    ) {
+    if (this.#disposed || this.#mutation === null || this.#mutation.handle.token !== handle.token) {
       return null;
     }
     return this.#mutation;

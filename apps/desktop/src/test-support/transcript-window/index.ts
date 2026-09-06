@@ -1,6 +1,6 @@
 import type { ChatTranscriptPage, ChatTranscriptPayloadByKind } from "@/api";
 
-import type { TranscriptWindow, TranscriptPageRequest } from "./index";
+import type { TranscriptPageRequest, TranscriptWindow } from "@/app-facade";
 
 export function row(sequence: number): ChatTranscriptPayloadByKind["committed_row"] {
   return {

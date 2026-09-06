@@ -14,9 +14,13 @@ import {
   type VirtualizedPixelOffsetRequest,
   useStableCallback,
 } from "@/ui";
-
-import type { TranscriptRenderItem, TranscriptRenderSlots } from "./renderSlots";
-import type { TranscriptDirection, TranscriptWindowInput, TranscriptWindowSnapshot } from "./types";
+import type {
+  TranscriptDirection,
+  TranscriptRenderItem,
+  TranscriptRenderSlots,
+  TranscriptWindowInput,
+  TranscriptWindowSnapshot,
+} from "@/app-facade";
 
 type TranscriptWindowViewInput = Extract<TranscriptWindowInput, { kind: "edge-visit" | "retry" }>;
 

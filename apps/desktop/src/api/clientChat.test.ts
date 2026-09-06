@@ -1,5 +1,5 @@
 import { ApiClient } from "./client";
-import { ContractError } from "./errors";
+import { ContractError, RpcError, TransportError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
 import { z } from "zod";
 import { create } from "@app/server-api-contract";
@@ -476,10 +476,11 @@ describe("Desktop Chat read client", () => {
     });
 
     const observations: unknown[] = [];
+    const observationErrors: Error[] = [];
     client.chat.subscribeGoal(target, {
       onEvent: (observation) => observations.push(observation),
       onComplete: () => undefined,
-      onError: () => undefined,
+      onError: (error) => observationErrors.push(error),
     });
     expect(transport.chatSubscriptionStarts[0]?.establishmentTimeoutMs).toBeUndefined();
     transport.emit("goal.observation", {
@@ -496,6 +497,13 @@ describe("Desktop Chat read client", () => {
         fact: { goal: null, availability: "available" },
       },
     ]);
+    transport.fail(
+      "goal.observe",
+      new RpcError({ code: -32000, message: "Session unavailable", method: "goal.observe" }),
+    );
+    transport.fail("goal.observe", new TransportError("Subscription socket closed."));
+    expect(observationErrors).toHaveLength(1);
+    expect(observationErrors[0]).toBeInstanceOf(RpcError);
   });
 
   it("reads bounded transcript pages in both cursor directions", async () => {

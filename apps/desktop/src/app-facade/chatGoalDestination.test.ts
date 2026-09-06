@@ -96,6 +96,36 @@ describe("Chat Goal destination controller", () => {
     expect(controller.snapshot.presentation.kind).toBe("authority");
   });
 
+  it("releases mutation single-flight after accepted settlement", () => {
+    const { api, handlers } = observationApi();
+    const controller = new ChatGoalDestinationController(api, target);
+    controller.start();
+    handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      fact: { goal: null, availability: "available" },
+    });
+    const first = controller.begin(intent);
+    controller.succeed(first, {
+      kind: "pending_preview",
+      preview: intent.preview,
+      availability: null,
+    });
+
+    const secondIntent: ChatGoalMutationIntent = {
+      kind: "goal",
+      preview: { objective: "ship again", status: "active" },
+    };
+    const second = controller.begin(secondIntent);
+
+    expect(controller.snapshot.presentation).toEqual({
+      kind: "unresolved",
+      intent: secondIntent,
+    });
+    expect(controller.fail(second)).toBe(true);
+    expect(controller.snapshot.presentation.kind).toBe("authority");
+  });
+
   it("retains destination state across transport replacement and rejects stale callbacks", () => {
     const { api, handlers } = observationApi();
     const controller = new ChatGoalDestinationController(api, target);
@@ -155,6 +185,20 @@ describe("Chat Goal destination controller", () => {
     expect(controller.snapshot.presentation.kind).toBe("unresolved");
     handlers[1]?.onError(new Error("replacement failed"));
     expect(controller.snapshot.observation.kind).toBe("error");
+    expect(handlers).toHaveLength(2);
+  });
+
+  it("exposes initial Goal observation failure and retries only on request", () => {
+    const { api, handlers } = observationApi();
+    const controller = new ChatGoalDestinationController(api, target);
+    controller.start();
+
+    handlers[0]?.onError(new Error("Goal unavailable"));
+
+    expect(controller.snapshot.observation.kind).toBe("error");
+    expect(handlers).toHaveLength(1);
+    controller.replaceObservation();
+    expect(controller.snapshot.observation.kind).toBe("loading");
     expect(handlers).toHaveLength(2);
   });
 

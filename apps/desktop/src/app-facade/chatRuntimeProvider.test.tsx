@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { expect, it, vi } from "vitest";
 
 import type {
@@ -15,7 +16,6 @@ import { queryKeys } from "./queryKeys";
 import type { ChatRuntimeApi, ChatRuntimeHost } from "./chatRuntime";
 import { useChatMainViewState, useChatRuntimeSnapshot } from "./chatRuntimeHooks";
 import { ChatRuntimeProvider, type ChatRuntimeProviderApi } from "./chatRuntimeProvider";
-import type { ChatTranscriptSink } from "./chatTranscriptHost";
 
 const target: ChatSessionTarget = {
   projectID: "project-1",
@@ -82,7 +82,9 @@ it("shares one mounted query authority and keeps fresh cache visible during deta
   expect(screen.getByTestId("first")).toHaveTextContent("current:observed");
 
   view.unmount();
-  expect(subscriptionClose).toHaveBeenCalledOnce();
+  await waitFor(() => {
+    expect(subscriptionClose).toHaveBeenCalledOnce();
+  });
   expect(releaseRuntime).not.toHaveBeenCalled();
 });
 
@@ -103,10 +105,9 @@ it("recovers only after disconnected to connected and starts no recovery newest 
     }),
   };
   const api: ChatRuntimeProviderApi = { connection, chat };
-  const transcript = transcriptSink();
   const view = render(
     <QueryClientProvider client={new QueryClient()}>
-      <ChatRuntimeProvider api={api} target={target} host={runtimeHost(transcript)}>
+      <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
         <Probe id="reconnect" />
       </ChatRuntimeProvider>
     </QueryClientProvider>,
@@ -131,8 +132,43 @@ it("recovers only after disconnected to connected and starts no recovery newest 
   });
   expect(handlers).toHaveLength(2);
   expect(getTranscriptPage).toHaveBeenCalledOnce();
-  expect(transcript.recoveryStarted).toHaveBeenCalledOnce();
   view.unmount();
+});
+
+it("keeps the mounted owner active through StrictMode effect replay", async () => {
+  const subscriptionClose = vi.fn();
+  const getMainView = vi.fn().mockResolvedValue({
+    mainView: fixtureMainView("strict", 1),
+    goal: { goal: null, availability: "available" },
+  });
+  const api: ChatRuntimeProviderApi = {
+    connection: staticConnection(),
+    chat: {
+      getMainView,
+      getTranscriptPage: vi.fn().mockResolvedValue(transcriptPage()),
+      subscribeTranscript: vi.fn().mockReturnValue({ close: subscriptionClose }),
+    },
+  };
+  const view = render(
+    <StrictMode>
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
+          <Probe id="strict" />
+        </ChatRuntimeProvider>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("strict")).toHaveTextContent("strict:observed");
+  });
+  expect(getMainView).toHaveBeenCalledOnce();
+  expect(subscriptionClose).not.toHaveBeenCalled();
+
+  view.unmount();
+  await waitFor(() => {
+    expect(subscriptionClose).toHaveBeenCalledOnce();
+  });
 });
 
 function Probe({ id }: Readonly<{ id: string }>) {
@@ -211,20 +247,8 @@ function transcriptPage(): ChatTranscriptPage {
   };
 }
 
-function transcriptSink() {
-  return {
-    openingStarted: vi.fn(),
-    openingSucceeded: vi.fn(),
-    openingFailed: vi.fn(),
-    hydration: vi.fn(),
-    event: vi.fn(),
-    recoveryStarted: vi.fn(),
-    dispose: vi.fn(),
-  } satisfies ChatTranscriptSink;
-}
-
-function runtimeHost(transcript = transcriptSink()): ChatRuntimeHost {
-  return { transcript };
+function runtimeHost(): ChatRuntimeHost {
+  return { logger: { append: vi.fn().mockResolvedValue(undefined) } };
 }
 
 function staticConnection(): ApiConnectionSource {

@@ -2,11 +2,12 @@ import { z } from "zod";
 
 import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
-import { ContractError } from "./errors";
+import { ContractError, RpcError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
 import { committedRowSchema, contextSchema, mainViewSchema, pageSchema, settingsSchema } from "./chatSchemas";
-import type { executionTargetSchema, runtimeActivitySchema, runtimeStatusSchema } from "./chatSchemas";
+import type { runtimeStatusSchema } from "./chatSchemas";
 import { transcriptEventSchema } from "./chatTranscriptSchemas";
+import { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 import {
   goalFactFromMainView,
   parseGoalEnvelope,
@@ -24,8 +25,6 @@ import {
 } from "./chatTarget";
 import type {
   ChatApi,
-  ChatMainView,
-  ChatRuntimeActivity,
   ChatRuntimeStatus,
   ChatSettings,
   ChatSettingsTarget,
@@ -101,17 +100,6 @@ function transcriptMessageFromTarget(input: ChatTranscriptMessage, sessionID: st
   }
   return input;
 }
-function executionTarget(input: z.output<typeof executionTargetSchema>): ChatMainView["executionTarget"] {
-  return {
-    workspaceID: input.WorkspaceID,
-    workspaceName: input.WorkspaceName,
-    workspaceRoot: input.WorkspaceRoot,
-    workspaceAvailability: input.WorkspaceAvailability,
-    worktree: input.Worktree,
-    cwdRelpath: input.CwdRelpath,
-    effectiveWorkdir: input.EffectiveWorkdir,
-  };
-}
 function runtimeStatus(input: z.output<typeof runtimeStatusSchema>): ChatRuntimeStatus {
   return {
     reviewerFrequency: input.ReviewerFrequency,
@@ -138,22 +126,6 @@ function runtimeStatus(input: z.output<typeof runtimeStatusSchema>): ChatRuntime
       input.WorkflowSession === null
         ? null
         : { taskID: input.WorkflowSession.TaskID, workflowID: input.WorkflowSession.WorkflowID },
-  };
-}
-function runtimeActivity(input: z.output<typeof runtimeActivitySchema>): ChatRuntimeActivity {
-  return {
-    state: input.State,
-    activeStep:
-      input.ActiveStep === null
-        ? null
-        : {
-            runID: input.ActiveStep.RunID,
-            stepID: input.ActiveStep.StepID,
-            activeKind: input.ActiveStep.ActiveKind,
-          },
-    reviewer: input.Reviewer,
-    queueAccepting: input.QueueAccepting,
-    diagnosticRecovery: input.DiagnosticRecovery,
   };
 }
 function settingsFromWire(input: z.output<typeof settingsSchema>, target: ChatSettingsTarget): ChatSettings {
@@ -238,8 +210,8 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
         sessionID: response.MainView.Session.SessionID,
         sessionName:
           response.MainView.Session.SessionName === "" ? null : response.MainView.Session.SessionName,
-        executionTarget: executionTarget(response.MainView.Session.ExecutionTarget),
-        activity: runtimeActivity(response.MainView.Activity),
+        executionTarget: chatExecutionTarget(response.MainView.Session.ExecutionTarget),
+        activity: chatRuntimeActivity(response.MainView.Activity),
       };
       return {
         mainView: converted,
@@ -459,7 +431,7 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
           });
         },
         onError(error) {
-          if (error instanceof ContractError) handler.onError(error);
+          if (error instanceof ContractError || error instanceof RpcError) handler.onError(error);
         },
       };
       return transport.subscribeChatSession({
@@ -484,7 +456,7 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
           handler.onComplete(code, message);
         },
         onError(error) {
-          if (error instanceof ContractError) handler.onError(error);
+          if (error instanceof ContractError || error instanceof RpcError) handler.onError(error);
         },
       };
       return transport.subscribeChatSession({

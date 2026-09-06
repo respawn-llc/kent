@@ -7,6 +7,7 @@ import type {
   ChatTranscriptHandler,
   ChatTranscriptMessage,
 } from "@/api";
+import { row } from "@/test-support/transcript-window";
 
 import { ChatTranscriptPhysicalObservation } from "./chatTranscriptObservation";
 import { ChatTranscriptObservation } from "./chatTranscriptObservation";
@@ -118,6 +119,160 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
   expect(observation.state.kind).toBe("observing");
 });
 
+it("replaces a waiting recovery and forces fresh authority on confirmed reconnect", () => {
+  const handlers: ChatTranscriptHandler[] = [];
+  const closes: ReturnType<typeof vi.fn>[] = [];
+  const api: Pick<ChatApi, "subscribeTranscript"> = {
+    subscribeTranscript(_target, handler) {
+      handlers.push(handler);
+      const close = vi.fn();
+      closes.push(close);
+      return { close };
+    },
+  };
+  const recoveryBegin = vi.fn();
+  const forceMainView = vi.fn();
+  const observation = new ChatTranscriptObservation(api, target, {
+    onHydration: () => undefined,
+    onEvent: () => undefined,
+    onRecoveryBegin: recoveryBegin,
+    onForceMainViewRead: forceMainView,
+    onError: () => undefined,
+  });
+
+  observation.start();
+  handlers[0]?.onOpen?.();
+  handlers[0]?.onEvent(hydrationMessage());
+  handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
+  expect(observation.state.kind).toBe("recovering");
+
+  observation.replaceForReconnect();
+
+  expect(closes[1]).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(3);
+  expect(recoveryBegin).toHaveBeenCalledTimes(2);
+  expect(forceMainView).toHaveBeenCalledTimes(2);
+  expect(observation.state.kind).toBe("recovering");
+});
+
+it("rejects a live committed event that does not advance beyond hydration", () => {
+  const handlers: ChatTranscriptHandler[] = [];
+  const recoveryBegin = vi.fn();
+  const api: Pick<ChatApi, "subscribeTranscript"> = {
+    subscribeTranscript(_target, handler) {
+      handlers.push(handler);
+      return { close: vi.fn() };
+    },
+  };
+  const observation = new ChatTranscriptObservation(api, target, {
+    onHydration: () => undefined,
+    onEvent: () => undefined,
+    onRecoveryBegin: recoveryBegin,
+    onForceMainViewRead: () => undefined,
+    onError: () => undefined,
+  });
+  const hydration = hydrationMessage();
+  observation.start();
+  handlers[0]?.onOpen?.();
+  handlers[0]?.onEvent({
+    ...hydration,
+    payload: {
+      ...hydration.payload,
+      TailSegment: {
+        Entries: [row(10)],
+        HasMoreAbove: false,
+        OlderCursor: null,
+      },
+    },
+  });
+  handlers[0]?.onEvent({
+    sequence: 2,
+    kind: "committed_row",
+    payload: {
+      ...row(10),
+      Locator: { event_sequence: 10, row_ordinal: 2 },
+    },
+  });
+
+  expect(recoveryBegin).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(2);
+  expect(observation.state.kind).toBe("recovering");
+});
+
+it.each([
+  {
+    name: "first-row ordinal gap",
+    locators: [{ eventSequence: 11, rowOrdinal: 2 }],
+  },
+  {
+    name: "repeated locator",
+    locators: [
+      { eventSequence: 11, rowOrdinal: 1 },
+      { eventSequence: 11, rowOrdinal: 1 },
+    ],
+  },
+  {
+    name: "same-event ordinal gap",
+    locators: [
+      { eventSequence: 11, rowOrdinal: 1 },
+      { eventSequence: 11, rowOrdinal: 3 },
+    ],
+  },
+  {
+    name: "event regression",
+    locators: [
+      { eventSequence: 11, rowOrdinal: 1 },
+      { eventSequence: 10, rowOrdinal: 1 },
+    ],
+  },
+])("rejects $name in live committed-row progression", ({ locators }) => {
+  const handlers: ChatTranscriptHandler[] = [];
+  const recoveryBegin = vi.fn();
+  const api: Pick<ChatApi, "subscribeTranscript"> = {
+    subscribeTranscript(_target, handler) {
+      handlers.push(handler);
+      return { close: vi.fn() };
+    },
+  };
+  const observation = new ChatTranscriptObservation(api, target, {
+    onHydration: () => undefined,
+    onEvent: () => undefined,
+    onRecoveryBegin: recoveryBegin,
+    onForceMainViewRead: () => undefined,
+    onError: () => undefined,
+  });
+  const hydration = hydrationMessage();
+  observation.start();
+  handlers[0]?.onOpen?.();
+  handlers[0]?.onEvent({
+    ...hydration,
+    payload: {
+      ...hydration.payload,
+      TailSegment: {
+        Entries: [row(10)],
+        HasMoreAbove: false,
+        OlderCursor: null,
+      },
+    },
+  });
+  locators.forEach((locator, index) => {
+    handlers[0]?.onEvent({
+      sequence: index + 2,
+      kind: "committed_row",
+      payload: {
+        ...row(locator.eventSequence),
+        Locator: {
+          event_sequence: locator.eventSequence,
+          row_ordinal: locator.rowOrdinal,
+        },
+      },
+    });
+  });
+
+  expect(recoveryBegin).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(2);
+});
+
 it("admits sequence-1 reattachment after socket retry or normal Runtime stop without recovery", () => {
   const handlers: ChatTranscriptHandler[] = [];
   const api: Pick<ChatApi, "subscribeTranscript"> = {
@@ -147,6 +302,49 @@ it("admits sequence-1 reattachment after socket retry or normal Runtime stop wit
   handlers[1]?.onEvent(hydrationMessage());
 
   expect(hydrationKinds).toEqual(["initial", "reattachment", "reattachment"]);
+  expect(recoveryBegin).not.toHaveBeenCalled();
+  expect(observation.state.kind).toBe("observing");
+});
+
+it("resets committed-row progression from replacement hydration", () => {
+  const handlers: ChatTranscriptHandler[] = [];
+  const admitted = vi.fn();
+  const recoveryBegin = vi.fn();
+  const api: Pick<ChatApi, "subscribeTranscript"> = {
+    subscribeTranscript(_target, handler) {
+      handlers.push(handler);
+      return { close: vi.fn() };
+    },
+  };
+  const observation = new ChatTranscriptObservation(api, target, {
+    onHydration: () => undefined,
+    onEvent: admitted,
+    onRecoveryBegin: recoveryBegin,
+    onForceMainViewRead: () => undefined,
+    onError: () => undefined,
+  });
+  const initial = hydrationMessage();
+  observation.start();
+  handlers[0]?.onOpen?.();
+  handlers[0]?.onEvent({
+    ...initial,
+    payload: {
+      ...initial.payload,
+      TailSegment: { Entries: [row(10)], HasMoreAbove: false, OlderCursor: null },
+    },
+  });
+  handlers[0]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(11) });
+  handlers[0]?.onOpen?.();
+  handlers[0]?.onEvent({
+    ...initial,
+    payload: {
+      ...initial.payload,
+      TailSegment: { Entries: [row(5)], HasMoreAbove: false, OlderCursor: null },
+    },
+  });
+  handlers[0]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(6) });
+
+  expect(admitted).toHaveBeenCalledTimes(2);
   expect(recoveryBegin).not.toHaveBeenCalled();
   expect(observation.state.kind).toBe("observing");
 });
@@ -200,7 +398,7 @@ it.each([
   expect(observation.state.kind).toBe("recovering");
 });
 
-function hydrationMessage(): ChatTranscriptMessage {
+function hydrationMessage(): Extract<ChatTranscriptMessage, { kind: "hydration" }> {
   return {
     sequence: 1,
     kind: "hydration",
