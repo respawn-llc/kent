@@ -106,18 +106,9 @@ export class ChatRuntimeOwner {
     this.#queryKey = queryKeys.chatMainView(target.sessionID);
     this.transcript = new ChatTranscriptHost(api, target, {
       onContractFailure: (error) => {
-        void recoverOrThrowDebugFailure({
-          context: { sessionID: this.#target.sessionID },
-          error,
-          logger: this.#host.logger,
-          message: "Transcript admission violated its internal contract.",
-          recover: () => undefined,
-        });
+        this.#observation?.rejectIntegrity(error);
       },
       onOpeningFailure: (error) => this.#host.onTranscriptError?.(error),
-      onRecoveryRequired: () => {
-        this.recoverTranscriptContinuity();
-      },
       onScratchRehydration: () => {
         this.recoverTranscriptContinuity();
       },

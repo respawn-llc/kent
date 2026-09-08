@@ -18,11 +18,14 @@ export async function recoverOrThrowDebugFailure({
   recover: () => void;
 }>): Promise<void> {
   const diagnostic = { ...context, error: errorMessage(error) };
-  await logger.append("warn", message, diagnostic);
+  const logged = logger.append("warn", message, diagnostic);
   if (kentDebugModeEnabled()) {
-    throw new Error(`${message} ${JSON.stringify(diagnostic)}`);
+    return logged.then(() => {
+      throw new Error(`${message} ${JSON.stringify(diagnostic)}`);
+    });
   }
   recover();
+  return logged;
 }
 
 export function kentDebugModeEnabled(): boolean {

@@ -22,7 +22,6 @@ export type ChatTranscriptHostInput = Extract<
 export type ChatTranscriptHostOptions = Readonly<{
   onContractFailure(error: Error): void;
   onOpeningFailure(error: Error): void;
-  onRecoveryRequired(): void;
   onScratchRehydration(): void;
 }>;
 export type ChatTranscriptAdmission =
@@ -154,10 +153,7 @@ export class ChatTranscriptHost {
 
   #applyAutonomous(result: TranscriptWindowResult): void {
     const admission = this.#apply(result);
-    if (admission.kind === "rejected") {
-      this.#options.onContractFailure(admission.error);
-      this.#options.onRecoveryRequired();
-    }
+    if (admission.kind === "rejected") this.#options.onContractFailure(admission.error);
   }
 
   #apply(result: TranscriptWindowResult): ChatTranscriptAdmission {

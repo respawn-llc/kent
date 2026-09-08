@@ -1,14 +1,25 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  ChatMainView,
-  ChatMainViewRead,
-  ChatSessionTarget,
-  ChatTranscriptHandler,
-  ChatTranscriptPage,
-  ChatTranscriptPayloadByKind,
-} from "@/api";
+import type { ChatMainView, ChatMainViewRead, ChatTranscriptPage } from "@/api";
+import {
+  changedIdentity,
+  deferred,
+  goalStatus,
+  hydration,
+  hydrationWithCursor,
+  incompatibleHydration,
+  mainViewRead,
+  requireValue,
+  runtimeApi,
+  runtimeHost,
+  runtimeUnavailablePayload,
+  runtimeUpdate,
+  seededProjection,
+  target,
+  transcriptPage,
+  worktreeOutcome,
+} from "@/test-support/chat-runtime";
 import { row } from "@/test-support/transcript-window";
 
 import {
@@ -16,9 +27,6 @@ import {
   chatMainViewQueryOptions,
   emptyChatProjectionState,
   reduceChatProjection,
-  type ChatProjectionState,
-  type ChatRuntimeApi,
-  type ChatRuntimeHost,
 } from "./chatRuntime";
 import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
@@ -413,7 +421,11 @@ describe("mounted Chat Runtime owner", () => {
   it("keeps recovery branches independent and forwards ordered host facts", async () => {
     const replacementPage = deferred<ChatTranscriptPage>();
     const fixture = runtimeApi({
-      reads: [Promise.resolve(mainViewRead()), Promise.resolve(mainViewRead(2))],
+      reads: [
+        Promise.resolve(mainViewRead()),
+        Promise.resolve(mainViewRead(2)),
+        Promise.resolve(mainViewRead(3)),
+      ],
       pages: [Promise.resolve(transcriptPage(17)), replacementPage.promise],
     });
     const outcome = vi.fn();
@@ -532,6 +544,92 @@ describe("mounted Chat Runtime owner", () => {
     });
     expect(owner.snapshot.observation.kind).toBe("recovering");
     await owner.dispose();
+  });
+
+  it("ignores delayed failures from an invalidated observation after reconnect", async () => {
+    const logging = deferred<undefined>();
+    const fixture = runtimeApi({
+      reads: [
+        Promise.resolve(mainViewRead()),
+        Promise.resolve(mainViewRead(2)),
+        Promise.resolve(mainViewRead(3)),
+      ],
+      pages: [Promise.resolve(transcriptPage(null))],
+    });
+    const logger = { append: vi.fn(async () => logging.promise) };
+    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), { logger });
+    owner.start();
+    await vi.waitFor(() => {
+      expect(fixture.handlers).toHaveLength(1);
+      expect(fixture.getMainView).toHaveBeenCalledOnce();
+    });
+    const initial = requireValue(fixture.handlers[0]);
+    initial.onOpen?.();
+    initial.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    initial.onEvent({
+      sequence: 3,
+      kind: "session_status",
+      payload: hydration().SessionStatus,
+    });
+    initial.onEvent({
+      sequence: 4,
+      kind: "session_status",
+      payload: hydration().SessionStatus,
+    });
+
+    expect(owner.snapshot.observation.kind).toBe("recovering");
+    expect(logger.append).toHaveBeenCalledOnce();
+    expect(fixture.handlers).toHaveLength(2);
+    await vi.waitFor(() => {
+      expect(fixture.getMainView).toHaveBeenCalledTimes(2);
+    });
+
+    owner.controlReconnected();
+    await vi.waitFor(() => {
+      expect(fixture.handlers).toHaveLength(3);
+      expect(fixture.getMainView).toHaveBeenCalledTimes(3);
+    });
+    const replacement = requireValue(fixture.handlers[2]);
+    replacement.onOpen?.();
+    replacement.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    expect(owner.snapshot.observation.kind).toBe("observing");
+
+    logging.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(owner.snapshot.observation.kind).toBe("observing");
+    expect(fixture.handlers).toHaveLength(3);
+    await owner.dispose();
+  });
+
+  it("does not start production recovery for autonomous resident failure in debug mode", async () => {
+    vi.stubEnv("KENT_DEBUG", "true");
+    const logging = deferred<undefined>();
+    const fixture = runtimeApi({
+      reads: [Promise.resolve(mainViewRead()), Promise.resolve(mainViewRead(2))],
+      pages: [
+        Promise.resolve({
+          ...transcriptPage(null),
+          hasMoreAbove: true,
+        }),
+      ],
+    });
+    const logger = { append: vi.fn(async () => logging.promise) };
+    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), { logger });
+    try {
+      owner.start();
+      await vi.waitFor(() => {
+        expect(logger.append).toHaveBeenCalledOnce();
+      });
+
+      expect(owner.snapshot.observation.kind).toBe("recovering");
+      expect(fixture.handlers).toHaveLength(1);
+      expect(fixture.getMainView).toHaveBeenCalledOnce();
+    } finally {
+      await owner.dispose();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("keeps rejected hydration outside projection state and the replacement success budget", async () => {
@@ -810,297 +908,3 @@ describe("mounted Chat Runtime owner", () => {
     await second.dispose();
   });
 });
-
-const target: ChatSessionTarget = {
-  projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
-  sessionID: "123e4567-e89b-42d3-a456-426614174000",
-};
-
-function mainViewRead(sequence = 1): ChatMainViewRead {
-  return {
-    mainView: {
-      version: { epoch: "epoch-1", generation: 1, sequence },
-      sessionID: target.sessionID,
-      sessionName: "Session",
-      executionTarget: {
-        workspaceID: "workspace-1",
-        workspaceName: "Workspace",
-        workspaceRoot: "/workspace",
-        workspaceAvailability: "available",
-        worktree: null,
-        cwdRelpath: ".",
-        effectiveWorkdir: "/workspace",
-      },
-      activity: runtimeActivity("registered_idle"),
-      status: {
-        reviewerFrequency: "off",
-        reviewerEnabled: false,
-        autoCompactionEnabled: true,
-        questionsEnabled: true,
-        fastModeAvailable: false,
-        fastModeEnabled: false,
-        conversationFreshness: 0,
-        previousSessionID: null,
-        parentAgentSessionID: null,
-        navigationTargetSessionID: null,
-        lastCommittedAssistantFinalAnswer: null,
-        thinkingLevel: "medium",
-        compactionMode: "local",
-        contextUsage: {
-          usedTokens: 10,
-          windowTokens: 100,
-          cacheHitPercent: 0,
-          hasCacheHitPercentage: false,
-        },
-        compactionCount: 0,
-        workflowSession: null,
-      },
-    },
-    goal: { goal: null, availability: "available" },
-  };
-}
-
-function hydration(): ChatTranscriptPayloadByKind["hydration"] {
-  return {
-    SessionIdentity: {
-      SessionID: target.sessionID,
-      SessionName: null,
-      ConversationFreshness: 1,
-      ExecutionTarget: null,
-    },
-    SessionStatus: {
-      ReviewerFrequency: "edits",
-      ReviewerEnabled: true,
-      AutoCompactionEnabled: false,
-      QuestionsEnabled: false,
-      FastModeAvailable: true,
-      FastModeEnabled: true,
-      ThinkingLevel: "high",
-      CompactionMode: "native",
-      CompactionCount: 2,
-      PreviousSessionID: null,
-      ParentAgentSessionID: null,
-      NavigationTargetSessionID: null,
-      Workflow: null,
-    },
-    RuntimeReadModelUpdate: {
-      Version: { Epoch: "epoch-1", Generation: 1, Sequence: 2 },
-      Activity: {
-        State: "running",
-        ActiveStep: {
-          RunID: "223e4567-e89b-42d3-a456-426614174000",
-          StepID: "323e4567-e89b-42d3-a456-426614174000",
-          ActiveKind: "user_turn",
-        },
-        Reviewer: "inactive",
-        QueueAccepting: true,
-        DiagnosticRecovery: false,
-      },
-    },
-    TailSegment: { OlderCursor: null, HasMoreAbove: false, Entries: [] },
-    ActiveAssistant: null,
-    ActiveThinkingStatus: null,
-    ActiveReasoningTraces: [],
-    ActiveStep: null,
-    ActiveCompaction: null,
-    InFlightTools: [],
-    PendingPrompts: [],
-    BackgroundActivities: [],
-    ContextUsage: null,
-    GoalStatus: {
-      Goal: null,
-      Availability: "agent_capability_missing",
-    },
-  };
-}
-
-function hydrationWithCursor(cursor: number): ChatTranscriptPayloadByKind["hydration"] {
-  return {
-    ...hydration(),
-    TailSegment: { OlderCursor: cursor, HasMoreAbove: true, Entries: [] },
-  };
-}
-
-function incompatibleHydration(sessionName: string, text: string): ChatTranscriptPayloadByKind["hydration"] {
-  const payload = hydration();
-  return {
-    ...payload,
-    SessionIdentity: { ...payload.SessionIdentity, SessionName: sessionName },
-    TailSegment: {
-      Entries: [{ ...row(10), User: { Text: text } }],
-      OlderCursor: null,
-      HasMoreAbove: false,
-    },
-  };
-}
-
-function seededProjection(sequence = 1): ChatProjectionState {
-  return reduceChatProjection(emptyChatProjectionState(), {
-    kind: "authoritative-read",
-    read: mainViewRead(sequence),
-    metadataRevisionAtStart: 0,
-    goalGenerationAtStart: 0,
-    currentGoalGeneration: 0,
-  }).state;
-}
-
-function runtimeUpdate(
-  sequence: number,
-  generation: number,
-  state: "registered_idle" | "running" | "closing",
-) {
-  return {
-    sequence,
-    kind: "runtime_read_model_update",
-    payload: {
-      Version: { Epoch: "epoch-1", Generation: generation, Sequence: sequence },
-      Activity: {
-        State: state,
-        ActiveStep:
-          state === "running"
-            ? {
-                RunID: "223e4567-e89b-42d3-a456-426614174000",
-                StepID: "323e4567-e89b-42d3-a456-426614174000",
-                ActiveKind: "user_turn",
-              }
-            : null,
-        Reviewer: "inactive",
-        QueueAccepting: state !== "closing",
-        DiagnosticRecovery: false,
-      },
-    },
-  } as const;
-}
-
-function runtimeActivity(state: "registered_idle") {
-  return {
-    state,
-    activeStep: null,
-    reviewer: "inactive" as const,
-    queueAccepting: true,
-    diagnosticRecovery: false,
-  };
-}
-
-function runtimeUnavailablePayload(): ChatTranscriptPayloadByKind["runtime_read_model_update"] {
-  return {
-    Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
-    Activity: {
-      State: "unavailable",
-      ActiveStep: null,
-      Reviewer: "inactive",
-      QueueAccepting: false,
-      DiagnosticRecovery: false,
-    },
-  };
-}
-
-function changedIdentity(): ChatTranscriptPayloadByKind["session_identity"] {
-  return {
-    SessionID: target.sessionID,
-    SessionName: null,
-    ConversationFreshness: 1,
-    ExecutionTarget: {
-      WorkspaceID: "workspace-2",
-      WorkspaceName: "Workspace 2",
-      WorkspaceRoot: "/workspace-2",
-      WorkspaceAvailability: "missing",
-      Worktree: {
-        ID: "worktree-2",
-        Name: "Detached",
-        Root: "/workspace-2/worktree",
-        Availability: "missing",
-      },
-      CwdRelpath: "src",
-      EffectiveWorkdir: "/workspace-2/worktree/src",
-    },
-  };
-}
-
-function goalStatus(): ChatTranscriptPayloadByKind["goal_status"] {
-  return {
-    Goal: {
-      id: "goal-2",
-      objective: "new Goal",
-      status: "active",
-      created_at: "2026-09-04T10:00:00Z",
-      updated_at: "2026-09-04T10:00:00Z",
-      Suspended: true,
-    },
-    Availability: null,
-  };
-}
-
-function worktreeOutcome(): ChatTranscriptPayloadByKind["worktree_transition_outcome"] {
-  return {
-    OperationID: "operation-1",
-    Transition: "enter",
-    State: "completed",
-    Failure: null,
-    SelectorError: null,
-    DeletePrecondition: null,
-  };
-}
-
-function transcriptPage(olderCursor: number | null): ChatTranscriptPage {
-  return {
-    sessionID: target.sessionID,
-    sessionName: null,
-    conversationFreshness: 0,
-    olderCursor,
-    hasMoreAbove: olderCursor !== null,
-    newerCursor: null,
-    hasMoreBelow: false,
-    latestRollbackCandidate: null,
-    entries: [],
-  };
-}
-
-function runtimeHost(effects: Omit<ChatRuntimeHost, "logger"> = {}): ChatRuntimeHost {
-  return {
-    logger: { append: vi.fn().mockResolvedValue(undefined) },
-    ...effects,
-  };
-}
-
-function runtimeApi({
-  reads = [Promise.resolve(mainViewRead())],
-  pages = [Promise.resolve(transcriptPage(null))],
-}: Readonly<{
-  reads?: readonly Promise<ChatMainViewRead>[];
-  pages?: readonly Promise<ChatTranscriptPage>[];
-}> = {}) {
-  let readIndex = 0;
-  let pageIndex = 0;
-  const handlers: ChatTranscriptHandler[] = [];
-  const getMainView = vi.fn(async () => {
-    const read = reads[readIndex++];
-    return read ?? Promise.reject(new Error("Unexpected Main View call."));
-  });
-  const getTranscriptPage = vi.fn(async () => {
-    const page = pages[pageIndex++];
-    return page ?? Promise.reject(new Error("Unexpected transcript page call."));
-  });
-  const subscribeTranscript = vi.fn((_target: ChatSessionTarget, handler: ChatTranscriptHandler) => {
-    handlers.push(handler);
-    return { close: vi.fn() };
-  });
-  const api: ChatRuntimeApi = { getMainView, getTranscriptPage, subscribeTranscript };
-  return { api, getMainView, getTranscriptPage, subscribeTranscript, handlers };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
-function requireValue<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error("Required test value is missing.");
-  return value;
-}

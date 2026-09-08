@@ -120,6 +120,7 @@ export class ChatTranscriptObservation {
   #hydratedCommittedEventSequence: number | null = null;
   #lastLiveCommittedLocator: CommittedRowLocator | null = null;
   #replacementInFlight = false;
+  #observationGeneration = 0;
   #hasHydrated = false;
   #disposed = false;
 
@@ -151,9 +152,14 @@ export class ChatTranscriptObservation {
     this.#replaceObservation(false);
   }
 
+  rejectIntegrity(error: Error): void {
+    this.#integrityFailure(error);
+  }
+
   close(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#observationGeneration++;
     this.#physical?.close();
     this.#physical = null;
     this.#state = { kind: "disposed" };
@@ -162,6 +168,7 @@ export class ChatTranscriptObservation {
 
   #openPhysical(): void {
     if (this.#disposed) return;
+    this.#observationGeneration++;
     this.#physical = new ChatTranscriptPhysicalObservation(this.#api, this.#target, {
       onOpen: () => {
         if (this.#disposed) return;
@@ -296,11 +303,29 @@ export class ChatTranscriptObservation {
   }
 
   #integrityFailure(error: Error): void {
-    let recovered = false;
+    if (this.#disposed || this.#physical === null) return;
+    const replacementFailed = this.#replacementInFlight;
+    const failureGeneration = ++this.#observationGeneration;
+    this.#physical.close();
+    this.#physical = null;
+    this.#nextSequence = 0;
+    this.#hydratedCommittedEventSequence = null;
+    this.#lastLiveCommittedLocator = null;
+    this.#replacementInFlight = true;
+    this.#state = { kind: "recovering" };
+    this.#host.onStateChange?.();
     const recover = () => {
-      if (recovered) return;
-      recovered = true;
-      this.#continuityFailure(error);
+      if (this.#disposed || failureGeneration !== this.#observationGeneration) return;
+      if (replacementFailed) {
+        this.#state = { kind: "error", error };
+        this.#host.onError(error);
+        this.#host.onStateChange?.();
+        return;
+      }
+      this.#hydrationKind = "scratch";
+      this.#host.onRecoveryBegin();
+      this.#host.onForceMainViewRead();
+      this.#openPhysical();
     };
     if (this.#host.onIntegrityFailure === undefined) {
       recover();
