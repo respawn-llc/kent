@@ -77,8 +77,15 @@ export class ChatTranscriptPhysicalObservation {
       onError: (error) => {
         if (!this.#accepts(generation, settled)) return;
         settled = true;
-        this.#subscription = null;
-        this.#handler.onError(error);
+        const subscription = this.#subscription;
+        try {
+          this.#handler.onError(error);
+        } finally {
+          if (this.#subscription === subscription) {
+            subscription?.close();
+            this.#subscription = null;
+          }
+        }
       },
     });
   }

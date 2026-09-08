@@ -7,6 +7,7 @@ import type {
   ChatTranscriptHandler,
   ChatTranscriptMessage,
 } from "@/api";
+import { ContractError } from "@/api";
 import { row } from "@/test-support/transcript-window";
 
 import { ChatTranscriptPhysicalObservation } from "./chatTranscriptObservation";
@@ -124,6 +125,34 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
   handlers[2]?.onEvent(hydrationMessage());
   expect(hydrationKinds).toEqual(["initial", "scratch"]);
   expect(observation.state.kind).toBe("observing");
+});
+
+it("closes malformed-event observation before replacement and closes replacement on disposal", () => {
+  const handlers: ChatTranscriptHandler[] = [];
+  const closes: ReturnType<typeof vi.fn>[] = [];
+  const api: Pick<ChatApi, "subscribeTranscript"> = {
+    subscribeTranscript(_target, handler) {
+      handlers.push(handler);
+      const close = vi.fn();
+      closes.push(close);
+      return { close };
+    },
+  };
+  const observation = new ChatTranscriptObservation(api, target, {
+    onHydration: () => undefined,
+    onEvent: () => undefined,
+    onRecoveryBegin: () => undefined,
+    onForceMainViewRead: () => undefined,
+    onError: () => undefined,
+  });
+
+  observation.start();
+  handlers[0]?.onError(new ContractError("Malformed transcript event."));
+
+  expect(closes[0]).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(2);
+  observation.close();
+  expect(closes[1]).toHaveBeenCalledOnce();
 });
 
 it("replaces a waiting recovery and forces fresh authority on confirmed reconnect", () => {
