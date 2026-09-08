@@ -85,12 +85,17 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
   const hydrationKinds: string[] = [];
   const recoveryBegin = vi.fn();
   const forceMainView = vi.fn();
+  const integrityFailures = vi.fn();
   const errors: Error[] = [];
   const observation = new ChatTranscriptObservation(api, target, {
     onHydration: (kind) => hydrationKinds.push(kind),
     onEvent: () => undefined,
     onRecoveryBegin: recoveryBegin,
     onForceMainViewRead: forceMainView,
+    onIntegrityFailure: (error, recover) => {
+      integrityFailures(error);
+      recover();
+    },
     onError: (error) => errors.push(error),
   });
 
@@ -101,6 +106,7 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
   expect(handlers).toHaveLength(2);
   expect(recoveryBegin).toHaveBeenCalledOnce();
   expect(forceMainView).toHaveBeenCalledOnce();
+  expect(integrityFailures).toHaveBeenCalledOnce();
   expect(observation.state.kind).toBe("recovering");
   handlers[0]?.onEvent(unavailableActivity());
   handlers[0]?.onComplete({ code: 0, message: "", reason: null });
@@ -109,6 +115,7 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
   handlers[1]?.onError(new Error("replacement failed"));
   expect(observation.state.kind).toBe("error");
   expect(errors).toHaveLength(1);
+  expect(integrityFailures).toHaveBeenCalledOnce();
   observation.retry();
   expect(handlers).toHaveLength(3);
   expect(recoveryBegin).toHaveBeenCalledTimes(2);
@@ -135,6 +142,7 @@ it("replaces a waiting recovery and forces fresh authority on confirmed reconnec
   const observation = new ChatTranscriptObservation(api, target, {
     onHydration: () => undefined,
     onEvent: () => undefined,
+    onTransportLoss: () => undefined,
     onRecoveryBegin: recoveryBegin,
     onForceMainViewRead: forceMainView,
     onError: () => undefined,

@@ -15,12 +15,18 @@ import {
 
 export type ChatTranscriptPageInput =
   Readonly<{ kind: "newest" }> | Readonly<{ kind: "older" | "newer"; cursor: number }>;
-export type ChatTranscriptHostInput = Extract<TranscriptWindowInput, { kind: "edge-visit" | "retry" }>;
+export type ChatTranscriptHostInput = Extract<
+  TranscriptWindowInput,
+  { kind: "edge-visit" | "opening-retry" | "retry" }
+>;
 export type ChatTranscriptHostOptions = Readonly<{
   onContractFailure(error: Error): void;
   onOpeningFailure(error: Error): void;
+  onRecoveryRequired(): void;
   onScratchRehydration(): void;
 }>;
+export type ChatTranscriptAdmission =
+  Readonly<{ kind: "accepted" }> | Readonly<{ kind: "rejected"; error: Error }>;
 
 type TranscriptPageApi = Pick<ChatApi, "getTranscriptPage">;
 
@@ -64,14 +70,17 @@ export class ChatTranscriptHost {
   }
 
   open(): void {
-    const permit = this.#window.openingPermit;
+    this.#requestOpeningPage(this.#window.openingPermit);
+  }
+
+  #requestOpeningPage(permit: symbol): void {
     void executeChatTranscriptPage(this.#api, this.#target, { kind: "newest" }).then(
       (page) => {
-        this.#apply(this.#window.dispatch({ kind: "opening-success", permit, page }));
+        this.#applyAutonomous(this.#window.dispatch({ kind: "opening-success", permit, page }));
       },
       (cause: unknown) => {
         const error = cause instanceof Error ? cause : new Error("Transcript page failed.");
-        this.#apply(this.#window.dispatch({ kind: "opening-failure", permit, error }));
+        this.#applyAutonomous(this.#window.dispatch({ kind: "opening-failure", permit, error }));
       },
     );
   }
@@ -79,84 +88,90 @@ export class ChatTranscriptHost {
   hydration(
     kind: "initial" | "scratch" | "reattachment",
     hydration: ChatTranscriptPayloadByKind["hydration"],
-  ): void {
-    this.#apply(this.#window.dispatch({ kind: `${kind}-hydration`, hydration }));
+  ): ChatTranscriptAdmission {
+    return this.#apply(this.#window.dispatch({ kind: `${kind}-hydration`, hydration }));
   }
 
-  event(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void {
+  event(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): ChatTranscriptAdmission {
     if (event.kind === "committed_row") {
-      this.#apply(this.#window.dispatch({ kind: "committed-row", row: event.payload }));
-      return;
+      return this.#apply(this.#window.dispatch({ kind: "committed-row", row: event.payload }));
     }
     if (event.kind === "runtime_read_model_update") {
-      this.#apply(this.#window.dispatch({ kind: "runtime-activity", activity: event.payload.Activity }));
-      return;
+      return this.#apply(
+        this.#window.dispatch({ kind: "runtime-activity", activity: event.payload.Activity }),
+      );
     }
     if (event.kind === "compaction_status") {
-      this.#apply(this.#window.dispatch({ kind: "compaction-status", status: event.payload }));
-      return;
+      return this.#apply(this.#window.dispatch({ kind: "compaction-status", status: event.payload }));
     }
     if (event.kind === "assistant_delta") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "assistant_stream_abort") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "tool_start") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "tool_abort") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "reasoning_trace_update") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "reasoning_trace_reset") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "thinking_status_update") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
     if (event.kind === "step_state") {
-      this.#admitLive(event);
-      return;
+      return this.#admitLive(event);
     }
+    return { kind: "accepted" };
   }
 
   recoveryStarted(): void {
-    this.#apply(this.#window.dispatch({ kind: "recovery-begin" }));
+    this.#applyAutonomous(this.#window.dispatch({ kind: "recovery-begin" }));
+  }
+
+  observationLost(): void {
+    this.#applyAutonomous(this.#window.dispatch({ kind: "observation-loss" }));
   }
 
   dispatch(input: ChatTranscriptHostInput): void {
-    this.#apply(this.#window.dispatch(input));
+    this.#applyAutonomous(this.#window.dispatch(input));
   }
 
   dispose(): void {
-    this.#apply(this.#window.dispatch({ kind: "dispose" }));
+    this.#applyAutonomous(this.#window.dispatch({ kind: "dispose" }));
     this.#listeners.clear();
   }
 
-  #admitLive(fact: TranscriptLiveFact): void {
-    this.#apply(this.#window.dispatch({ kind: "live-fact", fact }));
+  #admitLive(fact: TranscriptLiveFact): ChatTranscriptAdmission {
+    return this.#apply(this.#window.dispatch({ kind: "live-fact", fact }));
   }
 
-  #apply(result: TranscriptWindowResult): void {
+  #applyAutonomous(result: TranscriptWindowResult): void {
+    const admission = this.#apply(result);
+    if (admission.kind === "rejected") {
+      this.#options.onContractFailure(admission.error);
+      this.#options.onRecoveryRequired();
+    }
+  }
+
+  #apply(result: TranscriptWindowResult): ChatTranscriptAdmission {
     if (result.kind === "contract-failure") {
-      this.#options.onContractFailure(result.error);
-      return;
+      return { kind: "rejected", error: result.error };
     }
     this.#notify();
     for (const effect of result.effects) {
       switch (effect.kind) {
         case "opening-failed":
           this.#options.onOpeningFailure(effect.error);
+          break;
+        case "opening-page-request":
+          this.#requestOpeningPage(effect.permit);
           break;
         case "scratch-rehydration":
           this.#options.onScratchRehydration();
@@ -167,7 +182,7 @@ export class ChatTranscriptHost {
             cursor: effect.request.cursor,
           }).then(
             (page) => {
-              this.#apply(
+              this.#applyAutonomous(
                 this.#window.dispatch({
                   kind: "page-success",
                   request: effect.request,
@@ -177,7 +192,7 @@ export class ChatTranscriptHost {
             },
             (cause: unknown) => {
               const error = cause instanceof Error ? cause : new Error("Transcript page failed.");
-              this.#apply(
+              this.#applyAutonomous(
                 this.#window.dispatch({
                   kind: "page-failure",
                   request: effect.request,
@@ -189,6 +204,7 @@ export class ChatTranscriptHost {
           break;
       }
     }
+    return { kind: "accepted" };
   }
 
   #notify(): void {

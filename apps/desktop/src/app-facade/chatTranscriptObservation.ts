@@ -57,6 +57,13 @@ export class ChatTranscriptPhysicalObservation {
         terminalUnavailable ||= isTerminalRuntimeUnavailable(event);
         this.#handler.onEvent(event);
       },
+      ...(this.#handler.onTransportLoss === undefined
+        ? {}
+        : {
+            onTransportLoss: () => {
+              if (this.#accepts(generation, settled)) this.#handler.onTransportLoss?.();
+            },
+          }),
       onComplete: (completion) => {
         if (!this.#accepts(generation, settled)) return;
         settled = true;
@@ -92,6 +99,8 @@ export type ChatTranscriptObservationState =
 export type ChatTranscriptObservationHost = Readonly<{
   onHydration(kind: ChatTranscriptHydrationKind, hydration: ChatTranscriptPayloadByKind["hydration"]): void;
   onEvent(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void;
+  onIntegrityFailure?(error: Error, recover: () => void): void;
+  onTransportLoss?(): void;
   onRecoveryBegin(): void;
   onForceMainViewRead(): void;
   onError(error: Error): void;
@@ -168,6 +177,9 @@ export class ChatTranscriptObservation {
       onEvent: (event) => {
         this.#admit(event);
       },
+      onTransportLoss: () => {
+        this.#host.onTransportLoss?.();
+      },
       onComplete: (completion) => {
         this.#continuityFailure(
           new ContractError(
@@ -176,7 +188,11 @@ export class ChatTranscriptObservation {
         );
       },
       onError: (error) => {
-        this.#continuityFailure(error);
+        if (error instanceof ContractError) {
+          this.#integrityFailure(error);
+        } else {
+          this.#continuityFailure(error);
+        }
       },
     });
     this.#physical.start();
@@ -193,7 +209,7 @@ export class ChatTranscriptObservation {
 
   #admitHydration(event: ChatTranscriptMessage): void {
     if (event.kind !== "hydration" || event.sequence !== 1) {
-      this.#continuityFailure(
+      this.#integrityFailure(
         new ContractError("Transcript observation must begin with sequence-1 hydration."),
       );
       return;
@@ -201,7 +217,7 @@ export class ChatTranscriptObservation {
     try {
       this.#host.onHydration(this.#hydrationKind, event.payload);
     } catch (error) {
-      this.#continuityFailure(
+      this.#integrityFailure(
         error instanceof Error ? error : new ContractError("Transcript hydration admission failed."),
       );
       return;
@@ -219,7 +235,7 @@ export class ChatTranscriptObservation {
 
   #admitUpdate(event: ChatTranscriptMessage): void {
     if (event.kind === "hydration" || event.sequence !== this.#nextSequence + 1) {
-      this.#continuityFailure(new ContractError("Transcript observation sequence is not continuous."));
+      this.#integrityFailure(new ContractError("Transcript observation sequence is not continuous."));
       return;
     }
     let committedLocator: CommittedRowLocator | null = null;
@@ -229,7 +245,7 @@ export class ChatTranscriptObservation {
       }
       this.#host.onEvent(event);
     } catch (error) {
-      this.#continuityFailure(
+      this.#integrityFailure(
         error instanceof Error ? error : new ContractError("Transcript event admission failed."),
       );
       return;
@@ -277,6 +293,20 @@ export class ChatTranscriptObservation {
       return;
     }
     this.#replaceObservation(true);
+  }
+
+  #integrityFailure(error: Error): void {
+    let recovered = false;
+    const recover = () => {
+      if (recovered) return;
+      recovered = true;
+      this.#continuityFailure(error);
+    };
+    if (this.#host.onIntegrityFailure === undefined) {
+      recover();
+      return;
+    }
+    this.#host.onIntegrityFailure(error, recover);
   }
 
   #replaceObservation(forceMainViewRead: boolean): void {

@@ -570,6 +570,7 @@ describe("Desktop Chat read client", () => {
   it("delivers transcript hydration and live events with recoverable contract errors and typed completion", async () => {
     const events: unknown[] = [];
     const errors: Error[] = [];
+    const transportLosses: unknown[] = [];
     const completions: unknown[] = [];
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport);
@@ -577,10 +578,12 @@ describe("Desktop Chat read client", () => {
       onEvent: (event) => events.push(event),
       onComplete: (completion) => completions.push(completion),
       onError: (error) => errors.push(error),
+      onTransportLoss: () => transportLosses.push({}),
     });
     expect(transport.chatSubscriptionStarts[0]?.establishmentTimeoutMs).toBeNull();
-    transport.fail("session.subscribeTranscript", new Error("isolated socket loss"));
+    transport.fail("session.subscribeTranscript", new TransportError("isolated socket loss"));
     expect(errors).toEqual([]);
+    expect(transportLosses).toHaveLength(1);
 
     transport.emit("session.transcript", {
       message: { sequence: 1, kind: "hydration", payload: transcriptHydrationPayload() },

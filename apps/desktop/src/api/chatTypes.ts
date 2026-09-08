@@ -204,6 +204,7 @@ export type ChatTranscriptCompletion = Readonly<{
 }>;
 export type ChatTranscriptHandler = Readonly<{
   onOpen?(): void;
+  onTransportLoss?(): void;
   onEvent(event: ChatTranscriptMessage): void;
   onComplete(completion: ChatTranscriptCompletion): void;
   onError(error: Error): void;

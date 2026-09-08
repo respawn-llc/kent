@@ -24,6 +24,7 @@ it("executes opening and directional TranscriptWindow page requests", async () =
     {
       onContractFailure: vi.fn(),
       onOpeningFailure: vi.fn(),
+      onRecoveryRequired: vi.fn(),
       onScratchRehydration: vi.fn(),
     },
   );
@@ -60,6 +61,7 @@ it("keeps a failed directional boundary retryable with the same opaque cursor", 
     {
       onContractFailure: vi.fn(),
       onOpeningFailure: vi.fn(),
+      onRecoveryRequired: vi.fn(),
       onScratchRehydration: vi.fn(),
     },
   );

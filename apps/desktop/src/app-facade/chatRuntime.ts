@@ -111,13 +111,13 @@ export class ChatRuntimeOwner {
           error,
           logger: this.#host.logger,
           message: "Transcript admission violated its internal contract.",
-          recover: () => {
-            this.#host.onTranscriptError?.(error);
-            this.recoverTranscriptContinuity();
-          },
+          recover: () => undefined,
         });
       },
       onOpeningFailure: (error) => this.#host.onTranscriptError?.(error),
+      onRecoveryRequired: () => {
+        this.recoverTranscriptContinuity();
+      },
       onScratchRehydration: () => {
         this.recoverTranscriptContinuity();
       },
@@ -154,11 +154,24 @@ export class ChatRuntimeOwner {
     this.transcript.open();
     this.#observation = new ChatTranscriptObservation(this.#api, this.#target, {
       onHydration: (kind, hydration) => {
-        this.transcript.hydration(kind, hydration);
+        const admission = this.transcript.hydration(kind, hydration);
+        if (admission.kind === "rejected") throw admission.error;
         this.#admitProjection({ kind: "hydration", hydration });
       },
       onEvent: (event) => {
         this.#admitTranscriptEvent(event);
+      },
+      onIntegrityFailure: (error, recover) => {
+        void recoverOrThrowDebugFailure({
+          context: { sessionID: this.#target.sessionID },
+          error,
+          logger: this.#host.logger,
+          message: "Transcript observation violated its integrity contract.",
+          recover,
+        });
+      },
+      onTransportLoss: () => {
+        this.transcript.observationLost();
       },
       onRecoveryBegin: () => {
         this.transcript.recoveryStarted();
@@ -307,7 +320,8 @@ export class ChatRuntimeOwner {
 
   #admitTranscriptEvent(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void {
     if (this.#disposed) return;
-    this.transcript.event(event);
+    const admission = this.transcript.event(event);
+    if (admission.kind === "rejected") throw admission.error;
     this.#admitProjection({ kind: "event", event });
   }
 

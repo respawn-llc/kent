@@ -127,8 +127,12 @@ function emptyState(opening: "loading" | "disposed"): State {
 
 /** One mounted host owns this controller and executes its effects; no transport work happens here. */
 export class TranscriptWindow {
-  readonly openingPermit = Symbol("transcript opening");
+  private openingAttempt = Symbol("transcript opening");
   private state = emptyState("loading");
+
+  get openingPermit(): symbol {
+    return this.openingAttempt;
+  }
 
   get snapshot(): TranscriptWindowSnapshot {
     return this.state.snapshot;
@@ -154,7 +158,9 @@ export class TranscriptWindow {
   private reduce(
     input: Exclude<TranscriptWindowInput, { kind: "dispose" } | { hydration: Hydration }>,
   ): TranscriptWindowResult {
+    if (input.kind === "observation-loss") return this.discardProvisional();
     if (input.kind === "recovery-begin") return this.beginRecovery();
+    if (input.kind === "opening-retry") return this.retryOpening();
     if ("permit" in input) return this.opening(input);
     if (input.kind === "committed-row") {
       this.state = admitRows(this.state, [input.row]);
@@ -164,6 +170,20 @@ export class TranscriptWindow {
       this.state = project({ ...this.state, provisional: reduceLive(this.state.provisional, input.fact) });
       return { kind: "accepted", effects: [] };
     }
+    return this.reduceWindowOperation(input);
+  }
+
+  private reduceWindowOperation(
+    input: Extract<
+      TranscriptWindowInput,
+      | { kind: "replace-window" }
+      | { kind: "edge-visit" }
+      | { kind: "retry" }
+      | { kind: "page-failure" | "page-success" }
+      | { kind: "runtime-activity" }
+      | { kind: "compaction-status" }
+    >,
+  ): TranscriptWindowResult {
     switch (input.kind) {
       case "replace-window":
         return this.replace(input.page);
@@ -195,6 +215,19 @@ export class TranscriptWindow {
     return { kind: "accepted", effects: [{ kind: "opening-failed", error: input.error }] };
   }
 
+  private retryOpening(): TranscriptWindowResult {
+    if (this.snapshot.opening.kind !== "error") return { kind: "accepted", effects: [] };
+    this.openingAttempt = Symbol("transcript opening");
+    this.state = {
+      ...this.state,
+      snapshot: { ...this.snapshot, opening: { kind: "loading" } },
+    };
+    return {
+      kind: "accepted",
+      effects: [{ kind: "opening-page-request", permit: this.openingAttempt }],
+    };
+  }
+
   private replace(segment: Segment): TranscriptWindowResult {
     validateTail(segment);
     this.state = install(this.state, {
@@ -221,6 +254,11 @@ export class TranscriptWindow {
       provisional: [],
       snapshot,
     });
+    return { kind: "accepted", effects: [] };
+  }
+
+  private discardProvisional(): TranscriptWindowResult {
+    this.state = project({ ...this.state, provisional: [] });
     return { kind: "accepted", effects: [] };
   }
 

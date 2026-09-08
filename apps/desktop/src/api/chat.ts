@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
-import { ContractError, RpcError } from "./errors";
+import { ContractError, RpcError, TransportError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
 import { committedRowSchema, contextSchema, mainViewSchema, pageSchema, settingsSchema } from "./chatSchemas";
 import type { runtimeStatusSchema } from "./chatSchemas";
@@ -431,7 +431,11 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
           });
         },
         onError(error) {
-          if (error instanceof ContractError || error instanceof RpcError) handler.onError(error);
+          if (error instanceof ContractError || error instanceof RpcError) {
+            handler.onError(error);
+          } else if (error instanceof TransportError) {
+            handler.onTransportLoss?.();
+          }
         },
       };
       return transport.subscribeChatSession({
