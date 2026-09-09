@@ -102,6 +102,7 @@ func AskQuestionStaticContractSource() StaticContractSource {
 // Validation sentinels for request/response shape errors. Tests match these
 // via errors.Is rather than asserting message wording.
 var (
+	ErrAskQuestionHandlerUnavailable            = errors.New("question owner is not attached")
 	ErrAskQuestionApprovalRequiresOptions       = errors.New("approval questions require approval_options")
 	ErrAskQuestionApprovalForbidsSuggestions    = errors.New("approval questions must not set suggestions")
 	ErrAskQuestionApprovalForbidsRecommended    = errors.New("approval questions must not set recommended_option_index")
@@ -127,26 +128,12 @@ type AskQuestionApprovalOption struct {
 
 type AskQuestionBroker struct {
 	mu    sync.Mutex
-	queue []*pending
-	// onAsk switches the broker into synchronous handler mode. When unset, Ask
-	// uses queued submit mode and requests complete only via Submit.
 	onAsk *synchronousAskHandler
 }
 
 type synchronousAskHandler struct {
 	resolve func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)
 	finish  func(AskQuestionRequest, AskQuestionResolution) error
-}
-
-type pending struct {
-	req       AskQuestionRequest
-	ch        chan responseResult
-	completed bool
-}
-
-type responseResult struct {
-	resolution AskQuestionResolution
-	err        error
 }
 
 func NewAskQuestionBroker() *AskQuestionBroker {
@@ -218,14 +205,23 @@ func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (As
 	}
 
 	h := b.askHandler()
-	if h != nil {
-		// Synchronous handler mode has exactly one completion path: the handler
-		// return value. Requests are never queued in this mode.
-		return b.askSync(ctx, req, h)
+	if h == nil {
+		return nil, ErrAskQuestionHandlerUnavailable
 	}
-	// Queued submit mode has exactly one completion path: Submit delivering a
-	// validated response to the pending request.
-	return b.askQueued(ctx, req)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	resolution, err := h.resolve(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := h.finish(req, resolution); err != nil {
+		return nil, err
+	}
+	return resolution, nil
 }
 
 func (b *AskQuestionBroker) askHandler() *synchronousAskHandler {
@@ -234,81 +230,11 @@ func (b *AskQuestionBroker) askHandler() *synchronousAskHandler {
 	return b.onAsk
 }
 
-func (b *AskQuestionBroker) askSync(ctx context.Context, req AskQuestionRequest, handler *synchronousAskHandler) (AskQuestionResolution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	resolution, err := handler.resolve(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := handler.finish(req, resolution); err != nil {
-		return nil, err
-	}
-	return resolution, nil
-}
-
-func (b *AskQuestionBroker) askQueued(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	p := &pending{req: req, ch: make(chan responseResult, 1)}
-	b.mu.Lock()
-	b.queue = append(b.queue, p)
-	b.mu.Unlock()
-	defer b.dequeue(req.ToolCallID)
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case rr := <-p.ch:
-		return b.finishQueuedResponse(req, rr)
-	}
-}
-
-func (b *AskQuestionBroker) finishQueuedResponse(req AskQuestionRequest, rr responseResult) (AskQuestionResolution, error) {
-	if rr.err != nil {
-		return nil, rr.err
-	}
-	if err := req.acceptResolution(rr.resolution); err != nil {
-		return nil, err
-	}
-	return rr.resolution, nil
-}
-
 func (r AskQuestionRequest) acceptResolution(resolution AskQuestionResolution) error {
 	if r.Approval {
 		return r.AcceptApproval(resolution)
 	}
 	return ValidateAskQuestionResolution(r, resolution)
-}
-
-func (b *AskQuestionBroker) Submit(toolCallID string, resolution AskQuestionResolution) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, p := range b.queue {
-		if p.req.ToolCallID == toolCallID {
-			return b.deliverPendingResponseLocked(p, responseResult{resolution: resolution})
-		}
-	}
-	return fmt.Errorf("tool call %s not found", toolCallID)
-}
-
-func (b *AskQuestionBroker) deliverPendingResponseLocked(p *pending, rr responseResult) error {
-	if p.completed {
-		return fmt.Errorf("request %s already completed", p.req.ToolCallID)
-	}
-	if rr.err == nil {
-		if err := ValidateAskQuestionResolution(p.req, rr.resolution); err != nil {
-			return err
-		}
-	}
-	p.completed = true
-	p.ch <- rr
-	return nil
 }
 
 func validateRequest(req AskQuestionRequest) error {
@@ -382,29 +308,6 @@ func selectedOptionToolOutputSummary(optionNumber int, freeform *string) string 
 		return base
 	}
 	return base + " They also said: " + *freeform
-}
-
-func (b *AskQuestionBroker) Pending() []AskQuestionRequest {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make([]AskQuestionRequest, 0, len(b.queue))
-	for _, p := range b.queue {
-		out = append(out, p.req)
-	}
-	return out
-}
-
-func (b *AskQuestionBroker) dequeue(toolCallID string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make([]*pending, 0, len(b.queue))
-	for _, p := range b.queue {
-		if p.req.ToolCallID == toolCallID {
-			continue
-		}
-		out = append(out, p)
-	}
-	b.queue = out
 }
 
 func (r AskQuestionToolRequest) request(callID string) AskQuestionRequest {

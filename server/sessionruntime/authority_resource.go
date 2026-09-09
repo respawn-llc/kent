@@ -176,6 +176,9 @@ type agentResource struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 
+	// Turn admission and completion share this lock. Resource replacement
+	// uses the Session gate and may wait for execution completion.
+	turnMu               sync.Mutex
 	mu                   sync.Mutex
 	changed              chan struct{}
 	state                AgentResourceState
@@ -187,7 +190,6 @@ type agentResource struct {
 	logger               *runlog.RunLogger
 	localTools           *runtimewire.LocalToolRegistryBinding
 	askBroker            *tools.AskQuestionBroker
-	askScope             *runtimeids.ExecutionScopeID
 	close                func() error
 	backgroundLimit      int
 	backgroundMode       shelltool.BackgroundOutputMode
@@ -862,7 +864,6 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 		execution.onRetire = request.Workflow.OnRetire
 	}
 	if resource.askBroker != nil {
-		scopeID := scope.ID()
 		askHandler := request.Ask
 		if askHandler == nil {
 			askHandler = func(ctx context.Context, scope ExecutionScope, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
@@ -872,7 +873,6 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 		resource.askBroker.SetLifecycleAskHandler(func(ctx context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 			return askHandler(ctx, execution.scope, req)
 		})
-		resource.askScope = &scopeID
 	}
 	resource.current = execution
 	resource.signalLocked()
@@ -946,6 +946,12 @@ func (a *Authority) RunCurrentTurn(
 	if resource == nil {
 		return runtimeUnavailableErr(sessionID.String())
 	}
+	resource.turnMu.Lock()
+	releaseAdmission := sync.OnceFunc(func() {
+		resource.turnMu.Unlock()
+		releaseGate()
+	})
+	defer releaseAdmission()
 
 	accepted := make(chan struct{})
 	var acceptedOnce sync.Once
@@ -953,7 +959,7 @@ func (a *Authority) RunCurrentTurn(
 		committed, err := accept(commit)
 		if committed {
 			acceptedOnce.Do(func() {
-				releaseGate()
+				releaseAdmission()
 				close(accepted)
 			})
 		}
@@ -969,7 +975,7 @@ func (a *Authority) RunCurrentTurn(
 			!workflowExecution &&
 			context.Cause(current.ctx) != nil
 		if interruptedHumanExecution {
-			releaseGate()
+			releaseAdmission()
 			if err := current.awaitDone(ctx); err != nil {
 				return err
 			}
@@ -978,7 +984,7 @@ func (a *Authority) RunCurrentTurn(
 		runErr := resource.withEngineUnderAdmission(ctx, func(runCtx context.Context, engine *runtime.Engine) error {
 			return run(runCtx, engine, admit)
 		})
-		releaseGate()
+		releaseAdmission()
 		return errors.Join(runErr, a.closeRetiringResource(context.Background(), resource))
 	}
 
@@ -993,6 +999,7 @@ func (a *Authority) RunCurrentTurn(
 				runCtx, stop := MergeContexts(executionCtx, ctx)
 				err := run(runCtx, engine, admit)
 				stop()
+				releaseAdmission()
 				if err != nil {
 					operationContinues <- false
 					return err
@@ -1000,17 +1007,10 @@ func (a *Authority) RunCurrentTurn(
 				queuedWorkScheduled := engine.HasScheduledQueuedUserWork()
 				goalLoopActive := engine.GoalLoopRunning()
 				operationContinues <- queuedWorkScheduled || goalLoopActive
-				if queuedWorkScheduled {
-					if err := engine.WaitForScheduledQueuedUserWork(executionCtx); err != nil {
-						return err
-					}
-				}
-				if engine.GoalLoopRunning() {
-					return engine.WaitForGoalLoop(executionCtx)
-				}
 				return nil
 			})
 			if !callbackRan {
+				releaseAdmission()
 				operationContinues <- false
 			}
 			return runErr
@@ -1030,9 +1030,9 @@ func (a *Authority) RunCurrentTurn(
 	select {
 	case <-accepted:
 	case <-exactHandle.execution.done:
-		releaseGate()
+		releaseAdmission()
 	case <-ctx.Done():
-		releaseGate()
+		releaseAdmission()
 	}
 	if <-operationContinues {
 		return nil
@@ -1072,12 +1072,8 @@ func (a *Authority) RunCurrentAgentExecution(
 				runCtx, stop := MergeContexts(executionCtx, ctx)
 				err := run(runCtx, engine)
 				stop()
-				goalLoopActive := err == nil && engine.GoalLoopRunning()
-				operationContinues <- goalLoopActive
-				if err != nil || !goalLoopActive {
-					return err
-				}
-				return engine.WaitForGoalLoop(executionCtx)
+				operationContinues <- err == nil && (engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning())
+				return err
 			})
 			if !callbackRan {
 				operationContinues <- false

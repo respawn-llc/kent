@@ -10,6 +10,7 @@ import (
 	"core/server/runtime"
 	"core/server/runtimeview"
 	"core/server/session"
+	"core/server/sessionruntime"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -181,7 +182,24 @@ func (s *Service) applyLiveGoalMutation(
 		result, err = applyLiveGoalMutation(runtimeCtx, engine, mutation)
 		return err
 	}
-	err := s.authority.WithCurrentRuntime(ctx, sessionID, apply)
+	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+	if err != nil {
+		return result, err
+	}
+	err = s.authority.RunCurrentTurn(ctx, descriptor, func(commit func() (bool, error)) (bool, error) {
+		return commit()
+	}, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+		_, err := accept(func() (bool, error) {
+			err := apply(ctx, engine)
+			return goalResultAccepted(result), err
+		})
+		return err
+	})
+	if errors.Is(err, sessionruntime.ErrSessionWorkflowActivationActive) {
+		// Retained Workflow activation owns its next execution. Goal control
+		// may update it, but must not launch an ordinary Goal execution.
+		err = s.authority.WithRetainedWorkflowRuntime(ctx, sessionID, apply)
+	}
 	if goalResultAccepted(result) {
 		return result, err
 	}

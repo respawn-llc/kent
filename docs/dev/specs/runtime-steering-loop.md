@@ -8,6 +8,8 @@
 - Interactive Chat mutations prepare and open their required Active Session Runtime inside the server before mutation acceptance.
 - Clients never activate, own, release, or otherwise manage an Active Session Runtime as a prerequisite for a Chat mutation.
 - The Active Session Runtime is authoritative for its live model, transcript, Pending Work, and Session-setting state.
+- Every model-executing Agent Turn, including Goal-started work, must belong to a live Exact Execution Scope before its first Agent Step and until its model work finishes.
+- That execution must be the single authority for its pending Questions and Approvals, answer delivery, and interruption.
 - Clients render server state and do not create another ordering authority.
 - Boundary-required Session mutations are applied one at a time in acceptance order.
 - Kent promises no order between concurrent requests before one request is accepted.
