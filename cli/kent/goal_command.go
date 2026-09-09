@@ -234,12 +234,12 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			actor = "agent"
 			runID, stepID = sessionenv.LookupRunStepID(os.LookupEnv)
 		}
-		resp, err := remote.CompleteGoal(ctx, serverapi.RuntimeGoalStatusRequest{SessionID: target, Actor: actor, RunID: runID, StepID: stepID})
+		_, err = remote.CompleteGoal(ctx, serverapi.RuntimeGoalStatusRequest{SessionID: target, Actor: actor, RunID: runID, StepID: stepID})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target, err))
 			return 1
 		}
-		writeGoalShowText(stdout, resp.Goal)
+		fmt.Fprintln(stdout, "Goal marked as completed, changes will come into effect in a few seconds. After that you may end your turn normally.")
 		return 0
 	})
 }
