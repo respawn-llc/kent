@@ -38,6 +38,10 @@ func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string)
 	if err := e.steerWorkflowModeIfNeeded(ctx, stepID); err != nil {
 		return err
 	}
+	return e.materializePendingExecutionTargetReminders(stepID)
+}
+
+func (e *Engine) materializePendingExecutionTargetReminders(stepID string) error {
 	if err := e.materializePendingWorktreeReminder(stepID); err != nil {
 		return err
 	}

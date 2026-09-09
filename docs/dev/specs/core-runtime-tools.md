@@ -190,8 +190,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 ## Sessions, Location, And Transcript Bounds
 
 - Sessions can stop and resume. The persistence root is configurable and defaults to `~/.kent`; their durable location model is Project, Workspace, then Worktree.
-- Except for an active agent rebinding its own Session under the self-agent rule below, moving a Session to a Workspace in another Project is accepted only while its RuntimeActivity is idle or it has no Active Session Runtime. Every other live state rejects the move immediately without waiting for current work.
-- An accepted cross-Project move retires an idle Active Session Runtime before moving the Session. Opening the Session in the destination Project creates a fresh learned-Workspace cache.
+- Session rebinds must follow the execution-target transition rules below for every caller, including cross-Project moves.
 - Full transcript history can reach dozens of gigabytes. Production must never load the full session log into memory or walk it from start to end, except when forking or cloning through the selected fork point because copying that history is the operation itself, when the Question-history, Session log, or Session search commands perform their explicitly requested backward history reads, or when streaming a complete Session into an archive.
 - Session history commands must stream backward with bounded memory. The CLI Commands specification owns their scope, output, progress, and cancellation behavior.
 - Other transcript access for active and dormant Sessions is limited to the requested bounded page or recent tail plus live streaming output. Model context retains only the bounded active segment established by compaction, never the full transcript.
@@ -392,12 +391,13 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Each explicit Worktree transition is an independent domain operation. Kent does not return an earlier result for a matching retry, reject a different transition merely because another is pending, replay an ambiguous operation, or resume process-local pending transitions after restart.
 - Worktree deletion follows the concrete multi-Session and process blockers in the Runtime Steering and Workflow specifications.
 - Worktree deletion never joins Session mutation ordering.
-- When the active agent invokes rebind for its own Session, Kent accepts the move only for that Exact Execution Scope and applies it at the next between-Agent-Step boundary before queued user work. A required cross-Project Runtime retirement fails queued input owned by that retiring Runtime with `runtime_unavailable`; Kent does not transfer it to the fresh destination Runtime.
-- Human and startup rebinds remain synchronous.
-- A self-agent rebind ignores Session-owned background commands. Existing commands continue in the directories where they started, and commands started after the move use the new Working Directory.
+- For a Session with an Active Session Runtime, Kent must acknowledge a scheduled rebind and apply it between Agent Steps before queued user work, regardless of the caller. A successful move must preserve the running agent and queued input across Projects.
+- When the active agent invokes rebind for its own Session, Kent must accept the move only for that Exact Execution Scope.
+- Dormant Session rebinds must complete synchronously and must reject a Session with a running Session-owned background command.
+- A live Session rebind must allow Session-owned background commands. Existing commands must continue in the directories where they started, and commands started after the move must use the new Working Directory.
 - A Session rebind sets the Working Directory to the target Workspace root.
 - A Session rebind either applies its Project, Workspace, artifact location, Working Directory, and successful reminder together or leaves the previous location unchanged.
-- A successful self-agent rebind or its authoritative failure notice is included in the next naturally occurring model step. Rebind does not start a model step.
+- A successful Session rebind or its authoritative failure notice must be included in the next naturally occurring model step. Rebind must not start a model step.
 - Resuming a Session reapplies its recorded subagent role, including a role that is no longer available in the catalog. If no role was recorded, explicit continuation does not block. After the Session Contract is locked, a later role selection does not replace the retained role.
 
 ## Provider Stream Completion

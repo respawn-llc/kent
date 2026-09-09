@@ -286,11 +286,11 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	if initialInput.Input != draft {
 		t.Fatalf("reattached draft = %q, want %q", initialInput.Input, draft)
 	}
-	waitForGatewayCondition(t, "source Runtime retirement", func() bool {
+	waitForGatewayCondition(t, "retained Runtime to finish its originating execution", func() bool {
 		view, viewErr := destination.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{
 			SessionID: movedSession.Meta().SessionID,
 		})
-		return viewErr == nil && view.MainView.Activity.State == clientui.RuntimeActivityUnavailable
+		return viewErr == nil && view.MainView.Activity.State == clientui.RuntimeActivityRegisteredIdle
 	})
 	if got := modelClient.requestCount(); got != 1 {
 		t.Fatalf("provider requests after self-rebind = %d, want 1", got)

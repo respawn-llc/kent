@@ -54,7 +54,7 @@
 - Reviewer feedback or failure arrives later if the originating Runtime remains available.
 - An Active-Runtime Worktree enter or leave enters Pending Work and returns the established Worktree Operation acknowledgement without waiting for the target change to finish.
 - Attached clients later observe the authoritative target or typed failure.
-- An active agent rebinding its own Session returns the scheduled acknowledgement after Kent accepts the exact originating Agent Step, without waiting for the target change.
+- A live Session rebind must return a scheduled acknowledgement without waiting for the target change. A self-agent request must identify the exact originating Agent Step.
 - A dormant-Session Worktree enter or leave remains a direct Worktree operation.
 - Worktree create and delete are direct Worktree operations outside Session mutation ordering.
 - A live Workflow assignment applies in accepted Session order.
@@ -160,7 +160,7 @@
 - Human Send/Steer requests ordinary model work without making the caller wait for model execution.
 - Applicable post-turn Queue work keeps its own Queue order and ordinary after-turn eligibility.
 - A Worktree transition has priority over accepted human model work that is still waiting to start.
-- An accepted active-agent Session rebind uses the same execution-target transition priority.
+- An accepted live Session rebind must use the same execution-target transition priority for every caller.
 - If human model work has already started its Agent Step, the Worktree transition waits for that Step to finish.
 - After that Agent Step finishes, the Worktree transition receives the next eligible Step Boundary before another ordinary continuation.
 - Later human messages remain accepted and apply while the Worktree transition holds model-work eligibility.

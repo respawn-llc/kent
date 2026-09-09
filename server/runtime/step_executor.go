@@ -955,7 +955,7 @@ func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID strin
 	e := s.engine
 	handoffRequestPending := e.handoffRuntimeState().RequestSnapshot() != nil
 	if !handoffRequestPending {
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 			return err
 		}
 	}
@@ -967,20 +967,20 @@ func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID strin
 		return err
 	}
 	if handoffCompacted {
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 			return err
 		}
 		return newCompactionReminderCoordinator(e).maybeAppend(ctx, stepID)
 	}
 	if handoffRequestPending {
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 			return err
 		}
 	}
 	if err := e.autoCompactIfNeeded(ctx, stepID, compactionModeAuto); err != nil {
 		return err
 	}
-	if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+	if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 		return err
 	}
 	return newCompactionReminderCoordinator(e).maybeAppend(ctx, stepID)

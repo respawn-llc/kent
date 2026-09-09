@@ -64,21 +64,6 @@ func (e *Engine) RunWhenIdleBeforeQueuedUserWork(ctx context.Context, activeKind
 	return e.RunWhenIdle(ctx, activeKind, fn)
 }
 
-func (e *Engine) RunIfIdleBeforeQueuedUserWork(ctx context.Context, activeKind ActiveKind, fn func() error) (bool, error) {
-	if fn == nil {
-		return false, nil
-	}
-	e.ensureOrchestrationCollaborators()
-	e.pauseQueuedUserAutoDrain()
-	defer e.resumeQueuedUserAutoDrain()
-	started := false
-	err := e.stepLifecycle.Run(ctx, exclusiveStepOptions{ActiveKind: activeKind}, func(context.Context, string) error {
-		started = true
-		return fn()
-	})
-	return started, err
-}
-
 func (e *Engine) ScheduleWorktreeTransition(
 	ctx context.Context,
 	operationID clientui.WorktreeTransitionID,

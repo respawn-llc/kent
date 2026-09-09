@@ -25,7 +25,6 @@ type ActiveRuntimeMaintenance struct {
 	Replace                             func(tools.FilesystemContext) error
 	steerSessionRebindFailureDiagnostic func(error) (session.CommitReceipt, error)
 	steerSessionRebindFailure           func(session.SessionRebindReminder) (session.CommitReceipt, error)
-	retire                              bool
 }
 
 func (m *ActiveRuntimeMaintenance) SteerSessionRebindFailureDiagnostic(cause error) (session.CommitReceipt, error) {
@@ -40,16 +39,6 @@ func (m *ActiveRuntimeMaintenance) SteerSessionRebindFailure(reminder session.Se
 		return session.CommitReceipt{}, errors.New("active runtime Session rebind failure steering is unavailable")
 	}
 	return m.steerSessionRebindFailure(reminder)
-}
-
-func (m *ActiveRuntimeMaintenance) RetireRuntime() {
-	if m != nil {
-		m.retire = true
-	}
-}
-
-func (m *ActiveRuntimeMaintenance) RetirementScheduled() bool {
-	return m != nil && m.retire
 }
 
 func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
@@ -208,44 +197,10 @@ func (a *Authority) RunSessionMaintenance(
 	})
 }
 
-func (a *Authority) RunSessionMaintenanceIfIdle(
-	ctx context.Context,
-	sessionID string,
-	fn func(context.Context, *session.Store, *ActiveRuntimeMaintenance) error,
-) error {
-	if fn == nil {
-		return nil
-	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
-	return a.withMaintenanceResource(ctx, id, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
-		if resource == nil {
-			return false, fn(runCtx, store, nil)
-		}
-		if hasBlockingRuntimeActivity(resource) {
-			return false, ErrRuntimeActivityBusy
-		}
-		var retire bool
-		started, runErr := engine.RunIfIdleBeforeQueuedUserWork(runCtx, runtime.ActiveKindRuntimeMaintenance, func() error {
-			var maintenanceErr error
-			retire, maintenanceErr = runActiveRuntimeMaintenance(resource, engine, func(maintenance *ActiveRuntimeMaintenance) error {
-				return fn(runCtx, store, maintenance)
-			})
-			return maintenanceErr
-		})
-		if !started && errors.Is(runErr, runtime.ErrAgentBusy) {
-			return false, ErrRuntimeActivityBusy
-		}
-		return retire, runErr
-	})
-}
-
 func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 	ctx context.Context,
 	sessionID string,
-	origin serverapi.RuntimeStepOrigin,
+	origin *serverapi.RuntimeStepOrigin,
 	onScheduled func(),
 	fn func(context.Context, *session.Store, *ActiveRuntimeMaintenance) error,
 ) error {
@@ -256,13 +211,22 @@ func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 	if err != nil {
 		return err
 	}
-	return a.withExactStepBoundaryMaintenanceResource(ctx, id, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
+	admission := maintenanceAdmissionAuthorized
+	if origin != nil {
+		admission = maintenanceAdmissionExactStepBoundary
+	}
+	return a.withMaintenanceResourceAdmission(ctx, id, admission, false, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
 		if resource == nil {
-			return false, runtime.ErrActiveStepInactive
+			if origin != nil {
+				return false, runtime.ErrActiveStepInactive
+			}
+			return false, fn(runCtx, store, nil)
 		}
-		activeStep := runtimeactivity.ActiveStepFromProvider(engine)
-		if activeStep == nil || activeStep.RunID != origin.RunID || activeStep.StepID != origin.StepID {
-			return false, runtime.ErrActiveStepInactive
+		if origin != nil {
+			activeStep := runtimeactivity.ActiveStepFromProvider(engine)
+			if activeStep == nil || activeStep.RunID != origin.RunID || activeStep.StepID != origin.StepID {
+				return false, runtime.ErrActiveStepInactive
+			}
 		}
 		var retire bool
 		err := engine.RunExecutionTargetTransition(runCtx, onScheduled, func() error {
@@ -304,7 +268,7 @@ func runActiveRuntimeMaintenance(
 	}
 	callbackErr := fn(maintenance)
 	active = false
-	retire := maintenance.retire
+	retire := false
 	if callbackErr == nil || currentContext.Equal(previousContext) {
 		return retire, callbackErr
 	}
@@ -656,10 +620,6 @@ const (
 
 func (a *Authority) withMaintenanceResource(ctx context.Context, sessionID runtimeids.SessionID, callback maintenanceCallback) error {
 	return a.withMaintenanceResourceAdmission(ctx, sessionID, maintenanceAdmissionAuthorized, false, callback)
-}
-
-func (a *Authority) withExactStepBoundaryMaintenanceResource(ctx context.Context, sessionID runtimeids.SessionID, callback maintenanceCallback) error {
-	return a.withMaintenanceResourceAdmission(ctx, sessionID, maintenanceAdmissionExactStepBoundary, false, callback)
 }
 
 func (a *Authority) withMaintenanceResourceAdmission(

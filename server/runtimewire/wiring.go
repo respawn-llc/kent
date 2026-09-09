@@ -206,7 +206,7 @@ func NewRuntimeWiringWithBackground(
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{
 			store:                               store,
-			workspaceRoot:                       workingDirectory,
+			localTools:                          localTools,
 			configRoot:                          opts.GlobalConfigDir,
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
@@ -283,13 +283,14 @@ func NewRuntimeWiringWithBackground(
 
 type launchPromptFacingSnapshotReloader struct {
 	store                               *session.Store
-	workspaceRoot                       string
+	localTools                          *LocalToolRegistryBinding
 	configRoot                          string
 	skipContinuationAgentRoleValidation bool
 }
 
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
-	app, err := config.Load(r.workspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
+	workingDirectory := r.localTools.FilesystemContext().Access.WorkingDirectory.LexicalPath
+	app, err := config.Load(workingDirectory, config.LoadOptions{ConfigRoot: r.configRoot})
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}

@@ -36,36 +36,15 @@ func (emptySessionRetargetProcessSource) List() []shelltool.Snapshot { return ni
 type scheduledSessionRetargeterStub struct {
 	request    metadata.SessionWorkspaceRetargetRequest
 	resolve    func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error)
-	origin     serverapi.RuntimeStepOrigin
+	origin     *serverapi.RuntimeStepOrigin
 	operation  worktreecontract.OperationID
 	completion func(error)
-}
-
-func (*scheduledSessionRetargeterStub) RetargetWorkspace(
-	context.Context,
-	metadata.SessionWorkspaceRetargetRequest,
-) (metadata.SessionWorkspaceRetargetResult, error) {
-	return metadata.SessionWorkspaceRetargetResult{}, errors.New("unexpected synchronous Session retarget")
-}
-
-func (s *scheduledSessionRetargeterStub) ScheduleWorkspaceRetargetWithCompletion(
-	_ context.Context,
-	request metadata.SessionWorkspaceRetargetRequest,
-	origin serverapi.RuntimeStepOrigin,
-	operation worktreecontract.OperationID,
-	completion func(error),
-) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error) {
-	s.request = request
-	s.origin = origin
-	s.operation = operation
-	s.completion = completion
-	return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{OperationID: operation}, nil
 }
 
 func (s *scheduledSessionRetargeterStub) ScheduleWorkspaceRetargetResolutionWithCompletion(
 	_ context.Context,
 	sessionID string,
-	origin serverapi.RuntimeStepOrigin,
+	origin *serverapi.RuntimeStepOrigin,
 	operation worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),

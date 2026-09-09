@@ -47,85 +47,6 @@ func (f retargetIdentityPublisherFunc) PublishSessionIdentity(sessionID string) 
 	return f(sessionID)
 }
 
-func TestScheduledRetargetAdmissionKeepsAcceptedOperationServerOwned(t *testing.T) {
-	var admission scheduledRetargetAdmission
-	if !admission.accept() {
-		t.Fatal("pending rebind was not accepted")
-	}
-	if admission.cancelPending() {
-		t.Fatal("request cancellation reclaimed an accepted rebind")
-	}
-	if !admission.accepted() {
-		t.Fatal("accepted rebind lost server ownership")
-	}
-}
-
-type staleFirstProjectBoundaryMetadata struct {
-	sessionRetargetMetadata
-
-	mu    sync.Mutex
-	calls int
-}
-
-func (m *staleFirstProjectBoundaryMetadata) PlanSessionWorkspaceRetarget(
-	ctx context.Context,
-	req metadata.SessionWorkspaceRetargetRequest,
-) (metadata.SessionWorkspaceRetargetPlan, error) {
-	plan, err := m.sessionRetargetMetadata.PlanSessionWorkspaceRetarget(ctx, req)
-	if err != nil {
-		return metadata.SessionWorkspaceRetargetPlan{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls++
-	if m.calls == 1 {
-		plan.SourceProject = plan.TargetProject
-	}
-	return plan, nil
-}
-
-type secondRetargetPlanSignal struct {
-	sessionRetargetMetadata
-
-	mu     sync.Mutex
-	calls  int
-	second chan struct{}
-}
-
-func (m *secondRetargetPlanSignal) PlanSessionWorkspaceRetarget(
-	ctx context.Context,
-	req metadata.SessionWorkspaceRetargetRequest,
-) (metadata.SessionWorkspaceRetargetPlan, error) {
-	plan, err := m.sessionRetargetMetadata.PlanSessionWorkspaceRetarget(ctx, req)
-	if err != nil {
-		return metadata.SessionWorkspaceRetargetPlan{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls++
-	if m.calls == 2 {
-		close(m.second)
-	}
-	return plan, nil
-}
-
-type failingRetargetResourceLifecycle struct {
-	err error
-}
-
-func (f failingRetargetResourceLifecycle) ResourceReady(
-	context.Context,
-	sessionruntime.AgentResourceDescriptor,
-	*runtime.Engine,
-	sessionruntime.AgentResourceRetainer,
-) error {
-	return nil
-}
-
-func (f failingRetargetResourceLifecycle) ResourceDraining(context.Context, sessionruntime.AgentResourceDescriptor) error {
-	return f.err
-}
-
 type blockingSessionMetadataObserver struct {
 	store   *metadata.Store
 	mu      sync.Mutex
@@ -184,14 +105,6 @@ type realSessionRetargetFixture struct {
 }
 
 func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool) realSessionRetargetFixture {
-	return newRealSessionRetargetFixtureWithLifecycle(t, useBlockingObserver, nil)
-}
-
-func newRealSessionRetargetFixtureWithLifecycle(
-	t *testing.T,
-	useBlockingObserver bool,
-	lifecycle sessionruntime.AgentResourceLifecycle,
-) realSessionRetargetFixture {
 	t.Helper()
 	ctx := context.Background()
 	persistenceRoot := t.TempDir()
@@ -262,9 +175,8 @@ func newRealSessionRetargetFixtureWithLifecycle(
 		t.Fatalf("ParseSessionID child: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   persistenceRoot,
-		StoreOptions:      storeOptions,
-		ResourceLifecycle: lifecycle,
+		PersistenceRoot: persistenceRoot,
+		StoreOptions:    storeOptions,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -289,6 +201,26 @@ func newRealSessionRetargetFixtureWithLifecycle(
 
 func (f realSessionRetargetFixture) retargeter(metadataSource sessionRetargetMetadata, processes sessionProcessSource) *SessionWorkspaceRetargeter {
 	return NewSessionWorkspaceRetargeter(metadataSource, f.authority, f.publisher, processes)
+}
+
+func completeWorkspaceRetarget(t *testing.T, retargeter *SessionWorkspaceRetargeter, req metadata.SessionWorkspaceRetargetRequest) error {
+	t.Helper()
+	completed := make(chan error, 1)
+	_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
+		t.Context(), req.SessionID, nil, worktreecontract.NewOperationID(),
+		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil },
+		func(err error) { completed <- err },
+	)
+	if err != nil {
+		return err
+	}
+	select {
+	case err := <-completed:
+		return err
+	case <-time.After(3 * time.Second):
+		t.Fatal("scheduled retarget did not complete")
+		return nil
+	}
 }
 
 func (f realSessionRetargetFixture) openRuntime(t *testing.T) {
@@ -515,20 +447,10 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		OwnerSessionID: request.SessionID,
 		Running:        true,
 	}}
-	reopenPlan := fixture.runtimePlan(t, retargetRuntimeClient{})
-	published := make(chan error, 1)
 	retargeter := NewSessionWorkspaceRetargeter(
 		fixture.metadata,
 		fixture.authority,
-		retargetIdentityPublisherFunc(func(string) error {
-			_, openErr := fixture.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
-				SessionID: fixture.childID,
-				OwnerID:   "destination-reopen",
-				Runtime:   &reopenPlan,
-			})
-			published <- openErr
-			return nil
-		}),
+		fixture.publisher,
 		processes,
 	)
 	client := &selfRetargetRuntimeClient{}
@@ -544,7 +466,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
 			requestCtx,
 			request.SessionID,
-			serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID},
+			&serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID},
 			worktreecontract.NewOperationID(),
 			func(resolveCtx context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
 				select {
@@ -581,14 +503,6 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		t.Fatalf("provider requests after rebind acknowledgement = %d, want no forced continuation", requestCount)
 	}
 	select {
-	case err := <-published:
-		if !errors.Is(err, sessionruntime.ErrSessionStartsBlocked) {
-			t.Fatalf("destination reopen during handoff error = %v, want Session start block", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("moved Session identity was not published")
-	}
-	select {
 	case err := <-completed:
 		if err != nil {
 			t.Fatalf("scheduled retarget completion: %v", err)
@@ -596,15 +510,13 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 	case <-time.After(3 * time.Second):
 		t.Fatal("scheduled retarget completion was not published")
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if !fixture.runtimeAvailable(t) {
-			break
+	if err := fixture.authority.WithCurrentRuntime(t.Context(), fixture.childID, func(_ context.Context, current *runtime.Engine) error {
+		if current != engine {
+			t.Fatal("successful rebind replaced the Session runtime")
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("source Runtime remained active after cross-Project self-rebind")
-		}
-		time.Sleep(10 * time.Millisecond)
+		return nil
+	}); err != nil {
+		t.Fatalf("inspect rebound runtime: %v", err)
 	}
 	reopened, err := session.OpenByID(
 		fixture.metadata.PersistenceRoot(),
@@ -634,149 +546,6 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		target.Worktree.ID != targetWorktreeID ||
 		canonicalRetargetTestPath(t, target.EffectiveWorkdir) != canonicalRetargetTestPath(t, targetWorktreeRoot) {
 		t.Fatalf("scheduled execution target = %+v, want Worktree %q at %q", target, targetWorktreeID, targetWorktreeRoot)
-	}
-}
-
-func TestSessionWorkspaceRetargeterAllowsSelfRebindWhileHumanSameProjectRebindWaits(t *testing.T) {
-	fixture := newRealSessionRetargetFixture(t, false)
-	if _, err := fixture.metadata.AttachWorkspaceToProject(
-		context.Background(),
-		fixture.sourceBinding.ProjectID,
-		fixture.targetWorkspaceRoot,
-	); err != nil {
-		t.Fatalf("AttachWorkspaceToProject: %v", err)
-	}
-	request := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     fixture.child.Meta().SessionID,
-		WorkspaceRoot: fixture.targetWorkspaceRoot,
-	}
-	metadataSource := &secondRetargetPlanSignal{
-		sessionRetargetMetadata: fixture.metadata,
-		second:                  make(chan struct{}),
-	}
-	retargeter := fixture.retargeter(metadataSource, retargetProcessSource{})
-	invokeSelfRebind := make(chan struct{})
-	agentStarted := make(chan struct{})
-	client := &queuedFailureRetargetRuntimeClient{
-		scheduled:     make(chan struct{}),
-		releaseFirst:  make(chan struct{}),
-		secondStarted: make(chan struct{}),
-	}
-	engine := fixture.openRuntimeWithClient(t, client)
-	client.run = func() error {
-		close(agentStarted)
-		<-invokeSelfRebind
-		active := engine.ActiveRun()
-		if active == nil {
-			return errors.New("active Agent Step is required")
-		}
-		_, err := retargeter.ScheduleWorkspaceRetarget(
-			t.Context(),
-			request,
-			serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID},
-			worktreecontract.NewOperationID(),
-		)
-		return err
-	}
-
-	stepDone := make(chan error, 1)
-	go func() {
-		_, err := engine.SubmitUserMessage(context.Background(), "move this Session")
-		stepDone <- err
-	}()
-	select {
-	case <-agentStarted:
-	case <-time.After(3 * time.Second):
-		t.Fatal("active Agent Step did not start")
-	}
-
-	humanDone := make(chan error, 1)
-	go func() {
-		_, err := retargeter.RetargetWorkspace(context.Background(), request)
-		humanDone <- err
-	}()
-	select {
-	case <-metadataSource.second:
-	case <-time.After(3 * time.Second):
-		t.Fatal("human rebind did not reach its current maintenance plan")
-	}
-	time.Sleep(50 * time.Millisecond)
-	close(invokeSelfRebind)
-	select {
-	case <-client.scheduled:
-	case <-time.After(3 * time.Second):
-		t.Fatal("self-rebind could not schedule while the human rebind waited")
-	}
-	close(client.releaseFirst)
-	if err := <-stepDone; err != nil {
-		t.Fatalf("originating Agent Step: %v", err)
-	}
-	if err := <-humanDone; err != nil {
-		t.Fatalf("human rebind: %v", err)
-	}
-}
-
-func TestSessionWorkspaceRetargeterKeepsSuccessReminderWhenRuntimeRetirementFails(t *testing.T) {
-	retirementErr := errors.New("runtime lifecycle draining failed")
-	fixture := newRealSessionRetargetFixtureWithLifecycle(
-		t,
-		false,
-		failingRetargetResourceLifecycle{err: retirementErr},
-	)
-	targetProjectID := fixture.targetProject.ProjectID
-	request := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     fixture.child.Meta().SessionID,
-		WorkspaceRoot: fixture.targetWorkspaceRoot,
-		ProjectID:     &targetProjectID,
-	}
-	retargeter := fixture.retargeter(fixture.metadata, retargetProcessSource{})
-	client := &selfRetargetRuntimeClient{}
-	engine := fixture.openRuntimeWithClient(t, client)
-	client.run = func() error {
-		active := engine.ActiveRun()
-		if active == nil {
-			return errors.New("active Agent Step is required")
-		}
-		_, err := retargeter.ScheduleWorkspaceRetarget(
-			t.Context(),
-			request,
-			serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID},
-			worktreecontract.NewOperationID(),
-		)
-		return err
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := engine.SubmitUserMessage(context.Background(), "move this Session")
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("originating Agent Step: %v", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("self-rebind did not finish after Runtime retirement error")
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for fixture.runtimeAvailable(t) {
-		if time.Now().After(deadline) {
-			t.Fatal("source Runtime remained active after retirement error")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	reopened, err := session.OpenByID(
-		fixture.metadata.PersistenceRoot(),
-		fixture.childID.String(),
-		fixture.metadata.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("open moved Session: %v", err)
-	}
-	if reminder := reopened.Meta().RebindReminder; reminder == nil || reminder.Kind != session.SessionRebindReminderSucceeded {
-		t.Fatalf("persisted Session rebind reminder = %+v, want committed success", reminder)
 	}
 }
 
@@ -894,96 +663,6 @@ func (s failingSessionRetargetPlan) PlanSessionWorkspaceRetarget(
 	return metadata.SessionWorkspaceRetargetPlan{}, s.err
 }
 
-func TestSessionWorkspaceRetargeterRejectsActiveCrossProjectRuntimeImmediately(t *testing.T) {
-	fixture := newRealSessionRetargetFixture(t, false)
-	targetProjectID := fixture.targetProject.ProjectID
-	request := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     fixture.child.Meta().SessionID,
-		WorkspaceRoot: fixture.targetWorkspaceRoot,
-		ProjectID:     &targetProjectID,
-	}
-	client := &queuedFailureRetargetRuntimeClient{
-		run:           func() error { return nil },
-		scheduled:     make(chan struct{}),
-		releaseFirst:  make(chan struct{}),
-		secondStarted: make(chan struct{}),
-	}
-	engine := fixture.openRuntimeWithClient(t, client)
-	stepDone := make(chan error, 1)
-	go func() {
-		_, err := engine.SubmitUserMessage(context.Background(), "keep this Session active")
-		stepDone <- err
-	}()
-	select {
-	case <-client.scheduled:
-	case <-time.After(3 * time.Second):
-		t.Fatal("active Agent Step did not start")
-	}
-	defer func() {
-		close(client.releaseFirst)
-		if err := <-stepDone; err != nil {
-			t.Errorf("finish active Agent Step: %v", err)
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_, err := fixture.retargeter(fixture.metadata, retargetProcessSource{}).RetargetWorkspace(ctx, request)
-	var retargetErr *serverapi.SessionRetargetError
-	if !errors.As(err, &retargetErr) || retargetErr.Reason != serverapi.SessionRetargetRuntimeActive {
-		t.Fatalf("RetargetWorkspace error = %v, want active-Runtime rejection", err)
-	}
-}
-
-func TestSessionWorkspaceRetargeterChoosesAdmissionFromCurrentProjectBoundary(t *testing.T) {
-	fixture := newRealSessionRetargetFixture(t, false)
-	targetProjectID := fixture.targetProject.ProjectID
-	request := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     fixture.child.Meta().SessionID,
-		WorkspaceRoot: fixture.targetWorkspaceRoot,
-		ProjectID:     &targetProjectID,
-	}
-	client := &queuedFailureRetargetRuntimeClient{
-		run:           func() error { return nil },
-		scheduled:     make(chan struct{}),
-		releaseFirst:  make(chan struct{}),
-		secondStarted: make(chan struct{}),
-	}
-	engine := fixture.openRuntimeWithClient(t, client)
-	stepDone := make(chan error, 1)
-	go func() {
-		_, err := engine.SubmitUserMessage(context.Background(), "keep this Session active")
-		stepDone <- err
-	}()
-	select {
-	case <-client.scheduled:
-	case <-time.After(3 * time.Second):
-		t.Fatal("active Agent Step did not start")
-	}
-	defer func() {
-		close(client.releaseFirst)
-		if err := <-stepDone; err != nil {
-			t.Errorf("finish active Agent Step: %v", err)
-		}
-	}()
-
-	metadataSource := &staleFirstProjectBoundaryMetadata{sessionRetargetMetadata: fixture.metadata}
-	retargetDone := make(chan error, 1)
-	go func() {
-		_, err := fixture.retargeter(metadataSource, retargetProcessSource{}).RetargetWorkspace(context.Background(), request)
-		retargetDone <- err
-	}()
-	select {
-	case err := <-retargetDone:
-		var retargetErr *serverapi.SessionRetargetError
-		if !errors.As(err, &retargetErr) || retargetErr.Reason != serverapi.SessionRetargetRuntimeActive {
-			t.Fatalf("RetargetWorkspace error = %v, want active-Runtime rejection", err)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("RetargetWorkspace waited using the stale same-Project classification")
-	}
-}
-
 func projectContainsWorkspaceRoot(t *testing.T, store *metadata.Store, projectID string, workspaceRoot string) bool {
 	t.Helper()
 	workspaces, err := store.ListProjectWorkspaces(context.Background(), projectID)
@@ -1010,7 +689,6 @@ func canonicalRetargetTestPath(t *testing.T, path string) string {
 
 func TestSessionWorkspaceRetargeterMovesRealArtifactAndMetadataAcrossProjects(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
-	fixture.openRuntime(t)
 	targetProjectID := fixture.targetProject.ProjectID
 	req := metadata.SessionWorkspaceRetargetRequest{
 		SessionID:     fixture.child.Meta().SessionID,
@@ -1087,14 +765,10 @@ func TestSessionWorkspaceRetargeterMovesRealArtifactAndMetadataAcrossProjects(t 
 	if published := fixture.publisher[fixture.child.Meta().SessionID]; published != 1 {
 		t.Fatalf("identity publication count = %d, want one", published)
 	}
-	if fixture.runtimeAvailable(t) {
-		t.Fatal("cross-Project retarget retained the source Runtime")
-	}
 }
 
 func TestSessionWorkspaceRetargeterTreatsCommittedIdentityPublicationFailureAsNotificationOnly(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
-	fixture.openRuntime(t)
 	targetProjectID := fixture.targetProject.ProjectID
 	req := metadata.SessionWorkspaceRetargetRequest{
 		SessionID:     fixture.child.Meta().SessionID,
@@ -1115,9 +789,6 @@ func TestSessionWorkspaceRetargeterTreatsCommittedIdentityPublicationFailureAsNo
 	}
 	if result.Binding.ProjectID != targetProjectID {
 		t.Fatalf("target project = %q, want %q", result.Binding.ProjectID, targetProjectID)
-	}
-	if fixture.runtimeAvailable(t) {
-		t.Fatal("cross-Project retarget retained the source Runtime")
 	}
 }
 
@@ -1181,21 +852,12 @@ func TestSessionWorkspaceRetargeterSharedRootRemainsPersistable(t *testing.T) {
 				req.ProjectID = &targetProjectID
 				wantProjectID = targetProjectID
 			}
-			if test.crossProject {
-				fixture.openRuntime(t)
-			}
-
 			result, err := fixture.retargeter(fixture.metadata, retargetProcessSource{}).RetargetWorkspace(context.Background(), req)
 			if err != nil {
 				t.Fatalf("RetargetWorkspace: %v", err)
 			}
 			if result.Binding.ProjectID != wantProjectID {
 				t.Fatalf("binding project = %q, want %q", result.Binding.ProjectID, wantProjectID)
-			}
-			if test.crossProject {
-				if fixture.runtimeAvailable(t) {
-					t.Fatal("cross-Project retarget retained the source Runtime")
-				}
 			}
 			descriptor, err := session.NewOpenSessionDescriptor(fixture.childID)
 			if err != nil {
@@ -1308,7 +970,7 @@ func TestSessionWorkspaceRetargeterStaleObserverCannotRestorePreviousTarget(t *t
 		WorkspaceRoot: fixture.targetWorkspaceRoot,
 	}
 	type retargetOutcome struct {
-		result metadata.SessionWorkspaceRetargetResult
+		result serverapi.SessionRetargetWorkspaceResponse
 		err    error
 	}
 	retargetDone := make(chan retargetOutcome, 1)
@@ -1380,7 +1042,7 @@ func TestSessionWorkspaceRetargeterPreservesSameProjectWorkspaceSnapshot(t *test
 		SessionID:     fixture.child.Meta().SessionID,
 		WorkspaceRoot: fixture.targetWorkspaceRoot,
 	}
-	if _, err := fixture.retargeter(fixture.metadata, retargetProcessSource{}).RetargetWorkspace(context.Background(), req); err != nil {
+	if err := completeWorkspaceRetarget(t, fixture.retargeter(fixture.metadata, retargetProcessSource{}), req); err != nil {
 		t.Fatalf("RetargetWorkspace: %v", err)
 	}
 
@@ -1417,7 +1079,7 @@ func TestSessionWorkspaceRetargeterSurfacesTargetBoundaryLookupFailureBeforeMovi
 	beforeWorkdir := fixture.runtimeWorkdir(t)
 	lookupErr := errors.New("target boundary lookup failed")
 
-	_, err = fixture.retargeter(failingSessionRetargetBoundary{Store: fixture.metadata, err: lookupErr}, retargetProcessSource{}).RetargetWorkspace(context.Background(), req)
+	err = completeWorkspaceRetarget(t, fixture.retargeter(failingSessionRetargetBoundary{Store: fixture.metadata, err: lookupErr}, retargetProcessSource{}), req)
 	if !errors.Is(err, lookupErr) {
 		t.Fatalf("RetargetWorkspace error = %v, want %v", err, lookupErr)
 	}
@@ -1456,7 +1118,7 @@ func TestSessionWorkspaceRetargeterRestoresArtifactOwnershipAndRuntimeWorkdirAft
 	commitErr := errors.New("commit failed")
 	metadataSource := failingSessionRetargetCommit{Store: fixture.metadata, err: commitErr}
 
-	_, err = fixture.retargeter(metadataSource, retargetProcessSource{}).RetargetWorkspace(context.Background(), req)
+	err = completeWorkspaceRetarget(t, fixture.retargeter(metadataSource, retargetProcessSource{}), req)
 	if !errors.Is(err, commitErr) {
 		t.Fatalf("RetargetWorkspace error = %v, want %v", err, commitErr)
 	}

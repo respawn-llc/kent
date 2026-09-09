@@ -98,13 +98,11 @@
 - Each omitted path means the current directory.
 - Project, attach, and rebind commands use the configured daemon and never take local ownership of persistence.
 - `kent rebind <session-id> <path>` keeps a Session in its source Project. If the target belongs to both the source and other Projects, it selects the source binding. If it belongs only to other Projects, it fails without mutation, identifies the source Session and Project, and gives complete commands to attach it to the source Project or make an explicit cross-Project move.
-- `kent rebind --project <project-id> <session-id> <path>` is required for cross-Project movement. It may attach an unbound target path to the explicit Project and reports that attachment, but rejects a path already attached only to other Projects.
+- `kent rebind --project <project-id> <session-id> <path>` is required for cross-Project movement. It may attach an unbound target path to the explicit Project, but rejects a path already attached only to other Projects.
 - Failed rebinds never change bindings or Session attachment.
 - Sessions attached to Workflow Nodes cannot move across Projects.
-- Same-Project rebind is explicit. A human request waits for the current Agent Step and rejects rebind when the Session owns a background command.
-- Cross-Project rebind rejects a human request immediately while the Runtime is non-idle and accepts an idle or Dormant Session.
-- When the Session's active agent invokes rebind for its own Session, the command returns a scheduled acknowledgement without waiting for the Agent Step to finish. The move applies at the next between-Agent-Step boundary before queued user work.
-- A self-agent rebind ignores Session-owned background commands. Those commands continue in the directories where they started.
+- For a live Session, `kent rebind` must return a scheduled acknowledgement for every caller. The move must follow the execution-target transition rules in Core Runtime Tools, preserving the running agent and queued input.
+- For a Dormant Session, `kent rebind` must complete synchronously and reject running Session-owned background commands. Its completed output must identify the Workspace and any new attachment.
 - A cross-Project move either changes both Session location and artifact location or leaves both unchanged.
 
 ## Session Archive And Deletion
