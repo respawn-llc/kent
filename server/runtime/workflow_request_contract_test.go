@@ -437,13 +437,26 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 	tests := []struct {
 		name         string
 		model        string
-		capabilities session.LockedModelCapabilities
+		capabilities *session.LockedModelCapabilities
+		provider     llm.ProviderCapabilities
 		wantVision   bool
 	}{
 		{
-			name:       "text-only catalog model",
-			model:      "gpt-3.5-turbo",
+			name:       "unknown GPT model",
+			model:      "gpt-6-astra",
+			wantVision: true,
+		},
+		{
+			name:       "unknown GPT model on custom provider",
+			model:      "gpt-6-astra",
+			provider:   llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true},
 			wantVision: false,
+		},
+		{
+			name:         "unknown GPT model with explicit vision disabled",
+			model:        "gpt-6-astra",
+			capabilities: &session.LockedModelCapabilities{SupportsReasoningEffort: true},
+			wantVision:   false,
 		},
 		{
 			name:       "vision catalog model",
@@ -458,7 +471,7 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 		{
 			name:         "explicit vision override",
 			model:        "gpt-4.1-2026-01-15",
-			capabilities: session.LockedModelCapabilities{SupportsVisionInputs: true},
+			capabilities: &session.LockedModelCapabilities{SupportsVisionInputs: true},
 			wantVision:   true,
 		},
 	}
@@ -469,7 +482,7 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 			engine := mustNewTestEngine(
 				t,
 				store,
-				&fakeClient{},
+				&fakeClient{caps: test.provider},
 				newTestToolRegistry(t, tools.HandlerRegistration{
 					ID:      toolspec.ToolViewImage,
 					Handler: fakeTool{name: toolspec.ToolViewImage},

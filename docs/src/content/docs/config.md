@@ -204,14 +204,14 @@ Use these for custom supervisor models or supervisor providers when the built-in
 
 ### Model Capability Overrides
 
-Use these only for custom or alias models when the built-in model registry is not enough.
+Use these to override model capability defaults, including disabling vision or enabling capabilities for custom and alias models.
 
-| Key                                            | Type | Default | Env                                                 | Description                                                                           |
-| ---------------------------------------------- | ---- | ------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `model_capabilities.supports_reasoning_effort` | bool | `false` | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
-| `model_capabilities.supports_vision_inputs`    | bool | `false` | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Marks the configured model as supporting multimodal image and PDF inputs.             |
+| Key                                            | Type | Default                | Env                                                 | Description                                                                           |
+| ---------------------------------------------- | ---- | ---------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
+| `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Overrides support for multimodal image and PDF inputs.                                |
 
-If both values stay `false`, Kent falls back to the built-in model capability registry.
+Unconfigured model capabilities use the built-in model catalog. Unknown `gpt-*` models on first-party OpenAI providers default to native image and PDF input support. Explicit text-only catalog entries remain disabled; custom providers do not inherit this default. Set `model_capabilities.supports_vision_inputs = false` explicitly to disable vision for a model.
 
 ### Provider Capability Overrides
 

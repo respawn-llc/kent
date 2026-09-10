@@ -176,7 +176,33 @@ func TestSupportsVisionInputsModel(t *testing.T) {
 		{model: "claude-3-7-sonnet", want: false},
 		{model: "", want: false},
 	}
-	requireModelSupport(t, "SupportsVisionInputsModel", SupportsVisionInputsModel, tests)
+	requireModelSupport(t, "SupportsVisionInputsModel", func(model string) bool {
+		return SupportsVisionInputsModel(model, ProviderCapabilities{})
+	}, tests)
+}
+
+func TestVisionDefaultsRespectProviderAndCatalog(t *testing.T) {
+	for _, providerID := range []string{"openai", "chatgpt-codex", "openai-compatible", "anthropic"} {
+		t.Run(providerID, func(t *testing.T) {
+			provider, ok := LookupProviderCapabilityContract(providerID)
+			if !ok {
+				t.Fatalf("unknown provider %q", providerID)
+			}
+			for _, test := range []modelSupportCase{
+				{model: "gpt-6-astra", want: provider.IsOpenAIFirstParty},
+				{model: " GPT-FUTURE ", want: provider.IsOpenAIFirstParty},
+				{model: "custom-alias", want: false},
+				{model: "claude-future", want: false},
+				{model: "", want: false},
+				{model: "gpt-5.4-nano", want: false},
+				{model: "gpt-5.3-codex-spark", want: false},
+			} {
+				if got := LockedModelCapabilitiesForModel(test.model, provider).SupportsVisionInputs; got != test.want {
+					t.Errorf("vision for %q = %t, want %t", test.model, got, test.want)
+				}
+			}
+		})
+	}
 }
 
 func TestSupportsVerbosityModel(t *testing.T) {

@@ -64,11 +64,14 @@ func SupportsReasoningSummaryModel(model string) bool {
 	return ok && contract.SupportsReasoningSummary
 }
 
-// SupportsVisionInputsModel reports whether the explicit model capability
-// contract allows multimodal image/file inputs for the Responses API.
-func SupportsVisionInputsModel(model string) bool {
+// SupportsVisionInputsModel preserves explicit catalog exceptions and otherwise
+// assumes GPT models on first-party OpenAI providers accept image/file inputs.
+func SupportsVisionInputsModel(model string, provider ProviderCapabilities) bool {
 	contract, ok := LookupModelCapabilityContract(model)
-	return ok && contract.SupportsVisionInputs
+	if ok {
+		return contract.SupportsVisionInputs
+	}
+	return provider.IsOpenAIFirstParty && strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
 }
 
 // SupportsVerbosityModel reports whether Responses API text verbosity should be
