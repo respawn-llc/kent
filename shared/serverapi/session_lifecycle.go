@@ -29,23 +29,6 @@ type SessionTransition struct {
 	PreviousSessionID            *runtimeids.SessionID   `json:"previous_session_id,omitempty"`
 }
 
-type SessionInitialInputRequest struct {
-	SessionID           string `json:"session_id,omitempty"`
-	TransitionInput     string `json:"transition_input,omitempty"`
-	OverrideStoredDraft bool   `json:"override_stored_draft,omitempty"`
-}
-
-type SessionInitialInputResponse struct {
-	Input string `json:"input"`
-}
-
-type SessionPersistInputDraftRequest struct {
-	SessionID string `json:"session_id"`
-	Input     string `json:"input,omitempty"`
-}
-
-type SessionPersistInputDraftResponse struct{}
-
 type RuntimeStepOrigin struct {
 	RunID  string `json:"run_id"`
 	StepID string `json:"step_id"`
@@ -74,20 +57,6 @@ type SessionResolveTransitionRequest struct {
 }
 
 type SessionResolveTransitionResponse = SessionDirective
-
-func (r SessionPersistInputDraftRequest) Validate() error {
-	if err := validateScopedSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r SessionInitialInputRequest) Validate() error {
-	if strings.TrimSpace(r.SessionID) == "" {
-		return nil
-	}
-	return validateScopedSessionID(r.SessionID)
-}
 
 func (r SessionRetargetWorkspaceRequest) Validate() error {
 	if err := validateScopedSessionID(r.SessionID); err != nil {

@@ -385,10 +385,6 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.SessionExecutionEnvironmentRequest:
 		return p.SessionID.String(), true
-	case serverapi.SessionInitialInputRequest:
-		return p.SessionID, true
-	case serverapi.SessionPersistInputDraftRequest:
-		return p.SessionID, true
 	case serverapi.SessionRetargetWorkspaceRequest:
 		return p.SessionID, true
 	case serverapi.SessionResolveTransitionRequest:

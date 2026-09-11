@@ -4,6 +4,8 @@ package kent.api.session_launch;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/project/project.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -31,6 +33,10 @@ message SessionInitialInputError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -62,6 +68,14 @@ message SessionPersistInputDraftError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -626,7 +640,6 @@ service SessionLifecycleService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT_IF_SET
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.getInitialInput"
     };
   }
 
@@ -637,7 +650,6 @@ service SessionLifecycleService {
       scope_policy: SCOPE_POLICY_SESSION_DRAFT_HANDOFF_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.persistInputDraft"
     };
   }
 

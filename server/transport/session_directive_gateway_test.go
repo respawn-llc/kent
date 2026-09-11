@@ -11,6 +11,7 @@ import (
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/protocol"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type lifecycleResultGatewayService struct {
@@ -21,12 +22,12 @@ func (s *lifecycleResultGatewayService) Close() error {
 	return nil
 }
 
-func (s *lifecycleResultGatewayService) GetInitialInput(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	return serverapi.SessionInitialInputResponse{}, nil
+func (s *lifecycleResultGatewayService) GetInitialInput(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
+	return &sessionlaunchpb.SessionInitialInputSuccess{}, nil
 }
 
-func (s *lifecycleResultGatewayService) PersistInputDraft(context.Context, serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	return serverapi.SessionPersistInputDraftResponse{}, nil
+func (s *lifecycleResultGatewayService) PersistInputDraft(context.Context, *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
 }
 
 func (s *lifecycleResultGatewayService) RetargetSessionWorkspace(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {

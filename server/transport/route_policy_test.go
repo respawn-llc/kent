@@ -291,7 +291,10 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, latestFinalRoute, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: fixture.foreignSessionID}); err == nil {
 		t.Fatal("active project foreign latest final answer unexpectedly allowed")
 	}
-	draftRoute := routeForTest(t, protocol.MethodSessionPersistInputDraft)
+	draftOperation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("PersistInputDraft"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	reboundSessionID, err := runtimeids.ParseSessionID(fixture.reboundSessionID)
 	if err != nil {
 		t.Fatalf("parse rebound Session ID: %v", err)
@@ -300,36 +303,30 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 		attachedProject: fixture.bindingA.ProjectID,
 		attachedSession: &reboundSessionID,
 	}
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		ctx,
 		draftState,
-		draftRoute,
-		serverapi.SessionPersistInputDraftRequest{
-			SessionID: fixture.reboundSessionID,
-			Input:     "preserved draft",
-		},
+		routeScopePolicy(draftOperation.Options.ScopePolicy),
+		draftOperation.Name,
+		routeScopeParams{sessionID: fixture.reboundSessionID},
 	); err != nil {
 		t.Fatalf("rebind source project draft handoff: %v", err)
 	}
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		draftRoute,
-		serverapi.SessionPersistInputDraftRequest{
-			SessionID: fixture.reboundSessionID,
-			Input:     "must remain inaccessible",
-		},
+		routeScopePolicy(draftOperation.Options.ScopePolicy),
+		draftOperation.Name,
+		routeScopeParams{sessionID: fixture.reboundSessionID},
 	); err == nil {
 		t.Fatal("detached source-project draft mutation unexpectedly allowed")
 	}
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		ctx,
 		draftState,
-		draftRoute,
-		serverapi.SessionPersistInputDraftRequest{
-			SessionID: fixture.foreignSessionID,
-			Input:     "must remain inaccessible",
-		},
+		routeScopePolicy(draftOperation.Options.ScopePolicy),
+		draftOperation.Name,
+		routeScopeParams{sessionID: fixture.foreignSessionID},
 	); err == nil {
 		t.Fatal("unrelated foreign-project draft mutation unexpectedly allowed")
 	}
@@ -371,11 +368,14 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 		t.Fatal("attached-project foreign session unexpectedly allowed")
 	}
 
-	optionalRoute := routeForTest(t, protocol.MethodSessionGetInitialInput)
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, optionalRoute, serverapi.SessionInitialInputRequest{}); err != nil {
+	optionalOperation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("GetInitialInput"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(optionalOperation.Options.ScopePolicy), optionalOperation.Name, routeScopeParams{}); err != nil {
 		t.Fatalf("optional empty session: %v", err)
 	}
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, optionalRoute, serverapi.SessionInitialInputRequest{SessionID: fixture.foreignSessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(optionalOperation.Options.ScopePolicy), optionalOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
 		t.Fatal("optional foreign session unexpectedly allowed")
 	}
 

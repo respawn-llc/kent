@@ -720,20 +720,6 @@ func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, req servera
 	return c.sessionExecutionResponseContract.Decode(raw)
 }
 
-func (c *Remote) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	var resp serverapi.SessionInitialInputResponse
-	return resp, c.call(ctx, protocol.MethodSessionGetInitialInput, req, &resp)
-}
-
-func (c *Remote) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	var resp serverapi.SessionPersistInputDraftResponse
-	control, err := c.draftControl(ctx, req.SessionID)
-	if err != nil {
-		return resp, err
-	}
-	return resp, control.call(ctx, protocol.MethodSessionPersistInputDraft, req, &resp)
-}
-
 func (c *Remote) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
 	response, err := callUnscopedRPC[serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](c, ctx, protocol.MethodSessionRetargetWorkspace, req)
 	if err != nil {

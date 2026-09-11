@@ -16,11 +16,13 @@ import (
 	"core/server/session/sessiontest"
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/rollbacktarget"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 func appendSessionMessage(t *testing.T, store *session.Store, stepID string, role session.MessageRole, content string) session.EventRecord {
@@ -196,8 +198,8 @@ func TestServiceGetInitialInputPrefersStoredDraft(t *testing.T) {
 	}
 
 	service := newTestSessionLifecycleService(containerDir, nil)
-	resp, err := service.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-		SessionID:       store.Meta().SessionID,
+	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
+		SessionId:       proto.String(store.Meta().SessionID),
 		TransitionInput: "transition input",
 	})
 	if err != nil {
@@ -230,16 +232,16 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 				t.Fatalf("persist parent session: %v", err)
 			}
 			service := newTestSessionLifecycleService(containerDir, nil)
-			_, err := service.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-				SessionID: store.Meta().SessionID,
+			_, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+				SessionId: store.Meta().SessionID,
 				Input:     "conflicting parent draft",
 			})
 			if err != nil {
 				t.Fatalf("persist parent draft: %v", err)
 			}
 
-			resp, err := service.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-				SessionID:           store.Meta().SessionID,
+			resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
+				SessionId:           proto.String(store.Meta().SessionID),
 				TransitionInput:     tt.transitionInput,
 				OverrideStoredDraft: true,
 			})
@@ -255,7 +257,7 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 
 func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
 	service := newTestSessionLifecycleService(t.TempDir(), nil)
-	resp, err := service.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
+	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
 		TransitionInput: "transition input",
 	})
 	if err != nil {
@@ -266,16 +268,6 @@ func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
 	}
 }
 
-func TestServiceGetInitialInputRejectsPathLikeSessionID(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir(), nil)
-	_, err := service.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-		SessionID: "../session-1",
-	})
-	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
-		t.Fatalf("expected path-like session id rejection, got %v", err)
-	}
-}
-
 func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	_, containerDir, store := createPersistedSession(t)
 	if err := store.SetName("session name"); err != nil {
@@ -283,8 +275,8 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	}
 
 	service := newTestSessionLifecycleService(containerDir, nil)
-	if _, err := service.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: store.Meta().SessionID,
+	if _, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
 	}); err != nil {
 		t.Fatalf("PersistInputDraft: %v", err)
@@ -370,8 +362,8 @@ func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 		t.Fatalf("set session name: %v", err)
 	}
 	service := newTestSessionLifecycleService(containerDir, nil)
-	req := serverapi.SessionPersistInputDraftRequest{
-		SessionID: store.Meta().SessionID,
+	req := &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
 	}
 
@@ -387,17 +379,6 @@ func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 	}
 	if reopened.Meta().InputDraft != "saved by service" {
 		t.Fatalf("input draft = %q, want %q", reopened.Meta().InputDraft, "saved by service")
-	}
-}
-
-func TestServicePersistInputDraftRejectsPathLikeSessionID(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir(), nil)
-	_, err := service.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: "sessions/workspace-x/session-1",
-		Input:     "draft",
-	})
-	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
-		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }
 
@@ -801,7 +782,7 @@ func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
 	}
 
 	service := newTestSessionLifecycleService(containerA, nil)
-	_, err = service.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{SessionID: store.Meta().SessionID})
+	_, err = service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: proto.String(store.Meta().SessionID)})
 	if err == nil {
 		t.Fatal("expected foreign session lookup rejection")
 	}
@@ -832,8 +813,8 @@ func TestServicePersistInputDraftRejectsSessionOutsideContainer(t *testing.T) {
 	}
 
 	service := newTestSessionLifecycleService(containerA, nil)
-	_, err = service.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: store.Meta().SessionID,
+	_, err = service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: store.Meta().SessionID,
 		Input:     "should fail",
 	})
 	if err == nil {

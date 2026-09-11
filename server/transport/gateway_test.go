@@ -45,6 +45,7 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -1609,7 +1610,7 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: foreignSession.Meta().SessionID}); err == nil {
 		t.Fatal("expected foreign-project final answer access to be rejected")
 	}
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{SessionID: foreignSession.Meta().SessionID, Input: "should fail"}); err == nil {
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{SessionId: foreignSession.Meta().SessionID, Input: "should fail"}); err == nil {
 		t.Fatal("expected foreign-project session mutation to be rejected")
 	}
 	if _, err := remote.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{SessionID: foreignSession.Meta().SessionID, WorkspaceRoot: resolvedA.Config.WorkspaceRoot}); err == nil {
@@ -1793,12 +1794,16 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	}
 	defer func() { _ = remote.Close() }()
 
-	initialInput, err := remote.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{TransitionInput: "draft text"})
-	if err != nil {
-		t.Fatalf("GetInitialInput: %v", err)
-	}
-	if initialInput.Input != "draft text" {
-		t.Fatalf("initial input = %q, want draft text", initialInput.Input)
+	conn := dialGateway(t, server)
+	defer func() { _ = conn.Close() }()
+	handshakeGateway(t, conn)
+	requireGatewayProjectAttachment(t, conn, "attach-initial-input", &connectionpb.AttachProjectRequest{ProjectId: binding.ProjectID})
+	initialInput := &sessionlaunchpb.SessionInitialInputResult{}
+	callGatewayDescriptor(t, conn, "initial-input",
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("GetInitialInput"),
+		&sessionlaunchpb.SessionInitialInputRequest{TransitionInput: "draft text"}, initialInput)
+	if initialInput.GetSuccess().GetInput() != "draft text" {
+		t.Fatalf("initial input = %v, want draft text", initialInput)
 	}
 
 	resolvedTransition, err := remote.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
@@ -1838,14 +1843,14 @@ func TestGatewayComposerDraftRoundTripKeepsServerAvailable(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: store.Meta().SessionID,
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: store.Meta().SessionID,
 		Input:     "visible draft",
 	}); err != nil {
 		t.Fatalf("PersistInputDraft: %v", err)
 	}
-	initialInput, err := remote.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-		SessionID: store.Meta().SessionID,
+	initialInput, err := remote.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
+		SessionId: proto.String(store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("GetInitialInput: %v", err)

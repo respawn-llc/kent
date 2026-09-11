@@ -10,11 +10,14 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var errSessionWorkspaceRetargeterRequired = errors.New("session workspace retargeter is required")
@@ -89,21 +92,18 @@ func (s *SessionLifecycleService) WithNavigationTargetResolver(resolver sessionN
 	return s
 }
 
-func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionInitialInputResponse{}, err
-	}
-	if strings.TrimSpace(req.SessionID) == "" {
-		return serverapi.SessionInitialInputResponse{Input: req.TransitionInput}, nil
+func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
+	if req.SessionId == nil {
+		return &sessionlaunchpb.SessionInitialInputSuccess{Input: req.TransitionInput}, nil
 	}
 	if req.OverrideStoredDraft {
-		return serverapi.SessionInitialInputResponse{Input: req.TransitionInput}, nil
+		return &sessionlaunchpb.SessionInitialInputSuccess{Input: req.TransitionInput}, nil
 	}
-	meta, err := s.resolvePersistedSessionMeta(ctx, req.SessionID)
+	meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
 	if err != nil {
-		return serverapi.SessionInitialInputResponse{}, err
+		return nil, err
 	}
-	return serverapi.SessionInitialInputResponse{Input: initialSessionInput(meta, req.TransitionInput)}, nil
+	return &sessionlaunchpb.SessionInitialInputSuccess{Input: initialSessionInput(meta, req.TransitionInput)}, nil
 }
 
 func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Context, sessionID string) (session.Meta, error) {
@@ -125,14 +125,11 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 	return *record.Meta, nil
 }
 
-func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionPersistInputDraftResponse{}, err
-	}
-	err := s.withStore(ctx, req.SessionID, func(_ context.Context, store *session.Store) error {
+func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
+	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
 		return persistSessionInputDraft(store, req.Input)
 	})
-	return serverapi.SessionPersistInputDraftResponse{}, err
+	return &emptypb.Empty{}, err
 }
 
 func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {

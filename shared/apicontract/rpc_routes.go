@@ -209,8 +209,6 @@ var routeContracts = []Route{
 	unary[serverapi.SessionTranscriptPageRequest, serverapi.SessionTranscriptPageResponse](protocol.MethodSessionGetTranscriptPage, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.SessionLatestCommittedAssistantFinalAnswerRequest, serverapi.SessionLatestCommittedAssistantFinalAnswerResponse](protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.SessionExecutionEnvironmentRequest, serverapi.SessionExecutionEnvironmentResponse](protocol.MethodSessionGetExecutionEnvironment, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl),
-	unary[serverapi.SessionInitialInputRequest, serverapi.SessionInitialInputResponse](protocol.MethodSessionGetInitialInput, AuthPreServerAuth, ScopeSessionActiveProjectIfSet, ConnectionControl),
-	unary[serverapi.SessionPersistInputDraftRequest, serverapi.SessionPersistInputDraftResponse](protocol.MethodSessionPersistInputDraft, AuthServer, ScopeSessionDraftHandoffProject, ConnectionControl),
 	unary[serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](protocol.MethodSessionRetargetWorkspace, AuthServer, ScopeSessionAttachedProject, ConnectionUnscoped),
 	unary[serverapi.SessionResolveTransitionRequest, serverapi.SessionResolveTransitionResponse](protocol.MethodSessionResolveTransition, AuthServer, ScopeSessionActiveProjectIfSet, ConnectionControl),
 	unary[serverapi.SessionRuntimeActivateRequest, serverapi.SessionRuntimeActivateResponse](protocol.MethodSessionRuntimeActivate, AuthServer, ScopeSessionActiveProject, ConnectionControl),

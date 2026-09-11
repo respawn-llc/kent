@@ -5,15 +5,15 @@ import (
 	"errors"
 	"testing"
 
-	"core/shared/serverapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 )
 
 func TestSessionLaunchInitialStateReturnsLifecycleError(t *testing.T) {
 	lookupErr := errors.New("initial input lookup failed")
 	server := narrowSessionLifecycleServer{
 		lifecycle: &recordingSessionLifecycleClient{
-			getInitialInput: func(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-				return serverapi.SessionInitialInputResponse{}, lookupErr
+			getInitialInput: func(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
+				return nil, lookupErr
 			},
 		},
 	}

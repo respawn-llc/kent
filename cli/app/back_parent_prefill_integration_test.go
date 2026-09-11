@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"io"
 	"os"
 	"path/filepath"
@@ -301,8 +302,8 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 
 			_, err = server.SessionLifecycleClient().PersistInputDraft(
 				context.Background(),
-				serverapi.SessionPersistInputDraftRequest{
-					SessionID: parent.Meta().SessionID,
+				&sessionlaunchpb.SessionPersistInputDraftRequest{
+					SessionId: parent.Meta().SessionID,
 					Input:     "conflicting parent draft",
 				},
 			)

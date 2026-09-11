@@ -16,6 +16,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func sessionLifecycleStringPtr(value string) *string { return &value }
@@ -178,11 +179,11 @@ func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T)
 }
 
 func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
-	var captured serverapi.SessionPersistInputDraftRequest
+	var captured *sessionlaunchpb.SessionPersistInputDraftRequest
 	client := &recordingSessionLifecycleClient{
-		persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+		persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 			captured = req
-			return serverapi.SessionPersistInputDraftResponse{}, nil
+			return &emptypb.Empty{}, nil
 		},
 	}
 	model := newUIModelDefaults(nil)
@@ -198,7 +199,7 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	if err := persistSessionDraftToServer(context.Background(), narrowSessionLifecycleServer{lifecycle: client}, " session-1 ", model); err != nil {
 		t.Fatalf("persistSessionDraftToServer: %v", err)
 	}
-	if captured.Input != "visible draft" || captured.SessionID != "session-1" {
+	if captured.Input != "visible draft" || captured.SessionId != "session-1" {
 		t.Fatalf("captured draft request = %+v, want composer input only", captured)
 	}
 }
@@ -238,12 +239,12 @@ func TestReopenRetargetedSessionPersistsDraftBeforeReleasingSourceRuntime(t *tes
 	released := false
 	var persistedDraft string
 	sourceLifecycle := &recordingSessionLifecycleClient{
-		persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+		persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 			if released {
-				return serverapi.SessionPersistInputDraftResponse{}, errors.New("source runtime was released before draft persistence")
+				return nil, errors.New("source runtime was released before draft persistence")
 			}
 			persistedDraft = req.Input
-			return serverapi.SessionPersistInputDraftResponse{}, nil
+			return &emptypb.Empty{}, nil
 		},
 	}
 	var server *reattachSessionLifecycleServer
@@ -294,9 +295,9 @@ func TestReopenRetargetedSessionPreservesDraftWhenDestinationReattachmentFails(t
 	var persistedDraft string
 	server := &reattachSessionLifecycleServer{
 		lifecycle: &recordingSessionLifecycleClient{
-			persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+			persistInputDraft: func(_ context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 				persistedDraft = req.Input
-				return serverapi.SessionPersistInputDraftResponse{}, nil
+				return &emptypb.Empty{}, nil
 			},
 		},
 		reattach: func(context.Context, string) error {
@@ -369,24 +370,24 @@ func (s *reattachSessionLifecycleServer) ReattachSession(ctx context.Context, se
 }
 
 type recordingSessionLifecycleClient struct {
-	getInitialInput          func(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error)
-	persistInputDraft        func(context.Context, serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error)
+	getInitialInput          func(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error)
+	persistInputDraft        func(context.Context, *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error)
 	retargetSessionWorkspace func(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
 	resolveTransition        func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
 }
 
 func (c *recordingSessionLifecycleClient) Close() error { return nil }
 
-func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
+func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
 	if c.getInitialInput == nil {
-		return serverapi.SessionInitialInputResponse{}, errors.New("unexpected GetInitialInput call")
+		return nil, errors.New("unexpected GetInitialInput call")
 	}
 	return c.getInitialInput(ctx, req)
 }
 
-func (c *recordingSessionLifecycleClient) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+func (c *recordingSessionLifecycleClient) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 	if c.persistInputDraft == nil {
-		return serverapi.SessionPersistInputDraftResponse{}, errors.New("unexpected PersistInputDraft call")
+		return nil, errors.New("unexpected PersistInputDraft call")
 	}
 	return c.persistInputDraft(ctx, req)
 }

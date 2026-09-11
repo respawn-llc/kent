@@ -24,6 +24,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -245,14 +246,14 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	}
 
 	const draft = "survives the handoff"
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: movedSession.Meta().SessionID,
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: movedSession.Meta().SessionID,
 		Input:     draft,
 	}); err != nil {
 		t.Fatalf("PersistInputDraft after cross-Project move: %v", err)
 	}
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: foreignSession.Meta().SessionID,
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: foreignSession.Meta().SessionID,
 		Input:     "must remain inaccessible",
 	}); err == nil {
 		t.Fatal("unrelated target-Project Session draft mutation unexpectedly allowed")
@@ -278,8 +279,9 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		binding.WorkspaceID != targetBinding.WorkspaceID {
 		t.Fatalf("reattached Session binding = %+v present=%t, want target binding", binding, present)
 	}
-	initialInput, err := destination.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-		SessionID: movedSession.Meta().SessionID,
+	movedSessionID := movedSession.Meta().SessionID
+	initialInput, err := destination.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
+		SessionId: &movedSessionID,
 	})
 	if err != nil {
 		t.Fatalf("GetInitialInput after reattach: %v", err)

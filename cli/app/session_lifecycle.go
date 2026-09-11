@@ -11,6 +11,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -399,8 +400,12 @@ func sessionLaunchInitialStateFromServer(
 	if server == nil || server.SessionLifecycleClient() == nil {
 		return sessionLaunchInitialState{}, errors.New("session lifecycle client is required")
 	}
-	resp, err := server.SessionLifecycleClient().GetInitialInput(ctx, serverapi.SessionInitialInputRequest{
-		SessionID:           strings.TrimSpace(sessionID),
+	var selectedSessionID *string
+	if normalized := strings.TrimSpace(sessionID); normalized != "" {
+		selectedSessionID = &normalized
+	}
+	resp, err := server.SessionLifecycleClient().GetInitialInput(ctx, &sessionlaunchpb.SessionInitialInputRequest{
+		SessionId:           selectedSessionID,
 		TransitionInput:     transitionInput,
 		OverrideStoredDraft: overrideStoredDraft,
 	})
@@ -421,8 +426,8 @@ func persistSessionDraftToServer(ctx context.Context, server sessionLifecycleCli
 	if server == nil || server.SessionLifecycleClient() == nil {
 		return nil
 	}
-	_, err := server.SessionLifecycleClient().PersistInputDraft(ctx, serverapi.SessionPersistInputDraftRequest{
-		SessionID: strings.TrimSpace(sessionID),
+	_, err := server.SessionLifecycleClient().PersistInputDraft(ctx, &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: strings.TrimSpace(sessionID),
 		Input:     ui.mainEditor.Text(),
 	})
 	return err

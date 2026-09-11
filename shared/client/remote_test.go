@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"encoding/json"
 	"errors"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"io"
 	"net/http/httptest"
 	"reflect"
@@ -515,7 +517,7 @@ func receiveRemoteGeneratedCall(
 	if call == nil {
 		t.Fatal("generated frame is not a call")
 	}
-	method := worktreeMethod(protoreflect.Name(serviceName), protoreflect.Name(methodName))
+	method := bootstrapMethod(request.ProtoReflect().Descriptor().ParentFile(), protoreflect.Name(serviceName), protoreflect.Name(methodName))
 	operation, err := protoapi.OperationFromDescriptor(method)
 	if err != nil {
 		t.Fatalf("%s.%s operation: %v", serviceName, methodName, err)
@@ -553,34 +555,22 @@ func sendRemoteGeneratedResult(t *testing.T, ws *websocket.Conn, call *sharedpb.
 func TestRemotePersistInputDraftSendsComposerInput(t *testing.T) {
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
-		var request protocol.Request
-		if err := websocket.JSON.Receive(ws, &request); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			t.Fatalf("receive persist input draft: %v", err)
-		}
-		if request.Method != protocol.MethodSessionPersistInputDraft {
-			t.Fatalf("method = %q, want %q", request.Method, protocol.MethodSessionPersistInputDraft)
-		}
-		var decoded serverapi.SessionPersistInputDraftRequest
-		if err := json.Unmarshal(request.Params, &decoded); err != nil {
-			t.Fatalf("decode persist input draft: %v", err)
-		}
+		decoded := &sessionlaunchpb.SessionPersistInputDraftRequest{}
+		request := receiveRemoteGeneratedCall(t, ws, "SessionLifecycleService", "PersistInputDraft", decoded)
 		if decoded.Input != "visible draft" {
 			t.Fatalf("input = %q, want visible draft", decoded.Input)
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, serverapi.SessionPersistInputDraftResponse{})); err != nil {
-			t.Fatalf("send persist input draft response: %v", err)
-		}
+		sendRemoteGeneratedResult(t, ws, request, &sessionlaunchpb.SessionPersistInputDraftResult{
+			Outcome: &sessionlaunchpb.SessionPersistInputDraftResult_Success{Success: &emptypb.Empty{}},
+		})
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: "session-1",
+	_, err = remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: "session-1",
 		Input:     "visible draft",
 	})
 	if err != nil {

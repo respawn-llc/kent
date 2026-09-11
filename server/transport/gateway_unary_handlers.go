@@ -127,8 +127,6 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.SessionViewClient().GetSessionExecutionEnvironment(ctx, params)
 		})
 	},
-	protocol.MethodSessionGetInitialInput:   gatewayClientCall[apicontract.SessionLifecycleService, serverapi.SessionInitialInputRequest, serverapi.SessionInitialInputResponse](GatewayDependencies.SessionLifecycleClient, apicontract.SessionLifecycleService.GetInitialInput),
-	protocol.MethodSessionPersistInputDraft: gatewayClientCall[apicontract.SessionLifecycleService, serverapi.SessionPersistInputDraftRequest, serverapi.SessionPersistInputDraftResponse](GatewayDependencies.SessionLifecycleClient, apicontract.SessionLifecycleService.PersistInputDraft),
 	protocol.MethodSessionRetargetWorkspace: gatewayClientCall[apicontract.SessionLifecycleService, serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](GatewayDependencies.SessionLifecycleClient, apicontract.SessionLifecycleService.RetargetSessionWorkspace),
 	protocol.MethodSessionResolveTransition: gatewayClientCall[apicontract.SessionLifecycleService, serverapi.SessionResolveTransitionRequest, serverapi.SessionResolveTransitionResponse](GatewayDependencies.SessionLifecycleClient, apicontract.SessionLifecycleService.ResolveTransition),
 	protocol.MethodSessionRuntimeActivate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request, prepared any) protocol.Response {
