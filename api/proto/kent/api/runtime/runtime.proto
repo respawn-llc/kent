@@ -66,6 +66,13 @@ enum ActivityActiveKind {
   RUNTIME_ACTIVITY_ACTIVE_KIND_RUNTIME_MAINTENANCE = 8;
 }
 
+enum ReviewerActivity {
+  REVIEWER_ACTIVITY_UNSPECIFIED = 0;
+  REVIEWER_ACTIVITY_INACTIVE = 1;
+  REVIEWER_ACTIVITY_INVOKING = 2;
+  REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK = 3;
+}
+
 message ReadModelVersion {
   string epoch = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -108,6 +115,10 @@ message Activity {
   optional ActiveStep active_step = 2;
   bool queue_accepting = 3;
   bool diagnostic_recovery = 4;
+  ReviewerActivity reviewer = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.activity_active_step"
@@ -185,7 +196,7 @@ message Status {
 
 message SessionView {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string session_name = 2;
+  optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];
   ConversationFreshness conversation_freshness = 4 [(buf.validate.field).enum = {
     defined_only: true

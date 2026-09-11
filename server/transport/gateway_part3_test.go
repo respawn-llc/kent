@@ -1,6 +1,8 @@
 package transport
 
 import (
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"context"
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
@@ -245,6 +247,18 @@ func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
 	contextResponse, err := remote.GetChatContext(t.Context(), serverapi.NewSessionChatContextRequest(sessionID))
 	if err != nil {
 		t.Fatalf("GetChatContext: %v", err)
+	}
+	conn := dialGateway(t, server)
+	defer conn.Close()
+	handshakeGateway(t, conn)
+	requireGatewayProjectAttachment(t, conn, "main-view-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
+	generated := &sessionpb.MainViewResult{}
+	callGatewayDescriptor(t, conn, "main-view",
+		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
+		&sessionpb.MainViewRequest{SessionId: sessionID.String()}, generated)
+	if generated.GetSuccess().GetMainView().GetActivity().GetReviewer() != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
+		generated.GetSuccess().GetMainView().GetStatus().GetGoal().GetGoal().GetObjective() != "ship the dormant projection" {
+		t.Fatalf("generated dormant Main View lost current facts: %v", generated)
 	}
 	response, err := remote.GetSessionMainView(t.Context(), serverapi.SessionMainViewRequest{
 		SessionID: sessionID.String(),
