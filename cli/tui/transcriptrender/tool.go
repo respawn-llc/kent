@@ -12,6 +12,7 @@ import (
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 func renderToolRowWithLinkPresentation(
@@ -461,6 +462,12 @@ func renderPatchChangesCompact(
 		if file.Added > 0 {
 			spans = append(spans, roleSpan(" ", role))
 			spans = append(spans, SemanticSpan(fmt.Sprintf("+%d", file.Added), StyleRoleToolSuccess))
+		}
+		if modeUsesOngoingContinuationPrefix(mode) {
+			pathWidth := max(1, contentWidth(role, width)-spansWidth(spans[1:]))
+			if fullWidth := spansWidth(spans[:1]); fullWidth > pathWidth {
+				spans[0].Text = xansi.TruncateLeft(spans[0].Text, fullWidth-pathWidth+1, "…")
+			}
 		}
 		lines = append(lines, Line{Spans: spans})
 	}

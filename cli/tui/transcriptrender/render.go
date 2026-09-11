@@ -510,7 +510,11 @@ func ongoingInlineMetaSpans(command []Span, inlineMeta string, bodyWidth int, ro
 	meta := SemanticSpan(inlineMeta, StyleRoleNotice, SpanAttributeFaint)
 	suffix := []Span{separator, meta}
 	if role == StyleRoleToolPatch {
-		return TruncateLine(Line{Spans: append(command, suffix...)}, max(1, bodyWidth), false).Spans
+		remaining := bodyWidth - spansWidth(command)
+		if remaining <= spansWidth([]Span{separator}) {
+			return TruncateLine(Line{Spans: command}, max(1, bodyWidth), false).Spans
+		}
+		return append(command, TruncateLine(Line{Spans: suffix}, remaining, false).Spans...)
 	}
 	suffixWidth := spansWidth(suffix)
 	if suffixWidth >= bodyWidth {
