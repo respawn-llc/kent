@@ -7,7 +7,7 @@ import {
   descriptorResponseCorrelation,
   encodeDescriptorCall,
 } from "./descriptorRpc";
-import { ContractError, TransportError } from "./errors";
+import { ContractError, RpcError, TransportError } from "./errors";
 import type { JsonValue } from "./json";
 import {
   unaryConnectionPolicy,
@@ -269,7 +269,7 @@ class JsonRpcWebSocketTransport implements RpcTransport {
   }
 
   subscribeChatSession(input: ChatSubscriptionInput): RpcSubscription {
-    const { projectID, sessionID, method, params, handler } = input;
+    const { projectID, sessionID, method, params, handler, establishmentTimeoutMs } = input;
     const controller = new AbortController();
     void this.#openSubscription(
       async (socket) =>
@@ -279,6 +279,7 @@ class JsonRpcWebSocketTransport implements RpcTransport {
           params,
           handler,
           signal: controller.signal,
+          ...(establishmentTimeoutMs === undefined ? {} : { establishmentTimeoutMs }),
         }),
       handler.onError,
       controller.signal,
@@ -538,7 +539,7 @@ class JsonRpcWebSocketTransport implements RpcTransport {
         if (isTerminalSubscriptionError(error)) {
           return;
         }
-        if (error instanceof ContractError) {
+        if (error instanceof ContractError || error instanceof RpcError) {
           onError(error);
           return;
         }

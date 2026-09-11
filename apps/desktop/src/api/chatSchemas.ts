@@ -69,8 +69,8 @@ export const runtimeStatusSchema = z
     CompactionCount: z.number().int().nonnegative(),
     Goal: z
       .object({
-        ...goalSchema.shape,
-        Availability: z.enum(["available", "agent_capability_missing"]),
+        Goal: goalSchema.nullable(),
+        Availability: z.enum(["available", "agent_capability_missing"]).nullable(),
         Suspended: z.boolean(),
       })
       .strict()

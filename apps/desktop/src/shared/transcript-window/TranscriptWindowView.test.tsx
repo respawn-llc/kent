@@ -1,17 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 
+import { TranscriptWindow, type TranscriptCommittedItem, type TranscriptRenderSlots } from "@/app-facade";
+import { hydration } from "@/test-support/transcript-window";
 import { createVirtualizedPixelOffsetRequest } from "@/ui";
 import { installResizeObserverGeometry } from "@/test-support/resize-observer";
 
-import {
-  TranscriptWindow,
-  TranscriptWindowView,
-  type TranscriptRenderSlots,
-  type TranscriptViewportMeasurement,
-} from "./index";
-import { hydration } from "./fixtures";
-import type { CommittedRow } from "./types";
+import { TranscriptWindowView, type TranscriptViewportMeasurement } from "./index";
 
 let geometry: ReturnType<typeof installResizeObserverGeometry>;
 
@@ -20,7 +15,7 @@ const reasoningIdentity = {
   Kent: null,
 } as const;
 
-function committedPromotions(): readonly CommittedRow[] {
+function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
   return [
     {
       Kind: "assistant",

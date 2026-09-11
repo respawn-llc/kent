@@ -1,4 +1,5 @@
 import type { ApiSubscription } from "./apiService";
+import type { ChatGoalFact, ChatGoalMutationResult, ChatGoalObservation } from "./chatGoal";
 import type {
   ChatSettingsRead,
   ChatSettingsMutation,
@@ -101,6 +102,7 @@ export type ChatMainView = Readonly<{
   executionTarget: ChatExecutionTarget;
   activity: ChatRuntimeActivity;
 }>;
+export type ChatMainViewRead = Readonly<{ mainView: ChatMainView; goal: ChatGoalFact }>;
 export type ChatExecutionTarget = Readonly<{
   workspaceID: string;
   workspaceName: string;
@@ -131,15 +133,6 @@ export type ChatRuntimeStatus = Readonly<{
     hasCacheHitPercentage: boolean;
   }>;
   compactionCount: number;
-  goal: Readonly<{
-    id: string;
-    objective: string;
-    status: "active" | "paused" | "complete";
-    created_at: string;
-    updated_at: string;
-    availability: "available" | "agent_capability_missing";
-    suspended: boolean;
-  }> | null;
   workflowSession: Readonly<{ taskID: string; workflowID: string }> | null;
 }>;
 export type ChatRuntimeActivity = Readonly<{
@@ -180,8 +173,15 @@ export type ChatTranscriptCompletion = Readonly<{
 }>;
 export type ChatTranscriptHandler = Readonly<{
   onOpen?(): void;
+  onTransportLoss?(): void;
   onEvent(event: ChatTranscriptMessage): void;
   onComplete(completion: ChatTranscriptCompletion): void;
+  onError(error: Error): void;
+}>;
+export type ChatGoalObservationHandler = Readonly<{
+  onOpen?(): void;
+  onEvent(observation: ChatGoalObservation): void;
+  onComplete(code: number, message: string): void;
   onError(error: Error): void;
 }>;
 export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
@@ -194,7 +194,13 @@ export type ChatApi = Readonly<{
   forkEdit(target: ChatSessionTarget, input: ChatForkEditInput): Promise<string>;
   listPendingWork(target: ChatSessionTarget): Promise<PendingWork>;
   removePendingWork(target: ChatSessionTarget, itemID: PendingWorkIdentity): Promise<PendingWorkRestoration>;
-  getMainView(target: ChatSessionTarget): Promise<ChatMainView>;
+  getMainView(target: ChatSessionTarget): Promise<ChatMainViewRead>;
+  getGoal(target: ChatSessionTarget): Promise<ChatGoalFact>;
+  setGoal(target: ChatSessionTarget, objective: string): Promise<ChatGoalMutationResult>;
+  pauseGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
+  resumeGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
+  completeGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
+  clearGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
   getContext(target: ChatContextTarget): Promise<ChatContext>;
   getSettings(target: ChatSettingsTarget): Promise<ChatSettingsRead>;
   mutateSettings(
@@ -208,4 +214,5 @@ export type ChatApi = Readonly<{
   activateRuntime(target: ChatSessionTarget): Promise<ChatRuntimeAttachment>;
   releaseRuntime(attachment: ChatRuntimeAttachment): Promise<ChatRuntimeRelease>;
   subscribeTranscript(target: ChatSessionTarget, handler: ChatTranscriptHandler): ApiSubscription;
+  subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
 }>;

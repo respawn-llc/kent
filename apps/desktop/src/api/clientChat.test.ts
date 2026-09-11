@@ -1,5 +1,5 @@
 import { ApiClient } from "./client";
-import { ContractError } from "./errors";
+import { ContractError, RpcError, TransportError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
 import { ChatService, QueueRequestSchema } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
@@ -192,6 +192,66 @@ function transcriptHydrationPayload() {
 }
 
 describe("Desktop Chat read client", () => {
+  it("accepts a dormant Main View with authoritative Goal absence", async () => {
+    const hydration = transcriptHydrationPayload();
+    const { Workflow: workflow, ...sessionStatus } = hydration.SessionStatus;
+    expect(workflow).toBeNull();
+    const transport = new FakeRpcTransport([
+      {
+        method: "session.getMainView",
+        result: {
+          MainView: {
+            Version: hydration.RuntimeReadModelUpdate.Version,
+            Status: {
+              ...sessionStatus,
+              ConversationFreshness: hydration.SessionIdentity.ConversationFreshness,
+              LastCommittedAssistantFinalAnswer: null,
+              ContextUsage: {
+                UsedTokens: 0,
+                WindowTokens: 100_000,
+                CacheHitPercent: 0,
+                HasCacheHitPercentage: false,
+              },
+              Goal: {
+                Goal: null,
+                Availability: "available",
+                Suspended: false,
+              },
+              WorkflowSession: null,
+            },
+            Session: {
+              SessionID: sessionID,
+              SessionName: "",
+              AgentRole: null,
+              ConversationFreshness: 0,
+              ExecutionTarget: {
+                WorkspaceID: "workspace-1",
+                WorkspaceName: "Workspace",
+                WorkspaceRoot: "/workspace",
+                WorkspaceAvailability: "available",
+                Worktree: null,
+                CwdRelpath: ".",
+                EffectiveWorkdir: "/workspace",
+              },
+            },
+            Activity: {
+              State: "unavailable",
+              ActiveStep: null,
+              Reviewer: "inactive",
+              QueueAccepting: false,
+              DiagnosticRecovery: false,
+            },
+          },
+        },
+      },
+    ]);
+
+    await expect(new ApiClient(transport).chat.getMainView(target)).resolves.toMatchObject({
+      mainView: { sessionID, activity: { state: "unavailable" } },
+      goal: { goal: null, availability: "available" },
+    });
+  });
+
   it("reads Main View and Context and validates runtime activation identity", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -268,9 +328,12 @@ describe("Desktop Chat read client", () => {
     const client = new ApiClient(transport);
 
     await expect(client.chat.getMainView(target)).resolves.toMatchObject({
-      sessionID,
-      sessionName: null,
-      executionTarget: { workspaceID: "", workspaceAvailability: "unlinked" },
+      mainView: {
+        sessionID,
+        sessionName: null,
+        executionTarget: { workspaceID: "", workspaceAvailability: "unlinked" },
+      },
+      goal: { goal: null, availability: null },
     });
     await expect(client.chat.getContext(target)).resolves.toMatchObject({
       contextWindowTokens: 100,
@@ -303,6 +366,85 @@ describe("Desktop Chat read client", () => {
       ]),
     );
     await expect(mismatchedPlanClient.chat.activateRuntime(target)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it("converts Goal inspection, authoritative mutation, and ordered observation", async () => {
+    const now = "2026-09-04T10:00:00Z";
+    const transport = new FakeRpcTransport([
+      {
+        method: "runtime.goal.show",
+        result: {
+          goal: { id: "goal-1", objective: "ship", status: "active", created_at: now, updated_at: now },
+          availability: "available",
+        },
+      },
+      {
+        method: "runtime.goal.pause",
+        result: {
+          result: {
+            kind: "authoritative_goal",
+            goal: {
+              id: "goal-1",
+              objective: "ship",
+              status: "paused",
+              created_at: now,
+              updated_at: now,
+            },
+            availability: null,
+          },
+        },
+      },
+    ]);
+    const client = new ApiClient(transport);
+
+    await expect(client.chat.getGoal(target)).resolves.toEqual({
+      goal: { id: "goal-1", objective: "ship", status: "active", createdAt: now, updatedAt: now },
+      availability: "available",
+    });
+    await expect(client.chat.pauseGoal(target)).resolves.toEqual({
+      kind: "authoritative_goal",
+      fact: {
+        goal: {
+          id: "goal-1",
+          objective: "ship",
+          status: "paused",
+          createdAt: now,
+          updatedAt: now,
+        },
+        availability: null,
+      },
+    });
+
+    const observations: unknown[] = [];
+    const observationErrors: Error[] = [];
+    client.chat.subscribeGoal(target, {
+      onEvent: (observation) => observations.push(observation),
+      onComplete: () => undefined,
+      onError: (error) => observationErrors.push(error),
+    });
+    expect(transport.chatSubscriptionStarts[0]?.establishmentTimeoutMs).toBeUndefined();
+    transport.emit("goal.observation", {
+      observation: {
+        sequence: 1,
+        kind: "hydration",
+        status: { goal: null, availability: "available" },
+      },
+    });
+    expect(observations).toEqual([
+      {
+        sequence: 1,
+        kind: "hydration",
+        fact: { goal: null, availability: "available" },
+      },
+    ]);
+    transport.fail(
+      "goal.observe",
+      new RpcError({ code: -32000, message: "Session unavailable", method: "goal.observe" }),
+    );
+    transport.fail("goal.observe", new TransportError("Subscription socket closed."));
+    expect(observationErrors).toHaveLength(2);
+    expect(observationErrors[0]).toBeInstanceOf(RpcError);
+    expect(observationErrors[1]).toBeInstanceOf(TransportError);
   });
 
   it("reads bounded transcript pages in both cursor directions", async () => {
@@ -369,6 +511,7 @@ describe("Desktop Chat read client", () => {
   it("delivers transcript hydration and live events with recoverable contract errors and typed completion", async () => {
     const events: unknown[] = [];
     const errors: Error[] = [];
+    const transportLosses: unknown[] = [];
     const completions: unknown[] = [];
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport);
@@ -376,7 +519,12 @@ describe("Desktop Chat read client", () => {
       onEvent: (event) => events.push(event),
       onComplete: (completion) => completions.push(completion),
       onError: (error) => errors.push(error),
+      onTransportLoss: () => transportLosses.push({}),
     });
+    expect(transport.chatSubscriptionStarts[0]?.establishmentTimeoutMs).toBeNull();
+    transport.fail("session.subscribeTranscript", new TransportError("isolated socket loss"));
+    expect(errors).toEqual([]);
+    expect(transportLosses).toHaveLength(1);
 
     transport.emit("session.transcript", {
       message: { sequence: 1, kind: "hydration", payload: transcriptHydrationPayload() },

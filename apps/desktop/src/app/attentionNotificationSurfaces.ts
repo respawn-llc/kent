@@ -16,7 +16,7 @@ import { errorMessage, isTaskMissingError } from "@/api";
 import type { AppServices } from "@/app-facade";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import type { StatusController } from "@/app-facade";
-import { recoverOrThrowDebugFailure } from "./debugFailure";
+import { recoverOrThrowDebugFailure } from "@/app-facade";
 
 export type SurfaceRecord = Readonly<{
   notification: AttentionNotification;

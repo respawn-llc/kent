@@ -154,35 +154,47 @@ func (f *runtimeControlFakeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 func (f *runtimeControlFakeClient) SetGoal(objective string) (clientui.GoalMutationResult, error) {
 	f.setGoalArg = objective
 	f.goal = runtimeControlTestGoal(objective, clientui.RuntimeGoalStatusActive)
-	return clientui.GoalMutationResult{Goal: f.goal.Goal}, f.err
+	return clientui.GoalMutationResult{
+		Kind: clientui.GoalMutationResultAuthoritativeGoal,
+		Goal: f.goal.Goal,
+	}, f.err
 }
 func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
 	f.pauseGoalCalls++
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", clientui.RuntimeGoalStatusActive)
 	}
-	f.goal.Status = "paused"
-	return clientui.GoalMutationResult{Goal: f.goal.Goal}, f.err
+	f.goal.Goal.Status = "paused"
+	return clientui.GoalMutationResult{
+		Kind: clientui.GoalMutationResultAuthoritativeGoal,
+		Goal: f.goal.Goal,
+	}, f.err
 }
 func (f *runtimeControlFakeClient) ResumeGoal() (clientui.GoalMutationResult, error) {
 	f.resumeGoalCalls++
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", clientui.RuntimeGoalStatusActive)
 	}
-	f.goal.Status = "active"
-	return clientui.GoalMutationResult{Goal: f.goal.Goal}, f.err
+	f.goal.Goal.Status = "active"
+	return clientui.GoalMutationResult{
+		Kind: clientui.GoalMutationResultAuthoritativeGoal,
+		Goal: f.goal.Goal,
+	}, f.err
 }
 func (f *runtimeControlFakeClient) CompleteGoal() (clientui.GoalMutationResult, error) {
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", clientui.RuntimeGoalStatusActive)
 	}
-	f.goal.Status = "complete"
-	return clientui.GoalMutationResult{Goal: f.goal.Goal}, f.err
+	f.goal.Goal.Status = "complete"
+	return clientui.GoalMutationResult{
+		Kind: clientui.GoalMutationResultAuthoritativeGoal,
+		Goal: f.goal.Goal,
+	}, f.err
 }
 func (f *runtimeControlFakeClient) ClearGoal() (clientui.GoalMutationResult, error) {
 	f.clearGoalCalls++
 	f.goal = nil
-	return clientui.GoalMutationResult{}, f.err
+	return clientui.GoalMutationResult{Kind: clientui.GoalMutationResultAuthoritativeClear}, f.err
 }
 
 func runtimeControlTestGoal(objective string, status clientui.RuntimeGoalStatus) *clientui.RuntimeGoal {
@@ -291,7 +303,10 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		sessionID:      m.sessionID,
 		mutationSerial: m.goalRuntimeMutationSerial,
 		operation:      goalRuntimePause,
-		mutation:       clientui.GoalMutationResult{Goal: paused.Goal},
+		mutation: clientui.GoalMutationResult{
+			Kind: clientui.GoalMutationResultAuthoritativeGoal,
+			Goal: paused.Goal,
+		},
 	})
 	stale := &clientui.RuntimeGoal{
 		Goal: &clientui.Goal{ID: "goal-1", Objective: "stale", Status: clientui.RuntimeGoalStatusActive},

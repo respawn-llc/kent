@@ -222,6 +222,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly subscriptionStarts: Readonly<{ method: string; params: JsonValue }>[] = [];
+  readonly chatSubscriptionStarts: ChatSubscriptionInput[] = [];
   readonly descriptorSubscriptionStarts: Readonly<{
     descriptor: DescMethod;
     request: Message;
@@ -443,6 +444,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   }
 
   subscribeChatSession(input: ChatSubscriptionInput): RpcSubscription {
+    this.chatSubscriptionStarts.push(input);
     return this.subscribe(input.method, input.params, input.handler);
   }
 

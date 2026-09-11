@@ -648,6 +648,13 @@ func (d *startupGatewayDependencies) SessionTranscriptClient() apicontract.Sessi
 	}
 	return nil
 }
+
+func (d *startupGatewayDependencies) GoalObservationClient() apicontract.GoalObservationService {
+	if c := d.activeCore(); c != nil {
+		return c.GoalObservationClient()
+	}
+	return nil
+}
 func (d *startupGatewayDependencies) SessionLaunchClientForProjectWorkspace(ctx context.Context, projectID string, workspaceRoot string) (apicontract.SessionLaunchService, error) {
 	if c := d.activeCore(); c != nil {
 		return c.SessionLaunchClientForProjectWorkspace(ctx, projectID, workspaceRoot)

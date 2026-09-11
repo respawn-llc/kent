@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"core/shared/client"
+	"core/shared/clientui"
 	"core/shared/serverapi"
 )
 
@@ -27,24 +28,24 @@ func (r goalTimeoutRemote) ShowGoal(context.Context, serverapi.RuntimeGoalShowRe
 	return serverapi.RuntimeGoalShowResponse{}, nil
 }
 
-func (goalTimeoutRemote) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return serverapi.RuntimeGoalShowResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return serverapi.RuntimeGoalShowResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) ResumeGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return serverapi.RuntimeGoalShowResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) ResumeGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) CompleteGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return serverapi.RuntimeGoalShowResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) CompleteGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) ClearGoal(context.Context, serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return serverapi.RuntimeGoalShowResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) ClearGoal(context.Context, serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
 }
 
 func (goalTimeoutRemote) Close() error { return nil }
@@ -117,6 +118,7 @@ type goalDeadlineRemote struct {
 	t         *testing.T
 	deadline  time.Time
 	completed bool
+	response  serverapi.RuntimeGoalMutationResponse
 }
 
 func (r *goalDeadlineRemote) ShowGoal(ctx context.Context, _ serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
@@ -127,13 +129,13 @@ func (r *goalDeadlineRemote) ShowGoal(ctx context.Context, _ serverapi.RuntimeGo
 	return serverapi.RuntimeGoalShowResponse{}, nil
 }
 
-func (r *goalDeadlineRemote) CompleteGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (r *goalDeadlineRemote) CompleteGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	deadline, ok := ctx.Deadline()
 	if !ok || deadline != r.deadline {
 		r.t.Fatal("goal completion must use the remaining command budget")
 	}
 	r.completed = true
-	return serverapi.RuntimeGoalShowResponse{}, nil
+	return r.response, nil
 }
 
 func (r *goalDeadlineRemote) Close() error { return nil }
@@ -141,7 +143,7 @@ func (r *goalDeadlineRemote) Close() error { return nil }
 func TestGoalCompleteSharesFifteenSecondBudget(t *testing.T) {
 	previous := goalCommandRemoteOpener
 	t.Cleanup(func() { goalCommandRemoteOpener = previous })
-	remote := &goalDeadlineRemote{t: t}
+	remote := &goalDeadlineRemote{t: t, response: completedGoalMutationResponse(clientui.RuntimeGoalStatusComplete)}
 	goalCommandRemoteOpener = func(ctx context.Context) (goalCommandRemote, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok {
@@ -160,4 +162,62 @@ func TestGoalCompleteSharesFifteenSecondBudget(t *testing.T) {
 	if !remote.completed {
 		t.Fatal("goal was not completed")
 	}
+}
+
+func TestGoalCompleteRejectsNonCompletedMutationResult(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response serverapi.RuntimeGoalMutationResponse
+	}{
+		{name: "invalid"},
+		{
+			name: "authoritative Clear",
+			response: serverapi.RuntimeGoalMutationResponse{Result: clientui.GoalMutationResult{
+				Kind: clientui.GoalMutationResultAuthoritativeClear,
+			}},
+		},
+		{name: "active Goal", response: completedGoalMutationResponse(clientui.RuntimeGoalStatusActive)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previous := goalCommandRemoteOpener
+			t.Cleanup(func() { goalCommandRemoteOpener = previous })
+			remote := &goalDeadlineRemote{t: t, response: test.response}
+			goalCommandRemoteOpener = func(ctx context.Context) (goalCommandRemote, error) {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("goal connection must have a command deadline")
+				}
+				remote.deadline = deadline
+				return remote, nil
+			}
+			var stdout, stderr bytes.Buffer
+			if code := goalSubcommand(
+				[]string{"complete", "--session", "session-1", "--confirm"},
+				&stdout,
+				&stderr,
+			); code != 1 {
+				t.Fatalf("exit code = %d, want failure", code)
+			}
+			if !remote.completed {
+				t.Fatal("Goal completion request was not sent")
+			}
+			if stdout.Len() != 0 || stderr.Len() == 0 {
+				t.Fatalf("completion output stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func completedGoalMutationResponse(status clientui.RuntimeGoalStatus) serverapi.RuntimeGoalMutationResponse {
+	now := time.Unix(1, 0).UTC()
+	return serverapi.RuntimeGoalMutationResponse{Result: clientui.GoalMutationResult{
+		Kind: clientui.GoalMutationResultAuthoritativeGoal,
+		Goal: &clientui.Goal{
+			ID:        "goal-1",
+			Objective: "finish the task",
+			Status:    status,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}}
 }

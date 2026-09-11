@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChatTranscriptPage, ChatTranscriptPayloadByKind } from "@/api";
+import { hydration, page, row, sequences, visit } from "@/test-support/transcript-window";
 
 import { TranscriptWindow } from "./index";
-import { hydration, page, row, sequences, visit } from "./fixtures";
 
 function open(window: TranscriptWindow, tail: ChatTranscriptPage): void {
   expect(window.dispatch({ kind: "opening-success", permit: window.openingPermit, page: tail }).kind).toBe(
@@ -200,6 +200,81 @@ describe("bounded transcript window", () => {
       expect(current.cursor).toBe(200);
       expect(current.admission).not.toBe(retry.request.admission);
     }
+  });
+
+  it("begins in-place recovery by invalidating only active page admission", () => {
+    const window = new TranscriptWindow();
+    open(window, page([row(30)], 300));
+    const request = visit(window, "older");
+    const before = window.snapshot.items;
+
+    expect(window.dispatch({ kind: "recovery-begin" }).kind).toBe("accepted");
+    expect(window.snapshot.items).toEqual(before);
+    expect(window.snapshot.older).toEqual({ kind: "idle", cursor: 300 });
+    expect(
+      window.dispatch({
+        kind: "page-success",
+        request,
+        page: page([row(20)], 200, 300),
+      }).kind,
+    ).toBe("obsolete");
+    expect(visit(window, "older").admission).not.toBe(request.admission);
+  });
+
+  it("begins in-place recovery by discarding provisional presentation without clearing membership", () => {
+    const window = new TranscriptWindow();
+    open(window, page([row(30)], 300));
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "assistant_delta",
+        payload: {
+          StepID: "step",
+          StreamID: "stream",
+          Phase: "commentary",
+          Delta: "Draft",
+        },
+      },
+    });
+    expect(window.snapshot.items.at(-1)).toMatchObject({ kind: "assistant", state: "live" });
+
+    window.dispatch({ kind: "recovery-begin" });
+
+    expect(sequences(window)).toEqual([30]);
+    expect(window.snapshot.items).toHaveLength(1);
+    expect(window.snapshot.older).toEqual({ kind: "idle", cursor: 300 });
+    expect(window.snapshot.newer).toEqual({ kind: "idle", cursor: null });
+  });
+
+  it("discards provisional presentation while invalidating a pending directional page", () => {
+    const window = new TranscriptWindow();
+    open(window, page([row(30)], 300));
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "tool_start",
+        payload: {
+          StepID: "step",
+          ToolCallID: "tool",
+          ToolName: "shell",
+          Presentation: null,
+        },
+      },
+    });
+    const request = visit(window, "older");
+
+    window.dispatch({ kind: "recovery-begin" });
+
+    expect(sequences(window)).toEqual([30]);
+    expect(window.snapshot.items).toHaveLength(1);
+    expect(window.snapshot.older).toEqual({ kind: "idle", cursor: 300 });
+    expect(
+      window.dispatch({
+        kind: "page-success",
+        request,
+        page: page([row(20)], 200, 300),
+      }).kind,
+    ).toBe("obsolete");
   });
 
   it("installs an initial hydration tail and closes the outstanding opening permit", () => {

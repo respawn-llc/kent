@@ -252,6 +252,7 @@ func ResolveReadOnlyPromptFacingSnapshotPlan(app config.App, store *session.Stor
 type ReadOnlySessionContextSettings struct {
 	Settings              config.Settings
 	AutoCompactionEnabled bool
+	QuestionsEnabled      bool
 }
 
 // ResolveReadOnlySessionContextSettings projects current persisted Agent-role
@@ -264,6 +265,7 @@ func ResolveReadOnlySessionContextSettings(app config.App, meta session.Meta, sk
 	return ReadOnlySessionContextSettings{
 		Settings:              active,
 		AutoCompactionEnabled: chatSettings.AutoCompaction,
+		QuestionsEnabled:      chatSettings.Questions,
 	}, nil
 }
 

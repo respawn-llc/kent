@@ -1,7 +1,6 @@
 import { errorMessage } from "@/api";
-import type { AppServices } from "@/app-facade";
 
-type Logger = AppServices["logger"];
+import type { AppLogger } from "./logging";
 
 export type RecoverableFailureContext = Readonly<Record<string, string>>;
 
@@ -14,16 +13,19 @@ export async function recoverOrThrowDebugFailure({
 }: Readonly<{
   context: RecoverableFailureContext;
   error: unknown;
-  logger: Logger;
+  logger: AppLogger;
   message: string;
   recover: () => void;
 }>): Promise<void> {
   const diagnostic = { ...context, error: errorMessage(error) };
-  await logger.append("warn", message, diagnostic);
+  const logged = logger.append("warn", message, diagnostic);
   if (kentDebugModeEnabled()) {
-    throw new Error(`${message} ${JSON.stringify(diagnostic)}`);
+    return logged.then(() => {
+      throw new Error(`${message} ${JSON.stringify(diagnostic)}`);
+    });
   }
   recover();
+  return logged;
 }
 
 export function kentDebugModeEnabled(): boolean {

@@ -17,6 +17,14 @@ export type {
   NewChatSettingsCatalog,
 } from "./chatSettingsTypes";
 export { committedRowSchema as chatTranscriptCommittedRowSchema } from "./chatSchemas";
+export { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
+export {
+  goalFactFromMainView,
+  goalFactFromTranscript,
+  parseGoalEnvelope,
+  parseGoalMutationResult,
+  parseGoalObservation,
+} from "./chatGoal";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -29,9 +37,11 @@ export type {
   InitialChatSettings,
   ChatInputMutationResult,
   ChatMainView,
+  ChatMainViewRead,
   ChatMutationTarget,
   ChatNotAcceptedReason,
   ChatProjectTarget,
+  ChatRuntimeActivity,
   ChatRuntimeAttachment,
   ChatRuntimeRelease,
   ChatSessionTarget,
@@ -40,6 +50,14 @@ export type {
   ChatTranscriptCompletion,
   ChatTranscriptCommittedRow,
   ChatTranscriptHandler,
+  ChatGoalObservationHandler,
+  ChatGoal,
+  ChatGoalAvailability,
+  ChatGoalFact,
+  ChatGoalMutationResult,
+  ChatGoalObservation,
+  ChatGoalProjection,
+  ChatGoalStatus,
   ChatTranscriptKind,
   ChatTranscriptMessage,
   ChatTranscriptMessageByKind,

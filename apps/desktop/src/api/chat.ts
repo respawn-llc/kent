@@ -3,22 +3,23 @@ import { z } from "zod";
 import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
 import { createChatSettingsApi } from "./chatSettings";
-import { ContractError } from "./errors";
+import { ContractError, RpcError, TransportError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
 import { committedRowSchema, contextSchema, mainViewSchema, pageSchema } from "./chatSchemas";
-import type { executionTargetSchema, runtimeActivitySchema, runtimeStatusSchema } from "./chatSchemas";
+import type { runtimeStatusSchema } from "./chatSchemas";
 import { transcriptEventSchema } from "./chatTranscriptSchemas";
+import { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
+import {
+  goalFactFromMainView,
+  parseGoalEnvelope,
+  parseGoalMutationResult,
+  parseGoalObservation,
+} from "./chatGoal";
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireSessionAttachment } from "./jsonRpcSocket";
 import { SubscriptionErrorAlreadyReported } from "./jsonRpcSubscription";
 import { chatContextSessionID, isValidChatSessionID, requireChatSessionID } from "./chatTarget";
-import type {
-  ChatApi,
-  ChatMainView,
-  ChatRuntimeActivity,
-  ChatRuntimeStatus,
-  ChatTranscriptMessage,
-} from "./chatTypes";
+import type { ChatApi, ChatRuntimeStatus, ChatTranscriptMessage } from "./chatTypes";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -31,6 +32,7 @@ export type {
   InitialChatSettings,
   ChatInputMutationResult,
   ChatMainView,
+  ChatMainViewRead,
   ChatActivation,
   ChatMutationTarget,
   ChatNotAcceptedReason,
@@ -45,6 +47,7 @@ export type {
   ChatTranscriptCompletion,
   ChatTranscriptCommittedRow,
   ChatTranscriptHandler,
+  ChatGoalObservationHandler,
   ChatTranscriptKind,
   ChatTranscriptMessage,
   ChatTranscriptMessageByKind,
@@ -53,6 +56,15 @@ export type {
   ChatTranscriptPayloadByKind,
   ChatWorkspaceSelector,
 } from "./chatTypes";
+export type {
+  ChatGoal,
+  ChatGoalAvailability,
+  ChatGoalFact,
+  ChatGoalMutationResult,
+  ChatGoalObservation,
+  ChatGoalProjection,
+  ChatGoalStatus,
+} from "./chatGoal";
 import type { RpcEventHandler, DescriptorRpcTransport } from "./transport";
 class RecoverableTranscriptEventError extends Error {
   constructor(readonly contractError: ContractError) {
@@ -76,17 +88,6 @@ function transcriptMessageFromTarget(input: ChatTranscriptMessage, sessionID: st
   }
   return input;
 }
-function executionTarget(input: z.output<typeof executionTargetSchema>): ChatMainView["executionTarget"] {
-  return {
-    workspaceID: input.WorkspaceID,
-    workspaceName: input.WorkspaceName,
-    workspaceRoot: input.WorkspaceRoot,
-    workspaceAvailability: input.WorkspaceAvailability,
-    worktree: input.Worktree,
-    cwdRelpath: input.CwdRelpath,
-    effectiveWorkdir: input.EffectiveWorkdir,
-  };
-}
 function runtimeStatus(input: z.output<typeof runtimeStatusSchema>): ChatRuntimeStatus {
   return {
     reviewerFrequency: input.ReviewerFrequency,
@@ -109,41 +110,32 @@ function runtimeStatus(input: z.output<typeof runtimeStatusSchema>): ChatRuntime
       hasCacheHitPercentage: input.ContextUsage.HasCacheHitPercentage,
     },
     compactionCount: input.CompactionCount,
-    goal:
-      input.Goal === null
-        ? null
-        : {
-            id: input.Goal.id,
-            objective: input.Goal.objective,
-            status: input.Goal.status,
-            created_at: input.Goal.created_at,
-            updated_at: input.Goal.updated_at,
-            availability: input.Goal.Availability,
-            suspended: input.Goal.Suspended,
-          },
     workflowSession:
       input.WorkflowSession === null
         ? null
         : { taskID: input.WorkflowSession.TaskID, workflowID: input.WorkflowSession.WorkflowID },
   };
 }
-function runtimeActivity(input: z.output<typeof runtimeActivitySchema>): ChatRuntimeActivity {
-  return {
-    state: input.State,
-    activeStep:
-      input.ActiveStep === null
-        ? null
-        : {
-            runID: input.ActiveStep.RunID,
-            stepID: input.ActiveStep.StepID,
-            activeKind: input.ActiveStep.ActiveKind,
-          },
-    reviewer: input.Reviewer,
-    queueAccepting: input.QueueAccepting,
-    diagnosticRecovery: input.DiagnosticRecovery,
-  };
-}
 export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
+  const callGoalMutation = async (
+    target: Parameters<ChatApi["setGoal"]>[0],
+    method:
+      | "runtime.goal.set"
+      | "runtime.goal.pause"
+      | "runtime.goal.resume"
+      | "runtime.goal.complete"
+      | "runtime.goal.clear",
+    request: Readonly<{ session_id: string; actor: "user"; objective?: string }>,
+  ) => {
+    const call = await transport.callAttachedProject({
+      projectID: target.projectID,
+      selector: target.workspace,
+      method,
+      request: { kind: "value", value: request },
+    });
+    requireProjectAttachment(call.attachment, target);
+    return parseGoalMutationResult(call.result);
+  };
   return {
     ...createChatMutationApi(transport),
     ...createChatSettingsApi(transport),
@@ -159,7 +151,7 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
       const response = parseRpcResponse("session.getMainView", mainViewSchema, call.result);
       if (response.MainView.Session.SessionID !== requestedSessionID)
         throw new ContractError("Session Main View does not match the requested Session.");
-      return {
+      const converted = {
         version: {
           epoch: response.MainView.Version.Epoch,
           generation: response.MainView.Version.Generation,
@@ -169,9 +161,56 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
         sessionID: response.MainView.Session.SessionID,
         sessionName:
           response.MainView.Session.SessionName === "" ? null : response.MainView.Session.SessionName,
-        executionTarget: executionTarget(response.MainView.Session.ExecutionTarget),
-        activity: runtimeActivity(response.MainView.Activity),
+        executionTarget: chatExecutionTarget(response.MainView.Session.ExecutionTarget),
+        activity: chatRuntimeActivity(response.MainView.Activity),
       };
+      return {
+        mainView: converted,
+        goal: goalFactFromMainView(response.MainView.Status.Goal),
+      };
+    },
+    async getGoal(target) {
+      const requestedSessionID = requireChatSessionID(target);
+      const call = await transport.callAttachedProject({
+        projectID: target.projectID,
+        selector: target.workspace,
+        method: "runtime.goal.show",
+        request: { kind: "value", value: { session_id: requestedSessionID } },
+      });
+      requireProjectAttachment(call.attachment, target);
+      return parseGoalEnvelope(call.result);
+    },
+    async setGoal(target, objective) {
+      const requestedSessionID = requireChatSessionID(target);
+      return callGoalMutation(target, "runtime.goal.set", {
+        session_id: requestedSessionID,
+        objective,
+        actor: "user",
+      });
+    },
+    async pauseGoal(target) {
+      return callGoalMutation(target, "runtime.goal.pause", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
+    },
+    async resumeGoal(target) {
+      return callGoalMutation(target, "runtime.goal.resume", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
+    },
+    async completeGoal(target) {
+      return callGoalMutation(target, "runtime.goal.complete", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
+    },
+    async clearGoal(target) {
+      return callGoalMutation(target, "runtime.goal.clear", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
     },
     async getContext(target) {
       const requestedSessionID = chatContextSessionID(target);
@@ -312,13 +351,45 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
             reason: reason === "subscriber_overflow" || reason === "contract_violation" ? reason : null,
           });
         },
-        onError: handler.onError,
+        onError(error) {
+          if (error instanceof ContractError || error instanceof RpcError) {
+            handler.onError(error);
+          } else if (error instanceof TransportError) {
+            handler.onTransportLoss?.();
+          }
+        },
       };
       return transport.subscribeChatSession({
         projectID: target.projectID,
         sessionID: requestedSessionID,
         method: "session.subscribeTranscript",
         params: { SessionID: requestedSessionID },
+        handler: rpcHandler,
+        establishmentTimeoutMs: null,
+      });
+    },
+    subscribeGoal(target, handler) {
+      const requestedSessionID = requireChatSessionID(target);
+      const rpcHandler: RpcEventHandler = {
+        ...(handler.onOpen === undefined ? {} : { onOpen: handler.onOpen }),
+        onEvent(method, params) {
+          if (method !== "goal.observation")
+            throw new ContractError("Goal observation received an unexpected event.");
+          handler.onEvent(parseGoalObservation(params));
+        },
+        onComplete(code, message) {
+          handler.onComplete(code, message);
+        },
+        onError(error) {
+          if (error instanceof ContractError || error instanceof RpcError || error instanceof TransportError)
+            handler.onError(error);
+        },
+      };
+      return transport.subscribeChatSession({
+        projectID: target.projectID,
+        sessionID: requestedSessionID,
+        method: "goal.observe",
+        params: { session_id: requestedSessionID },
         handler: rpcHandler,
       });
     },

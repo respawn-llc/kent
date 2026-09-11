@@ -1492,15 +1492,18 @@ func TestServiceGoalMutationsSetShowComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if setResp.Goal == nil || setResp.Goal.Objective != "ship goal mode" || setResp.Goal.Status != "active" {
-		t.Fatalf("set goal response = %+v", setResp.Goal)
+	if setResp.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
+		setResp.Result.Goal == nil ||
+		setResp.Result.Goal.Objective != "ship goal mode" ||
+		setResp.Result.Goal.Status != "active" {
+		t.Fatalf("set goal response = %+v", setResp.Result)
 	}
 	showResp, err := service.ShowGoal(context.Background(), serverapi.RuntimeGoalShowRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("ShowGoal: %v", err)
 	}
-	if showResp.Goal == nil || showResp.Goal.ID != setResp.Goal.ID {
-		t.Fatalf("show goal response = %+v, want id %q", showResp.Goal, setResp.Goal.ID)
+	if showResp.Goal == nil || showResp.Goal.ID != setResp.Result.Goal.ID {
+		t.Fatalf("show goal response = %+v, want id %q", showResp.Goal, setResp.Result.Goal.ID)
 	}
 	completeResp, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{
 		SessionID: store.Meta().SessionID,
@@ -1509,8 +1512,99 @@ func TestServiceGoalMutationsSetShowComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompleteGoal: %v", err)
 	}
-	if completeResp.Goal == nil || completeResp.Goal.Status != "complete" {
-		t.Fatalf("complete goal response = %+v", completeResp.Goal)
+	if completeResp.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
+		completeResp.Result.Goal == nil ||
+		completeResp.Result.Goal.Status != "complete" {
+		t.Fatalf("complete goal response = %+v", completeResp.Result)
+	}
+}
+
+func TestGoalResponseFromRuntimeResultUsesAuthoritativeProducerMatrix(t *testing.T) {
+	availability := session.GoalAvailable
+	goal := session.GoalState{
+		ID:        "goal-1",
+		Objective: "ship",
+		Status:    session.GoalStatusActive,
+		CreatedAt: time.Unix(1, 0).UTC(),
+		UpdatedAt: time.Unix(1, 0).UTC(),
+	}
+	tests := []struct {
+		name     string
+		result   runtime.GoalCommandResult
+		mutation goalMutation
+		want     clientui.GoalMutationResultKind
+	}{
+		{
+			name:     "applied Set",
+			result:   runtime.GoalCommandResult{GoalState: goal, Disposition: runtime.GoalCommandApplied, Availability: &availability},
+			mutation: goalMutation{kind: goalMutationSet},
+			want:     clientui.GoalMutationResultAuthoritativeGoal,
+		},
+		{
+			name:     "no-op Resume",
+			result:   runtime.GoalCommandResult{GoalState: goal, Disposition: runtime.GoalCommandNoop, Availability: &availability},
+			mutation: goalMutation{kind: goalMutationStatus, Status: session.GoalStatusActive},
+			want:     clientui.GoalMutationResultAuthoritativeGoal,
+		},
+		{
+			name:     "applied Clear",
+			result:   runtime.GoalCommandResult{Disposition: runtime.GoalCommandApplied, Cleared: true},
+			mutation: goalMutation{kind: goalMutationClear},
+			want:     clientui.GoalMutationResultAuthoritativeClear,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil)
+			if err != nil {
+				t.Fatalf("goalResponseFromRuntimeResult: %v", err)
+			}
+			if response.Result.Kind != test.want {
+				t.Fatalf("result kind = %q, want %q", response.Result.Kind, test.want)
+			}
+		})
+	}
+}
+
+func TestGoalResponseFromRuntimeResultRejectsImpossibleProducerCombinations(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   runtime.GoalCommandResult
+		mutation goalMutation
+	}{
+		{
+			name:     "cleared Set",
+			result:   runtime.GoalCommandResult{Disposition: runtime.GoalCommandApplied, Cleared: true},
+			mutation: goalMutation{kind: goalMutationSet},
+		},
+		{
+			name: "goal-bearing Clear",
+			result: runtime.GoalCommandResult{
+				GoalState:   session.GoalState{Objective: "ship", Status: session.GoalStatusActive},
+				Disposition: runtime.GoalCommandApplied,
+			},
+			mutation: goalMutation{kind: goalMutationClear},
+		},
+		{
+			name: "wrong authoritative status",
+			result: runtime.GoalCommandResult{
+				GoalState:   session.GoalState{Objective: "ship", Status: session.GoalStatusPaused},
+				Disposition: runtime.GoalCommandApplied,
+			},
+			mutation: goalMutation{kind: goalMutationStatus, Status: session.GoalStatusComplete},
+		},
+		{
+			name:     "missing disposition",
+			result:   runtime.GoalCommandResult{},
+			mutation: goalMutation{kind: goalMutationClear},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil); err == nil {
+				t.Fatal("goalResponseFromRuntimeResult accepted an impossible producer result")
+			}
+		})
 	}
 }
 
@@ -1623,7 +1717,7 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 	}
 
 	type goalResult struct {
-		response serverapi.RuntimeGoalShowResponse
+		response serverapi.RuntimeGoalMutationResponse
 		err      error
 	}
 	before := runtimeControlGoalDeveloperMessages(t, store)
@@ -1636,7 +1730,7 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 		})
 		goalDone <- goalResult{response: response, err: goalErr}
 	}()
-	var accepted serverapi.RuntimeGoalShowResponse
+	var accepted serverapi.RuntimeGoalMutationResponse
 	select {
 	case result := <-goalDone:
 		if result.err != nil {
@@ -1649,15 +1743,18 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 	if err := accepted.Validate(); err != nil {
 		t.Fatalf("SetGoal returned invalid persisted goal: %v", err)
 	}
-	if accepted.Goal == nil || accepted.Goal.Objective != "accepted pending goal" || accepted.Goal.Status != clientui.RuntimeGoalStatusActive {
-		t.Fatalf("SetGoal accepted response = %+v, want active pending goal", accepted.Goal)
+	if accepted.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
+		accepted.Result.Goal == nil ||
+		accepted.Result.Goal.Objective != "accepted pending goal" ||
+		accepted.Result.Goal.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("SetGoal accepted response = %+v, want active pending goal", accepted.Result)
 	}
 	beforeDrain, err := service.ShowGoal(context.Background(), serverapi.RuntimeGoalShowRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("ShowGoal before drain: %v", err)
 	}
-	if beforeDrain.Goal == nil || *beforeDrain.Goal != *accepted.Goal {
-		t.Fatalf("ShowGoal before drain = %+v, want committed goal %+v", beforeDrain.Goal, accepted.Goal)
+	if beforeDrain.Goal == nil || *beforeDrain.Goal != *accepted.Result.Goal {
+		t.Fatalf("ShowGoal before drain = %+v, want committed goal %+v", beforeDrain.Goal, accepted.Result.Goal)
 	}
 	if after := runtimeControlGoalDeveloperMessages(t, store); len(after) != len(before) {
 		t.Fatalf("Goal reminders before boundary = %d, want %d", len(after), len(before))
@@ -1676,8 +1773,10 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ShowGoal after drain: %v", err)
 	}
-	if afterDrain.Goal == nil || afterDrain.Goal.Objective != accepted.Goal.Objective || afterDrain.Goal.Status != accepted.Goal.Status {
-		t.Fatalf("ShowGoal after drain = %+v, want committed accepted goal %+v", afterDrain.Goal, accepted.Goal)
+	if afterDrain.Goal == nil ||
+		afterDrain.Goal.Objective != accepted.Result.Goal.Objective ||
+		afterDrain.Goal.Status != accepted.Result.Goal.Status {
+		t.Fatalf("ShowGoal after drain = %+v, want committed accepted goal %+v", afterDrain.Goal, accepted.Result.Goal)
 	}
 	if err := engine.Interrupt(); err != nil {
 		t.Fatalf("Interrupt Goal loop: %v", err)
@@ -1712,7 +1811,7 @@ func TestServiceGoalStatusAndClearPersistBeforeReminderBoundary(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			defer cancel()
 			request := serverapi.RuntimeGoalStatusRequest{SessionID: store.Meta().SessionID, Actor: "user"}
-			var response serverapi.RuntimeGoalShowResponse
+			var response serverapi.RuntimeGoalMutationResponse
 			var err error
 			var want clientui.RuntimeGoalStatus
 			switch operation {
@@ -1739,11 +1838,17 @@ func TestServiceGoalStatusAndClearPersistBeforeReminderBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			if operation == "clear" {
-				if response.Goal != nil || shown.Goal != nil {
-					t.Fatalf("clear response = %+v, persisted = %+v", response.Goal, shown.Goal)
+				if response.Result.Kind != clientui.GoalMutationResultAuthoritativeClear ||
+					response.Result.Goal != nil ||
+					shown.Goal != nil {
+					t.Fatalf("clear response = %+v, persisted = %+v", response.Result, shown.Goal)
 				}
-			} else if response.Goal == nil || shown.Goal == nil || response.Goal.Status != want || *shown.Goal != *response.Goal {
-				t.Fatalf("response = %+v, persisted = %+v, want status %s", response.Goal, shown.Goal, want)
+			} else if response.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
+				response.Result.Goal == nil ||
+				shown.Goal == nil ||
+				response.Result.Goal.Status != want ||
+				*shown.Goal != *response.Result.Goal {
+				t.Fatalf("response = %+v, persisted = %+v, want status %s", response.Result, shown.Goal, want)
 			}
 			if after := runtimeControlGoalDeveloperMessages(t, store); len(after) != len(before) {
 				t.Fatal("Goal mutation emitted a reminder before the Step boundary")
@@ -1803,8 +1908,8 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Goal == nil || shown.Goal == nil || *response.Goal != *shown.Goal {
-		t.Fatalf("set response = %+v, persisted = %+v", response.Goal, shown.Goal)
+	if response.Result.Goal == nil || shown.Goal == nil || *response.Result.Goal != *shown.Goal {
+		t.Fatalf("set response = %+v, persisted = %+v", response.Result, shown.Goal)
 	}
 	complete, err := service.CompleteGoal(t.Context(), serverapi.RuntimeGoalStatusRequest{
 		SessionID: request.SessionID, Actor: request.Actor, RunID: request.RunID, StepID: request.StepID,
@@ -1815,8 +1920,10 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 	if err := complete.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if complete.Goal == nil || complete.Goal.ID != response.Goal.ID || complete.Goal.Status != clientui.RuntimeGoalStatusComplete {
-		t.Fatalf("same-step complete = %+v", complete.Goal)
+	if complete.Result.Goal == nil ||
+		complete.Result.Goal.ID != response.Result.Goal.ID ||
+		complete.Result.Goal.Status != clientui.RuntimeGoalStatusComplete {
+		t.Fatalf("same-step complete = %+v", complete.Result)
 	}
 	replacement, err := service.SetGoal(t.Context(), request)
 	if err != nil {
@@ -1825,8 +1932,8 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 	if err := replacement.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if replacement.Goal == nil || replacement.Goal.ID == response.Goal.ID {
-		t.Fatalf("replacement goal = %+v, prior = %+v", replacement.Goal, response.Goal)
+	if replacement.Result.Goal == nil || replacement.Result.Goal.ID == response.Result.Goal.ID {
+		t.Fatalf("replacement goal = %+v, prior = %+v", replacement.Result, response.Result)
 	}
 	for _, stale := range []serverapi.RuntimeGoalStatusRequest{
 		{SessionID: request.SessionID, Actor: request.Actor, RunID: "ef3970ae-98f5-4939-bd4b-549151b4af63", StepID: request.StepID},
@@ -1840,7 +1947,7 @@ func TestServiceExactAgentGoalPersistsAndTransitionsWithinSameStep(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if shown.Goal == nil || *shown.Goal != *replacement.Goal {
+	if shown.Goal == nil || *shown.Goal != *replacement.Result.Goal {
 		t.Fatalf("stale request changed persisted goal: %+v", shown.Goal)
 	}
 	if messages := runtimeControlGoalDeveloperMessages(t, store); len(messages) != 0 {
@@ -2046,8 +2153,8 @@ func TestServiceWorkflowRuntimeAllowsGoalControl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGoal in workflow run = %v, want allowed", err)
 	}
-	if resp.Goal == nil || resp.Goal.Status != clientui.RuntimeGoalStatusActive {
-		t.Fatalf("goal response = %+v, want active goal", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("goal response = %+v, want active goal", resp.Result)
 	}
 	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
 		t.Fatalf("engine goal = %+v, want active", goal)
@@ -2090,8 +2197,8 @@ func TestServiceWorkflowSessionGoalMutationAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGoal in workflow runtime = %v, want allowed", err)
 	}
-	if resp.Goal == nil || resp.Goal.Status != clientui.RuntimeGoalStatusActive {
-		t.Fatalf("goal response = %+v, want active goal", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("goal response = %+v, want active goal", resp.Result)
 	}
 }
 
@@ -2169,8 +2276,8 @@ func TestServiceSetGoalAllowsAgentWithoutExistingGoal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGoal agent: %v", err)
 	}
-	if resp.Goal == nil || resp.Goal.Objective != "agent self-goal" || resp.Goal.Status != "active" {
-		t.Fatalf("agent set response = %+v", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.Objective != "agent self-goal" || resp.Result.Goal.Status != "active" {
+		t.Fatalf("agent set response = %+v", resp.Result)
 	}
 }
 
@@ -2236,14 +2343,14 @@ func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGoal after complete: %v", err)
 	}
-	if resp.Goal == nil || resp.Goal.Objective != "next goal" || resp.Goal.Status != "active" {
-		t.Fatalf("set goal response = %+v", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.Objective != "next goal" || resp.Result.Goal.Status != "active" {
+		t.Fatalf("set goal response = %+v", resp.Result)
 	}
-	if resp.Goal.ID == completed.ID {
+	if resp.Result.Goal.ID == completed.ID {
 		t.Fatalf("next goal reused completed goal id %q", completed.ID)
 	}
-	if goal := store.Meta().Goal; goal == nil || goal.ID != resp.Goal.ID || goal.Objective != "next goal" || goal.Status != session.GoalStatusActive {
-		t.Fatalf("persisted replacement goal = %+v, want response goal %+v", goal, resp.Goal)
+	if goal := store.Meta().Goal; goal == nil || goal.ID != resp.Result.Goal.ID || goal.Objective != "next goal" || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted replacement goal = %+v, want response goal %+v", goal, resp.Result.Goal)
 	}
 }
 
@@ -2333,8 +2440,8 @@ func TestServiceCompleteGoalAlreadyCompleteDoesNotDuplicateAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompleteGoal second: %v", err)
 	}
-	if before.Goal == nil || after.Goal == nil || *before.Goal != *after.Goal {
-		t.Fatalf("duplicate complete changed goal: before %+v, after %+v", before.Goal, after.Goal)
+	if before.Goal == nil || after.Result.Goal == nil || *before.Goal != *after.Result.Goal {
+		t.Fatalf("duplicate complete changed goal: before %+v, after %+v", before.Goal, after.Result)
 	}
 	client.releaseFirst()
 	waitForRuntimeControlIdle(t, engine)
@@ -2362,7 +2469,7 @@ func TestServiceResumeActiveRunningGoalIsNoOp(t *testing.T) {
 	}
 	before := runtimeControlGoalDeveloperMessages(t, store)
 	type resumeResult struct {
-		response serverapi.RuntimeGoalShowResponse
+		response serverapi.RuntimeGoalMutationResponse
 		err      error
 	}
 	resumeDone := make(chan resumeResult, 1)
@@ -2383,8 +2490,8 @@ func TestServiceResumeActiveRunningGoalIsNoOp(t *testing.T) {
 		t.Fatalf("ResumeGoal: %v", result.err)
 	}
 	resp := result.response
-	if resp.Goal == nil || resp.Goal.ID != goal.ID || resp.Goal.Status != clientui.RuntimeGoalStatusActive {
-		t.Fatalf("resume active response = %+v, want existing active goal", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.ID != goal.ID || resp.Result.Goal.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("resume active response = %+v, want existing active goal", resp.Result)
 	}
 	if err := resp.Validate(); err != nil {
 		t.Fatalf("ResumeGoal response: %v", err)
@@ -2426,8 +2533,8 @@ func TestServiceResumeOwnerlessActiveGoalRestartsLoopWithReminder(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ResumeGoal: %v", err)
 	}
-	if resp.Goal == nil || resp.Goal.ID != goal.ID || resp.Goal.Status != clientui.RuntimeGoalStatusActive {
-		t.Fatalf("resume ownerless active response = %+v, want existing active goal", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.ID != goal.ID || resp.Result.Goal.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("resume ownerless active response = %+v, want existing active goal", resp.Result)
 	}
 	select {
 	case <-client.started:
@@ -2470,7 +2577,7 @@ func TestServiceResumeGoalDuringInterruptSchedulesRestartWithReminder(t *testing
 	}
 
 	type resumeResult struct {
-		response serverapi.RuntimeGoalShowResponse
+		response serverapi.RuntimeGoalMutationResponse
 		err      error
 	}
 	resumeDone := make(chan resumeResult, 1)
@@ -2491,8 +2598,8 @@ func TestServiceResumeGoalDuringInterruptSchedulesRestartWithReminder(t *testing
 		t.Fatalf("ResumeGoal: %v", result.err)
 	}
 	resp := result.response
-	if resp.Goal == nil || resp.Goal.ID != goal.ID || resp.Goal.Status != clientui.RuntimeGoalStatusActive {
-		t.Fatalf("resume suspending active response = %+v, want existing active goal", resp.Goal)
+	if resp.Result.Goal == nil || resp.Result.Goal.ID != goal.ID || resp.Result.Goal.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("resume suspending active response = %+v, want existing active goal", resp.Result)
 	}
 	if err := resp.Validate(); err != nil {
 		t.Fatalf("ResumeGoal response: %v", err)

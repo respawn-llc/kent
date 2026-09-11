@@ -90,6 +90,7 @@ export const queryKeys = {
   allComments: ["comments"],
   allPendingAsks: ["pending-asks"],
   allProcesses: ["processes"],
+  chatMainView: (sessionID: string) => ["chat", sessionID, "main-view"] as const,
   boardWorkflowRoot: (projectID: string, workflowID: string | undefined) => ["board", projectID, workflowID],
   projectBoardsRoot: (projectID: string) => ["board", projectID],
   board: (projectID: string, workflowID: string | undefined, filter: BoardFilterInput) => [

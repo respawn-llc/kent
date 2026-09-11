@@ -1,0 +1,302 @@
+import type {
+  ChatGoalFact,
+  ChatMainView,
+  ChatMainViewRead,
+  ChatRuntimeActivity,
+  ChatTranscriptMessage,
+  ChatTranscriptPayloadByKind,
+} from "@/api";
+import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript } from "@/api";
+
+export type ChatAuthorityTuple = ChatMainView["version"];
+export type ChatProjectionHostEffect =
+  | Readonly<{
+      kind: "human-input-interrupted";
+      items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"];
+    }>
+  | Readonly<{
+      kind: "worktree-transition-outcome";
+      outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"];
+    }>;
+type PendingMetadata = Readonly<{
+  sessionIdentity?: ChatTranscriptPayloadByKind["session_identity"];
+  sessionStatus?: ChatTranscriptPayloadByKind["session_status"];
+  contextUsage?: ChatTranscriptPayloadByKind["context_usage"] | null;
+  runtime?: Readonly<{ version: ChatAuthorityTuple; activity: ChatRuntimeActivity }>;
+}>;
+export type ChatProjectionState = Readonly<{
+  view: ChatMainView | null;
+  metadataRevision: number;
+  pendingMetadata: PendingMetadata | null;
+}>;
+export type ChatProjectionInput =
+  | Readonly<{
+      kind: "authoritative-read";
+      read: ChatMainViewRead;
+      metadataRevisionAtStart: number;
+      goalGenerationAtStart: number;
+      currentGoalGeneration: number;
+    }>
+  | Readonly<{ kind: "hydration"; hydration: ChatTranscriptPayloadByKind["hydration"] }>
+  | Readonly<{ kind: "event"; event: ChatTranscriptMessage }>;
+export type ChatProjectionResult = Readonly<{
+  state: ChatProjectionState;
+  goalFact: ChatGoalFact | null;
+  effects: readonly ChatProjectionHostEffect[];
+}>;
+
+export function emptyChatProjectionState(): ChatProjectionState {
+  return { view: null, metadataRevision: 0, pendingMetadata: null };
+}
+
+export function reduceChatProjection(
+  state: ChatProjectionState,
+  input: ChatProjectionInput,
+): ChatProjectionResult {
+  switch (input.kind) {
+    case "authoritative-read":
+      return admitRead(state, input);
+    case "hydration":
+      return admitHydration(state, input.hydration);
+    case "event":
+      return admitEvent(state, input.event);
+  }
+}
+
+function admitRead(
+  state: ChatProjectionState,
+  input: Extract<ChatProjectionInput, { kind: "authoritative-read" }>,
+): ChatProjectionResult {
+  const current = state.view;
+  const activity = admitAuthorityActivity(current, input.read.mainView);
+  const metadataCurrent = state.metadataRevision === input.metadataRevisionAtStart;
+  let view =
+    current === null
+      ? input.read.mainView
+      : metadataCurrent
+        ? { ...input.read.mainView, version: activity.version, activity: activity.activity }
+        : { ...current, version: activity.version, activity: activity.activity };
+  if (state.pendingMetadata !== null) view = applyPendingMetadata(view, state.pendingMetadata);
+  return {
+    state: { ...state, view, pendingMetadata: null },
+    goalFact: input.goalGenerationAtStart === input.currentGoalGeneration ? input.read.goal : null,
+    effects: [],
+  };
+}
+
+function admitHydration(
+  state: ChatProjectionState,
+  hydration: ChatTranscriptPayloadByKind["hydration"],
+): ChatProjectionResult {
+  const metadata: PendingMetadata = {
+    sessionIdentity: hydration.SessionIdentity,
+    sessionStatus: hydration.SessionStatus,
+    contextUsage: hydration.ContextUsage,
+    runtime: {
+      version: runtimeVersion(hydration.RuntimeReadModelUpdate.Version),
+      activity: chatRuntimeActivity(hydration.RuntimeReadModelUpdate.Activity),
+    },
+  };
+  return {
+    state: admitMetadata(state, metadata),
+    goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
+    effects: [],
+  };
+}
+
+function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): ChatProjectionResult {
+  if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
+  if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
+  if (event.kind === "session_status") return metadataResult(state, { sessionStatus: event.payload });
+  if (event.kind === "context_usage") return metadataResult(state, { contextUsage: event.payload });
+  if (event.kind === "goal_status") return result(state, { goalFact: goalFactFromTranscript(event.payload) });
+  if (event.kind === "human_input_interrupted") {
+    return result(state, {
+      effects: [{ kind: "human-input-interrupted", items: event.payload.Items }],
+    });
+  }
+  if (event.kind === "worktree_transition_outcome") {
+    return result(state, {
+      effects: [{ kind: "worktree-transition-outcome", outcome: event.payload }],
+    });
+  }
+  return result(state);
+}
+
+function admitIncrementalRuntime(
+  state: ChatProjectionState,
+  update: ChatTranscriptPayloadByKind["runtime_read_model_update"],
+): ChatProjectionResult {
+  const incoming = runtimeVersion(update.Version);
+  const current = state.view?.version ?? state.pendingMetadata?.runtime?.version ?? null;
+  if (current === null) {
+    return result(
+      admitRuntime(state, {
+        runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
+      }),
+    );
+  }
+  const comparison = compareAuthorityTuple(current, incoming);
+  if (comparison === "newer-sequence" || comparison === "forward-authority") {
+    return result(
+      admitRuntime(state, {
+        runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
+      }),
+    );
+  }
+  return result(state);
+}
+
+function admitRuntime(state: ChatProjectionState, runtime: PendingMetadata): ChatProjectionState {
+  if (state.view === null) {
+    return {
+      ...state,
+      pendingMetadata: mergeMetadata(state.pendingMetadata, runtime),
+    };
+  }
+  return {
+    ...state,
+    view: applyPendingMetadata(state.view, runtime),
+  };
+}
+
+function metadataResult(state: ChatProjectionState, metadata: PendingMetadata): ChatProjectionResult {
+  return result(admitMetadata(state, metadata));
+}
+
+function admitMetadata(state: ChatProjectionState, metadata: PendingMetadata): ChatProjectionState {
+  if (state.view === null) {
+    return {
+      view: null,
+      metadataRevision: state.metadataRevision + 1,
+      pendingMetadata: mergeMetadata(state.pendingMetadata, metadata),
+    };
+  }
+  return {
+    view: applyPendingMetadata(state.view, metadata),
+    metadataRevision: state.metadataRevision + 1,
+    pendingMetadata: null,
+  };
+}
+
+function mergeMetadata(previous: PendingMetadata | null, next: PendingMetadata): PendingMetadata {
+  return { ...(previous ?? {}), ...next };
+}
+
+function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): ChatMainView {
+  let next = view;
+  if (metadata.sessionIdentity !== undefined) {
+    const identity = metadata.sessionIdentity;
+    next = {
+      ...next,
+      sessionID: identity.SessionID,
+      sessionName: identity.SessionName,
+      executionTarget:
+        identity.ExecutionTarget === null
+          ? next.executionTarget
+          : chatExecutionTarget(identity.ExecutionTarget),
+      status: {
+        ...next.status,
+        conversationFreshness: identity.ConversationFreshness,
+      },
+    };
+  }
+  if (metadata.sessionStatus !== undefined) {
+    const status = metadata.sessionStatus;
+    next = {
+      ...next,
+      status: {
+        ...next.status,
+        reviewerFrequency: status.ReviewerFrequency,
+        reviewerEnabled: status.ReviewerEnabled,
+        autoCompactionEnabled: status.AutoCompactionEnabled,
+        questionsEnabled: status.QuestionsEnabled,
+        fastModeAvailable: status.FastModeAvailable,
+        fastModeEnabled: status.FastModeEnabled,
+        previousSessionID: status.PreviousSessionID ?? null,
+        parentAgentSessionID: status.ParentAgentSessionID ?? null,
+        navigationTargetSessionID: status.NavigationTargetSessionID ?? null,
+        thinkingLevel: status.ThinkingLevel,
+        compactionMode: status.CompactionMode,
+        compactionCount: status.CompactionCount,
+        workflowSession:
+          status.Workflow === null
+            ? null
+            : { taskID: status.Workflow.TaskID, workflowID: status.Workflow.WorkflowID },
+      },
+    };
+  }
+  if ("contextUsage" in metadata) {
+    const usage = metadata.contextUsage;
+    next = {
+      ...next,
+      status: {
+        ...next.status,
+        contextUsage:
+          usage === null
+            ? {
+                usedTokens: 0,
+                windowTokens: 0,
+                cacheHitPercent: 0,
+                hasCacheHitPercentage: false,
+              }
+            : {
+                usedTokens: usage.UsedTokens,
+                windowTokens: usage.WindowTokens,
+                cacheHitPercent: usage.CacheHitPercent ?? 0,
+                hasCacheHitPercentage: usage.CacheHitPercent !== null,
+              },
+      },
+    };
+  }
+  if (metadata.runtime !== undefined) {
+    const admitted = admitAuthorityActivity(next, {
+      ...next,
+      version: metadata.runtime.version,
+      activity: metadata.runtime.activity,
+    });
+    next = { ...next, version: admitted.version, activity: admitted.activity };
+  }
+  return next;
+}
+
+function admitAuthorityActivity(
+  current: ChatMainView | null,
+  incoming: ChatMainView,
+): Readonly<{ version: ChatAuthorityTuple; activity: ChatRuntimeActivity }> {
+  if (current === null) return incoming;
+  const comparison = compareAuthorityTuple(current.version, incoming.version);
+  if (comparison === "older" || comparison === "equal") {
+    return { version: current.version, activity: current.activity };
+  }
+  return { version: incoming.version, activity: incoming.activity };
+}
+
+export function compareAuthorityTuple(
+  current: ChatAuthorityTuple,
+  incoming: ChatAuthorityTuple,
+): "older" | "equal" | "newer-sequence" | "forward-authority" {
+  if (incoming.epoch !== current.epoch || incoming.generation > current.generation)
+    return "forward-authority";
+  if (incoming.generation < current.generation) return "older";
+  if (incoming.sequence < current.sequence) return "older";
+  if (incoming.sequence === current.sequence) return "equal";
+  return "newer-sequence";
+}
+
+function runtimeVersion(
+  input: ChatTranscriptPayloadByKind["runtime_read_model_update"]["Version"],
+): ChatAuthorityTuple {
+  return { epoch: input.Epoch, generation: input.Generation, sequence: input.Sequence };
+}
+
+function result(
+  state: ChatProjectionState,
+  partial: Partial<Omit<ChatProjectionResult, "state">> = {},
+): ChatProjectionResult {
+  return {
+    state,
+    goalFact: partial.goalFact ?? null,
+    effects: partial.effects ?? [],
+  };
+}

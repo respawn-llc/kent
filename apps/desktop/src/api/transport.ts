@@ -83,6 +83,7 @@ export type ChatSubscriptionInput = Readonly<{
   method: string;
   params: JsonValue;
   handler: RpcEventHandler;
+  establishmentTimeoutMs?: number | null;
 }>;
 
 export type RuntimeOwnerContext = Readonly<{

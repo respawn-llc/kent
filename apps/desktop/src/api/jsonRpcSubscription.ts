@@ -11,6 +11,7 @@ import {
 import type { RpcEventHandler } from "./transport";
 
 class TerminalSubscriptionError extends Error {}
+const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
 
 export class SubscriptionErrorAlreadyReported extends Error {
   constructor(readonly error: Error) {
@@ -26,9 +27,17 @@ export async function runJsonSubscription(
     params: JsonValue;
     handler: RpcEventHandler;
     signal: AbortSignal;
+    establishmentTimeoutMs?: number | null;
   }>,
 ): Promise<void> {
-  const { socket, method, params, handler, signal } = input;
+  const {
+    socket,
+    method,
+    params,
+    handler,
+    signal,
+    establishmentTimeoutMs = defaultSubscriptionEstablishmentTimeoutMs,
+  } = input;
   let terminal: Readonly<
     | { kind: "complete"; code: number; message: string; reason: string | null }
     | { kind: "error"; error: Error }
@@ -79,7 +88,10 @@ export async function runJsonSubscription(
   };
   try {
     socket.addEventListener("message", listener);
-    await sendSocketRequest(socket, method, params, { timeoutMilliseconds: 30_000 });
+    await sendSocketRequest(socket, method, params, {
+      timeoutMilliseconds: establishmentTimeoutMs,
+      signal,
+    });
     try {
       handler.onOpen?.();
     } catch (cause) {
@@ -89,6 +101,7 @@ export async function runJsonSubscription(
     throwTerminalResult(method, currentTerminal());
   } catch (error) {
     throwTerminalResult(method, currentTerminal());
+    if (signal.aborted) return;
     throw error;
   } finally {
     socket.removeEventListener("message", listener);

@@ -19,7 +19,7 @@ type goalRuntimeControlClient struct {
 	cause error
 }
 
-func (c *goalRuntimeControlClient) respond(ctx context.Context) (serverapi.RuntimeGoalShowResponse, error) {
+func (c *goalRuntimeControlClient) respond(ctx context.Context) error {
 	c.t.Helper()
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -28,31 +28,31 @@ func (c *goalRuntimeControlClient) respond(ctx context.Context) (serverapi.Runti
 	if remaining := time.Until(deadline); remaining < 14*time.Second || remaining > 15*time.Second {
 		c.t.Fatalf("goal request budget = %s, want fifteen seconds", remaining)
 	}
-	return serverapi.RuntimeGoalShowResponse{}, c.cause
+	return c.cause
 }
 
 func (c *goalRuntimeControlClient) ShowGoal(ctx context.Context, _ serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return c.respond(ctx)
+	return serverapi.RuntimeGoalShowResponse{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return c.respond(ctx)
+func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) PauseGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return c.respond(ctx)
+func (c *goalRuntimeControlClient) PauseGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) ResumeGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return c.respond(ctx)
+func (c *goalRuntimeControlClient) ResumeGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) CompleteGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return c.respond(ctx)
+func (c *goalRuntimeControlClient) CompleteGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) ClearGoal(ctx context.Context, _ serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return c.respond(ctx)
+func (c *goalRuntimeControlClient) ClearGoal(ctx context.Context, _ serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
 }
 
 func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {

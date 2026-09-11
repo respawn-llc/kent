@@ -97,6 +97,9 @@ const (
 	MethodRuntimeGoalResume                             = "runtime.goal.resume"
 	MethodRuntimeGoalComplete                           = "runtime.goal.complete"
 	MethodRuntimeGoalClear                              = "runtime.goal.clear"
+	MethodGoalObserve                                   = "goal.observe"
+	MethodGoalObservation                               = "goal.observation"
+	MethodGoalObservationComplete                       = "goal.observation.complete"
 	MethodProcessList                                   = "process.list"
 	MethodProcessGet                                    = "process.get"
 	MethodProcessKill                                   = "process.kill"
@@ -129,6 +132,10 @@ type SubscribeResponse struct {
 
 type SessionTranscriptEventParams struct {
 	Message clientui.TranscriptMessage `json:"message"`
+}
+
+type GoalObservationEventParams struct {
+	Observation clientui.GoalObservation `json:"observation"`
 }
 
 type SessionQuestionHistoryEventParams struct {

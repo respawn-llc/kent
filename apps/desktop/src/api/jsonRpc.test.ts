@@ -418,6 +418,27 @@ describe("JsonRpcWebSocketTransport", () => {
     subscription.close();
   });
 
+  it("stops subscription retry after a definitive RPC rejection", async () => {
+    const errors: Error[] = [];
+    const { subscription, socket } = subscribeProject({
+      onError(error) {
+        errors.push(error);
+      },
+    });
+    await socket.setup();
+    vi.useFakeTimers();
+
+    errorAck(socket, 1, { code: -32000, message: "Subscription rejected" });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(RpcError);
+    expect(sockets).toHaveLength(1);
+    expect(socket.sent).toHaveLength(2);
+    subscription.close();
+  });
+
   it("reopens subscription socket after server complete notification", async () => {
     const completions: number[] = [];
     const errors: Error[] = [];

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChatTranscriptPayloadByKind } from "@/api";
+import { hydration, idle, page, row, sequences, visit } from "@/test-support/transcript-window";
 
 import { TranscriptWindow } from "./index";
-import { hydration, idle, page, row, sequences, visit } from "./fixtures";
 const compacting = {
   ...idle,
   State: "running",

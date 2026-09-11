@@ -3,7 +3,9 @@ package sessionview
 import (
 	"context"
 	"errors"
+	"strings"
 
+	"core/server/goalview"
 	"core/server/runtime"
 	"core/server/runtimeview"
 	"core/server/session"
@@ -45,6 +47,13 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (client
 	}
 	if s.mainViews != nil {
 		if view, ok := s.mainViews.RuntimeMainViewSnapshot(sessionID); ok {
+			if s.targets != nil && strings.TrimSpace(view.Session.SessionID) != "" {
+				target, err := s.targets.ResolveSessionExecutionTarget(ctx, view.Session.SessionID)
+				if err != nil {
+					return clientui.RuntimeMainView{}, err
+				}
+				view.Session.ExecutionTarget = target
+			}
 			return resultWithContext(ctx, view)
 		}
 	}
@@ -52,15 +61,24 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (client
 	if err != nil {
 		return clientui.RuntimeMainView{}, err
 	}
+	projection, err := s.resolveDormantChatProjection(ctx, session.ContextSnapshot{
+		Meta:  view.Meta(),
+		Facts: view.ContextFacts(),
+	})
+	if err != nil {
+		return clientui.RuntimeMainView{}, err
+	}
 	return (dormantSessionSnapshot{
 		view:             view,
 		cacheWarningMode: s.cacheWarningMode,
+		projection:       projection,
 	}).MainView(ctx)
 }
 
 type dormantSessionSnapshot struct {
 	view             *session.PersistedSessionView
 	cacheWarningMode config.CacheWarningMode
+	projection       dormantChatProjection
 }
 
 func (s dormantSessionSnapshot) MainView(ctx context.Context) (clientui.RuntimeMainView, error) {
@@ -87,12 +105,26 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (clientui.RuntimeM
 		return clientui.RuntimeMainView{}, err
 	}
 	status := clientui.RuntimeStatus{
+		ReviewerFrequency:                 strings.TrimSpace(s.projection.settings.Reviewer.Frequency),
+		ReviewerEnabled:                   strings.TrimSpace(s.projection.settings.Reviewer.Frequency) != "off",
+		AutoCompactionEnabled:             s.projection.autoCompactionEnabled,
+		QuestionsEnabled:                  s.projection.questionsEnabled,
+		FastModeAvailable:                 s.projection.fastModeAvailable,
+		FastModeEnabled:                   s.projection.fastModeAvailable && s.projection.settings.PriorityRequestMode,
 		ConversationFreshness:             freshness,
 		PreviousSessionID:                 textutil.Pointer(meta.PreviousSessionID),
 		ParentAgentSessionID:              textutil.Pointer(meta.ParentAgentSessionID),
 		NavigationTargetSessionID:         session.NavigationTargetSessionID(meta),
 		LastCommittedAssistantFinalAnswer: segment.LastCommittedAssistantFinalAnswer,
-		Goal:                              runtimeview.GoalFromSessionState(meta.Goal, goalAvailability, false),
+		ThinkingLevel:                     strings.TrimSpace(s.projection.settings.ThinkingLevel),
+		CompactionMode:                    string(s.projection.settings.CompactionMode),
+		ContextUsage: clientui.RuntimeContextUsage{
+			UsedTokens:   int(s.projection.context.UsedTokens),
+			WindowTokens: int(s.projection.context.ContextWindowTokens),
+		},
+		CompactionCount: int(s.projection.context.CompletedCompactionCount),
+		Goal:            goalview.FromSessionState(meta.Goal, goalAvailability, false),
+		WorkflowSession: s.projection.workflow,
 	}
 	view := clientui.RuntimeMainView{
 		Version: version,
@@ -102,6 +134,7 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (clientui.RuntimeM
 			SessionName:           meta.Name,
 			AgentRole:             session.ContinuationAgentRole(meta),
 			ConversationFreshness: freshness,
+			ExecutionTarget:       s.projection.target,
 		},
 		Activity: clientui.RuntimeActivity{
 			State:    clientui.RuntimeActivityUnavailable,

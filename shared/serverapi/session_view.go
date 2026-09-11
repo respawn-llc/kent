@@ -25,13 +25,28 @@ func (r SessionMainViewResponse) Validate() error {
 	if goal == nil {
 		return nil
 	}
-	if goal.Availability == nil {
-		return errors.New("runtime Goal availability is required")
+	if goal.Availability != nil {
+		if err := goal.Availability.Validate(); err != nil {
+			return err
+		}
 	}
-	if err := goal.Availability.Validate(); err != nil || goal.Goal == nil {
+	if goal.Goal == nil {
+		if goal.Suspended {
+			return errors.New("runtime Goal suspension requires a Goal")
+		}
+		return nil
+	}
+	if err := goal.Goal.Validate(); err != nil {
 		return err
 	}
-	return goal.Goal.Validate()
+	switch goal.Goal.Status {
+	case clientui.RuntimeGoalStatusActive:
+	case clientui.RuntimeGoalStatusPaused, clientui.RuntimeGoalStatusComplete:
+		if goal.Suspended {
+			return errors.New("inactive runtime Goal cannot be suspended")
+		}
+	}
+	return nil
 }
 
 type SessionTranscriptPageRequest struct {

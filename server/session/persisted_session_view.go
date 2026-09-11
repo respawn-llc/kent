@@ -8,8 +8,9 @@ import (
 // PersistedSessionView is a bounded read-only projection captured from one
 // persisted metadata record and one independently bounded event-log projection.
 type PersistedSessionView struct {
-	meta     Meta
-	eventLog *currentEventLog
+	meta         Meta
+	contextFacts SessionContextFacts
+	eventLog     *currentEventLog
 }
 
 func ResolvePersistedSessionView(ctx context.Context, resolver PersistedSessionResolver, sessionID string) (*PersistedSessionView, error) {
@@ -22,7 +23,7 @@ func ResolvePersistedSessionView(ctx context.Context, resolver PersistedSessionR
 	if err != nil {
 		return nil, err
 	}
-	return &PersistedSessionView{meta: meta, eventLog: eventLog}, nil
+	return &PersistedSessionView{meta: meta, contextFacts: record.ContextFacts.Clone(), eventLog: eventLog}, nil
 }
 
 func (v *PersistedSessionView) Meta() Meta {
@@ -34,6 +35,13 @@ func (v *PersistedSessionView) ConversationFreshness() ConversationFreshness {
 		return ConversationFreshnessEstablished
 	}
 	return ConversationFreshnessFresh
+}
+
+func (v *PersistedSessionView) ContextFacts() SessionContextFacts {
+	if v == nil {
+		return SessionContextFacts{}
+	}
+	return v.contextFacts.Clone()
 }
 
 func (v *PersistedSessionView) ReadNewestSegmentBackward(match func(EventRecord) bool) (EventRecordWindow, error) {
