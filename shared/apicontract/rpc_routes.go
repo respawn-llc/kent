@@ -209,8 +209,6 @@ var routeContracts = []Route{
 	unary[serverapi.SessionTranscriptPageRequest, serverapi.SessionTranscriptPageResponse](protocol.MethodSessionGetTranscriptPage, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.SessionLatestCommittedAssistantFinalAnswerRequest, serverapi.SessionLatestCommittedAssistantFinalAnswerResponse](protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.SessionExecutionEnvironmentRequest, serverapi.SessionExecutionEnvironmentResponse](protocol.MethodSessionGetExecutionEnvironment, AuthPreServerAuth, ScopeSessionActiveProject, ConnectionControl),
-	unary[serverapi.SessionRuntimeActivateRequest, serverapi.SessionRuntimeActivateResponse](protocol.MethodSessionRuntimeActivate, AuthServer, ScopeSessionActiveProject, ConnectionControl),
-	unary[serverapi.SessionRuntimeReleaseRequest, serverapi.SessionRuntimeReleaseResponse](protocol.MethodSessionRuntimeRelease, AuthServer, ScopeNone, ConnectionControl),
 	unary[serverapi.RuntimeSetSessionNameRequest, struct{}](protocol.MethodRuntimeSetSessionName, AuthServer, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.RuntimeAppendCommittedEntryRequest, struct{}](protocol.MethodRuntimeAppendCommittedEntry, AuthServer, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.RuntimeShouldCompactBeforeUserMessageRequest, serverapi.RuntimeShouldCompactBeforeUserMessageResponse](protocol.MethodRuntimeShouldCompactBeforeUserMessage, AuthServer, ScopeSessionActiveProject, ConnectionControl),

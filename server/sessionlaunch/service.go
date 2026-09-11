@@ -2,6 +2,7 @@ package sessionlaunch
 
 import (
 	"context"
+	"core/server/sessionruntime"
 	"errors"
 	"fmt"
 	"strings"
@@ -654,20 +655,11 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		ThinkingOverrideExplicit: result.Plan.ThinkingOverrideExplicit,
 		Source:                   source,
 	}
-	if result.Plan.ActivationAgentSelection != nil {
-		selection := result.Plan.ActivationAgentSelection
-		settings := selection.Settings
-		plan.ActivationAgentSelection = &sessionlaunchpb.SessionRuntimeAgentSelection{
-			Agent: selection.Agent,
-			Baseline: &sessionlaunchpb.SessionRuntimeChatSettings{
-				Supervisor:     *settings.Supervisor,
-				Thinking:       *settings.Thinking,
-				Fast:           *settings.Fast,
-				Questions:      *settings.Questions,
-				AutoCompaction: *settings.AutoCompaction,
-			},
-		}
+	selection, err := sessionruntime.AgentSelectionFromState(result.Plan.ActivationAgentSelection)
+	if err != nil {
+		return nil, err
 	}
+	plan.ActivationAgentSelection = protoapi.SessionRuntimeAgentSelectionToProto(selection)
 	if result.Plan.ConfiguredModelName != "" {
 		plan.ConfiguredModelName = &result.Plan.ConfiguredModelName
 	}

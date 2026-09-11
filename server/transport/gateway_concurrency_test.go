@@ -19,6 +19,8 @@ import (
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/apicontract"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 
@@ -271,7 +273,7 @@ type gatewayCloseRelease struct {
 	active  int32
 }
 
-func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 	s.tracker.active.Add(1)
 	s.tracker.entered <- struct{}{}
 	defer func() {
@@ -281,14 +283,13 @@ func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context,
 	<-ctx.Done()
 	s.tracker.canceled <- "runtime"
 	<-s.tracker.allowActivationEnd
-	return serverapi.SessionRuntimeActivateResponse{
-		Attachment: serverapi.SessionRuntimeAttachment{SessionID: req.SessionID, Generation: 1},
-	}, nil
+	return serverapi.SessionRuntimeAttachment{SessionID: req.SessionID, Generation: 1},
+		nil
 }
 
-func (s *gatewayCloseRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+func (s *gatewayCloseRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 	s.releaseStarted <- gatewayCloseRelease{request: req, active: s.tracker.active.Load()}
-	return serverapi.SessionRuntimeReleaseResponse{Released: true}, nil
+	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}, nil
 }
 
 type gatewayCloseDependencies struct {
@@ -597,7 +598,13 @@ func TestGatewayCloseCancelsAndDrainsHandlersBeforeRuntimeCleanup(t *testing.T) 
 	t.Cleanup(allowActivationEnd)
 
 	sendGatewayRequest(t, conn, "workflow", protocol.MethodWorkflowTaskGet, serverapi.WorkflowTaskGetRequest{TaskID: "task-1"})
-	sendGatewayRequest(t, conn, "runtime", protocol.MethodSessionRuntimeActivate, gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	activation, err := protoapi.SessionRuntimeActivateToProto(gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendGatewayDescriptor(t, conn, "runtime",
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Activate"),
+		activation)
 	for i := 0; i < 2; i++ {
 		select {
 		case <-tracker.entered:

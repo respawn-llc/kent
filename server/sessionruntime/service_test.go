@@ -246,7 +246,7 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 		t.Fatalf("factory calls = %d, want 1", calls)
 	}
 	_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation.Attachment,
+		Attachment:  activation,
 		OwnerID:     "owner",
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
@@ -328,7 +328,7 @@ func TestActivateSessionRuntimeUsesTypedQuestionAndAutoCompactionSettings(t *tes
 	if engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
 		t.Fatalf("runtime settings = questions %t auto-compaction %t, want false/false", engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "typed-session-settings")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "typed-session-settings")
 }
 
 func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
@@ -379,7 +379,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 		state.Settings.AutoCompaction == nil || *state.Settings.AutoCompaction {
 		t.Fatalf("persisted Chat settings = %+v, want complete worker selection", state)
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "planned-agent-selection")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "planned-agent-selection")
 }
 
 func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testing.T) {
@@ -419,15 +419,15 @@ func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testin
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if second.Attachment.Generation == first.Generation {
-		t.Fatalf("replacement generation = %d, want a generation after %d", second.Attachment.Generation, first.Generation)
+	if second.Generation == first.Generation {
+		t.Fatalf("replacement generation = %d, want a generation after %d", second.Generation, first.Generation)
 	}
 	if !currentSessionRuntimeEngine(t, fixture.authority, fixture.store.Meta().SessionID).FastModeEnabled() {
 		t.Fatal("replacement runtime Fast = false, want selected Agent baseline true")
 	}
 
 	releaseSessionRuntimeForFastTest(t, fixture.api, first, "first-agent")
-	releaseSessionRuntimeForFastTest(t, fixture.api, second.Attachment, "replacement-agent")
+	releaseSessionRuntimeForFastTest(t, fixture.api, second, "replacement-agent")
 }
 
 func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSettings(t *testing.T) {
@@ -456,7 +456,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSetti
 	if engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
 		t.Fatalf("runtime settings = questions %t auto-compaction %t, want latest persisted false/false", engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "stale-planned-session-settings")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "stale-planned-session-settings")
 }
 
 func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testing.T) {
@@ -499,7 +499,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testin
 			engine.AutoCompactionEnabled(),
 		)
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "stale-complete-session-settings")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "stale-complete-session-settings")
 }
 
 func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *testing.T) {
@@ -529,7 +529,7 @@ func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *
 	if engine.ThinkingLevel() != "high" {
 		t.Fatalf("runtime Thinking = %q, want explicit high", engine.ThinkingLevel())
 	}
-	releaseSessionRuntimeForFastTest(t, fixture.api, response.Attachment, "explicit-thinking-activation")
+	releaseSessionRuntimeForFastTest(t, fixture.api, response, "explicit-thinking-activation")
 }
 
 func sessionRuntimeFastSettings(enabled bool) config.Settings {
@@ -558,7 +558,7 @@ func activateSessionRuntimeForFastTest(t *testing.T, api *API, sessionID string,
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime %s: %v", owner, err)
 	}
-	return response.Attachment
+	return response
 }
 
 func releaseSessionRuntimeForFastTest(t *testing.T, api *API, attachment serverapi.SessionRuntimeAttachment, owner string) {
@@ -645,7 +645,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 	}
 	t.Cleanup(func() {
 		_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  activation.Attachment,
+			Attachment:  activation,
 			OwnerID:     "interactive-owner",
 			DropOwner:   true,
 			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
@@ -773,7 +773,7 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 	}
 	t.Cleanup(func() {
 		_, _ = fixture.api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment: activation.Attachment, OwnerID: "interactive-owner", DropOwner: true,
+			Attachment: activation, OwnerID: "interactive-owner", DropOwner: true,
 			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
 		})
 	})
@@ -943,7 +943,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	attachment = activation.Attachment
+	attachment = activation
 
 	id, err := runtimeids.ParseSessionID(sessionID)
 	if err != nil {

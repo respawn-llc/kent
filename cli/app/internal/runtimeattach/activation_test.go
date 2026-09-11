@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"core/shared/config"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
@@ -19,22 +20,21 @@ type fakeRuntimeService struct {
 	releaseRequests  []serverapi.SessionRuntimeReleaseRequest
 }
 
-func (s *fakeRuntimeService) ActivateSessionRuntime(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+func (s *fakeRuntimeService) ActivateSessionRuntime(_ context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
 	s.activateRequests = append(s.activateRequests, req)
 	if len(s.activateRequests) == s.failActivateCall {
-		return serverapi.SessionRuntimeActivateResponse{}, s.activateErr
+		return serverapi.SessionRuntimeAttachment{}, s.activateErr
 	}
-	return serverapi.SessionRuntimeActivateResponse{
-		Attachment: serverapi.SessionRuntimeAttachment{
+	return serverapi.SessionRuntimeAttachment{
 			SessionID:  req.SessionID,
 			Generation: uint64(len(s.activateRequests)),
 		},
-	}, nil
+		nil
 }
 
-func (s *fakeRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+func (s *fakeRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
 	s.releaseRequests = append(s.releaseRequests, req)
-	return serverapi.SessionRuntimeReleaseResponse{}, s.releaseErr
+	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, s.releaseErr
 }
 
 func TestSessionRuntimeAttachmentValidation(t *testing.T) {

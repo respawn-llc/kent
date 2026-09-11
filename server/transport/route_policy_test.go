@@ -404,18 +404,18 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 
 func TestRoutePolicyAllowsRuntimeReleaseAfterSessionMovesProjects(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
+	operation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Release"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	// The handler injects the connection-owned runtime owner ID; Project scope
 	// must not reject the release before Runtime authority validates that owner.
-	err := newRoutePolicyExecutor(fixture.gateway).authorizeScope(
+	err = newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		routeForTest(t, protocol.MethodSessionRuntimeRelease),
-		serverapi.SessionRuntimeReleaseRequest{
-			Attachment: serverapi.SessionRuntimeAttachment{
-				SessionID:  fixture.foreignSessionID,
-				Generation: 1,
-			},
-		},
+		routeScopePolicy(operation.Options.ScopePolicy),
+		operation.Name,
+		routeScopeParams{sessionID: fixture.foreignSessionID},
 	)
 	if err != nil {
 		t.Fatalf("authorize moved Session runtime release: %v", err)

@@ -10,49 +10,40 @@ import (
 )
 
 type SessionRuntimeActivateRequest struct {
-	SessionID                string                        `json:"session_id"`
-	OwnerID                  string                        `json:"owner_id,omitempty"`
-	ActiveSettings           config.Settings               `json:"active_settings"`
-	EnabledToolIDs           []string                      `json:"enabled_tool_ids"`
-	QuestionsEnabled         *bool                         `json:"questions_enabled"`
-	AutoCompactionEnabled    *bool                         `json:"auto_compaction_enabled"`
-	ThinkingOverrideExplicit bool                          `json:"thinking_override_explicit"`
-	AgentSelection           *SessionRuntimeAgentSelection `json:"agent_selection,omitempty"`
-	Source                   config.SourceReport           `json:"source"`
+	SessionID                string
+	OwnerID                  string
+	ActiveSettings           config.Settings
+	EnabledToolIDs           []string
+	QuestionsEnabled         *bool
+	AutoCompactionEnabled    *bool
+	ThinkingOverrideExplicit bool
+	AgentSelection           *SessionRuntimeAgentSelection
+	Source                   config.SourceReport
 }
 
 type SessionRuntimeAgentSelection struct {
-	Agent    string                     `json:"agent"`
-	Baseline SessionRuntimeChatSettings `json:"baseline"`
+	Agent    string
+	Baseline SessionRuntimeChatSettings
 }
 
 type SessionRuntimeChatSettings struct {
-	Supervisor     string `json:"supervisor"`
-	Thinking       string `json:"thinking"`
-	Fast           bool   `json:"fast"`
-	Questions      bool   `json:"questions"`
-	AutoCompaction bool   `json:"auto_compaction"`
+	Supervisor     string
+	Thinking       string
+	Fast           bool
+	Questions      bool
+	AutoCompaction bool
 }
 
 type SessionRuntimeAttachment struct {
-	SessionID  string `json:"session_id"`
-	Generation uint64 `json:"generation"`
-}
-
-type SessionRuntimeActivateResponse struct {
-	Attachment SessionRuntimeAttachment `json:"attachment"`
+	SessionID  string
+	Generation uint64
 }
 
 type SessionRuntimeReleaseRequest struct {
-	Attachment  SessionRuntimeAttachment         `json:"attachment"`
-	DropOwner   bool                             `json:"drop_owner,omitempty"`
-	ClosePolicy SessionRuntimeReleaseClosePolicy `json:"close_policy,omitempty"`
-	OwnerID     string                           `json:"owner_id,omitempty"`
-}
-
-type SessionRuntimeReleaseResponse struct {
-	Released bool `json:"released"`
-	Active   bool `json:"active,omitempty"`
+	Attachment  SessionRuntimeAttachment
+	DropOwner   bool
+	ClosePolicy SessionRuntimeReleaseClosePolicy
+	OwnerID     string
 }
 
 type SessionRuntimeReleaseClosePolicy string
@@ -93,15 +84,15 @@ func (a SessionRuntimeAttachment) Validate() error {
 	return runtimeids.ResourceGeneration(a.Generation).Validate()
 }
 
-func (r SessionRuntimeActivateResponse) ValidateForSession(sessionID string) error {
-	if err := r.Attachment.Validate(); err != nil {
+func (r SessionRuntimeAttachment) ValidateForSession(sessionID string) error {
+	if err := r.Validate(); err != nil {
 		return fmt.Errorf("validate session runtime activation response: %w", err)
 	}
 	expected := strings.TrimSpace(sessionID)
-	if r.Attachment.SessionID != expected {
+	if r.SessionID != expected {
 		return fmt.Errorf(
 			"session runtime activation returned attachment for session %q, want %q",
-			r.Attachment.SessionID,
+			r.SessionID,
 			expected,
 		)
 	}

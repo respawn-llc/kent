@@ -90,7 +90,7 @@ func activate(ctx context.Context, service servicecontract.SessionRuntimeService
 	if err := response.ValidateForSession(req.SessionID); err != nil {
 		return serverapi.SessionRuntimeAttachment{}, err
 	}
-	return response.Attachment, nil
+	return response, nil
 }
 
 func activateRequest(req Request, ownerID string) serverapi.SessionRuntimeActivateRequest {

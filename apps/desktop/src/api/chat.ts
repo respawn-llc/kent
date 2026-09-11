@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { create } from "@app/server-api-contract";
+import {
+  SessionRuntimeService,
+  SessionRuntimeReleaseClosePolicy,
+} from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
+import { requireUnarySuccess } from "./protobufRpc";
 
 import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
@@ -299,16 +305,19 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
         { createIfMissing: false, closeAfter: true },
         async (owner) => {
           requireSessionAttachment(owner.attachment, { sessionID: requestedSessionID });
-          const result = parseRpcResponse(
-            "session.runtime.release",
-            z.object({ released: z.boolean(), active: z.boolean().optional() }).strict(),
-            await owner.call("session.runtime.release", {
-              attachment: { session_id: requestedSessionID, generation: attachment.generation },
-              drop_owner: true,
-              close_policy: "close_if_idle",
-            }),
+          const method = SessionRuntimeService.method.release;
+          const result = requireUnarySuccess(
+            method,
+            await owner.callDescriptor(
+              method,
+              create(method.input, {
+                attachment: { sessionId: requestedSessionID, generation: BigInt(attachment.generation) },
+                dropOwner: true,
+                closePolicy: SessionRuntimeReleaseClosePolicy.CLOSE_IF_IDLE,
+              }),
+            ),
           );
-          return { released: result.released, active: result.active ?? false };
+          return { released: result.released, active: result.active };
         },
       );
     },

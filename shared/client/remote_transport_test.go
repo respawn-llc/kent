@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +19,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
@@ -28,6 +28,7 @@ import (
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
+	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -60,39 +61,17 @@ func TestDialConfiguredRemotePrefersLocalUnixSocket(t *testing.T) {
 }
 
 func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
-	handlerErrs := make(chan error, 8)
-	releaseRequests := make(chan serverapi.SessionRuntimeReleaseRequest, 1)
-	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
-		for event := range conn.Events() {
-			if event.Err != nil {
-				return
-			}
-			if _, handled, err := handleRemoteTestSetupFrame(ctx, conn, event.Frame, remoteTestSetupResponse{}); handled {
-				if err != nil {
-					reportHandlerError(handlerErrs, "setup: %v", err)
-				}
-				continue
-			}
-			req := event.Frame.Request()
-			switch req.Method {
-			case protocol.MethodSessionRuntimeRelease:
-				var params serverapi.SessionRuntimeReleaseRequest
-				if err := json.Unmarshal(req.Params, &params); err != nil {
-					reportHandlerError(handlerErrs, "decode release request: %w", err)
-					return
-				}
-				releaseRequests <- params
-				if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, serverapi.SessionRuntimeReleaseResponse{Released: true}))); err != nil {
-					reportHandlerError(handlerErrs, "send release response: %w", err)
-					return
-				}
-				return
-			default:
-				reportHandlerError(handlerErrs, "unexpected method %q", req.Method)
-				return
-			}
-		}
-	}))
+	const sessionID = "123e4567-e89b-42d3-a456-426614174000"
+	releaseRequests := make(chan *sessionlaunchpb.SessionRuntimeReleaseRequest, 1)
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		acceptRemoteHandshake(t, ws)
+		request := &sessionlaunchpb.SessionRuntimeReleaseRequest{}
+		call := receiveRemoteGeneratedCall(t, ws, "SessionRuntimeService", "Release", request)
+		releaseRequests <- request
+		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRuntimeReleaseResult{
+			Outcome: &sessionlaunchpb.SessionRuntimeReleaseResult_Success{Success: &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}},
+		})
+	})
 	defer server.Close()
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -103,7 +82,7 @@ func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
 
 	resp, err := remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
 		Attachment: serverapi.SessionRuntimeAttachment{
-			SessionID:  "session-1",
+			SessionID:  sessionID,
 			Generation: 7,
 		},
 		DropOwner:   true,
@@ -117,13 +96,13 @@ func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
 	}
 	select {
 	case req := <-releaseRequests:
-		if req.Attachment.SessionID != "session-1" || req.Attachment.Generation != 7 || !req.DropOwner || req.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyDetachOnly {
+		if req.Attachment.SessionId != sessionID || req.Attachment.Generation != 7 || !req.DropOwner ||
+			req.GetClosePolicy() != sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY {
 			t.Fatalf("release request = %+v, want exact attachment and detach-only owner drop", req)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for release request")
 	}
-	requireNoHandlerError(t, handlerErrs)
 }
 
 func TestDialConfiguredRemoteFallsBackToTCPWhenLocalUnixSocketMissing(t *testing.T) {

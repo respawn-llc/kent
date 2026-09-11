@@ -8,6 +8,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"

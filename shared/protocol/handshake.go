@@ -71,8 +71,6 @@ const (
 	MethodSessionGetExecutionEnvironment                = "session.getExecutionEnvironment"
 	MethodSessionGetTranscriptPage                      = "session.getTranscriptPage"
 	MethodSessionGetLatestCommittedAssistantFinalAnswer = "session.getLatestCommittedAssistantFinalAnswer"
-	MethodSessionRuntimeActivate                        = "session.runtime.activate"
-	MethodSessionRuntimeRelease                         = "session.runtime.release"
 	MethodRuntimeSetSessionName                         = "runtime.setSessionName"
 	MethodRuntimeAppendCommittedEntry                   = "runtime.appendCommittedEntry"
 	MethodRuntimeShouldCompactBeforeUserMessage         = "runtime.shouldCompactBeforeUserMessage"

@@ -393,7 +393,6 @@ message SessionResolveTransitionResult {
 
 message SessionRuntimeActivateRequest {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string owner_id = 2 [(buf.validate.field).string.min_len = 1];
   Settings active_settings = 3 [(buf.validate.field).required = true];
   repeated ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
     defined_only: true
@@ -403,6 +402,7 @@ message SessionRuntimeActivateRequest {
   optional bool auto_compaction_enabled = 6 [(buf.validate.field).required = true];
   bool thinking_override_explicit = 7;
   SourceReport source = 8 [(buf.validate.field).required = true];
+  optional SessionRuntimeAgentSelection agent_selection = 9;
 }
 
 message SessionRuntimeAttachment {
@@ -428,6 +428,14 @@ message SessionRuntimeActivateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     SessionRuntimeUnavailableDetails runtime_unavailable = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -469,7 +477,6 @@ message SessionRuntimeReleaseRequest {
     defined_only: true
     not_in: [0]
   }];
-  string owner_id = 4 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
     id: "kent.session_launch.detach_only_drops_owner"
@@ -490,6 +497,14 @@ message SessionRuntimeReleaseError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     SessionRuntimeUnavailableDetails runtime_unavailable = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -723,7 +738,6 @@ service SessionRuntimeService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.runtime.activate"
     };
   }
 
@@ -734,7 +748,6 @@ service SessionRuntimeService {
       scope_policy: SCOPE_POLICY_NONE
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.runtime.release"
     };
   }
 }

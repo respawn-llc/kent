@@ -4,6 +4,11 @@ import { FakeRpcTransport } from "@/test-support/api";
 import { create } from "@app/server-api-contract";
 import { ChatService, QueueRequestSchema } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import {
+  SessionRuntimeService,
+  SessionRuntimeActivateResultSchema,
+  SessionRuntimeReleaseResultSchema,
+} from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
+import {
   AgentPreparationCategory,
   InitialChatSettingsSchema,
   SupervisorValue,
@@ -15,6 +20,7 @@ import {
   ModelVerbosity,
   SessionLaunchService,
   SessionPlanResultSchema,
+  SessionRuntimeAgentSelectionSchema,
   SettingsSchema,
   SourceReportSchema,
   ShellPostprocessingMode,
@@ -339,23 +345,47 @@ describe("Desktop Chat read client", () => {
       contextWindowTokens: 100,
       remainingTokens: 96,
     });
-    const activationTransport = new FakeRpcTransport([
-      { descriptor: SessionLaunchService.method.plan, result: runtimePlanResult(sessionID) },
-      {
-        method: "session.runtime.activate",
-        result: { attachment: { session_id: sessionID, generation: 7 } },
-      },
-      { method: "session.runtime.release", result: { released: true, active: false } },
-    ]);
-    const activationClient = new ApiClient(activationTransport);
-    await expect(activationClient.chat.activateRuntime(target)).resolves.toEqual({
-      sessionID,
-      generation: 7,
-    });
-    await expect(activationClient.chat.releaseRuntime({ sessionID, generation: 7 })).resolves.toEqual({
-      released: true,
-      active: false,
-    });
+    for (const selection of [
+      undefined,
+      create(SessionRuntimeAgentSelectionSchema, {
+        agent: "worker",
+        baseline: { supervisor: "off", thinking: "high", fast: true, questions: false, autoCompaction: true },
+      }),
+    ]) {
+      const planned = runtimePlanResult(sessionID);
+      if (planned.outcome.case !== "success" || planned.outcome.value.plan === undefined)
+        throw new Error("Plan fixture missing");
+      planned.outcome.value.plan.activationAgentSelection = selection;
+      const activationTransport = new FakeRpcTransport([
+        { descriptor: SessionLaunchService.method.plan, result: planned },
+        {
+          descriptor: SessionRuntimeService.method.activate,
+          result: create(SessionRuntimeActivateResultSchema, {
+            outcome: { case: "success", value: { attachment: { sessionId: sessionID, generation: 7n } } },
+          }),
+        },
+        {
+          descriptor: SessionRuntimeService.method.release,
+          result: create(SessionRuntimeReleaseResultSchema, {
+            outcome: { case: "success", value: { released: true, active: false } },
+          }),
+        },
+      ]);
+      const activationClient = new ApiClient(activationTransport);
+      await expect(activationClient.chat.activateRuntime(target)).resolves.toEqual({
+        sessionID,
+        generation: 7,
+      });
+      if (selection === undefined) {
+        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("agentSelection");
+      } else {
+        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({ agentSelection: selection });
+      }
+      await expect(activationClient.chat.releaseRuntime({ sessionID, generation: 7 })).resolves.toEqual({
+        released: true,
+        active: false,
+      });
+    }
 
     const mismatchedPlanClient = new ApiClient(
       new FakeRpcTransport([

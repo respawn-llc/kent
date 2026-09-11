@@ -127,30 +127,6 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.SessionViewClient().GetSessionExecutionEnvironment(ctx, params)
 		})
 	},
-	protocol.MethodSessionRuntimeActivate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request, prepared any) protocol.Response {
-		return handlePrepared(req.ID, prepared, func(params serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-			params.OwnerID = state.runtimeOwnerID
-			resp, err := g.deps.SessionRuntimeClient().ActivateSessionRuntime(ctx, params)
-			if err != nil {
-				return serverapi.SessionRuntimeActivateResponse{}, err
-			}
-			if err := resp.ValidateForSession(params.SessionID); err != nil {
-				return serverapi.SessionRuntimeActivateResponse{}, err
-			}
-			state.recordOwnedRuntime(resp.Attachment)
-			return resp, nil
-		})
-	},
-	protocol.MethodSessionRuntimeRelease: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request, prepared any) protocol.Response {
-		return handlePrepared(req.ID, prepared, func(params serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-			params.OwnerID = state.runtimeOwnerID
-			resp, err := g.deps.SessionRuntimeClient().ReleaseSessionRuntime(ctx, params)
-			if err == nil && (resp.Released || params.DropOwner) {
-				state.removeOwnedRuntime(params.Attachment)
-			}
-			return resp, err
-		})
-	},
 	protocol.MethodRuntimeSetSessionName:                 gatewayClientCallNoResponse[apicontract.RuntimeControlService, serverapi.RuntimeSetSessionNameRequest](GatewayDependencies.RuntimeControlClient, apicontract.RuntimeControlService.SetSessionName),
 	protocol.MethodRuntimeAppendCommittedEntry:           gatewayClientCallNoResponse[apicontract.RuntimeControlService, serverapi.RuntimeAppendCommittedEntryRequest](GatewayDependencies.RuntimeControlClient, apicontract.RuntimeControlService.AppendCommittedEntry),
 	protocol.MethodRuntimeShouldCompactBeforeUserMessage: gatewayClientCall[apicontract.RuntimeControlService, serverapi.RuntimeShouldCompactBeforeUserMessageRequest, serverapi.RuntimeShouldCompactBeforeUserMessageResponse](GatewayDependencies.RuntimeControlClient, apicontract.RuntimeControlService.ShouldCompactBeforeUserMessage),

@@ -94,7 +94,7 @@ func (p *RuntimePlanner) Open(
 	}
 	serviceAttachment := serviceRuntimeAttachment{
 		sessionID:  sessionID,
-		attachment: response.Attachment,
+		attachment: response,
 		ownerID:    ownerID,
 		runtimeAPI: p.runtimeAPI,
 	}

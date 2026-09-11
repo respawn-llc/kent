@@ -304,6 +304,22 @@ func SessionRuntimeAgentSelectionFromProto(
 	}, nil
 }
 
+func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgentSelection) *sessionlaunchpb.SessionRuntimeAgentSelection {
+	if selection == nil {
+		return nil
+	}
+	return &sessionlaunchpb.SessionRuntimeAgentSelection{
+		Agent: selection.Agent,
+		Baseline: &sessionlaunchpb.SessionRuntimeChatSettings{
+			Supervisor:     selection.Baseline.Supervisor,
+			Thinking:       selection.Baseline.Thinking,
+			Fast:           selection.Baseline.Fast,
+			Questions:      selection.Baseline.Questions,
+			AutoCompaction: selection.Baseline.AutoCompaction,
+		},
+	}
+}
+
 func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {
 	switch toolID {
 	case toolspec.ToolExecCommand:

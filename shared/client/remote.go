@@ -720,16 +720,6 @@ func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, req servera
 	return c.sessionExecutionResponseContract.Decode(raw)
 }
 
-func (c *Remote) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-	var resp serverapi.SessionRuntimeActivateResponse
-	return resp, c.call(ctx, protocol.MethodSessionRuntimeActivate, req, &resp)
-}
-
-func (c *Remote) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-	var resp serverapi.SessionRuntimeReleaseResponse
-	return resp, c.call(ctx, protocol.MethodSessionRuntimeRelease, req, &resp)
-}
-
 func (c *Remote) SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error {
 	return c.call(ctx, protocol.MethodRuntimeSetSessionName, req, nil)
 }

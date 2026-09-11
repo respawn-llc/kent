@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"core/server/launch"
+	"core/server/session"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -18,27 +19,9 @@ func ActivationRequestFromSessionPlan(
 	if ownerID == "" {
 		return serverapi.SessionRuntimeActivateRequest{}, errors.New("runtime owner id is required")
 	}
-	var agentSelection *serverapi.SessionRuntimeAgentSelection
-	if plan.ActivationAgentSelection != nil {
-		settings := plan.ActivationAgentSelection.Settings
-		if settings == nil ||
-			settings.Supervisor == nil ||
-			settings.Thinking == nil ||
-			settings.Fast == nil ||
-			settings.Questions == nil ||
-			settings.AutoCompaction == nil {
-			return serverapi.SessionRuntimeActivateRequest{}, errors.New("complete Runtime Agent selection is required")
-		}
-		agentSelection = &serverapi.SessionRuntimeAgentSelection{
-			Agent: plan.ActivationAgentSelection.Agent,
-			Baseline: serverapi.SessionRuntimeChatSettings{
-				Supervisor:     *settings.Supervisor,
-				Thinking:       *settings.Thinking,
-				Fast:           *settings.Fast,
-				Questions:      *settings.Questions,
-				AutoCompaction: *settings.AutoCompaction,
-			},
-		}
+	agentSelection, err := AgentSelectionFromState(plan.ActivationAgentSelection)
+	if err != nil {
+		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	request := serverapi.SessionRuntimeActivateRequest{
 		SessionID:                plan.Descriptor.SessionID().String(),
@@ -55,4 +38,29 @@ func ActivationRequestFromSessionPlan(
 		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	return request, nil
+}
+
+func AgentSelectionFromState(state *session.ChatSettingsState) (*serverapi.SessionRuntimeAgentSelection, error) {
+	if state != nil {
+		settings := state.Settings
+		if settings == nil ||
+			settings.Supervisor == nil ||
+			settings.Thinking == nil ||
+			settings.Fast == nil ||
+			settings.Questions == nil ||
+			settings.AutoCompaction == nil {
+			return nil, errors.New("complete Runtime Agent selection is required")
+		}
+		return &serverapi.SessionRuntimeAgentSelection{
+			Agent: state.Agent,
+			Baseline: serverapi.SessionRuntimeChatSettings{
+				Supervisor:     *settings.Supervisor,
+				Thinking:       *settings.Thinking,
+				Fast:           *settings.Fast,
+				Questions:      *settings.Questions,
+				AutoCompaction: *settings.AutoCompaction,
+			},
+		}, nil
+	}
+	return nil, nil
 }
