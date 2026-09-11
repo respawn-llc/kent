@@ -74,11 +74,6 @@ export const runtimeStatusSchema = z
         Suspended: z.boolean(),
       })
       .strict()
-      .superRefine((goal, context) => {
-        if (goal.Suspended && goal.Goal?.status !== "active") {
-          context.addIssue({ code: "custom", message: "Goal suspension requires an active Goal." });
-        }
-      })
       .nullable(),
     WorkflowSession: z.object({ TaskID: identifier, WorkflowID: identifier }).strict().nullable(),
   })

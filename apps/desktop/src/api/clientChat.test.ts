@@ -401,7 +401,7 @@ describe("Desktop Chat read client", () => {
       goal: { id: "goal-1", objective: "ship", status: "active", createdAt: now, updatedAt: now },
       availability: "available",
     });
-    await expect(client.chat.mutateGoal(target, { kind: "pause" })).resolves.toEqual({
+    await expect(client.chat.pauseGoal(target)).resolves.toEqual({
       kind: "authoritative_goal",
       fact: {
         goal: {

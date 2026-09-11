@@ -1,5 +1,5 @@
 import type { ApiSubscription } from "./apiService";
-import type { ChatGoalFact, ChatGoalMutation, ChatGoalMutationResult, ChatGoalObservation } from "./chatGoal";
+import type { ChatGoalFact, ChatGoalMutationResult, ChatGoalObservation } from "./chatGoal";
 import type {
   ChatSettingsRead,
   ChatSettingsMutation,
@@ -196,7 +196,11 @@ export type ChatApi = Readonly<{
   removePendingWork(target: ChatSessionTarget, itemID: PendingWorkIdentity): Promise<PendingWorkRestoration>;
   getMainView(target: ChatSessionTarget): Promise<ChatMainViewRead>;
   getGoal(target: ChatSessionTarget): Promise<ChatGoalFact>;
-  mutateGoal(target: ChatSessionTarget, mutation: ChatGoalMutation): Promise<ChatGoalMutationResult>;
+  setGoal(target: ChatSessionTarget, objective: string): Promise<ChatGoalMutationResult>;
+  pauseGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
+  resumeGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
+  completeGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
+  clearGoal(target: ChatSessionTarget): Promise<ChatGoalMutationResult>;
   getContext(target: ChatContextTarget): Promise<ChatContext>;
   getSettings(target: ChatSettingsTarget): Promise<ChatSettingsRead>;
   mutateSettings(

@@ -67,7 +67,7 @@ describe("Chat Main View admission", () => {
     expect(hydrated.goalFact).toEqual({ goal: null, availability: "agent_capability_missing" });
   });
 
-  it("admits same-generation activity, rejects stale activity, and demands forward authority", () => {
+  it("admits newer activity across generations and rejects stale activity", () => {
     let state = seededProjection(3);
     state = reduceChatProjection(state, {
       kind: "event",
@@ -84,11 +84,9 @@ describe("Chat Main View admission", () => {
       event: runtimeUpdate(1, 2, "registered_idle"),
     });
     expect(stale.state).toBe(state);
-    expect(forward.state).toBe(state);
-    expect(forward.requiredAuthority).toEqual({
-      epoch: "epoch-1",
-      generation: 2,
-      sequence: 1,
+    expect(forward.state.view).toMatchObject({
+      version: { epoch: "epoch-1", generation: 2, sequence: 1 },
+      activity: { state: "registered_idle" },
     });
   });
 
@@ -325,99 +323,6 @@ describe("mounted Chat Runtime owner", () => {
     });
     await owner.dispose();
     expect(owner.snapshot.transcript.opening.kind).toBe("disposed");
-  });
-
-  it("serializes tuple demand with one stale-success follow-up", async () => {
-    const first = deferred<ChatMainViewRead>();
-    const second = deferred<ChatMainViewRead>();
-    const fixture = runtimeApi({ reads: [first.promise, second.promise] });
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: 1, staleTime: 4_000 } },
-    });
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, runtimeHost());
-    owner.start();
-    await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledOnce();
-    });
-
-    owner.requireMainViewAuthority({ epoch: "epoch-1", generation: 2, sequence: 2 });
-    owner.requireMainViewAuthority({ epoch: "epoch-1", generation: 2, sequence: 7 });
-    expect(fixture.getMainView).toHaveBeenCalledOnce();
-    first.resolve(mainViewRead(1));
-    await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledTimes(2);
-    });
-    second.resolve({
-      ...mainViewRead(7),
-      mainView: {
-        ...mainViewRead(7).mainView,
-        version: { epoch: "epoch-1", generation: 2, sequence: 7 },
-      },
-    });
-    await vi.waitFor(() => {
-      expect(queryClient.getQueryData(queryKeys.chatMainView(target.sessionID))).toMatchObject({
-        version: { generation: 2, sequence: 7 },
-      });
-    });
-    expect(fixture.getMainView).toHaveBeenCalledTimes(2);
-    await owner.dispose();
-  });
-
-  it("consumes failed demand and starts one coalesced later refresh", async () => {
-    const reads = [
-      deferred<ChatMainViewRead>(),
-      deferred<ChatMainViewRead>(),
-      deferred<ChatMainViewRead>(),
-      deferred<ChatMainViewRead>(),
-    ];
-    const fixture = runtimeApi({ reads: reads.map(async (read) => read.promise) });
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: 1, staleTime: 4_000 } },
-    });
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, runtimeHost());
-    owner.start();
-    await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledOnce();
-    });
-    reads[0]?.reject(new Error("initial failure"));
-    await vi.waitFor(() => {
-      expect(queryClient.getQueryState(queryKeys.chatMainView(target.sessionID))?.status).toBe("error");
-    });
-    expect(fixture.getMainView).toHaveBeenCalledOnce();
-
-    owner.requireMainViewAuthority({ epoch: "epoch-1", generation: 2, sequence: 1 });
-    await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledTimes(2);
-    });
-    owner.requireMainViewAuthority({ epoch: "epoch-1", generation: 3, sequence: 1 });
-    owner.requireMainViewAuthority({ epoch: "epoch-1", generation: 4, sequence: 1 });
-    reads[1]?.reject(new Error("coalescing failure"));
-    await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledTimes(3);
-    });
-    reads[2]?.reject(new Error("follow-up failure"));
-    await vi.waitFor(() => {
-      expect(queryClient.getQueryState(queryKeys.chatMainView(target.sessionID))?.status).toBe("error");
-    });
-    expect(fixture.getMainView).toHaveBeenCalledTimes(3);
-
-    owner.requireMainViewAuthority({ epoch: "epoch-1", generation: 5, sequence: 1 });
-    await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledTimes(4);
-    });
-    reads[3]?.resolve({
-      ...mainViewRead(1),
-      mainView: {
-        ...mainViewRead(1).mainView,
-        version: { epoch: "epoch-1", generation: 5, sequence: 1 },
-      },
-    });
-    await vi.waitFor(() => {
-      expect(queryClient.getQueryData(queryKeys.chatMainView(target.sessionID))).toMatchObject({
-        version: { generation: 5 },
-      });
-    });
-    await owner.dispose();
   });
 
   it("keeps recovery branches independent and forwards ordered host facts", async () => {

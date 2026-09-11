@@ -11,6 +11,7 @@ import {
 import type { RpcEventHandler } from "./transport";
 
 class TerminalSubscriptionError extends Error {}
+const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
 
 export class SubscriptionErrorAlreadyReported extends Error {
   constructor(readonly error: Error) {
@@ -29,7 +30,14 @@ export async function runJsonSubscription(
     establishmentTimeoutMs?: number | null;
   }>,
 ): Promise<void> {
-  const { socket, method, params, handler, signal, establishmentTimeoutMs = 30_000 } = input;
+  const {
+    socket,
+    method,
+    params,
+    handler,
+    signal,
+    establishmentTimeoutMs = defaultSubscriptionEstablishmentTimeoutMs,
+  } = input;
   let terminal: Readonly<
     | { kind: "complete"; code: number; message: string; reason: string | null }
     | { kind: "error"; error: Error }

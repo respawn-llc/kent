@@ -17,7 +17,6 @@ import { ChatTranscriptObservation, type ChatTranscriptObservationState } from "
 import {
   emptyChatProjectionState,
   reduceChatProjection,
-  type ChatAuthorityTuple,
   type ChatProjectionHostEffect,
   type ChatProjectionInput,
   type ChatProjectionState,
@@ -49,12 +48,6 @@ export type ChatRuntimeOwnerSnapshot = Readonly<{
   transcript: ChatTranscriptHost["snapshot"];
   disposed: boolean;
 }>;
-interface ActiveMainViewRead {
-  token: number;
-  requestedTuple: ChatAuthorityTuple | null;
-  laterTuple: ChatAuthorityTuple | null;
-  followUpUsed: boolean;
-}
 
 export const chatMainViewQueryOptions = (
   api: ChatRuntimeApi,
@@ -89,7 +82,6 @@ export class ChatRuntimeOwner {
   #snapshotCache: ChatRuntimeOwnerSnapshot;
   #mainViewToken = 0;
   #mountGeneration = 0;
-  #activeMainViewRead: ActiveMainViewRead | null = null;
   #started = false;
   #disposed = false;
 
@@ -114,9 +106,6 @@ export class ChatRuntimeOwner {
       },
     });
     this.#snapshotCache = this.#projectSnapshot();
-    this.goal.subscribe(() => {
-      this.#notify();
-    });
     this.transcript.subscribe(() => {
       this.#notify();
     });
@@ -191,13 +180,12 @@ export class ChatRuntimeOwner {
   async forceMainViewRead(): Promise<void> {
     if (this.#disposed) return;
     const token = ++this.#mainViewToken;
-    this.#activeMainViewRead = null;
     await this.#queryClient.cancelQueries(
       { queryKey: this.#queryKey, exact: true },
       { revert: true, silent: true },
     );
     if (token !== this.#mainViewToken) return;
-    this.#startMainViewRead(token, null, false);
+    this.#startMainViewRead(token);
   }
 
   async retryMainView(): Promise<void> {
@@ -216,21 +204,10 @@ export class ChatRuntimeOwner {
     this.#observation?.replaceForReconnect();
   }
 
-  requireMainViewAuthority(tuple: ChatAuthorityTuple): void {
-    if (this.#disposed) return;
-    const active = this.#activeMainViewRead;
-    if (active !== null && active.token === this.#mainViewToken) {
-      active.laterTuple = coalesceAuthorityTuple(active.laterTuple, tuple);
-      return;
-    }
-    this.#startMainViewRead(this.#mainViewToken, tuple, false);
-  }
-
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#mainViewToken++;
-    this.#activeMainViewRead = null;
     this.#observation?.close();
     this.#observation = null;
     this.transcript.dispose();
@@ -258,55 +235,22 @@ export class ChatRuntimeOwner {
       currentGoalGeneration: this.goal.generation,
     });
     this.#storeProjectionMetadata(admitted.state);
-    if (admitted.goalFact !== null) this.goal.admit(admitted.goalFact);
+    if (admitted.goalFact !== null) {
+      this.goal.admit(admitted.goalFact);
+      this.#notify();
+    }
     this.#applyHostEffects(admitted.effects);
     return admitted.state.view ?? read.mainView;
   }
 
-  #startMainViewRead(token: number, requestedTuple: ChatAuthorityTuple | null, followUpUsed: boolean): void {
-    if (this.#disposed || token !== this.#mainViewToken || this.#activeMainViewRead !== null) return;
-    const active: ActiveMainViewRead = {
-      token,
-      requestedTuple,
-      laterTuple: null,
-      followUpUsed,
-    };
-    this.#activeMainViewRead = active;
+  #startMainViewRead(token: number): void {
+    if (this.#disposed || token !== this.#mainViewToken) return;
     const metadataRevisionAtStart = this.#projection.metadataRevision;
     const goalGenerationAtStart = this.goal.generation;
     const options = chatMainViewQueryOptions(this.#api, this.#target, (read) =>
       this.#admitRead(token, metadataRevisionAtStart, goalGenerationAtStart, read),
     );
-    void this.#queryClient.fetchQuery(options).then(
-      (view) => {
-        this.#mainViewReadSucceeded(active, view.version);
-      },
-      () => {
-        this.#mainViewReadFailed(active);
-      },
-    );
-  }
-
-  #mainViewReadSucceeded(active: ActiveMainViewRead, version: ChatAuthorityTuple): void {
-    if (this.#activeMainViewRead !== active || active.token !== this.#mainViewToken) return;
-    this.#activeMainViewRead = null;
-    const demand = coalesceAuthorityTuple(active.requestedTuple, active.laterTuple);
-    if (demand === null || authorityTupleSatisfies(version, demand)) return;
-    if (active.followUpUsed) {
-      if (active.laterTuple !== null) {
-        this.#startMainViewRead(active.token, active.laterTuple, false);
-      }
-      return;
-    }
-    this.#startMainViewRead(active.token, demand, true);
-  }
-
-  #mainViewReadFailed(active: ActiveMainViewRead): void {
-    if (this.#activeMainViewRead !== active || active.token !== this.#mainViewToken) return;
-    this.#activeMainViewRead = null;
-    if (active.laterTuple !== null) {
-      this.#startMainViewRead(active.token, active.laterTuple, false);
-    }
+    void this.#queryClient.fetchQuery(options).catch(() => undefined);
   }
 
   #admitTranscriptEvent(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void {
@@ -323,11 +267,11 @@ export class ChatRuntimeOwner {
     if (admitted.state.view !== current.view && admitted.state.view !== null) {
       this.#queryClient.setQueryData(this.#queryKey, admitted.state.view);
     }
-    if (admitted.goalFact !== null) this.goal.admit(admitted.goalFact);
-    this.#applyHostEffects(admitted.effects);
-    if (admitted.requiredAuthority !== null) {
-      this.requireMainViewAuthority(admitted.requiredAuthority);
+    if (admitted.goalFact !== null) {
+      this.goal.admit(admitted.goalFact);
+      this.#notify();
     }
+    this.#applyHostEffects(admitted.effects);
   }
 
   #currentProjection(): ChatProjectionState {
@@ -368,21 +312,4 @@ export class ChatRuntimeOwner {
       disposed: this.#disposed,
     };
   }
-}
-
-function coalesceAuthorityTuple(
-  current: ChatAuthorityTuple | null,
-  incoming: ChatAuthorityTuple | null,
-): ChatAuthorityTuple | null {
-  if (incoming === null) return current;
-  if (current?.epoch !== incoming.epoch) return incoming;
-  if (incoming.generation > current.generation) return incoming;
-  if (incoming.generation < current.generation) return current;
-  return incoming.sequence > current.sequence ? incoming : current;
-}
-
-function authorityTupleSatisfies(current: ChatAuthorityTuple, demand: ChatAuthorityTuple): boolean {
-  if (current.epoch !== demand.epoch) return false;
-  if (current.generation > demand.generation) return true;
-  return current.generation === demand.generation && current.sequence >= demand.sequence;
 }

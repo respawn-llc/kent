@@ -60,7 +60,6 @@ export type {
   ChatGoal,
   ChatGoalAvailability,
   ChatGoalFact,
-  ChatGoalMutation,
   ChatGoalMutationResult,
   ChatGoalObservation,
   ChatGoalProjection,
@@ -118,6 +117,25 @@ function runtimeStatus(input: z.output<typeof runtimeStatusSchema>): ChatRuntime
   };
 }
 export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
+  const callGoalMutation = async (
+    target: Parameters<ChatApi["setGoal"]>[0],
+    method:
+      | "runtime.goal.set"
+      | "runtime.goal.pause"
+      | "runtime.goal.resume"
+      | "runtime.goal.complete"
+      | "runtime.goal.clear",
+    request: Readonly<{ session_id: string; actor: "user"; objective?: string }>,
+  ) => {
+    const call = await transport.callAttachedProject({
+      projectID: target.projectID,
+      selector: target.workspace,
+      method,
+      request: { kind: "value", value: request },
+    });
+    requireProjectAttachment(call.attachment, target);
+    return parseGoalMutationResult(call.result);
+  };
   return {
     ...createChatMutationApi(transport),
     ...createChatSettingsApi(transport),
@@ -162,36 +180,37 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
       requireProjectAttachment(call.attachment, target);
       return parseGoalEnvelope(call.result);
     },
-    async mutateGoal(target, mutation) {
+    async setGoal(target, objective) {
       const requestedSessionID = requireChatSessionID(target);
-      const method =
-        mutation.kind === "set"
-          ? "runtime.goal.set"
-          : mutation.kind === "pause"
-            ? "runtime.goal.pause"
-            : mutation.kind === "resume"
-              ? "runtime.goal.resume"
-              : mutation.kind === "complete"
-                ? "runtime.goal.complete"
-                : "runtime.goal.clear";
-      const call = await transport.callAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
-        method,
-        request: {
-          kind: "value",
-          value:
-            mutation.kind === "set"
-              ? {
-                  session_id: requestedSessionID,
-                  objective: mutation.objective,
-                  actor: "user",
-                }
-              : { session_id: requestedSessionID, actor: "user" },
-        },
+      return callGoalMutation(target, "runtime.goal.set", {
+        session_id: requestedSessionID,
+        objective,
+        actor: "user",
       });
-      requireProjectAttachment(call.attachment, target);
-      return parseGoalMutationResult(call.result);
+    },
+    async pauseGoal(target) {
+      return callGoalMutation(target, "runtime.goal.pause", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
+    },
+    async resumeGoal(target) {
+      return callGoalMutation(target, "runtime.goal.resume", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
+    },
+    async completeGoal(target) {
+      return callGoalMutation(target, "runtime.goal.complete", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
+    },
+    async clearGoal(target) {
+      return callGoalMutation(target, "runtime.goal.clear", {
+        session_id: requireChatSessionID(target),
+        actor: "user",
+      });
     },
     async getContext(target) {
       const requestedSessionID = chatContextSessionID(target);

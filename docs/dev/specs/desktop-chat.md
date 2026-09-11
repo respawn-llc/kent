@@ -107,6 +107,7 @@
 - The locator-order contract applies only to committed rows in one subscription generation. The same locator may recur across independent reads, page responses, replacement hydration generations, reconnects, and separate clients or surfaces.
 - When a bounded page and the current hydration or live delivery overlap at the same committed-row locator in one resident transcript window, Desktop presents that row once. Incompatible committed payloads for the same locator are a transcript contract failure.
 - Opening, reopening, and transcript recovery use ordered transcript hydration and independently load the latest completed projections from each server owner. Non-transcript projections may be stale or represent different completed moments, and cached feed-ordering state does not replace them.
+- A Runtime Activity update from a later Read Model generation applies its version and Activity immediately. It does not trigger a Main View read. Session identity, status, Context, and target remain at their latest independently admitted values until their own update or an ordinary opening or reconnect read.
 - Desktop does not require a globally atomic cross-owner snapshot-plus-live handoff or exactly-once delivery across that boundary. If transcript event-sequence continuity cannot be established, Desktop discards transient live transcript state and reopens the sequenced transcript subscription.
 
 ## Tools And Processes

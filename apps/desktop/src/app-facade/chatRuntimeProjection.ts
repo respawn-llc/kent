@@ -43,7 +43,6 @@ export type ChatProjectionResult = Readonly<{
   state: ChatProjectionState;
   goalFact: ChatGoalFact | null;
   effects: readonly ChatProjectionHostEffect[];
-  requiredAuthority: ChatAuthorityTuple | null;
 }>;
 
 export function emptyChatProjectionState(): ChatProjectionState {
@@ -82,7 +81,6 @@ function admitRead(
     state: { ...state, view, pendingMetadata: null },
     goalFact: input.goalGenerationAtStart === input.currentGoalGeneration ? input.read.goal : null,
     effects: [],
-    requiredAuthority: null,
   };
 }
 
@@ -103,7 +101,6 @@ function admitHydration(
     state: admitMetadata(state, metadata),
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
     effects: [],
-    requiredAuthority: null,
   };
 }
 
@@ -140,15 +137,12 @@ function admitIncrementalRuntime(
     );
   }
   const comparison = compareAuthorityTuple(current, incoming);
-  if (comparison === "newer-sequence") {
+  if (comparison === "newer-sequence" || comparison === "forward-authority") {
     return result(
       admitRuntime(state, {
         runtime: { version: incoming, activity: chatRuntimeActivity(update.Activity) },
       }),
     );
-  }
-  if (comparison === "forward-authority") {
-    return result(state, { requiredAuthority: incoming });
   }
   return result(state);
 }
@@ -304,6 +298,5 @@ function result(
     state,
     goalFact: partial.goalFact ?? null,
     effects: partial.effects ?? [],
-    requiredAuthority: partial.requiredAuthority ?? null,
   };
 }

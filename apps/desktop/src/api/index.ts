@@ -54,7 +54,6 @@ export type {
   ChatGoal,
   ChatGoalAvailability,
   ChatGoalFact,
-  ChatGoalMutation,
   ChatGoalMutationResult,
   ChatGoalObservation,
   ChatGoalProjection,

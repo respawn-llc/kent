@@ -22,9 +22,6 @@ export type ChatGoalProjection =
 export type ChatGoalMutationResult =
   | Readonly<{ kind: "authoritative_goal"; fact: ChatGoalFact & Readonly<{ goal: ChatGoal }> }>
   | Readonly<{ kind: "authoritative_clear"; fact: ChatGoalFact & Readonly<{ goal: null }> }>;
-export type ChatGoalMutation =
-  | Readonly<{ kind: "set"; objective: string }>
-  | Readonly<{ kind: "pause" | "resume" | "complete" | "clear" }>;
 export type ChatGoalObservation = Readonly<{
   sequence: number;
   kind: "hydration" | "update";

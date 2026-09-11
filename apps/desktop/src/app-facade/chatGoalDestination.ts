@@ -31,7 +31,6 @@ export class ChatGoalProjectionSource {
   #snapshot: ChatGoalProjection = { kind: "unobserved" };
   #generation = 0;
   #disposed = false;
-  readonly #listeners = new Set<Listener>();
 
   get snapshot(): ChatGoalProjection {
     return this.#snapshot;
@@ -45,28 +44,16 @@ export class ChatGoalProjectionSource {
     return this.#disposed;
   }
 
-  subscribe(listener: Listener): () => void {
-    if (this.#disposed) return () => undefined;
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
-  }
-
   admit(fact: ChatGoalFact): boolean {
     if (this.#disposed) return false;
     this.#snapshot = { kind: "observed", value: cloneFact(fact) };
     this.#generation++;
-    this.#notify();
     return true;
   }
 
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.#listeners.clear();
-  }
-
-  #notify(): void {
-    for (const listener of this.#listeners) listener();
   }
 }
 
@@ -93,9 +80,6 @@ export class ChatGoalDestinationController {
   constructor(api: GoalObserver, target: ChatSessionTarget) {
     this.#api = api;
     this.#target = target;
-    this.source.subscribe(() => {
-      this.#notify();
-    });
   }
 
   get snapshot(): ChatGoalDestinationSnapshot {
@@ -149,7 +133,7 @@ export class ChatGoalDestinationController {
     const authorityUnchanged = this.source.generation === mutation.capturedGeneration;
     this.#mutation = null;
     if (authorityUnchanged) this.source.admit(result.fact);
-    else this.#notify();
+    this.#notify();
     return true;
   }
 
@@ -199,6 +183,7 @@ export class ChatGoalDestinationController {
         this.#automaticReplacementAvailable = true;
         this.#observation = { kind: "observed" };
         this.source.admit(observation.fact);
+        this.#notify();
       },
       onComplete: (code, message) => {
         if (!this.#accepts(generation)) return;
