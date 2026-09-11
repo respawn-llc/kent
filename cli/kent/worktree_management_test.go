@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -31,6 +32,7 @@ import (
 	"core/shared/worktreecontract"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"mvdan.cc/sh/v3/shell"
 )
 
 type worktreeCommandFixture struct {
@@ -354,8 +356,22 @@ func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 				t.Fatal(err)
 			}
 			enter = append(enter, canonical)
-			if !strings.Contains(out.String(), commandString(enter)) {
-				t.Fatalf("missing executable enter action %q in %q", commandString(enter), &out)
+			lines := bufio.NewScanner(strings.NewReader(out.String()))
+			if !lines.Scan() || lines.Text() != canonical {
+				t.Fatalf("create output must start with its canonical root: %q", &out)
+			}
+			if !lines.Scan() {
+				t.Fatalf("create output omitted the enter hint: %q", &out)
+			}
+			words, err := shell.Fields(lines.Text(), nil)
+			if err != nil {
+				t.Fatalf("parse enter hint arguments: %v", err)
+			}
+			if len(words) < len(enter) || !reflect.DeepEqual(words[len(words)-len(enter):], enter) {
+				t.Fatalf("enter hint arguments = %q, want trailing command %q", words, enter)
+			}
+			if lines.Scan() || lines.Err() != nil {
+				t.Fatalf("unexpected trailing create output or read error: %q, %v", &out, lines.Err())
 			}
 			target, err := f.core.MetadataStore().ResolveSessionExecutionTarget(context.Background(), f.sessionID)
 			if err != nil {
