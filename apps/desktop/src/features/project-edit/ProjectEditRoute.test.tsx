@@ -1,407 +1,241 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { RegistryProvider } from "@effect/atom-react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { MockInstance } from "vitest";
 
-import { RpcError, rpcErrorCodes, type ProjectEdit, type WorkspaceCatalogPage } from "@/api";
+import {
+  RpcError,
+  rpcErrorCodes,
+  type ProjectEdit,
+  type WorkspaceCatalogPage,
+  type WorkspaceCatalogRow,
+  type ApiService,
+} from "@/api";
+import { AppServicesProvider, queryKeys } from "@/app-facade";
+import { appI18n } from "@/i18n";
+import { createTestServices } from "@/test-support/app-services";
+import { deferred } from "@/test-support/chat-runtime";
+import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { ProjectEditRoute } from "./ProjectEditRoute";
 
-interface MetadataState {
-  data: ProjectEdit | undefined;
-  error: Error | null;
-  isError: boolean;
-  isPending: boolean;
-  refetch: ReturnType<typeof vi.fn>;
-}
-
-interface CatalogState {
-  data: Readonly<{ pages: readonly WorkspaceCatalogPage[]; pageParams: readonly number[] }> | undefined;
-  error: Error | null;
-  fetchNextPage: ReturnType<typeof vi.fn>;
-  fetchPreviousPage: ReturnType<typeof vi.fn>;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-  isError: boolean;
-  isFetchNextPageError: boolean;
-  isFetchingNextPage: boolean;
-  isFetchingPreviousPage: boolean;
-  isFetchPreviousPageError: boolean;
-  isPending: boolean;
-  refetch: ReturnType<typeof vi.fn>;
-}
-
+const project = { displayName: "Kent", projectID: "project-1", projectKey: "KNT" };
+const workspace = { id: "workspace-1", isDefault: false, name: "One", rootPath: "/one" };
+let services: ReturnType<typeof createTestServices>;
+let client: QueryClient;
+let getMetadata: MockInstance<ApiService["getProjectEdit"]>;
+let listWorkspaces: MockInstance<ApiService["listWorkspaces"]>;
 const statusPush = vi.hoisted(() => vi.fn());
-const project = vi.hoisted(() => ({
-  displayName: "Kent",
-  projectID: "project-1",
-  projectKey: "KNT",
-}));
-const metadataState = vi.hoisted((): MetadataState => ({
-  data: project,
-  error: null,
-  isError: false,
-  isPending: false,
-  refetch: vi.fn(async () => undefined),
-}));
-const catalogState = vi.hoisted((): CatalogState => ({
-  data: {
-    pages: [{ projectID: "project-1", offset: 0, workspaces: [], nextOffset: null }],
-    pageParams: [0],
-  },
-  error: null,
-  fetchNextPage: vi.fn(async () => undefined),
-  fetchPreviousPage: vi.fn(async () => undefined),
-  hasNextPage: false,
-  hasPreviousPage: false,
-  isError: false,
-  isFetchNextPageError: false,
-  isFetchingNextPage: false,
-  isFetchingPreviousPage: false,
-  isFetchPreviousPageError: false,
-  isPending: false,
-  refetch: vi.fn(async () => undefined),
-}));
-const selectDirectory = vi.hoisted(() => vi.fn<() => Promise<{ path: string } | null>>(async () => null));
-const attachMutation = vi.hoisted(() => ({
-  isPending: false,
-  mutateAsync: vi.fn(),
-}));
 const sidebarBackWhen = vi.hoisted(() => vi.fn());
-const renderedList = vi.hoisted(
-  (): {
-    hasPreviousPage: boolean;
-    onLoadPrevious: (() => void) | undefined;
-  } => ({ hasPreviousPage: false, onLoadPrevious: undefined }),
-);
-
-vi.mock("@tanstack/react-query", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useInfiniteQuery: () => catalogState,
-}));
+const openHome = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
-  useAppServices: () => ({
-    nativeBridge: {
-      capabilities: { dialogWindows: false },
-      directories: { selectDirectory },
-      projectWorkspace: {
-        onChanged: vi.fn(async () => () => undefined),
-        onUnlinkRequested: vi.fn(async () => () => undefined),
-      },
-    },
-  }),
-  useConnectionSnapshot: () => ({ phase: "connected" }),
+  useAppServices: () => services,
+  useAppNavigation: () => ({ openHome }),
   useNativeDialogFallback: () => ({ fallback: null, open: vi.fn(async () => undefined) }),
   usePublishSidebarHeaderAction: () => undefined,
   useSidebarBackWhen: sidebarBackWhen,
   useSidebarHeaderOffset: () => 0,
   useStatusController: () => ({ push: statusPush }),
-  useTextFieldSubmitShortcut: () => vi.fn(),
   useWindowChromeTitle: () => undefined,
 }));
 
-vi.mock("./useProjectEditData", () => {
-  const mutation = () => ({ isPending: false, mutateAsync: vi.fn(async () => undefined) });
-  return {
-    useProjectDefaultWorkspaceSave: mutation,
-    useProjectEdit: () => metadataState,
-    useProjectSave: mutation,
-    useProjectWorkspaceAttach: () => attachMutation,
-    useProjectWorkspaceChangedEvents: () => undefined,
-    useProjectWorkspaceUnlink: mutation,
-    useProjectWorkspaceUnlinkRequests: () => undefined,
-  };
-});
-
-vi.mock("./ProjectEditParts", () => ({
-  ProjectKeyField: ({
-    keyDraft,
-    onKeyChange,
-  }: Readonly<{ keyDraft: string; onKeyChange(value: string): void }>) => (
-    <input
-      aria-label="project-key"
-      onChange={(event) => {
-        onKeyChange(event.target.value);
-      }}
-      value={keyDraft}
-    />
-  ),
-  ProjectNameField: ({
-    nameDraft,
-    onNameChange,
-  }: Readonly<{ nameDraft: string; onNameChange(value: string): void }>) => (
-    <input
-      aria-label="project-name"
-      onChange={(event) => {
-        onNameChange(event.target.value);
-      }}
-      value={nameDraft}
-    />
-  ),
-  WorkspaceRow: ({
-    disabled,
-    onMakeDefault,
-    onUnlink,
-    workspace,
-  }: Readonly<{
-    disabled: boolean;
-    onMakeDefault(): void;
-    onUnlink(): void;
-    workspace: { id: string };
-  }>) => (
-    <span>
-      {workspace.id}
-      <button disabled={disabled} onClick={onMakeDefault}>
-        default-{workspace.id}
-      </button>
-      <button disabled={disabled} onClick={onUnlink}>
-        unlink-{workspace.id}
-      </button>
-    </span>
-  ),
-  WorkspaceUnlinkFallbackDialog: () => null,
-  workspaceUnlinkDialogWidth: 400,
-}));
-
-vi.mock("@/ui", () => ({
-  Button: ({ children, ...props }: Readonly<{ children: ReactNode; [key: string]: unknown }>) => (
-    <button {...props}>{children}</button>
-  ),
-  ErrorState: ({ onRetry, title }: Readonly<{ onRetry(): void; title: string }>) => (
-    <button aria-label={`retry-${title}`} onClick={onRetry}>
-      retry
-    </button>
-  ),
-  HelpHint: () => null,
-  LoadingState: () => null,
+vi.mock("@/ui", async (importOriginal) => ({
+  ...(await importOriginal()),
   VirtualizedInfiniteList: (
     props: Readonly<{
       empty?: ReactNode;
       header: ReactNode;
-      items: readonly { workspace: { id: string } }[];
-      nextBoundary?: Readonly<{ state: "error"; onRetry(): void }>;
-      previousBoundary?: Readonly<{ state: "error"; onRetry(): void }>;
-      hasPreviousPage?: boolean;
-      onLoadPrevious?: () => void;
-      renderItem(item: { workspace: { id: string } }): ReactNode;
+      items: readonly { occurrenceKey: string; workspace: WorkspaceCatalogRow }[];
+      nextBoundary?: Readonly<{ state: string; onRetry?: () => void }>;
+      previousBoundary?: Readonly<{ state: string; onRetry?: () => void }>;
+      hasPreviousPage: boolean;
+      hasNextPage: boolean;
+      onLoadPrevious(): void;
+      onLoadMore(): void;
+      renderItem(item: { occurrenceKey: string; workspace: WorkspaceCatalogRow }): ReactNode;
     }>,
-  ) => {
-    renderedList.hasPreviousPage = props.hasPreviousPage ?? false;
-    renderedList.onLoadPrevious = props.onLoadPrevious;
-    return (
-      <>
-        {props.header}
-        {props.items.map((item, index) => (
-          <span key={`${item.workspace.id}-${String(index)}`}>{props.renderItem(item)}</span>
-        ))}
-        {props.items.length === 0 ? props.empty : null}
-        {props.nextBoundary?.state === "error" ? (
-          <button onClick={props.nextBoundary.onRetry}>retry</button>
-        ) : null}
-        {props.previousBoundary?.state === "error" ? (
-          <button onClick={props.previousBoundary.onRetry}>retry-previous</button>
-        ) : null}
-      </>
-    );
-  },
+  ) => (
+    <>
+      {props.header}
+      {props.items.map((item) => (
+        <span key={item.occurrenceKey}>{props.renderItem(item)}</span>
+      ))}
+      {props.items.length === 0 ? props.empty : null}
+      {props.hasNextPage ? <button onClick={props.onLoadMore}>next-edge</button> : null}
+      {props.hasPreviousPage ? <button onClick={props.onLoadPrevious}>previous-edge</button> : null}
+      {props.nextBoundary?.state === "error" ? (
+        <button onClick={props.nextBoundary.onRetry}>retry-edge</button>
+      ) : null}
+      {props.previousBoundary?.state === "error" ? (
+        <button onClick={props.previousBoundary.onRetry}>retry-previous</button>
+      ) : null}
+    </>
+  ),
 }));
 
-describe("ProjectEditRoute sidebar header composition", () => {
-  beforeEach(() => {
-    statusPush.mockClear();
-    selectDirectory.mockReset();
-    selectDirectory.mockResolvedValue(null);
-    attachMutation.mutateAsync.mockClear();
-    attachMutation.mutateAsync.mockResolvedValue({ binding: {}, outcome: "attached" });
-    metadataState.data = project;
-    metadataState.error = null;
-    metadataState.isError = false;
-    metadataState.isPending = false;
-    metadataState.refetch.mockClear();
-    catalogState.data = {
-      pages: [{ projectID: "project-1", offset: 0, workspaces: [], nextOffset: null }],
-      pageParams: [0],
-    };
-    catalogState.error = null;
-    catalogState.hasNextPage = false;
-    catalogState.hasPreviousPage = false;
-    catalogState.isError = false;
-    catalogState.isFetchNextPageError = false;
-    catalogState.isFetchingNextPage = false;
-    catalogState.isFetchingPreviousPage = false;
-    catalogState.isFetchPreviousPageError = false;
-    catalogState.isPending = false;
-    catalogState.refetch.mockClear();
-    catalogState.fetchNextPage.mockClear();
-    catalogState.fetchPreviousPage.mockClear();
-    sidebarBackWhen.mockClear();
-    renderedList.hasPreviousPage = false;
-    renderedList.onLoadPrevious = undefined;
+function mount(navigator?: ReturnType<typeof createTestSidebarNavigator>) {
+  return render(
+    <ProjectEditRoute projectId={project.projectID} {...(navigator === undefined ? {} : { navigator })} />,
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <RegistryProvider>
+            <AppServicesProvider services={services}>{children}</AppServicesProvider>
+          </RegistryProvider>
+        </QueryClientProvider>
+      ),
+    },
+  );
+}
+
+function seedCatalog(pages: readonly WorkspaceCatalogPage[]) {
+  client.setQueryData(queryKeys.projectWorkspaceCatalog(project.projectID), {
+    pages,
+    pageParams: pages.map((page) => page.offset),
   });
+}
 
-  it("keeps metadata editable and Attach available while the first catalog page owns Retry", () => {
-    catalogState.data = undefined;
-    catalogState.error = new Error("catalog failed");
-    catalogState.isError = true;
-
-    render(<ProjectEditRoute projectId="project-1" />);
-
-    expect(screen.getByRole("textbox", { name: "project-name" })).toHaveValue("Kent");
-    expect(screen.getByRole("button", { name: "projectEdit.attachWorkspace" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "retry-projectEdit.workspaces" }));
-    expect(catalogState.refetch).toHaveBeenCalledOnce();
-    expect(metadataState.refetch).not.toHaveBeenCalled();
+beforeEach(() => {
+  services = createTestServices([]);
+  getMetadata = vi.spyOn(services.api, "getProjectEdit").mockResolvedValue(project);
+  listWorkspaces = vi.spyOn(services.api, "listWorkspaces").mockResolvedValue({
+    projectID: project.projectID,
+    offset: 0,
+    workspaces: [],
+    nextOffset: null,
   });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(queryKeys.projectEdit(project.projectID), project);
+  statusPush.mockClear();
+  sidebarBackWhen.mockClear();
+});
 
-  it("keeps loaded Workspace actions while metadata owns Retry", () => {
-    metadataState.data = undefined;
-    metadataState.error = new Error("metadata failed");
-    metadataState.isError = true;
-    catalogState.data = {
-      pages: [
-        {
-          projectID: "project-1",
-          offset: 0,
-          workspaces: [{ id: "workspace-1", isDefault: false, name: "One", rootPath: "/one" }],
-          nextOffset: null,
-        },
-      ],
-      pageParams: [0],
-    };
-    render(<ProjectEditRoute projectId="project-1" />);
-    expect(screen.getByRole("button", { name: "retry-states.error" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "projectEdit.attachWorkspace" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "default-workspace-1" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "unlink-workspace-1" })).toBeEnabled();
-    expect(screen.getByText("workspace-1")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "retry-states.error" }));
-    expect(metadataState.refetch).toHaveBeenCalledOnce();
-    expect(catalogState.refetch).not.toHaveBeenCalled();
+it("keeps metadata editable and Attach available while the first catalog page owns Retry", async () => {
+  listWorkspaces.mockRejectedValue(new Error("Catalog failed"));
+  mount();
+  expect(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") })).toHaveValue("Kent");
+  expect(screen.getByRole("button", { name: appI18n.t("projectEdit.attachWorkspace") })).toBeEnabled();
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("app.retry") }));
+  await waitFor(() => {
+    expect(listWorkspaces).toHaveBeenCalledTimes(2);
   });
+  expect(getMetadata).not.toHaveBeenCalled();
+});
 
-  it("hydrates metadata drafts when the pending Project read completes", () => {
-    metadataState.data = undefined;
-    metadataState.isPending = true;
-    const view = render(<ProjectEditRoute projectId="project-1" />);
-
-    metadataState.data = project;
-    metadataState.isPending = false;
-    view.rerender(<ProjectEditRoute projectId="project-1" />);
-
-    expect(screen.getByRole("textbox", { name: "project-name" })).toHaveValue("Kent");
-    expect(screen.getByRole("textbox", { name: "project-key" })).toHaveValue("KNT");
+it("keeps loaded Workspace actions while metadata owns Retry", async () => {
+  client.removeQueries({ queryKey: queryKeys.projectEdit(project.projectID) });
+  getMetadata.mockRejectedValue(new Error("Metadata failed"));
+  seedCatalog([{ projectID: project.projectID, offset: 0, workspaces: [workspace], nextOffset: null }]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("app.retry") }));
+  expect(screen.getByRole("button", { name: appI18n.t("projectEdit.attachWorkspace") })).toBeEnabled();
+  expect(
+    screen.getByRole("button", { name: appI18n.t("projectEdit.makeDefaultWorkspace", { path: "/one" }) }),
+  ).toBeEnabled();
+  await waitFor(() => {
+    expect(getMetadata).toHaveBeenCalledTimes(2);
   });
+  expect(listWorkspaces).not.toHaveBeenCalled();
+});
 
-  it("preserves edited metadata drafts across later query refreshes", () => {
-    const view = render(<ProjectEditRoute projectId="project-1" />);
-    fireEvent.change(screen.getByRole("textbox", { name: "project-name" }), {
-      target: { value: "Kent Desktop" },
-    });
-    fireEvent.change(screen.getByRole("textbox", { name: "project-key" }), {
-      target: { value: "KTD" },
-    });
-
-    metadataState.data = { ...project, displayName: "Kent refreshed", projectKey: "NEW" };
-    view.rerender(<ProjectEditRoute projectId="project-1" />);
-
-    expect(screen.getByRole("textbox", { name: "project-name" })).toHaveValue("Kent Desktop");
-    expect(screen.getByRole("textbox", { name: "project-key" })).toHaveValue("KTD");
+it("hydrates metadata drafts when the pending read completes", async () => {
+  client.removeQueries({ queryKey: queryKeys.projectEdit(project.projectID) });
+  const pending = deferred<ProjectEdit>();
+  getMetadata.mockReturnValue(pending.promise);
+  mount();
+  await act(async () => {
+    pending.resolve(project);
+    await pending.promise;
   });
+  expect(await screen.findByRole("textbox", { name: appI18n.t("projectEdit.name") })).toHaveValue("Kent");
+});
 
-  it("treats catalog missing Project as Back", () => {
-    catalogState.error = new RpcError({
+it("preserves edited drafts across a recoverable metadata failure and explicit Retry", async () => {
+  mount();
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") }), {
+    target: { value: "Draft" },
+  });
+  getMetadata.mockRejectedValueOnce(new Error("Read failed"));
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: queryKeys.projectEdit(project.projectID) });
+  });
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("app.retry") }));
+  expect(await screen.findByRole("textbox", { name: appI18n.t("projectEdit.name") })).toHaveValue("Draft");
+});
+
+it("treats a missing Project from the catalog as Back", async () => {
+  listWorkspaces.mockRejectedValue(
+    new RpcError({
       code: rpcErrorCodes.projectNotFound,
       message: "gone",
       method: "project.workspace.list",
-    });
-    catalogState.isError = true;
-    const navigator = {
-      back: vi.fn(() => "accepted" as const),
-      close: vi.fn(() => "accepted" as const),
-      push: vi.fn(() => "accepted" as const),
-      replace: vi.fn(() => "accepted" as const),
-      registerAvailability: vi.fn(() => () => undefined),
-      registerCapture: vi.fn(() => () => undefined),
-    };
-    render(<ProjectEditRoute navigator={navigator} projectId="project-1" />);
+    }),
+  );
+  const navigator = createTestSidebarNavigator();
+  mount(navigator);
+  await waitFor(() => {
     expect(sidebarBackWhen).toHaveBeenCalledWith(true, navigator);
   });
+});
 
-  it("retains edge-failed rows and overlapping occurrence identity", () => {
-    catalogState.data = {
-      pages: [
-        {
-          projectID: "project-1",
-          offset: 0,
-          workspaces: [{ id: "same", isDefault: true, name: "Same", rootPath: "/same" }],
-          nextOffset: 100,
-        },
-        {
-          projectID: "project-1",
-          offset: 100,
-          workspaces: [{ id: "same", isDefault: false, name: "Same", rootPath: "/same" }],
-          nextOffset: null,
-        },
-      ],
-      pageParams: [0, 100],
-    };
-    catalogState.error = new Error("edge");
-    catalogState.hasNextPage = true;
-    catalogState.isFetchNextPageError = true;
-    render(<ProjectEditRoute projectId="project-1" />);
-    expect(screen.getAllByText("same")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "retry" }));
-    expect(catalogState.fetchNextPage).toHaveBeenCalledOnce();
+it("retains overlapping rows through a failed next edge and retries only that edge", async () => {
+  seedCatalog([
+    { projectID: project.projectID, offset: 0, workspaces: [workspace], nextOffset: 100 },
+    { projectID: project.projectID, offset: 100, workspaces: [workspace], nextOffset: 200 },
+  ]);
+  listWorkspaces.mockRejectedValue(new Error("Edge failed"));
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "next-edge" }));
+  fireEvent.click(await screen.findByRole("button", { name: "retry-edge" }));
+  await waitFor(() => {
+    expect(listWorkspaces).toHaveBeenCalledTimes(2);
   });
+  expect(listWorkspaces).toHaveBeenLastCalledWith(project.projectID, 200);
+  expect(
+    screen.getAllByRole("button", { name: appI18n.t("projectEdit.makeDefaultWorkspace", { path: "/one" }) }),
+  ).toHaveLength(2);
+});
 
-  it("exposes the previous edge after the oldest retained Workspace page is evicted", () => {
-    catalogState.data = {
-      pages: [
-        {
-          projectID: "project-1",
-          offset: 200,
-          workspaces: [{ id: "retained", isDefault: false, name: "Retained", rootPath: "/retained" }],
-          nextOffset: 300,
-        },
-      ],
-      pageParams: [200],
-    };
-    catalogState.hasPreviousPage = true;
-    render(<ProjectEditRoute projectId="project-1" />);
-
-    expect(renderedList.hasPreviousPage).toBe(true);
-    renderedList.onLoadPrevious?.();
-    expect(catalogState.fetchPreviousPage).toHaveBeenCalledOnce();
-  });
-
-  it("always sends Attach and reports already-attached without changing retained rows", async () => {
-    catalogState.data = {
-      pages: [
-        {
-          projectID: "project-1",
-          offset: 0,
-          workspaces: [{ id: "retained", isDefault: true, name: "Retained", rootPath: "/retained" }],
-          nextOffset: 100,
-        },
-      ],
-      pageParams: [0],
-    };
-    selectDirectory.mockResolvedValue({ path: "/buried" });
-    attachMutation.mutateAsync.mockResolvedValue({
-      binding: { projectID: "project-1", workspaceID: "buried" },
-      outcome: "already_attached",
+it("traverses at most four retained pages and exposes the previous edge after eviction", async () => {
+  listWorkspaces.mockImplementation(async (_id, offset = 0) => ({
+    projectID: project.projectID,
+    offset,
+    nextOffset: offset + 100,
+    workspaces: [{ ...workspace, id: `workspace-${offset.toString()}` }],
+  }));
+  mount();
+  for (let page = 0; page < 5; page++) {
+    fireEvent.click(await screen.findByRole("button", { name: "next-edge" }));
+    await waitFor(() => {
+      expect(listWorkspaces).toHaveBeenCalledTimes(page + 2);
     });
-    render(<ProjectEditRoute projectId="project-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "projectEdit.attachWorkspace" }));
-    await vi.waitFor(() => {
-      expect(attachMutation.mutateAsync).toHaveBeenCalledWith("/buried");
-    });
-
-    expect(statusPush).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: "projectEdit.workspaceAlreadyLinked",
-        tone: "success",
-      }),
-    );
+  }
+  const retained = client.getQueryData<{ pages: WorkspaceCatalogPage[] }>(
+    queryKeys.projectWorkspaceCatalog(project.projectID),
+  );
+  expect(retained?.pages).toHaveLength(4);
+  expect(retained?.pages[0]?.offset).toBe(200);
+  fireEvent.click(screen.getByRole("button", { name: "previous-edge" }));
+  await waitFor(() => {
+    expect(listWorkspaces).toHaveBeenLastCalledWith(project.projectID, 100);
   });
+});
+
+it("renders cached content immediately on return but discards unsaved drafts", async () => {
+  seedCatalog([{ projectID: project.projectID, offset: 0, workspaces: [workspace], nextOffset: null }]);
+  const view = mount();
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") }), {
+    target: { value: "Draft" },
+  });
+  view.unmount();
+  mount();
+  expect(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") })).toHaveValue(
+    project.displayName,
+  );
+  expect(
+    screen.getByRole("button", { name: appI18n.t("projectEdit.makeDefaultWorkspace", { path: "/one" }) }),
+  ).toBeEnabled();
+  expect(listWorkspaces).not.toHaveBeenCalled();
 });

@@ -16,6 +16,18 @@ _apps-dependencies:
 _apps-dependencies-implementation:
     just _node
     pnpm --dir apps install --frozen-lockfile
+    just install _effect-compiler
+
+# Resolve intentional manifest changes under the workspace dependency policy.
+apps-lock:
+    just _node
+    node apps/scripts/check-dependency-policy.mjs
+    pnpm --dir apps install --no-frozen-lockfile
+    just install _effect-compiler
+
+[private]
+_effect-compiler:
+    pnpm --dir apps/desktop exec effect-tsgo patch --typescript --typescript-package typescript7
 
 [private]
 _docs-dependencies:
