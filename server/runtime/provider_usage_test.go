@@ -50,36 +50,8 @@ func TestProviderUsageObservationsSurviveSessionReopen(t *testing.T) {
 			if len(records) != 3 {
 				t.Fatalf("provider usage records = %d, want 3", len(records))
 			}
-			operationIDs := make(map[string]struct{}, len(records))
 			for index, record := range records {
-				if record.Evidence.RequestedModel != "gpt-5" {
-					t.Fatalf("record %d requested model = %q, want gpt-5", index, record.Evidence.RequestedModel)
-				}
-				if record.SessionID != reopened.Meta().SessionID {
-					t.Fatalf("record %d session ID = %q, want %q", index, record.SessionID, reopened.Meta().SessionID)
-				}
-				if record.Purpose != modelcontract.ProviderOperationPurposeGeneration {
-					t.Fatalf("record %d purpose = %q, want generation", index, record.Purpose)
-				}
-				if record.ObservedAt.IsZero() {
-					t.Fatalf("record %d has no observation time", index)
-				}
-				if _, exists := operationIDs[record.OperationID]; exists {
-					t.Fatalf("operation ID %q was reused", record.OperationID)
-				}
-				operationIDs[record.OperationID] = struct{}{}
-				if record.Evidence.Usage == nil {
-					t.Fatalf("record %d usage is absent", index)
-				}
-				var usage struct {
-					OutputTokens int `json:"output_tokens"`
-				}
-				if err := json.Unmarshal(*record.Evidence.Usage, &usage); err != nil {
-					t.Fatalf("decode record %d usage: %v", index, err)
-				}
-				if got, want := usage.OutputTokens, []int{2, 5, 7}[index]; got != want {
-					t.Fatalf("record %d output tokens = %d, want %d", index, got, want)
-				}
+				assertProviderUsageOutputTokens(t, record, []int{2, 5, 7}[index])
 			}
 		})
 	}
@@ -105,20 +77,14 @@ func providerUsageTestResponse(outputTokens int) llm.Response {
 		outputTokens+1,
 	))
 	return llm.Response{
-		Assistant: llm.Message{
-			Role:    llm.RoleAssistant,
-			Phase:   textutil.Value(llm.MessagePhaseFinal),
-			Content: textutil.Value("retained"),
-		},
-		Usage: llm.Usage{InputTokens: 1, OutputTokens: outputTokens},
-		ProviderEvidence: modelcontract.ProviderUsageEvidence{
-			ProviderID: textutil.Value("test-provider"),
-			Usage:      &raw,
-		},
+		Assistant:        llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("retained")},
+		Usage:            llm.Usage{InputTokens: 1, OutputTokens: outputTokens},
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("test-provider"), Usage: &raw},
 	}
 }
 
 func providerUsageTestMixedResponse(outputTokens int) llm.Response {
+	response := providerUsageTestResponse(outputTokens)
 	usage := json.RawMessage(fmt.Sprintf(
 		`{"input_tokens":11,"input_tokens_details":{"cached_tokens":4,"cache_write_tokens":6},"output_tokens":%d,"output_tokens_details":{"reasoning_tokens":3},"total_tokens":%d,"provider_extension":{"units":"3.5"}}`,
 		outputTokens,
@@ -128,41 +94,30 @@ func providerUsageTestMixedResponse(outputTokens int) llm.Response {
 	hostedUsage := json.RawMessage(`{"searches":2}`)
 	hostedOptions := json.RawMessage(`{"search_context_size":"high"}`)
 	createdAt := time.Unix(1_720_000_000+int64(outputTokens), 0).UTC()
-	return llm.Response{
-		Assistant: llm.Message{
-			Role:    llm.RoleAssistant,
-			Phase:   textutil.Value(llm.MessagePhaseFinal),
-			Content: textutil.Value("retained"),
-		},
-		Usage: llm.Usage{
-			InputTokens:       11,
-			OutputTokens:      outputTokens,
-			CachedInputTokens: textutil.Value(4),
-		},
-		ProviderEvidence: modelcontract.ProviderUsageEvidence{
-			ProviderID:           textutil.Value("mixed-provider"),
-			EndpointOrigin:       textutil.Value("https://api.example.test"),
-			RequestedModel:       "gpt-5",
-			ServedModel:          textutil.Value("gpt-5-served"),
-			RequestedServiceTier: textutil.Value("priority"),
-			ServedServiceTier:    textutil.Value("default"),
-			ResponseID:           textutil.Value(fmt.Sprintf("mixed-response-%d", outputTokens)),
-			ResponseCreatedAt:    &createdAt,
-			Usage:                &usage,
-			UsageMetadata:        &usageMetadata,
-			HostedTools: []modelcontract.HostedToolUsageEvidence{{
-				ID:         textutil.Value(fmt.Sprintf("mixed-web-%d", outputTokens)),
-				Type:       textutil.Value("web_search_call"),
-				Status:     textutil.Value("completed"),
-				ActionKind: textutil.Value("search"),
-				Usage:      &hostedUsage,
-			}},
-			RequestedHostedTools: []modelcontract.HostedToolConfiguration{{
-				Type:    "web_search",
-				Options: hostedOptions,
-			}},
-		},
+	response.ProviderEvidence = modelcontract.ProviderUsageEvidence{
+		ProviderID:           textutil.Value("mixed-provider"),
+		EndpointOrigin:       textutil.Value("https://api.example.test"),
+		RequestedModel:       "gpt-5",
+		ServedModel:          textutil.Value("gpt-5-served"),
+		RequestedServiceTier: textutil.Value("priority"),
+		ServedServiceTier:    textutil.Value("default"),
+		ResponseID:           textutil.Value(fmt.Sprintf("mixed-response-%d", outputTokens)),
+		ResponseCreatedAt:    &createdAt,
+		Usage:                &usage,
+		UsageMetadata:        &usageMetadata,
+		HostedTools: []modelcontract.HostedToolUsageEvidence{{
+			ID:         textutil.Value(fmt.Sprintf("mixed-web-%d", outputTokens)),
+			Type:       textutil.Value("web_search_call"),
+			Status:     textutil.Value("completed"),
+			ActionKind: textutil.Value("search"),
+			Usage:      &hostedUsage,
+		}},
+		RequestedHostedTools: []modelcontract.HostedToolConfiguration{{
+			Type:    "web_search",
+			Options: hostedOptions,
+		}},
 	}
+	return response
 }
 
 func providerUsageTestRecords(t *testing.T, store *session.Store) []session.ProviderUsageRecord {

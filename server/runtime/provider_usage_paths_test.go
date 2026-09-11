@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -14,74 +13,27 @@ import (
 	"core/shared/textutil"
 )
 
-func TestProviderUsageRecordsReviewerAndRemoteCompactionOperations(t *testing.T) {
-	t.Run("Reviewer", func(t *testing.T) {
-		store := mustCreateTestSession(t)
-		client := &fakeClient{responses: []llm.Response{
-			providerUsageTestResponse(11),
-		}}
-		engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-			Model: "gpt-5",
-			Reviewer: ReviewerConfig{
-				Model: "gpt-5",
-			},
-		})
-		if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), engine, "reviewer-usage", client); err != nil {
-			t.Fatalf("run Reviewer: %v", err)
-		}
-
-		records := providerUsageTestRecords(t, store)
-		if len(records) != 1 || records[0].Purpose != modelcontract.ProviderOperationPurposeReviewer {
-			t.Fatalf("Reviewer usage records = %+v", records)
-		}
+func TestProviderUsageRecordsReviewerOperations(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(11)}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"},
 	})
-
-	t.Run("remote compaction", func(t *testing.T) {
-		store := mustCreateTestSession(t)
-		checkpoint := remoteCompactionReplacement(9, 4, 200_000)
-		client := &fakeCompactionClient{
-			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint:       checkpoint.Checkpoint,
-				Usage:            llm.Usage{InputTokens: 9, OutputTokens: 4},
-				ProviderEvidence: providerUsageTestResponse(4).ProviderEvidence,
-			}},
-		}
-		engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-			Model:          "gpt-5",
-			CompactionMode: "native",
-		})
-		if err := steerTestActiveStep(engine, "compaction-input", steerMessagesWithPersistenceIntent(
-			steeringPriorityNormal,
-			steeringMessageEventNone,
-			true,
-			[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact this")}},
-		)); err != nil {
-			t.Fatalf("persist compaction input: %v", err)
-		}
-		if _, receipt, err := compactNowInActiveTestRun(t, engine, compactionModeManual, compactionInstructionsInput{}); err != nil || !receipt.Committed {
-			t.Fatalf("remote compaction: receipt=%+v error=%v", receipt, err)
-		}
-
-		records := providerUsageTestRecords(t, store)
-		if len(records) != 1 || records[0].Purpose != modelcontract.ProviderOperationPurposeCompaction {
-			t.Fatalf("remote compaction usage records = %+v", records)
-		}
-	})
+	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), engine, "reviewer-usage", client); err != nil {
+		t.Fatalf("run Reviewer: %v", err)
+	}
+	records := providerUsageTestRecords(t, store)
+	if len(records) != 1 || records[0].Purpose != modelcontract.ProviderOperationPurposeReviewer {
+		t.Fatalf("Reviewer usage records = %+v", records)
+	}
 }
 
 func TestProviderUsageRecordsLocalCompactionAsCompaction(t *testing.T) {
 	store := mustCreateTestSession(t)
-	client := &fakeClient{responses: []llm.Response{
-		providerUsageTestResponse(13),
-	}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-	})
+	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(13)}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", CompactionMode: "local"})
 	if err := steerTestActiveStep(engine, "local-compaction-input", steerMessagesWithPersistenceIntent(
-		steeringPriorityNormal,
-		steeringMessageEventNone,
-		true,
+		steeringPriorityNormal, steeringMessageEventNone, true,
 		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact locally")}},
 	)); err != nil {
 		t.Fatalf("persist local compaction input: %v", err)
@@ -99,20 +51,10 @@ func TestProviderUsageRecordsLocalCompactionAsCompaction(t *testing.T) {
 func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
-		responses: []llm.Response{
-			providerUsageTestMixedResponse(2),
-			providerUsageTestMixedResponse(5),
-		},
-		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint:       remoteCompactionReplacement(9, 4, 200_000).Checkpoint,
-			Usage:            llm.Usage{InputTokens: 9, OutputTokens: 4},
-			ProviderEvidence: providerUsageTestMixedResponse(7).ProviderEvidence,
-		}},
+		responses:           []llm.Response{providerUsageTestMixedResponse(2), providerUsageTestMixedResponse(5)},
+		compactionResponses: []llm.CompactionResponse{{Checkpoint: remoteCompactionReplacement(9, 4, 200_000).Checkpoint, Usage: llm.Usage{InputTokens: 9, OutputTokens: 4}, ProviderEvidence: providerUsageTestMixedResponse(7).ProviderEvidence}},
 	}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
-		CompactionMode: "native",
-	})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", CompactionMode: "native"})
 	request := providerUsageTestRequest(store.Meta().SessionID, false)
 	for index := 0; index < 2; index++ {
 		if _, err := generateTestActiveStep(context.Background(), engine, "before-compaction", client, request); err != nil {
@@ -146,36 +88,18 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 	if len(records) != 3 {
 		t.Fatalf("provider usage records after compaction/reopen = %d, want 3", len(records))
 	}
-	for index, before := range beforeCompactionRecords {
-		if records[index].OperationID != before.OperationID || records[index].SessionID != before.SessionID {
-			t.Fatalf("record %d identity after compaction/reopen = %+v, want %+v", index, records[index], before)
-		}
-		if !reflect.DeepEqual(records[index].Evidence, before.Evidence) {
-			t.Fatalf("record %d evidence after compaction/reopen = %+v, want %+v", index, records[index].Evidence, before.Evidence)
-		}
+	if !reflect.DeepEqual(records[:2], beforeCompactionRecords) {
+		t.Fatalf("ordinary provider records changed across compaction/reopen: got=%+v want=%+v", records[:2], beforeCompactionRecords)
 	}
-	operationIDs := make(map[string]struct{}, len(records))
-	expectedOutputTokens := []int{2, 5, 7}
-	for index, record := range records {
-		if _, exists := operationIDs[record.OperationID]; exists {
-			t.Fatalf("operation ID %q was reused", record.OperationID)
-		}
-		operationIDs[record.OperationID] = struct{}{}
-		var usage struct {
-			OutputTokens int `json:"output_tokens"`
-		}
-		if record.Evidence.Usage == nil {
-			t.Fatalf("record %d usage is absent", index)
-		}
-		if err := json.Unmarshal(*record.Evidence.Usage, &usage); err != nil {
-			t.Fatalf("decode record %d usage: %v", index, err)
-		}
-		if got, want := usage.OutputTokens, expectedOutputTokens[index]; got != want {
-			t.Fatalf("record %d output tokens = %d, want %d", index, got, want)
-		}
-		expectedEvidence := providerUsageTestMixedResponse(expectedOutputTokens[index]).ProviderEvidence
-		if !reflect.DeepEqual(record.Evidence, expectedEvidence) {
-			t.Fatalf("record %d mixed evidence = %+v, want %+v", index, record.Evidence, expectedEvidence)
+	if records[0].OperationID == records[1].OperationID ||
+		records[0].OperationID == records[2].OperationID ||
+		records[1].OperationID == records[2].OperationID {
+		t.Fatal("provider operation IDs were reused")
+	}
+	for index, outputTokens := range []int{2, 5, 7} {
+		expectedEvidence := providerUsageTestMixedResponse(outputTokens).ProviderEvidence
+		if !reflect.DeepEqual(records[index].Evidence, expectedEvidence) {
+			t.Fatalf("record %d mixed evidence = %+v, want %+v", index, records[index].Evidence, expectedEvidence)
 		}
 	}
 	if records[0].Purpose != modelcontract.ProviderOperationPurposeGeneration ||
@@ -208,24 +132,13 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 
 	t.Run("fork preserves source identity", func(t *testing.T) {
 		parent := mustCreateTestSession(t)
-		if _, _, err := appendTestEvent(t, parent, "fork-input", llm.Message{
-			Role:    llm.RoleUser,
-			Content: textutil.Value("fork me"),
-		}); err != nil {
-			t.Fatalf("append fork input: %v", err)
+		sourceClient := &fakeClient{responses: []llm.Response{providerUsageTestResponse(19)}}
+		sourceEngine := mustNewTestEngine(t, parent, sourceClient, tools.NewRegistry(), Config{Model: "gpt-5"})
+		if _, err := generateTestActiveStep(context.Background(), sourceEngine, "fork-source", sourceClient, providerUsageTestRequest(parent.Meta().SessionID, false)); err != nil {
+			t.Fatalf("generate source usage: %v", err)
 		}
-		sourceEvidence := providerUsageTestResponse(19).ProviderEvidence
-		sourceEvidence.RequestedModel = "gpt-5"
-		usageRecord, err := sessionProviderUsageRecordFromRuntime(
-			parent.Meta().SessionID,
-			modelcontract.ProviderOperationPurposeGeneration,
-			sourceEvidence,
-		)
-		if err != nil {
-			t.Fatalf("build source usage record: %v", err)
-		}
-		if _, _, err := mustMaterializeTestEventLog(t, parent).AppendRecord(nil, usageRecord); err != nil {
-			t.Fatalf("append source usage record: %v", err)
+		if err := sourceEngine.Close(); err != nil {
+			t.Fatalf("close source session: %v", err)
 		}
 
 		child, err := session.CloneSession(
