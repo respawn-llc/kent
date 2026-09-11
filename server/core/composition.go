@@ -433,6 +433,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		chatTargets,
 		chatRuntimes,
 		runtimeControlService,
+		runtimeControlService,
 	)
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
 		binding, err := metadataStore.EnsureWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)

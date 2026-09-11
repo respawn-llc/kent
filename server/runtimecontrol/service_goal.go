@@ -57,6 +57,7 @@ func (s *Service) SetGoal(ctx context.Context, req *runtimepb.GoalSetRequest) (*
 		kind:      goalMutationSet,
 		Objective: strings.TrimSpace(req.Objective),
 		Actor:     session.GoalActor(strings.TrimSpace(req.Actor)),
+		StartLoop: req.ExecutionPolicy != serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState,
 	}
 	return s.mutateGoal(ctx, sessionID, req.GetRunId(), req.GetStepId(), mutation)
 }
@@ -119,6 +120,7 @@ type goalMutation struct {
 	Objective string
 	Status    session.GoalStatus
 	Actor     session.GoalActor
+	StartLoop bool
 }
 
 func (s *Service) mutateGoal(
@@ -243,10 +245,13 @@ func applyLiveGoalMutation(ctx context.Context, engine *runtime.Engine, mutation
 		if err := engine.ValidateGoalSet(mutation.Objective, mutation.Actor); err != nil {
 			return runtime.GoalCommandResult{}, err
 		}
-		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
-			return runtime.GoalCommandResult{}, err
+		if mutation.StartLoop {
+			if err := engine.RequireGoalLoopStartAllowed(); err != nil {
+				return runtime.GoalCommandResult{}, err
+			}
+			return engine.SetGoalAndStartLoop(ctx, mutation.Objective, mutation.Actor)
 		}
-		return engine.SetGoalAndStartLoop(ctx, mutation.Objective, mutation.Actor)
+		return engine.SetGoal(ctx, mutation.Objective, mutation.Actor)
 	case goalMutationStatus:
 		if mutation.Status == session.GoalStatusActive {
 			return engine.SetGoalStatusAndStartLoop(ctx, mutation.Status, mutation.Actor)
