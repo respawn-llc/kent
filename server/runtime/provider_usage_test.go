@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"core/server/llm"
 	"core/server/session"
@@ -13,6 +12,7 @@ import (
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
+	"time"
 )
 
 func TestProviderUsageObservationsSurviveSessionReopen(t *testing.T) {
@@ -96,7 +96,6 @@ func providerUsageTestMixedResponse(outputTokens int) llm.Response {
 	createdAt := time.Unix(1_720_000_000+int64(outputTokens), 0).UTC()
 	response.ProviderEvidence = modelcontract.ProviderUsageEvidence{
 		ProviderID:           textutil.Value("mixed-provider"),
-		EndpointOrigin:       textutil.Value("https://api.example.test"),
 		RequestedModel:       "gpt-5",
 		ServedModel:          textutil.Value("gpt-5-served"),
 		RequestedServiceTier: textutil.Value("priority"),
@@ -120,21 +119,21 @@ func providerUsageTestMixedResponse(outputTokens int) llm.Response {
 	return response
 }
 
-func providerUsageTestRecords(t *testing.T, store *session.Store) []session.ProviderUsageRecord {
+func providerUsageTestRecords(t *testing.T, store *session.Store) []modelcontract.ProviderUsageEvidence {
 	t.Helper()
 	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(64)
 	if err != nil {
 		t.Fatalf("read recent event records: %v", err)
 	}
-	records := make([]session.ProviderUsageRecord, 0, len(window.Records))
+	records := make([]modelcontract.ProviderUsageEvidence, 0, len(window.Records))
 	for _, event := range window.Records {
 		payload, err := event.Payload()
 		if err != nil {
 			t.Fatalf("decode event payload: %v", err)
 		}
-		record, ok := payload.(session.ProviderUsageRecord)
-		if ok {
-			records = append(records, record)
+		record, ok := payload.(session.CacheResponseObservationRecord)
+		if ok && record.ProviderUsage != nil {
+			records = append(records, record.ProviderUsage.Clone())
 		}
 	}
 	return records

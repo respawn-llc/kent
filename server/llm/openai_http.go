@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -215,7 +214,6 @@ func responseFromStreamAccumulator(
 	response.ServedModel = servedModelMetadata(rawResp, optionalStringValue(response.ServedModel))
 	response.ReasoningIncluded = reasoningIncludedMetadata(rawResp)
 	response.ProviderEvidence.ProviderID = requestEvidence.ProviderID
-	response.ProviderEvidence.EndpointOrigin = requestEvidence.EndpointOrigin
 	response.ProviderEvidence.RequestedModel = requestEvidence.RequestedModel
 	response.ProviderEvidence.RequestedServiceTier = requestEvidence.RequestedServiceTier
 	response.ProviderEvidence.RequestedHostedTools = requestEvidence.RequestedHostedTools
@@ -233,11 +231,6 @@ func (t *HTTPTransport) providerUsageRequestEvidence(
 	evidence := modelcontract.ProviderUsageEvidence{
 		ProviderID:     textutil.Value(preparation.providerCaps.ProviderID),
 		RequestedModel: request.Model,
-	}
-	if parsed, err := url.Parse(t.serviceBaseURL(preparation.mode)); err == nil &&
-		parsed.Scheme != "" && parsed.Host != "" {
-		origin := parsed.Scheme + "://" + parsed.Host
-		evidence.EndpointOrigin = &origin
 	}
 	if tier := strings.TrimSpace(string(payload.ServiceTier)); tier != "" {
 		evidence.RequestedServiceTier = textutil.Value(tier)

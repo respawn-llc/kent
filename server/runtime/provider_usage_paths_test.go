@@ -8,7 +8,6 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/modelcontract"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
@@ -22,13 +21,12 @@ func TestProviderUsageRecordsReviewerOperations(t *testing.T) {
 	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), engine, "reviewer-usage", client); err != nil {
 		t.Fatalf("run Reviewer: %v", err)
 	}
-	records := providerUsageTestRecords(t, store)
-	if len(records) != 1 || records[0].Purpose != modelcontract.ProviderOperationPurposeReviewer {
+	if records := providerUsageTestRecords(t, store); len(records) != 1 {
 		t.Fatalf("Reviewer usage records = %+v", records)
 	}
 }
 
-func TestProviderUsageRecordsLocalCompactionAsCompaction(t *testing.T) {
+func TestProviderUsageRecordsLocalCompaction(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(13)}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", CompactionMode: "local"})
@@ -41,9 +39,7 @@ func TestProviderUsageRecordsLocalCompactionAsCompaction(t *testing.T) {
 	if _, receipt, err := compactNowInActiveTestRun(t, engine, compactionModeManual, compactionInstructionsInput{}); err != nil || !receipt.Committed {
 		t.Fatalf("local compaction: receipt=%+v error=%v", receipt, err)
 	}
-
-	records := providerUsageTestRecords(t, store)
-	if len(records) != 1 || records[0].Purpose != modelcontract.ProviderOperationPurposeCompaction {
+	if records := providerUsageTestRecords(t, store); len(records) != 1 {
 		t.Fatalf("local compaction usage records = %+v", records)
 	}
 }
@@ -79,7 +75,6 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close session before reopen: %v", err)
 	}
-
 	reopened, err := runtimeTestSessionPersistence.Open(store.Dir())
 	if err != nil {
 		t.Fatalf("reopen session: %v", err)
@@ -91,21 +86,11 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 	if !reflect.DeepEqual(records[:2], beforeCompactionRecords) {
 		t.Fatalf("ordinary provider records changed across compaction/reopen: got=%+v want=%+v", records[:2], beforeCompactionRecords)
 	}
-	if records[0].OperationID == records[1].OperationID ||
-		records[0].OperationID == records[2].OperationID ||
-		records[1].OperationID == records[2].OperationID {
-		t.Fatal("provider operation IDs were reused")
-	}
 	for index, outputTokens := range []int{2, 5, 7} {
 		expectedEvidence := providerUsageTestMixedResponse(outputTokens).ProviderEvidence
-		if !reflect.DeepEqual(records[index].Evidence, expectedEvidence) {
-			t.Fatalf("record %d mixed evidence = %+v, want %+v", index, records[index].Evidence, expectedEvidence)
+		if !reflect.DeepEqual(records[index], expectedEvidence) {
+			t.Fatalf("record %d mixed evidence = %+v, want %+v", index, records[index], expectedEvidence)
 		}
-	}
-	if records[0].Purpose != modelcontract.ProviderOperationPurposeGeneration ||
-		records[1].Purpose != modelcontract.ProviderOperationPurposeGeneration ||
-		records[2].Purpose != modelcontract.ProviderOperationPurposeCompaction {
-		t.Fatalf("provider usage purposes after compaction/reopen = %+v", records)
 	}
 }
 
@@ -124,13 +109,12 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 		if _, err := generateTestActiveStep(context.Background(), engine, "continued", client, providerUsageTestRequest(reopened.Meta().SessionID, false)); err != nil {
 			t.Fatalf("continue old session: %v", err)
 		}
-		records := providerUsageTestRecords(t, reopened)
-		if len(records) != 1 {
+		if records := providerUsageTestRecords(t, reopened); len(records) != 1 {
 			t.Fatalf("continued old session usage records = %+v, want one new record", records)
 		}
 	})
 
-	t.Run("fork preserves source identity", func(t *testing.T) {
+	t.Run("fork preserves source evidence", func(t *testing.T) {
 		parent := mustCreateTestSession(t)
 		sourceClient := &fakeClient{responses: []llm.Response{providerUsageTestResponse(19)}}
 		sourceEngine := mustNewTestEngine(t, parent, sourceClient, tools.NewRegistry(), Config{Model: "gpt-5"})
@@ -140,7 +124,6 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 		if err := sourceEngine.Close(); err != nil {
 			t.Fatalf("close source session: %v", err)
 		}
-
 		child, err := session.CloneSession(
 			mustMaterializeTestEventLog(t, parent),
 			"forked continuation",
@@ -151,24 +134,18 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 		}
 		parentRecords := providerUsageTestRecords(t, parent)
 		childRecords := providerUsageTestRecords(t, child)
-		if len(parentRecords) != 1 || len(childRecords) != 1 {
-			t.Fatalf("source/copy usage records = %d/%d, want one/one", len(parentRecords), len(childRecords))
+		if len(parentRecords) != 1 || len(childRecords) != 1 || !reflect.DeepEqual(childRecords, parentRecords) {
+			t.Fatalf("source/copy usage records = %d/%d, want identical one/one", len(parentRecords), len(childRecords))
 		}
-		if childRecords[0].OperationID != parentRecords[0].OperationID ||
-			childRecords[0].SessionID != parentRecords[0].SessionID {
-			t.Fatalf("forked usage identity = %+v, want source %+v", childRecords[0], parentRecords[0])
-		}
-
 		client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(23)}}
 		engine := mustNewTestEngine(t, child, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 		if _, err := generateTestActiveStep(context.Background(), engine, "forked-call", client, providerUsageTestRequest(child.Meta().SessionID, false)); err != nil {
 			t.Fatalf("generate in fork: %v", err)
 		}
 		childRecords = providerUsageTestRecords(t, child)
-		if len(childRecords) != 2 || childRecords[1].OperationID == childRecords[0].OperationID ||
-			childRecords[1].SessionID != child.Meta().SessionID ||
-			childRecords[1].SessionID == childRecords[0].SessionID {
+		if len(childRecords) != 2 {
 			t.Fatalf("forked new usage records = %+v", childRecords)
 		}
+		assertProviderUsageOutputTokens(t, childRecords[1], 23)
 	})
 }

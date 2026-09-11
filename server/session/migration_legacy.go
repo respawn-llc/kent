@@ -331,12 +331,17 @@ func decodeLegacyCacheResponseV0(payload json.RawMessage) (CacheResponseObservat
 		return CacheResponseObservationRecord{}, fmt.Errorf("decode legacy cache response: %w", err)
 	}
 	normalizeLegacyCacheFacts(&legacy.DigestVersion, &legacy.Scope)
+	digestVersion := legacy.DigestVersion
+	cacheKey := legacy.CacheKey
+	scope := legacy.Scope
+	chunkCount := legacy.ChunkCount
+	terminalHash := legacy.TerminalHash
 	record := CacheResponseObservationRecord{
-		DigestVersion: legacy.DigestVersion,
-		CacheKey:      legacy.CacheKey,
-		Scope:         legacy.Scope,
-		ChunkCount:    legacy.ChunkCount,
-		TerminalHash:  legacy.TerminalHash,
+		DigestVersion: &digestVersion,
+		CacheKey:      &cacheKey,
+		Scope:         &scope,
+		ChunkCount:    &chunkCount,
+		TerminalHash:  &terminalHash,
 	}
 	if legacy.HasCachedInputTokens {
 		record.CachedInputTokens = &legacy.CachedInputTokens

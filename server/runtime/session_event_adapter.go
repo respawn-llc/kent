@@ -5,17 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
-
-	"github.com/google/uuid"
 )
 
 var ErrUnsupportedSessionProviderItem = errors.New("unsupported session provider item")
@@ -399,36 +395,27 @@ func sessionCacheRequestRecordFromRuntime(
 	return normalizedSessionPayload[session.CacheRequestObservationRecord](normalized)
 }
 
-func sessionProviderUsageRecordFromRuntime(
-	sessionID string,
-	purpose modelcontract.ProviderOperationPurpose,
-	evidence modelcontract.ProviderUsageEvidence,
-) (session.ProviderUsageRecord, error) {
-	record := session.ProviderUsageRecord{
-		OperationID: uuid.NewString(),
-		SessionID:   sessionID,
-		Purpose:     purpose,
-		ObservedAt:  time.Now().UTC(),
-		Evidence:    evidence.Clone(),
-	}
-	normalized, err := session.NewEventRecord(1, nil, record)
-	if err != nil {
-		return session.ProviderUsageRecord{}, err
-	}
-	return normalizedSessionPayload[session.ProviderUsageRecord](normalized)
-}
-
 func sessionCacheResponseRecordFromRuntime(
 	observation persistedCacheResponseObserved,
 ) (session.CacheResponseObservationRecord, error) {
-	record := session.CacheResponseObservationRecord{
-		DigestVersion: observation.DigestVersion,
-		CacheKey:      observation.CacheKey,
-		Scope:         session.CacheScope(observation.Scope),
-		ChunkCount:    observation.ChunkCount,
-		TerminalHash:  observation.TerminalHash,
+	record := session.CacheResponseObservationRecord{}
+	if strings.TrimSpace(observation.CacheKey) != "" {
+		digestVersion := observation.DigestVersion
+		cacheKey := observation.CacheKey
+		scope := session.CacheScope(observation.Scope)
+		chunkCount := observation.ChunkCount
+		terminalHash := observation.TerminalHash
+		record.DigestVersion = &digestVersion
+		record.CacheKey = &cacheKey
+		record.Scope = &scope
+		record.ChunkCount = &chunkCount
+		record.TerminalHash = &terminalHash
 	}
 	record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
+	if observation.ProviderUsage != nil {
+		usage := observation.ProviderUsage.Clone()
+		record.ProviderUsage = &usage
+	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
 		return session.CacheResponseObservationRecord{}, err
@@ -468,12 +455,26 @@ func persistedCacheResponseObservedFromSessionRecord(
 	record session.CacheResponseObservationRecord,
 ) persistedCacheResponseObserved {
 	observation := persistedCacheResponseObserved{
-		DigestVersion:     record.DigestVersion,
-		CacheKey:          record.CacheKey,
-		Scope:             transcript.CacheWarningScope(record.Scope),
-		ChunkCount:        record.ChunkCount,
-		TerminalHash:      record.TerminalHash,
 		CachedInputTokens: textutil.Pointer(record.CachedInputTokens),
+	}
+	if record.DigestVersion != nil {
+		observation.DigestVersion = *record.DigestVersion
+	}
+	if record.CacheKey != nil {
+		observation.CacheKey = *record.CacheKey
+	}
+	if record.Scope != nil {
+		observation.Scope = transcript.CacheWarningScope(*record.Scope)
+	}
+	if record.ChunkCount != nil {
+		observation.ChunkCount = *record.ChunkCount
+	}
+	if record.TerminalHash != nil {
+		observation.TerminalHash = *record.TerminalHash
+	}
+	if record.ProviderUsage != nil {
+		usage := record.ProviderUsage.Clone()
+		observation.ProviderUsage = &usage
 	}
 	return observation
 }

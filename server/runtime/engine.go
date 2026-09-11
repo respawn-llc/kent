@@ -17,7 +17,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/jsoncontract"
-	"core/shared/modelcontract"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -1094,32 +1093,9 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 }
 
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
-	return e.generateWithRetryClientPurpose(
-		ctx,
-		stepID,
-		client,
-		req,
-		modelcontract.ProviderOperationPurposeGeneration,
-		onDelta,
-		onReasoningDelta,
-		onAttemptReset,
-	)
-}
-
-func (e *Engine) generateWithRetryClientPurpose(
-	ctx context.Context,
-	stepID string,
-	client *observedModelClient,
-	req llm.Request,
-	purpose modelcontract.ProviderOperationPurpose,
-	onDelta func(llm.AssistantDelta),
-	onReasoningDelta func(llm.ReasoningSummaryDelta),
-	onAttemptReset func(),
-) (llm.Response, error) {
 	observed, err := e.prepareCacheObservedRequest(
 		stepID,
 		req,
-		purpose,
 		cacheResponseObservationExactStep,
 	)
 	if err != nil {

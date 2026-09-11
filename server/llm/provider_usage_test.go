@@ -49,9 +49,6 @@ func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 	if evidence.ServedServiceTier == nil || *evidence.ServedServiceTier != "priority" {
 		t.Fatalf("served service tier = %v, want priority", evidence.ServedServiceTier)
 	}
-	if evidence.EndpointOrigin == nil {
-		t.Fatal("endpoint origin is absent")
-	}
 	if evidence.ResponseID == nil || *evidence.ResponseID != "resp_usage_1" {
 		t.Fatalf("response ID = %v, want resp_usage_1", evidence.ResponseID)
 	}

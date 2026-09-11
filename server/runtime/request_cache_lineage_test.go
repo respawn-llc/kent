@@ -187,7 +187,7 @@ func TestPromptCacheResponseAppliesLineageByCommitReceipt(t *testing.T) {
 
 	stepID := runtimeTestStepID("step-1")
 	err := runTestActiveStep(eng, stepID, func() error {
-		return eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, prepared, modelcontract.ProviderUsageEvidence{}, llm.Usage{
+		return eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, prepared, modelcontract.ProviderUsageEvidence{}, llm.Usage{
 			CachedInputTokens: textutil.Value(7),
 		})
 	})

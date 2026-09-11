@@ -106,7 +106,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 
 	cacheDone := make(chan error, 1)
 	go func() {
-		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, preparedCacheRequestObservation{
 			request: persistedCacheRequestObserved{
 				DigestVersion: requestCacheDigestVersion,
 				CacheKey:      "session-1/cache-key",
@@ -158,9 +158,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 	}
 	persistedKinds := make([]string, 0, len(persisted))
 	for _, event := range persisted {
-		if event.Kind != sessionEventProviderUsage {
-			persistedKinds = append(persistedKinds, event.Kind)
-		}
+		persistedKinds = append(persistedKinds, event.Kind)
 	}
 	if len(persistedKinds) < 3 ||
 		persistedKinds[0] != sessionEventCacheWarning ||
@@ -190,7 +188,7 @@ func TestAssistantMessageAfterCacheWarningDoesNotOwnCacheWarningRange(t *testing
 	restoreStep := setTestActiveStep(eng, stepID)
 	defer restoreStep()
 
-	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "session-1/cache-key",

@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -404,111 +403,64 @@ func providerUsageEvidenceFromResponse(
 	if tier := strings.TrimSpace(string(response.ServiceTier)); tier != "" {
 		evidence.ServedServiceTier = textutil.Value(tier)
 	}
-	raw := response.RawJSON()
-	var err error
-	evidence.Usage, err = providerJSONField(raw, "usage")
-	if err != nil {
-		return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract provider usage: %w", err)
+	if response.JSON.Usage.Valid() {
+		raw := json.RawMessage(response.Usage.RawJSON())
+		evidence.Usage = &raw
 	}
-	evidence.UsageMetadata, err = providerJSONField(raw, "usage_metadata")
-	if err != nil {
-		return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract provider usage metadata: %w", err)
+	if field, ok := response.JSON.ExtraFields["usage_metadata"]; ok && field.Raw() != "" {
+		raw := json.RawMessage(field.Raw())
+		evidence.UsageMetadata = &raw
 	}
-	for _, item := range outputItems {
-		if item.Type != ResponseItemTypeOther {
-			continue
+	seenHostedIDs := make(map[string]struct{})
+	appendHostedTool := func(output responses.ResponseOutputItemUnion) error {
+		if output.Type != "web_search_call" {
+			return nil
 		}
-		fields, err := providerJSONObject(string(item.Raw))
-		if err != nil {
-			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool from output item: %w", err)
+		webSearch := output.AsWebSearchCall()
+		actionType := strings.TrimSpace(webSearch.Action.Type)
+		switch actionType {
+		case "search", "open_page", "find_in_page":
+		default:
+			return fmt.Errorf("hosted web search output has unsupported action type %q", actionType)
 		}
-		toolType, err := providerJSONStringPointer(fields, "type")
-		if err != nil {
-			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool type: %w", err)
+		if strings.TrimSpace(webSearch.ID) == "" || strings.TrimSpace(string(webSearch.Status)) == "" {
+			return fmt.Errorf("hosted web search output is missing required identity fields")
 		}
-		if toolType == nil || *toolType != "web_search_call" {
-			continue
+		if _, exists := seenHostedIDs[webSearch.ID]; exists {
+			return nil
 		}
-		id, err := providerJSONStringPointer(fields, "id")
-		if err != nil {
-			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool ID: %w", err)
-		}
-		status, err := providerJSONStringPointer(fields, "status")
-		if err != nil {
-			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool status: %w", err)
-		}
-		usage, err := providerJSONObjectField(fields, "usage")
-		if err != nil {
-			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool usage: %w", err)
-		}
+		seenHostedIDs[webSearch.ID] = struct{}{}
 		tool := modelcontract.HostedToolUsageEvidence{
-			ID:     id,
-			Type:   toolType,
-			Status: status,
-			Usage:  usage,
+			ID:     textutil.Value(webSearch.ID),
+			Type:   textutil.Value(string(webSearch.Type)),
+			Status: textutil.Value(string(webSearch.Status)),
 		}
-		if action, ok := fields["action"]; ok {
-			actionFields, err := providerJSONObject(string(action))
-			if err != nil {
-				return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool action: %w", err)
-			}
-			tool.ActionKind, err = providerJSONStringPointer(actionFields, "type")
-			if err != nil {
-				return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool action type: %w", err)
-			}
+		tool.ActionKind = textutil.Value(actionType)
+		if field, ok := webSearch.JSON.ExtraFields["usage"]; ok && field.Raw() != "" {
+			raw := json.RawMessage(field.Raw())
+			tool.Usage = &raw
 		}
 		evidence.HostedTools = append(evidence.HostedTools, tool)
+		return nil
+	}
+	for _, item := range response.Output {
+		if err := appendHostedTool(item); err != nil {
+			return modelcontract.ProviderUsageEvidence{}, err
+		}
+	}
+	for _, item := range outputItems {
+		if item.Type != ResponseItemTypeOther || len(item.Raw) == 0 {
+			continue
+		}
+		var output responses.ResponseOutputItemUnion
+		if err := json.Unmarshal(item.Raw, &output); err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("decode hosted web search output: %w", err)
+		}
+		if err := appendHostedTool(output); err != nil {
+			return modelcontract.ProviderUsageEvidence{}, err
+		}
 	}
 	return evidence, nil
-}
-
-func providerJSONObject(raw string) (map[string]json.RawMessage, error) {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &object); err != nil {
-		return nil, fmt.Errorf("decode JSON object: %w", err)
-	}
-	return object, nil
-}
-
-func providerJSONField(raw string, key string) (*json.RawMessage, error) {
-	object, err := providerJSONObject(raw)
-	if err != nil {
-		return nil, err
-	}
-	return providerJSONObjectField(object, key)
-}
-
-func providerJSONObjectField(object map[string]json.RawMessage, key string) (*json.RawMessage, error) {
-	if object == nil {
-		return nil, nil
-	}
-	value, ok := object[key]
-	if !ok {
-		return nil, nil
-	}
-	cloned := append(json.RawMessage(nil), value...)
-	return &cloned, nil
-}
-
-func providerJSONStringPointer(object map[string]json.RawMessage, key string) (*string, error) {
-	raw, err := providerJSONObjectField(object, key)
-	if err != nil {
-		return nil, err
-	}
-	if raw == nil {
-		return nil, nil
-	}
-	if bytes.Equal(bytes.TrimSpace(*raw), []byte("null")) {
-		return nil, nil
-	}
-	var value string
-	if err := json.Unmarshal(*raw, &value); err != nil {
-		return nil, fmt.Errorf("field %q must be a string or null: %w", key, err)
-	}
-	if strings.TrimSpace(value) == "" {
-		return nil, fmt.Errorf("field %q must not be blank", key)
-	}
-	return textutil.Value(value), nil
 }
 
 func responseItemsContainAssistantMessage(items []ResponseItem) bool {

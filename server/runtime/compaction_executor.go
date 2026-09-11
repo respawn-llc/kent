@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"core/server/llm"
-	"core/shared/modelcontract"
 	"core/shared/rpcwire"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -135,7 +134,6 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 	observed, err := e.prepareCacheObservedRequest(
 		stepID,
 		request,
-		modelcontract.ProviderOperationPurposeCompaction,
 		cacheResponseObservationExactStep,
 	)
 	if err != nil {
@@ -323,12 +321,11 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 			return "", toolCallRejectionCount, err
 		}
 
-		resp, err := e.generateWithRetryClientPurpose(
+		resp, err := e.generateWithRetryClient(
 			ctx,
 			stepID,
 			e.llm,
 			req,
-			modelcontract.ProviderOperationPurposeCompaction,
 			nil,
 			nil,
 			nil,

@@ -11,6 +11,7 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/tools"
+	"core/shared/modelcontract"
 )
 
 func TestProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry(t *testing.T) {
@@ -71,15 +72,15 @@ func TestProviderUsagePersistenceFailureDoesNotRetryProviderAndRetainsCommittedF
 	assertProviderUsageOutputTokens(t, records[0], 31)
 }
 
-func assertProviderUsageOutputTokens(t *testing.T, record session.ProviderUsageRecord, want int) {
+func assertProviderUsageOutputTokens(t *testing.T, evidence modelcontract.ProviderUsageEvidence, want int) {
 	t.Helper()
 	var usage struct {
 		OutputTokens int `json:"output_tokens"`
 	}
-	if record.Evidence.Usage == nil {
+	if evidence.Usage == nil {
 		t.Fatal("provider usage evidence is absent")
 	}
-	if err := json.Unmarshal(*record.Evidence.Usage, &usage); err != nil {
+	if err := json.Unmarshal(*evidence.Usage, &usage); err != nil {
 		t.Fatalf("decode provider usage evidence: %v", err)
 	}
 	if usage.OutputTokens != want {
