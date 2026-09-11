@@ -989,6 +989,7 @@ func TestApprovalStartsScriptTargetWithoutAgentAssignment(t *testing.T) {
 		t.Fatalf("apply Script target Approval: %v", err)
 	}
 	f.waitForPath(t, markerPath)
+	f.waitForTaskQuiescence(t, task.ID)
 	if requests := f.client.Requests(); len(requests) != 1 {
 		t.Fatalf("model requests = %d, want only the source Agent request", len(requests))
 	}
@@ -1368,9 +1369,9 @@ func TestManualMoveRetainedSessionPreparationFailureRestoresPromptFacingMetadata
 		!reflect.DeepEqual(before.Meta.Locked, after.Meta.Locked) {
 		t.Fatalf("retained Session prompt-facing metadata changed after rejected Manual Move:\nbefore=%+v\nafter=%+v", before.Meta, after.Meta)
 	}
-	if assignments := f.workflowAssignmentRecordCount(t, sessionID); assignments != beforeAssignments+2 {
+	if assignments := f.workflowAssignmentRecordCount(t, sessionID); assignments != beforeAssignments {
 		t.Fatalf(
-			"retained Session assignments after rejected Manual Move = %d, want target plus origin restoration after %d existing",
+			"retained Session assignments after rejected Manual Move = %d, want %d unchanged before compaction",
 			assignments,
 			beforeAssignments,
 		)
@@ -1629,8 +1630,9 @@ func TestManualMoveCommittedAssignmentDiagnosticAppliesAndStartsTarget(t *testin
 }
 
 func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) {
-	f := newCurrentNodeRunnerFixture(
-		t,
+	client := NewCompactingScriptedClient(
+		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true, SupportsPromptCacheKey: true},
+		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("direct-source")},
 		ScriptedToolBatch(
 			"complete first node",
 			llm.ToolCall{
@@ -1639,8 +1641,11 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 				Input: json.RawMessage(`{"transition":"next","commentary":"first done"}`),
 			},
 		),
-		ScriptedRuntimeError(ErrScriptedRuntime),
+		ScriptedFinalAnswer(`{"commentary":"reviewed"}`),
 	)
+	f := newCurrentNodeRunnerFixtureWithClient(t, client)
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	configureCompactionThinking(f)
 	workflowID := createCurrentNodeTwoStepWorkflow(
 		t,
 		f.store,
@@ -1652,6 +1657,14 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	task := f.createTask(t, workflowID)
 	f.startTask(t, task)
 	f.waitForModelRequests(t, 2)
+	compactions := client.CompactionCalls()
+	if len(compactions) != 1 {
+		t.Fatalf("direct continuation compactions = %d, want one", len(compactions))
+	}
+	requireLazyCompactionPreservesRequestPrefix(t, client.Requests()[0], compactions[0])
+	if client.Requests()[0].ReasoningEffort != "low" || client.Requests()[1].ReasoningEffort != "high" {
+		t.Fatal("direct continuation did not apply target Thinking after outgoing compaction")
+	}
 
 	requests := f.runtimeRequests()
 	if len(requests) != 2 || requests[0].ActiveSettings.Model != "workflow-coder" || requests[1].ActiveSettings.Model != "workflow-reviewer" {

@@ -770,8 +770,8 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 		reopenedLog,
 		forkTargetSeq,
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork compacted session: %v", err)
 	}

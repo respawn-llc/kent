@@ -425,13 +425,13 @@ func runtimeCatalogStoreForPath(t *testing.T, path string) *session.Store {
 		return mustCreateCatalogDerivedStore(t, root, source, session.SessionCreationSourcePreviousSession)
 	case "rollback-fork":
 		target := mustAppendTestEvent(t, source, "step", llm.Message{Role: llm.RoleUser, Content: textutil.Value("fork target")})
-		forked, _, err := session.ForkAtUserMessage(mustMaterializeTestEventLog(t, source), target.Seq(), "rollback fork", sessioncontract.SessionCategoryMain)
+		forked, _, err := session.ForkAtUserMessage(mustMaterializeTestEventLog(t, source), target.Seq(), "rollback fork", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 		if err != nil {
 			t.Fatalf("ForkAtUserMessage: %v", err)
 		}
 		return forked
 	case "workflow-fan-out-clone":
-		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), "workflow clone", sessioncontract.SessionCategorySubagent)
+		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), "workflow clone", sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 		if err != nil {
 			t.Fatalf("CloneSession: %v", err)
 		}

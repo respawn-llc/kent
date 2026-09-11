@@ -65,7 +65,7 @@ func TestSessionChatSettingsRoundTripThroughMetadataDocument(t *testing.T) {
 		state.Agent != "worker" ||
 		state.Settings == nil ||
 		state.Settings.Supervisor == nil || *state.Settings.Supervisor != "all" ||
-		state.Settings.Thinking == nil || *state.Settings.Thinking != "high" ||
+		state.Settings.Thinking == nil || *state.Settings.Thinking != "provider-specific-depth" ||
 		state.Settings.Fast == nil || !*state.Settings.Fast ||
 		state.Settings.Questions == nil || *state.Settings.Questions ||
 		state.Settings.AutoCompaction == nil || *state.Settings.AutoCompaction {

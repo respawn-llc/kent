@@ -351,7 +351,7 @@ func TestForkAtUserMessagePreservesPersistenceObserver(t *testing.T) {
 	}
 	observer.called = false
 
-	forked, _, err := ForkAtUserMessage(parentLog, userEvt.Seq(), "Parent -> edit u1", testSessionCategory)
+	forked, _, err := ForkAtUserMessage(parentLog, userEvt.Seq(), "Parent -> edit u1", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}

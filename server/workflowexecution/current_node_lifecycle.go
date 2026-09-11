@@ -651,6 +651,7 @@ func (c *CurrentNodeController) ApplyManualMove(
 	}
 	taskID := prepared.TaskID()
 	var starts []currentNodeQueuedStart
+	var assignmentDiagnostic error
 	moved, err := runCurrentNodeTaskMutation(ctx, c, taskID, func(ctx context.Context) (workflowstore.ManualMoveResult, error) {
 		if err := c.EnsureTaskQuiescent(taskID); err != nil {
 			return workflowstore.ManualMoveResult{}, err
@@ -671,9 +672,9 @@ func (c *CurrentNodeController) ApplyManualMove(
 			return workflowstore.ManualMoveResult{}, errors.New("manual move assignment store is required")
 		}
 		var (
-			assignmentSteers     map[workflow.CurrentNodeReferenceKey]CurrentNodeAssignmentSteer
-			assignmentDiagnostic error
+			assignmentSteers map[workflow.CurrentNodeReferenceKey]CurrentNodeAssignmentSteer
 		)
+		targetKinds := make(map[workflow.CurrentNodeReferenceKey]workflow.NodeKind)
 		moved, err := manualMoveStore.ApplyManualMoveWithTargetAssignments(
 			ctx,
 			prepared,
@@ -685,6 +686,13 @@ func (c *CurrentNodeController) ApplyManualMove(
 				preparation, steers, err := assignmentPreparer.PrepareManualMoveAssignments(ctx, contexts)
 				assignmentSteers = steers
 				assignmentDiagnostic = preparation.Diagnostic
+				for _, input := range contexts {
+					key, keyErr := input.CurrentNode.Reference.Key()
+					if keyErr != nil {
+						return preparation, errors.Join(err, keyErr)
+					}
+					targetKinds[key] = input.Node.Kind
+				}
 				return preparation, err
 			},
 		)
@@ -704,11 +712,16 @@ func (c *CurrentNodeController) ApplyManualMove(
 			if err != nil {
 				return moved, err
 			}
+			kind, present := targetKinds[key]
+			if !present {
+				return moved, errors.New("Manual Move start has no prepared target kind")
+			}
+			starts[index].nodeKind = kind
 			if steer := assignmentSteers[key]; steer != nil {
 				starts[index].assignmentSteer = steer
 			}
 		}
-		return moved, assignmentDiagnostic
+		return moved, nil
 	})
 	if err != nil || moved.Outcome == workflowstore.ManualMoveResultOutcomeNoOp {
 		return moved, err
@@ -719,7 +732,7 @@ func (c *CurrentNodeController) ApplyManualMove(
 		}
 		assignment, err := c.steerAssignment(ctx, starts[index].reference)
 		if err != nil {
-			return moved, errors.Join(err, c.recoverCurrentNodeStartFailures(ctx, starts[index:], false, err))
+			return moved, errors.Join(assignmentDiagnostic, err, c.recoverCurrentNodeStartFailures(ctx, starts[index:], false, err))
 		}
 		starts[index].assignmentSteer = assignment
 	}
@@ -733,7 +746,7 @@ func (c *CurrentNodeController) ApplyManualMove(
 		}
 		return nil
 	})
-	return moved, err
+	return moved, errors.Join(assignmentDiagnostic, err)
 }
 
 // EnsureTaskQuiescent rejects Task-wide state replacement while the

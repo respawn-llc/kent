@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/workflow"
@@ -46,6 +47,76 @@ func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 	requireLazyCompactionPreservesRequestPrefix(t, requests[1], compactions[0])
 }
 
+func TestDirectCompactAndContinueTaskInterruptPreservesOutgoingConfiguration(t *testing.T) {
+	client := &heldLazyCompactionClient{
+		compactingScriptedClient: NewCompactingScriptedClient(
+			llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true},
+			[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("direct-interrupt")},
+			ScriptedToolBatch("complete source", llm.ToolCall{
+				ID: "complete-source", Name: string(toolspec.ToolCompleteNode),
+				Input: json.RawMessage(`{"transition":"next","commentary":"done"}`),
+			}),
+		),
+		started: make(chan context.Context, 1),
+		release: make(chan struct{}),
+	}
+	f := newCurrentNodeRunnerFixtureWithClient(t, client)
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	configureCompactionThinking(f)
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(client.release) }) }
+	t.Cleanup(unblock)
+	workflowID := createCurrentNodeTwoStepWorkflow(t, f.store, "Direct interrupt",
+		workflow.ContextModeCompactAndContinueSession,
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete."},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review."},
+	)
+	task := f.createTask(t, workflowID)
+	source := f.startTask(t, task)
+	var compactionContext context.Context
+	select {
+	case compactionContext = <-client.started:
+	case <-time.After(currentNodeRunnerWait):
+		t.Fatal("direct continuation did not start compaction")
+	}
+	interrupted := make(chan error, 1)
+	go func() {
+		interrupted <- f.controller.Interrupt(t.Context(), workflowexecution.InterruptSelector{TaskID: task.ID})
+	}()
+	select {
+	case <-compactionContext.Done():
+	case err := <-interrupted:
+		t.Fatalf("Task Interrupt returned without canceling direct compaction: %v", err)
+	case <-time.After(currentNodeRunnerWait):
+		t.Fatal("Task Interrupt did not cancel direct compaction")
+	}
+	unblock()
+	select {
+	case err := <-interrupted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(currentNodeRunnerWait):
+		t.Fatal("Task Interrupt did not finish")
+	}
+	f.waitForTaskQuiescence(t, task.ID)
+	nodes := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && !nodes[0].Reference.Equal(source) &&
+			nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
+	})
+	if len(client.Requests()) != 1 || nodes[0].SessionID == nil {
+		t.Fatal("interrupted direct continuation generated target input or lost the source Session")
+	}
+	meta := lazyCompactionSourceMeta(t, f, source)
+	settings, err := launch.ResolveReadOnlySessionContextSettings(f.starter.cfg, meta, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Settings.Model != "workflow-coder" || settings.Settings.ThinkingLevel != "low" {
+		t.Fatal("interrupted direct compaction changed outgoing model or Thinking")
+	}
+}
+
 func newLazyCompactionClient(responses []llm.CompactionResponse) *compactingScriptedClient {
 	return NewCompactingScriptedClient(
 		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true, SupportsPromptCacheKey: true},
@@ -62,14 +133,7 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	// Enable compaction only after outgoing completion to exercise an
 	// un-precompacted Session at the lazy continuation boundary.
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
-	for role, effort := range map[string]string{"coder": "low", "reviewer": "high"} {
-		settings := f.starter.cfg.Settings.Subagents[role]
-		settings.Settings.ThinkingLevel = effort
-		settings.Settings.ModelCapabilities.SupportsReasoningEffort = true
-		settings.Sources["thinking_level"] = "test"
-		settings.Sources["model_capabilities"] = "test"
-		f.starter.cfg.Settings.Subagents[role] = settings
-	}
+	configureCompactionThinking(f)
 	task := f.createTask(t, createCurrentNodeThreeStepWorkflow(
 		t, f.store, "Lazy compaction configuration",
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "First."},
@@ -81,6 +145,17 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	f.waitForTaskQuiescence(t, task.ID)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
 	return f, approval
+}
+
+func configureCompactionThinking(f *currentNodeRunnerFixture) {
+	for role, effort := range map[string]string{"coder": "low", "reviewer": "high"} {
+		settings := f.starter.cfg.Settings.Subagents[role]
+		settings.Settings.ThinkingLevel = effort
+		settings.Settings.ModelCapabilities.SupportsReasoningEffort = true
+		settings.Sources["thinking_level"] = "test"
+		settings.Sources["model_capabilities"] = "test"
+		f.starter.cfg.Settings.Subagents[role] = settings
+	}
 }
 
 func TestLazyCompactAndContinueFailureRetainsOutgoingConfiguration(t *testing.T) {

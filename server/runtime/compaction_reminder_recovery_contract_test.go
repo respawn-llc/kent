@@ -84,8 +84,8 @@ func TestForkBeforeReminderDoesNotInheritReminderAdmission(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		boundedLatestUserSequence(t, store),
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork before reminder: %v", err)
 	}
@@ -116,8 +116,8 @@ func TestForkAfterReminderPreservesReminderAdmission(t *testing.T) {
 		mustMaterializeTestEventLog(t, store),
 		boundedLatestUserSequence(t, store),
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork after reminder: %v", err)
 	}

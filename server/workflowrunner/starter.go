@@ -172,6 +172,11 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	if s == nil {
 		return errors.New("current node agent assignment steer is required")
 	}
+	selection, err := currentNodeAgentExecutionSelection(s.input)
+	if err != nil {
+		return err
+	}
+	thinkingMutation := workflowThinkingMutationFor(s.input, selection)
 	s.mu.Lock()
 	if s.started {
 		ready := s.ready
@@ -202,6 +207,7 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 				GlobalConfigDir:         s.starter.cfg.PersistenceRoot,
 				Model:                   s.prepared.plan.ActiveSettings.Model,
 				ThinkingLevel:           s.prepared.plan.ActiveSettings.ThinkingLevel,
+				ThinkingMutation:        thinkingMutation,
 				SkillPolicy:             config.ResolveSkillPolicy(s.prepared.plan.ActiveSettings),
 				SubagentCatalogSettings: s.prepared.plan.ActiveSettings,
 				EnabledTools:            workflowRuntimeEnabledTools(s.prepared.plan.EnabledTools),
@@ -211,21 +217,11 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	})
 	if err == nil && admission.RuntimeAvailable {
 		err = s.starter.runtimeAuthority.WithCurrentRuntime(ctx, s.prepared.plan.Descriptor.SessionID(), func(_ context.Context, engine *runtime.Engine) error {
-			selection, selectionErr := currentNodeAgentExecutionSelection(s.input)
-			if selectionErr != nil {
-				return selectionErr
-			}
 			snapshot, snapshotErr := runtime.NewWorkflowAssignmentSnapshot(s.assignment)
 			if snapshotErr != nil {
 				return snapshotErr
 			}
-			thinkingMutation := workflowThinkingMutationFor(s.input, selection)
-			switch thinkingMutation.Kind() {
-			case launch.WorkflowThinkingMutationSet:
-				snapshot = snapshot.WithThinkingLevel(string(thinkingMutation.Value()))
-			case launch.WorkflowThinkingMutationClear:
-				snapshot = snapshot.WithThinkingLevel("")
-			}
+			snapshot = snapshot.WithThinkingMutation(thinkingMutation)
 			var steerErr error
 			steer, steerErr = engine.SteerWorkflowAssignmentSnapshot(snapshot)
 			return steerErr
@@ -891,10 +887,11 @@ func (s *Starter) currentNodeAgentRunner(
 		})
 		if turnResult.Completion != nil && turnEngine != nil {
 			completion := *turnResult.Completion
-			compactionErr := compactCompletedWorkflowSession(runCtx, turnEngine, completion.CommittedResult)
+			compactionErr := s.compactCompletedWorkflowSession(runCtx, turnEngine, completion.CommittedResult)
 			continuationErr := controller.ContinueCurrentNode(
 				context.WithoutCancel(runCtx),
 				completion.CommittedResult,
+				compactionErr,
 			)
 			if completion.Diagnostic != nil {
 				slog.Error(
@@ -937,12 +934,38 @@ func (s *Starter) currentNodeAgentRunner(
 	}
 }
 
-func compactCompletedWorkflowSession(
+func (s *Starter) compactCompletedWorkflowSession(
 	ctx context.Context,
 	engine *runtime.Engine,
 	completed workflowstore.CurrentNodeCompletionResult,
 ) error {
-	if engine == nil || !completed.PostCompletionEligible || engine.CompactionMode() == "none" {
+	if engine == nil || !completed.PostCompletionEligible {
+		return nil
+	}
+	for _, intent := range completed.AutomaticIntents {
+		if intent.NodeKind != workflow.NodeKindAgent {
+			continue
+		}
+		target, err := s.store.ResolveCurrentNodeStartContext(ctx, intent.CurrentNode)
+		if err != nil {
+			return err
+		}
+		if target.ContextMode != workflow.ContextModeCompactAndContinueSession ||
+			target.CurrentNode.SessionID == nil || target.CurrentNode.SessionID.String() != engine.SessionID() {
+			continue
+		}
+		policy, err := resolveCurrentNodeSessionPolicy(target)
+		if err != nil {
+			return err
+		}
+		if !policy.cloneRetainedSession {
+			if err := engine.CompactContextForWorkflowContinuation(ctx); err != nil {
+				return workflowexecution.NewTaskStartPreparationError(err, workflow.NewCurrentNodeInterruptionDetail("workflow_compaction_failed", err))
+			}
+			return nil
+		}
+	}
+	if engine.CompactionMode() == "none" {
 		return nil
 	}
 	shouldCompact := completed.SessionReuseClassification == workflow.SessionReuseGuaranteedCACReuse
@@ -1037,7 +1060,7 @@ func (s *Starter) planCurrentNodeSession(
 			return launch.SessionPlan{}, disposable, err
 		}
 		thinkingMutation := workflowThinkingMutationFor(input, selection)
-		if thinkingMutation.Kind() != launch.WorkflowThinkingMutationUnchanged {
+		if thinkingMutation.Kind() != workflow.ThinkingMutationUnchanged {
 			if err := s.withSessionStore(ctx, plan.Descriptor, func(_ context.Context, store *session.Store) error {
 				var applyErr error
 				plan, _, applyErr = planner.ApplyRunPromptOverridesWithStore(
@@ -1060,7 +1083,7 @@ func (s *Starter) planCurrentNodeSession(
 	}
 	thinkingMutation := workflowThinkingMutationFor(input, selection)
 	if policy.assignee != currentNodeSessionAssigneeEstablishTarget &&
-		thinkingMutation.Kind() == launch.WorkflowThinkingMutationUnchanged {
+		thinkingMutation.Kind() == workflow.ThinkingMutationUnchanged {
 		return plan, disposable, nil
 	}
 	options := launch.RunPromptOverrideOptions{}
@@ -1087,6 +1110,17 @@ func (s *Starter) planCurrentNodeSession(
 }
 
 func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input workflowstore.CurrentNodeStartContext, root workflowstore.ExecutionRoot, plan launch.SessionPlan) (resultErr error) {
+	required := true
+	err := s.runtimeAuthority.WithCurrentRuntime(ctx, plan.Descriptor.SessionID(), func(_ context.Context, engine *runtime.Engine) error {
+		required = engine.WorkflowContinuationCompactionRequired()
+		return nil
+	})
+	if err == nil && !required {
+		return nil
+	}
+	if err != nil && !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		return err
+	}
 	client, err := s.newWorkflowProviderClient(ctx, plan)
 	if err != nil {
 		return err
@@ -1105,7 +1139,7 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 		_, releaseErr := attachment.Release(context.WithoutCancel(ctx), sessionruntime.RuntimeReleaseCloseIfIdle)
 		resultErr = errors.Join(resultErr, releaseErr)
 	}()
-	required := false
+	required = false
 	var resource sessionruntime.AgentResourceSelection = sessionruntime.CurrentAgentResource{}
 	err = s.runtimeAuthority.WithRuntime(ctx, attachment.Resource(), func(_ context.Context, engine *runtime.Engine) error {
 		required = engine.WorkflowContinuationCompactionRequired()
@@ -1389,12 +1423,16 @@ func (s *Starter) cloneSourceSessionForFanout(containerDir, sourceSessionID stri
 		return "", err
 	}
 	var cloneID string
-	err = s.withSessionStore(context.Background(), descriptor, func(_ context.Context, source *session.Store) error {
+	err = s.withSessionStore(context.Background(), descriptor, func(ctx context.Context, source *session.Store) error {
 		log, err := source.MaterializeEventLog()
 		if err != nil {
 			return err
 		}
-		clone, err := session.CloneSession(log, "", sessioncontract.SessionCategorySubagent)
+		thinking, err := launch.ResolveForkThinking(ctx, s.cfg, source.Meta(), s.authManager, true)
+		if err != nil {
+			return err
+		}
+		clone, err := session.CloneSession(log, "", sessioncontract.SessionCategorySubagent, thinking)
 		if err != nil {
 			return err
 		}
@@ -1422,15 +1460,15 @@ func currentNodeAgentExecutionSelection(input workflowstore.CurrentNodeStartCont
 	return selection, nil
 }
 
-func workflowThinkingMutationFor(input workflowstore.CurrentNodeStartContext, selection workflow.AgentExecutionSelection) launch.WorkflowThinkingMutation {
+func workflowThinkingMutationFor(input workflowstore.CurrentNodeStartContext, selection workflow.AgentExecutionSelection) workflow.ThinkingMutation {
 	if selection.Thinking != nil {
-		return launch.SetWorkflowThinking(*selection.Thinking)
+		return workflow.SetThinking(*selection.Thinking)
 	}
 	if selection.Origin == workflow.AssigneeOriginRetainedSession &&
 		workflow.CanonicalThinkingSelection(input.EnteringEdge.ThinkingSelection) == workflow.ThinkingSelectionPreviousNode {
-		return launch.ClearWorkflowThinking()
+		return workflow.ClearThinking()
 	}
-	return launch.KeepWorkflowThinking()
+	return workflow.KeepThinking()
 }
 
 type executionPromptAwaiter struct {

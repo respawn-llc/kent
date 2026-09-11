@@ -30,6 +30,21 @@ func TestThinkingSurvivesPreparationRestore(t *testing.T) {
 	}
 }
 
+func TestThinkingAdoptionPreservesDesiredOverride(t *testing.T) {
+	store := newSessionTestStore(t)
+	if err := store.SetThinkingOverride(textutil.Value("low")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	meta := store.Meta()
+	if meta.OriginalThinkingEffort == nil || *meta.OriginalThinkingEffort != "high" ||
+		meta.ChatSettings == nil || meta.ChatSettings.Thinking == nil || *meta.ChatSettings.Thinking != "low" {
+		t.Fatal("native adoption overwrote the independently selected desired effort")
+	}
+}
+
 func TestNormalizeChatSettingsOverridesValidatesPresentValuesAndClones(t *testing.T) {
 	supervisor := "edits"
 	thinking := "  custom-depth  "

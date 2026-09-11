@@ -65,3 +65,52 @@ func testConfigurationHistoryReopen(t *testing.T, replacement bool) {
 		t.Fatalf("non-message configuration projected as message: %+v", messages)
 	}
 }
+
+func TestThinkingReestablishesAfterCheckpointWithSynthesizedToolOutput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	log := mustMaterializeTestEventLog(t, store)
+	items := llm.PrepareOpenAIInputItems([]llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, CallID: textutil.Value("call"), Name: textutil.Value("tool"), Arguments: []byte(`{}`)},
+		{Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("low")},
+	})
+	var history []session.ProviderHistoryItem
+	for i, item := range items {
+		converted, err := sessionProviderHistoryItemFromLLM(i, item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		history = append(history, converted)
+	}
+	for _, payload := range []session.EventRecordPayload{
+		session.HistoryReplacementRecord{Engine: "remote", Mode: session.CompactionModeManual, Items: history},
+		session.ToolCompletionRecord{CallID: "call", Name: "tool", OutputKind: session.ToolOutputKindFunction, Output: []byte(`"done"`)},
+		session.MessageRecord{Role: session.MessageRoleUser, Content: textutil.Value("continued")},
+	} {
+		if _, _, err := log.AppendRecord(textutil.Value("source-step"), payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{caps: llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeThinkingUpdates: true,
+	}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-astra", ThinkingLevel: "low"})
+	request, err := PrepareInspectionRequest(t.Context(), engine, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updates, outputs int
+	for _, item := range request.Items {
+		if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+			updates++
+		}
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput {
+			outputs++
+		}
+	}
+	if updates != 2 || outputs != 1 {
+		t.Fatalf("checkpoint request has %d updates and %d tool outputs, want 2 and 1", updates, outputs)
+	}
+}

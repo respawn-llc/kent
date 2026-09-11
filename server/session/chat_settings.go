@@ -31,7 +31,9 @@ func adoptOriginalThinkingEffort(meta *Meta, effort string) {
 	if meta.ChatSettings == nil {
 		meta.ChatSettings = &ChatSettingsOverrides{}
 	}
-	meta.ChatSettings.Thinking = textutil.Value(effort)
+	if meta.ChatSettings.Thinking == nil {
+		meta.ChatSettings.Thinking = textutil.Value(effort)
+	}
 }
 
 func ValidateOriginalThinkingEffort(effort *string) error {

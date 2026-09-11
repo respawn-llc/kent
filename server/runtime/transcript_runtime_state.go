@@ -424,11 +424,7 @@ func (s *transcriptRuntimeState) SnapshotRequestItems() ([]llm.ResponseItem, *in
 	chat := s.chatProjection()
 	chat.mu.RLock()
 	defer chat.mu.RUnlock()
-	var replacementEnd *int
-	if chat.compact != nil {
-		replacementEnd = textutil.Value(len(chat.compact.Items))
-	}
-	return chat.snapshotProviderItemsLocked(), replacementEnd
+	return chat.snapshotProviderItemsLocked()
 }
 
 func (s *transcriptRuntimeState) CommittedEntryCount() int {

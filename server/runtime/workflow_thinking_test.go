@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/workflow"
 	"core/shared/config"
@@ -38,7 +39,7 @@ func TestWorkflowAssignmentAppliesThinkingInItsRuntimeFIFOPosition(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewWorkflowAssignmentSnapshot: %v", err)
 	}
-	steer, err := engine.SteerWorkflowAssignmentSnapshot(snapshot.WithThinkingLevel(string(thinking)))
+	steer, err := engine.SteerWorkflowAssignmentSnapshot(snapshot.WithThinkingMutation(workflow.SetThinking(thinking)))
 	if err != nil {
 		t.Fatalf("SteerWorkflowAssignmentSnapshot: %v", err)
 	}
@@ -59,6 +60,69 @@ func TestWorkflowAssignmentAppliesThinkingInItsRuntimeFIFOPosition(t *testing.T)
 	}
 	if got := engine.ThinkingLevel(); got != "max" {
 		t.Fatalf("ThinkingLevel = %q, want Workflow assignment value max", got)
+	}
+}
+
+func TestWorkflowAssignmentClearsThinkingOverride(t *testing.T) {
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
+		Model: "workflow-thinking-model", ThinkingLevel: "high",
+	})
+	if err := engine.SetThinkingLevel(t.Context(), "low"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := NewWorkflowAssignmentSnapshot(workflowAssignmentForCompactionTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	steer, err := engine.SteerWorkflowAssignmentSnapshot(snapshot.WithThinkingMutation(workflow.ClearThinking()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := steer.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := engine.ThinkingLevel(); got != config.DefaultOnboardingSettings().ThinkingLevel {
+		t.Fatalf("cleared Thinking = %q, want configured default", got)
+	}
+	if settings := store.Meta().ChatSettings; settings != nil && settings.Thinking != nil {
+		t.Fatal("cleared Thinking remained pinned as an override")
+	}
+}
+
+func TestDormantWorkflowAssignmentPersistsThinkingMutation(t *testing.T) {
+	value, err := workflow.NewThinkingValue("max")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []workflow.ThinkingMutation{workflow.SetThinking(value), workflow.ClearThinking()} {
+		store := mustCreateTestSession(t)
+		if err := store.SetThinkingOverride(textutil.Value("low")); err != nil {
+			t.Fatal(err)
+		}
+		log := mustMaterializeTestEventLog(t, store)
+		if _, _, err := log.AppendRecord(nil, session.MessageRecord{
+			Role: session.MessageRoleUser, Content: textutil.Value("existing input"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		steer, err := SteerPersistedWorkflowAssignment(store, workflowAssignmentForCompactionTest(), PersistedWorkflowAssignmentContext{
+			ThinkingMutation: mutation,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := steer.Wait(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		settings := mustOpenTestSession(t, store.Dir()).Meta().ChatSettings
+		if mutation.Kind() == workflow.ThinkingMutationClear {
+			if settings != nil && settings.Thinking != nil {
+				t.Fatal("dormant assignment did not clear the persisted override")
+			}
+		} else if settings == nil || settings.Thinking == nil || *settings.Thinking != string(value) {
+			t.Fatal("dormant assignment did not persist selected Thinking")
+		}
 	}
 }
 

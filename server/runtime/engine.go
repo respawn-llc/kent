@@ -295,7 +295,8 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("resolve provider capabilities during runtime construction: %w", err)
 	}
-	if cfg.ProviderCapabilitiesOverride != nil || store.Meta().Locked != nil {
+	modelContract, knownModel := llm.LookupModelCapabilityContract(eng.cfg.Model)
+	if knownModel && modelContract.SupportsNativeThinkingUpdates && (cfg.ProviderCapabilitiesOverride != nil || store.Meta().Locked != nil) {
 		resolved, err := eng.llm.capabilities(context.Background())
 		if err != nil {
 			return nil, fmt.Errorf("resolve native provider capabilities: %w", err)
