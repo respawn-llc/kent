@@ -18,17 +18,13 @@ Every command supports `--json`. Session-scoped commands automatically use the c
 
 ## Select a Project or Workspace
 
-`list`, `create`, and `delete` work without a Session. `--project <project-id>` selects that Project's default Workspace, independently of your shell directory or agent's Project. Add `--workspace <workspace-id>` to select another Workspace in that Project.
+`list`, `create`, and `delete` work without a Session. Use `--project <project-id>` for that Project's default Workspace, or add `--workspace <workspace-id>` to choose another Workspace within it.
 
 ```bash
-kent worktree list --project <project-id>
 kent worktree create --project <project-id> --workspace <workspace-id> feature/search
-kent worktree delete --project <project-id> <selector>
 ```
 
-Without `--project`, Kent uses the issuing agent Session, otherwise `--session`, otherwise the current directory. `--workspace` alone selects within that inferred Project. Inside agent shells, the issuing Session remains the caller even if `--session` names another Session.
-
-The selected Workspace governs reference resolution, setup, and deletion checks as well as the operation itself. Invalid or foreign selections fail without falling back to the caller's Project. Managing another Project does not move the caller Session or change its working directory.
+Without `--project`, Kent uses the agent's Session, otherwise `--session`, otherwise the current directory. `--workspace` alone selects within that Project. These management commands do not move the Session.
 
 ## Select
 
@@ -40,17 +36,13 @@ Select a worktree by its exact ID, branch, display name, or path. IDs take prece
 - **external**: available to Git but not managed by Kent; entering it registers it
 - **missing**: managed by Kent, but absent from Git
 
-With Session context and no explicit Project or Workspace selection, `list` marks the Session's current worktree with `*`. Explicit selections and Sessionless lists are markerless; Kent does not infer a Session from workspace history.
+`list` marks the Session's current worktree with `*` unless `--project` or `--workspace` is supplied. Lists without a Session are markerless.
 
 `status` reports a missing checkout or branch without changing the session's worktree.
 
 ## Create and enter
 
-`create` prepares the checkout and runs its setup script without moving the caller. With Session context, the CLI prints a separate `kent worktree enter` command using the created absolute path and, for human callers, `--session`. Without a Session, it prints only the created root. The TUI enters the worktree after creation succeeds.
-
-`create --json` returns the created Worktree and, when a caller Session exists, its location in `target`. For cross-Project creation, `target` describes the caller's location, not the selected management Workspace. Sessionless creation omits `target`.
-
-Outside agent shells, `leave` requires `--session <id>` to move the specified agent back to its main workspace. It follows the same navigation safety and timing as agent-issued leave.
+`create` prepares the checkout and runs its setup script. With a Session, the CLI prints a separate `kent worktree enter` command; the TUI enters the worktree after creation succeeds.
 
 `enter`, `leave`, and deletion of the active worktree may finish after the command returns. For an active Session, `enter` and `leave` join Pending Work until the next eligible Agent Step boundary; the Session keeps its current worktree until the change starts. Kent presents these queued actions as `/wt switch <selector>` and `/wt leave`, regardless of whether they came from the TUI or CLI. `--json` returns the operation acknowledgement. Kent reports completion or failure in session activity. A server restart cancels a pending change.
 
@@ -73,7 +65,7 @@ base_dir = "~/.kent/worktrees"
 # setup_timeout_seconds = 60
 ```
 
-- `base_dir` sets the namespace for Kent-managed worktrees. Relative creation paths resolve within this directory. Automatic and explicit worktree paths must remain inside it and must not overlap the source workspace in either direction.
+- `base_dir` sets the namespace for Kent-managed worktrees. Automatic and explicit worktree paths must remain inside this directory and must not overlap the source workspace in either direction.
 - A persisted managed worktree outside this namespace cannot be activated or restored automatically; move it into the namespace before retrying.
 - `setup_script` runs after Kent creates a worktree and before the create command or a workflow run uses it. Relative paths resolve from the source workspace root.
 - `setup_timeout_seconds` sets the setup script timeout. The default is `60`; `0` or a negative value disables the timeout.
@@ -113,4 +105,4 @@ It also receives the same payload as JSON on stdin:
 }
 ```
 
-`session_id` is nullable: Sessionless CLI creation and workflow task setup supply `null`, while session-originated creation supplies the requesting session ID, including when managing another Project.
+`session_id` is nullable: Sessionless CLI creation and workflow task setup supply `null`, while session-originated creation supplies the requesting session ID.
