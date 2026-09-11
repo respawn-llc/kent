@@ -8,6 +8,7 @@ import (
 
 	"core/server/sessionruntime"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
@@ -37,7 +38,7 @@ func TestServiceSetGoalRejectsNewChatExecutionIdentityBeforeResolution(t *testin
 	}
 }
 
-func TestValidateGoalSetRequestTargetPolicyMatrix(t *testing.T) {
+func TestGoalSetRequestSchemaValidatesTargetPolicyMatrix(t *testing.T) {
 	sessionID := runtimeids.NewSessionID().String()
 	runID, stepID := "run-id", "step-id"
 	initialDraft := "composer draft"
@@ -140,9 +141,9 @@ func TestValidateGoalSetRequestTargetPolicyMatrix(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateGoalSetRequest(test.request)
+			err := protoapi.Validate(test.request)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("validateGoalSetRequest error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("Goal Set schema validation error = %v, want error %t", err, test.wantErr)
 			}
 		})
 	}

@@ -67,6 +67,11 @@ export class NewChatGoalBinding {
     this.#notify();
     try {
       const result = await this.#api.setGoal(target, objective);
+      if (result.sessionID === null) {
+        this.#snapshot = { kind: "unresolved", availability: this.#snapshot.availability, pending: false };
+        this.#notify();
+        return result;
+      }
       const exactTarget: ChatSessionTarget = {
         projectID: target.projectID,
         workspace: { workspaceID: target.workspaceID },

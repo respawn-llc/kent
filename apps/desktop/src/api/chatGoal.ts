@@ -56,7 +56,7 @@ export type ChatGoalSetTarget =
       initialInputDraft?: string;
     }>;
 export type ChatGoalSetResult = Readonly<{
-  sessionID: string;
+  sessionID: string | null;
   outcome:
     | Readonly<{ kind: "mutation"; mutation: ChatGoalMutationResult }>
     | Readonly<{ kind: "rejected"; error: ChatGoalError }>;
@@ -255,6 +255,23 @@ export function chatGoalSetResultFromGenerated(
   result: GoalSetResult,
   requestedSessionID?: string,
 ): ChatGoalSetResult {
+  validateGoalSetResult(result);
+  if (result.outcome.case === "error") {
+    return topLevelGoalSetFailure(result.outcome.value);
+  }
+  if (result.outcome.case !== "success") {
+    throw new ContractError("Goal Set result outcome is required.");
+  }
+  const success = result.outcome.value;
+  const sessionID = goalSetSessionID(success.session?.sessionId, requestedSessionID);
+  return {
+    sessionID,
+    outcome: goalSetOutcome(success),
+    diagnostic: success.diagnostic === undefined ? null : goalErrorFromGenerated(success.diagnostic),
+  };
+}
+
+function validateGoalSetResult(result: GoalSetResult): void {
   try {
     validate(GoalSetResultSchema, result);
   } catch {
@@ -262,29 +279,42 @@ export function chatGoalSetResultFromGenerated(
       { code: "invalid_value", path: ["GoalSetResult"] },
     ]);
   }
-  if (result.outcome.case !== "success") {
-    throw new ContractError("Goal Set transport result did not contain success.");
-  }
-  const success = result.outcome.value;
-  const sessionID = success.session?.sessionId;
+}
+
+function topLevelGoalSetFailure(error: GoalSetError): ChatGoalSetResult {
+  return {
+    sessionID: null,
+    outcome: { kind: "rejected", error: goalErrorFromGenerated(error) },
+    diagnostic: null,
+  };
+}
+
+function goalSetSessionID(sessionID: string | undefined, requestedSessionID?: string): string {
   if (sessionID === undefined || sessionID.trim().length === 0) {
     throw new ContractError("Goal Set success Session is required.");
   }
   if (requestedSessionID !== undefined && sessionID !== requestedSessionID) {
     throw new ContractError("Goal Set success Session does not match the requested Session.");
   }
-  return {
-    sessionID,
-    outcome:
-      success.outcome.case === "mutation"
-        ? { kind: "mutation", mutation: goalMutationFromGenerated(success.outcome.value) }
-        : success.outcome.case === "rejected"
-          ? { kind: "rejected", error: goalErrorFromGenerated(success.outcome.value) }
-          : (() => {
-              throw new ContractError("Goal Set success outcome is required.");
-            })(),
-    diagnostic: success.diagnostic === undefined ? null : goalErrorFromGenerated(success.diagnostic),
-  };
+  return sessionID;
+}
+
+function goalSetOutcome(
+  success: Extract<GoalSetResult["outcome"], { case: "success" }>["value"],
+): ChatGoalSetResult["outcome"] {
+  switch (success.outcome.case) {
+    case "mutation": {
+      const mutation = goalMutationFromGenerated(success.outcome.value);
+      if (mutation.kind !== "authoritative_goal") {
+        throw new ContractError("Goal Set response returned an illegal mutation result.");
+      }
+      return { kind: "mutation", mutation };
+    }
+    case "rejected":
+      return { kind: "rejected", error: goalErrorFromGenerated(success.outcome.value) };
+    case undefined:
+      throw new ContractError("Goal Set success outcome is required.");
+  }
 }
 
 export function parseGoalObservation(input: unknown): ChatGoalObservation {

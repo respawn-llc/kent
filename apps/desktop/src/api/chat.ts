@@ -10,14 +10,10 @@ import {
   ExistingSessionTargetSchema,
   NewChatTargetSchema,
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
-import {
-  InitialChatSettingsSchema,
-  SupervisorValue,
-} from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 
 import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
-import { createChatSettingsApi } from "./chatSettings";
+import { createChatSettingsApi, initialChatSettingsToWire } from "./chatSettings";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
 import { committedRowSchema, contextSchema, mainViewSchema, pageSchema } from "./chatSchemas";
@@ -213,7 +209,7 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
                 value: create(NewChatTargetSchema, {
                   projectId: attachment.projectID,
                   workspaceId: attachment.workspaceID,
-                  initialSettings: createInitialChatSettings(target.initialSettings),
+                  initialSettings: initialChatSettingsToWire(target.initialSettings),
                 }),
               },
             }),
@@ -440,7 +436,15 @@ async function mutateGoal(
     request: { kind: "value", value: { session_id: requestedSessionID, actor: "user" } },
   });
   requireProjectAttachment(call.attachment, target);
-  return parseGoalMutationResult(call.result);
+  const result = parseGoalMutationResult(call.result);
+  if (method === "runtime.goal.clear") {
+    if (result.kind !== "authoritative_clear") {
+      throw new ContractError("Goal Clear response returned an illegal mutation result.");
+    }
+  } else if (result.kind !== "authoritative_goal") {
+    throw new ContractError("Goal mutation response returned an illegal mutation result.");
+  }
+  return result;
 }
 
 function createGoalSetRequest(input: {
@@ -467,27 +471,4 @@ function createGoalSetRequest(input: {
           initialInputDraft: input.initialInputDraft,
         },
   );
-}
-
-function createInitialChatSettings(settings: {
-  agentRole: string;
-  supervisor: "off" | "edits" | "all";
-  thinking: string | null;
-  fast: boolean | null;
-  questionsEnabled: boolean;
-  autoCompactionEnabled: boolean;
-}) {
-  return create(InitialChatSettingsSchema, {
-    agentRole: settings.agentRole,
-    supervisor:
-      settings.supervisor === "off"
-        ? SupervisorValue.OFF
-        : settings.supervisor === "edits"
-          ? SupervisorValue.AFTER_EDITS
-          : SupervisorValue.ALWAYS,
-    ...(settings.thinking === null ? {} : { thinking: settings.thinking }),
-    ...(settings.fast === null ? {} : { fast: settings.fast }),
-    questionsEnabled: settings.questionsEnabled,
-    autoCompactionEnabled: settings.autoCompactionEnabled,
-  });
 }

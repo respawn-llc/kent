@@ -182,20 +182,41 @@ function MarkdownFieldCore({
             value={value}
           />
         )}
-        {floatingAction === undefined ? null : (
-          <div
-            className="pointer-events-none absolute right-[var(--space-2)] bottom-[var(--space-2)] z-10"
-            data-slot="markdown-field-floating-action"
-          >
-            <div className="pointer-events-auto">{floatingAction}</div>
-          </div>
-        )}
+        <MarkdownFieldFloatingAction action={floatingAction} />
       </div>
       {errorText === undefined ? null : (
         <span className="text-[var(--color-error)]" id={errorID}>
           {errorText}
         </span>
       )}
+    </div>
+  );
+}
+
+function MarkdownFieldFloatingAction({ action }: Readonly<{ action: ReactNode | undefined }>) {
+  const phase = useOpacityExit(action !== undefined);
+  const [lastAction, setLastAction] = useState<ReactNode | undefined>(action);
+  if (action !== undefined && lastAction === undefined) {
+    setLastAction(action);
+  } else if (action === undefined && phase === "hidden" && lastAction !== undefined) {
+    setLastAction(undefined);
+  }
+  if (phase === "hidden") {
+    return null;
+  }
+  const renderedAction = action ?? lastAction;
+  if (renderedAction === undefined) {
+    return null;
+  }
+  return (
+    <div
+      className={cx(
+        "pointer-events-none absolute right-[var(--space-2)] bottom-[var(--space-2)] z-10 transition-opacity motion-reduce:transition-none",
+        phase === "visible" ? "opacity-100" : "opacity-0",
+      )}
+      data-slot="markdown-field-floating-action"
+    >
+      <div className="pointer-events-auto">{renderedAction}</div>
     </div>
   );
 }

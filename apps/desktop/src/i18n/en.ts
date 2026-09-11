@@ -271,7 +271,6 @@ export const englishResources = {
         guidance:
           "A good Goal is specific and outcome-focused. State what should be true when the work is complete, plus any constraints Kent must respect.",
         objective: "Goal",
-        objectivePlaceholder: "Describe the outcome Kent should achieve",
         save: "Save",
         pause: "Pause",
         resume: "Resume",

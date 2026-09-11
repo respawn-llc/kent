@@ -76,7 +76,7 @@ func (s *Service) SetGoal(
 	ctx context.Context,
 	request *runtimepb.GoalSetRequest,
 ) (*runtimepb.GoalSetSuccess, error) {
-	if err := validateGoalSetRequest(request); err != nil {
+	if err := protoapi.Validate(request); err != nil {
 		return nil, err
 	}
 	if s == nil || s.operations == nil {
@@ -95,62 +95,6 @@ func (s *Service) SetGoal(
 		return nil, err
 	}
 	return result, nil
-}
-
-func validateGoalSetRequest(request *runtimepb.GoalSetRequest) error {
-	if err := protoapi.Validate(request); err != nil {
-		return err
-	}
-	if request == nil || request.Target == nil {
-		return errors.New("Goal Set target is required")
-	}
-	runID := strings.TrimSpace(request.GetRunId())
-	stepID := strings.TrimSpace(request.GetStepId())
-	if request.RunId != nil && runID == "" {
-		return errors.New("run_id must not be blank when present")
-	}
-	if request.StepId != nil && stepID == "" {
-		return errors.New("step_id must not be blank when present")
-	}
-	actor := strings.TrimSpace(request.GetActor())
-	switch request.Target.Target.(type) {
-	case *chatpb.ChatTarget_NewChat:
-		if actor != "user" {
-			return errors.New("New Chat Goal Set requires actor=user")
-		}
-		if request.ExecutionPolicy != runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE {
-			return errors.New("New Chat Goal Set requires start_or_continue execution policy")
-		}
-		if runID != "" || stepID != "" {
-			return errors.New("New Chat Goal Set cannot include execution identity")
-		}
-	case *chatpb.ChatTarget_Session:
-		if request.InitialInputDraft != nil {
-			return errors.New("exact-Session Goal Set cannot include initial_input_draft")
-		}
-		switch request.ExecutionPolicy {
-		case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE:
-			if actor != "user" {
-				return errors.New("start_or_continue Goal Set requires actor=user")
-			}
-			if runID != "" || stepID != "" {
-				return errors.New("start_or_continue Goal Set cannot include execution identity")
-			}
-		case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE:
-			if actor == "agent" {
-				if runID == "" || stepID == "" {
-					return errors.New("agent preserve_runtime_state Goal Set requires Run and Step identity")
-				}
-			} else if runID != "" || stepID != "" {
-				return errors.New("non-agent preserve_runtime_state Goal Set cannot include execution identity")
-			}
-		default:
-			return errors.New("exact-Session Goal Set requires an execution policy")
-		}
-	default:
-		return errors.New("Goal Set target selection is required")
-	}
-	return nil
 }
 
 func (s *Service) setGoal(
