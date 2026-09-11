@@ -226,9 +226,10 @@ func TestManagerCloseKillsRunningProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
+	t.Cleanup(func() { _ = manager.Close() })
 	events := make(chan Event, 1)
 	manager.SetEventHandler(func(evt Event) bool {
-		if evt.Type == EventKilled {
+		if evt.Type == EventKilled || evt.Type == EventCompleted {
 			select {
 			case events <- evt:
 			default:
@@ -238,8 +239,10 @@ func TestManagerCloseKillsRunningProcesses(t *testing.T) {
 	})
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Command:        []string{"/bin/sh", "-c", "trap '' TERM INT; sleep 30"},
-		DisplayCommand: "trap '' TERM INT; sleep 30",
+		// Keep the signal-resistant process as the root: a waiting shell can exit
+		// normally when its child is killed, yielding a completed event instead.
+		Command:        []string{"/bin/sh", "-c", "trap '' TERM INT; exec sleep 30"},
+		DisplayCommand: "trap '' TERM INT; exec sleep 30",
 		Workdir:        t.TempDir(),
 		YieldTime:      50 * time.Millisecond,
 	})
@@ -263,6 +266,9 @@ func TestManagerCloseKillsRunningProcesses(t *testing.T) {
 
 	select {
 	case evt := <-events:
+		if evt.Type != EventKilled {
+			t.Fatalf("terminal event = %s, want killed", evt.Type)
+		}
 		if evt.Snapshot.ID != result.SessionID {
 			t.Fatalf("killed event id = %s, want %s", evt.Snapshot.ID, result.SessionID)
 		}
