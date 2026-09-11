@@ -419,6 +419,11 @@ func (r *agentResource) closeResource(ctx context.Context) error {
 		}
 		r.mu.Lock()
 	}
+	// Another close caller may have finished while this caller released the lock.
+	if r.state == AgentResourceClosed {
+		r.mu.Unlock()
+		return errors.Join(lifecycleErr, interruptErr)
+	}
 	closeEngine := r.close
 	r.state = AgentResourceClosed
 	r.signalLocked()
