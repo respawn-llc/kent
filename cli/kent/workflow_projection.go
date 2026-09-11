@@ -1,8 +1,11 @@
 package main
 
 import (
-	"core/shared/serverapi"
 	"errors"
+	"fmt"
+
+	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 func workflowRecordForCLI(record serverapi.WorkflowRecord) (serverapi.WorkflowRecord, error) {
@@ -72,11 +75,36 @@ func workflowValidationForCLI(response serverapi.WorkflowValidateResponse) (serv
 func workflowValidationErrorsForCLI(errors []serverapi.WorkflowValidationError) ([]serverapi.WorkflowValidationError, error) {
 	projected := append([]serverapi.WorkflowValidationError(nil), errors...)
 	for i := range projected {
-		if projected[i].WorkflowID == nil {
-			continue
+		message, err := workflowValidationErrorMessageForCLI(projected[i])
+		if err != nil {
+			return nil, err
 		}
+		projected[i].Message = message
 	}
 	return projected, nil
+}
+
+func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError) (string, error) {
+	if err.Details == nil || err.Details.Reason == nil {
+		return err.Message, nil
+	}
+	var message string
+	switch *err.Details.Reason {
+	case workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession:
+		message = "This prompt references a source node that cannot own a Session. Use an agent source node for this placeholder."
+	case workflowcontract.ValidationErrorReasonSessionTransitionMissing:
+		message = "This prompt references an unknown transition. Correct the transition key or define the transition before using this placeholder."
+	case workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed:
+		message = "This prompt references a transition that is not guaranteed to run before the prompt. Reference a transition that runs on every incoming path."
+	case workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous:
+		message = "This prompt references more than one matching transition. Make the Session-producing transition unambiguous before using this placeholder."
+	default:
+		return "", fmt.Errorf("workflow validation reason %q is unsupported", *err.Details.Reason)
+	}
+	if err.Details.Placeholder != "" {
+		message += fmt.Sprintf(" (placeholder %q)", err.Details.Placeholder)
+	}
+	return message, nil
 }
 
 func workflowTaskDetailForCLI(detail serverapi.WorkflowTaskDetail) (serverapi.WorkflowTaskDetail, error) {

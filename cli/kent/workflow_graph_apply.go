@@ -322,7 +322,11 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 			result := outcome.ValidationResults[mode]
 			write("- %s: valid=%t\n", mode, result.Valid)
 			for _, validationError := range result.Errors {
-				write("  - [%s] %s\n", validationError.Code, validationError.Message)
+				message, err := workflowValidationErrorMessageForCLI(validationError)
+				if err != nil {
+					return err
+				}
+				write("  - [%s] %s\n", validationError.Code, message)
 				identities := make([]struct{ name, value string }, 0, 4)
 				if validationError.WorkflowID != nil {
 					identities = append(identities, struct{ name, value string }{"workflow", validationError.WorkflowID.String()})
@@ -346,7 +350,9 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 					write("    related: %s\n", relatedID)
 				}
 				if details := validationError.Details; details != nil {
-					encoded, err := json.Marshal(details)
+					displayDetails := *details
+					displayDetails.Reason = nil
+					encoded, err := json.Marshal(&displayDetails)
 					if err != nil {
 						return err
 					}
