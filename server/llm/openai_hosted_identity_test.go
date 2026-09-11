@@ -108,6 +108,7 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 				if len(hostedByID) != 2 {
 					t.Fatalf("hosted tool evidence IDs = %v, want two distinct calls", hostedByID)
 				}
+				assertJSONField(t, hostedByID["ws_final"].Usage, "searches", "1")
 				assertJSONField(t, hostedByID["ws_other"].Usage, "searches", "2")
 			}
 			for i, item := range response.OutputItems {
