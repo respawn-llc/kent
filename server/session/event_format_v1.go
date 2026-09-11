@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"core/shared/invariant"
+	"core/shared/modelcontract"
 	"core/shared/runtimeids"
 	"core/shared/transcript"
 )
@@ -71,6 +73,7 @@ const (
 	EventKindCacheWarning     EventKind = "cache_warning"
 	EventKindReviewerFeedback EventKind = "reviewer_feedback"
 	EventKindReviewerError    EventKind = "reviewer_error"
+	EventKindProviderUsage    EventKind = "provider_usage"
 )
 
 type MessageRole string
@@ -239,6 +242,8 @@ func newEventRecord(
 			typed.LostInputTokens = &lostInputTokens
 		}
 		payload = typed
+	case ProviderUsageRecord:
+		payload = typed.Clone()
 	}
 	record := EventRecord{
 		seq:               seq,
@@ -379,6 +384,39 @@ type CacheWarningRecord struct {
 	Reason          CacheWarningReason `json:"reason"`
 	CacheKey        *string            `json:"cache_key,omitempty"`
 	LostInputTokens *int               `json:"lost_input_tokens,omitempty"`
+}
+
+type ProviderUsageRecord struct {
+	OperationID string                                 `json:"operation_id"`
+	SessionID   string                                 `json:"session_id"`
+	Purpose     modelcontract.ProviderOperationPurpose `json:"purpose"`
+	ObservedAt  time.Time                              `json:"observed_at"`
+	Evidence    modelcontract.ProviderUsageEvidence    `json:"evidence"`
+}
+
+func (ProviderUsageRecord) eventKind() EventKind {
+	return EventKindProviderUsage
+}
+
+func (r ProviderUsageRecord) Clone() ProviderUsageRecord {
+	r.Evidence = r.Evidence.Clone()
+	return r
+}
+
+func (r ProviderUsageRecord) validate() error {
+	if _, err := runtimeids.ParseCanonicalUUIDv4(r.OperationID, "provider operation ID"); err != nil {
+		return err
+	}
+	if _, err := runtimeids.ParseSessionID(r.SessionID); err != nil {
+		return err
+	}
+	if err := r.Purpose.Validate(); err != nil {
+		return err
+	}
+	if r.ObservedAt.IsZero() {
+		return errors.New("provider observation time is required")
+	}
+	return r.Evidence.Validate()
 }
 
 func (CacheWarningRecord) eventKind() EventKind {
@@ -880,6 +918,12 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = warning
+	case EventKindProviderUsage:
+		var usage ProviderUsageRecord
+		if err := decode(&usage); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
+		}
+		payload = usage
 	default:
 		panic(fmt.Sprintf("validated event kind %q has no payload decoder", kind))
 	}
@@ -896,7 +940,8 @@ func validateEventKind(kind EventKind) error {
 		EventKindCacheResponse,
 		EventKindCacheWarning,
 		EventKindReviewerFeedback,
-		EventKindReviewerError:
+		EventKindReviewerError,
+		EventKindProviderUsage:
 		return nil
 	default:
 		return fmt.Errorf("unsupported event kind %q", kind)

@@ -27,8 +27,9 @@ func TestCommittedCacheResponseObserverFailureRetainsLineage(t *testing.T) {
 		Model:            "gpt-5",
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
+	baselineSequence := store.Meta().LastSequence
 	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.LastSequence == 2
+		return snapshot.Meta.LastSequence > baselineSequence+1
 	}, observerErr)
 
 	if _, err := generateTestActiveStep(

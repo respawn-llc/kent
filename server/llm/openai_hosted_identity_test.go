@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
 
@@ -44,8 +45,8 @@ func TestGenerateHostedSearchIdentityDoesNotDependOnJSONFieldOrder(t *testing.T)
 }
 
 func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T) {
-	completed := `{"id":"ws_final","type":"web_search_call","status":"completed","action":{"type":"search","query":"kent"}}`
-	other := `{"id":"ws_other","type":"web_search_call","status":"completed","action":{"type":"search","query":"kent"}}`
+	completed := `{"id":"ws_final","type":"web_search_call","status":"completed","action":{"type":"search","query":"kent"},"usage":{"searches":1}}`
+	other := `{"id":"ws_other","type":"web_search_call","status":"completed","action":{"type":"search","query":"kent"},"usage":{"searches":2}}`
 	for _, test := range []struct {
 		name         string
 		streamed     string
@@ -89,6 +90,25 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 			}
 			if len(response.OutputItems) != len(expected) {
 				t.Fatalf("got %d output items, want %d", len(response.OutputItems), len(expected))
+			}
+			if test.wantStreamed && len(response.ProviderEvidence.HostedTools) != 2 {
+				t.Fatalf("hosted tool evidence = %+v, want completed and streamed calls", response.ProviderEvidence.HostedTools)
+			}
+			if test.wantStreamed {
+				hostedByID := make(map[string]modelcontract.HostedToolUsageEvidence, len(response.ProviderEvidence.HostedTools))
+				for _, hosted := range response.ProviderEvidence.HostedTools {
+					if hosted.ID == nil || hosted.Type == nil || hosted.Status == nil || hosted.ActionKind == nil {
+						t.Fatalf("hosted tool evidence = %+v, want complete identity", response.ProviderEvidence.HostedTools)
+					}
+					hostedByID[*hosted.ID] = hosted
+					if *hosted.Type != "web_search_call" || *hosted.Status != "completed" || *hosted.ActionKind != "search" {
+						t.Fatalf("hosted tool evidence = %+v, want web search identity", hosted)
+					}
+				}
+				if len(hostedByID) != 2 {
+					t.Fatalf("hosted tool evidence IDs = %v, want two distinct calls", hostedByID)
+				}
+				assertJSONField(t, hostedByID["ws_other"].Usage, "searches", "2")
 			}
 			for i, item := range response.OutputItems {
 				var got, want any

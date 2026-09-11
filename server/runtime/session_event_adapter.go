@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
+
+	"github.com/google/uuid"
 )
 
 var ErrUnsupportedSessionProviderItem = errors.New("unsupported session provider item")
@@ -393,6 +397,25 @@ func sessionCacheRequestRecordFromRuntime(
 		return session.CacheRequestObservationRecord{}, err
 	}
 	return normalizedSessionPayload[session.CacheRequestObservationRecord](normalized)
+}
+
+func sessionProviderUsageRecordFromRuntime(
+	sessionID string,
+	purpose modelcontract.ProviderOperationPurpose,
+	evidence modelcontract.ProviderUsageEvidence,
+) (session.ProviderUsageRecord, error) {
+	record := session.ProviderUsageRecord{
+		OperationID: uuid.NewString(),
+		SessionID:   sessionID,
+		Purpose:     purpose,
+		ObservedAt:  time.Now().UTC(),
+		Evidence:    evidence.Clone(),
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.ProviderUsageRecord{}, err
+	}
+	return normalizedSessionPayload[session.ProviderUsageRecord](normalized)
 }
 
 func sessionCacheResponseRecordFromRuntime(

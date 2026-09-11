@@ -1,13 +1,16 @@
 package llm
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"core/shared/llmerrors"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -365,16 +368,147 @@ func (a *responseStreamAccumulator) Response() (OpenAIResponse, error) {
 		finalOutputItems = mergePassthroughOutputItems(repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream), a.passthrough.Items())
 	}
 
+	providerEvidence, evidenceErr := providerUsageEvidenceFromResponse(*a.completed, finalOutputItems)
+	if evidenceErr != nil {
+		return OpenAIResponse{}, evidenceErr
+	}
+
 	return OpenAIResponse{
-		AssistantText:  finalText,
-		ProviderPhase:  finalProviderPhase,
-		ServedModel:    textutil.Pointer(a.standardServedModel),
-		ToolCalls:      finalCalls,
-		Reasoning:      finalReasoning,
-		ReasoningItems: finalReasoningItems,
-		OutputItems:    finalOutputItems,
-		Usage:          usage,
+		AssistantText:    finalText,
+		ProviderPhase:    finalProviderPhase,
+		ServedModel:      textutil.Pointer(a.standardServedModel),
+		ToolCalls:        finalCalls,
+		Reasoning:        finalReasoning,
+		ReasoningItems:   finalReasoningItems,
+		OutputItems:      finalOutputItems,
+		Usage:            usage,
+		ProviderEvidence: providerEvidence,
 	}, nil
+}
+
+func providerUsageEvidenceFromResponse(
+	response responses.Response,
+	outputItems []ResponseItem,
+) (modelcontract.ProviderUsageEvidence, error) {
+	evidence := modelcontract.ProviderUsageEvidence{}
+	if id := strings.TrimSpace(response.ID); id != "" {
+		evidence.ResponseID = textutil.Value(id)
+	}
+	if response.CreatedAt > 0 {
+		createdAt := time.Unix(int64(response.CreatedAt), 0).UTC()
+		evidence.ResponseCreatedAt = &createdAt
+	}
+	if model := strings.TrimSpace(string(response.Model)); model != "" {
+		evidence.ServedModel = textutil.Value(model)
+	}
+	if tier := strings.TrimSpace(string(response.ServiceTier)); tier != "" {
+		evidence.ServedServiceTier = textutil.Value(tier)
+	}
+	raw := response.RawJSON()
+	var err error
+	evidence.Usage, err = providerJSONField(raw, "usage")
+	if err != nil {
+		return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract provider usage: %w", err)
+	}
+	evidence.UsageMetadata, err = providerJSONField(raw, "usage_metadata")
+	if err != nil {
+		return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract provider usage metadata: %w", err)
+	}
+	for _, item := range outputItems {
+		if item.Type != ResponseItemTypeOther {
+			continue
+		}
+		fields, err := providerJSONObject(string(item.Raw))
+		if err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool from output item: %w", err)
+		}
+		toolType, err := providerJSONStringPointer(fields, "type")
+		if err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool type: %w", err)
+		}
+		if toolType == nil || *toolType != "web_search_call" {
+			continue
+		}
+		id, err := providerJSONStringPointer(fields, "id")
+		if err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool ID: %w", err)
+		}
+		status, err := providerJSONStringPointer(fields, "status")
+		if err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool status: %w", err)
+		}
+		usage, err := providerJSONObjectField(fields, "usage")
+		if err != nil {
+			return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool usage: %w", err)
+		}
+		tool := modelcontract.HostedToolUsageEvidence{
+			ID:     id,
+			Type:   toolType,
+			Status: status,
+			Usage:  usage,
+		}
+		if action, ok := fields["action"]; ok {
+			actionFields, err := providerJSONObject(string(action))
+			if err != nil {
+				return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool action: %w", err)
+			}
+			tool.ActionKind, err = providerJSONStringPointer(actionFields, "type")
+			if err != nil {
+				return modelcontract.ProviderUsageEvidence{}, fmt.Errorf("extract hosted tool action type: %w", err)
+			}
+		}
+		evidence.HostedTools = append(evidence.HostedTools, tool)
+	}
+	return evidence, nil
+}
+
+func providerJSONObject(raw string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &object); err != nil {
+		return nil, fmt.Errorf("decode JSON object: %w", err)
+	}
+	return object, nil
+}
+
+func providerJSONField(raw string, key string) (*json.RawMessage, error) {
+	object, err := providerJSONObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	return providerJSONObjectField(object, key)
+}
+
+func providerJSONObjectField(object map[string]json.RawMessage, key string) (*json.RawMessage, error) {
+	if object == nil {
+		return nil, nil
+	}
+	value, ok := object[key]
+	if !ok {
+		return nil, nil
+	}
+	cloned := append(json.RawMessage(nil), value...)
+	return &cloned, nil
+}
+
+func providerJSONStringPointer(object map[string]json.RawMessage, key string) (*string, error) {
+	raw, err := providerJSONObjectField(object, key)
+	if err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return nil, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(*raw), []byte("null")) {
+		return nil, nil
+	}
+	var value string
+	if err := json.Unmarshal(*raw, &value); err != nil {
+		return nil, fmt.Errorf("field %q must be a string or null: %w", key, err)
+	}
+	if strings.TrimSpace(value) == "" {
+		return nil, fmt.Errorf("field %q must not be blank", key)
+	}
+	return textutil.Value(value), nil
 }
 
 func responseItemsContainAssistantMessage(items []ResponseItem) bool {

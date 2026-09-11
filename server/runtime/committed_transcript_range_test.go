@@ -9,6 +9,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -31,7 +32,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	if err := engine.observePromptCacheResponse(stepID, preparedCacheRequestObservation{
+	if err := engine.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "cache-key",
@@ -44,7 +45,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 			Reason: transcript.CacheWarningReasonNonPostfix,
 		},
 		previousCachedInputTokens: 10,
-	}, llm.Usage{CachedInputTokens: textutil.Value(0)}); err != nil {
+	}, modelcontract.ProviderUsageEvidence{}, llm.Usage{CachedInputTokens: textutil.Value(0)}); err != nil {
 		t.Fatalf("observe cache warning: %v", err)
 	}
 

@@ -1260,7 +1260,7 @@ func TestGenerate_RepairsMissingAssistantOutputItemAtNonZeroOutputIndex(t *testi
 
 func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
-		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli"}}}`,
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli"},"usage":{"searches":1}}}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
 		`[DONE]`,
@@ -1296,4 +1296,15 @@ func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 	if !foundAssistant {
 		t.Fatalf("expected assistant message in output items, got %+v", resp.OutputItems)
 	}
+	if len(resp.ProviderEvidence.HostedTools) != 1 {
+		t.Fatalf("hosted tool evidence = %+v, want one streamed observation", resp.ProviderEvidence.HostedTools)
+	}
+	hosted := resp.ProviderEvidence.HostedTools[0]
+	if hosted.ID == nil || *hosted.ID != "ws_1" ||
+		hosted.Type == nil || *hosted.Type != "web_search_call" ||
+		hosted.Status == nil || *hosted.Status != "completed" ||
+		hosted.ActionKind == nil || *hosted.ActionKind != "search" {
+		t.Fatalf("streamed hosted tool evidence = %+v", hosted)
+	}
+	assertJSONField(t, hosted.Usage, "searches", "1")
 }

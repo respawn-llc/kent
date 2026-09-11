@@ -52,7 +52,7 @@ type steeringItem struct {
 	event                       *Event
 	streaming                   *steeringStreamingOutput
 	cacheWarning                *steeringCacheWarning
-	cacheObservation            *steeringCacheObservation
+	providerObservation         *steeringProviderObservation
 	liveToolAbort               *steeringLiveToolAbort
 	commitReceipt               *session.CommitReceipt
 }
@@ -180,13 +180,14 @@ type steeringCacheWarning struct {
 	emit       bool
 }
 
-type steeringCacheObservation struct {
-	records    []session.EventRecordPayload
-	response   persistedCacheResponseObserved
-	warning    transcript.CacheWarning
-	hasWarning bool
-	visibility transcript.EntryVisibility
-	emit       bool
+type steeringProviderObservation struct {
+	records     []session.EventRecordPayload
+	response    persistedCacheResponseObserved
+	hasResponse bool
+	warning     transcript.CacheWarning
+	hasWarning  bool
+	visibility  transcript.EntryVisibility
+	emit        bool
 }
 
 type steeringLiveToolAbort struct {
@@ -523,7 +524,14 @@ func steerCacheWarningIntent(warning transcript.CacheWarning, visibility transcr
 	}
 }
 
-func steerCacheObservationIntent(records []session.EventRecordPayload, response persistedCacheResponseObserved, warning *transcript.CacheWarning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
+func steerProviderObservationIntent(
+	records []session.EventRecordPayload,
+	response persistedCacheResponseObserved,
+	hasResponse bool,
+	warning *transcript.CacheWarning,
+	visibility transcript.EntryVisibility,
+	emit bool,
+) steeringIntent {
 	copyRecords := append([]session.EventRecordPayload(nil), records...)
 	var copyWarning transcript.CacheWarning
 	if warning != nil {
@@ -531,13 +539,14 @@ func steerCacheObservationIntent(records []session.EventRecordPayload, response 
 	}
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
-		items: []steeringItem{{cacheObservation: &steeringCacheObservation{
-			records:    copyRecords,
-			response:   response,
-			warning:    copyWarning,
-			hasWarning: warning != nil,
-			visibility: normalizeRuntimeEntryVisibility(visibility),
-			emit:       emit,
+		items: []steeringItem{{providerObservation: &steeringProviderObservation{
+			records:     copyRecords,
+			response:    response,
+			hasResponse: hasResponse,
+			warning:     copyWarning,
+			hasWarning:  warning != nil,
+			visibility:  normalizeRuntimeEntryVisibility(visibility),
+			emit:        emit,
 		}}},
 	}
 }
@@ -1069,14 +1078,16 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		}
 		return appendErr
 	}
-	if item.cacheObservation != nil {
-		observation := item.cacheObservation
+	if item.providerObservation != nil {
+		observation := item.providerObservation
 		records, receipt, appendErr := e.eventLog.AppendRecordsAtomic(provenance.stepID(), observation.records)
 		item.recordCommitReceipt(receipt)
 		if !receipt.Committed {
 			return appendErr
 		}
-		e.modelRequests().RequestCache().RecordResponse(observation.response)
+		if observation.hasResponse {
+			e.modelRequests().RequestCache().RecordResponse(observation.response)
+		}
 		if observation.hasWarning {
 			warning := observation.warning
 			visibility := normalizeRuntimeEntryVisibility(observation.visibility)
