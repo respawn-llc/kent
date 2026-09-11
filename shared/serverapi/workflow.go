@@ -651,13 +651,16 @@ type WorkflowValidationError struct {
 }
 
 type WorkflowValidationErrorDetails struct {
-	FieldName      string  `json:"field_name,omitempty"`
-	InputName      string  `json:"input_name,omitempty"`
-	Placeholder    string  `json:"placeholder,omitempty"`
-	ProviderEdgeID *string `json:"provider_edge_id"`
-	Role           *string `json:"role,omitempty"`
-	RequiredTool   *string `json:"required_tool,omitempty"`
+	FieldName      string                         `json:"field_name,omitempty"`
+	InputName      string                         `json:"input_name,omitempty"`
+	Placeholder    string                         `json:"placeholder,omitempty"`
+	Reason         *WorkflowValidationErrorReason `json:"reason,omitempty"`
+	ProviderEdgeID *string                        `json:"provider_edge_id"`
+	Role           *string                        `json:"role,omitempty"`
+	RequiredTool   *string                        `json:"required_tool,omitempty"`
 }
+
+type WorkflowValidationErrorReason = workflowcontract.ValidationErrorReason
 
 type WorkflowTaskCreateRequest struct {
 	ProjectID         string                               `json:"project_id"`

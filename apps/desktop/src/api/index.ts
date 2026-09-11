@@ -280,6 +280,7 @@ export type {
   WorkflowTransitionGroup,
   WorkflowValidation,
   WorkflowValidationError,
+  WorkflowValidationErrorReason,
   WorkspaceSummary,
   WorkspaceCatalogPage,
   WorkspaceCatalogRow,

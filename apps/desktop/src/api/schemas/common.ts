@@ -16,6 +16,7 @@ import type {
   WorkflowParameter,
   WorkflowPickerItem,
   WorkflowValidationError,
+  WorkflowValidationErrorReason,
   WorkspaceSummary,
   WorkspaceAvailability,
 } from "../models";
@@ -177,6 +178,16 @@ export const projectBindingSchema: z.ZodType<ProjectBinding> = z
     workspaceStatus: value.workspace_status,
   }));
 
+const validationErrorReasonSchema: z.ZodType<WorkflowValidationErrorReason | null> = z
+  .enum([
+    "session_source_cannot_own_session",
+    "session_transition_missing",
+    "session_transition_not_guaranteed",
+    "session_transition_ambiguous",
+  ])
+  .nullish()
+  .transform((value) => value ?? null);
+
 const validationErrorDetailsSchema = z
   .preprocess(
     (value) => value ?? {},
@@ -184,6 +195,7 @@ const validationErrorDetailsSchema = z
       field_name: emptyString,
       input_name: emptyString,
       placeholder: emptyString,
+      reason: validationErrorReasonSchema,
       provider_edge_id: nullableGraphEntityIDSchema.default(null),
       role: nullableNonBlankString,
       required_tool: nullableNonBlankString,
@@ -193,6 +205,7 @@ const validationErrorDetailsSchema = z
     fieldName: value.field_name,
     inputName: value.input_name,
     placeholder: value.placeholder,
+    reason: value.reason,
     providerEdgeID: value.provider_edge_id,
     role: value.role,
     requiredTool: value.required_tool,

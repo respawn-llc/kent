@@ -95,11 +95,13 @@ func validationErrorDetails(err workflow.ValidationError) *serverapi.WorkflowVal
 		FieldName:      err.FieldName,
 		InputName:      err.InputName,
 		Placeholder:    err.Placeholder,
+		Reason:         err.Reason,
 		ProviderEdgeID: graphIDPointer(err.ProviderEdgeID),
 		Role:           err.AgentRole,
 		RequiredTool:   requiredTool,
 	}
-	if details.FieldName == "" && details.InputName == "" && details.Placeholder == "" && details.ProviderEdgeID == nil && details.Role == nil && details.RequiredTool == nil {
+	if details.FieldName == "" && details.InputName == "" && details.Placeholder == "" && details.Reason == nil &&
+		details.ProviderEdgeID == nil && details.Role == nil && details.RequiredTool == nil {
 		return nil
 	}
 	return &details

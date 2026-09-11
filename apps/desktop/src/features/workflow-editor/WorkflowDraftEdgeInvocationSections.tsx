@@ -38,6 +38,7 @@ export function EdgeInvocationSections({
             }}
             parameters={promptParameters}
             promptTemplate={edge.promptTemplate}
+            sourceKind={sourceKind}
           />
         </>
       ) : null}

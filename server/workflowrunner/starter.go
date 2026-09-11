@@ -1181,7 +1181,11 @@ func renderCurrentNodePrompt(text string, input workflowstore.CurrentNodeStartCo
 	if input.SourceSessionID != nil {
 		source = input.SourceSessionID.String()
 	}
-	return renderWorkflowPrompt(text, workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: text, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
+	promptSession := ""
+	if input.PromptSessionID != nil {
+		promptSession = input.PromptSessionID.String()
+	}
+	return renderWorkflowPrompt(text, workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: text, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
 }
 
 func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan, client llm.Client) (workflowruntime.CompletionMode, llm.Client, error) {
@@ -1400,7 +1404,11 @@ func BuildCurrentSessionTaskInstructions(input workflowstore.CurrentNodeStartCon
 	if input.SourceSessionID != nil {
 		source = input.SourceSessionID.String()
 	}
-	return buildWorkflowTaskInstructions(workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: input.TransitionPrompt, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
+	promptSession := ""
+	if input.PromptSessionID != nil {
+		promptSession = input.PromptSessionID.String()
+	}
+	return buildWorkflowTaskInstructions(workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: input.TransitionPrompt, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
 }
 
 type workflowPromptInput struct {
@@ -1410,6 +1418,8 @@ type workflowPromptInput struct {
 	CurrentNode       workflow.CurrentNodeReference
 	ContextMode       workflow.ContextMode
 	SourceSessionID   string
+	PromptSessionID   string
+	PriorSessionIDs   map[workflow.ModelKey]*runtimeids.SessionID
 	TransitionOptions []workflowstore.TransitionOption
 	TransitionIDs     []string
 	TransitionPrompt  string
@@ -1475,8 +1485,8 @@ func workflowCompletionTransitions(options []workflowstore.TransitionOption, ids
 }
 
 type nodePromptTemplateData struct {
-	TaskId, TaskShortId, TaskTitle, TaskBody, NodeId, NodeKey, NodeDisplayName string
-	Params                                                                     map[string]promptParameterNamespace
+	TaskId, TaskShortId, TaskTitle, TaskBody, NodeId, NodeKey, NodeDisplayName, SessionId string
+	Params                                                                                map[string]promptParameterNamespace
 }
 
 const currentParameterValueKey = "\x00current"
@@ -1502,12 +1512,17 @@ func renderWorkflowPrompt(text string, input workflowPromptInput) (string, error
 		NodeId:          string(input.Node.ID),
 		NodeKey:         string(input.Node.Key),
 		NodeDisplayName: input.Node.DisplayName,
-		Params:          promptParameterData(input.ParameterValues, input.PriorValues.TransitionParameters),
+		SessionId:       input.PromptSessionID,
+		Params:          promptParameterData(input.ParameterValues, input.PriorValues.TransitionParameters, input.PriorSessionIDs),
 	})
 	return out.String(), err
 }
 
-func promptParameterData(current map[string]string, prior map[workflow.ModelKey]map[string]string) map[string]promptParameterNamespace {
+func promptParameterData(
+	current map[string]string,
+	prior map[workflow.ModelKey]map[string]string,
+	priorSessionIDs map[workflow.ModelKey]*runtimeids.SessionID,
+) map[string]promptParameterNamespace {
 	out := map[string]promptParameterNamespace{workflow.RuntimePromptParameterCommentary: {currentParameterValueKey: ""}}
 	for transition, values := range prior {
 		namespace := out[string(transition)]
@@ -1516,6 +1531,17 @@ func promptParameterData(current map[string]string, prior map[workflow.ModelKey]
 		}
 		for key, value := range values {
 			namespace[key] = value
+		}
+		out[string(transition)] = namespace
+	}
+	for transition, sessionID := range priorSessionIDs {
+		namespace := out[string(transition)]
+		if namespace == nil {
+			namespace = promptParameterNamespace{}
+		}
+		namespace[workflow.RuntimePromptParameterSessionID] = ""
+		if sessionID != nil {
+			namespace[workflow.RuntimePromptParameterSessionID] = sessionID.String()
 		}
 		out[string(transition)] = namespace
 	}

@@ -18,6 +18,7 @@ function workflowValidationErrorIdentity(error: WorkflowValidationError): string
     error.nodeID,
     error.transitionGroupID,
     error.edgeID,
+    error.details.reason,
     error.details.fieldName,
     error.details.inputName,
     error.details.placeholder,

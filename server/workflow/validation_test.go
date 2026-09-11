@@ -8,6 +8,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	"core/shared/runtimeids"
+	"core/shared/workflowcontract"
 )
 
 func TestStartNodeRules(t *testing.T) {
@@ -215,6 +216,9 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 		{name: "reserved parameter key commentary", edit: func(t *testing.T, def *workflow.Definition) {
 			edgeByIDForValidationTest(t, def, "edge_done").Parameters = []workflow.Parameter{{Key: "commentary", Description: "Reserved."}}
 		}, code: workflow.CodeInvalidParameter},
+		{name: "reserved parameter key session id", edit: func(t *testing.T, def *workflow.Definition) {
+			edgeByIDForValidationTest(t, def, "edge_done").Parameters = []workflow.Parameter{{Key: "session_id", Description: "Reserved."}}
+		}, code: workflow.CodeInvalidParameter},
 		{name: "duplicate parameter key", edit: func(t *testing.T, def *workflow.Definition) {
 			edgeByIDForValidationTest(t, def, "edge_done").Parameters = []workflow.Parameter{
 				{Key: "summary", Description: "Summary."},
@@ -298,6 +302,59 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
+	t.Run("valid direct session placeholder from an agent source passes", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_implementation_review").PromptTemplate = "Review {{.SessionId}}."
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("direct session placeholder from a start source is rejected", func(t *testing.T) {
+		def := validWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_start").PromptTemplate = "Start {{.SessionId}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		for _, err := range result.Errors {
+			if err.Placeholder == ".SessionId" &&
+				err.Reason != nil &&
+				*err.Reason == workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession {
+				return
+			}
+		}
+		t.Fatalf("Session reference errors = %+v, want typed source ownership reason", result.Errors)
+	})
+
+	t.Run("direct session placeholder from a script source is rejected", func(t *testing.T) {
+		def := validWorkflow(t)
+		updateNodeAt(&def, 1, func(_ *workflow.NodeIdentity, kind *workflow.NodeKind, fields *workflow.NodeFields) {
+			*kind = workflow.NodeKindScript
+			fields.ScriptPath = workflow.MustPresentScriptPath("./script.sh")
+		})
+		updateNodeAt(&def, 2, func(_ *workflow.NodeIdentity, kind *workflow.NodeKind, fields *workflow.NodeFields) {
+			*kind = workflow.NodeKindAgent
+			fields.SubagentRole = "coder"
+		})
+		edgeByIDForValidationTest(t, &def, "edge_start").PromptTemplate = ""
+		edgeByIDForValidationTest(t, &def, "edge_done").PromptTemplate = "Continue {{.SessionId}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("direct session placeholder from a join source is rejected", func(t *testing.T) {
+		def := fanoutWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_join_done").PromptTemplate = "Continue {{.SessionId}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
 	t.Run("valid commentary placeholder passes without declared parameter", func(t *testing.T) {
 		def := validWorkflow(t)
 		edgeByIDForValidationTest(t, &def, "edge_start").PromptTemplate = "Start after {{.Params.commentary}}."
@@ -305,6 +362,15 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 		result := validateForTask(def)
 
 		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("session id is not an ordinary current parameter placeholder", func(t *testing.T) {
+		def := validWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_start").PromptTemplate = "Start with {{.Params.session_id}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("unknown current parameter placeholder exposes structured details", func(t *testing.T) {
@@ -331,6 +397,42 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 		result := validateForTask(def)
 
 		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("valid prior transition session placeholder passes without declared parameter", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_join_accept").PromptTemplate = "Accept {{.Params.review.session_id}}."
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("prior transition session placeholder from a start source is rejected", func(t *testing.T) {
+		def := validWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_done").PromptTemplate = "Done {{.Params.start.session_id}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("unknown prior transition session placeholder is rejected", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_join_accept").PromptTemplate = "Accept {{.Params.missing.session_id}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("optional prior transition session placeholder is rejected", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow(t)
+		edgeByIDForValidationTest(t, &def, "edge_implementation_review").PromptTemplate = "Review {{.Params.approved.session_id}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("valid prior transition commentary placeholder passes without declared parameter", func(t *testing.T) {

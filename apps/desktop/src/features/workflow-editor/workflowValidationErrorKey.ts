@@ -5,7 +5,7 @@ export function workflowValidationErrorKey(error: WorkflowValidationError, index
     (value): value is string => value !== null && value.length > 0,
   );
   if (entityID !== undefined) {
-    return `${error.code}:${entityID}:${error.message}`;
+    return `${error.code}:${entityID}:${error.details.reason ?? ""}:${error.message}`;
   }
-  return `${error.code}:${error.message}:${index.toString()}`;
+  return `${error.code}:${error.details.reason ?? ""}:${error.message}:${index.toString()}`;
 }

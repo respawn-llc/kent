@@ -199,6 +199,12 @@ export type PendingAsk = Readonly<{
 
 export type ApprovalDecision = "allow_once" | "allow_session" | "deny";
 
+export type WorkflowValidationErrorReason =
+  | "session_source_cannot_own_session"
+  | "session_transition_missing"
+  | "session_transition_not_guaranteed"
+  | "session_transition_ambiguous";
+
 export type WorkflowValidationError = Readonly<{
   code: string;
   message: string;
@@ -215,6 +221,7 @@ export type WorkflowValidationErrorDetails = Readonly<{
   fieldName: string;
   inputName: string;
   placeholder: string;
+  reason: WorkflowValidationErrorReason | null;
   providerEdgeID: string | null;
   role: string | null;
   requiredTool: string | null;

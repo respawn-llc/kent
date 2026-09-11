@@ -469,6 +469,7 @@
 - Nodes own no agent input or output contract. Transition Branches exclusively declare the Parameters they provide to their targets.
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.
 - Applying a Transition materializes each branch's declared Parameters for its target. Prompt rendering uses those values and never searches discarded execution history.
+- Built-in [Session references](workflow-editor.md#session-references) resolve the Task's existing Session associations when the prompt is rendered.
 - If the latest Workflow definition requires an already-current executable Node to have a Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. Kent does not reconstruct discarded Workflow history, and another selected parallel Current Node remains independently admissible.
 - The Start Node's outgoing Transition cannot declare Parameters and should use task fields such as `.TaskTitle` and `.TaskBody`.
 - Kent derives Parameter flow and completion requirements from Transition Branch declarations, Workflow structure, and Join sources.

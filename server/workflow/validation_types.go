@@ -135,6 +135,7 @@ const (
 type ValidationError struct {
 	Code              ValidationErrorCode
 	Message           string
+	Reason            *workflowcontract.ValidationErrorReason
 	WorkflowID        *runtimeids.WorkflowID
 	NodeID            *NodeID
 	TransitionGroupID *TransitionGroupID
