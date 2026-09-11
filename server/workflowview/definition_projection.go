@@ -30,13 +30,17 @@ func NewDefinitionProjection(store *workflowstore.Store) (*DefinitionProjection,
 	return &DefinitionProjection{store: store, catalog: store.TargetAgentCatalog()}, nil
 }
 
-func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.ProjectWorkflowLinkRecord, validation *workflow.ValidationResult) serverapi.WorkflowPickerItem {
+func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.ProjectWorkflowLinkRecord, validation *workflow.ValidationResult) (serverapi.WorkflowPickerItem, error) {
 	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, Version: def.Workflow.Version, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
 	if validation != nil {
 		item.ValidForTaskCreation = link.ID != "" && !validation.HasBlockingErrors()
-		item.ValidationErrors = ValidationErrors(workflow.WorkflowIDPointer(def.Workflow.ID), validation.Errors)
+		validationErrors, err := ValidationErrors(workflow.WorkflowIDPointer(def.Workflow.ID), validation.Errors)
+		if err != nil {
+			return serverapi.WorkflowPickerItem{}, err
+		}
+		item.ValidationErrors = validationErrors
 	}
-	return item
+	return item, nil
 }
 
 func (p *DefinitionProjection) GetDefinition(ctx context.Context, workflowID runtimeids.WorkflowID) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind, error) {
@@ -73,12 +77,15 @@ func (p *DefinitionProjection) snapshot(ctx context.Context, workflowID runtimei
 	if err != nil {
 		return definitionSnapshot{}, err
 	}
-	api, nodeKinds := ProjectDefinition(domain, record, p.catalog)
+	api, nodeKinds, err := ProjectDefinition(domain, record, p.catalog)
+	if err != nil {
+		return definitionSnapshot{}, err
+	}
 	return definitionSnapshot{domain: domain, api: api, nodeKinds: nodeKinds}, nil
 }
 
 // ProjectDefinition is the canonical pure domain-to-API workflow projection.
-func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRecord, catalogs ...workflow.TargetAgentCatalog) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind) {
+func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRecord, catalogs ...workflow.TargetAgentCatalog) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind, error) {
 	api := serverapi.WorkflowDefinition{
 		Workflow: serverapi.WorkflowRecord{
 			ID:                    record.ID,
@@ -173,8 +180,12 @@ func ProjectDefinition(def workflow.Definition, record workflowstore.WorkflowRec
 			OutputRequirements: requirements,
 		})
 	}
-	api.DerivedWiring = DerivedWiring(def, catalogs...)
-	return api, nodeKinds
+	derivedWiring, err := DerivedWiring(def, catalogs...)
+	if err != nil {
+		return serverapi.WorkflowDefinition{}, nil, err
+	}
+	api.DerivedWiring = derivedWiring
+	return api, nodeKinds, nil
 }
 
 func projectExecutionTargetPolicy(policy workflow.ExecutionTargetPolicy) serverapi.WorkflowExecutionTargetConfiguration {

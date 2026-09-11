@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"core/shared/clientui"
+	"core/shared/invariant"
 	workflowdefinitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
@@ -663,18 +664,26 @@ type WorkflowValidationErrorDetails struct {
 
 type WorkflowValidationErrorReason = workflowdefinitionpb.ValidationErrorReason
 
-func WorkflowValidationErrorReasonFromDomain(reason workflowcontract.ValidationErrorReason) WorkflowValidationErrorReason {
+func WorkflowValidationErrorReasonFromDomain(reason workflowcontract.ValidationErrorReason) (WorkflowValidationErrorReason, error) {
 	switch reason {
 	case workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession:
-		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION, nil
 	case workflowcontract.ValidationErrorReasonSessionTransitionMissing:
-		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING, nil
 	case workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed:
-		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED, nil
 	case workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous:
-		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS, nil
 	default:
-		panic(fmt.Sprintf("workflow validation reason %q is unsupported", reason))
+		err := fmt.Errorf("workflow validation reason %q is unsupported", reason)
+		diagnostic := invariant.FailureDiagnostic(
+			invariant.ScopeServerAPIContract,
+			"workflow.validation_reason.from_domain",
+			err,
+		)
+		diagnostic.Fields[invariant.FieldReason] = string(reason)
+		invariant.NewPolicy().Check(false, diagnostic)
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_UNSPECIFIED, err
 	}
 }
 

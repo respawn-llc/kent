@@ -13,6 +13,7 @@ import (
 
 func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 	placeholder := ".Params.review.session_id"
+	const serverMessage = "server-message-sentinel"
 	for _, reason := range []serverapi.WorkflowValidationErrorReason{
 		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION,
 		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING,
@@ -23,7 +24,7 @@ func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 			projected, err := workflowValidationForCLI(serverapi.WorkflowValidateResponse{
 				Errors: []serverapi.WorkflowValidationError{{
 					Code:    string(workflow.CodeInvalidTemplatePlaceholder),
-					Message: "server-provided message",
+					Message: serverMessage,
 					Details: &serverapi.WorkflowValidationErrorDetails{
 						Placeholder: placeholder,
 						Reason:      &reason,
@@ -35,12 +36,16 @@ func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 			}
 
 			message := projected.Errors[0].Message
-			if message == "server-provided message" {
+			if message == serverMessage {
 				t.Fatalf("message = %q, want client-formatted diagnostic", message)
+			}
+			if projected.Errors[0].Details == nil || projected.Errors[0].Details.Reason == nil ||
+				*projected.Errors[0].Details.Reason != reason {
+				t.Fatalf("projected validation reason = %+v, want %v", projected.Errors[0].Details, reason)
 			}
 			var stdout bytes.Buffer
 			writeWorkflowValidationError(&stdout, projected.Errors[0])
-			if !slices.Contains(strings.Split(stdout.String(), "\n"), "  placeholder: "+placeholder) {
+			if !slices.Contains(strings.Fields(stdout.String()), placeholder) {
 				t.Fatalf("validation output = %q, want placeholder detail", stdout.String())
 			}
 		})
@@ -49,6 +54,7 @@ func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 
 func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceReasons(t *testing.T) {
 	const placeholder = ".Params.review.session_id"
+	const serverMessage = "server-message-sentinel"
 	reason := serverapi.WorkflowValidationErrorReason(
 		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING,
 	)
@@ -66,7 +72,7 @@ func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceReasons(t *testing.
 				serverapi.WorkflowValidationModeExecution: {
 					Errors: []serverapi.WorkflowValidationError{{
 						Code:    string(workflow.CodeInvalidTemplatePlaceholder),
-						Message: "server-provided message",
+						Message: serverMessage,
 						Details: &serverapi.WorkflowValidationErrorDetails{
 							Placeholder: placeholder,
 							Reason:      &reason,
@@ -80,10 +86,10 @@ func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceReasons(t *testing.
 		t.Fatalf("write graph apply output: %v", err)
 	}
 	output := stderr.String()
-	if slices.Contains(strings.Split(output, "\n"), "  - ["+string(workflow.CodeInvalidTemplatePlaceholder)+"] server-provided message") {
+	if slices.Contains(strings.Fields(output), serverMessage) {
 		t.Fatalf("output = %q, want client-formatted diagnostic", output)
 	}
-	if !slices.Contains(strings.Split(output, "\n"), "    placeholder: "+placeholder) {
+	if !slices.Contains(strings.Fields(output), placeholder) {
 		t.Fatalf("output = %q, does not identify placeholder %q", output, placeholder)
 	}
 }

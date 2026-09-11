@@ -348,6 +348,10 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 			return nil, nil, fmt.Errorf("workflow selection invariant violated: active link missing for project_id=%q workflow_id=%q", projectID, workflowID)
 		}
 		validation := definitionExecutionValidation(snapshot.domain, b.roleResolver)
+		validationErrors, err := ValidationErrors(workflow.WorkflowIDPointer(snapshot.api.Workflow.ID), validation.Errors)
+		if err != nil {
+			return nil, nil, err
+		}
 		picker = append(picker, serverapi.WorkflowPickerItem{
 			WorkflowID:           workflowID,
 			DisplayName:          snapshot.api.Workflow.Name,
@@ -355,7 +359,7 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 			Version:              snapshot.api.Workflow.Version,
 			IsProjectDefault:     link.IsDefault != 0,
 			ValidForTaskCreation: !validation.HasBlockingErrors(),
-			ValidationErrors:     ValidationErrors(workflow.WorkflowIDPointer(snapshot.api.Workflow.ID), validation.Errors),
+			ValidationErrors:     validationErrors,
 		})
 	}
 	sort.SliceStable(picker, func(i, j int) bool {
