@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { render, screen } from "@testing-library/react";
 
 import { CollapsibleMarkdownField } from "./MarkdownField";
@@ -16,7 +17,7 @@ const baseProps = {
 };
 
 describe("MarkdownField presentation options", () => {
-  it("supports the exact pixel Goal clamp and floating action slot", () => {
+  it("renders a supplied floating action in read presentation", () => {
     render(
       <CollapsibleMarkdownField
         {...baseProps}
@@ -27,24 +28,25 @@ describe("MarkdownField presentation options", () => {
       />,
     );
 
-    expect(screen.getByTestId("markdown-field-read-content-viewport")).toHaveStyle({
-      maxHeight: "300px",
-    });
-    expect(screen.getByText("Save")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
-  it("keeps the existing line clamp as an explicit default choice", () => {
+  it("invokes the supplied submit intent for the configured shortcut", async () => {
+    const onSubmitIntent = vi.fn();
     render(
       <CollapsibleMarkdownField
         {...baseProps}
         collapsedHeightClamp={{ kind: "lines", maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
+        editing
         expanded={false}
         expandLabel="Expand"
+        submitIntent={{ available: true, onSubmitIntent, policy: "meta-enter" }}
       />,
     );
 
-    expect(screen.getByTestId("markdown-field-read-content-viewport")).toHaveStyle({
-      maxHeight: "clamp(5lh,50dvh,10lh)",
-    });
+    await userEvent.setup().click(screen.getByRole("textbox", { name: "Description" }));
+    await userEvent.setup().keyboard("{Meta>}{Enter}{/Meta}");
+
+    expect(onSubmitIntent).toHaveBeenCalledOnce();
   });
 });

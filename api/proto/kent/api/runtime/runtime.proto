@@ -734,8 +734,22 @@ message GoalSetRequest {
     not_in: [0]
   }];
   optional string initial_input_draft = 5;
-  optional string run_id = 6 [(buf.validate.field).string.min_len = 1];
-  optional string step_id = 7 [(buf.validate.field).string.min_len = 1];
+  optional string run_id = 6 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.runtime.goal_set_run_id_nonblank"
+      message: "run_id must not be blank when present"
+      expression: "this.trim() != ''"
+    }
+  ];
+  optional string step_id = 7 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.runtime.goal_set_step_id_nonblank"
+      message: "step_id must not be blank when present"
+      expression: "this.trim() != ''"
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_set_target_execution"
@@ -1230,7 +1244,8 @@ message GoalSetError {
     message: "Goal Set error code and detail must match"
     expression:
       "(this.code == 'runtime_unavailable' && has(this.runtime_unavailable)) || "
-      "(this.code == 'internal_failure' && has(this.internal_failure))"
+      "(this.code == 'internal_failure' && has(this.internal_failure)) || "
+      "(this.code != 'runtime_unavailable' && this.code != 'internal_failure')"
   };
 }
 

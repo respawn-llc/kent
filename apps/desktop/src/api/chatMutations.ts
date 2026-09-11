@@ -5,7 +5,6 @@ import {
   type CompactionNotAccepted,
   type InputNotAccepted,
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
-import type { SupervisorValue } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
   LiveService,
   LiveStopStatus,
@@ -23,7 +22,7 @@ import {
 
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
-import { supervisorToWire } from "./chatSupervisor";
+import { initialChatSettingsToWire } from "./chatSettings";
 import { nonBlank } from "./chatSchemas";
 import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
@@ -225,14 +224,7 @@ function mutationTarget(
         value: {
           projectId: string;
           workspaceId: string;
-          initialSettings: {
-            agentRole: string;
-            supervisor: SupervisorValue;
-            thinking?: string;
-            fast?: boolean;
-            questionsEnabled: boolean;
-            autoCompactionEnabled: boolean;
-          };
+          initialSettings: ReturnType<typeof initialChatSettingsToWire>;
         };
       };
 } {
@@ -246,14 +238,7 @@ function mutationTarget(
       value: {
         projectId: target.projectID,
         workspaceId: workspaceID,
-        initialSettings: {
-          agentRole: target.initialSettings.agentRole,
-          supervisor: supervisorToWire(target.initialSettings.supervisor),
-          ...(target.initialSettings.thinking === null ? {} : { thinking: target.initialSettings.thinking }),
-          ...(target.initialSettings.fast === null ? {} : { fast: target.initialSettings.fast }),
-          questionsEnabled: target.initialSettings.questionsEnabled,
-          autoCompactionEnabled: target.initialSettings.autoCompactionEnabled,
-        },
+        initialSettings: initialChatSettingsToWire(target.initialSettings),
       },
     },
   };

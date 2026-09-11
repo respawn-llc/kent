@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { CollapsibleMarkdownField } from "@/ui";
+import { useTextFieldSubmitShortcutPolicy } from "@/app-facade";
+import { CollapsibleMarkdownField, type MarkdownFieldSubmitIntent } from "@/ui";
 
 export type GoalMarkdownFieldProps = Readonly<{
   editing: boolean;
@@ -12,6 +13,7 @@ export type GoalMarkdownFieldProps = Readonly<{
   onEdit: () => void;
   onEditingChange: (editing: boolean) => void;
   onExpand: () => void;
+  submitIntent?: Omit<MarkdownFieldSubmitIntent, "policy">;
   value: string;
 }>;
 
@@ -24,9 +26,11 @@ export function GoalMarkdownField({
   onEdit,
   onEditingChange,
   onExpand,
+  submitIntent,
   value,
 }: GoalMarkdownFieldProps) {
   const { t } = useTranslation();
+  const submitPolicy = useTextFieldSubmitShortcutPolicy();
   return (
     <CollapsibleMarkdownField
       collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}
@@ -42,7 +46,8 @@ export function GoalMarkdownField({
       onEdit={onEdit}
       onEditingChange={onEditingChange}
       onExpand={onExpand}
-      placeholder={t("chat.goal.objectivePlaceholder")}
+      placeholder=""
+      submitIntent={submitIntent === undefined ? undefined : { ...submitIntent, policy: submitPolicy }}
       value={value}
     />
   );

@@ -1,5 +1,12 @@
-import { Check, CircleDot, Pause, PauseCircle, Play, RotateCcw, Save, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -10,31 +17,26 @@ import type {
   ChatGoalStatus,
   ChatSessionTarget,
 } from "@/api";
-import { errorMessage } from "@/api";
+import { ContractError, errorMessage } from "@/api";
 import {
   ChatGoalDestinationController,
+  recoverOrThrowDebugFailure,
+  useAppServices,
   useStatusController,
   type ChatGoalDestinationSnapshot,
   type ChatGoalMutationIntent,
 } from "@/app-facade";
-import {
-  Button,
-  DisabledInteractionGuard,
-  ErrorState,
-  IslandSurface,
-  LoadingState,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/ui";
-import { cx } from "@/ui";
+import { ErrorState, LoadingState } from "@/ui";
 import { type NewChatGoalBinding } from "./goalBinding";
-import { formatGoalAge } from "./goalFormat";
 import { GoalMarkdownField } from "./GoalMarkdownField";
+import { GoalActions, GoalMetadata, GoalSaveButton, goalLifecycleAction } from "./GoalSidebarParts";
+export type GoalSidebarApi = Pick<
+  ChatApi,
+  "setGoal" | "subscribeGoal" | "pauseGoal" | "resumeGoal" | "clearGoal"
+>;
 export type GoalSidebarInput =
-  | Readonly<{ kind: "session"; api: ChatApi; target: ChatSessionTarget }>
-  | Readonly<{ kind: "new_chat"; api: ChatApi; binding: NewChatGoalBinding }>;
+  | Readonly<{ kind: "session"; api: GoalSidebarApi; target: ChatSessionTarget }>
+  | Readonly<{ kind: "new_chat"; api: GoalSidebarApi; binding: NewChatGoalBinding }>;
 
 export function GoalSidebarPage({ input }: Readonly<{ input: GoalSidebarInput }>) {
   if (input.kind === "new_chat") {
@@ -42,13 +44,24 @@ export function GoalSidebarPage({ input }: Readonly<{ input: GoalSidebarInput }>
   }
   return <ExactGoalSidebar api={input.api} target={input.target} />;
 }
-function NewChatGoalSidebar({ api, binding }: Readonly<{ api: ChatApi; binding: NewChatGoalBinding }>) {
+function NewChatGoalSidebar({
+  api,
+  binding,
+}: Readonly<{ api: GoalSidebarApi; binding: NewChatGoalBinding }>) {
   const snapshot = useBindingSnapshot(binding);
   const { t } = useTranslation();
   const { push } = useStatusController();
+  const { logger } = useAppServices();
+  const mounted = useRef(false);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   if (snapshot.kind === "resolved_session") {
     return <ExactGoalSidebar api={api} initialDraft={draft} target={snapshot.target} />;
@@ -57,13 +70,19 @@ function NewChatGoalSidebar({ api, binding }: Readonly<{ api: ChatApi; binding: 
   const unavailable = snapshot.availability === "agent_capability_missing";
   const canSave = draft.trim().length > 0 && !snapshot.pending && !unavailable;
   const save = () => {
+    if (!canSave) return;
     setError(null);
+    setEditing(false);
     void binding
       .setGoal(draft)
       .then((result) => {
         if (result.outcome.kind === "rejected") {
           const message = goalErrorMessage(result.outcome.error, t);
           push({ id: "goal-set-rejected", title: t("chat.goal.setFailed"), body: message, tone: "danger" });
+          if (result.sessionID === null && mounted.current) {
+            setError(new Error(message));
+            setEditing(true);
+          }
         }
         if (result.diagnostic !== null) {
           push({
@@ -76,8 +95,29 @@ function NewChatGoalSidebar({ api, binding }: Readonly<{ api: ChatApi; binding: 
       })
       .catch((cause: unknown) => {
         const nextError = cause instanceof Error ? cause : new Error(errorMessage(cause));
-        setError(nextError);
-        setEditing(true);
+        const recover = () => {
+          if (mounted.current) {
+            setError(nextError);
+            setEditing(true);
+          }
+          push({
+            id: "goal-set-failed",
+            title: t("chat.goal.setFailed"),
+            body: nextError.message,
+            tone: "danger",
+          });
+        };
+        if (cause instanceof ContractError) {
+          void recoverOrThrowDebugFailure({
+            context: { operation: "Goal Set" },
+            error: cause,
+            logger,
+            message: "Goal Set response was malformed.",
+            recover,
+          });
+          return;
+        }
+        recover();
       });
   };
 
@@ -89,14 +129,14 @@ function NewChatGoalSidebar({ api, binding }: Readonly<{ api: ChatApi; binding: 
           editing={editing}
           error={error?.message}
           floatingAction={
-            draft.trim().length === 0
-              ? undefined
-              : saveButton({
-                  disabled: !canSave,
-                  label: unavailable ? t("chat.goal.unavailableForAgent") : t("chat.goal.save"),
-                  onClick: save,
-                  pending: snapshot.pending,
-                })
+            snapshot.pending || draft.trim().length === 0 ? undefined : (
+              <GoalSaveButton
+                disabled={!canSave}
+                label={unavailable ? t("chat.goal.unavailableForAgent") : t("chat.goal.save")}
+                onClick={save}
+                pending={snapshot.pending}
+              />
+            )
           }
           expanded
           onChange={setDraft}
@@ -105,6 +145,7 @@ function NewChatGoalSidebar({ api, binding }: Readonly<{ api: ChatApi; binding: 
           }}
           onEditingChange={setEditing}
           onExpand={() => undefined}
+          submitIntent={{ available: canSave, onSubmitIntent: save }}
           value={draft}
         />
       </div>
@@ -115,7 +156,7 @@ function ExactGoalSidebar({
   api,
   initialDraft = "",
   target,
-}: Readonly<{ api: ChatApi; initialDraft?: string; target: ChatSessionTarget }>) {
+}: Readonly<{ api: GoalSidebarApi; initialDraft?: string; target: ChatSessionTarget }>) {
   const model = useExactGoalSidebarModel(api, initialDraft, target);
 
   if (model.snapshot.observation.kind === "loading") {
@@ -146,6 +187,8 @@ type ExactGoalSidebarModel = Readonly<{
   now: number;
   pendingIntent: ChatGoalMutationIntent | null;
   displayedStatus: ChatGoalStatus | null;
+  displayedCreatedAt: string | null;
+  displayedObjective: string;
   dirty: boolean;
   unavailable: boolean;
   saveAvailable: boolean;
@@ -168,6 +211,8 @@ type GoalSidebarDerivedState = Readonly<{
   draftState: DraftState;
   displayedFact: ChatGoalFact | null;
   displayedStatus: ChatGoalStatus | null;
+  displayedCreatedAt: string | null;
+  displayedObjective: string;
   dirty: boolean;
   unavailable: boolean;
   saveAvailable: boolean;
@@ -180,6 +225,7 @@ type GoalMutationRunnerInput = Readonly<{
   draftState: DraftState;
   editing: boolean;
   expanded: boolean;
+  logger: ReturnType<typeof useAppServices>["logger"];
   push: ReturnType<typeof useStatusController>["push"];
   setError: (error: Error | null) => void;
   setExpanded: (expanded: boolean) => void;
@@ -205,21 +251,43 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       const handle = input.controller.begin(intent);
       try {
         const result = await operation();
-        input.controller.succeed(handle, result);
-        input.setError(null);
+        if (input.controller.succeed(handle, result)) {
+          input.setError(null);
+        }
       } catch (cause: unknown) {
-        input.controller.fail(handle);
-        input.setLocalDraft((current) => ({ ...current, draft: previous.draft }));
-        input.setEditing(previous.editing);
-        input.setExpanded(previous.expanded);
+        const current = input.controller.fail(handle);
         const failure = goalMutationFailure(cause, input.t);
-        input.setError(failure);
-        input.push({
-          id: `goal-${action}-failed`,
-          title: action === "clear" ? input.t("chat.goal.clearFailed") : input.t("chat.goal.mutationFailed"),
-          body: failure.message,
-          tone: "danger",
-        });
+        const recover = () => {
+          if (current) {
+            input.setLocalDraft((currentDraft) => ({ ...currentDraft, draft: previous.draft }));
+            if (action === "set") {
+              input.setEditing(true);
+              input.setExpanded(true);
+            } else {
+              input.setEditing(previous.editing);
+              input.setExpanded(previous.expanded);
+            }
+            input.setError(failure);
+          }
+          input.push({
+            id: `goal-${action}-failed`,
+            title:
+              action === "clear" ? input.t("chat.goal.clearFailed") : input.t("chat.goal.mutationFailed"),
+            body: failure.message,
+            tone: "danger",
+          });
+        };
+        if (cause instanceof ContractError) {
+          void recoverOrThrowDebugFailure({
+            context: { operation: `Goal ${action}` },
+            error: cause,
+            logger: input.logger,
+            message: "Goal mutation response was malformed.",
+            recover,
+          });
+          return;
+        }
+        recover();
       }
     },
     [input],
@@ -239,8 +307,9 @@ function deriveGoalSidebarState(
   const fact = observedGoalFact(snapshot);
   const pendingIntent = pendingGoalIntent(snapshot);
   const draftState = reconcileDraftState(localDraft, fact, pendingIntent);
-  const displayedFact = displayedGoalFact(fact, pendingIntent);
-  const displayedStatus = displayedGoalStatus(fact, pendingIntent);
+  const presentation = goalPresentation(fact, pendingIntent, draftState.draft);
+  const displayedFact = presentation.fact;
+  const displayedStatus = displayedFact?.goal?.status ?? null;
   const dirty = draftState.draft !== draftState.base;
   const unavailable = goalUnavailable(fact);
   const saveAvailable = dirty && nonBlank(draftState.draft) && pendingIntent === null;
@@ -249,6 +318,8 @@ function deriveGoalSidebarState(
     actionsDisabled,
     dirty,
     displayedFact,
+    displayedCreatedAt: presentation.createdAt,
+    displayedObjective: presentation.objective,
     displayedStatus,
     draftState,
     fact,
@@ -266,18 +337,46 @@ function pendingGoalIntent(snapshot: ChatGoalDestinationSnapshot): ChatGoalMutat
   return snapshot.presentation.kind === "unresolved" ? snapshot.presentation.intent : null;
 }
 
-function displayedGoalFact(
+function goalPresentation(
   fact: ChatGoalFact | null,
   pendingIntent: ChatGoalMutationIntent | null,
-): ChatGoalFact | null {
-  return pendingIntent?.kind === "clear" && fact !== null ? { ...fact, goal: null } : fact;
+  draft: string,
+): Readonly<{ fact: ChatGoalFact | null; objective: string; createdAt: string | null }> {
+  if (pendingIntent?.kind === "clear") {
+    return { fact: fact === null ? null : { ...fact, goal: null }, objective: "", createdAt: null };
+  }
+  if (pendingIntent?.kind === "goal") {
+    return pendingGoalPresentation(fact, pendingIntent, draft);
+  }
+  return { fact, objective: draft, createdAt: fact?.goal?.createdAt ?? null };
 }
 
-function displayedGoalStatus(
+function pendingGoalPresentation(
   fact: ChatGoalFact | null,
-  pendingIntent: ChatGoalMutationIntent | null,
-): ChatGoalStatus | null {
-  return pendingIntent?.kind === "goal" ? pendingIntent.preview.status : (fact?.goal?.status ?? null);
+  pendingIntent: Extract<ChatGoalMutationIntent, { kind: "goal" }>,
+  draft: string,
+): Readonly<{ fact: ChatGoalFact | null; objective: string; createdAt: string | null }> {
+  const authoritativeGoal = fact?.goal;
+  if (fact === null || authoritativeGoal === undefined || authoritativeGoal === null) {
+    return {
+      fact,
+      objective: pendingIntent.preview.objective === draft ? pendingIntent.preview.objective : draft,
+      createdAt: null,
+    };
+  }
+  return {
+    fact: {
+      ...fact,
+      goal: {
+        ...authoritativeGoal,
+        objective: pendingIntent.preview.objective,
+        status: pendingIntent.preview.status,
+      },
+    },
+    objective: pendingIntent.preview.objective === draft ? pendingIntent.preview.objective : draft,
+    createdAt:
+      authoritativeGoal.objective === pendingIntent.preview.objective ? authoritativeGoal.createdAt : null,
+  };
 }
 
 function goalUnavailable(fact: ChatGoalFact | null): boolean {
@@ -303,15 +402,23 @@ function useGoalMinuteClock(fact: ChatGoalFact | null): number {
 }
 
 function useExactGoalSidebarModel(
-  api: ChatApi,
+  api: GoalSidebarApi,
   initialDraft: string,
   target: ChatSessionTarget,
 ): ExactGoalSidebarModel {
   const { t } = useTranslation();
-  const controller = useMemo(() => new ChatGoalDestinationController(api, target), [api, target]);
-  const snapshot = useControllerSnapshot(controller);
-  const { push } = useStatusController();
   const [localDraft, setLocalDraft] = useState<DraftState>({ base: "", draft: initialDraft });
+  const controller = useMemo(() => new ChatGoalDestinationController(api, target), [api, target]);
+  const reconcileSnapshot = useCallback(() => {
+    setLocalDraft((current) => {
+      const snapshot = controller.snapshot;
+      const next = reconcileDraftState(current, observedGoalFact(snapshot), pendingGoalIntent(snapshot));
+      return next.base === current.base && next.draft === current.draft ? current : next;
+    });
+  }, [controller]);
+  const snapshot = useControllerSnapshot(controller, reconcileSnapshot);
+  const { push } = useStatusController();
+  const { logger } = useAppServices();
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -327,7 +434,9 @@ function useExactGoalSidebarModel(
   const {
     actionsDisabled,
     dirty,
+    displayedCreatedAt,
     displayedFact,
+    displayedObjective,
     displayedStatus,
     draftState,
     fact,
@@ -342,8 +451,9 @@ function useExactGoalSidebarModel(
     actionsDisabled,
     controller,
     draftState,
-    editing: creationMode || editing,
-    expanded: creationMode || expanded,
+    editing: (creationMode && pendingIntent === null) || editing,
+    expanded: (creationMode && pendingIntent === null) || expanded,
+    logger,
     push,
     setError,
     setExpanded,
@@ -353,6 +463,8 @@ function useExactGoalSidebarModel(
   });
 
   const save = () => {
+    if (actionsDisabled) return;
+    setEditing(false);
     const intent: ChatGoalMutationIntent = {
       kind: "goal",
       preview: { objective: draftState.draft, status: "active" },
@@ -379,7 +491,10 @@ function useExactGoalSidebarModel(
     void runMutation(
       {
         kind: "goal",
-        preview: { objective: draftState.draft, status: lifecycle === "pause" ? "paused" : "active" },
+        preview: {
+          objective: fact?.goal?.objective ?? draftState.draft,
+          status: lifecycle === "pause" ? "paused" : "active",
+        },
       },
       lifecycle,
       lifecycle === "pause" ? async () => api.pauseGoal(target) : async () => api.resumeGoal(target),
@@ -401,9 +516,10 @@ function useExactGoalSidebarModel(
     clear,
     dirty,
     draftState,
-    editing: creationMode || editing,
+    displayedCreatedAt,
+    editing: (creationMode && pendingIntent === null) || editing,
     error,
-    expanded: creationMode || expanded,
+    expanded: (creationMode && pendingIntent === null) || expanded,
     fact: displayedFact,
     now,
     pendingIntent,
@@ -416,6 +532,7 @@ function useExactGoalSidebarModel(
     setExpanded,
     t,
     unavailable,
+    displayedObjective,
     displayedStatus,
     snapshot,
   };
@@ -438,14 +555,6 @@ function reconcileDraftState(
     : { ...localDraft, base: nextBase };
 }
 
-type GoalLifecycleAction = "pause" | "resume" | "reopen";
-
-function goalLifecycleAction(status: ChatGoalStatus | null): GoalLifecycleAction {
-  if (status === "active") return "pause";
-  if (status === "paused") return "resume";
-  return "reopen";
-}
-
 function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>) {
   const { fact } = model;
   if (fact === null) return null;
@@ -453,6 +562,11 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
   const showActions = visibleGoal !== null;
   return (
     <div className="flex h-full min-h-0 flex-col gap-[var(--space-3)] p-[var(--space-4)]">
+      {visibleGoal === null ? (
+        <p className="m-0 text-sm leading-relaxed text-[var(--color-muted)]">
+          {model.t("chat.goal.guidance")}
+        </p>
+      ) : null}
       <div className="min-h-0 flex-1">
         <GoalMarkdownField
           editing={model.editing}
@@ -468,12 +582,13 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
           onExpand={() => {
             model.setExpanded(true);
           }}
-          value={model.draftState.draft}
+          submitIntent={{ available: model.saveAvailable && !model.unavailable, onSubmitIntent: model.save }}
+          value={model.displayedObjective}
         />
       </div>
       {showActions ? (
         <>
-          <GoalMetadata fact={fact} now={model.now} />
+          <GoalMetadata createdAt={model.displayedCreatedAt} fact={fact} now={model.now} />
           <GoalActions model={model} />
         </>
       ) : null}
@@ -481,151 +596,42 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
   );
 }
 
-function renderSaveAction(model: ExactGoalSidebarModel) {
+function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefined {
   if (!model.dirty || model.draftState.draft.trim().length === 0) return undefined;
-  return saveButton({
-    disabled: !model.saveAvailable || model.unavailable,
-    label: model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save"),
-    onClick: model.save,
-    pending:
-      model.pendingIntent?.kind === "goal" &&
-      model.pendingIntent.preview.objective === model.draftState.draft,
-  });
-}
-
-function GoalActions({ model }: Readonly<{ model: ExactGoalSidebarModel }>) {
-  const lifecycle = goalLifecycleAction(model.displayedStatus);
-  const lifecycleUnavailable = lifecycle !== "pause" && model.unavailable;
-  const lifecycleButton = (
-    <Button
-      disabled={model.actionsDisabled || lifecycleUnavailable}
-      onClick={model.runLifecycle}
-      variant={lifecycle === "pause" ? "secondary" : lifecycle === "resume" ? "primary" : "primary-outline"}
-    >
-      {lifecycle === "pause" ? (
-        <Pause size={15} />
-      ) : lifecycle === "resume" ? (
-        <Play size={15} />
-      ) : (
-        <RotateCcw size={15} />
-      )}
-      {model.t(`chat.goal.${lifecycle}`)}
-    </Button>
-  );
+  if (
+    model.pendingIntent?.kind === "goal" &&
+    model.pendingIntent.preview.objective === model.draftState.draft
+  ) {
+    return undefined;
+  }
   return (
-    <div className="flex flex-wrap items-center gap-[var(--space-2)]" data-testid="goal-actions">
-      <DisabledInteractionGuard
-        disabled={lifecycleUnavailable}
-        reason={model.t("chat.goal.unavailableForAgent")}
-      >
-        {lifecycleButton}
-      </DisabledInteractionGuard>
-      <Button disabled={model.actionsDisabled} onClick={model.clear} variant="danger">
-        <Trash2 size={15} />
-        {model.t("chat.goal.clear")}
-      </Button>
-    </div>
-  );
-}
-
-function GoalMetadata({ fact, now }: Readonly<{ fact: ChatGoalFact; now: number }>) {
-  const { t } = useTranslation();
-  const goal = fact.goal;
-  if (goal === null) return null;
-  const icon =
-    goal.status === "active" ? (
-      <CircleDot size={16} />
-    ) : goal.status === "paused" ? (
-      <PauseCircle size={16} />
-    ) : (
-      <Check size={16} />
-    );
-  return (
-    <IslandSurface
-      aria-label={t(`chat.goal.${goal.status}`)}
-      className="grid gap-[var(--space-1)] p-[var(--space-3)]"
-      level={1}
-    >
-      <div
-        className={cx(
-          "flex items-center gap-[var(--space-2)] font-medium",
-          goal.status === "active"
-            ? "text-[var(--color-primary)]"
-            : goal.status === "paused"
-              ? "text-[var(--color-warning)]"
-              : "text-[var(--color-success)]",
-        )}
-      >
-        {icon}
-        <span>{t(`chat.goal.${goal.status}`)}</span>
-      </div>
-      <span className="text-sm text-[var(--color-muted)]">
-        {t("chat.goal.setAt", {
-          date: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
-            new Date(goal.createdAt),
-          ),
-          age: formatGoalAge(goal.createdAt, now),
-        })}
-      </span>
-    </IslandSurface>
-  );
-}
-
-function saveButton({
-  disabled,
-  label,
-  onClick,
-  pending,
-}: Readonly<{
-  disabled: boolean;
-  label: string;
-  onClick: () => void;
-  pending: boolean;
-}>) {
-  const button = (
-    <Button
-      aria-label={label}
-      data-testid="goal-save"
-      disabled={disabled || pending}
-      onClick={onClick}
-      size="icon"
-      variant="primary"
-    >
-      <Save aria-hidden="true" size={16} />
-    </Button>
-  );
-  return disabled ? (
-    <TooltipProvider delayDuration={0}>
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  ) : (
-    button
+    <GoalSaveButton
+      disabled={!model.saveAvailable || model.unavailable}
+      label={model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save")}
+      onClick={model.save}
+      pending={
+        model.pendingIntent?.kind === "goal" &&
+        model.pendingIntent.preview.objective === model.draftState.draft
+      }
+    />
   );
 }
 
 function useBindingSnapshot(binding: NewChatGoalBinding) {
-  const [snapshot, setSnapshot] = useState(binding.snapshot);
-  useEffect(
-    () =>
-      binding.subscribe(() => {
-        setSnapshot(binding.snapshot);
-      }),
-    [binding],
-  );
-  return snapshot;
+  const subscribe = useCallback((listener: () => void) => binding.subscribe(listener), [binding]);
+  const getSnapshot = useCallback(() => binding.snapshot, [binding]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-function useControllerSnapshot(controller: ChatGoalDestinationController) {
+function useControllerSnapshot(controller: ChatGoalDestinationController, onSnapshot: () => void) {
   const [snapshot, setSnapshot] = useState(controller.snapshot);
   useEffect(
     () =>
       controller.subscribe(() => {
+        onSnapshot();
         setSnapshot(controller.snapshot);
       }),
-    [controller],
+    [controller, onSnapshot],
   );
   return snapshot;
 }

@@ -3,6 +3,7 @@ import {
   AutoCompactionPolicy,
   ChatSettingsService,
   Editability,
+  InitialChatSettingsSchema,
   MutationRejectionReason,
   ThinkingKind,
   type AgentChoice,
@@ -109,6 +110,17 @@ export function createChatSettingsApi(
       };
     },
   };
+}
+
+export function initialChatSettingsToWire(settings: InitialChatSettings) {
+  return create(InitialChatSettingsSchema, {
+    agentRole: settings.agentRole,
+    supervisor: supervisorToWire(settings.supervisor),
+    ...(settings.thinking === null ? {} : { thinking: settings.thinking }),
+    ...(settings.fast === null ? {} : { fast: settings.fast }),
+    questionsEnabled: settings.questionsEnabled,
+    autoCompactionEnabled: settings.autoCompactionEnabled,
+  });
 }
 
 function rejection(value: MutationRejectionReason): ChatSettingsRejection {

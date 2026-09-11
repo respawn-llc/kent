@@ -314,6 +314,93 @@ describe("Desktop Chat read client", () => {
     });
   });
 
+  it.each([
+    ["runtime_unavailable", { kind: "runtime_unavailable" as const }],
+    [
+      "internal_failure",
+      { kind: "internal_failure" as const, operation: "goal.set", cause: "fixture failure" },
+    ],
+    ["future_code", { kind: "unknown" as const, code: "future_code" }],
+  ])("returns a typed top-level Goal Set failure for %s", async (code, expected) => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: GoalService.method.set,
+        result: create(GoalSetResultSchema, {
+          outcome: {
+            case: "error",
+            value:
+              code === "runtime_unavailable"
+                ? { code, detail: { case: "runtimeUnavailable", value: { sessionId: sessionID } } }
+                : code === "internal_failure"
+                  ? {
+                      code,
+                      detail: {
+                        case: "internalFailure",
+                        value: { operation: "goal.set", cause: "fixture failure" },
+                      },
+                    }
+                  : { code },
+          },
+        }),
+      },
+    ]);
+
+    await expect(
+      new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship"),
+    ).resolves.toEqual({
+      sessionID: null,
+      outcome: { kind: "rejected", error: expected },
+      diagnostic: null,
+    });
+  });
+
+  it("rejects Goal mutation dispositions that are illegal for the invoked method", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: GoalService.method.set,
+        result: create(GoalSetResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              session: { sessionId: sessionID },
+              outcome: {
+                case: "mutation",
+                value: { kind: GoalMutationResultKind.AUTHORITATIVE_CLEAR },
+              },
+            },
+          },
+        }),
+      },
+      {
+        method: "runtime.goal.pause",
+        result: { result: { kind: "authoritative_clear", availability: null } },
+      },
+      {
+        method: "runtime.goal.clear",
+        result: {
+          result: {
+            kind: "authoritative_goal",
+            goal: {
+              id: "goal-1",
+              objective: "ship",
+              status: "active",
+              created_at: "2026-09-11T10:00:00Z",
+              updated_at: "2026-09-11T10:00:00Z",
+            },
+            availability: null,
+          },
+        },
+      },
+    ]);
+    const client = new ApiClient(transport);
+
+    await expect(client.chat.setGoal({ kind: "session", sessionID }, "ship")).rejects.toBeInstanceOf(
+      ContractError,
+    );
+    await expect(client.chat.pauseGoal(target)).rejects.toBeInstanceOf(ContractError);
+    await expect(client.chat.clearGoal(target)).rejects.toBeInstanceOf(ContractError);
+  });
+
   it("accepts a dormant Main View with authoritative Goal absence", async () => {
     const transport = new FakeRpcTransport([
       {
