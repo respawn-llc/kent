@@ -100,6 +100,30 @@ describe("JSON subscription establishment", () => {
     controller.abort();
     await expect(pending).resolves.toBeUndefined();
   });
+
+  it("lets a no-deadline Chat subscription close before acknowledgement", async () => {
+    const socket = new WebSocket("ws://subscription.test");
+    const controller = new AbortController();
+    const opened = vi.fn();
+    const pending = runJsonSubscription({
+      socket,
+      method: "session.subscribeTranscript",
+      params: {},
+      handler: {
+        onOpen: opened,
+        onEvent: () => undefined,
+        onComplete: () => undefined,
+        onError: () => undefined,
+      },
+      signal: controller.signal,
+      establishmentTimeoutMs: null,
+    });
+
+    controller.abort();
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(opened).not.toHaveBeenCalled();
+  });
 });
 
 function requiredSocket(): SubscriptionSocket {

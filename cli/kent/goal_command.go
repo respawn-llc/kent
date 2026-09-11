@@ -232,9 +232,19 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			actor = "agent"
 			runID, stepID = sessionenv.LookupRunStepID(os.LookupEnv)
 		}
-		_, err = remote.CompleteGoal(ctx, serverapi.RuntimeGoalStatusRequest{SessionID: target, Actor: actor, RunID: runID, StepID: stepID})
+		response, err := remote.CompleteGoal(ctx, serverapi.RuntimeGoalStatusRequest{SessionID: target, Actor: actor, RunID: runID, StepID: stepID})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target, err))
+			return 1
+		}
+		if err := response.Validate(); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if response.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
+			response.Result.Goal == nil ||
+			response.Result.Goal.Status != clientui.RuntimeGoalStatusComplete {
+			fmt.Fprintln(stderr, "Goal completion response did not contain an authoritative completed Goal")
 			return 1
 		}
 		fmt.Fprintln(stdout, "Goal marked as completed, changes will come into effect in a few seconds. After that you may end your turn normally.")

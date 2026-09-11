@@ -435,6 +435,7 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(RpcError);
     expect(sockets).toHaveLength(1);
+    expect(socket.sent).toHaveLength(2);
     subscription.close();
   });
 

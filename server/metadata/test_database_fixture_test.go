@@ -22,9 +22,10 @@ func openInMemoryMetadataTestStore(t *testing.T, persistenceRoot string) *Store 
 	t.Helper()
 	db := openLatestMetadataTestDatabase(t)
 	store := &Store{
-		persistenceRoot: persistenceRoot,
-		db:              db,
-		queries:         sqlitegen.New(db),
+		persistenceRoot:  persistenceRoot,
+		db:               db,
+		queries:          sqlitegen.New(db),
+		goalObservations: newGoalObservationBroker(),
 	}
 	if err := store.BackfillProjectKeys(context.Background()); err != nil {
 		_ = db.Close()

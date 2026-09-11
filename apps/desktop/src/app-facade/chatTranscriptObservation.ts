@@ -179,9 +179,7 @@ export class ChatTranscriptObservation {
     this.#physical = new ChatTranscriptPhysicalObservation(this.#api, this.#target, {
       onOpen: () => {
         if (this.#disposed) return;
-        if (this.#hasHydrated && this.#hydrationKind === "initial") {
-          this.#hydrationKind = "reattachment";
-        } else if (this.#hasHydrated && this.#hydrationKind !== "scratch") {
+        if (this.#hasHydrated && this.#hydrationKind !== "scratch") {
           this.#hydrationKind = "reattachment";
         }
         this.#nextSequence = 0;

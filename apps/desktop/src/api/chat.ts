@@ -362,7 +362,8 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
           handler.onComplete(code, message);
         },
         onError(error) {
-          if (error instanceof ContractError || error instanceof RpcError) handler.onError(error);
+          if (error instanceof ContractError || error instanceof RpcError || error instanceof TransportError)
+            handler.onError(error);
         },
       };
       return transport.subscribeChatSession({

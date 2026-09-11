@@ -199,7 +199,6 @@ export class ChatGoalDestinationController {
         this.#automaticReplacementAvailable = true;
         this.#observation = { kind: "observed" };
         this.source.admit(observation.fact);
-        this.#notify();
       },
       onComplete: (code, message) => {
         if (!this.#accepts(generation)) return;

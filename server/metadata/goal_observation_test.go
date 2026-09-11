@@ -18,11 +18,7 @@ import (
 func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
-	metadataStore, err := Open(root)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := openInMemoryMetadataTestStore(t, root)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -71,11 +67,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 	if err := sessionStore.SetName("unrelated metadata"); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := subscription.Next(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("equal Goal projection emitted another update: %v", err)
-	}
+	assertNoGoalObservation(t, subscription)
 
 	if err := subscription.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -163,15 +155,21 @@ func TestGoalObservationAllowsACommitBetweenHydrationReadAndRegistrationToBeMiss
 	if hydration.Status.Goal != nil {
 		t.Fatalf("hydration unexpectedly fenced missed commit: %+v", hydration)
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := subscription.Next(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("missed commit produced an update: %v", err)
-	}
+	assertNoGoalObservation(t, subscription)
 	broker.publish("session-1", current)
 	update, err := subscription.Next(t.Context())
 	if err != nil || update.Sequence != 2 || update.Status.Goal == nil {
 		t.Fatalf("later observed commit = %+v, %v", update, err)
+	}
+}
+
+func assertNoGoalObservation(t *testing.T, subscription serverapi.GoalObservationSubscription) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	observation, err := subscription.Next(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("unexpected Goal observation: %+v, %v", observation, err)
 	}
 }
 

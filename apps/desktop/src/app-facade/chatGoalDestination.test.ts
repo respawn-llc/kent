@@ -26,6 +26,23 @@ function observationApi() {
 }
 
 describe("Chat Goal destination controller", () => {
+  it("notifies destination subscribers once for each accepted observation", () => {
+    const { api, handlers } = observationApi();
+    const controller = new ChatGoalDestinationController(api, target);
+    const listener = vi.fn();
+    controller.subscribe(listener);
+    controller.start();
+    listener.mockClear();
+
+    handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      fact: { goal: null, availability: "available" },
+    });
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
   it("keeps newer observed authority when an older authoritative mutation result settles", () => {
     const { api, handlers } = observationApi();
     const controller = new ChatGoalDestinationController(api, target);

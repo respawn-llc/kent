@@ -82,6 +82,7 @@ export async function runJsonSubscription(
     socket.addEventListener("message", listener);
     await sendSocketRequest(socket, method, params, {
       timeoutMilliseconds: establishmentTimeoutMs,
+      signal,
     });
     try {
       handler.onOpen?.();
@@ -92,6 +93,7 @@ export async function runJsonSubscription(
     throwTerminalResult(method, currentTerminal());
   } catch (error) {
     throwTerminalResult(method, currentTerminal());
+    if (signal.aborted) return;
     throw error;
   } finally {
     socket.removeEventListener("message", listener);

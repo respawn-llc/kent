@@ -442,8 +442,9 @@ describe("Desktop Chat read client", () => {
       new RpcError({ code: -32000, message: "Session unavailable", method: "goal.observe" }),
     );
     transport.fail("goal.observe", new TransportError("Subscription socket closed."));
-    expect(observationErrors).toHaveLength(1);
+    expect(observationErrors).toHaveLength(2);
     expect(observationErrors[0]).toBeInstanceOf(RpcError);
+    expect(observationErrors[1]).toBeInstanceOf(TransportError);
   });
 
   it("reads bounded transcript pages in both cursor directions", async () => {
