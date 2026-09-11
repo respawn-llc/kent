@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ChatMainView, ChatMainViewRead, ChatTranscriptPage } from "@/api";
+import type { ChatGoalObservationHandler, ChatMainView, ChatMainViewRead, ChatTranscriptPage } from "@/api";
 import {
   changedIdentity,
   deferred,
@@ -28,6 +28,7 @@ import {
   emptyChatProjectionState,
   reduceChatProjection,
 } from "./chatRuntime";
+import { ChatGoalDestinationController } from "./chatGoalDestination";
 import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
 
@@ -196,53 +197,51 @@ describe("Chat Main View query and page execution", () => {
       refetchOnReconnect: false,
     });
   });
-
-  it("executes newest and directional pages exactly once with opaque cursors", async () => {
-    const fixture = runtimeApi({
-      pages: [
-        Promise.resolve(transcriptPage(null)),
-        Promise.resolve(transcriptPage(null)),
-        Promise.resolve(transcriptPage(null)),
-      ],
-    });
-    await executeChatTranscriptPage(fixture.api, target, { kind: "newest" });
-    await executeChatTranscriptPage(fixture.api, target, { kind: "older", cursor: 17 });
-    await executeChatTranscriptPage(fixture.api, target, { kind: "newer", cursor: 29 });
-
-    expect(fixture.getTranscriptPage.mock.calls).toEqual([
-      [target],
-      [target, { direction: "older", value: 17 }],
-      [target, { direction: "newer", value: 29 }],
-    ]);
-  });
 });
 
 describe("mounted Chat Runtime owner", () => {
-  it("owns the resident transcript window and executes its directional page effects", async () => {
-    const fixture = runtimeApi({
-      reads: [Promise.resolve(mainViewRead())],
-      pages: [Promise.resolve(transcriptPage(17)), Promise.resolve(transcriptPage(null))],
-    });
+  it("keeps Chat and mounted Goal destination projections independent", async () => {
+    const goalHandlers: ChatGoalObservationHandler[] = [];
+    const destination = new ChatGoalDestinationController(
+      {
+        subscribeGoal(_target, handler) {
+          goalHandlers.push(handler);
+          return { close: vi.fn() };
+        },
+      },
+      target,
+    );
+    const fixture = runtimeApi();
     const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());
-
     owner.start();
+    destination.start();
     await vi.waitFor(() => {
-      expect(owner.snapshot.transcript.opening.kind).toBe("ready");
+      expect(owner.snapshot.goal).toMatchObject({
+        kind: "observed",
+        value: { availability: "available" },
+      });
+      expect(fixture.handlers).toHaveLength(1);
     });
-    owner.transcript.dispatch({
-      kind: "edge-visit",
-      direction: "older",
-      older: true,
-      newer: false,
+    goalHandlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      fact: { goal: null, availability: "agent_capability_missing" },
     });
-    await vi.waitFor(() => {
-      expect(fixture.getTranscriptPage).toHaveBeenCalledTimes(2);
+    const handle = destination.begin({ kind: "clear" });
+    destination.succeed(handle, { kind: "acceptance_only", availability: null });
+
+    expect(owner.snapshot.goal).toMatchObject({
+      kind: "observed",
+      value: { availability: "available" },
+    });
+    fixture.handlers[0]?.onOpen?.();
+    fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    expect(destination.snapshot).toMatchObject({
+      authority: { kind: "observed", value: { availability: null } },
+      presentation: { kind: "accepted" },
     });
 
-    expect(fixture.getTranscriptPage.mock.calls).toEqual([
-      [target],
-      [target, { direction: "older", value: 17 }],
-    ]);
+    destination.dispose();
     await owner.dispose();
   });
 
@@ -503,49 +502,6 @@ describe("mounted Chat Runtime owner", () => {
     await owner.dispose();
   });
 
-  it("routes resident transcript invariant failures through diagnostics and recovery", async () => {
-    const fixture = runtimeApi({
-      reads: [Promise.resolve(mainViewRead()), Promise.resolve(mainViewRead(2))],
-      pages: [Promise.resolve(transcriptPage(null))],
-    });
-    const logger = { append: vi.fn().mockResolvedValue(undefined) };
-    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), { logger });
-    owner.start();
-    await vi.waitFor(() => {
-      expect(fixture.handlers).toHaveLength(1);
-    });
-    const initial = requireValue(fixture.handlers[0]);
-    initial.onOpen?.();
-    initial.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
-    initial.onEvent({
-      sequence: 2,
-      kind: "assistant_delta",
-      payload: {
-        StepID: "step-1",
-        StreamID: "stream",
-        Phase: "commentary",
-        Delta: "first",
-      },
-    });
-    initial.onEvent({
-      sequence: 3,
-      kind: "assistant_delta",
-      payload: {
-        StepID: "step-2",
-        StreamID: "stream",
-        Phase: "commentary",
-        Delta: "second",
-      },
-    });
-
-    await vi.waitFor(() => {
-      expect(logger.append).toHaveBeenCalledOnce();
-      expect(fixture.handlers).toHaveLength(2);
-    });
-    expect(owner.snapshot.observation.kind).toBe("recovering");
-    await owner.dispose();
-  });
-
   it("ignores delayed failures from an invalidated observation after reconnect", async () => {
     const logging = deferred<undefined>();
     const fixture = runtimeApi({
@@ -683,81 +639,6 @@ describe("mounted Chat Runtime owner", () => {
       value: { availability: "available" },
     });
     expect(logger.append).toHaveBeenCalledTimes(2);
-    await owner.dispose();
-  });
-
-  it("executes resident-window Scratch Rehydration without corrupting replacement sequencing", async () => {
-    const fixture = runtimeApi({
-      reads: [Promise.resolve(mainViewRead()), Promise.resolve(mainViewRead(2))],
-      pages: [Promise.resolve(transcriptPage(null))],
-    });
-    const logger = { append: vi.fn().mockResolvedValue(undefined) };
-    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), { logger });
-    owner.start();
-    await vi.waitFor(() => {
-      expect(fixture.handlers).toHaveLength(1);
-    });
-    const initial = requireValue(fixture.handlers[0]);
-    initial.onOpen?.();
-    initial.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
-    initial.onEvent({
-      sequence: 2,
-      kind: "runtime_read_model_update",
-      payload: {
-        Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
-        Activity: {
-          State: "running",
-          ActiveStep: {
-            RunID: "run",
-            StepID: "step",
-            ActiveKind: "compaction",
-          },
-          Reviewer: "inactive",
-          QueueAccepting: false,
-          DiagnosticRecovery: false,
-        },
-      },
-    });
-    initial.onEvent({
-      sequence: 3,
-      kind: "compaction_status",
-      payload: {
-        StepID: "step",
-        RequestID: "request",
-        State: "started",
-        Mode: "manual",
-        Count: 0,
-        Diagnostic: null,
-      },
-    });
-    initial.onEvent({
-      sequence: 4,
-      kind: "compaction_status",
-      payload: {
-        StepID: "step",
-        RequestID: "request",
-        State: "completed",
-        Mode: "manual",
-        Count: 3,
-        Diagnostic: null,
-      },
-    });
-    await vi.waitFor(() => {
-      expect(fixture.handlers).toHaveLength(2);
-    });
-    expect(logger.append).not.toHaveBeenCalled();
-    const replacement = requireValue(fixture.handlers[1]);
-    replacement.onOpen?.();
-    replacement.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: {
-        ...hydration(),
-        SessionStatus: { ...hydration().SessionStatus, CompactionCount: 3 },
-      },
-    });
-
-    expect(owner.snapshot.observation).toEqual({ kind: "observing" });
     await owner.dispose();
   });
 

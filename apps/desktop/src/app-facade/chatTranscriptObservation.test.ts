@@ -6,12 +6,13 @@ import type {
   ChatSessionTarget,
   ChatTranscriptHandler,
   ChatTranscriptMessage,
+  ChatTranscriptPayloadByKind,
 } from "@/api";
 import { ContractError } from "@/api";
 import { row } from "@/test-support/transcript-window";
 
 import { ChatTranscriptPhysicalObservation } from "./chatTranscriptObservation";
-import { ChatTranscriptObservation } from "./chatTranscriptObservation";
+import { ChatTranscriptObservation, type ChatTranscriptObservationHost } from "./chatTranscriptObservation";
 
 const target: ChatSessionTarget = {
   projectID: "project-1",
@@ -76,21 +77,13 @@ it("reopens one physical subscription after terminal Runtime unavailable and nor
 });
 
 it("starts one bounded recovery on a sequence gap and exposes Error after replacement failure", () => {
-  const handlers: ChatTranscriptHandler[] = [];
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      return { close: vi.fn() };
-    },
-  };
   const hydrationKinds: string[] = [];
   const recoveryBegin = vi.fn();
   const forceMainView = vi.fn();
   const integrityFailures = vi.fn();
   const errors: Error[] = [];
-  const observation = new ChatTranscriptObservation(api, target, {
+  const { handlers, observation } = logicalObservationFixture({
     onHydration: (kind) => hydrationKinds.push(kind),
-    onEvent: () => undefined,
     onRecoveryBegin: recoveryBegin,
     onForceMainViewRead: forceMainView,
     onIntegrityFailure: (error, recover) => {
@@ -100,7 +93,6 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
     onError: (error) => errors.push(error),
   });
 
-  observation.start();
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
@@ -128,25 +120,8 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
 });
 
 it("closes malformed-event observation before replacement and closes replacement on disposal", () => {
-  const handlers: ChatTranscriptHandler[] = [];
-  const closes: ReturnType<typeof vi.fn>[] = [];
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      const close = vi.fn();
-      closes.push(close);
-      return { close };
-    },
-  };
-  const observation = new ChatTranscriptObservation(api, target, {
-    onHydration: () => undefined,
-    onEvent: () => undefined,
-    onRecoveryBegin: () => undefined,
-    onForceMainViewRead: () => undefined,
-    onError: () => undefined,
-  });
+  const { closes, handlers, observation } = logicalObservationFixture();
 
-  observation.start();
   handlers[0]?.onError(new ContractError("Malformed transcript event."));
 
   expect(closes[0]).toHaveBeenCalledOnce();
@@ -156,28 +131,14 @@ it("closes malformed-event observation before replacement and closes replacement
 });
 
 it("replaces a waiting recovery and forces fresh authority on confirmed reconnect", () => {
-  const handlers: ChatTranscriptHandler[] = [];
-  const closes: ReturnType<typeof vi.fn>[] = [];
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      const close = vi.fn();
-      closes.push(close);
-      return { close };
-    },
-  };
   const recoveryBegin = vi.fn();
   const forceMainView = vi.fn();
-  const observation = new ChatTranscriptObservation(api, target, {
-    onHydration: () => undefined,
-    onEvent: () => undefined,
+  const { closes, handlers, observation } = logicalObservationFixture({
     onTransportLoss: () => undefined,
     onRecoveryBegin: recoveryBegin,
     onForceMainViewRead: forceMainView,
-    onError: () => undefined,
   });
 
-  observation.start();
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
@@ -193,35 +154,12 @@ it("replaces a waiting recovery and forces fresh authority on confirmed reconnec
 });
 
 it("rejects a live committed event that does not advance beyond hydration", () => {
-  const handlers: ChatTranscriptHandler[] = [];
   const recoveryBegin = vi.fn();
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      return { close: vi.fn() };
-    },
-  };
-  const observation = new ChatTranscriptObservation(api, target, {
-    onHydration: () => undefined,
-    onEvent: () => undefined,
+  const { handlers, observation } = logicalObservationFixture({
     onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: () => undefined,
-    onError: () => undefined,
   });
-  const hydration = hydrationMessage();
-  observation.start();
   handlers[0]?.onOpen?.();
-  handlers[0]?.onEvent({
-    ...hydration,
-    payload: {
-      ...hydration.payload,
-      TailSegment: {
-        Entries: [row(10)],
-        HasMoreAbove: false,
-        OlderCursor: null,
-      },
-    },
-  });
+  handlers[0]?.onEvent(hydrationWithRows([row(10)]));
   handlers[0]?.onEvent({
     sequence: 2,
     kind: "committed_row",
@@ -263,35 +201,12 @@ it.each([
     ],
   },
 ])("rejects $name in live committed-row progression", ({ locators }) => {
-  const handlers: ChatTranscriptHandler[] = [];
   const recoveryBegin = vi.fn();
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      return { close: vi.fn() };
-    },
-  };
-  const observation = new ChatTranscriptObservation(api, target, {
-    onHydration: () => undefined,
-    onEvent: () => undefined,
+  const { handlers } = logicalObservationFixture({
     onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: () => undefined,
-    onError: () => undefined,
   });
-  const hydration = hydrationMessage();
-  observation.start();
   handlers[0]?.onOpen?.();
-  handlers[0]?.onEvent({
-    ...hydration,
-    payload: {
-      ...hydration.payload,
-      TailSegment: {
-        Entries: [row(10)],
-        HasMoreAbove: false,
-        OlderCursor: null,
-      },
-    },
-  });
+  handlers[0]?.onEvent(hydrationWithRows([row(10)]));
   locators.forEach((locator, index) => {
     handlers[0]?.onEvent({
       sequence: index + 2,
@@ -311,24 +226,13 @@ it.each([
 });
 
 it("admits sequence-1 reattachment after socket retry or normal Runtime stop without recovery", () => {
-  const handlers: ChatTranscriptHandler[] = [];
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      return { close: vi.fn() };
-    },
-  };
   const hydrationKinds: string[] = [];
   const recoveryBegin = vi.fn();
-  const observation = new ChatTranscriptObservation(api, target, {
+  const { handlers, observation } = logicalObservationFixture({
     onHydration: (kind) => hydrationKinds.push(kind),
-    onEvent: () => undefined,
     onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: () => undefined,
-    onError: () => undefined,
   });
 
-  observation.start();
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onOpen?.();
@@ -344,41 +248,17 @@ it("admits sequence-1 reattachment after socket retry or normal Runtime stop wit
 });
 
 it("resets committed-row progression from replacement hydration", () => {
-  const handlers: ChatTranscriptHandler[] = [];
   const admitted = vi.fn();
   const recoveryBegin = vi.fn();
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      return { close: vi.fn() };
-    },
-  };
-  const observation = new ChatTranscriptObservation(api, target, {
-    onHydration: () => undefined,
+  const { handlers, observation } = logicalObservationFixture({
     onEvent: admitted,
     onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: () => undefined,
-    onError: () => undefined,
   });
-  const initial = hydrationMessage();
-  observation.start();
   handlers[0]?.onOpen?.();
-  handlers[0]?.onEvent({
-    ...initial,
-    payload: {
-      ...initial.payload,
-      TailSegment: { Entries: [row(10)], HasMoreAbove: false, OlderCursor: null },
-    },
-  });
+  handlers[0]?.onEvent(hydrationWithRows([row(10)]));
   handlers[0]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(11) });
   handlers[0]?.onOpen?.();
-  handlers[0]?.onEvent({
-    ...initial,
-    payload: {
-      ...initial.payload,
-      TailSegment: { Entries: [row(5)], HasMoreAbove: false, OlderCursor: null },
-    },
-  });
+  handlers[0]?.onEvent(hydrationWithRows([row(5)]));
   handlers[0]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(6) });
 
   expect(admitted).toHaveBeenCalledTimes(2);
@@ -406,23 +286,12 @@ it.each([
     },
   },
 ])("starts one replacement for $name", (testCase) => {
-  const handlers: ChatTranscriptHandler[] = [];
-  const api: Pick<ChatApi, "subscribeTranscript"> = {
-    subscribeTranscript(_target, handler) {
-      handlers.push(handler);
-      return { close: vi.fn() };
-    },
-  };
   const recoveryBegin = vi.fn();
   const forceMainView = vi.fn();
-  const observation = new ChatTranscriptObservation(api, target, {
-    onHydration: () => undefined,
-    onEvent: () => undefined,
+  const { handlers, observation } = logicalObservationFixture({
     onRecoveryBegin: recoveryBegin,
     onForceMainViewRead: forceMainView,
-    onError: () => undefined,
   });
-  observation.start();
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   const first = handlers[0];
@@ -482,6 +351,46 @@ function hydrationMessage(): Extract<ChatTranscriptMessage, { kind: "hydration" 
       BackgroundActivities: [],
       ContextUsage: null,
       GoalStatus: null,
+    },
+  };
+}
+
+function logicalObservationFixture(overrides: Partial<ChatTranscriptObservationHost> = {}) {
+  const handlers: ChatTranscriptHandler[] = [];
+  const closes: ReturnType<typeof vi.fn>[] = [];
+  const host = {
+    onHydration: vi.fn(),
+    onEvent: vi.fn(),
+    onRecoveryBegin: vi.fn(),
+    onForceMainViewRead: vi.fn(),
+    onError: vi.fn(),
+    ...overrides,
+  } satisfies ChatTranscriptObservationHost;
+  const observation = new ChatTranscriptObservation(
+    {
+      subscribeTranscript(_target, handler): ApiSubscription {
+        handlers.push(handler);
+        const close = vi.fn();
+        closes.push(close);
+        return { close };
+      },
+    },
+    target,
+    host,
+  );
+  observation.start();
+  return { closes, handlers, host, observation };
+}
+
+function hydrationWithRows(
+  entries: readonly ChatTranscriptPayloadByKind["committed_row"][],
+): Extract<ChatTranscriptMessage, { kind: "hydration" }> {
+  const hydration = hydrationMessage();
+  return {
+    ...hydration,
+    payload: {
+      ...hydration.payload,
+      TailSegment: { Entries: entries, HasMoreAbove: false, OlderCursor: null },
     },
   };
 }

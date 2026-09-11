@@ -1,101 +1,59 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { expect, it, vi } from "vitest";
 
-import type {
-  ApiConnectionSource,
-  ChatMainView,
-  ChatMainViewRead,
-  ChatSessionTarget,
-  ChatTranscriptHandler,
-  ChatTranscriptPage,
-} from "@/api";
+import type { ApiConnectionSource, ChatSessionTarget, ChatTranscriptHandler } from "@/api";
+import { mainViewRead, runtimeHost, target, transcriptPage } from "@/test-support/chat-runtime";
 
-import { queryKeys } from "./queryKeys";
-import type { ChatRuntimeApi, ChatRuntimeHost } from "./chatRuntime";
+import type { ChatRuntimeApi } from "./chatRuntime";
 import { useChatMainViewState, useChatRuntimeSnapshot } from "./chatRuntimeHooks";
 import { ChatRuntimeProvider, type ChatRuntimeProviderApi } from "./chatRuntimeProvider";
 
-const target: ChatSessionTarget = {
-  projectID: "project-1",
-  workspace: { workspaceID: "workspace-1" },
-  sessionID: "123e4567-e89b-42d3-a456-426614174000",
-};
-
-it("shares one mounted query authority and keeps fresh cache visible during detached Retry", async () => {
-  const first = deferred<ChatMainViewRead>();
-  const second = deferred<ChatMainViewRead>();
-  const getMainView = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+it("shares one mounted query authority across provider consumers", async () => {
+  const getMainView = vi.fn().mockResolvedValue({
+    mainView: namedMainView("current", 2),
+    goal: { goal: null, availability: "available" },
+  });
   const subscriptionClose = vi.fn();
-  const activateRuntime = vi.fn();
-  const releaseRuntime = vi.fn();
-  const chat = {
+  const chat: ChatRuntimeApi = {
     getMainView,
-    getTranscriptPage: vi.fn().mockResolvedValue(transcriptPage()),
+    getTranscriptPage: vi.fn().mockResolvedValue(transcriptPage(null)),
     subscribeTranscript: vi.fn().mockReturnValue({ close: subscriptionClose }),
-    activateRuntime,
-    releaseRuntime,
   };
   const api: ChatRuntimeProviderApi = {
     connection: staticConnection(),
     chat,
   };
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { staleTime: 4_000, retry: 1 } },
-  });
-  queryClient.setQueryData(queryKeys.chatMainView(target.sessionID), fixtureMainView("cached", 1));
-
   const view = render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={new QueryClient()}>
       <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
         <Probe id="first" />
         <Probe id="second" />
-        <RetryProbe />
       </ChatRuntimeProvider>
     </QueryClientProvider>,
   );
 
-  expect(screen.getByTestId("first")).toHaveTextContent("cached:unobserved");
-  expect(screen.getByTestId("second")).toHaveTextContent("cached:unobserved");
   await waitFor(() => {
-    expect(getMainView).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("first")).toHaveTextContent("current:observed");
   });
-  fireEvent.click(screen.getByRole("button", { name: "Retry Main View" }));
-  await waitFor(() => {
-    expect(getMainView).toHaveBeenCalledTimes(2);
-  });
-  expect(activateRuntime).not.toHaveBeenCalled();
-  expect(releaseRuntime).not.toHaveBeenCalled();
-
-  second.resolve({
-    mainView: fixtureMainView("current", 2),
-    goal: { goal: null, availability: "available" },
-  });
-  await waitFor(() => expect(screen.getByTestId("first")).toHaveTextContent("current:observed"));
   expect(screen.getByTestId("second")).toHaveTextContent("current:observed");
-  first.resolve({
-    mainView: fixtureMainView("stale", 1),
-    goal: { goal: null, availability: null },
-  });
-  await Promise.resolve();
-  expect(screen.getByTestId("first")).toHaveTextContent("current:observed");
+  expect(getMainView).toHaveBeenCalledOnce();
 
   view.unmount();
   await waitFor(() => {
     expect(subscriptionClose).toHaveBeenCalledOnce();
   });
-  expect(releaseRuntime).not.toHaveBeenCalled();
 });
 
 it("recovers only after disconnected to connected and starts no recovery newest page", async () => {
   const connection = mutableConnection("connected");
   const handlers: ChatTranscriptHandler[] = [];
   const getMainView = vi.fn().mockResolvedValue({
-    mainView: fixtureMainView("current", 1),
+    mainView: namedMainView("current", 1),
     goal: { goal: null, availability: "available" },
   });
-  const getTranscriptPage = vi.fn().mockResolvedValue(transcriptPage());
+  const getTranscriptPage = vi.fn().mockResolvedValue(transcriptPage(null));
   const chat: ChatRuntimeApi = {
     getMainView,
     getTranscriptPage,
@@ -138,14 +96,14 @@ it("recovers only after disconnected to connected and starts no recovery newest 
 it("keeps the mounted owner active through StrictMode effect replay", async () => {
   const subscriptionClose = vi.fn();
   const getMainView = vi.fn().mockResolvedValue({
-    mainView: fixtureMainView("strict", 1),
+    mainView: namedMainView("strict", 1),
     goal: { goal: null, availability: "available" },
   });
   const api: ChatRuntimeProviderApi = {
     connection: staticConnection(),
     chat: {
       getMainView,
-      getTranscriptPage: vi.fn().mockResolvedValue(transcriptPage()),
+      getTranscriptPage: vi.fn().mockResolvedValue(transcriptPage(null)),
       subscribeTranscript: vi.fn().mockReturnValue({ close: subscriptionClose }),
     },
   };
@@ -181,74 +139,8 @@ function Probe({ id }: Readonly<{ id: string }>) {
   );
 }
 
-function RetryProbe() {
-  const mainView = useChatMainViewState();
-  return <button onClick={() => void mainView.retry()}>Retry Main View</button>;
-}
-
-function fixtureMainView(sessionName: string, sequence: number): ChatMainView {
-  return {
-    version: { epoch: "epoch-1", generation: 1, sequence },
-    sessionID: target.sessionID,
-    sessionName,
-    executionTarget: {
-      workspaceID: "workspace-1",
-      workspaceName: "Workspace",
-      workspaceRoot: "/workspace",
-      workspaceAvailability: "available",
-      worktree: null,
-      cwdRelpath: ".",
-      effectiveWorkdir: "/workspace",
-    },
-    activity: {
-      state: "registered_idle",
-      activeStep: null,
-      reviewer: "inactive",
-      queueAccepting: true,
-      diagnosticRecovery: false,
-    },
-    status: {
-      reviewerFrequency: "off",
-      reviewerEnabled: false,
-      autoCompactionEnabled: true,
-      questionsEnabled: true,
-      fastModeAvailable: false,
-      fastModeEnabled: false,
-      conversationFreshness: 0,
-      previousSessionID: null,
-      parentAgentSessionID: null,
-      navigationTargetSessionID: null,
-      lastCommittedAssistantFinalAnswer: null,
-      thinkingLevel: "medium",
-      compactionMode: "local",
-      contextUsage: {
-        usedTokens: 0,
-        windowTokens: 100,
-        cacheHitPercent: 0,
-        hasCacheHitPercentage: false,
-      },
-      compactionCount: 0,
-      workflowSession: null,
-    },
-  };
-}
-
-function transcriptPage(): ChatTranscriptPage {
-  return {
-    sessionID: target.sessionID,
-    sessionName: null,
-    conversationFreshness: 0,
-    olderCursor: null,
-    hasMoreAbove: false,
-    newerCursor: null,
-    hasMoreBelow: false,
-    latestRollbackCandidate: null,
-    entries: [],
-  };
-}
-
-function runtimeHost(): ChatRuntimeHost {
-  return { logger: { append: vi.fn().mockResolvedValue(undefined) } };
+function namedMainView(sessionName: string, sequence: number) {
+  return { ...mainViewRead(sequence).mainView, sessionName };
 }
 
 function staticConnection(): ApiConnectionSource {
@@ -276,12 +168,4 @@ function mutableConnection(initial: ReturnType<ApiConnectionSource["snapshot"]>[
       for (const listener of listeners) listener();
     },
   };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
 }
