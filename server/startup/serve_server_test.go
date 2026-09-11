@@ -196,7 +196,7 @@ ADD COLUMN chat_draft_json TEXT
 CHECK (chat_draft_json IS NULL OR json_valid(chat_draft_json));
 
 DELETE FROM goose_db_version
-WHERE version_id = ?;
+WHERE version_id >= ?;
 
 CREATE VIEW workspace_chat_draft_migration_blocker AS
 SELECT chat_draft_json

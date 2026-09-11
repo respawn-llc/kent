@@ -384,7 +384,13 @@ func (c *defaultContextCompactor) compactContext(
 	e.pauseQueuedUserAutoDrain()
 	defer e.resumeQueuedUserAutoDrain()
 	var receipt session.CommitReceipt
-	err := runExclusiveStepWhenIdle(ctx, c.steps, activeKind, reservation, func(stepCtx context.Context, stepID string) error {
+	run := c.steps.RunNext
+	if activeKind == ActiveKindPreSubmitCompaction {
+		// A pre-submit check must yield to an existing turn so Send can Steer it.
+		// Waiting for that turn to finish would prevent the input reaching its boundaries.
+		run = c.steps.Run
+	}
+	err := run(ctx, exclusiveStepOptions{ActiveKind: activeKind, Reservation: reservation}, func(stepCtx context.Context, stepID string) error {
 		if requireEligibility {
 			if e.compactionRuntimeState().ActiveSnapshot() != nil {
 				return c.reportManualCompactionSelectionFailure(stepID, requestID, ErrManualCompactionActive)
@@ -731,7 +737,15 @@ func (e *Engine) compactNowWithAcceptance(
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
-	replacementItems := append(llm.ItemsFromMessages(postReplacementMeta.StablePrefix), llm.CloneResponseItems(result.items)...)
+	var replacementItems []llm.ResponseItem
+	if result.engine == "remote" {
+		replacementItems = append(replacementItems, llm.ItemsFromMessages([]llm.Message{{
+			Role:    llm.RoleDeveloper,
+			Content: textutil.Value(prompts.CompactionContinuationReminder),
+		}})...)
+	}
+	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.StablePrefix)...)
+	replacementItems = append(replacementItems, llm.CloneResponseItems(result.items)...)
 	replacementItems = append(replacementItems, llm.ItemsFromMessages(postReplacementMeta.Environment)...)
 	if preservedUserMessageText != nil {
 		if preservedMessage, ok := compactionPreservedUserMessage(*preservedUserMessageText); ok {

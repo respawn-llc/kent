@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { renderedPatchSchema } from "./chatPatchSchemas";
+import { patchPresentationSchema } from "./chatPatchSchemas";
 
 export const nonBlank = z.string().refine((value) => value.trim().length > 0);
 export const optionalNullable = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
@@ -144,81 +144,6 @@ export const contextSchema = z
       .strict(),
   })
   .strict();
-export const settingsSchema = z
-  .object({
-    settings: z
-      .object({
-        selected_agent: z.object({ role: nonBlank, model: nonBlank, thinking: nonBlank }).strict(),
-        agent_choices: z.array(
-          z
-            .object({
-              role: nonBlank,
-              model: nonBlank,
-              thinking: nonBlank,
-              tools: z.array(nonBlank),
-              custom_system_prompt: z.boolean(),
-              custom_capabilities: z.boolean(),
-              agent_callable: z.boolean(),
-            })
-            .strict(),
-        ),
-        agent_editability: z.enum(["editable", "workflow_lock", "caching_lock", "policy_disabled"]),
-        supervisor: z
-          .object({
-            value: z.enum(["off", "edits", "all"]),
-            baseline: z.enum(["off", "edits", "all"]),
-            editability: z.enum(["editable", "workflow_lock", "caching_lock", "policy_disabled"]),
-          })
-          .strict(),
-        thinking: z
-          .object({
-            kind: z.enum(["enumerated", "custom"]),
-            value: nonBlank,
-            baseline_value: nonBlank,
-            values: z.array(nonBlank).optional(),
-            editability: z.enum(["editable", "workflow_lock", "caching_lock", "policy_disabled"]),
-          })
-          .strict()
-          .nullable()
-          .optional(),
-        fast: z
-          .object({
-            value: z.boolean(),
-            editability: z.enum(["editable", "workflow_lock", "caching_lock", "policy_disabled"]),
-          })
-          .strict()
-          .nullable()
-          .optional(),
-        questions: z
-          .object({
-            capable: z.boolean(),
-            enabled: z.boolean(),
-            editability: z.enum(["editable", "workflow_lock", "caching_lock", "policy_disabled"]),
-          })
-          .strict(),
-        auto_compaction: z
-          .object({
-            policy: z.enum(["optional", "required", "disabled"]),
-            stored: z.boolean(),
-            effective: z.boolean(),
-            editability: z.enum(["editable", "workflow_lock", "caching_lock", "policy_disabled"]),
-          })
-          .strict(),
-        agent_locked: z.boolean(),
-        workflow_locked: z.boolean(),
-        caching_locked: z.boolean(),
-      })
-      .strict(),
-    session: z
-      .object({
-        session_id: nonBlank,
-        previous_session_id: nonBlank.nullable().optional(),
-        task_id: z.string().nullable().optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
 export const locatorSchema = z
   .object({ event_sequence: z.number().int().positive(), row_ordinal: z.number().int().positive() })
   .strict();
@@ -244,10 +169,11 @@ export const assistantRowSchema = z
     committed_at_unix_ms: optionalNullable(committedAtSchema),
   })
   .strict();
+const patchPresentationOwnerNames = new Set(["patch", "edit", "replace", "write"]);
 export const toolMetaSchema = z
   .object({
     ToolName: z.string(),
-    Presentation: z.string(),
+    Presentation: z.enum(["default", "shell", "ask_question"]),
     RenderBehavior: z.string(),
     IsShell: z.boolean(),
     UserInitiated: z.boolean(),
@@ -255,9 +181,7 @@ export const toolMetaSchema = z
     CompactText: z.string(),
     InlineMeta: z.string(),
     TimeoutLabel: z.string(),
-    PatchSummary: z.string(),
-    PatchDetail: z.string(),
-    PatchRender: optionalNullable(renderedPatchSchema),
+    PatchPresentation: patchPresentationSchema.nullable(),
     RenderHint: optionalNullable(
       z
         .object({
@@ -277,7 +201,43 @@ export const toolMetaSchema = z
     MovedToBackground: z.boolean(),
     ShellExitCode: optionalNullable(z.number().int()),
   })
-  .strict();
+  .strict()
+  .superRefine((meta, context) => {
+    const ownsPatchPresentation = patchPresentationOwnerNames.has(meta.ToolName);
+    if (ownsPatchPresentation !== (meta.PatchPresentation != null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["PatchPresentation"],
+        message: ownsPatchPresentation
+          ? "Patch/Edit presentation is required"
+          : "non-Patch tool cannot carry Patch/Edit presentation",
+      });
+    }
+  });
+
+export function validateToolPresentationOwner(
+  owner: Readonly<{
+    ToolName: string;
+    Presentation?: z.output<typeof toolMetaSchema> | null | undefined;
+  }>,
+  context: z.RefinementCtx,
+) {
+  if (patchPresentationOwnerNames.has(owner.ToolName) && owner.Presentation == null) {
+    context.addIssue({
+      code: "custom",
+      path: ["Presentation"],
+      message: "Patch/Edit presentation is required",
+    });
+    return;
+  }
+  if (owner.Presentation != null && owner.Presentation.ToolName !== owner.ToolName) {
+    context.addIssue({
+      code: "custom",
+      path: ["Presentation", "ToolName"],
+      message: "presentation tool name does not match tool identity",
+    });
+  }
+}
 export const questionAnswerSchema = z
   .object({
     SelectedOptionNumber: optionalNullable(z.number().int()),
@@ -296,7 +256,8 @@ export const toolRowSchema = z
     Presentation: optionalNullable(toolMetaSchema),
     QuestionAnswer: optionalNullable(questionAnswerSchema),
   })
-  .strict();
+  .strict()
+  .superRefine(validateToolPresentationOwner);
 export const reasoningIdentitySchema = z
   .object({
     Provider: z

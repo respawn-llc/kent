@@ -19,6 +19,7 @@ import (
 	"core/shared/jsoncontract"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 
@@ -110,6 +111,7 @@ type Config struct {
 	StepLifecycle         StepLifecycleSink
 	LifecycleTaskFinished func() error
 	LifecycleRuntimeAbort func() error
+	SubmitAgentSteer      func(context.Context, AgentSteer) error
 	DurabilityObserver    ResultGroupDurabilityObserver
 }
 
@@ -159,17 +161,17 @@ type Engine struct {
 	outputMutationMu sync.Mutex
 	// queuedUserWorkMu serializes the server-owned continuation that drains
 	// pending steering/user injections once a busy run releases.
-	queuedUserWorkMu           sync.Mutex
-	queuedUserWorkScheduled    bool
-	queuedUserWorkCompletion   runtimeDeferred[struct{}]
-	queuedUserWorkPauseCount   int
-	queuedUserWorkAutoDrainIDs map[string]struct{}
-	liveRun                    *liveRunCoordinator
-	activeStepGoalMutationsMu  sync.Mutex
-	activeStepGoalMutations    map[string][]activeStepGoalMutation
-	pendingGoalLoopStart       bool
-	diagnostics                *diagnosticDedupeStore
-	toolCallStarts             *pendingToolCallStartStore
+	queuedUserWorkMu         sync.Mutex
+	queuedUserWorkScheduled  bool
+	queuedUserWorkCompletion runtimeDeferred[struct{}]
+	queuedUserWorkPauseCount int
+	liveRun                  *liveRunCoordinator
+	// Goal commits and notice admission share an order, independently of EIQ execution.
+	goalMutationMu         sync.Mutex
+	pendingGoalLoopStartMu sync.Mutex
+	pendingGoalLoopStart   bool
+	diagnostics            *diagnosticDedupeStore
+	toolCallStarts         *pendingToolCallStartStore
 
 	usageState           *usageTrackingState
 	goalLoop             *goalLoopState
@@ -319,13 +321,6 @@ func New(
 
 	meta := store.Meta()
 	if meta.Locked != nil {
-		if meta.Locked.ContextWindow <= 0 || meta.Locked.ContextPercent <= 0 {
-			budget := eng.promptContextBudgetFromConfig()
-			if err := store.BackfillLockedContextBudget(budget.window, budget.percent); err != nil {
-				return nil, err
-			}
-			meta = store.Meta()
-		}
 		if strings.TrimSpace(meta.Locked.ProviderContract.ProviderID) == "" {
 			caps, err := eng.providerCapabilities(context.Background())
 			if err != nil {
@@ -547,7 +542,7 @@ func (e *Engine) QueueUserMessage(ctx context.Context, text string) (QueuedUserM
 }
 
 func (e *Engine) QueueUserInput(ctx context.Context, input QueuedUserInput) (QueuedUserMessage, error) {
-	return e.queuePostTurnUserInput(ctx, input, nil)
+	return e.queueUserInput(ctx, input, false, true, nil)
 }
 
 func (e *Engine) QueueUserInputWithAcceptance(
@@ -555,24 +550,7 @@ func (e *Engine) QueueUserInputWithAcceptance(
 	input QueuedUserInput,
 	accept CommandAcceptance,
 ) (QueuedUserMessage, error) {
-	return e.queuePostTurnUserInput(ctx, input, accept)
-}
-
-func (e *Engine) queuePostTurnUserInput(
-	ctx context.Context,
-	input QueuedUserInput,
-	accept CommandAcceptance,
-) (QueuedUserMessage, error) {
-	if e == nil || e.closed.Load() {
-		return QueuedUserMessage{}, ErrEngineClosed
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if cause := context.Cause(ctx); cause != nil {
-		return QueuedUserMessage{}, cause
-	}
-	return e.queueUserInputRaw(input, false, true, accept)
+	return e.queueUserInput(ctx, input, false, true, accept)
 }
 
 func (e *Engine) queueUserInput(
@@ -582,81 +560,64 @@ func (e *Engine) queueUserInput(
 	autoStart bool,
 	accept CommandAcceptance,
 ) (QueuedUserMessage, error) {
-	return awaitEngineRuntimeOperation(ctx, e, func(context.Context) (QueuedUserMessage, error) {
-		return e.queueUserInputRaw(input, forceAutoDrain, autoStart, accept)
-	})
-}
-
-func (e *Engine) queueUserInputRaw(
-	input QueuedUserInput,
-	forceAutoDrain bool,
-	autoStart bool,
-	accept CommandAcceptance,
-) (QueuedUserMessage, error) {
-	e.ensureOrchestrationCollaborators()
 	if err := input.Validate(); err != nil {
 		return QueuedUserMessage{}, err
 	}
+	return e.queueMessage(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)}, input.CanonicalPresentation, forceAutoDrain, autoStart, accept)
+}
+
+func (e *Engine) QueueAgentSteer(ctx context.Context, steer AgentSteer, accept CommandAcceptance) (QueuedUserMessage, error) {
+	message := steer.Message()
+	if message.Content == nil {
+		return QueuedUserMessage{}, errInvalidQueuedUserMessage
+	}
+	return e.queueMessage(ctx, message, *message.Content, true, true, accept)
+}
+
+func (e *Engine) queueMessage(ctx context.Context, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+	if e == nil || e.closed.Load() {
+		return QueuedUserMessage{}, ErrEngineClosed
+	}
+	if ctx != nil {
+		if err := context.Cause(ctx); err != nil {
+			return QueuedUserMessage{}, err
+		}
+	}
+	return e.queueMessageRaw(message, presentation, forceAutoDrain, autoStart, accept)
+}
+
+func (e *Engine) queueMessageRaw(message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+	e.ensureOrchestrationCollaborators()
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, err
 	}
-	if !forceAutoDrain {
-		var item QueuedUserMessage
-		committed, err := runCommandAcceptance(accept, func() (bool, error) {
-			e.outputMutationMu.Lock()
-			queued, queueErr := e.messageFlow.QueueUserMessage(input)
-			if queueErr == nil {
-				item = queued
-				if autoStart {
-					e.markQueuedUserInjectionForAutoDrain(item.ID)
-				}
-				e.emitQueuedUserMessageStatus(item, QueuedUserMessageAccepted, "", false)
-			}
-			e.outputMutationMu.Unlock()
-			if queueErr != nil {
-				return false, queueErr
-			}
-			e.publishPendingWorkChanged()
-			return true, nil
-		})
-		if err := commandAcceptanceResult(committed, err); err != nil {
-			return QueuedUserMessage{}, err
-		}
-		if autoStart {
-			e.scheduleQueuedUserInjectionsIfIdle()
-		}
-		return item, nil
-	}
 	liveItem := QueuedUserMessage{
 		ID:                    runtimeids.NewQueueItemID().String(),
-		Message:               llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
-		CanonicalPresentation: input.CanonicalPresentation,
+		Message:               message,
+		CanonicalPresentation: presentation,
+	}
+	lane := runtimeinput.PendingWorkLaneQueue
+	if forceAutoDrain {
+		lane = runtimeinput.PendingWorkLaneSteer
 	}
 	for {
 		var item QueuedUserMessage
 		livePublication := false
 		committed, err := runCommandAcceptance(accept, func() (bool, error) {
-			if !e.liveRun.beginQueueItemPublication(mustQueueItemID(liveItem.ID)) {
+			if !e.liveRun.beginQueueItemPublication(mustQueueItemID(liveItem.ID), lane) {
 				return false, nil
 			}
 			livePublication = true
-			admission := e.nextPendingWorkSteerAdmission()
-			e.outputMutationMu.Lock()
-			queuedItem, queueErr := e.messageFlow.QueueUserMessageWithID(liveItem, queuedUserMessageAssociation{
-				steerAdmission: admission,
-			})
+			queuedItem, queueErr := e.acceptPendingMessage(liveItem, lane, autoStart)
 			if queueErr == nil {
 				item = queuedItem
-				e.emitQueuedUserMessageStatus(item, QueuedUserMessageAccepted, "", false)
 			}
-			e.outputMutationMu.Unlock()
 			if queueErr != nil {
 				queueItemID := mustQueueItemID(liveItem.ID)
 				e.liveRun.finishQueueItemPublication(queueItemID)
-				e.completeLiveRunQueueItems(map[string]struct{}{liveItem.ID: {}})
+				e.completeQueuedUserMessages(map[string]struct{}{liveItem.ID: {}})
 				return false, queueErr
 			}
-			e.publishPendingWorkChanged()
 			return true, nil
 		})
 		if err != nil {
@@ -666,7 +627,7 @@ func (e *Engine) queueUserInputRaw(
 			queueItemID := mustQueueItemID(item.ID)
 			if e.liveRun.finishQueueItemPublication(queueItemID) {
 				e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
-			} else {
+			} else if autoStart {
 				e.scheduleQueuedUserInjectionsIfIdle()
 			}
 			return item, nil
@@ -674,7 +635,7 @@ func (e *Engine) queueUserInputRaw(
 		if livePublication {
 			return QueuedUserMessage{}, context.Canceled
 		}
-		if e.waitingForLiveRunStepStart() {
+		if forceAutoDrain && e.waitingForLiveRunStepStart() {
 			if accept != nil {
 				return QueuedUserMessage{}, context.Canceled
 			}
@@ -687,27 +648,50 @@ func (e *Engine) queueUserInputRaw(
 	}
 	var item QueuedUserMessage
 	committed, err := runCommandAcceptance(accept, func() (bool, error) {
-		admission := e.nextPendingWorkSteerAdmission()
-		e.outputMutationMu.Lock()
-		queued, queueErr := e.messageFlow.QueueUserMessage(input, queuedUserMessageAssociation{
-			steerAdmission: admission,
-		})
-		if queueErr == nil {
-			item = queued
-			e.emitQueuedUserMessageStatus(item, QueuedUserMessageAccepted, "", false)
-		}
-		e.outputMutationMu.Unlock()
-		if queueErr != nil {
-			return false, queueErr
-		}
-		e.publishPendingWorkChanged()
-		return true, nil
+		var queueErr error
+		item, queueErr = e.acceptPendingMessage(liveItem, lane, autoStart)
+		return queueErr == nil, queueErr
 	})
 	if err := commandAcceptanceResult(committed, err); err != nil {
 		return QueuedUserMessage{}, err
 	}
-	e.scheduleQueuedUserInjectionsIfIdle()
+	if autoStart {
+		e.scheduleQueuedUserInjectionsIfIdle()
+	}
 	return item, nil
+}
+
+func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.PendingWorkLane, autoStart bool) (QueuedUserMessage, error) {
+	e.lifecycleMu.Lock()
+	if e.closed.Load() || e.lifecycleClosed {
+		e.lifecycleMu.Unlock()
+		return QueuedUserMessage{}, ErrEngineClosed
+	}
+	e.outputMutationMu.Lock()
+	association := queuedUserMessageAssociation{autoStart: autoStart}
+	switch lane {
+	case runtimeinput.PendingWorkLaneQueue:
+	case runtimeinput.PendingWorkLaneSteer:
+		// Pending Work order and delivery order share this admission boundary.
+		association.steerAdmission = e.nextPendingWorkSteerAdmission()
+	default:
+		e.outputMutationMu.Unlock()
+		e.lifecycleMu.Unlock()
+		return QueuedUserMessage{}, fmt.Errorf("invalid pending message lane %q", lane)
+	}
+	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
+	e.lifecycleMu.Unlock()
+	if err == nil {
+		if association.steerAdmission != nil {
+			e.markSupervisorSteerRaw(queued.Message)
+		}
+		e.emitQueuedUserMessageStatus(queued, QueuedUserMessageAccepted, "", false)
+	}
+	e.outputMutationMu.Unlock()
+	if err == nil {
+		e.publishPendingWorkChanged()
+	}
+	return queued, err
 }
 
 func (e *Engine) waitingForLiveRunStepStart() bool {
@@ -800,7 +784,10 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityUser, steeringMessageEventDefault, true, []llm.Message{steer.Message()})); err != nil {
+		if _, err := e.QueueAgentSteer(stepCtx, steer, nil); err != nil {
+			return err
+		}
+		if _, err := e.flushPendingUserInjections(stepID, steerUserInjections()); err != nil {
 			return err
 		}
 		if onFlushed != nil {
@@ -838,12 +825,10 @@ func (e *Engine) submitUserMessageWithOutcome(ctx context.Context, text string, 
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		userMessage := llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}
-		committed, steerErr := runCommandAcceptance(accept, func() (bool, error) {
-			receipt, err := e.steerWithCommitReceipt(stepID, steerUserMessageWithFlushIntent(userMessage))
-			return receipt.Committed, err
-		})
-		if err := commandAcceptanceResult(committed, steerErr); err != nil {
+		if _, err := e.Steer(stepCtx, text, accept); err != nil {
+			return err
+		}
+		if _, err := e.flushPendingUserInjections(stepID, steerUserInjections()); err != nil {
 			return err
 		}
 		if onFlushed != nil {
@@ -1018,13 +1003,10 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		}
 	}
 
-	contextBudget := e.promptContextBudgetFromConfig()
 	lock := session.LockedContract{
 		Model:             e.cfg.Model,
 		Temperature:       e.cfg.Temperature,
 		MaxOutputToken:    e.cfg.MaxTokens,
-		ContextWindow:     contextBudget.window,
-		ContextPercent:    contextBudget.percent,
 		EnabledTools:      toolspec.IDStrings(e.cfg.EnabledTools),
 		WebSearchMode:     strings.TrimSpace(e.cfg.WebSearchMode),
 		ModelCapabilities: e.cfg.ModelCapabilities,
@@ -1299,7 +1281,18 @@ func (e *Engine) executeAcceptedToolCallsCoordinated(
 			continue
 		}
 		hosted := executionCalls.hosted[ref.index]
-		normalized := normalizeToolCallForTranscript(hosted.Call, e.transcriptWorkingDir())
+		normalized, normalizeErr := normalizeToolCallForTranscriptChecked(
+			hosted.Call,
+			e.transcriptWorkingDir(),
+		)
+		if normalizeErr != nil {
+			return abortBeforeLocalExecution(fmt.Errorf(
+				"normalize hosted tool call presentation (call_id=%s tool=%s): %w",
+				hosted.Call.ID,
+				hosted.Call.Name,
+				normalizeErr,
+			))
+		}
 		if err := e.steer(stepID, steerEventIntent(Event{
 			Kind:                       EventToolCallStarted,
 			StepID:                     exactStepIDPointer(stepID),
@@ -1441,7 +1434,6 @@ func (e *Engine) coordinateAcceptedResponsePostJoin(
 		stepID,
 		steerResultGroupCloseIntent(collector),
 	)
-	var goalErr error
 	if fatal := collector.fatalSnapshot(); fatal != nil {
 		return acceptedResponsePostJoinOutcome{}, fatal
 	}
@@ -1451,10 +1443,6 @@ func (e *Engine) coordinateAcceptedResponsePostJoin(
 	}
 	if closeErr != nil {
 		return acceptedResponsePostJoinOutcome{results: results}, closeErr
-	}
-	goalErr = e.drainActiveStepGoalMutations(stepID)
-	if goalErr != nil {
-		return acceptedResponsePostJoinOutcome{results: results}, goalErr
 	}
 	return acceptedResponsePostJoinOutcome{
 		results:     results,

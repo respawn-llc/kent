@@ -8,6 +8,8 @@
 - Interactive Chat mutations prepare and open their required Active Session Runtime inside the server before mutation acceptance.
 - Clients never activate, own, release, or otherwise manage an Active Session Runtime as a prerequisite for a Chat mutation.
 - The Active Session Runtime is authoritative for its live model, transcript, Pending Work, and Session-setting state.
+- Every model-executing Agent Turn, including Goal-started work, must belong to a live Exact Execution Scope before its first Agent Step and until its model work finishes.
+- That execution must be the single authority for its pending Questions and Approvals, answer delivery, and interruption.
 - Clients render server state and do not create another ordering authority.
 - Boundary-required Session mutations are applied one at a time in acceptance order.
 - Kent promises no order between concurrent requests before one request is accepted.
@@ -34,7 +36,7 @@
 - Setting changes enter neither user-visible Pending Work nor the post-turn Queue.
 - The server publishes each successful setting change and its typed transient feedback to every connected client.
 - A setting change affects later provider and compaction requests and never alters an Agent Step already running.
-- Setting changes create no model-visible entries or transcript rows.
+- Setting changes create no model-visible entries or transcript rows except for the cache-preserving Thinking configuration items defined by Model Requests And Cache Continuity.
 - An operator Thinking change and a Workflow-owned Thinking change have no relative ordering or precedence guarantee when they overlap.
 - Kent does not delay either change, assign a shared winner order, or reconcile the two owners. Request acceptance and response order do not determine the effective Thinking value.
 - The effective live Thinking value is whichever independently owned write applies last.
@@ -52,7 +54,7 @@
 - Reviewer feedback or failure arrives later if the originating Runtime remains available.
 - An Active-Runtime Worktree enter or leave enters Pending Work and returns the established Worktree Operation acknowledgement without waiting for the target change to finish.
 - Attached clients later observe the authoritative target or typed failure.
-- An active agent rebinding its own Session returns the scheduled acknowledgement after Kent accepts the exact originating Agent Step, without waiting for the target change.
+- A live Session rebind must return a scheduled acknowledgement without waiting for the target change. A self-agent request must identify the exact originating Agent Step.
 - A dormant-Session Worktree enter or leave remains a direct Worktree operation.
 - Worktree create and delete are direct Worktree operations outside Session mutation ordering.
 - A live Workflow assignment applies in accepted Session order.
@@ -129,17 +131,28 @@
 ## Protected Agent Steps
 
 - An Agent Step begins when Kent starts a provider request and ends after Kent handles the response, every caused tool call, and every committed tool result needed before another provider request.
-- Provider input, model settings, tools, model context, execution target, Working Directory, and already-applied transcript input stay fixed for the complete Agent Step.
+- Model settings, tools, model context, execution target, Working Directory, and already-applied transcript input stay fixed for the complete Agent Step.
+- Provider input stays fixed except for additional human instructions delivered through native steering.
 - Ordinary Session mutations do not change those facts while the Agent Step is running.
 - An accepted mutation that needs a Step Boundary waits until the running Agent Step ends.
-- An already-running Agent Step is never preempted by Worktree work, compaction, Reviewer work, or later human input.
+- An already-running Agent Step is never preempted by Worktree work, compaction, or Reviewer work. Human input may use native steering as defined below.
 - Exact Question, Approval, Stop, Goal, Workflow-completion, and caused-output rules use the matching live Exact Execution Scope described by their owning specifications.
+
+## Native Human Steering
+
+- On supported models at first-party OpenAI API-key and ChatGPT Codex OAuth endpoints, ordinary human Send/Steer must use native mid-turn steering during model generation.
+- Unsupported models and other providers must retain ordinary boundary delivery.
+- Native steering must preserve earlier output and must not cancel already-started tools.
+- Post-turn Queue must retain its post-turn behavior. Inter-agent developer messages must retain ordinary boundary delivery.
+- Kent must assume submitted native steers arrived and must use existing error-to-composer restoration behavior on errors.
+- Native steering must not add delivery reconciliation, automatic replay, or steering-specific recovery.
+- Native steering must not introduce special ordering, concurrency, race, or atomicity guarantees.
 
 ## Step Boundaries And Next Work
 
 - At each Step Boundary, Kent applies accepted boundary-required Session mutations in order until the next operation starts or no boundary-required mutation remains.
 - Mutations accepted while this processing is underway join the same acceptance-ordered drain.
-- Human input normally applies at the first Step Boundary after acceptance.
+- Human input that does not use native steering normally applies at the first Step Boundary after acceptance.
 - Kent never begins a third provider request with accepted human text still unapplied.
 - Time spent inside an Agent Step or concrete long-running domain work does not count as another provider request for that limit.
 - Later short mutations may apply while a foreground shell process or Worktree transition is still running.
@@ -147,7 +160,7 @@
 - Human Send/Steer requests ordinary model work without making the caller wait for model execution.
 - Applicable post-turn Queue work keeps its own Queue order and ordinary after-turn eligibility.
 - A Worktree transition has priority over accepted human model work that is still waiting to start.
-- An accepted active-agent Session rebind uses the same execution-target transition priority.
+- An accepted live Session rebind must use the same execution-target transition priority for every caller.
 - If human model work has already started its Agent Step, the Worktree transition waits for that Step to finish.
 - After that Agent Step finishes, the Worktree transition receives the next eligible Step Boundary before another ordinary continuation.
 - Later human messages remain accepted and apply while the Worktree transition holds model-work eligibility.
@@ -214,11 +227,18 @@
 - The user may submit more input and ordinary model or tool work may continue while Reviewer runs.
 - A Session runs at most one Reviewer request at a time.
 - Another eligible answer is not queued for later review while one Reviewer is active.
-- Nonempty feedback or a Reviewer failure returns later through ordinary Session mutation order and may request an ordinary continuation.
+- Reviewer failures must return through ordinary Session mutation order.
+- Empty Reviewer feedback must not start or steer an Agent Turn.
+- Nonempty Reviewer feedback must use ordinary Steering to join the active Agent Turn or start an Agent Turn through ordinary Session admission when idle.
+- Reviewer feedback must not create a separate execution mode or extend the originating Agent Turn while waiting for review.
+- An Agent Turn must become Supervisor-triggered when it accepts Reviewer feedback.
+- Ordinary input must not clear the Supervisor-triggered flag during that Agent Turn.
+- The Supervisor-triggered flag must clear when the Agent Turn ends and the Runtime becomes idle.
+- A Supervisor-triggered Agent Turn must not trigger another Reviewer request.
 - Reviewer activity is live best-effort state with values `inactive`, `invoking`, and `addressing_feedback`.
 - Reviewer activity is `invoking` while the Reviewer model request is active.
-- Nonempty Reviewer feedback moves activity to `addressing_feedback` before the ordinary main-agent follow-up begins.
-- Reviewer activity returns to `inactive` when the review succeeds without feedback, fails, is canceled, finishes addressing feedback, or the Runtime closes.
+- Reviewer activity must derive `addressing_feedback` from the active Agent Turn's Supervisor-triggered flag.
+- Reviewer activity returns to `inactive` when no Reviewer request or Supervisor-triggered Agent Turn remains, or the Runtime closes.
 - The active TUI shows Reviewer activity during `invoking` and `addressing_feedback`.
 - Reviewer activity creates no transcript lifecycle row and is not retained across Runtime replacement, reconnect, transcript hydration, or application restart.
 - Persistent Reviewer activity across later lifecycle boundaries or reconnects is outside this specification.

@@ -154,7 +154,7 @@ func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	if response.Scheduled != nil {
-		_, _ = fmt.Fprintln(stdout, "Session rebind scheduled for the agent's next step.")
+		_, _ = fmt.Fprintln(stdout, "Session rebind scheduled between agent steps.")
 		return 0
 	}
 	if response.Binding == nil {

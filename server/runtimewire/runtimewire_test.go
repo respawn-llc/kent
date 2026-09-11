@@ -482,8 +482,9 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 	configRoot := t.TempDir()
 	originalWorkspace := t.TempDir()
+	targetWorkspace := t.TempDir()
 	activeWorkspace := t.TempDir()
-	for _, workspace := range []string{originalWorkspace, activeWorkspace} {
+	for _, workspace := range []string{originalWorkspace, targetWorkspace, activeWorkspace} {
 		configDir := filepath.Join(workspace, config.ConfigDirName)
 		if err := os.MkdirAll(configDir, 0o755); err != nil {
 			t.Fatalf("mkdir workspace config: %v", err)
@@ -499,10 +500,29 @@ func TestPromptFacingSnapshotReloaderUsesActiveWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
+	binding := newRuntimeWireBinding(t, originalWorkspace, toolspec.ToolPatch)
 	reloader := launchPromptFacingSnapshotReloader{
-		store:         store,
-		workspaceRoot: activeWorkspace,
-		configRoot:    configRoot,
+		store:      store,
+		localTools: binding,
+		configRoot: configRoot,
+	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatalf("materialize store: %v", err)
+	}
+	sourceDir := store.Dir()
+	targetDir := filepath.Join(t.TempDir(), store.Meta().SessionID)
+	if err := store.RunArtifactRelocation(session.ArtifactRelocationTarget{
+		SessionDir:         targetDir,
+		WorkspaceRoot:      targetWorkspace,
+		WorkspaceContainer: filepath.Base(targetWorkspace),
+		UpdatedAt:          time.Now().UTC(),
+	}, func() error {
+		return os.Rename(sourceDir, targetDir)
+	}); err != nil {
+		t.Fatalf("relocate store: %v", err)
+	}
+	if err := binding.ReplaceFilesystemContext(runtimeWireFilesystemContext(t, activeWorkspace)); err != nil {
+		t.Fatalf("replace active working directory: %v", err)
 	}
 
 	reloaded, err := reloader.ReloadPromptFacingSnapshotConfig(context.Background(), store.Meta().SessionID)

@@ -10,6 +10,7 @@ import (
 
 	"core/server/llm"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/textutil"
 )
 
@@ -68,30 +69,31 @@ type liveRunCoordinator struct {
 }
 
 type liveRunGroup struct {
-	id               runtimeids.LiveRunGroupID
-	runID            runtimeids.RunID
-	stepID           runtimeids.StepID
-	stepToolStarts   liveStepToolStartCount
-	workPerformed    bool
-	goalLoop         bool
-	status           RunStatus
-	resultKind       LiveRunResultKind
-	resultKindSet    bool
-	noFinalReason    LiveRunNoFinalAnswerReason
-	assistantMessage llm.Message
-	err              error
-	startedAt        time.Time
-	finishedAt       time.Time
-	done             chan struct{}
-	reservations     int
-	taggedQueueItems map[runtimeids.QueueItemID]struct{}
-	publishingItems  map[runtimeids.QueueItemID]struct{}
-	goalLoopHolding  bool
-	waiters          int
-	stepResultKind   LiveRunResultKind
-	stepResultSet    bool
-	stepAssistant    llm.Message
-	stepResultTaken  bool
+	supervisorTriggered bool
+	id                  runtimeids.LiveRunGroupID
+	runID               runtimeids.RunID
+	stepID              runtimeids.StepID
+	stepToolStarts      liveStepToolStartCount
+	workPerformed       bool
+	goalLoop            bool
+	status              RunStatus
+	resultKind          LiveRunResultKind
+	resultKindSet       bool
+	noFinalReason       LiveRunNoFinalAnswerReason
+	assistantMessage    llm.Message
+	err                 error
+	startedAt           time.Time
+	finishedAt          time.Time
+	done                chan struct{}
+	reservations        int
+	taggedQueueItems    map[runtimeids.QueueItemID]runtimeinput.PendingWorkLane
+	publishingItems     map[runtimeids.QueueItemID]struct{}
+	goalLoopHolding     bool
+	waiters             int
+	stepResultKind      LiveRunResultKind
+	stepResultSet       bool
+	stepAssistant       llm.Message
+	stepResultTaken     bool
 }
 type liveRunAdmission struct {
 	group *liveRunGroup
@@ -103,6 +105,23 @@ func newLiveRunCoordinator(onCompleted ...func(LiveRunResult)) *liveRunCoordinat
 		coordinator.onCompleted = onCompleted[0]
 	}
 	return coordinator
+}
+
+func (c *liveRunCoordinator) supervisorTriggered() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.current != nil && c.current.supervisorTriggered
+}
+
+func (e *Engine) markSupervisorSteerRaw(message llm.Message) {
+	if message.MessageType == nil || *message.MessageType != llm.MessageTypeReviewerFeedback {
+		return
+	}
+	e.liveRun.mu.Lock()
+	defer e.liveRun.mu.Unlock()
+	if e.liveRun.current != nil {
+		e.liveRun.current.supervisorTriggered = true
+	}
 }
 
 func (e *Engine) HasActiveLiveRunGroup() bool {
@@ -241,33 +260,16 @@ func (e *Engine) QueueAgentSteerForActiveRun(ctx context.Context, steer AgentSte
 }
 
 func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
-	result, err := awaitEngineRuntimeOperation(ctx, e, func(operationCtx context.Context) (struct {
-		item     QueuedUserMessage
-		accepted bool
-	}, error) {
-		item, accepted, operationErr := e.queueMessageForActiveRunRaw(operationCtx, ctx, message, onActive, beforeQueue, accept)
-		return struct {
-			item     QueuedUserMessage
-			accepted bool
-		}{item: item, accepted: accepted}, operationErr
-	})
-	return result.item, result.accepted, err
-}
-
-func (e *Engine) queueMessageForActiveRunRaw(operationCtx, callerCtx context.Context, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
 	if e == nil {
 		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
 	}
-	if operationCtx == nil {
-		operationCtx = context.Background()
+	if e.closed.Load() {
+		return QueuedUserMessage{}, false, ErrEngineClosed
 	}
-	if callerCtx == nil {
-		callerCtx = context.Background()
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if err := operationCtx.Err(); err != nil {
-		return QueuedUserMessage{}, false, err
-	}
-	if err := callerCtx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return QueuedUserMessage{}, false, err
 	}
 	if message.Content == nil || strings.TrimSpace(*message.Content) == "" {
@@ -290,10 +292,7 @@ func (e *Engine) queueMessageForActiveRunRaw(operationCtx, callerCtx context.Con
 			e.liveRun.rollbackAdmission(admission)
 		}
 	}()
-	if err := operationCtx.Err(); err != nil {
-		return QueuedUserMessage{}, false, err
-	}
-	if err := callerCtx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return QueuedUserMessage{}, false, err
 	}
 	item := QueuedUserMessage{
@@ -307,10 +306,7 @@ func (e *Engine) queueMessageForActiveRunRaw(operationCtx, callerCtx context.Con
 				return false, err
 			}
 		}
-		if err := operationCtx.Err(); err != nil {
-			return false, err
-		}
-		if err := callerCtx.Err(); err != nil {
+		if err := context.Cause(ctx); err != nil {
 			return false, err
 		}
 		finalized := e.liveRun.finishAdmission(admission, mustQueueItemID(item.ID))
@@ -318,23 +314,16 @@ func (e *Engine) queueMessageForActiveRunRaw(operationCtx, callerCtx context.Con
 			return false, context.Canceled
 		}
 		committed = true
-		admission := e.nextPendingWorkSteerAdmission()
-		e.outputMutationMu.Lock()
-		queuedItem, queueErr := e.messageFlow.QueueUserMessageWithID(item, queuedUserMessageAssociation{
-			steerAdmission: admission,
-		})
+		queuedItem, queueErr := e.acceptPendingMessage(item, runtimeinput.PendingWorkLaneSteer, true)
 		if queueErr == nil {
 			item = queuedItem
-			e.emitQueuedUserMessageStatus(item, QueuedUserMessageAccepted, "", false)
 		}
-		e.outputMutationMu.Unlock()
 		if queueErr != nil {
 			queueItemID := mustQueueItemID(item.ID)
 			e.liveRun.finishQueueItemPublication(queueItemID)
-			e.completeLiveRunQueueItems(map[string]struct{}{item.ID: {}})
+			e.completeQueuedUserMessages(map[string]struct{}{item.ID: {}})
 			return false, queueErr
 		}
-		e.publishPendingWorkChanged()
 		return true, nil
 	})
 	if err := commandAcceptanceResult(accepted, err); err != nil {
@@ -395,7 +384,7 @@ func (e *Engine) takeLiveRunStepResult(stepID string) (LiveRunResultKind, llm.Me
 	e.ensureOrchestrationCollaborators()
 	return e.liveRun.takeStepResult(stepID)
 }
-func (e *Engine) completeLiveRunQueueItems(ids map[string]struct{}) {
+func (e *Engine) completeQueuedUserMessages(ids map[string]struct{}) {
 	if e == nil || len(ids) == 0 {
 		return
 	}
@@ -424,12 +413,8 @@ func (e *Engine) removeStoppedLiveRunQueueItems(remove func() []QueuedUserMessag
 	if len(removed) == 0 {
 		return
 	}
-	failed := make(map[runtimeids.QueueItemID]struct{}, len(removed))
-	for _, item := range removed {
-		failed[mustQueueItemID(item.ID)] = struct{}{}
-	}
+	e.completeQueuedUserMessages(queuedUserMessageIDSet(removed))
 	e.publishPendingWorkChanged()
-	e.liveRun.clearStoppedQueueItems(failed)
 }
 
 func (c *liveRunCoordinator) hasActive() bool {
@@ -515,7 +500,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 	var stoppedQueueItems map[runtimeids.QueueItemID]struct{}
 	var done chan struct{}
 	if status == RunStatusFailed || status == RunStatusInterrupted {
-		stoppedQueueItems = cloneMapIfNonEmpty(group.taggedQueueItems)
+		stoppedQueueItems = group.queueItemIDs()
 		for id := range group.publishingItems {
 			delete(stoppedQueueItems, id)
 			if c.stoppedPublishingQueueItems == nil {
@@ -535,7 +520,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 		return stoppedQueueItems, &result
 	}
 	group.goalLoopHolding = snapshot.GoalLoop && holdGoalLoop
-	if group.reservations == 0 && len(group.taggedQueueItems) == 0 && !group.goalLoopHolding {
+	if !group.hasPendingContinuation() {
 		c.current = nil
 		done = group.done
 	}
@@ -557,7 +542,7 @@ func (c *liveRunCoordinator) finishGoalLoop() {
 	}
 	var done chan struct{}
 	group.goalLoopHolding = false
-	if group.status != RunStatusRunning && group.reservations == 0 && len(group.taggedQueueItems) == 0 {
+	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
 		done = group.done
 	}
@@ -632,17 +617,17 @@ func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueIt
 	if c.current.reservations > 0 {
 		c.current.reservations--
 	}
-	c.current.trackQueuedItemForLiveRun(queueItemID)
+	c.current.trackQueuedItemForLiveRun(queueItemID, runtimeinput.PendingWorkLaneSteer)
 	return true
 }
 
-func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID) bool {
+func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || (c.current.status != RunStatusRunning && c.current.status != RunStatusCompleted) {
 		return false
 	}
-	c.current.trackQueuedItemForLiveRun(queueItemID)
+	c.current.trackQueuedItemForLiveRun(queueItemID, lane)
 	return true
 }
 
@@ -665,15 +650,39 @@ func (c *liveRunCoordinator) finishQueueItemPublication(queueItemID runtimeids.Q
 	return false
 }
 
-func (g *liveRunGroup) trackQueuedItemForLiveRun(queueItemID runtimeids.QueueItemID) {
+func (g *liveRunGroup) trackQueuedItemForLiveRun(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane) {
 	if g.taggedQueueItems == nil {
-		g.taggedQueueItems = make(map[runtimeids.QueueItemID]struct{})
+		g.taggedQueueItems = make(map[runtimeids.QueueItemID]runtimeinput.PendingWorkLane)
 	}
-	g.taggedQueueItems[queueItemID] = struct{}{}
+	g.taggedQueueItems[queueItemID] = lane
 	if g.publishingItems == nil {
 		g.publishingItems = make(map[runtimeids.QueueItemID]struct{})
 	}
 	g.publishingItems[queueItemID] = struct{}{}
+}
+
+func (g *liveRunGroup) hasPendingContinuation() bool {
+	if g.reservations > 0 || g.goalLoopHolding {
+		return true
+	}
+	// Queue participates in Stop, but only Steer extends a completed run.
+	for _, lane := range g.taggedQueueItems {
+		if lane == runtimeinput.PendingWorkLaneSteer {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *liveRunGroup) queueItemIDs() map[runtimeids.QueueItemID]struct{} {
+	if len(g.taggedQueueItems) == 0 {
+		return nil
+	}
+	ids := make(map[runtimeids.QueueItemID]struct{}, len(g.taggedQueueItems))
+	for id := range g.taggedQueueItems {
+		ids[id] = struct{}{}
+	}
+	return ids
 }
 
 func (c *liveRunCoordinator) rollbackAdmission(admission liveRunAdmission) {
@@ -687,7 +696,7 @@ func (c *liveRunCoordinator) rollbackAdmission(admission liveRunAdmission) {
 	if group.reservations > 0 {
 		group.reservations--
 	}
-	if group.status != RunStatusRunning && group.reservations == 0 && len(group.taggedQueueItems) == 0 && !group.goalLoopHolding {
+	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
 		done = group.done
 	}
@@ -722,7 +731,7 @@ func (c *liveRunCoordinator) completeQueueItems(ids map[runtimeids.QueueItemID]s
 	if len(group.publishingItems) == 0 {
 		group.publishingItems = nil
 	}
-	if group.status != RunStatusRunning && group.reservations == 0 && len(group.taggedQueueItems) == 0 && !group.goalLoopHolding {
+	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
 		done = group.done
 	}
@@ -758,7 +767,7 @@ func (c *liveRunCoordinator) interruptWhere(matches func(*liveRunGroup) bool) (b
 		return false, nil, false
 	}
 	goalLoop := group.goalLoop
-	ids := cloneMapIfNonEmpty(group.taggedQueueItems)
+	ids := group.queueItemIDs()
 	c.markStoppedQueueItemsLocked(ids)
 	for id := range group.publishingItems {
 		delete(ids, id)
@@ -781,20 +790,6 @@ func (c *liveRunCoordinator) interruptWhere(matches func(*liveRunGroup) bool) (b
 	close(done)
 	c.publishCompleted(liveRunResultForGroup(group))
 	return true, ids, goalLoop
-}
-
-func (c *liveRunCoordinator) clearStoppedQueueItems(ids map[runtimeids.QueueItemID]struct{}) {
-	if c == nil || len(ids) == 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for id := range ids {
-		delete(c.stoppedQueueItems, id)
-	}
-	if len(c.stoppedQueueItems) == 0 {
-		c.stoppedQueueItems = nil
-	}
 }
 
 func (c *liveRunCoordinator) markStoppedQueueItemsLocked(ids map[runtimeids.QueueItemID]struct{}) {

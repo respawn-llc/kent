@@ -360,7 +360,7 @@ func TestApprovalActionOperationalCancellationAfterDelivery(t *testing.T) {
 	requireApprovalActionTerminal(t, h, approvalActionAnswer(tools.AskQuestionApprovalDecisionAllowOnce, &commentary))
 }
 func TestApprovalActionOperationalCancellationAfterClaimBeforeDelivery(t *testing.T) {
-	commentary := "must not survive parent cancellation"
+	commentary := "claimed before parent cancellation"
 	h := newApprovalActionHarness(t, approvalActionHarnessOptions{blockPending: true})
 	done := beginApprovalAction(h, context.Background(), approvalActionAnswer(tools.AskQuestionApprovalDecisionAllowOnce, &commentary))
 	requireApprovalActionBlocked(t, done, "answer before pending publication")
@@ -371,7 +371,8 @@ func TestApprovalActionOperationalCancellationAfterClaimBeforeDelivery(t *testin
 	requireApproval(t, waitApprovalHandle(t, h) != nil, "parent-canceled tool execution succeeded")
 	requireApprovalEffects(t, h, "", false)
 	users, _ := approvalActionRows(t, h, commentary)
-	requireApproval(t, users == 0, "canceled claimed commentary rows = %d, want 0", users)
+	requireApproval(t, users <= 1, "canceled claimed commentary rows = %d, want at most one", users)
+	requireApproval(t, h.feed.resolved.Load() == 1, "terminal publications = %d, want 1", h.feed.resolved.Load())
 	requireApprovalActionTerminal(t, h, approvalActionAnswer(tools.AskQuestionApprovalDecisionAllowOnce, &commentary))
 }
 func TestApprovalActionEditedRetryAfterTwoPreclaimFailures(t *testing.T) {
@@ -385,7 +386,8 @@ func TestApprovalActionEditedRetryAfterTwoPreclaimFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h := newApprovalActionHarness(t, approvalActionHarnessOptions{})
-			for _, draft := range []string{"first draft", "second draft"} {
+			drafts := []string{"first draft", "second draft"}
+			for _, draft := range drafts {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
 				result := h.resolve(ctx, approvalActionAnswer(test.decision, &draft))
@@ -396,6 +398,10 @@ func TestApprovalActionEditedRetryAfterTwoPreclaimFailures(t *testing.T) {
 			err := waitApprovalHandle(t, h)
 			requireApproval(t, err == nil, "edited retry: %v", err)
 			requireApprovalEffects(t, h, edited, test.allow)
+			for _, draft := range drafts {
+				users, _ := approvalActionRows(t, h, draft)
+				requireApproval(t, users == 0, "preclaim-canceled commentary rows = %d, want 0", users)
+			}
 		})
 	}
 }

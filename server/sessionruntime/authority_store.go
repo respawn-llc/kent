@@ -17,8 +17,6 @@ type SessionStartBlockReason uint8
 
 var ErrSessionStartAdmissionBusy = errors.New("session start admission is busy")
 
-var ErrRuntimeActivityBusy = errors.New("session runtime activity is busy")
-
 const (
 	SessionStartBlockMaintenance SessionStartBlockReason = iota + 1
 )

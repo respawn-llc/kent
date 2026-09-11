@@ -10,6 +10,7 @@ import (
 	"core/server/goalview"
 	"core/server/runtime"
 	"core/server/session"
+	"core/server/sessionruntime"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -181,7 +182,24 @@ func (s *Service) applyLiveGoalMutation(
 		result, err = applyLiveGoalMutation(runtimeCtx, engine, mutation)
 		return err
 	}
-	err := s.authority.WithCurrentRuntime(ctx, sessionID, apply)
+	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+	if err != nil {
+		return result, err
+	}
+	err = s.authority.RunCurrentTurn(ctx, descriptor, func(commit func() (bool, error)) (bool, error) {
+		return commit()
+	}, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+		_, err := accept(func() (bool, error) {
+			err := apply(ctx, engine)
+			return goalResultAccepted(result), err
+		})
+		return err
+	})
+	if errors.Is(err, sessionruntime.ErrSessionWorkflowActivationActive) {
+		// Retained Workflow activation owns its next execution. Goal control
+		// may update it, but must not launch an ordinary Goal execution.
+		err = s.authority.WithRetainedWorkflowRuntime(ctx, sessionID, apply)
+	}
 	if goalResultAccepted(result) {
 		return result, err
 	}
@@ -197,36 +215,22 @@ func (s *Service) applyExactAgentGoalMutation(
 ) (runtime.GoalCommandResult, error) {
 	var result runtime.GoalCommandResult
 	err := s.authority.WithCurrentRuntime(ctx, sessionID, func(_ context.Context, engine *runtime.Engine) error {
-		availability, err := engine.GoalAvailability()
-		if err != nil {
-			return err
-		}
 		active := engine.ActiveRun()
 		if active == nil || active.RunID != runID.String() || active.StepID != stepID.String() {
 			return runtime.ErrAgentGoalStepInactive
 		}
-		var (
-			goal         session.GoalState
-			queued       bool
-			operationErr error
-		)
+		var operation runtime.CurrentGoalOperation
 		switch mutation.kind {
 		case goalMutationSet:
-			goal, queued, operationErr = engine.QueueAgentShellSetGoalForStep(stepID.String(), mutation.Objective, mutation.Actor)
+			operation = runtime.CurrentGoalSet{Objective: mutation.Objective, Actor: mutation.Actor}
 		case goalMutationStatus:
-			goal, queued, operationErr = engine.QueueGoalStatusForStep(stepID.String(), mutation.Status, mutation.Actor)
+			operation = runtime.CurrentGoalStatus{Status: mutation.Status, Actor: mutation.Actor}
 		default:
 			return errors.New("agent Goal mutation kind is invalid")
 		}
-		if operationErr != nil {
-			return operationErr
-		}
-		if !queued {
-			return runtime.ErrAgentGoalStepInactive
-		}
-		result = runtimeGoalResult(goal, false, runtime.GoalCommandQueued, session.CommitReceipt{}, session.CommitReceipt{})
-		result.Availability = &availability
-		return nil
+		var err error
+		result, err = engine.ApplyGoalForStep(stepID.String(), operation)
+		return err
 	})
 	return result, err
 }
@@ -323,8 +327,7 @@ func runtimeGoalResult(
 }
 
 func goalResultAccepted(result runtime.GoalCommandResult) bool {
-	return result.Disposition == runtime.GoalCommandQueued ||
-		result.Disposition == runtime.GoalCommandNoop ||
+	return result.Disposition == runtime.GoalCommandNoop ||
 		result.MetadataReceipt.Committed ||
 		result.NoticeReceipt.Committed
 }
@@ -345,30 +348,6 @@ func goalResponseFromRuntimeResult(
 	requestedStatus, hasRequestedStatus := goalMutationRequestedStatus(mutation)
 	var mutationResult clientui.GoalMutationResult
 	switch result.Disposition {
-	case runtime.GoalCommandQueued:
-		if mutation.kind == goalMutationClear {
-			if !result.Cleared {
-				return serverapi.RuntimeGoalMutationResponse{}, errors.New("queued Goal Clear is missing clear disposition")
-			}
-			mutationResult = clientui.GoalMutationResult{
-				Kind:         clientui.GoalMutationResultAcceptanceOnly,
-				Availability: availability,
-			}
-			break
-		}
-		if result.Cleared || !hasRequestedStatus ||
-			strings.TrimSpace(result.GoalState.Objective) == "" ||
-			result.GoalState.Status != requestedStatus {
-			return serverapi.RuntimeGoalMutationResponse{}, errors.New("queued Goal mutation preview does not match the requested state")
-		}
-		mutationResult = clientui.GoalMutationResult{
-			Kind: clientui.GoalMutationResultPendingPreview,
-			Pending: &clientui.GoalPreview{
-				Objective: result.GoalState.Objective,
-				Status:    clientui.RuntimeGoalStatus(result.GoalState.Status),
-			},
-			Availability: availability,
-		}
 	case runtime.GoalCommandApplied, runtime.GoalCommandNoop:
 		if mutation.kind == goalMutationClear {
 			if !result.Cleared || result.Disposition != runtime.GoalCommandApplied {
@@ -389,7 +368,7 @@ func goalResponseFromRuntimeResult(
 			Availability: availability,
 		}
 	default:
-		return serverapi.RuntimeGoalMutationResponse{}, errors.New("accepted Goal mutation is missing a result")
+		return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal mutation is missing an authoritative result")
 	}
 	response := serverapi.RuntimeGoalMutationResponse{Result: mutationResult}
 	if err := response.Validate(); err != nil {

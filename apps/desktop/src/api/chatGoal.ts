@@ -19,16 +19,9 @@ export type ChatGoalFact = Readonly<{
 }>;
 export type ChatGoalProjection =
   Readonly<{ kind: "unobserved" }> | Readonly<{ kind: "observed"; value: ChatGoalFact }>;
-export type ChatGoalPreview = Readonly<{ objective: string; status: ChatGoalStatus }>;
 export type ChatGoalMutationResult =
   | Readonly<{ kind: "authoritative_goal"; fact: ChatGoalFact & Readonly<{ goal: ChatGoal }> }>
-  | Readonly<{ kind: "authoritative_clear"; fact: ChatGoalFact & Readonly<{ goal: null }> }>
-  | Readonly<{
-      kind: "pending_preview";
-      preview: ChatGoalPreview;
-      availability: ChatGoalAvailability | null;
-    }>
-  | Readonly<{ kind: "acceptance_only"; availability: ChatGoalAvailability | null }>;
+  | Readonly<{ kind: "authoritative_clear"; fact: ChatGoalFact & Readonly<{ goal: null }> }>;
 export type ChatGoalMutation =
   | Readonly<{ kind: "set"; objective: string }>
   | Readonly<{ kind: "pause" | "resume" | "complete" | "clear" }>;
@@ -46,12 +39,6 @@ const goalEnvelopeSchema = z
     availability: availabilitySchema,
   })
   .strict();
-const goalPreviewSchema = z
-  .object({
-    objective: z.string().refine((value) => value.trim().length > 0),
-    status: z.enum(["active", "paused", "complete"]),
-  })
-  .strict();
 const goalMutationResponseSchema = z
   .object({
     result: z.discriminatedUnion("kind", [
@@ -65,19 +52,6 @@ const goalMutationResponseSchema = z
       z
         .object({
           kind: z.literal("authoritative_clear"),
-          availability: nullableAvailabilitySchema,
-        })
-        .strict(),
-      z
-        .object({
-          kind: z.literal("pending_preview"),
-          pending: goalPreviewSchema,
-          availability: nullableAvailabilitySchema,
-        })
-        .strict(),
-      z
-        .object({
-          kind: z.literal("acceptance_only"),
           availability: nullableAvailabilitySchema,
         })
         .strict(),
@@ -152,10 +126,6 @@ export function parseGoalMutationResult(input: unknown): ChatGoalMutationResult 
       };
     case "authoritative_clear":
       return { kind: result.kind, fact: { goal: null, availability: result.availability } };
-    case "pending_preview":
-      return { kind: result.kind, preview: result.pending, availability: result.availability };
-    case "acceptance_only":
-      return { kind: result.kind, availability: result.availability };
   }
 }
 

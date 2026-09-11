@@ -48,11 +48,11 @@ func TestTranscriptContextGoalAndCompactionFactsRejectInvalidState(t *testing.T)
 	if err := (TranscriptContextUsage{WindowTokens: 0}).Validate(); err == nil {
 		t.Fatal("accepted context usage without a window")
 	}
-	if err := (GoalMutationResult{
-		Kind:    GoalMutationResultPendingPreview,
-		Pending: &GoalPreview{Objective: "queued", Status: RuntimeGoalStatus("unknown")},
-	}).Validate(); err == nil {
-		t.Fatal("accepted unknown Goal preview status")
+	if err := (GoalMutationResult{Kind: GoalMutationResultKind("unknown")}).Validate(); err == nil {
+		t.Fatal("accepted unknown Goal mutation result kind")
+	}
+	if err := (GoalMutationResult{Kind: GoalMutationResultAuthoritativeGoal, Goal: &Goal{}}).Validate(); err == nil {
+		t.Fatal("accepted invalid durable goal")
 	}
 	if err := (TranscriptGoalStatus{Goal: &TranscriptGoal{
 		Goal:      &Goal{ID: "goal-1", Objective: "Ship it", Status: RuntimeGoalStatusComplete, CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)},

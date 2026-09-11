@@ -17,12 +17,6 @@ func TestGoalMutationResultValidatesEachClosedVariant(t *testing.T) {
 	tests := []GoalMutationResult{
 		{Kind: GoalMutationResultAuthoritativeGoal, Goal: goal, Availability: &availability},
 		{Kind: GoalMutationResultAuthoritativeClear},
-		{
-			Kind:         GoalMutationResultPendingPreview,
-			Pending:      &GoalPreview{Objective: "ship later", Status: RuntimeGoalStatusPaused},
-			Availability: &availability,
-		},
-		{Kind: GoalMutationResultAcceptanceOnly},
 	}
 	for _, result := range tests {
 		if err := result.Validate(); err != nil {

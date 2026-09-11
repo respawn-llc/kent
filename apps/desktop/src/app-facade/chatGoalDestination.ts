@@ -2,21 +2,19 @@ import type {
   ApiSubscription,
   ChatApi,
   ChatGoal,
-  ChatGoalAvailability,
   ChatGoalFact,
   ChatGoalMutationResult,
-  ChatGoalPreview,
   ChatGoalProjection,
+  ChatGoalStatus,
   ChatSessionTarget,
 } from "@/api";
 import { ContractError } from "@/api";
 
 export type ChatGoalMutationIntent =
-  Readonly<{ kind: "goal"; preview: ChatGoalPreview }> | Readonly<{ kind: "clear" }>;
+  | Readonly<{ kind: "goal"; preview: Readonly<{ objective: string; status: ChatGoalStatus }> }>
+  | Readonly<{ kind: "clear" }>;
 export type ChatGoalPresentation =
-  | Readonly<{ kind: "authority" }>
-  | Readonly<{ kind: "unresolved"; intent: ChatGoalMutationIntent }>
-  | Readonly<{ kind: "accepted"; intent: ChatGoalMutationIntent }>;
+  Readonly<{ kind: "authority" }> | Readonly<{ kind: "unresolved"; intent: ChatGoalMutationIntent }>;
 export type ChatGoalObservationState =
   Readonly<{ kind: "loading" | "observed" | "disposed" }> | Readonly<{ kind: "error"; error: Error }>;
 export type ChatGoalDestinationSnapshot = Readonly<{
@@ -88,7 +86,6 @@ export class ChatGoalDestinationController {
   #nextSequence = 0;
   #observation: ChatGoalObservationState = { kind: "loading" };
   #mutation: ActiveMutation | null = null;
-  #acceptedIntent: ChatGoalMutationIntent | null = null;
   #automaticReplacementAvailable = false;
   #started = false;
   #disposed = false;
@@ -103,11 +100,7 @@ export class ChatGoalDestinationController {
 
   get snapshot(): ChatGoalDestinationSnapshot {
     const presentation: ChatGoalPresentation =
-      this.#mutation !== null
-        ? { kind: "unresolved", intent: this.#mutation.intent }
-        : this.#acceptedIntent !== null
-          ? { kind: "accepted", intent: this.#acceptedIntent }
-          : { kind: "authority" };
+      this.#mutation !== null ? { kind: "unresolved", intent: this.#mutation.intent } : { kind: "authority" };
     return {
       authority: this.source.snapshot,
       presentation,
@@ -140,7 +133,6 @@ export class ChatGoalDestinationController {
     if (this.source.snapshot.kind !== "observed")
       throw new ContractError("Goal mutation requires successful hydration.");
     if (this.#mutation !== null) throw new ContractError("Goal mutation is already pending.");
-    this.#acceptedIntent = null;
     const handle = { token: Symbol("Goal mutation") };
     this.#mutation = {
       handle,
@@ -155,28 +147,9 @@ export class ChatGoalDestinationController {
     const mutation = this.#currentMutation(handle);
     if (mutation === null) return false;
     const authorityUnchanged = this.source.generation === mutation.capturedGeneration;
-    switch (result.kind) {
-      case "authoritative_goal":
-      case "authoritative_clear":
-        this.#mutation = null;
-        this.#acceptedIntent = null;
-        if (authorityUnchanged) this.source.admit(result.fact);
-        break;
-      case "pending_preview":
-      case "acceptance_only":
-        this.#mutation = null;
-        if (!authorityUnchanged) {
-          this.#acceptedIntent = null;
-          break;
-        }
-        this.#acceptedIntent =
-          result.kind === "pending_preview"
-            ? { kind: "goal", preview: { ...result.preview } }
-            : mutation.intent;
-        this.#replaceAvailability(result.availability);
-        break;
-    }
-    this.#notify();
+    this.#mutation = null;
+    if (authorityUnchanged) this.source.admit(result.fact);
+    else this.#notify();
     return true;
   }
 
@@ -194,7 +167,6 @@ export class ChatGoalDestinationController {
     this.#subscription?.close();
     this.#subscription = null;
     this.#mutation = null;
-    this.#acceptedIntent = null;
     this.#observation = { kind: "disposed" };
     this.source.dispose();
     this.#notify();
@@ -224,7 +196,6 @@ export class ChatGoalDestinationController {
           return;
         }
         this.#nextSequence = observation.sequence;
-        this.#acceptedIntent = null;
         this.#automaticReplacementAvailable = true;
         this.#observation = { kind: "observed" };
         this.source.admit(observation.fact);
@@ -274,12 +245,6 @@ export class ChatGoalDestinationController {
       return null;
     }
     return this.#mutation;
-  }
-
-  #replaceAvailability(availability: ChatGoalAvailability | null): void {
-    const authority = this.source.snapshot;
-    if (authority.kind !== "observed") throw new ContractError("Observed Goal authority is required.");
-    this.source.admit({ goal: authority.value.goal, availability });
   }
 
   #notify(): void {

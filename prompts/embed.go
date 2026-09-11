@@ -159,7 +159,8 @@ type defaultSystemPromptTemplateData struct {
 	DefaultSystemPromptHarnessWorkflowAutonomy   string
 	DefaultSystemPromptAmbiguityAndOutputQuality string
 	DefaultSystemPromptFinalAnswerAndFormatting  string
-	DefaultSystemPromptDelegation                string
+	// This accepted placeholder intentionally renders no content.
+	DefaultSystemPromptDelegation string
 }
 
 type systemPromptTemplateData struct {
@@ -171,7 +172,8 @@ type systemPromptTemplateData struct {
 	DefaultSystemPromptHarnessWorkflowAutonomy   string
 	DefaultSystemPromptAmbiguityAndOutputQuality string
 	DefaultSystemPromptFinalAnswerAndFormatting  string
-	DefaultSystemPromptDelegation                string
+	// This accepted placeholder intentionally renders no content.
+	DefaultSystemPromptDelegation string
 }
 
 type WorkflowNodeContextArgs struct {
@@ -275,10 +277,10 @@ var (
 	SystemPromptHarness                              = mustPrompt("system_prompt/harness_workflow_autonomy.md")
 	SystemPromptAmbiguityAndQuality                  = mustPrompt("system_prompt/ambiguity_output_quality.md")
 	SystemPromptFinalAnswerAndFormatting             = mustPrompt("system_prompt/final_answer_formatting.md")
-	SystemPromptDelegation                           = mustPrompt("system_prompt/delegation.md")
 	ToolPreamblesPrompt                              = mustPrompt("tool_preambles_prompt.md")
 	CompactionPrompt                                 = mustPrompt("compaction_prompt.md")
-	CompactionSummaryPrefix                          = mustPrompt("compaction_summary_prefix.md")
+	CompactionContinuationReminder                   = strings.TrimSpace(mustPrompt("compaction_continuation_reminder.md"))
+	CompactionSummaryPrefix                          = renderCompactionSummaryPrefix()
 	CompactionSoonReminderPrompt                     = mustPrompt("compaction_soon_reminder.md")
 	CompactionSoonReminderTriggerHandoffPrompt       = mustPrompt("compaction_soon_reminder_trigger_handoff.md")
 	GoalNudgePrompt                                  = mustPrompt("goal/nudge.md")
@@ -800,7 +802,6 @@ type systemPromptSections struct {
 	harness                  string
 	ambiguityAndQuality      string
 	finalAnswerAndFormatting string
-	delegation               string
 }
 
 func renderSystemPromptSections(args SystemPromptTemplateArgs) (systemPromptSections, error) {
@@ -825,16 +826,11 @@ func renderSystemPromptSections(args SystemPromptTemplateArgs) (systemPromptSect
 	if err != nil {
 		return systemPromptSections{}, err
 	}
-	delegation, err := renderNamedTemplate("system prompt delegation", SystemPromptDelegation, runtimeTemplateData)
-	if err != nil {
-		return systemPromptSections{}, err
-	}
 	return systemPromptSections{
 		personality:              personality,
 		harness:                  harness,
 		ambiguityAndQuality:      ambiguityAndQuality,
 		finalAnswerAndFormatting: finalAnswerAndFormatting,
-		delegation:               delegation,
 	}, nil
 }
 
@@ -851,7 +847,6 @@ func renderDefaultSystemPromptTemplateWithSections(text string, args SystemPromp
 		DefaultSystemPromptHarnessWorkflowAutonomy:   strings.TrimSpace(sections.harness),
 		DefaultSystemPromptAmbiguityAndOutputQuality: strings.TrimSpace(sections.ambiguityAndQuality),
 		DefaultSystemPromptFinalAnswerAndFormatting:  strings.TrimSpace(sections.finalAnswerAndFormatting),
-		DefaultSystemPromptDelegation:                strings.TrimSpace(sections.delegation),
 	}
 	if err := validateTemplatePlaceholders("system prompt", trimmed, data); err != nil {
 		return "", err
@@ -873,12 +868,21 @@ func renderSystemPromptTemplateWithSections(text string, args SystemPromptTempla
 		DefaultSystemPromptHarnessWorkflowAutonomy:   strings.TrimSpace(sections.harness),
 		DefaultSystemPromptAmbiguityAndOutputQuality: strings.TrimSpace(sections.ambiguityAndQuality),
 		DefaultSystemPromptFinalAnswerAndFormatting:  strings.TrimSpace(sections.finalAnswerAndFormatting),
-		DefaultSystemPromptDelegation:                strings.TrimSpace(sections.delegation),
 	}
 	if err := validateTemplatePlaceholders("system prompt", trimmed, data); err != nil {
 		return "", err
 	}
 	return renderNamedTemplate("system prompt", trimmed, data)
+}
+
+func renderCompactionSummaryPrefix() string {
+	rendered, err := renderNamedTemplate("compaction summary prefix", mustPrompt("compaction_summary_prefix.md"), struct {
+		CompactionContinuationReminder string
+	}{CompactionContinuationReminder: CompactionContinuationReminder})
+	if err != nil {
+		panic(err)
+	}
+	return rendered
 }
 
 func renderNamedTemplate(name string, text string, data any) (string, error) {

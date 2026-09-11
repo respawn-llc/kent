@@ -1,5 +1,21 @@
 export type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
 export type { DesktopProcess } from "./processes";
+export type {
+  ChatSettingsAgent,
+  ChatSettingsAgentChoice,
+  ChatSettingsAutoCompaction,
+  ChatSettingsControls,
+  ChatSettingsEditability,
+  ChatSettingsFast,
+  ChatSettingsMutation,
+  ChatSettingsMutationResponse,
+  ChatSettingsRead,
+  ChatSettingsRejection,
+  ChatSettingsSessionFacts,
+  ChatSettingsSupervisor,
+  ChatSettingsThinking,
+  NewChatSettingsCatalog,
+} from "./chatSettingsTypes";
 export { committedRowSchema as chatTranscriptCommittedRowSchema } from "./chatSchemas";
 export { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 export {
@@ -18,7 +34,7 @@ export type {
   ChatContext,
   ChatContextTarget,
   ChatForkEditInput,
-  ChatInitialSettings,
+  InitialChatSettings,
   ChatInputMutationResult,
   ChatMainView,
   ChatMainViewRead,
@@ -41,7 +57,6 @@ export type {
   ChatGoalMutation,
   ChatGoalMutationResult,
   ChatGoalObservation,
-  ChatGoalPreview,
   ChatGoalProjection,
   ChatGoalStatus,
   ChatTranscriptKind,
@@ -120,7 +135,7 @@ export type { CatalogContractErrorReason } from "./errors";
 export type { WorkflowTaskDependencyErrorReason } from "./errors";
 export type { WorkflowTaskCreateSelectionErrorReason } from "./errors";
 export type { TaskSearchErrorReason } from "./errors";
-export { ChatOperationError, chatErrorMessage } from "./chatErrors";
+export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
 export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from "./json";

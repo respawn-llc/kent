@@ -180,11 +180,25 @@ func (e *execution) stopError() error {
 }
 
 func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) {
+	releaseAdmission, workErr := e.awaitModelWorkAndLockAdmission()
+	if workErr != nil {
+		if runErr == nil {
+			runErr = workErr
+		} else {
+			runErr = errors.Join(runErr, workErr)
+		}
+	}
 	cleanupErr := e.cleanup()
+	if releaseAdmission != nil {
+		releaseAdmission()
+	}
 	cleanupErr = errors.Join(cleanupErr, e.retire())
 	authority := e.authority
 	executionErr := runErr
-	abort, abortErr := runtimeAbortFromError(runErr)
+	if cleanupErr != nil {
+		executionErr = errors.Join(executionErr, cleanupErr)
+	}
+	abort, abortErr := runtimeAbortFromError(executionErr)
 	if abortErr != nil {
 		executionErr = errors.Join(executionErr, abortErr)
 	}
@@ -215,8 +229,8 @@ func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) 
 		}
 	}
 	finalErr := executionErr
-	if cleanupErr != nil || closeErr != nil {
-		finalErr = errors.Join(finalErr, cleanupErr, closeErr)
+	if closeErr != nil {
+		finalErr = errors.Join(finalErr, closeErr)
 	}
 	e.resultMu.Lock()
 	e.result = result
@@ -314,6 +328,29 @@ func (e *execution) retireWorkflowLocked() error {
 	return nil
 }
 
+func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr error) {
+	if e.resource == nil {
+		return nil, nil
+	}
+	// Admission and removal share the resource's turn lock. A callback that joins
+	// this execution may start more model work as the prior worker ends.
+	e.resource.turnMu.Lock()
+	engine := e.resource.engine
+	for context.Cause(e.ctx) == nil &&
+		(engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning()) {
+		e.resource.turnMu.Unlock()
+		workErr = engine.WaitForScheduledQueuedUserWork(e.ctx)
+		if workErr == nil {
+			workErr = engine.WaitForGoalLoop(e.ctx)
+		}
+		e.resource.turnMu.Lock()
+		if workErr != nil {
+			break
+		}
+	}
+	return e.resource.turnMu.Unlock, workErr
+}
+
 func (e *execution) cleanup() error {
 	promptErr := e.prompts.Close(context.Canceled)
 	var bindingErr error
@@ -329,7 +366,7 @@ func (e *execution) cleanup() error {
 	defer resource.mu.Unlock()
 	if resource.current != e {
 		return errors.Join(
-			bindingErr,
+			promptErr, bindingErr,
 			fmt.Errorf(
 				"agent execution scope %s is not current for resource %s generation %d",
 				e.scope.ID(),
@@ -340,19 +377,7 @@ func (e *execution) cleanup() error {
 	}
 	cleanupErr := errors.Join(promptErr, bindingErr)
 	if resource.askBroker != nil {
-		switch {
-		case resource.askScope == nil:
-			cleanupErr = errors.New("agent execution prompt binding is missing")
-		case *resource.askScope != e.scope.ID():
-			cleanupErr = fmt.Errorf(
-				"agent execution prompt binding scope %s does not match finalizing scope %s",
-				*resource.askScope,
-				e.scope.ID(),
-			)
-		default:
-			resource.askBroker.SetAskHandler(nil)
-			resource.askScope = nil
-		}
+		resource.askBroker.SetAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))

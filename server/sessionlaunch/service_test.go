@@ -131,8 +131,7 @@ func TestPlanLaunchSessionLoadsEffectiveAuthWhenLockedProviderContractIsAbsent(t
 	containerDir := t.TempDir()
 	store := createLaunchTestSession(t, containerDir, "workspace-a", workspace)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model:         cfg.Settings.Model,
-		ContextWindow: cfg.Settings.ModelContextWindow,
+		Model: cfg.Settings.Model,
 	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
@@ -355,7 +354,7 @@ func TestPlanLaunchSessionCreatesIndependentMainSessionWithInitialChatState(t *t
 		Mode:   launch.ModeInteractive,
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		InitialChat: &InitialChatCreation{
-			Settings: InitialChatSettings{
+			Settings: serverapi.InitialChatSettings{
 				AgentRole:             config.DefaultSubagentRole,
 				Supervisor:            serverapi.ChatSettingsSupervisorAlways,
 				Thinking:              textutil.Value("high"),
@@ -435,7 +434,7 @@ func TestPlanLaunchSessionReturnsNoSessionWhenOrdinaryCreationPersistenceFails(t
 		Mode:   launch.ModeInteractive,
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		InitialChat: &InitialChatCreation{
-			Settings: InitialChatSettings{
+			Settings: serverapi.InitialChatSettings{
 				AgentRole:             config.DefaultSubagentRole,
 				Supervisor:            serverapi.ChatSettingsSupervisorAfterEdits,
 				QuestionsEnabled:      true,
@@ -481,7 +480,7 @@ func TestPlanLaunchSessionMakesInitialChatVisibleWithoutDraft(t *testing.T) {
 		Mode:   launch.ModeInteractive,
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		InitialChat: &InitialChatCreation{
-			Settings: InitialChatSettings{
+			Settings: serverapi.InitialChatSettings{
 				AgentRole:             config.DefaultSubagentRole,
 				Supervisor:            serverapi.ChatSettingsSupervisorAfterEdits,
 				QuestionsEnabled:      true,
@@ -550,7 +549,7 @@ func TestPlanLaunchSessionRebasesRemovedInitialAgentToReloadedDefaultBaseline(t 
 		Mode:   launch.ModeInteractive,
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 		InitialChat: &InitialChatCreation{
-			Settings: InitialChatSettings{
+			Settings: serverapi.InitialChatSettings{
 				AgentRole:             "worker",
 				Supervisor:            serverapi.ChatSettingsSupervisorAlways,
 				Thinking:              &thinking,

@@ -176,6 +176,9 @@ type agentResource struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 
+	// Turn admission and completion share this lock. Resource replacement
+	// uses the Session gate and may wait for execution completion.
+	turnMu               sync.Mutex
 	mu                   sync.Mutex
 	changed              chan struct{}
 	state                AgentResourceState
@@ -187,7 +190,6 @@ type agentResource struct {
 	logger               *runlog.RunLogger
 	localTools           *runtimewire.LocalToolRegistryBinding
 	askBroker            *tools.AskQuestionBroker
-	askScope             *runtimeids.ExecutionScopeID
 	close                func() error
 	backgroundLimit      int
 	backgroundMode       shelltool.BackgroundOutputMode
@@ -862,7 +864,6 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 		execution.onRetire = request.Workflow.OnRetire
 	}
 	if resource.askBroker != nil {
-		scopeID := scope.ID()
 		askHandler := request.Ask
 		if askHandler == nil {
 			askHandler = func(ctx context.Context, scope ExecutionScope, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
@@ -872,7 +873,6 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 		resource.askBroker.SetLifecycleAskHandler(func(ctx context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 			return askHandler(ctx, execution.scope, req)
 		})
-		resource.askScope = &scopeID
 	}
 	resource.current = execution
 	resource.signalLocked()
@@ -905,7 +905,7 @@ func validateWorkflowAgentExecution(request *WorkflowAgentExecution) error {
 	return nil
 }
 
-func (a *Authority) RunCurrentHumanTurn(
+func (a *Authority) RunCurrentTurn(
 	ctx context.Context,
 	descriptor session.SessionDescriptor,
 	accept runtime.CommandAcceptance,
@@ -921,10 +921,10 @@ func (a *Authority) RunCurrentHumanTurn(
 		return err
 	}
 	if accept == nil {
-		return errors.New("human turn acceptance is required")
+		return errors.New("turn acceptance is required")
 	}
 	if run == nil {
-		return errors.New("human turn callback is required")
+		return errors.New("turn callback is required")
 	}
 	sessionID := descriptor.SessionID()
 	gate := a.gateFor(sessionID)
@@ -946,6 +946,12 @@ func (a *Authority) RunCurrentHumanTurn(
 	if resource == nil {
 		return runtimeUnavailableErr(sessionID.String())
 	}
+	resource.turnMu.Lock()
+	releaseAdmission := sync.OnceFunc(func() {
+		resource.turnMu.Unlock()
+		releaseGate()
+	})
+	defer releaseAdmission()
 
 	accepted := make(chan struct{})
 	var acceptedOnce sync.Once
@@ -953,7 +959,7 @@ func (a *Authority) RunCurrentHumanTurn(
 		committed, err := accept(commit)
 		if committed {
 			acceptedOnce.Do(func() {
-				releaseGate()
+				releaseAdmission()
 				close(accepted)
 			})
 		}
@@ -969,16 +975,16 @@ func (a *Authority) RunCurrentHumanTurn(
 			!workflowExecution &&
 			context.Cause(current.ctx) != nil
 		if interruptedHumanExecution {
-			releaseGate()
+			releaseAdmission()
 			if err := current.awaitDone(ctx); err != nil {
 				return err
 			}
-			return a.RunCurrentHumanTurn(ctx, descriptor, accept, run)
+			return a.RunCurrentTurn(ctx, descriptor, accept, run)
 		}
 		runErr := resource.withEngineUnderAdmission(ctx, func(runCtx context.Context, engine *runtime.Engine) error {
 			return run(runCtx, engine, admit)
 		})
-		releaseGate()
+		releaseAdmission()
 		return errors.Join(runErr, a.closeRetiringResource(context.Background(), resource))
 	}
 
@@ -993,6 +999,7 @@ func (a *Authority) RunCurrentHumanTurn(
 				runCtx, stop := MergeContexts(executionCtx, ctx)
 				err := run(runCtx, engine, admit)
 				stop()
+				releaseAdmission()
 				if err != nil {
 					operationContinues <- false
 					return err
@@ -1000,17 +1007,10 @@ func (a *Authority) RunCurrentHumanTurn(
 				queuedWorkScheduled := engine.HasScheduledQueuedUserWork()
 				goalLoopActive := engine.GoalLoopRunning()
 				operationContinues <- queuedWorkScheduled || goalLoopActive
-				if queuedWorkScheduled {
-					if err := engine.WaitForScheduledQueuedUserWork(executionCtx); err != nil {
-						return err
-					}
-				}
-				if engine.GoalLoopRunning() {
-					return engine.WaitForGoalLoop(executionCtx)
-				}
 				return nil
 			})
 			if !callbackRan {
+				releaseAdmission()
 				operationContinues <- false
 			}
 			return runErr
@@ -1022,7 +1022,7 @@ func (a *Authority) RunCurrentHumanTurn(
 	exactHandle, ok := handle.(executionHandle)
 	if !ok || exactHandle.execution == nil {
 		return a.invariant(
-			"run current human Agent turn",
+			"run current Agent turn",
 			fmt.Errorf("execution handle type=%T", handle),
 		)
 	}
@@ -1030,9 +1030,9 @@ func (a *Authority) RunCurrentHumanTurn(
 	select {
 	case <-accepted:
 	case <-exactHandle.execution.done:
-		releaseGate()
+		releaseAdmission()
 	case <-ctx.Done():
-		releaseGate()
+		releaseAdmission()
 	}
 	if <-operationContinues {
 		return nil
@@ -1045,7 +1045,7 @@ func (a *Authority) RunCurrentHumanTurn(
 	default:
 	}
 	if !acceptedFresh && context.Cause(ctx) == nil && errors.Is(err, context.Canceled) {
-		return a.RunCurrentHumanTurn(ctx, descriptor, accept, run)
+		return a.RunCurrentTurn(ctx, descriptor, accept, run)
 	}
 	return err
 }
@@ -1072,12 +1072,8 @@ func (a *Authority) RunCurrentAgentExecution(
 				runCtx, stop := MergeContexts(executionCtx, ctx)
 				err := run(runCtx, engine)
 				stop()
-				goalLoopActive := err == nil && engine.GoalLoopRunning()
-				operationContinues <- goalLoopActive
-				if err != nil || !goalLoopActive {
-					return err
-				}
-				return engine.WaitForGoalLoop(executionCtx)
+				operationContinues <- err == nil && (engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning())
+				return err
 			})
 			if !callbackRan {
 				operationContinues <- false

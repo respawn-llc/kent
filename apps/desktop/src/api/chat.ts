@@ -2,9 +2,10 @@ import { z } from "zod";
 
 import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
+import { createChatSettingsApi } from "./chatSettings";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { parseRpcResponse } from "./clientParse";
-import { committedRowSchema, contextSchema, mainViewSchema, pageSchema, settingsSchema } from "./chatSchemas";
+import { committedRowSchema, contextSchema, mainViewSchema, pageSchema } from "./chatSchemas";
 import type { runtimeStatusSchema } from "./chatSchemas";
 import { transcriptEventSchema } from "./chatTranscriptSchemas";
 import { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
@@ -17,19 +18,8 @@ import {
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireSessionAttachment } from "./jsonRpcSocket";
 import { SubscriptionErrorAlreadyReported } from "./jsonRpcSubscription";
-import {
-  chatContextSessionID,
-  isValidChatSessionID,
-  requireChatProjectTarget,
-  requireChatSessionID,
-} from "./chatTarget";
-import type {
-  ChatApi,
-  ChatRuntimeStatus,
-  ChatSettings,
-  ChatSettingsTarget,
-  ChatTranscriptMessage,
-} from "./chatTypes";
+import { chatContextSessionID, isValidChatSessionID, requireChatSessionID } from "./chatTarget";
+import type { ChatApi, ChatRuntimeStatus, ChatTranscriptMessage } from "./chatTypes";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -39,7 +29,7 @@ export type {
   ChatContextTarget,
   ChatExecutionTarget,
   ChatForkEditInput,
-  ChatInitialSettings,
+  InitialChatSettings,
   ChatInputMutationResult,
   ChatMainView,
   ChatMainViewRead,
@@ -73,7 +63,6 @@ export type {
   ChatGoalMutation,
   ChatGoalMutationResult,
   ChatGoalObservation,
-  ChatGoalPreview,
   ChatGoalProjection,
   ChatGoalStatus,
 } from "./chatGoal";
@@ -128,66 +117,10 @@ function runtimeStatus(input: z.output<typeof runtimeStatusSchema>): ChatRuntime
         : { taskID: input.WorkflowSession.TaskID, workflowID: input.WorkflowSession.WorkflowID },
   };
 }
-function settingsFromWire(input: z.output<typeof settingsSchema>, target: ChatSettingsTarget): ChatSettings {
-  validateSettingsTarget(input, target);
-  return {
-    selectedAgent: {
-      role: input.settings.selected_agent.role,
-      model: input.settings.selected_agent.model,
-      thinking: input.settings.selected_agent.thinking,
-    },
-    agentChoices: input.settings.agent_choices.map((choice) => ({
-      role: choice.role,
-      model: choice.model,
-      thinking: choice.thinking,
-      tools: choice.tools,
-      customSystemPrompt: choice.custom_system_prompt,
-      customCapabilities: choice.custom_capabilities,
-      agentCallable: choice.agent_callable,
-    })),
-    agentEditability: input.settings.agent_editability,
-    supervisor: input.settings.supervisor,
-    thinking:
-      input.settings.thinking === undefined || input.settings.thinking === null
-        ? null
-        : {
-            kind: input.settings.thinking.kind,
-            value: input.settings.thinking.value,
-            baselineValue: input.settings.thinking.baseline_value,
-            values: input.settings.thinking.values ?? [],
-            editability: input.settings.thinking.editability,
-          },
-    fast: input.settings.fast ?? null,
-    questions: input.settings.questions,
-    autoCompaction: input.settings.auto_compaction,
-    agentLocked: input.settings.agent_locked,
-    workflowLocked: input.settings.workflow_locked,
-    cachingLocked: input.settings.caching_locked,
-    session:
-      input.session === undefined
-        ? null
-        : {
-            sessionID: input.session.session_id,
-            previousSessionID: input.session.previous_session_id ?? null,
-            taskID: input.session.task_id ?? null,
-          },
-  };
-}
-function validateSettingsTarget(input: z.output<typeof settingsSchema>, target: ChatSettingsTarget): void {
-  if (target.kind === "new_chat") {
-    if (input.session !== undefined)
-      throw new ContractError("Chat Settings response target kind does not match the request.");
-    return;
-  }
-  if (input.session === undefined)
-    throw new ContractError("Chat Settings response target kind does not match the request.");
-  if (input.session.session_id !== target.sessionID)
-    throw new ContractError("Chat Settings response Session does not match the request.");
-}
-
 export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
   return {
     ...createChatMutationApi(transport),
+    ...createChatSettingsApi(transport),
     async getMainView(target) {
       const requestedSessionID = requireChatSessionID(target);
       const call = await transport.callAttachedProject({
@@ -287,37 +220,6 @@ export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
         compactionRunning: value.compaction_running,
         manualCompactAvailable: value.manual_compact_available,
       };
-    },
-    async getSettings(target) {
-      if (target.kind === "session") requireChatSessionID(target);
-      else requireChatProjectTarget(target);
-      const call = await transport.callAttachedProject({
-        projectID: target.projectID,
-        selector: target.workspace,
-        method: "chat.settings.read",
-        request: {
-          kind: "factory",
-          create: (attachment) => {
-            if (target.kind === "new_chat") {
-              return {
-                target: {
-                  kind: "new_chat",
-                  project_id: attachment.projectID,
-                  workspace_id: attachment.workspaceID,
-                },
-              };
-            }
-            return {
-              target: {
-                kind: "session",
-                session_id: requireChatSessionID(target),
-              },
-            };
-          },
-        },
-      });
-      requireProjectAttachment(call.attachment, target);
-      return settingsFromWire(parseRpcResponse("chat.settings.read", settingsSchema, call.result), target);
     },
     async getTranscriptPage(target, cursor) {
       const requestedSessionID = requireChatSessionID(target);

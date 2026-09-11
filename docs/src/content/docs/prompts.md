@@ -43,7 +43,6 @@ System prompt files use Go template syntax with these fields:
 - `{{.DefaultSystemPromptPersonality}}` - Kent agent identity, communication style, and engineering posture.
 - `{{.DefaultSystemPromptAmbiguityAndOutputQuality}}` - opinionated product ambiguity handling and implementation quality rules.
 - `{{.DefaultSystemPromptFinalAnswerAndFormatting}}` - final response, Markdown, and formatting rules suitable for TUI.
-- `{{.DefaultSystemPromptDelegation}}` - subagent delegation guidance and examples.
 - `{{.DefaultSystemPrompt}}` - full text of the built-in Kent system prompt.
 - `{{.LaunchCommand}}` - Kent executable command, e.g. `path/to/kent.exe`.
 - `{{.EstimatedToolCallsForContext}}` - estimated function/tool-call budget before compaction/handoff, exact number that varies with model context window, like `185`.

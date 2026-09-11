@@ -228,7 +228,10 @@ describe("mounted Chat Runtime owner", () => {
       fact: { goal: null, availability: "agent_capability_missing" },
     });
     const handle = destination.begin({ kind: "clear" });
-    destination.succeed(handle, { kind: "acceptance_only", availability: null });
+    destination.succeed(handle, {
+      kind: "authoritative_clear",
+      fact: { goal: null, availability: null },
+    });
 
     expect(owner.snapshot.goal).toMatchObject({
       kind: "observed",
@@ -238,7 +241,7 @@ describe("mounted Chat Runtime owner", () => {
     fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
     expect(destination.snapshot).toMatchObject({
       authority: { kind: "observed", value: { availability: null } },
-      presentation: { kind: "accepted" },
+      presentation: { kind: "authority" },
     });
 
     destination.dispose();

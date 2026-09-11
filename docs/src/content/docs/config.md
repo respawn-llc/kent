@@ -15,6 +15,8 @@ Kent resolves settings in this order (ascending priority):
 
 Interactive session flows resolve workspace-local config from the session workspace root.
 
+Each session activation uses its Agent's current context window, auto-compaction threshold, and compaction mode. These settings are not saved in the session contract, and changing them does not invalidate the prompt cache. An active run keeps its budget until the next activation.
+
 :::tip
 `kent serve` starts without a workspace root, so it doesn't matter where you run the server.
 :::
@@ -165,6 +167,8 @@ verbose_output = false # set true to show complete supervisor suggestions in ong
 ### Supervisor
 
 Configure the supervisor agent that oversees model changes ("reviewer" is the legacy name of the feature).
+
+Supervisor reviews run asynchronously, so you can continue working after the main answer. Suggestions enter the Session as ordinary steering: they join active work or start a new turn when idle. Questions and interruption work the same way as in other turns. A turn addressing Supervisor feedback does not trigger another review.
 
 | Key                             | Type   | Default                                                         | Env                                  | Description                                                                                                                                                         |
 | ------------------------------- | ------ | --------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

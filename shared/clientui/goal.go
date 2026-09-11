@@ -92,24 +92,16 @@ func (p GoalProjection) Validate() error {
 	return nil
 }
 
-type GoalPreview struct {
-	Objective string            `json:"objective"`
-	Status    RuntimeGoalStatus `json:"status"`
-}
-
 type GoalMutationResultKind string
 
 const (
 	GoalMutationResultAuthoritativeGoal  GoalMutationResultKind = "authoritative_goal"
 	GoalMutationResultAuthoritativeClear GoalMutationResultKind = "authoritative_clear"
-	GoalMutationResultPendingPreview     GoalMutationResultKind = "pending_preview"
-	GoalMutationResultAcceptanceOnly     GoalMutationResultKind = "acceptance_only"
 )
 
 type GoalMutationResult struct {
 	Kind         GoalMutationResultKind `json:"kind"`
 	Goal         *Goal                  `json:"goal,omitempty"`
-	Pending      *GoalPreview           `json:"pending,omitempty"`
 	Availability *GoalAvailability      `json:"availability"`
 }
 
@@ -126,22 +118,15 @@ func (g GoalEnvelope) Validate() error {
 func (r GoalMutationResult) Validate() error {
 	switch r.Kind {
 	case GoalMutationResultAuthoritativeGoal:
-		if r.Goal == nil || r.Pending != nil {
-			return fmt.Errorf("authoritative Goal result requires only Goal")
+		if r.Goal == nil {
+			return fmt.Errorf("authoritative Goal result requires Goal")
 		}
 		if err := r.Goal.Validate(); err != nil {
 			return err
 		}
-	case GoalMutationResultAuthoritativeClear, GoalMutationResultAcceptanceOnly:
-		if r.Goal != nil || r.Pending != nil {
-			return fmt.Errorf("%s result cannot contain Goal or pending preview", r.Kind)
-		}
-	case GoalMutationResultPendingPreview:
-		if r.Goal != nil || r.Pending == nil {
-			return fmt.Errorf("pending Goal result requires only pending preview")
-		}
-		if strings.TrimSpace(r.Pending.Objective) == "" || !validGoalStatus(r.Pending.Status) {
-			return fmt.Errorf("invalid goal preview fields")
+	case GoalMutationResultAuthoritativeClear:
+		if r.Goal != nil {
+			return fmt.Errorf("authoritative Clear result cannot contain Goal")
 		}
 	default:
 		return fmt.Errorf("unknown Goal mutation result kind %q", r.Kind)

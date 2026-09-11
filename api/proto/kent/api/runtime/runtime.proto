@@ -35,8 +35,6 @@ enum GoalMutationResultKind {
   GOAL_MUTATION_RESULT_KIND_UNSPECIFIED = 0;
   GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL = 1;
   GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR = 2;
-  GOAL_MUTATION_RESULT_KIND_PENDING_PREVIEW = 3;
-  GOAL_MUTATION_RESULT_KIND_ACCEPTANCE_ONLY = 4;
 }
 
 enum GoalObservationKind {
@@ -645,14 +643,6 @@ message Goal {
   ];
 }
 
-message GoalPreview {
-  string objective = 1 [(buf.validate.field).string.min_len = 1];
-  GoalStatus status = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-}
-
 message GoalShowRequest {
   string session_id = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -731,8 +721,7 @@ message GoalMutationSuccess {
     not_in: [0]
   }];
   optional Goal goal = 2;
-  optional GoalPreview pending = 3;
-  optional GoalAvailability availability = 4 [(buf.validate.field).enum = {
+  optional GoalAvailability availability = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
@@ -740,7 +729,7 @@ message GoalMutationSuccess {
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_mutation_result"
     message: "goal mutation success fields must match its kind"
-    expression: "(this.kind == 1 && has(this.goal) && !has(this.pending)) || (this.kind == 2 && !has(this.goal) && !has(this.pending)) || (this.kind == 3 && !has(this.goal) && has(this.pending)) || (this.kind == 4 && !has(this.goal) && !has(this.pending))"
+    expression: "(this.kind == 1 && has(this.goal)) || (this.kind == 2 && !has(this.goal))"
   };
 }
 

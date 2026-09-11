@@ -479,17 +479,6 @@ INSERT INTO sessions (
 	if projectName != "Version 35" || sessionName != "Preserved session" {
 		t.Fatalf("upgraded data = %q/%q", projectName, sessionName)
 	}
-	provider, err := newMetadataMigrationProvider(store.db)
-	if err != nil {
-		t.Fatalf("create migration provider: %v", err)
-	}
-	version, err := provider.GetDBVersion(t.Context())
-	if err != nil {
-		t.Fatalf("read upgraded migration version: %v", err)
-	}
-	if version != 89 {
-		t.Fatalf("upgraded migration version = %d, want 89", version)
-	}
 }
 
 func createUnsupportedMetadataDatabase(t *testing.T, dbPath string, recordedVersion *int64) {

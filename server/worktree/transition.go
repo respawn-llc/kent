@@ -102,30 +102,21 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 		}
 		_ = s.publishWorktreeTransitionResult(request, runErr, nil)
 	}
+	var runtimeOrigin *serverapi.RuntimeStepOrigin
 	if origin != nil {
-		runtimeOrigin := serverapi.RuntimeStepOrigin{
+		runtimeOrigin = &serverapi.RuntimeStepOrigin{
 			RunID:  strings.TrimSpace(origin.RunId),
 			StepID: strings.TrimSpace(origin.StepId),
 		}
-		if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
-			ctx,
-			request.sessionID,
-			runtimeOrigin,
-			worktreecontract.OperationID(request.operationID),
-			resolve,
-			complete,
-		); err != nil {
-			return nil, err
-		}
-		return &worktreepb.ScheduledAcknowledgement{OperationId: request.operationID.String()}, nil
 	}
-	retargetRequest, err := resolve(ctx)
-	if err != nil {
-		return nil, err
-	}
-	_, err = s.sessionRetargeter.RetargetWorkspace(ctx, retargetRequest)
-	complete(err)
-	if err != nil {
+	if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
+		ctx,
+		request.sessionID,
+		runtimeOrigin,
+		worktreecontract.OperationID(request.operationID),
+		resolve,
+		complete,
+	); err != nil {
 		return nil, err
 	}
 	return &worktreepb.ScheduledAcknowledgement{OperationId: request.operationID.String()}, nil

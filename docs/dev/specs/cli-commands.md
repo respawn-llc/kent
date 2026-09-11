@@ -98,13 +98,11 @@
 - Each omitted path means the current directory.
 - Project, attach, and rebind commands use the configured daemon and never take local ownership of persistence.
 - `kent rebind <session-id> <path>` keeps a Session in its source Project. If the target belongs to both the source and other Projects, it selects the source binding. If it belongs only to other Projects, it fails without mutation, identifies the source Session and Project, and gives complete commands to attach it to the source Project or make an explicit cross-Project move.
-- `kent rebind --project <project-id> <session-id> <path>` is required for cross-Project movement. It may attach an unbound target path to the explicit Project and reports that attachment, but rejects a path already attached only to other Projects.
+- `kent rebind --project <project-id> <session-id> <path>` is required for cross-Project movement. It may attach an unbound target path to the explicit Project, but rejects a path already attached only to other Projects.
 - Failed rebinds never change bindings or Session attachment.
 - Sessions attached to Workflow Nodes cannot move across Projects.
-- Same-Project rebind is explicit. A human request waits for the current Agent Step and rejects rebind when the Session owns a background command.
-- Cross-Project rebind rejects a human request immediately while the Runtime is non-idle and accepts an idle or Dormant Session.
-- When the Session's active agent invokes rebind for its own Session, the command returns a scheduled acknowledgement without waiting for the Agent Step to finish. The move applies at the next between-Agent-Step boundary before queued user work.
-- A self-agent rebind ignores Session-owned background commands. Those commands continue in the directories where they started.
+- For a live Session, `kent rebind` must return a scheduled acknowledgement for every caller. The move must follow the execution-target transition rules in Core Runtime Tools, preserving the running agent and queued input.
+- For a Dormant Session, `kent rebind` must complete synchronously and reject running Session-owned background commands. Its completed output must identify the Workspace and any new attachment.
 - A cross-Project move either changes both Session location and artifact location or leaves both unchanged.
 
 ## Session Archive And Deletion
@@ -148,6 +146,32 @@
 - Uncommon server, filesystem, cleanup, transport, and response failures use `request_failed` and preserve the returned error message.
 - JSON mode emits exactly one final object to stdout and remains quiet while the command runs.
 - Successful operations exit 0, operational failures exit 1, and usage failures exit 2.
+
+## Session Identity And Log Path
+
+- `kent session-id` must report the invoking Session's ID and its actual absolute server-side Session log path.
+- Human output must identify both values so the Session ID and log path can be distinguished.
+- The command must retain its harness-only scope and fail when the invoking Session ID is unavailable.
+- The command must resolve the path through the server's authoritative Session location.
+- A server or path-resolution failure must produce an error and unsuccessful exit status rather than a successful ID-only result or a fabricated path.
+
+## Session History Commands
+
+- `kent session log` must retrieve conversation content from one Session. `kent session search <query>` must search conversation content from one Session.
+- Both commands must accept `--session <session-id>` and otherwise use the invoking agent's Session. They must permit reading the invoking agent's own Session and fail when no Session can be selected.
+- Both commands must accept `--user`, `--assistant`, and `--tools`. With no role flags, they must select user and assistant content only. Explicit role flags must select their union.
+- Tool history must expose recorded tool calls and their recorded results, including available arguments and failure outcomes. Reading history must not rerun tools or expand it into separate raw process logs.
+- Both commands must accept `--offset` as a stable position in persisted Session history. A position must refer to stored data rather than a line number in rendered output.
+- Both commands must accept `--max-handoffs` to limit the history windows traversed from the selected starting position. The count must include the window containing that position and reject values below 1. At the newest history position, the current unfinished window counts as one.
+- `kent session log` must default to the current window and one previous window, equivalent to `--max-handoffs 2` when no offset is selected.
+- `kent session search` must default to the entire selected Session. An omitted history-scope limit must not be encoded as a numeric sentinel.
+- Search results must include the server-side Session log path, a stable position that `kent session log` can consume, and the matching content or snippet. Search must support requested surrounding context and the same type filters as retrieval.
+- Authenticated local and remote CLI clients must receive the actual server-side log path for direct inspection.
+- Search must use case-sensitive literal matching by default and support `--ignore-case`.
+- Both commands must stream their output without command-level match-count, per-item output, or total-output caps. Existing command-output postprocessing remains responsible for truncation when an agent invokes the CLI through a shell tool.
+- Both commands must report progress during long reads, support cancellation, and preserve already-emitted output when a later read fails.
+- The server must own Session history reads. A remote CLI must be able to retrieve a returned position through `kent session log` without opening the server's filesystem path locally.
+- Session history commands must not introduce a search index or a second authoritative history store.
 
 ## Question Commands
 
@@ -213,8 +237,10 @@
 
 - Models may use normal shell commands `kent goal show`, `kent goal complete`, and first-time `kent goal set <objective>` for the current Session, but other Goal commands detect invocation by the agent and refuse it.
 - Agent `goal set` is allowed only when no active or paused Goal exists. Completed Goals do not block the next agent-set Goal.
-- An allowed agent `goal set` or confirmed `goal complete` prints the projected scheduled Goal and returns before the Goal mutation applies. Earlier accepted Goal mutations participate in that projection.
+- Successful Goal mutation commands must print the committed result and return independently of model-visible reminder delivery, following [Core Runtime And Tools](core-runtime-tools.md#goals).
+- Goal commands must share one 15-second budget across connection, inspection, and mutation. A timeout must advise the caller to inspect the Goal before retrying because server-owned work may still complete, rather than expose an internal deadline error.
 - Goal completion is explicit CLI state mutation, not natural-language inference.
+- After successful Goal completion, the CLI must print `Goal marked as completed, changes will come into effect in a few seconds. After that you may end your turn normally.`
 - Goal CLI never mutates Session storage directly. It submits Goal commands to the server.
 - Any `kent service` command that affects server state detects invocation by Kent itself and refuses to run because it is human-only.
 
@@ -241,21 +267,8 @@
 - Run steer requires a Session ID, rejects attempts by a Session to target itself, and prints `ok` when accepted.
 - The target prints `Steered message: <full text>` with no later delivery notice.
 - Run steer never starts or queues work for an idle Session; it fails with the equivalent `kent run --continue <session-id> <message>` command.
-- Run steer invoked from another Session emits each accepted submission as a separate developer-role `agent_steer` message in submission order.
-- `kent run --continue` invoked from another Session that opens an existing Session uses the same `agent_steer` message. Prompts that create a Session retain their ordinary behavior.
-- A steer issued from another Session contains exactly:
-
-```text
-Agent from session <source-session-id> said:
-> <submitted steer text>
-
-To respond, run: kent run steer <source-session-id> "message"
-```
-
-- Kent inserts one literal `>` followed by one space immediately before the submitted steer text. It does not add quote markers to later lines.
-- The message includes the source Session ID and omits its name.
+- Agent-issued `kent run`, `kent run --continue`, and `kent run steer` must use the shared attribution, formatting, and prompt-history behavior defined in [Core Tools And Runtime Integration](core-runtime-tools.md#core-tools-and-runtime-integration).
 - A present malformed `KENT_SESSION_ID` fails Run steer before submission. An absent or blank value uses human-steer behavior.
-- Prompt history stores the complete wrapped message.
 - `kent run stop <session-id>` interrupts an active Session regardless of client origin.
 - An exact Agent execution waiting for a Question or access request is active for Run stop even when it has no active model or tool step.
 - Run stop requires a Session ID, rejects attempts by a Session to target itself, prints `Stopped` when accepted, and prints `No active execution` as a successful no-op for idle or nonexistent Sessions.
@@ -280,9 +293,10 @@ To respond, run: kent run steer <source-session-id> "message"
 - Run watch is Session-scoped. It does not target Script Nodes or follow a Session's Task into Script work.
 - Run watch renders a Question through the same live-prompt presentation as `kent question --session`.
 - Run watch then prints a blank line and a directly targeted answer template.
-- A suggested Question uses `Answer with: kent question answer --session <session-id> --option <number>`.
+- A suggested Question uses `Answer with: kent question answer --session <session-id> --option <number> [--commentary "optional freeform answer or additions"]`.
 - A freeform Question uses `Answer with: kent question answer --session <session-id> --commentary "<answer>"`.
 - An access request always uses the numbered-option answer template. Its labels come from the authoritative live prompt.
+- Task watch must use the same answer templates with its Task or Session target and any required Project selector.
 - Run watch renders a Final answer and continuation hint through the same presentation as Run wait.
 - Human Run wait and watch use the no-final-result presentation and exit code 1.
 - Run watch prints authoritative reason and diagnostic text for Execution error and Interrupted outcomes.

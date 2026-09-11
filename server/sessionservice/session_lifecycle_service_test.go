@@ -143,9 +143,9 @@ func (s *sessionNavigationTargetResolverStub) ResolveSessionNavigationBinding(ct
 	return s.target, s.err
 }
 
-func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(_ context.Context, req metadata.SessionWorkspaceRetargetRequest) (metadata.SessionWorkspaceRetargetResult, error) {
+func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(_ context.Context, req metadata.SessionWorkspaceRetargetRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
 	s.req = req
-	return s.result, s.err
+	return completedWorkspaceRetargetResponse(s.result), s.err
 }
 
 func createPersistedSession(t *testing.T) (string, string, *session.Store) {
@@ -333,7 +333,7 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 	}
 }
 
-func TestServiceRetargetSessionWorkspaceSchedulesOnlyForRuntimeOrigin(t *testing.T) {
+func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 	retargeter := &sessionLifecycleRetargeterStub{}
 	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil).WithWorkspaceRetargeter(retargeter)
 	origin := &serverapi.RuntimeStepOrigin{

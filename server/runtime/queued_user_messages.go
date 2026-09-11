@@ -24,6 +24,7 @@ type queuedUserMessageStore struct {
 type queuedUserMessage struct {
 	message         QueuedUserMessage
 	steerAdmission  *pendingWorkSteerAdmission
+	autoStart       bool
 	claimID         *queuedUserMessageClaimID
 	removeOnRelease bool
 }
@@ -52,6 +53,7 @@ func (s *queuedUserMessageStore) Queue(input QueuedUserInput, association ...que
 
 type queuedUserMessageAssociation struct {
 	steerAdmission *pendingWorkSteerAdmission
+	autoStart      bool
 }
 
 func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations ...queuedUserMessageAssociation) (QueuedUserMessage, error) {
@@ -82,6 +84,7 @@ func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations 
 	s.items = append(s.items, queuedUserMessage{
 		message:        item,
 		steerAdmission: clonePendingWorkSteerAdmission(association.steerAdmission),
+		autoStart:      association.autoStart,
 	})
 	s.mu.Unlock()
 	return item, nil
@@ -340,6 +343,7 @@ func (s *queuedUserMessageStore) EntrySnapshot() []queuedUserMessage {
 		out = append(out, queuedUserMessage{
 			message:        pending.message,
 			steerAdmission: clonePendingWorkSteerAdmission(pending.steerAdmission),
+			autoStart:      pending.autoStart,
 		})
 	}
 	return out

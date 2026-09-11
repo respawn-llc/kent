@@ -64,39 +64,7 @@ describe("Chat Goal destination controller", () => {
     expect(controller.snapshot.presentation.kind).toBe("authority");
   });
 
-  it("keeps accepted preview until the next observation regardless of payload equality", () => {
-    const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    controller.start();
-    handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-    const handle = controller.begin(intent);
-    controller.succeed(handle, {
-      kind: "pending_preview",
-      preview: intent.preview,
-      availability: null,
-    });
-    expect(controller.snapshot.presentation).toMatchObject({
-      kind: "accepted",
-      intent: { kind: "goal", preview: intent.preview },
-    });
-    expect(controller.snapshot.authority).toMatchObject({
-      kind: "observed",
-      value: { goal: null, availability: null },
-    });
-
-    handlers[0]?.onEvent({
-      sequence: 2,
-      kind: "update",
-      fact: { goal: null, availability: null },
-    });
-    expect(controller.snapshot.presentation.kind).toBe("authority");
-  });
-
-  it("releases mutation single-flight after accepted settlement", () => {
+  it("applies an authoritative result and releases mutation single-flight", () => {
     const { api, handlers } = observationApi();
     const controller = new ChatGoalDestinationController(api, target);
     controller.start();
@@ -107,9 +75,21 @@ describe("Chat Goal destination controller", () => {
     });
     const first = controller.begin(intent);
     controller.succeed(first, {
-      kind: "pending_preview",
-      preview: intent.preview,
-      availability: null,
+      kind: "authoritative_goal",
+      fact: {
+        goal: {
+          id: "goal-1",
+          objective: "ship",
+          status: "paused",
+          createdAt: "2026-09-04T10:00:00Z",
+          updatedAt: "2026-09-04T10:00:00Z",
+        },
+        availability: null,
+      },
+    });
+    expect(controller.snapshot.authority).toMatchObject({
+      kind: "observed",
+      value: { goal: { id: "goal-1", status: "paused" }, availability: null },
     });
 
     const secondIntent: ChatGoalMutationIntent = {
@@ -239,14 +219,11 @@ describe("Chat Goal destination controller", () => {
     ).toBe(false);
     expect(
       reopened.succeed(newHandle, {
-        kind: "acceptance_only",
-        availability: null,
+        kind: "authoritative_clear",
+        fact: { goal: null, availability: null },
       }),
     ).toBe(true);
-    expect(reopened.snapshot.presentation).toMatchObject({
-      kind: "accepted",
-      intent: { kind: "clear" },
-    });
+    expect(reopened.snapshot.presentation.kind).toBe("authority");
     expect(reopened.snapshot.authority).toMatchObject({
       kind: "observed",
       value: { goal: null, availability: null },

@@ -422,8 +422,11 @@ type preparedMessageProjection struct {
 }
 
 func (e *Engine) prepareMessageProjection(stepID *string, msg llm.Message) (preparedMessageProjection, error) {
-	msg = normalizeMessageForTranscript(msg, e.transcriptWorkingDir())
-	msg, err := normalizePersistedMessageWorktreeContext(msg)
+	msg, err := normalizeMessageForTranscriptChecked(msg, e.transcriptWorkingDir())
+	if err != nil {
+		return preparedMessageProjection{}, fmt.Errorf("normalize message transcript presentation: %w", err)
+	}
+	msg, err = normalizePersistedMessageWorktreeContext(msg)
 	if err != nil {
 		return preparedMessageProjection{}, err
 	}
@@ -582,6 +585,7 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID *string, message llm.Messag
 	if projectionErr := e.applyPreparedMessageProjection(stepID, prepared, &provenance); projectionErr != nil {
 		return appended.CommitReceipt, errors.Join(appendErr, fmt.Errorf("append queued message projection: %w", projectionErr))
 	}
+	e.markSupervisorSteerRaw(message)
 	event := Event{
 		Kind:                       EventConversationUpdated,
 		CommittedTranscriptChanged: true,
@@ -599,7 +603,9 @@ func (e *Engine) appendQueuedUserMessageFlush(stepID *string, message llm.Messag
 			CommittedProvenance:          &provenance,
 		}.withStepID(stepID)
 	}
-	e.emitRaw(event)
+	if prepared.message.Role == llm.RoleUser || e.shouldEmitCommittedMessageEvent(prepared.message) {
+		e.emitRaw(event)
+	}
 	for _, item := range normalizedItems {
 		e.emitRaw(Event{
 			Kind: EventQueuedUserMessageStatus,
@@ -725,6 +731,7 @@ func (e *Engine) FailQueuedUserMessages(reason QueuedUserMessageFailureReason) [
 	pending := e.messageFlow.DrainPendingUserInjections()
 	messages := append([]QueuedUserMessage(nil), pending...)
 	if len(pending) != 0 {
+		e.completeQueuedUserMessages(queuedUserMessageIDSet(pending))
 		for _, item := range pending {
 			e.emitQueuedUserMessageStatus(item, QueuedUserMessageFailed, reason, true)
 		}

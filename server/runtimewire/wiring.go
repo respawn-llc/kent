@@ -57,6 +57,7 @@ type RuntimeWiringOptions struct {
 	StepLifecycle                       runtime.StepLifecycleSink
 	LifecycleTaskFinished               func() error
 	LifecycleRuntimeAbort               func() error
+	SubmitAgentSteer                    func(context.Context, runtime.AgentSteer) error
 	DurabilityObserver                  runtime.ResultGroupDurabilityObserver
 	// GlobalConfigDir is the absolute persistence root that owns model-visible
 	// global context (AGENTS.md, system prompt, skills). Empty falls back to
@@ -205,7 +206,7 @@ func NewRuntimeWiringWithBackground(
 	if promptReloader == nil {
 		promptReloader = launchPromptFacingSnapshotReloader{
 			store:                               store,
-			workspaceRoot:                       workingDirectory,
+			localTools:                          localTools,
 			configRoot:                          opts.GlobalConfigDir,
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
@@ -265,6 +266,7 @@ func NewRuntimeWiringWithBackground(
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
+		SubmitAgentSteer:      opts.SubmitAgentSteer,
 		DurabilityObserver:    opts.DurabilityObserver,
 	})
 	if err != nil {
@@ -281,13 +283,14 @@ func NewRuntimeWiringWithBackground(
 
 type launchPromptFacingSnapshotReloader struct {
 	store                               *session.Store
-	workspaceRoot                       string
+	localTools                          *LocalToolRegistryBinding
 	configRoot                          string
 	skipContinuationAgentRoleValidation bool
 }
 
 func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(context.Context, string) (runtime.PromptFacingSnapshotConfig, error) {
-	app, err := config.Load(r.workspaceRoot, config.LoadOptions{ConfigRoot: r.configRoot})
+	workingDirectory := r.localTools.FilesystemContext().Access.WorkingDirectory.LexicalPath
+	app, err := config.Load(workingDirectory, config.LoadOptions{ConfigRoot: r.configRoot})
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}

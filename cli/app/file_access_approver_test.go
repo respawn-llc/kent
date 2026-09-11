@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"core/internal/testharness/testsetup"
 	"core/server/runtimewire"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
@@ -158,8 +157,21 @@ func TestOutsideWorkspaceApproverPropagatesAskError(t *testing.T) {
 	}
 }
 
-func TestOutsideWorkspaceApproverQueuedApprovalBlocksUntilSubmitted(t *testing.T) {
+func TestOutsideWorkspaceApproverWaitsForOwnerApproval(t *testing.T) {
 	broker := askquestion.NewAskQuestionBroker()
+	requests := make(chan askquestion.AskQuestionRequest, 1)
+	answers := make(chan askquestion.AskQuestionResolution, 1)
+	ctx, cancel := context.WithTimeout(testFileAccessApprovalContext("owner-deny"), 2*time.Second)
+	defer cancel()
+	broker.SetAskHandler(func(ctx context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+		requests <- req
+		select {
+		case answer := <-answers:
+			return answer, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
 	approver := runtimewire.NewOutsideWorkspaceApprover(broker)
 	req := testFileAccessApprovalRequest()
 	type out struct {
@@ -169,25 +181,27 @@ func TestOutsideWorkspaceApproverQueuedApprovalBlocksUntilSubmitted(t *testing.T
 	done := make(chan out, 1)
 
 	go func() {
-		approval, err := approver.Approve(testFileAccessApprovalContext("queued-deny"), req)
+		approval, err := approver.Approve(ctx, req)
 		done <- out{approval: approval, err: err}
 	}()
 
-	pending := waitForPendingApprovals(t, broker, 1)
-	if len(pending) != 1 {
-		t.Fatalf("expected one pending approval, got %+v", pending)
+	var request askquestion.AskQuestionRequest
+	select {
+	case request = <-requests:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for owner approval request")
 	}
-	if !pending[0].Approval {
-		t.Fatalf("expected queued request to be approval-backed, got %+v", pending[0])
+	if !request.Approval {
+		t.Fatalf("expected approval-backed request, got %+v", request)
 	}
-	if len(pending[0].Suggestions) != 0 {
-		t.Fatalf("expected no suggestion list for approval request, got %+v", pending[0].Suggestions)
+	if len(request.Suggestions) != 0 {
+		t.Fatalf("expected no suggestion list for approval request, got %+v", request.Suggestions)
 	}
-	if len(pending[0].ApprovalOptions) != 3 {
-		t.Fatalf("expected three approval options, got %+v", pending[0].ApprovalOptions)
+	if len(request.ApprovalOptions) != 3 {
+		t.Fatalf("expected three approval options, got %+v", request.ApprovalOptions)
 	}
-	if pending[0].ApprovalOptions[0].Decision != askquestion.AskQuestionApprovalDecisionAllowOnce || pending[0].ApprovalOptions[1].Decision != askquestion.AskQuestionApprovalDecisionAllowSession || pending[0].ApprovalOptions[2].Decision != askquestion.AskQuestionApprovalDecisionDeny {
-		t.Fatalf("unexpected approval options: %+v", pending[0].ApprovalOptions)
+	if request.ApprovalOptions[0].Decision != askquestion.AskQuestionApprovalDecisionAllowOnce || request.ApprovalOptions[1].Decision != askquestion.AskQuestionApprovalDecisionAllowSession || request.ApprovalOptions[2].Decision != askquestion.AskQuestionApprovalDecisionDeny {
+		t.Fatalf("unexpected approval options: %+v", request.ApprovalOptions)
 	}
 	select {
 	case result := <-done:
@@ -195,12 +209,7 @@ func TestOutsideWorkspaceApproverQueuedApprovalBlocksUntilSubmitted(t *testing.T
 	default:
 	}
 
-	if err := broker.Submit(pending[0].ToolCallID, testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionDeny, textutil.Value("no"))); err != nil {
-		t.Fatalf("submit denial: %v", err)
-	}
-	if err := broker.Submit(pending[0].ToolCallID, testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionAllowOnce, nil)); err == nil {
-		t.Fatal("expected duplicate approval resolution to fail")
-	}
+	answers <- testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionDeny, textutil.Value("no"))
 
 	select {
 	case result := <-done:
@@ -214,77 +223,6 @@ func TestOutsideWorkspaceApproverQueuedApprovalBlocksUntilSubmitted(t *testing.T
 			t.Fatalf("unexpected approval commentary: %+v", result.approval)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for queued approval result")
+		t.Fatal("timed out waiting for owner approval result")
 	}
-
-	if pending := broker.Pending(); len(pending) != 0 {
-		t.Fatalf("expected pending approvals cleared after completion, got %+v", pending)
-	}
-}
-
-func TestOutsideWorkspaceApproverQueuedAllowSessionCachesWithoutSecondPrompt(t *testing.T) {
-	broker := askquestion.NewAskQuestionBroker()
-	approver := runtimewire.NewOutsideWorkspaceApprover(broker)
-	req := testFileAccessApprovalRequest()
-	type out struct {
-		approval askquestion.FileAccessApproval
-		err      error
-	}
-	done := make(chan out, 1)
-
-	go func() {
-		approval, err := approver.Approve(testFileAccessApprovalContext("queued-session"), req)
-		done <- out{approval: approval, err: err}
-	}()
-
-	pending := waitForPendingApprovals(t, broker, 1)
-	if err := broker.Submit(pending[0].ToolCallID, testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionAllowSession, nil)); err != nil {
-		t.Fatalf("submit allow-session approval: %v", err)
-	}
-
-	select {
-	case result := <-done:
-		if result.err != nil {
-			t.Fatalf("approve: %v", result.err)
-		}
-		if result.approval.Kind != askquestion.FileAccessApprovalAllowSession {
-			t.Fatalf("unexpected first approval decision: %+v", result.approval)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for allow-session approval")
-	}
-
-	secondDone := make(chan out, 1)
-	go func() {
-		approval, err := approver.Approve(context.Background(), req)
-		secondDone <- out{approval: approval, err: err}
-	}()
-
-	select {
-	case result := <-secondDone:
-		if result.err != nil {
-			t.Fatalf("second approve: %v", result.err)
-		}
-		if result.approval.Kind != askquestion.FileAccessApprovalSessionCached {
-			t.Fatalf("unexpected cached approval decision: %+v", result.approval)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("expected cached allow-session approval to return immediately")
-	}
-
-	if pending := broker.Pending(); len(pending) != 0 {
-		t.Fatalf("expected no second queued approval after allow-session cache, got %+v", pending)
-	}
-}
-
-func waitForPendingApprovals(t *testing.T, broker *askquestion.AskQuestionBroker, want int) []askquestion.AskQuestionRequest {
-	t.Helper()
-	var pending []askquestion.AskQuestionRequest
-	if testsetup.Until(time.Now().Add(2*time.Second), 5*time.Millisecond, func() bool {
-		pending = broker.Pending()
-		return len(pending) == want
-	}) {
-		return pending
-	}
-	return broker.Pending()
 }

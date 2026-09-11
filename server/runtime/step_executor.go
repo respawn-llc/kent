@@ -264,9 +264,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		if err := ctx.Err(); err != nil {
 			return stepLoopResult{}, err
 		}
-		if err := e.drainActiveStepGoalMutations(stepID); err != nil {
-			return stepLoopResult{}, err
-		}
 		if err := e.stepLifecycle.BeginAgentStepBoundary(ctx); err != nil {
 			return stepLoopResult{}, err
 		}
@@ -509,7 +506,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			if options.RefreshReviewerConfigOnResolve {
 				effectiveReviewerFrequency, effectiveReviewerClient = e.reviewerTurnConfigSnapshot()
 			}
-			if s.reviewer.ShouldRunTurn(effectiveReviewerFrequency, effectiveReviewerClient, patchEditsApplied) {
+			if !e.liveRun.supervisorTriggered() && s.reviewer.ShouldRunTurn(effectiveReviewerFrequency, effectiveReviewerClient, patchEditsApplied) {
 				if !assistantEventEmitted {
 					_ = s.publishCommittedAssistantMessage(stepID, resolved, resolvedCommittedCoordinate, assistantProvenance)
 					assistantEventEmitted = true
@@ -520,9 +517,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			}
 			if !assistantEventEmitted {
 				_ = s.publishCommittedAssistantMessage(stepID, resolved, resolvedCommittedCoordinate, assistantProvenance)
-			}
-			if err := e.drainActiveStepGoalMutations(stepID); err != nil {
-				return stepLoopResult{}, err
 			}
 			resolvedCommittedStart, resolvedCommittedStartSet = committedAssistantCoordinateFields(resolvedCommittedCoordinate)
 			return stepLoopResult{FinalAnswer: textutil.Value(resolved), ExecutedToolCall: executedToolCall, AssistantCommittedStart: resolvedCommittedStart, AssistantCommittedStartSet: resolvedCommittedStartSet}, nil
@@ -574,7 +568,7 @@ func (s *defaultStepExecutor) buildActiveTurnRequestAtBoundary(
 		}
 		// Request preparation may persist contract state. Reopen the boundary
 		// when mutations arrived during that work, then rebuild from their result.
-		if !s.engine.HasPendingRuntimeOperations() {
+		if !s.engine.HasPendingRuntimeOperations() && !s.messages.HasPendingUserSteers() {
 			return request, nil
 		}
 		if err := s.engine.stepLifecycle.BeginAgentStepBoundary(ctx); err != nil {
@@ -647,10 +641,17 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 		return preparedCompletedResponse{}, err
 	}
 	for index := range preparedLocalCalls {
-		acceptedCalls.local[index] = normalizeToolCallForTranscript(
+		normalized, normalizeErr := normalizeToolCallForTranscriptChecked(
 			preparedLocalCalls[index].executableCall,
 			e.transcriptWorkingDir(),
 		)
+		if normalizeErr != nil {
+			return preparedCompletedResponse{}, fmt.Errorf(
+				"normalize accepted tool call presentation: %w",
+				normalizeErr,
+			)
+		}
+		acceptedCalls.local[index] = normalized
 	}
 	assistantMsg.ToolCalls = acceptedCalls.toolCalls()
 	phaseTurn.Assistant = assistantMsg
@@ -948,7 +949,7 @@ func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID strin
 	e := s.engine
 	handoffRequestPending := e.handoffRuntimeState().RequestSnapshot() != nil
 	if !handoffRequestPending {
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 			return err
 		}
 	}
@@ -960,20 +961,20 @@ func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID strin
 		return err
 	}
 	if handoffCompacted {
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 			return err
 		}
 		return newCompactionReminderCoordinator(e).maybeAppend(ctx, stepID)
 	}
 	if handoffRequestPending {
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 			return err
 		}
 	}
 	if err := e.autoCompactIfNeeded(ctx, stepID, compactionModeAuto); err != nil {
 		return err
 	}
-	if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+	if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {
 		return err
 	}
 	return newCompactionReminderCoordinator(e).maybeAppend(ctx, stepID)

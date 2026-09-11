@@ -12,7 +12,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 type userTurnProjection struct {
@@ -139,7 +138,6 @@ func (s *Service) submitUserTurn(
 			return err
 		}
 		compacted := false
-		compactionBusy := false
 		var acceptedCompactionErr error
 		if shouldCompact {
 			compactionAccepted, compactErr := s.runPreSubmitCompaction(
@@ -154,22 +152,9 @@ func (s *Service) submitUserTurn(
 				if !errors.Is(compactErr, runtime.ErrAgentBusy) {
 					return compactErr
 				}
-				compactionBusy = true
 			}
 		}
-		if compactionBusy {
-			queued, queueErr := engine.QueueUserInputForAutoDrainWithAcceptance(
-				runCtx,
-				projection.queuedInput(),
-				accept,
-			)
-			if queueErr != nil {
-				return errors.Join(acceptedCompactionErr, queueErr)
-			}
-			response = queuedUserTurnResponse(compacted, queued.ID)
-			return acceptedCompactionErr
-		}
-		outcome, queued, err := engine.SubmitUserInputOrSteerWithAcceptance(
+		queued, err := engine.SteerInput(
 			runCtx,
 			projection.queuedInput(),
 			accept,
@@ -177,28 +162,11 @@ func (s *Service) submitUserTurn(
 		if err != nil {
 			return errors.Join(acceptedCompactionErr, err)
 		}
-		if queued != nil {
-			response = queuedUserTurnResponse(compacted, queued.ID)
-			return acceptedCompactionErr
-		}
-		response = serverapi.RuntimeSubmitUserTurnResponse{
-			Compacted:  compacted,
-			ResultKind: clientui.UserTurnResultKindNoFinal,
-		}
-		switch outcome.Kind {
-		case runtime.UserTurnResultAssistantFinal:
-			response.ResultKind = clientui.UserTurnResultKindAssistantFinal
-			if outcome.FinalAnswer != nil && outcome.FinalAnswer.Content != nil {
-				response.Message = outcome.FinalAnswer.Content
-			}
-		case runtime.UserTurnResultSilentFinal:
-			response.ResultKind = clientui.UserTurnResultKindSilentFinal
-			response.Message = textutil.Value("")
-		}
+		response = queuedUserTurnResponse(compacted, queued.ID)
 		return acceptedCompactionErr
 	}
 	executeTurn := func() error {
-		return s.authority.RunCurrentHumanTurn(
+		return s.authority.RunCurrentTurn(
 			attempt.Context(),
 			descriptor,
 			attempt.Accept,
