@@ -410,8 +410,12 @@ func sessionCacheResponseRecordFromRuntime(
 		record.Scope = &scope
 		record.ChunkCount = &chunkCount
 		record.TerminalHash = &terminalHash
+		record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
 	}
-	record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
+	record.OperationID = textutil.Pointer(observation.OperationID)
+	record.SessionID = textutil.Pointer(observation.SessionID)
+	record.Purpose = textutil.Pointer(observation.Purpose)
+	record.ObservedAt = textutil.Pointer(observation.ObservedAt)
 	if observation.ProviderUsage != nil {
 		usage := observation.ProviderUsage.Clone()
 		record.ProviderUsage = &usage
@@ -456,6 +460,10 @@ func persistedCacheResponseObservedFromSessionRecord(
 ) persistedCacheResponseObserved {
 	observation := persistedCacheResponseObserved{
 		CachedInputTokens: textutil.Pointer(record.CachedInputTokens),
+		OperationID:       textutil.Pointer(record.OperationID),
+		SessionID:         textutil.Pointer(record.SessionID),
+		Purpose:           textutil.Pointer(record.Purpose),
+		ObservedAt:        textutil.Pointer(record.ObservedAt),
 	}
 	if record.DigestVersion != nil {
 		observation.DigestVersion = *record.DigestVersion

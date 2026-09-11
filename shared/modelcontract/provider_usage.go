@@ -2,10 +2,28 @@ package modelcontract
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"core/shared/textutil"
 )
+
+type ProviderOperationPurpose string
+
+const (
+	ProviderOperationPurposeGeneration ProviderOperationPurpose = "generation"
+	ProviderOperationPurposeReviewer   ProviderOperationPurpose = "reviewer"
+	ProviderOperationPurposeCompaction ProviderOperationPurpose = "compaction"
+)
+
+func (p ProviderOperationPurpose) Validate() error {
+	switch p {
+	case ProviderOperationPurposeGeneration, ProviderOperationPurposeReviewer, ProviderOperationPurposeCompaction:
+		return nil
+	default:
+		return fmt.Errorf("unsupported provider operation purpose %q", p)
+	}
+}
 
 type ProviderUsageEvidence struct {
 	ProviderID           *string                   `json:"provider_id"`
@@ -36,6 +54,7 @@ type HostedToolConfiguration struct {
 
 func (e ProviderUsageEvidence) Clone() ProviderUsageEvidence {
 	cloned := e
+	cloned.ProviderID = textutil.Pointer(e.ProviderID)
 	cloned.ServedModel = textutil.Pointer(e.ServedModel)
 	cloned.RequestedServiceTier = textutil.Pointer(e.RequestedServiceTier)
 	cloned.ServedServiceTier = textutil.Pointer(e.ServedServiceTier)

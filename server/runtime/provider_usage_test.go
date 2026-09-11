@@ -57,6 +57,17 @@ func TestProviderUsageObservationsSurviveSessionReopen(t *testing.T) {
 	}
 }
 
+func TestProviderUsageEvidenceCloneCopiesProviderID(t *testing.T) {
+	source := modelcontract.ProviderUsageEvidence{
+		ProviderID: textutil.Value("provider-a"),
+	}
+	cloned := source.Clone()
+	*cloned.ProviderID = "provider-b"
+	if *source.ProviderID != "provider-a" {
+		t.Fatalf("source provider ID mutated through clone: %q", *source.ProviderID)
+	}
+}
+
 func providerUsageTestRequest(sessionID string, withPromptCache bool) llm.Request {
 	request := llm.Request{
 		Model:          "gpt-5",
@@ -121,11 +132,23 @@ func providerUsageTestMixedResponse(outputTokens int) llm.Response {
 
 func providerUsageTestRecords(t *testing.T, store *session.Store) []modelcontract.ProviderUsageEvidence {
 	t.Helper()
+	observations := providerUsageTestObservationRecords(t, store)
+	records := make([]modelcontract.ProviderUsageEvidence, 0, len(observations))
+	for _, observation := range observations {
+		if observation.ProviderUsage != nil {
+			records = append(records, observation.ProviderUsage.Clone())
+		}
+	}
+	return records
+}
+
+func providerUsageTestObservationRecords(t *testing.T, store *session.Store) []session.CacheResponseObservationRecord {
+	t.Helper()
 	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(64)
 	if err != nil {
 		t.Fatalf("read recent event records: %v", err)
 	}
-	records := make([]modelcontract.ProviderUsageEvidence, 0, len(window.Records))
+	records := make([]session.CacheResponseObservationRecord, 0, len(window.Records))
 	for _, event := range window.Records {
 		payload, err := event.Payload()
 		if err != nil {
@@ -133,7 +156,7 @@ func providerUsageTestRecords(t *testing.T, store *session.Store) []modelcontrac
 		}
 		record, ok := payload.(session.CacheResponseObservationRecord)
 		if ok && record.ProviderUsage != nil {
-			records = append(records, record.ProviderUsage.Clone())
+			records = append(records, record)
 		}
 	}
 	return records

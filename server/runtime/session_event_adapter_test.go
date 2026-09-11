@@ -7,10 +7,12 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/modelcontract"
 	"core/shared/rollbacktarget"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -431,6 +433,21 @@ func TestSessionLocalAndCacheRecordAdaptersRoundTrip(t *testing.T) {
 	}
 	if restored := persistedCacheResponseObservedFromSessionRecord(absentResponseRecord); restored.CachedInputTokens != nil {
 		t.Fatalf("absent cached-token fact became present: %#v", restored)
+	}
+	noCacheResponse := persistedCacheResponseObserved{
+		CachedInputTokens: textutil.Value(0),
+		OperationID:       textutil.Value(uuid.NewString()),
+		SessionID:         textutil.Value("session-1"),
+		Purpose:           textutil.Value(modelcontract.ProviderOperationPurposeGeneration),
+		ObservedAt:        textutil.Value(time.Unix(1_720_000_000, 0).UTC()),
+		ProviderUsage:     &modelcontract.ProviderUsageEvidence{},
+	}
+	noCacheRecord, err := sessionCacheResponseRecordFromRuntime(noCacheResponse)
+	if err != nil {
+		t.Fatalf("adapt provider response without cache facts: %v", err)
+	}
+	if restored := persistedCacheResponseObservedFromSessionRecord(noCacheRecord); restored.CachedInputTokens != nil {
+		t.Fatalf("cached-token fact escaped cache-facts gate: %#v", restored)
 	}
 	negativeCachedInputTokens := -1
 	invalidResponse := response

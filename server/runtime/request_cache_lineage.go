@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"core/server/llm"
 	"core/server/session"
@@ -17,6 +18,8 @@ import (
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -37,13 +40,17 @@ type persistedCacheRequestObserved struct {
 }
 
 type persistedCacheResponseObserved struct {
-	DigestVersion     int                                  `json:"digest_version,omitempty"`
-	CacheKey          string                               `json:"cache_key"`
-	Scope             transcript.CacheWarningScope         `json:"scope,omitempty"`
-	ChunkCount        int                                  `json:"chunk_count"`
-	TerminalHash      string                               `json:"terminal_hash"`
-	CachedInputTokens *int                                 `json:"cached_input_tokens,omitempty"`
-	ProviderUsage     *modelcontract.ProviderUsageEvidence `json:"provider_usage,omitempty"`
+	DigestVersion     int                                     `json:"digest_version,omitempty"`
+	CacheKey          string                                  `json:"cache_key"`
+	Scope             transcript.CacheWarningScope            `json:"scope,omitempty"`
+	ChunkCount        int                                     `json:"chunk_count"`
+	TerminalHash      string                                  `json:"terminal_hash"`
+	CachedInputTokens *int                                    `json:"cached_input_tokens,omitempty"`
+	OperationID       *string                                 `json:"operation_id,omitempty"`
+	SessionID         *string                                 `json:"session_id,omitempty"`
+	Purpose           *modelcontract.ProviderOperationPurpose `json:"purpose,omitempty"`
+	ObservedAt        *time.Time                              `json:"observed_at,omitempty"`
+	ProviderUsage     *modelcontract.ProviderUsageEvidence    `json:"provider_usage,omitempty"`
 }
 
 type requestCacheLineage struct {
@@ -237,6 +244,7 @@ func (e *Engine) observePromptCacheRequest(stepID string, prepared preparedCache
 func (e *Engine) prepareCacheObservedRequest(
 	stepID string,
 	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
 	responseMode cacheResponseObservationMode,
 ) (cacheObservedRequest, error) {
 	prepared, err := e.modelRequests().RequestCache().Prepare(request)
@@ -249,9 +257,9 @@ func (e *Engine) prepareCacheObservedRequest(
 	observeResponse := func(evidence modelcontract.ProviderUsageEvidence, usage llm.Usage) error {
 		switch responseMode {
 		case cacheResponseObservationExactStep:
-			return e.observeProviderResponse(stepID, request, prepared, evidence, usage)
+			return e.observeProviderResponse(stepID, request, purpose, prepared, evidence, usage)
 		case cacheResponseObservationRuntime:
-			return e.observeProviderResponseRuntime(request, prepared, evidence, usage)
+			return e.observeProviderResponseRuntime(request, purpose, prepared, evidence, usage)
 		default:
 			panic(fmt.Sprintf("unsupported cache response observation mode %d", responseMode))
 		}
@@ -279,6 +287,7 @@ func cacheWarningEntryVisibility(mode config.CacheWarningMode) transcript.EntryV
 func (e *Engine) observeProviderResponse(
 	stepID string,
 	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
 	prepared preparedCacheRequestObservation,
 	evidence modelcontract.ProviderUsageEvidence,
 	usage llm.Usage,
@@ -290,6 +299,7 @@ func (e *Engine) observeProviderResponse(
 	return e.observeProviderResponseWithProvenance(
 		provenance,
 		request,
+		purpose,
 		prepared,
 		evidence,
 		usage,
@@ -298,6 +308,7 @@ func (e *Engine) observeProviderResponse(
 
 func (e *Engine) observeProviderResponseRuntime(
 	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
 	prepared preparedCacheRequestObservation,
 	evidence modelcontract.ProviderUsageEvidence,
 	usage llm.Usage,
@@ -305,6 +316,7 @@ func (e *Engine) observeProviderResponseRuntime(
 	return e.observeProviderResponseWithProvenance(
 		sessionSteeringProvenance(),
 		request,
+		purpose,
 		prepared,
 		evidence,
 		usage,
@@ -314,6 +326,7 @@ func (e *Engine) observeProviderResponseRuntime(
 func (e *Engine) observeProviderResponseWithProvenance(
 	provenance steeringProvenance,
 	request llm.Request,
+	purpose modelcontract.ProviderOperationPurpose,
 	prepared preparedCacheRequestObservation,
 	evidence modelcontract.ProviderUsageEvidence,
 	usage llm.Usage,
@@ -325,6 +338,10 @@ func (e *Engine) observeProviderResponseWithProvenance(
 	if strings.TrimSpace(evidence.RequestedModel) == "" {
 		evidence.RequestedModel = request.Model
 	}
+	operationID := uuid.NewString()
+	sessionID := e.SessionID()
+	observedPurpose := purpose
+	observedAt := time.Now().UTC()
 	response := persistedCacheResponseObserved{
 		DigestVersion:     prepared.request.DigestVersion,
 		CacheKey:          prepared.request.CacheKey,
@@ -332,6 +349,10 @@ func (e *Engine) observeProviderResponseWithProvenance(
 		ChunkCount:        prepared.request.ChunkCount,
 		TerminalHash:      prepared.request.TerminalHash,
 		CachedInputTokens: textutil.Pointer(usage.CachedInputTokens),
+		OperationID:       &operationID,
+		SessionID:         &sessionID,
+		Purpose:           &observedPurpose,
+		ObservedAt:        &observedAt,
 		ProviderUsage:     &evidence,
 	}
 	records := make([]session.EventRecordPayload, 0, 2)

@@ -17,6 +17,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/jsoncontract"
+	"core/shared/modelcontract"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -1096,6 +1097,7 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 	observed, err := e.prepareCacheObservedRequest(
 		stepID,
 		req,
+		modelcontract.ProviderOperationPurposeGeneration,
 		cacheResponseObservationExactStep,
 	)
 	if err != nil {

@@ -796,6 +796,7 @@ func TestEventLogV1CacheResponseObservationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create cache response observation: %v", err)
 	}
+	chunkCount = 99
 
 	line, err := encodeEventRecordV1(record)
 	if err != nil {
@@ -809,7 +810,8 @@ func TestEventLogV1CacheResponseObservationRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload type = %T, want CacheResponseObservationRecord", mustEventRecordPayload(decoded))
 	}
-	if observation.CachedInputTokens == nil || *observation.CachedInputTokens != cachedInputTokens {
+	if observation.ChunkCount == nil || *observation.ChunkCount != 4 ||
+		observation.CachedInputTokens == nil || *observation.CachedInputTokens != cachedInputTokens {
 		t.Fatalf("observation = %#v", observation)
 	}
 }

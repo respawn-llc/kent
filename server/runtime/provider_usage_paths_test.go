@@ -8,6 +8,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/modelcontract"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
@@ -23,6 +25,41 @@ func TestProviderUsageRecordsReviewerOperations(t *testing.T) {
 	}
 	if records := providerUsageTestRecords(t, store); len(records) != 1 {
 		t.Fatalf("Reviewer usage records = %+v", records)
+	}
+}
+
+func TestProviderUsageRecordsOperationIdentity(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(11)}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	if _, err := generateTestActiveStep(
+		context.Background(),
+		engine,
+		"provider-identity",
+		client,
+		providerUsageTestRequest(store.Meta().SessionID, false),
+	); err != nil {
+		t.Fatalf("generate provider response: %v", err)
+	}
+	records := providerUsageTestObservationRecords(t, store)
+	if len(records) != 1 {
+		t.Fatalf("provider observations = %+v, want one", records)
+	}
+	record := records[0]
+	if record.OperationID == nil || record.SessionID == nil || record.Purpose == nil || record.ObservedAt == nil {
+		t.Fatalf("provider observation identity = %+v, want complete identity", record)
+	}
+	if _, err := runtimeids.ParseCanonicalUUIDv4(*record.OperationID, "provider operation ID"); err != nil {
+		t.Fatalf("provider operation ID = %q: %v", *record.OperationID, err)
+	}
+	if *record.SessionID != store.Meta().SessionID {
+		t.Fatalf("provider Session ID = %q, want %q", *record.SessionID, store.Meta().SessionID)
+	}
+	if *record.Purpose != modelcontract.ProviderOperationPurposeGeneration {
+		t.Fatalf("provider purpose = %q, want generation", *record.Purpose)
+	}
+	if record.ObservedAt.IsZero() {
+		t.Fatal("provider observation time is zero")
 	}
 }
 

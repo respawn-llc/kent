@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/modelcontract"
 	"core/shared/runtimeids"
 	"core/shared/transcript"
 )
@@ -56,6 +57,7 @@ func (r *defaultReviewerPipeline) Prepare(
 	observed, err := r.engine.prepareCacheObservedRequest(
 		stepID,
 		req,
+		modelcontract.ProviderOperationPurposeReviewer,
 		cacheResponseObservationRuntime,
 	)
 	if err != nil {
