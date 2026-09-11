@@ -11,10 +11,13 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type sessionLifecycleClientProvider interface {
@@ -70,24 +73,22 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 	}
 	server = boundServer
 	planner := newSessionLaunchPlanner(server)
-	next := serverapi.SelectSessionDirective(serverapi.SessionAuthPreparationKeepCurrent)
+	next := &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
+		SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
+	}}
 	if opts.Intent != nil {
-		next = serverapi.LaunchSessionDirective(
-			*opts.Intent,
-			serverapi.NewSessionLaunchPreparation(
-				nil,
-				serverapi.RestoreStoredDraftSessionDraftDisposition(),
-				serverapi.SessionAuthPreparationKeepCurrent,
-			),
-		)
+		next, err = defaultSessionLaunchDirective(*opts.Intent)
+		if err != nil {
+			return err
+		}
 	}
 	nextSessionOverrides := opts.Overrides
 	var pickerNotice *startupPickerNotice
 	for {
-		switch next.Kind() {
-		case serverapi.SessionDirectiveStop:
+		switch next.Directive.(type) {
+		case *sessionlaunchpb.SessionDirective_Stop:
 			return nil
-		case serverapi.SessionDirectiveSelectSession:
+		case *sessionlaunchpb.SessionDirective_SelectSession:
 			picked, err := planner.selectSession(ctx, pickerNotice)
 			if err != nil {
 				return err
@@ -95,16 +96,12 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			pickerNotice = nil
 			switch picked := picked.(type) {
 			case sessionPickerCancelResult:
-				next = serverapi.StopSessionDirective()
+				next = &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}
 			case sessionPickerCreateResult:
-				next = serverapi.LaunchSessionDirective(
-					serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-					serverapi.NewSessionLaunchPreparation(
-						nil,
-						serverapi.RestoreStoredDraftSessionDraftDisposition(),
-						serverapi.SessionAuthPreparationKeepCurrent,
-					),
-				)
+				next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+				if err != nil {
+					return err
+				}
 			case sessionPickerOpenResult:
 				sessionID := picked.sessionID
 				executionTarget, err := loadSelectedSessionExecutionTarget(ctx, server.SessionViewClient(), sessionID.String())
@@ -114,7 +111,6 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 						Kind:       startupPickerNoticeError,
 						Diagnostic: err,
 					}
-					next = serverapi.SelectSessionDirective(serverapi.SessionAuthPreparationKeepCurrent)
 					continue
 				}
 				workspaceChangeAction, err := maybeHandlePickedSessionWorkspaceChange(ctx, server, sessionID.String(), executionTarget)
@@ -122,32 +118,27 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 					return err
 				}
 				if workspaceChangeAction == sessionWorkspaceChangePickAgain {
-					next = serverapi.SelectSessionDirective(serverapi.SessionAuthPreparationKeepCurrent)
 					continue
 				}
-				next = serverapi.LaunchSessionDirective(
-					serverapi.OpenExistingSessionLaunchIntent(sessionID),
-					serverapi.NewSessionLaunchPreparation(
-						nil,
-						serverapi.RestoreStoredDraftSessionDraftDisposition(),
-						serverapi.SessionAuthPreparationKeepCurrent,
-					),
-				)
+				next, err = defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(sessionID))
+				if err != nil {
+					return err
+				}
 			default:
 				return errors.New("session picker returned an invalid result")
 			}
 			continue
-		case serverapi.SessionDirectiveLaunch:
+		case *sessionlaunchpb.SessionDirective_Launch:
 		default:
 			return errors.New("session lifecycle returned no result")
 		}
 
-		intent, present := next.LaunchIntent()
-		if !present {
-			return errors.New("launch directive is missing an intent")
+		intent, err := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
+		if err != nil {
+			return err
 		}
-		preparation, present := next.LaunchPreparation()
-		if !present {
+		preparation := next.GetLaunch().Preparation
+		if preparation == nil {
 			return errors.New("launch directive is missing preparation")
 		}
 		reboundServer, rebound, err := bindNavigationSessionContext(ctx, server, preparation)
@@ -231,42 +222,39 @@ func reopenRetargetedSession(
 	runtimePlan *runtimeLaunchPlan,
 	rawSessionID string,
 	finalModel any,
-) (serverapi.SessionDirective, error) {
+) (*sessionlaunchpb.SessionDirective, error) {
 	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
 	if err != nil {
-		return serverapi.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
+		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
 	}
 	if err := persistSessionDraftToServer(ctx, server, rawSessionID, finalModel); err != nil {
-		return serverapi.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
+		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
 	}
 	if runtimePlan.stopEventStreams != nil {
 		runtimePlan.stopEventStreams()
 	}
 	if err := runtimePlan.Close(); err != nil {
-		return serverapi.SessionDirective{}, err
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
-		return serverapi.SessionDirective{}, err
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	return serverapi.LaunchSessionDirective(
-		serverapi.OpenExistingSessionLaunchIntent(sessionID),
-		serverapi.NewSessionLaunchPreparation(
-			nil,
-			serverapi.RestoreStoredDraftSessionDraftDisposition(),
-			serverapi.SessionAuthPreparationKeepCurrent,
-		),
-	), nil
+	return defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(sessionID))
 }
 
-func bindNavigationSessionContext(ctx context.Context, server interactiveSessionServer, preparation serverapi.SessionLaunchPreparation) (interactiveSessionServer, bool, error) {
-	binding, present := preparation.NavigationBinding()
-	if !present {
+func defaultSessionLaunchDirective(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionDirective, error) {
+	return protoapi.SessionLaunchDirectiveToProto(intent, &sessionlaunchpb.SessionLaunchPreparation{
+		Auth:        sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH,
+		InputPolicy: &sessionlaunchpb.SessionDraftDisposition{Disposition: &sessionlaunchpb.SessionDraftDisposition_RestoreStoredDraft{RestoreStoredDraft: &emptypb.Empty{}}},
+	})
+}
+
+func bindNavigationSessionContext(ctx context.Context, server interactiveSessionServer, preparation *sessionlaunchpb.SessionLaunchPreparation) (interactiveSessionServer, bool, error) {
+	binding := preparation.NavigationBinding
+	if binding == nil {
 		return server, false, nil
 	}
-	if err := binding.Validate(); err != nil {
-		return nil, false, err
-	}
-	rebound, err := server.BindProjectWorkspace(ctx, binding.ProjectID, binding.WorkspaceID)
+	rebound, err := server.BindProjectWorkspace(ctx, binding.ProjectId, binding.WorkspaceId)
 	if err != nil {
 		return nil, false, err
 	}
@@ -281,10 +269,10 @@ func resolveAndReleaseSessionAction(
 	transition UITransition,
 	runtimePlan *runtimeLaunchPlan,
 	finalModel any,
-) (serverapi.SessionDirective, error) {
+) (*sessionlaunchpb.SessionDirective, error) {
 	resolved, err := resolveSessionAction(ctx, server, interactor, sessionID, transition)
 	if releaseErr := releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err); releaseErr != nil {
-		return serverapi.SessionDirective{}, releaseErr
+		return &sessionlaunchpb.SessionDirective{}, releaseErr
 	}
 	return resolved, nil
 }
@@ -450,83 +438,82 @@ func sessionLaunchRequestFromIntent(intent serverapi.SessionLaunchIntent, overri
 	return request, nil
 }
 
-func sessionLaunchPreparationValues(preparation serverapi.SessionLaunchPreparation) (string, bool, string, bool, error) {
-	if err := preparation.Validate(); err != nil {
-		return "", false, "", false, err
-	}
+func sessionLaunchPreparationValues(preparation *sessionlaunchpb.SessionLaunchPreparation) (string, bool, string, bool, error) {
 	initialPrompt := ""
 	initialPromptHistoryRecorded := false
-	if prompt, present := preparation.InitialPrompt(); present {
+	if prompt := preparation.InitialPrompt; prompt != nil {
 		initialPrompt = prompt.Text
 		initialPromptHistoryRecorded = prompt.HistoryRecorded
 	}
-	switch disposition := preparation.DraftDisposition(); disposition.Kind() {
-	case serverapi.SessionDraftDispositionRestoreStoredDraft:
+	switch disposition := preparation.GetInputPolicy().GetDisposition().(type) {
+	case *sessionlaunchpb.SessionDraftDisposition_RestoreStoredDraft:
 		return initialPrompt, initialPromptHistoryRecorded, "", false, nil
-	case serverapi.SessionDraftDispositionOverrideStoredDraft:
-		text, present := disposition.OverrideText()
-		if !present {
-			return "", false, "", false, errors.New("override-stored-draft disposition is missing text")
-		}
-		return initialPrompt, initialPromptHistoryRecorded, text, true, nil
+	case *sessionlaunchpb.SessionDraftDisposition_OverrideStoredDraft:
+		return initialPrompt, initialPromptHistoryRecorded, disposition.OverrideStoredDraft, true, nil
 	default:
 		return "", false, "", false, errors.New("session draft disposition kind is invalid")
 	}
 }
 
-func lifecycleResultAuthPreparation(result serverapi.SessionDirective) (serverapi.SessionAuthPreparation, bool, error) {
-	if err := result.Validate(); err != nil {
-		return "", false, err
-	}
-	switch result.Kind() {
-	case serverapi.SessionDirectiveStop:
-		return "", false, nil
-	case serverapi.SessionDirectiveSelectSession:
-		authPreparation, present := result.AuthPreparation()
-		if !present {
-			return "", false, errors.New("select-session directive is missing auth preparation")
-		}
-		return authPreparation, true, nil
-	case serverapi.SessionDirectiveLaunch:
-		preparation, present := result.LaunchPreparation()
-		if !present {
-			return "", false, errors.New("launch directive is missing preparation")
-		}
-		return preparation.AuthPreparation(), true, nil
+func lifecycleResultAuthPreparation(result *sessionlaunchpb.SessionDirective) (*sessionlaunchpb.SessionAuthPreparation, error) {
+	switch directive := result.GetDirective().(type) {
+	case *sessionlaunchpb.SessionDirective_Stop:
+		return nil, nil
+	case *sessionlaunchpb.SessionDirective_SelectSession:
+		return &directive.SelectSession.Auth, nil
+	case *sessionlaunchpb.SessionDirective_Launch:
+		return &directive.Launch.Preparation.Auth, nil
 	default:
-		return "", false, errors.New("session directive kind is invalid")
+		return nil, errors.New("session directive kind is invalid")
 	}
 }
 
-func resolveSessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition) (serverapi.SessionDirective, error) {
+func resolveSessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition) (*sessionlaunchpb.SessionDirective, error) {
 	if transition.Exit {
-		return serverapi.StopSessionDirective(), nil
+		return &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}, nil
 	}
 	if server == nil || server.SessionLifecycleClient() == nil {
-		return serverapi.SessionDirective{}, errors.New("session lifecycle client is required")
+		return &sessionlaunchpb.SessionDirective{}, errors.New("session lifecycle client is required")
 	}
-	resolved, err := server.SessionLifecycleClient().ResolveTransition(ctx, serverapi.SessionResolveTransitionRequest{
-		SessionID: strings.TrimSpace(sessionID),
-		Transition: serverapi.SessionTransition{
-			Action:                       transition.Action,
+	action, err := transition.Action.transitionAction()
+	if err != nil {
+		return nil, err
+	}
+	var currentSessionID, previousSessionID, targetSessionID, forkTargetID *string
+	if normalized := strings.TrimSpace(sessionID); normalized != "" {
+		currentSessionID = &normalized
+	}
+	if transition.PreviousSessionID != nil {
+		previousSessionID = proto.String(transition.PreviousSessionID.String())
+	}
+	if transition.TargetSessionID != "" {
+		targetSessionID = &transition.TargetSessionID
+	}
+	if transition.ForkRollbackTargetID != "" {
+		forkTargetID = &transition.ForkRollbackTargetID
+	}
+	resolved, err := server.SessionLifecycleClient().ResolveTransition(ctx, &sessionlaunchpb.SessionResolveTransitionRequest{
+		SessionId: currentSessionID,
+		Transition: &sessionlaunchpb.SessionTransition{
+			Action:                       action,
 			InitialPrompt:                transition.InitialPrompt,
 			InitialPromptHistoryRecorded: transition.InitialPromptHistoryRecorded,
 			InitialInput:                 sessionTransitionInitialInput(transition),
-			TargetSessionID:              transition.TargetSessionID,
-			ForkRollbackTargetID:         transition.ForkRollbackTargetID,
-			PreviousSessionID:            transition.PreviousSessionID,
+			TargetSessionId:              targetSessionID,
+			ForkRollbackTargetId:         forkTargetID,
+			PreviousSessionId:            previousSessionID,
 		},
 	})
 	if err != nil {
-		return serverapi.SessionDirective{}, err
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	authPreparation, hasAuthPreparation, err := lifecycleResultAuthPreparation(resolved)
+	authPreparation, err := lifecycleResultAuthPreparation(resolved)
 	if err != nil {
-		return serverapi.SessionDirective{}, err
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	if hasAuthPreparation && authPreparation == serverapi.SessionAuthPreparationReauthenticate {
+	if authPreparation != nil && *authPreparation == sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE {
 		if err := server.Reauthenticate(ctx, interactor, true); err != nil {
-			return serverapi.SessionDirective{}, err
+			return &sessionlaunchpb.SessionDirective{}, err
 		}
 	}
 	return resolved, nil

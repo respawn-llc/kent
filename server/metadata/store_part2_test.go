@@ -219,7 +219,7 @@ func TestResolveSessionExecutionTargetUsesMetadataAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSessionNavigationBinding: %v", err)
 	}
-	if navigationBinding.ProjectID != binding.ProjectID || navigationBinding.WorkspaceID != binding.WorkspaceID {
+	if navigationBinding.ProjectId != binding.ProjectID || navigationBinding.WorkspaceId != binding.WorkspaceID {
 		t.Fatalf("navigation binding = %+v, want project=%q workspace=%q", navigationBinding, binding.ProjectID, binding.WorkspaceID)
 	}
 }

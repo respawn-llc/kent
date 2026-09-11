@@ -71,7 +71,6 @@ const (
 	MethodSessionGetExecutionEnvironment                = "session.getExecutionEnvironment"
 	MethodSessionGetTranscriptPage                      = "session.getTranscriptPage"
 	MethodSessionGetLatestCommittedAssistantFinalAnswer = "session.getLatestCommittedAssistantFinalAnswer"
-	MethodSessionResolveTransition                      = "session.resolveTransition"
 	MethodSessionRuntimeActivate                        = "session.runtime.activate"
 	MethodSessionRuntimeRelease                         = "session.runtime.release"
 	MethodRuntimeSetSessionName                         = "runtime.setSessionName"

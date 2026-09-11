@@ -1806,26 +1806,26 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 		t.Fatalf("initial input = %v, want draft text", initialInput)
 	}
 
-	resolvedTransition, err := remote.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
-		Transition: serverapi.SessionTransition{
-			Action:        "new_session",
+	resolvedTransition, err := remote.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
+		Transition: &sessionlaunchpb.SessionTransition{
+			Action:        sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NEW_SESSION,
 			InitialPrompt: "hello",
 		},
 	})
 	if err != nil {
 		t.Fatalf("ResolveTransition: %v", err)
 	}
-	intent, ok := resolvedTransition.LaunchIntent()
-	if !ok || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+	intent, err := protoapi.SessionLaunchIntentFromProto(resolvedTransition.GetLaunch().GetIntent())
+	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 		t.Fatalf("unexpected transition response: %+v", resolvedTransition)
 	}
-	preparation, ok := resolvedTransition.LaunchPreparation()
-	if !ok {
+	preparation := resolvedTransition.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("transition response omitted launch preparation")
 	}
-	prompt, ok := preparation.InitialPrompt()
-	if !ok || prompt.Text != "hello" {
-		t.Fatalf("initial prompt = %+v/%v, want hello", prompt, ok)
+	prompt := preparation.InitialPrompt
+	if prompt == nil || prompt.Text != "hello" {
+		t.Fatalf("initial prompt = %+v, want hello", prompt)
 	}
 }
 

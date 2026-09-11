@@ -425,8 +425,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 			}
 			projectCtx, err := core.resolveProjectContext(
 				ctx,
-				binding.ProjectID,
-				binding.WorkspaceID,
+				binding.ProjectId,
+				binding.WorkspaceId,
 				"",
 			)
 			if err != nil {

@@ -720,11 +720,6 @@ func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, req servera
 	return c.sessionExecutionResponseContract.Decode(raw)
 }
 
-func (c *Remote) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	var resp serverapi.SessionResolveTransitionResponse
-	return resp, c.call(ctx, protocol.MethodSessionResolveTransition, req, &resp)
-}
-
 func (c *Remote) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
 	var resp serverapi.SessionRuntimeActivateResponse
 	return resp, c.call(ctx, protocol.MethodSessionRuntimeActivate, req, &resp)

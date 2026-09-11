@@ -9,6 +9,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+func (c *Remote) ResolveTransition(ctx context.Context, request *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
+	return callGeneratedBinary(c, ctx, sessionLifecycleMethod("ResolveTransition"), request,
+		&sessionlaunchpb.SessionResolveTransitionResult{}, func(failure *sessionlaunchpb.SessionResolveTransitionError) error {
+			return generatedOperationFailure(failure.Code)
+		})
+}
+
 func (c *Remote) RetargetSessionWorkspace(ctx context.Context, request *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	return callGeneratedBinary(c, ctx, sessionLifecycleMethod("RetargetWorkspace"), request,
 		&sessionlaunchpb.SessionRetargetWorkspaceResult{}, protoapi.SessionRetargetErrorFromProto)

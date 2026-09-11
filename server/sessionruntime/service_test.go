@@ -600,7 +600,7 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ResolveSessionNavigationBinding: %v", err)
 	}
-	if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectID, sibling); err != nil {
+	if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, sibling); err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 	client := &sessionRuntimeTestLLMClient{responses: []llm.Response{
@@ -696,26 +696,26 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 		t.Fatalf("canonical foreign worktree: %v", err)
 	}
 	if err := fixture.metadata.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
-		ID: "interactive-current", WorkspaceID: binding.WorkspaceID, CanonicalRoot: currentRoot,
+		ID: "interactive-current", WorkspaceID: binding.WorkspaceId, CanonicalRoot: currentRoot,
 		DisplayName: "current", Availability: "available", Managed: true, GitMetadataJSON: `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord current: %v", err)
 	}
 	if err := fixture.metadata.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
-		ID: "interactive-missing", WorkspaceID: binding.WorkspaceID, CanonicalRoot: missingRoot,
+		ID: "interactive-missing", WorkspaceID: binding.WorkspaceId, CanonicalRoot: missingRoot,
 		DisplayName: "missing", Availability: "missing", Managed: true, GitMetadataJSON: `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord missing: %v", err)
 	}
 	if err := fixture.metadata.UpdateSessionExecutionTarget(context.Background(), metadata.SessionExecutionTargetUpdate{
 		SessionID:  fixture.store.Meta().SessionID,
-		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceID},
+		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceId},
 		Worktree:   &metadata.SessionExecutionTargetUpdateWorktree{ID: "interactive-current"},
 		CwdRelpath: ".",
 	}); err != nil {
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
-	foreignBinding, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectID, foreignRoot)
+	foreignBinding, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, foreignRoot)
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject foreign: %v", err)
 	}
@@ -726,11 +726,11 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 		t.Fatalf("UpsertWorktreeRecord foreign workspace: %v", err)
 	}
 	for index := 0; index < metadata.ProjectWorkspaceCollectionLimit; index++ {
-		if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir()); err != nil {
+		if _, err := fixture.metadata.AttachWorkspaceToProject(context.Background(), binding.ProjectId, t.TempDir()); err != nil {
 			t.Fatalf("AttachWorkspaceToProject filler %d: %v", index, err)
 		}
 	}
-	boundary, err := fixture.metadata.ResolveProjectWorkspaceBoundary(context.Background(), binding.ProjectID)
+	boundary, err := fixture.metadata.ResolveProjectWorkspaceBoundary(context.Background(), binding.ProjectId)
 	if err != nil {
 		t.Fatalf("ResolveProjectWorkspaceBoundary: %v", err)
 	}
@@ -829,14 +829,14 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 	}
 	legacyRoot := t.TempDir()
 	if err := fixture.metadata.UpsertWorktreeRecord(context.Background(), metadata.WorktreeRecord{
-		ID: "interactive-legacy-outside-namespace", WorkspaceID: binding.WorkspaceID, CanonicalRoot: legacyRoot,
+		ID: "interactive-legacy-outside-namespace", WorkspaceID: binding.WorkspaceId, CanonicalRoot: legacyRoot,
 		DisplayName: "legacy", Availability: "available", Managed: true, GitMetadataJSON: `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertWorktreeRecord legacy: %v", err)
 	}
 	if err := fixture.metadata.UpdateSessionExecutionTarget(context.Background(), metadata.SessionExecutionTargetUpdate{
 		SessionID:  fixture.store.Meta().SessionID,
-		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceID},
+		Workspace:  &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceId},
 		Worktree:   &metadata.SessionExecutionTargetUpdateWorktree{ID: "interactive-legacy-outside-namespace"},
 		CwdRelpath: ".",
 	}); err != nil {

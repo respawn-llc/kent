@@ -18,6 +18,8 @@ import (
 	"core/server/session"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -2024,17 +2026,17 @@ func (s *Store) ResolveOptionalSessionExecutionTarget(ctx context.Context, sessi
 	return &target, nil
 }
 
-func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (serverapi.SessionNavigationBinding, error) {
+func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error) {
 	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
 	if err != nil {
-		return serverapi.SessionNavigationBinding{}, err
+		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
-	binding := serverapi.SessionNavigationBinding{
-		ProjectID:   strings.TrimSpace(row.ProjectID),
-		WorkspaceID: strings.TrimSpace(row.WorkspaceID),
+	binding := &sessionlaunchpb.SessionNavigationBinding{
+		ProjectId:   strings.TrimSpace(row.ProjectID),
+		WorkspaceId: strings.TrimSpace(row.WorkspaceID),
 	}
-	if err := binding.Validate(); err != nil {
-		return serverapi.SessionNavigationBinding{}, err
+	if err := protoapi.Validate(binding); err != nil {
+		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
 	return binding, nil
 }

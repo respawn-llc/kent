@@ -171,10 +171,10 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("resolve /back transition: %v", err)
 	}
 	intent, _ := requireAppLifecycleLaunch(t, handoff)
-	preparation, _ := handoff.LaunchPreparation()
-	navigationBinding, present := preparation.NavigationBinding()
-	if !present || navigationBinding.ProjectID != bindingB.ProjectID || navigationBinding.WorkspaceID != bindingB.WorkspaceID {
-		t.Fatalf("remote /back navigation binding = %+v/%t, want project=%q workspace=%q", navigationBinding, present, bindingB.ProjectID, bindingB.WorkspaceID)
+	preparation := handoff.GetLaunch().GetPreparation()
+	navigationBinding := preparation.NavigationBinding
+	if navigationBinding == nil || navigationBinding.ProjectId != bindingB.ProjectID || navigationBinding.WorkspaceId != bindingB.WorkspaceID {
+		t.Fatalf("remote /back navigation binding = %+v, want project=%q workspace=%q", navigationBinding, bindingB.ProjectID, bindingB.WorkspaceID)
 	}
 
 	targetServer, rebound, err := bindNavigationSessionContext(context.Background(), sourceServer, preparation)

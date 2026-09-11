@@ -139,22 +139,20 @@ func TestMaybeHandlePickedSessionWorkspaceChangeRejectsMissingBindingContext(t *
 
 func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T) {
 	client := &recordingSessionLifecycleClient{
-		resolveTransition: func(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+		resolveTransition: func(_ context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 			if !req.Transition.InitialPromptHistoryRecorded {
 				t.Fatal("expected transition request to preserve initial prompt-history flag")
 			}
-			prompt := serverapi.SessionInitialPromptMetadata{
+			prompt := &sessionlaunchpb.SessionInitialPromptMetadata{
 				Text:            req.Transition.InitialPrompt,
 				HistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
 			}
-			return serverapi.LaunchSessionDirective(
-				serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-				serverapi.NewSessionLaunchPreparation(
-					&prompt,
-					serverapi.RestoreStoredDraftSessionDraftDisposition(),
-					serverapi.SessionAuthPreparationKeepCurrent,
-				),
-			), nil
+			directive, err := defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+			if err != nil {
+				return nil, err
+			}
+			directive.GetLaunch().Preparation.InitialPrompt = prompt
+			return directive, nil
 		},
 	}
 
@@ -168,12 +166,12 @@ func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T)
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)
 	}
-	preparation, present := resolved.LaunchPreparation()
-	if !present {
+	preparation := resolved.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("resolved transition omitted launch preparation")
 	}
-	prompt, present := preparation.InitialPrompt()
-	if !present || !prompt.HistoryRecorded {
+	prompt := preparation.InitialPrompt
+	if prompt == nil || !prompt.HistoryRecorded {
 		t.Fatal("expected resolved transition to preserve initial prompt-history flag")
 	}
 }
@@ -373,7 +371,7 @@ type recordingSessionLifecycleClient struct {
 	getInitialInput          func(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error)
 	persistInputDraft        func(context.Context, *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error)
 	retargetSessionWorkspace func(context.Context, *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
-	resolveTransition        func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
+	resolveTransition        func(context.Context, *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error)
 }
 
 func (c *recordingSessionLifecycleClient) Close() error { return nil }
@@ -399,9 +397,9 @@ func (c *recordingSessionLifecycleClient) RetargetSessionWorkspace(ctx context.C
 	return c.retargetSessionWorkspace(ctx, req)
 }
 
-func (c *recordingSessionLifecycleClient) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+func (c *recordingSessionLifecycleClient) ResolveTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	if c.resolveTransition == nil {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("unexpected ResolveTransition call")
+		return &sessionlaunchpb.SessionDirective{}, errors.New("unexpected ResolveTransition call")
 	}
 	return c.resolveTransition(ctx, req)
 }

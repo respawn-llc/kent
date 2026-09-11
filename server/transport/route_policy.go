@@ -385,8 +385,6 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.SessionExecutionEnvironmentRequest:
 		return p.SessionID.String(), true
-	case serverapi.SessionResolveTransitionRequest:
-		return p.SessionID, true
 	case serverapi.SessionRuntimeActivateRequest:
 		return p.SessionID, true
 	case serverapi.SessionRuntimeReleaseRequest:

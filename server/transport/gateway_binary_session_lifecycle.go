@@ -30,6 +30,11 @@ func registerSessionLifecycleGatewayBinaryBindings(bindings map[string]gatewayBi
 				return &sessionlaunchpb.SessionRetargetWorkspaceRequest{}
 			},
 			apicontract.SessionLifecycleService.RetargetSessionWorkspace),
+		registerSessionLifecycleUnary(bindings, "ResolveTransition",
+			func() *sessionlaunchpb.SessionResolveTransitionRequest {
+				return &sessionlaunchpb.SessionResolveTransitionRequest{}
+			},
+			apicontract.SessionLifecycleService.ResolveTransition),
 	)
 }
 

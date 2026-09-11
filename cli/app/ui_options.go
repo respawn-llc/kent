@@ -9,17 +9,17 @@ import (
 	"core/cli/tui/transcriptrender"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
 type UIOption func(*uiModelConstruction)
 
-type UIAction = serverapi.SessionTransitionAction
+type UIAction string
 
 type UITransition struct {
-	Action                       serverapi.SessionTransitionAction
+	Action                       UIAction
 	Exit                         bool
 	InitialPrompt                string
 	InitialPromptHistoryRecorded bool
@@ -31,14 +31,33 @@ type UITransition struct {
 }
 
 const (
-	UIActionNone         UIAction = serverapi.SessionTransitionActionNone
+	UIActionNone         UIAction = "none"
 	UIActionExit         UIAction = "exit"
-	UIActionNewSession   UIAction = serverapi.SessionTransitionActionNewSession
-	UIActionResume       UIAction = serverapi.SessionTransitionActionResume
-	UIActionLogout       UIAction = serverapi.SessionTransitionActionLogout
-	UIActionForkRollback UIAction = serverapi.SessionTransitionActionForkRollback
-	UIActionOpenSession  UIAction = serverapi.SessionTransitionActionOpenSession
+	UIActionNewSession   UIAction = "new_session"
+	UIActionResume       UIAction = "resume"
+	UIActionLogout       UIAction = "logout"
+	UIActionForkRollback UIAction = "fork_rollback"
+	UIActionOpenSession  UIAction = "open_session"
 )
+
+func (a UIAction) transitionAction() (sessionlaunchpb.SessionTransitionAction, error) {
+	switch a {
+	case UIActionNone:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NONE, nil
+	case UIActionNewSession:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NEW_SESSION, nil
+	case UIActionResume:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_RESUME, nil
+	case UIActionLogout:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT, nil
+	case UIActionForkRollback:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK, nil
+	case UIActionOpenSession:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION, nil
+	default:
+		return sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_UNSPECIFIED, fmt.Errorf("UI action %q has no server transition", a)
+	}
+}
 
 func WithUILogger(logger uiLogger) UIOption {
 	return func(m *uiModelConstruction) {

@@ -2,20 +2,17 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
 	"core/server/core"
 	"core/shared/apicontract"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
-	"core/shared/protocol"
-	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type lifecycleResultGatewayService struct {
-	last serverapi.SessionResolveTransitionRequest
+	last *sessionlaunchpb.SessionResolveTransitionRequest
 }
 
 func (s *lifecycleResultGatewayService) Close() error {
@@ -34,9 +31,11 @@ func (s *lifecycleResultGatewayService) RetargetSessionWorkspace(context.Context
 	return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, nil
 }
 
-func (s *lifecycleResultGatewayService) ResolveTransition(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionDirective, error) {
+func (s *lifecycleResultGatewayService) ResolveTransition(_ context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	s.last = req
-	return serverapi.SelectSessionDirective(serverapi.SessionAuthPreparationKeepCurrent), nil
+	return &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
+		SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
+	}}, nil
 }
 
 func (*lifecycleResultGatewayService) ArchiveSession(context.Context, *sessionlaunchpb.SessionArchiveRequest) (*sessionlaunchpb.SessionArchiveSuccess, error) {
@@ -74,35 +73,17 @@ func TestGatewaySessionLifecycleResultRoundTrip(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
 
-	var result serverapi.SessionDirective
-	callGateway(t, conn, "typed-lifecycle-result", protocol.MethodSessionResolveTransition, serverapi.SessionResolveTransitionRequest{
-		Transition: serverapi.SessionTransition{Action: serverapi.SessionTransitionActionResume},
-	}, &result)
-	if result.Kind() != serverapi.SessionDirectiveSelectSession {
-		t.Fatalf("result kind = %q, want select session", result.Kind())
+	result := &sessionlaunchpb.SessionResolveTransitionResult{}
+	callGatewayDescriptor(t, conn, "typed-lifecycle-result",
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("ResolveTransition"),
+		&sessionlaunchpb.SessionResolveTransitionRequest{
+			Transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_RESUME},
+		}, result)
+	if result.GetSuccess().GetSelectSession().GetAuth() != sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH {
+		t.Fatalf("result = %v, want select Session with current auth", result)
 	}
-	authPreparation, ok := result.AuthPreparation()
-	if !ok || authPreparation != serverapi.SessionAuthPreparationKeepCurrent {
-		t.Fatalf("auth preparation = %q/%v, want keep current", authPreparation, ok)
-	}
-	if service.last.Transition.Action != serverapi.SessionTransitionActionResume {
+	if service.last.Transition.Action != sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_RESUME {
 		t.Fatalf("forwarded action = %q, want resume", service.last.Transition.Action)
-	}
-}
-
-func TestGatewaySessionLifecycleResultRejectsLegacyResponseFields(t *testing.T) {
-	for _, raw := range []string{
-		`{"kind":"stop","should_continue":true}`,
-		`{"kind":"stop","requires_reauth":true}`,
-		`{"kind":"stop","next_session_id":"target-session"}`,
-		`{"kind":"stop","force_new_session":true}`,
-		`{"kind":"stop","parent_session_id":"parent-session"}`,
-		`{"kind":"stop","initial_input":"draft"}`,
-	} {
-		var result serverapi.SessionDirective
-		if err := json.Unmarshal([]byte(raw), &result); err == nil {
-			t.Fatalf("legacy lifecycle response %s unexpectedly decoded: %+v", raw, result)
-		}
 	}
 }
 
