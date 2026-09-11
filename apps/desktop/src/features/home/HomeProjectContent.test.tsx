@@ -144,19 +144,20 @@ it.each([
   ["main", "sessions"],
   ["subagent", "subagents"],
 ] as const)("opens a %s catalog row through Session Chat navigation", async (category, tabLabel) => {
+  const sessionName = "Review chat";
   fixture.sessions = [
     {
       category,
       firstPromptPreview: "Review the change",
       id: `${category}-session`,
-      name: "Review chat",
+      name: sessionName,
       updatedAt: 1,
     },
   ];
 
   render(<HomeProjectContent projectID="project-1" sessionsVisible sidebarMode="shift" />);
   fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
-  fireEvent.click(await screen.findByTestId("home-list-card-button"));
+  fireEvent.click(await screen.findByRole("button", { name: sessionName }));
 
   expect(fixture.sessionTargets).toEqual([
     {
