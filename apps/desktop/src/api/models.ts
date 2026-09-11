@@ -1,6 +1,5 @@
 import type { AttentionItem } from "./attention";
 import type { TaskLiveSession } from "./taskDetailModels";
-import type { ValidationErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 
 import type { WorkflowExecutionTarget, WorkflowExecutionTargetPolicy } from "./workflowExecutionTarget";
 import type {
@@ -200,8 +199,6 @@ export type PendingAsk = Readonly<{
 
 export type ApprovalDecision = "allow_once" | "allow_session" | "deny";
 
-export type WorkflowValidationErrorReason = ValidationErrorReason;
-
 export type WorkflowValidationError = Readonly<{
   code: string;
   message: string;
@@ -218,7 +215,6 @@ export type WorkflowValidationErrorDetails = Readonly<{
   fieldName: string;
   inputName: string;
   placeholder: string;
-  reason: WorkflowValidationErrorReason | null;
   providerEdgeID: string | null;
   role: string | null;
   requiredTool: string | null;

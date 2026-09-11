@@ -203,14 +203,10 @@ enum ValidationErrorCode {
   VALIDATION_ERROR_CODE_SCRIPT_PATH_INACCESSIBLE = 83;
   VALIDATION_ERROR_CODE_SCRIPT_PATH_IS_DIRECTORY = 84;
   VALIDATION_ERROR_CODE_SCRIPT_PATH_NOT_EXECUTABLE = 85;
-}
-
-enum ValidationErrorReason {
-  VALIDATION_ERROR_REASON_UNSPECIFIED = 0;
-  VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION = 1;
-  VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING = 2;
-  VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED = 3;
-  VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS = 4;
+  VALIDATION_ERROR_CODE_SESSION_SOURCE_CANNOT_OWN_SESSION = 86;
+  VALIDATION_ERROR_CODE_SESSION_TRANSITION_MISSING = 87;
+  VALIDATION_ERROR_CODE_SESSION_TRANSITION_NOT_GUARANTEED = 88;
+  VALIDATION_ERROR_CODE_SESSION_TRANSITION_AMBIGUOUS = 89;
 }
 
 enum ProjectEventResource {
@@ -787,10 +783,6 @@ message WorkflowValidationErrorDetails {
   optional string provider_edge_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string role = 5 [(buf.validate.field).string.min_len = 1];
   optional string required_tool = 6 [(buf.validate.field).string.min_len = 1];
-  optional ValidationErrorReason reason = 7 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
 }
 
 message WorkflowValidationError {

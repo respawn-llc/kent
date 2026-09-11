@@ -1,25 +1,19 @@
 package workflowview
 
 import (
-	"fmt"
-
 	"core/server/workflow"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
-func DerivedWiring(def workflow.Definition, catalogs ...workflow.TargetAgentCatalog) (serverapi.WorkflowDerivedWiring, error) {
+func DerivedWiring(def workflow.Definition, catalogs ...workflow.TargetAgentCatalog) serverapi.WorkflowDerivedWiring {
 	var catalog workflow.TargetAgentCatalog
 	if len(catalogs) > 0 {
 		catalog = catalogs[0]
 	}
 	derived := workflow.DeriveWiringWithCatalog(def, catalog)
-	diagnostics, err := ValidationErrors(workflow.WorkflowIDPointer(def.ID), derived.Diagnostics)
-	if err != nil {
-		return serverapi.WorkflowDerivedWiring{}, err
-	}
 	resp := serverapi.WorkflowDerivedWiring{
-		Diagnostics: diagnostics,
+		Diagnostics: ValidationErrors(workflow.WorkflowIDPointer(def.ID), derived.Diagnostics),
 	}
 	for _, node := range def.Nodes {
 		nodeID := workflow.NodeIDOf(node)
@@ -46,7 +40,7 @@ func DerivedWiring(def workflow.Definition, catalogs ...workflow.TargetAgentCata
 			ThinkingSelectionApplicability: selectorApplicability(applicability.Thinking),
 		})
 	}
-	return resp, nil
+	return resp
 }
 
 func selectorApplicability(fact workflow.SelectorApplicability) serverapi.WorkflowSelectorApplicability {
@@ -57,16 +51,12 @@ func selectorApplicability(fact workflow.SelectorApplicability) serverapi.Workfl
 	}
 }
 
-func ValidationErrors(inheritedWorkflowID *runtimeids.WorkflowID, errs []workflow.ValidationError) ([]serverapi.WorkflowValidationError, error) {
+func ValidationErrors(inheritedWorkflowID *runtimeids.WorkflowID, errs []workflow.ValidationError) []serverapi.WorkflowValidationError {
 	out := make([]serverapi.WorkflowValidationError, 0, len(errs))
 	for _, err := range errs {
 		relatedIDs := append([]string(nil), err.RelatedIDs...)
 		for _, entity := range err.RelatedEntities {
 			relatedIDs = append(relatedIDs, entity.EntityID)
-		}
-		details, projectionErr := validationErrorDetails(err)
-		if projectionErr != nil {
-			return nil, fmt.Errorf("project workflow validation error: %w", projectionErr)
 		}
 		projected := serverapi.WorkflowValidationError{
 			Code:              string(err.Code),
@@ -75,7 +65,7 @@ func ValidationErrors(inheritedWorkflowID *runtimeids.WorkflowID, errs []workflo
 			NodeID:            graphIDPointer(err.NodeID),
 			TransitionGroupID: graphIDPointer(err.TransitionGroupID),
 			EdgeID:            graphIDPointer(err.EdgeID),
-			Details:           details,
+			Details:           validationErrorDetails(err),
 			RelatedIDs:        relatedIDs,
 			BlocksContext:     err.BlocksContext,
 		}
@@ -84,7 +74,7 @@ func ValidationErrors(inheritedWorkflowID *runtimeids.WorkflowID, errs []workflo
 		}
 		out = append(out, projected)
 	}
-	return out, nil
+	return out
 }
 
 func graphIDPointer[T ~string](value *T) *string {
@@ -95,34 +85,25 @@ func graphIDPointer[T ~string](value *T) *string {
 	return &copy
 }
 
-func validationErrorDetails(err workflow.ValidationError) (*serverapi.WorkflowValidationErrorDetails, error) {
+func validationErrorDetails(err workflow.ValidationError) *serverapi.WorkflowValidationErrorDetails {
 	var requiredTool *string
 	if err.RequiredTool != nil {
 		value := string(*err.RequiredTool)
 		requiredTool = &value
 	}
-	var reason *serverapi.WorkflowValidationErrorReason
-	if err.Reason != nil {
-		value, projectionErr := serverapi.WorkflowValidationErrorReasonFromDomain(*err.Reason)
-		if projectionErr != nil {
-			return nil, projectionErr
-		}
-		reason = &value
-	}
 	details := serverapi.WorkflowValidationErrorDetails{
 		FieldName:      err.FieldName,
 		InputName:      err.InputName,
 		Placeholder:    err.Placeholder,
-		Reason:         reason,
 		ProviderEdgeID: graphIDPointer(err.ProviderEdgeID),
 		Role:           err.AgentRole,
 		RequiredTool:   requiredTool,
 	}
-	if details.FieldName == "" && details.InputName == "" && details.Placeholder == "" && details.Reason == nil &&
+	if details.FieldName == "" && details.InputName == "" && details.Placeholder == "" &&
 		details.ProviderEdgeID == nil && details.Role == nil && details.RequiredTool == nil {
-		return nil, nil
+		return nil
 	}
-	return &details, nil
+	return &details
 }
 
 func OutputFields(in []workflow.OutputField) []serverapi.WorkflowOutputField {

@@ -56,10 +56,7 @@ func TestWorkflowCurrentNodeOmitsSelectionForNonAgentProjection(t *testing.T) {
 
 func TestWorkflowDerivedEdgeWiringProjectsTypedSelectorApplicability(t *testing.T) {
 	def := selectorProjectionDefinition()
-	projected, err := DerivedWiring(def, selectorProjectionCatalog{})
-	if err != nil {
-		t.Fatalf("project derived wiring: %v", err)
-	}
+	projected := DerivedWiring(def, selectorProjectionCatalog{})
 	if len(projected.Edges) != 1 {
 		t.Fatalf("derived edges = %d, want one", len(projected.Edges))
 	}

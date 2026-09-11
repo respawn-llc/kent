@@ -973,7 +973,7 @@ func (s *validationState) validatePromptPlaceholders() {
 		if refs.SessionID && (!sourceExists || source.Kind() != NodeKindAgent) {
 			sessionRef := ref
 			sessionRef.Placeholder = ".SessionId"
-			s.addSessionReferenceError(workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession, sessionRef)
+			s.addSessionReferenceError(CodeSessionSourceCannotOwnSession, sessionRef)
 		}
 		if sourceExists && source.Kind() == NodeKindJoin {
 			currentParams = outputFieldNameSet(derived.JoinOutputFieldsForNode(NodeIDOf(source)))
@@ -1109,22 +1109,21 @@ func (s *validationState) validatePriorSessionReference(edge Edge, transitionKey
 	resolution := ResolvePromptSessionReference(s.def, ModelKey(transitionKey), NodeIDOf(source), edge.TargetNodeID, nil)
 	switch {
 	case resolution.Matched == 0:
-		s.addSessionReferenceError(workflowcontract.ValidationErrorReasonSessionTransitionMissing, ref)
+		s.addSessionReferenceError(CodeSessionTransitionMissing, ref)
 	case len(resolution.Guaranteed) == 0:
-		s.addSessionReferenceError(workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed, ref)
+		s.addSessionReferenceError(CodeSessionTransitionNotGuaranteed, ref)
 	case len(resolution.Guaranteed) > 1:
-		s.addSessionReferenceError(workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous, ref)
+		s.addSessionReferenceError(CodeSessionTransitionAmbiguous, ref)
 	default:
 		provider, providerExists := s.nodesByID[resolution.SourceNodeID]
 		if !providerExists || provider.Kind() != NodeKindAgent {
-			s.addSessionReferenceError(workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession, ref)
+			s.addSessionReferenceError(CodeSessionSourceCannotOwnSession, ref)
 		}
 	}
 }
 
-func (s *validationState) addSessionReferenceError(reason workflowcontract.ValidationErrorReason, ref ValidationError) {
-	ref.Reason = &reason
-	s.addHard(CodeInvalidTemplatePlaceholder, string(reason), ref)
+func (s *validationState) addSessionReferenceError(code ValidationErrorCode, ref ValidationError) {
+	s.addHard(code, string(code), ref)
 }
 
 // priorParameterConsumerName names the node whose prompt carries a previous-parameter

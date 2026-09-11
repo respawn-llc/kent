@@ -2,9 +2,8 @@ package main
 
 import (
 	"errors"
-	"fmt"
 
-	workflowdefinitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	"core/server/workflow"
 	"core/shared/serverapi"
 )
 
@@ -48,10 +47,7 @@ func workflowDefinitionForCLI(definition serverapi.WorkflowDefinition) (serverap
 	}
 	projected := definition
 	projected.Workflow = workflow
-	projected.DerivedWiring.Diagnostics, err = workflowValidationErrorsForCLI(definition.DerivedWiring.Diagnostics)
-	if err != nil {
-		return serverapi.WorkflowDefinition{}, err
-	}
+	projected.DerivedWiring.Diagnostics = workflowValidationErrorsForCLI(definition.DerivedWiring.Diagnostics)
 	return projected, nil
 }
 
@@ -62,46 +58,33 @@ func projectWorkflowLinkForCLI(link serverapi.ProjectWorkflowLink) (serverapi.Pr
 	return link, nil
 }
 
-func workflowValidationForCLI(response serverapi.WorkflowValidateResponse) (serverapi.WorkflowValidateResponse, error) {
+func workflowValidationForCLI(response serverapi.WorkflowValidateResponse) serverapi.WorkflowValidateResponse {
 	projected := response
-	errors, err := workflowValidationErrorsForCLI(response.Errors)
-	if err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
-	}
-	projected.Errors = errors
-	return projected, nil
+	projected.Errors = workflowValidationErrorsForCLI(response.Errors)
+	return projected
 }
 
-func workflowValidationErrorsForCLI(errors []serverapi.WorkflowValidationError) ([]serverapi.WorkflowValidationError, error) {
+func workflowValidationErrorsForCLI(errors []serverapi.WorkflowValidationError) []serverapi.WorkflowValidationError {
 	projected := append([]serverapi.WorkflowValidationError(nil), errors...)
 	for i := range projected {
-		message, err := workflowValidationErrorMessageForCLI(projected[i])
-		if err != nil {
-			return nil, err
-		}
-		projected[i].Message = message
+		projected[i].Message = workflowValidationErrorMessageForCLI(projected[i])
 	}
-	return projected, nil
+	return projected
 }
 
-func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError) (string, error) {
-	if err.Details == nil || err.Details.Reason == nil {
-		return err.Message, nil
-	}
-	var message string
-	switch *err.Details.Reason {
-	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION:
-		message = "This prompt references a source node that cannot own a Session. Use an agent source node for this placeholder."
-	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING:
-		message = "This prompt references an unknown transition. Correct the transition key or define the transition before using this placeholder."
-	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED:
-		message = "This prompt references a transition that is not guaranteed to run before the prompt. Reference a transition that runs on every incoming path."
-	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS:
-		message = "This prompt references more than one matching transition. Make the Session-producing transition unambiguous before using this placeholder."
+func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError) string {
+	switch err.Code {
+	case string(workflow.CodeSessionSourceCannotOwnSession):
+		return "This prompt references a source node that cannot own a Session. Use an agent source node for this placeholder."
+	case string(workflow.CodeSessionTransitionMissing):
+		return "This prompt references an unknown transition. Correct the transition key or define the transition before using this placeholder."
+	case string(workflow.CodeSessionTransitionNotGuaranteed):
+		return "This prompt references a transition that is not guaranteed to run before the prompt. Reference a transition that runs on every incoming path."
+	case string(workflow.CodeSessionTransitionAmbiguous):
+		return "This prompt references more than one matching transition. Make the Session-producing transition unambiguous before using this placeholder."
 	default:
-		return "", fmt.Errorf("workflow validation reason %q is unsupported", *err.Details.Reason)
+		return err.Message
 	}
-	return message, nil
 }
 
 func workflowTaskDetailForCLI(detail serverapi.WorkflowTaskDetail) (serverapi.WorkflowTaskDetail, error) {

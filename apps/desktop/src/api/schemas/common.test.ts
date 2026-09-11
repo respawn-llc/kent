@@ -1,5 +1,4 @@
 import { attentionItemSchema, taskStatusSchema, validationErrorSchema, workflowIDSchema } from "./common";
-import { ValidationErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 
 const baseAttentionItem = {
   id: "question:node-1:ask-1",
@@ -328,21 +327,16 @@ describe("validationErrorSchema", () => {
     expect(present.details).toMatchObject({ role: "coder", requiredTool: "ask_question" });
   });
 
-  it("decodes only generated validation-reason enum values", () => {
+  it("preserves Session validation codes and placeholder details", () => {
     const parsed = validationErrorSchema.parse({
       ...base,
+      code: "workflow.validation.session_transition_missing",
       details: {
         placeholder: ".Params.review.session_id",
-        reason: ValidationErrorReason.SESSION_TRANSITION_MISSING,
       },
     });
-    expect(parsed.details.reason).toBe(ValidationErrorReason.SESSION_TRANSITION_MISSING);
-    expect(() =>
-      validationErrorSchema.parse({
-        ...base,
-        details: { reason: ValidationErrorReason.UNSPECIFIED },
-      }),
-    ).toThrow();
+    expect(parsed.code).toBe("workflow.validation.session_transition_missing");
+    expect(parsed.details.placeholder).toBe(".Params.review.session_id");
   });
 
   it("preserves absent graph identities as null", () => {

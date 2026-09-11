@@ -8,7 +8,6 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	"core/shared/runtimeids"
-	"core/shared/workflowcontract"
 )
 
 func TestStartNodeRules(t *testing.T) {
@@ -317,15 +316,17 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 
 		result := validateForTask(def)
 
-		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		assertHasCodes(t, result, workflow.CodeSessionSourceCannotOwnSession)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 		for _, err := range result.Errors {
 			if err.Placeholder == ".SessionId" &&
-				err.Reason != nil &&
-				*err.Reason == workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession {
+				err.Code == workflow.CodeSessionSourceCannotOwnSession &&
+				err.EdgeID != nil &&
+				err.NodeID != nil {
 				return
 			}
 		}
-		t.Fatalf("Session reference errors = %+v, want typed source ownership reason", result.Errors)
+		t.Fatalf("Session reference errors = %+v, want source ownership code and details", result.Errors)
 	})
 
 	t.Run("direct session placeholder from a script source is rejected", func(t *testing.T) {
@@ -343,7 +344,8 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 
 		result := validateForTask(def)
 
-		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		assertHasCodes(t, result, workflow.CodeSessionSourceCannotOwnSession)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("direct session placeholder from a join source is rejected", func(t *testing.T) {
@@ -352,7 +354,8 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 
 		result := validateForTask(def)
 
-		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		assertHasCodes(t, result, workflow.CodeSessionSourceCannotOwnSession)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("valid commentary placeholder passes without declared parameter", func(t *testing.T) {
@@ -414,7 +417,8 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 
 		result := validateForTask(def)
 
-		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		assertHasCodes(t, result, workflow.CodeSessionSourceCannotOwnSession)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("unknown prior transition session placeholder is rejected", func(t *testing.T) {
@@ -423,7 +427,8 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 
 		result := validateForTask(def)
 
-		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		assertHasCodes(t, result, workflow.CodeSessionTransitionMissing)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("optional prior transition session placeholder is rejected", func(t *testing.T) {
@@ -432,7 +437,8 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 
 		result := validateForTask(def)
 
-		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+		assertHasCodes(t, result, workflow.CodeSessionTransitionNotGuaranteed)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
 	t.Run("valid prior transition commentary placeholder passes without declared parameter", func(t *testing.T) {

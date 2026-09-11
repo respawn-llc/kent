@@ -322,10 +322,7 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 			result := outcome.ValidationResults[mode]
 			write("- %s: valid=%t\n", mode, result.Valid)
 			for _, validationError := range result.Errors {
-				message, err := workflowValidationErrorMessageForCLI(validationError)
-				if err != nil {
-					return err
-				}
+				message := workflowValidationErrorMessageForCLI(validationError)
 				write("  - [%s] %s\n", validationError.Code, message)
 				if validationError.Details != nil && validationError.Details.Placeholder != "" {
 					write("    placeholder: %s\n", validationError.Details.Placeholder)
@@ -353,9 +350,7 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 					write("    related: %s\n", relatedID)
 				}
 				if details := validationError.Details; details != nil {
-					displayDetails := *details
-					displayDetails.Reason = nil
-					encoded, err := json.Marshal(&displayDetails)
+					encoded, err := json.Marshal(details)
 					if err != nil {
 						return err
 					}

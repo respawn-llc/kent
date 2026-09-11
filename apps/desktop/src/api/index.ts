@@ -1,5 +1,3 @@
-export { ValidationErrorReason as workflowValidationErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-
 export type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
 export type { DesktopProcess } from "./processes";
 export type {
@@ -282,7 +280,6 @@ export type {
   WorkflowTransitionGroup,
   WorkflowValidation,
   WorkflowValidationError,
-  WorkflowValidationErrorReason,
   WorkspaceSummary,
   WorkspaceCatalogPage,
   WorkspaceCatalogRow,

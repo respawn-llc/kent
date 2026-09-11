@@ -9,19 +9,20 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func TestWorkflowValidationReasonRoundTripsThroughGeneratedContract(t *testing.T) {
-	reason := workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING
+func TestWorkflowValidationCodeRoundTripsThroughGeneratedContract(t *testing.T) {
+	code := workflowdefinitionpb.ValidationErrorCode_VALIDATION_ERROR_CODE_SESSION_TRANSITION_MISSING
 	const placeholder = ".Params.review.session_id"
 	message := &workflowdefinitionpb.WorkflowValidationError{
+		Code:    code,
+		Message: "required diagnostic",
 		Details: &workflowdefinitionpb.WorkflowValidationErrorDetails{
 			Placeholder: placeholder,
-			Reason:      &reason,
 		},
 	}
 
-	reasonField := message.ProtoReflect().Descriptor().Fields().ByName("details").Message().Fields().ByName("reason")
-	if reasonField == nil || reasonField.Kind() != protoreflect.EnumKind || !reasonField.HasOptionalKeyword() {
-		t.Fatalf("generated reason field descriptor = %v, want optional enum", reasonField)
+	codeField := message.ProtoReflect().Descriptor().Fields().ByName("code")
+	if codeField == nil || codeField.Kind() != protoreflect.EnumKind {
+		t.Fatalf("generated code field descriptor = %v, want enum", codeField)
 	}
 
 	encoded, err := proto.Marshal(message)
@@ -32,8 +33,8 @@ func TestWorkflowValidationReasonRoundTripsThroughGeneratedContract(t *testing.T
 	if err := proto.Unmarshal(encoded, decoded); err != nil {
 		t.Fatalf("unmarshal workflow validation error: %v", err)
 	}
-	if decoded.GetDetails() == nil || decoded.GetDetails().GetPlaceholder() != placeholder ||
-		decoded.GetDetails().GetReason() != reason {
-		t.Fatalf("decoded workflow validation error = %v, want placeholder and reason", decoded)
+	if decoded.GetCode() != code || decoded.GetMessage() != "required diagnostic" ||
+		decoded.GetDetails() == nil || decoded.GetDetails().GetPlaceholder() != placeholder {
+		t.Fatalf("decoded workflow validation error = %v, want code, message, and placeholder", decoded)
 	}
 }

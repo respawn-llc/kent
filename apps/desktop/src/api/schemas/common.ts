@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ValidationErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 
 import type {
   ApprovalDecision,
@@ -17,7 +16,6 @@ import type {
   WorkflowParameter,
   WorkflowPickerItem,
   WorkflowValidationError,
-  WorkflowValidationErrorReason,
   WorkspaceSummary,
   WorkspaceAvailability,
 } from "../models";
@@ -179,12 +177,6 @@ export const projectBindingSchema: z.ZodType<ProjectBinding> = z
     workspaceStatus: value.workspace_status,
   }));
 
-const validationErrorReasonSchema: z.ZodType<WorkflowValidationErrorReason | null> = z
-  .enum(ValidationErrorReason)
-  .refine((value) => value !== ValidationErrorReason.UNSPECIFIED)
-  .nullish()
-  .transform((value) => value ?? null);
-
 const validationErrorDetailsSchema = z
   .preprocess(
     (value) => value ?? {},
@@ -192,7 +184,6 @@ const validationErrorDetailsSchema = z
       field_name: emptyString,
       input_name: emptyString,
       placeholder: emptyString,
-      reason: validationErrorReasonSchema,
       provider_edge_id: nullableGraphEntityIDSchema.default(null),
       role: nullableNonBlankString,
       required_tool: nullableNonBlankString,
@@ -202,7 +193,6 @@ const validationErrorDetailsSchema = z
     fieldName: value.field_name,
     inputName: value.input_name,
     placeholder: value.placeholder,
-    reason: value.reason,
     providerEdgeID: value.provider_edge_id,
     role: value.role,
     requiredTool: value.required_tool,

@@ -533,10 +533,7 @@ func (s *Service) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowVa
 		mode = workflow.ValidationContextDraft
 	}
 	result := workflowscript.EvaluateDefinition(def, []workflow.ValidationContext{mode}, s.roleResolver, nil)[mode]
-	resp, err := workflowValidationResponse(def.ID, result)
-	if err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
-	}
+	resp := workflowValidationResponse(def.ID, result)
 	return resp, nil
 }
 
@@ -567,17 +564,9 @@ func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.
 	if err != nil {
 		return serverapi.WorkflowGraphValidateDraftResponse{}, err
 	}
-	results, err := s.workflowGraphValidationResultsForDefinition(def, req.Modes)
-	if err != nil {
-		return serverapi.WorkflowGraphValidateDraftResponse{}, err
-	}
-	derivedWiring, err := workflowview.DerivedWiring(def, s.roleResolver)
-	if err != nil {
-		return serverapi.WorkflowGraphValidateDraftResponse{}, err
-	}
 	return serverapi.WorkflowGraphValidateDraftResponse{
-		Results:       results,
-		DerivedWiring: derivedWiring,
+		Results:       s.workflowGraphValidationResultsForDefinition(def, req.Modes),
+		DerivedWiring: workflowview.DerivedWiring(def, s.roleResolver),
 	}, nil
 }
 
@@ -589,12 +578,8 @@ func (s *Service) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.W
 	if err != nil {
 		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
 	}
-	derivedWiring, err := workflowview.DerivedWiring(def, s.roleResolver)
-	if err != nil {
-		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
-	}
 	return serverapi.WorkflowGraphDeriveWiringResponse{
-		DerivedWiring: derivedWiring,
+		DerivedWiring: workflowview.DerivedWiring(def, s.roleResolver),
 	}, nil
 }
 
@@ -610,11 +595,7 @@ func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.Wo
 	if err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err
 	}
-	validationResults, err := workflowGraphSaveValidationResponses(result)
-	if err != nil {
-		return serverapi.WorkflowGraphSavePreviewResponse{}, err
-	}
-	resp := workflowGraphSavePreviewResponse(result, validationResults)
+	resp := workflowGraphSavePreviewResponse(result, workflowGraphSaveValidationResponses(result))
 	if err := resp.Validate(); err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, fmt.Errorf("project workflow graph save preview response: %w", err)
 	}
@@ -635,16 +616,9 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowG
 	if err != nil {
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
-	validationResults, err := workflowGraphSaveValidationResponses(result)
-	if err != nil {
-		return serverapi.WorkflowGraphSaveResponse{}, err
-	}
-	resp := workflowGraphSaveResponse(result, validationResults)
+	resp := workflowGraphSaveResponse(result, workflowGraphSaveValidationResponses(result))
 	if result.Saved {
-		definition, _, err := workflowview.ProjectDefinition(result.Definition, result.Record, s.roleResolver)
-		if err != nil {
-			return serverapi.WorkflowGraphSaveResponse{}, err
-		}
+		definition, _ := workflowview.ProjectDefinition(result.Definition, result.Record, s.roleResolver)
 		resp.Definition = &definition
 		resp.CurrentVersion = result.Record.Version
 		if result.Changed {
@@ -2517,14 +2491,10 @@ func (s *Service) workflowGraphValidationResults(ctx context.Context, workflowID
 	if err != nil {
 		return nil, err
 	}
-	results, err := s.workflowGraphValidationResultsForDefinition(def, modes)
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
+	return s.workflowGraphValidationResultsForDefinition(def, modes), nil
 }
 
-func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Definition, modes []serverapi.WorkflowValidationMode) (map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, error) {
+func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Definition, modes []serverapi.WorkflowValidationMode) map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse {
 	out := make(map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, len(modes))
 	contexts := make([]workflow.ValidationContext, 0, len(modes))
 	for _, mode := range modes {
@@ -2532,13 +2502,9 @@ func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Defin
 	}
 	results := workflowscript.EvaluateDefinition(def, contexts, s.roleResolver, nil)
 	for _, mode := range modes {
-		response, err := workflowValidationResponse(def.ID, results[workflow.ValidationContext(mode)])
-		if err != nil {
-			return nil, err
-		}
-		out[mode] = response
+		out[mode] = workflowValidationResponse(def.ID, results[workflow.ValidationContext(mode)])
 	}
-	return out, nil
+	return out
 }
 
 func scriptPathValidationError(workflowID runtimeids.WorkflowID, nodeID workflow.NodeID, diagnostic workflowscript.Diagnostic) serverapi.WorkflowValidationError {
@@ -2671,31 +2637,23 @@ func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph se
 	return def, nil
 }
 
-func workflowValidationResponse(workflowID runtimeids.WorkflowID, result workflow.ValidationResult) (serverapi.WorkflowValidateResponse, error) {
+func workflowValidationResponse(workflowID runtimeids.WorkflowID, result workflow.ValidationResult) serverapi.WorkflowValidateResponse {
 	resp := serverapi.WorkflowValidateResponse{Valid: !result.HasBlockingErrors()}
-	errors, err := workflowview.ValidationErrors(workflow.WorkflowIDPointer(workflowID), result.Errors)
-	if err != nil {
-		return serverapi.WorkflowValidateResponse{}, err
-	}
-	resp.Errors = errors
-	return resp, nil
+	resp.Errors = workflowview.ValidationErrors(workflow.WorkflowIDPointer(workflowID), result.Errors)
+	return resp
 }
 
 func workflowGraphSaveValidationModes() []serverapi.WorkflowValidationMode {
 	return []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft, serverapi.WorkflowValidationModeExecution}
 }
 
-func workflowGraphSaveValidationResponses(result workflowstore.WorkflowGraphSaveResult) (map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, error) {
+func workflowGraphSaveValidationResponses(result workflowstore.WorkflowGraphSaveResult) map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse {
 	out := make(map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, 2)
 	for _, mode := range workflowGraphSaveValidationModes() {
 		context := workflow.ValidationContext(mode)
-		response, err := workflowValidationResponse(result.Definition.ID, result.ValidationResults[context])
-		if err != nil {
-			return nil, err
-		}
-		out[mode] = response
+		out[mode] = workflowValidationResponse(result.Definition.ID, result.ValidationResults[context])
 	}
-	return out, nil
+	return out
 }
 
 func workflowGraphStoreSaveRequest(workflowID runtimeids.WorkflowID, expectedVersion int64, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, confirmation *serverapi.WorkflowGraphSaveConfirmation) (workflowstore.WorkflowGraphSaveRequest, error) {

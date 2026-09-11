@@ -5,20 +5,15 @@ import (
 
 	"core/server/workflow"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
-	"core/shared/workflowcontract"
 )
 
 func TestValidationErrorsInheritOnlyAnExplicitOptionalWorkflowID(t *testing.T) {
 	inheritedID := runtimeids.NewWorkflowID()
 	explicitID := runtimeids.NewWorkflowID()
-	projected, err := ValidationErrors(&inheritedID, []workflow.ValidationError{
+	projected := ValidationErrors(&inheritedID, []workflow.ValidationError{
 		{Code: workflow.CodeMissingNodeID},
 		{Code: workflow.CodeMissingEdgeID, WorkflowID: &explicitID},
 	})
-	if err != nil {
-		t.Fatalf("project validation errors: %v", err)
-	}
 
 	if projected[0].WorkflowID == nil || *projected[0].WorkflowID != inheritedID {
 		t.Fatalf("inherited workflow id = %v, want %q", projected[0].WorkflowID, inheritedID)
@@ -28,47 +23,42 @@ func TestValidationErrorsInheritOnlyAnExplicitOptionalWorkflowID(t *testing.T) {
 	}
 }
 
-func TestValidationErrorsProjectTypedSessionReferenceReason(t *testing.T) {
-	for _, reason := range []workflowcontract.ValidationErrorReason{
-		workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession,
-		workflowcontract.ValidationErrorReasonSessionTransitionMissing,
-		workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed,
-		workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous,
+func TestValidationErrorsProjectSessionReferenceCodesAndDetails(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		code workflow.ValidationErrorCode
+	}{
+		{name: "source cannot own Session", code: workflow.CodeSessionSourceCannotOwnSession},
+		{name: "transition missing", code: workflow.CodeSessionTransitionMissing},
+		{name: "transition not guaranteed", code: workflow.CodeSessionTransitionNotGuaranteed},
+		{name: "transition ambiguous", code: workflow.CodeSessionTransitionAmbiguous},
 	} {
-		t.Run(string(reason), func(t *testing.T) {
-			projected, err := ValidationErrors(nil, []workflow.ValidationError{
+		t.Run(test.name, func(t *testing.T) {
+			workflowID := runtimeids.NewWorkflowID()
+			nodeID := workflow.NodeID("review")
+			edgeID := workflow.EdgeID("edge-review")
+			projected := ValidationErrors(&workflowID, []workflow.ValidationError{
 				{
-					Code:   workflow.CodeInvalidTemplatePlaceholder,
-					Reason: &reason,
+					Code:        test.code,
+					Message:     "required diagnostic",
+					NodeID:      &nodeID,
+					EdgeID:      &edgeID,
+					Placeholder: ".Params.review.session_id",
 				},
 			})
-			if err != nil {
-				t.Fatalf("project validation errors: %v", err)
-			}
 
-			if len(projected) != 1 || projected[0].Details == nil || projected[0].Details.Reason == nil {
-				t.Fatalf("projected Session reference reason = %+v, want typed reason", projected)
+			if len(projected) != 1 {
+				t.Fatalf("projected validation errors = %+v, want one error", projected)
 			}
-			want, err := serverapi.WorkflowValidationErrorReasonFromDomain(reason)
-			if err != nil {
-				t.Fatalf("project validation reason: %v", err)
+			if projected[0].Code != string(test.code) || projected[0].Message != "required diagnostic" {
+				t.Fatalf("projected validation error = %+v, want code %q and diagnostic", projected[0], test.code)
 			}
-			if *projected[0].Details.Reason != want {
-				t.Fatalf("projected Session reference reason = %v, want %v", *projected[0].Details.Reason, want)
+			if projected[0].WorkflowID == nil || *projected[0].WorkflowID != workflowID ||
+				projected[0].NodeID == nil || *projected[0].NodeID != string(nodeID) ||
+				projected[0].EdgeID == nil || *projected[0].EdgeID != string(edgeID) ||
+				projected[0].Details == nil || projected[0].Details.Placeholder != ".Params.review.session_id" {
+				t.Fatalf("projected validation details = %+v, want graph and placeholder details", projected[0])
 			}
 		})
-	}
-}
-
-func TestValidationErrorsReturnsUnsupportedReasonError(t *testing.T) {
-	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
-	reason := workflowcontract.ValidationErrorReason("unsupported")
-
-	projected, err := ValidationErrors(nil, []workflow.ValidationError{{Reason: &reason}})
-	if err == nil {
-		t.Fatal("unsupported workflow validation reason projected without an error")
-	}
-	if projected != nil {
-		t.Fatalf("projected validation errors = %+v, want no response on projection error", projected)
 	}
 }

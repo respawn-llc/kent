@@ -957,11 +957,7 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		resp, err = workflowValidationForCLI(resp)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		resp = workflowValidationForCLI(resp)
 		if *jsonOut {
 			exit := writeCommandJSON(stdout, stderr, resp)
 			if exit == 0 && !resp.Valid {
