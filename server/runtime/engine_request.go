@@ -18,7 +18,58 @@ import (
 )
 
 type requestAssembly struct {
-	request llm.Request
+	request  llm.Request
+	thinking nativeThinkingProjection
+}
+
+type nativeThinkingProjection struct {
+	effort   string
+	original *string
+	update   *llm.ResponseItem
+}
+
+func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desired string, original *string, supported bool) (nativeThinkingProjection, error) {
+	projection := nativeThinkingProjection{effort: desired}
+	if !supported {
+		return projection, nil
+	}
+	if strings.TrimSpace(desired) == "" {
+		return nativeThinkingProjection{}, errors.New("desired Thinking effort is required")
+	}
+	if original == nil {
+		original = &desired
+	}
+	if err := session.ValidateOriginalThinkingEffort(original); err != nil {
+		return nativeThinkingProjection{}, err
+	}
+	projection.effort = *original
+	projection.original = original
+	applied := *original
+	reestablish := replacementEnd != nil
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].Type != llm.ResponseItemTypeConfigurationUpdate {
+			continue
+		}
+		if items[i].ConfigurationEffort == nil || *items[i].ConfigurationEffort == "" {
+			return nativeThinkingProjection{}, errors.New("configuration update effort is required")
+		}
+		applied = *items[i].ConfigurationEffort
+		if replacementEnd != nil && i >= *replacementEnd {
+			reestablish = false
+		}
+		break
+	}
+	if applied == desired && !reestablish {
+		return projection, nil
+	}
+	if len(items) > 0 && items[len(items)-1].Type == llm.ResponseItemTypeConfigurationUpdate {
+		return projection, nil
+	}
+	item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: &desired,
+	}})[0]
+	projection.update = &item
+	return projection, nil
 }
 
 type dispatchRequestIdentity struct {
@@ -113,7 +164,18 @@ func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm
 		requestTools = []llm.Tool{}
 	}
 
-	items := e.transcriptRuntimeState().SnapshotItems()
+	items, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
+	caps, err := e.providerCapabilities(ctx)
+	if err != nil {
+		return requestAssembly{}, err
+	}
+	thinking, err := prepareNativeThinking(items, replacementEnd, e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
+	if err != nil {
+		return requestAssembly{}, err
+	}
+	if thinking.update != nil {
+		items = append(items, *thinking.update)
+	}
 	if len(extra) > 0 {
 		items = append(items, llm.CloneResponseItems(extra)...)
 	}
@@ -144,7 +206,7 @@ func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm
 	if err != nil {
 		return requestAssembly{}, err
 	}
-	req.ReasoningEffort = e.ThinkingLevel()
+	req.ReasoningEffort = thinking.effort
 	req.FastMode = e.FastModeEnabled()
 	if e.supportsPromptCacheKey(ctx) {
 		if cacheKey := e.conversationPromptCacheKey(e.SessionID()); cacheKey != "" {
@@ -171,7 +233,7 @@ func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm
 	if err := e.validateToolChoiceSupport(ctx, toolChoiceMode); err != nil {
 		return requestAssembly{}, err
 	}
-	return requestAssembly{request: req}, nil
+	return requestAssembly{request: req, thinking: thinking}, nil
 }
 
 func (a requestAssembly) contextFree() llm.Request {

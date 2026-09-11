@@ -62,15 +62,16 @@ func decodeEventLogHeader(line []byte) (EventLogHeader, error) {
 type EventKind string
 
 const (
-	EventKindMessage          EventKind = "message"
-	EventKindToolCompletion   EventKind = "tool_completed"
-	EventKindLocalEntry       EventKind = "local_entry"
-	EventKindHistoryReplace   EventKind = "history_replaced"
-	EventKindCacheRequest     EventKind = "cache_request_observed"
-	EventKindCacheResponse    EventKind = "cache_response_observed"
-	EventKindCacheWarning     EventKind = "cache_warning"
-	EventKindReviewerFeedback EventKind = "reviewer_feedback"
-	EventKindReviewerError    EventKind = "reviewer_error"
+	EventKindMessage             EventKind = "message"
+	EventKindToolCompletion      EventKind = "tool_completed"
+	EventKindLocalEntry          EventKind = "local_entry"
+	EventKindHistoryReplace      EventKind = "history_replaced"
+	EventKindConfigurationUpdate EventKind = "configuration_updated"
+	EventKindCacheRequest        EventKind = "cache_request_observed"
+	EventKindCacheResponse       EventKind = "cache_response_observed"
+	EventKindCacheWarning        EventKind = "cache_warning"
+	EventKindReviewerFeedback    EventKind = "reviewer_feedback"
+	EventKindReviewerError       EventKind = "reviewer_error"
 )
 
 type MessageRole string
@@ -216,6 +217,12 @@ func newEventRecord(
 			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
 		}
 		payload = normalized
+	case ConfigurationUpdateRecord:
+		normalized, normalizeErr := normalizeProviderHistoryItem(0, typed.Item)
+		if normalizeErr != nil {
+			return EventRecord{}, normalizeErr
+		}
+		payload = ConfigurationUpdateRecord{Item: normalized}
 	case CacheRequestObservationRecord:
 		typed.CacheKey = strings.TrimSpace(typed.CacheKey)
 		typed.TerminalHash = strings.TrimSpace(typed.TerminalHash)
@@ -862,6 +869,12 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = replacement
+	case EventKindConfigurationUpdate:
+		var update ConfigurationUpdateRecord
+		if err := decode(&update); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
+		}
+		payload = update
 	case EventKindCacheRequest:
 		var observation CacheRequestObservationRecord
 		if err := decode(&observation); err != nil {
@@ -892,6 +905,7 @@ func validateEventKind(kind EventKind) error {
 		EventKindToolCompletion,
 		EventKindLocalEntry,
 		EventKindHistoryReplace,
+		EventKindConfigurationUpdate,
 		EventKindCacheRequest,
 		EventKindCacheResponse,
 		EventKindCacheWarning,

@@ -722,7 +722,14 @@ func withWorkflowThinking(plan SessionPlan, mutation WorkflowThinkingMutation) (
 	plan.ActiveSettings = cloneSettings(plan.ActiveSettings)
 	switch mutation.kind {
 	case WorkflowThinkingMutationClear:
-		plan.ActiveSettings.ThinkingLevel = ""
+		configured, err := ResolveReadOnlySessionContextSettings(baseConfigForPlan(plan), session.Meta{
+			Continuation: plan.Continuation,
+			Locked:       plan.Locked,
+		}, plan.SkipContinuationAgentRoleValidation)
+		if err != nil {
+			return SessionPlan{}, err
+		}
+		plan.ActiveSettings.ThinkingLevel = configured.Settings.ThinkingLevel
 	case WorkflowThinkingMutationSet:
 		plan.ActiveSettings.ThinkingLevel = string(mutation.value)
 	}

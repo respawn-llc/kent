@@ -9,6 +9,7 @@ import (
 	"core/server/llm"
 	"core/server/session/sessiontest"
 	"core/server/workflow"
+	"core/shared/config"
 	"core/shared/textutil"
 )
 
@@ -83,6 +84,31 @@ func TestWorkflowThinkingSetterAcceptsStandardMaxAndCustomValues(t *testing.T) {
 	}
 }
 
+func TestRestoringWorkflowAssignmentKeepsDesiredThinking(t *testing.T) {
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{ThinkingLevel: "medium"})
+	if err := engine.SetThinkingLevel(t.Context(), "medium"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err := CapturePersistedWorkflowAssignment(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetThinkingLevel(t.Context(), "high"); err != nil {
+		t.Fatal(err)
+	}
+	steer, err := engine.SteerWorkflowAssignmentSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := steer.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if engine.ThinkingLevel() != "high" {
+		t.Fatalf("restored old Thinking: %s", engine.ThinkingLevel())
+	}
+}
+
 func TestWorkflowThinkingProviderRejectionPropagates(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
@@ -148,8 +174,8 @@ func TestWorkflowThinkingClearPreservesCacheAndContractBoundaries(t *testing.T) 
 	if err := engine.ClearWorkflowThinkingValue(); err != nil {
 		t.Fatalf("ClearWorkflowThinkingValue: %v", err)
 	}
-	if got := engine.ThinkingLevel(); got != "" {
-		t.Fatalf("ThinkingLevel = %q, want cleared", got)
+	if got := engine.ThinkingLevel(); got != config.DefaultOnboardingSettings().ThinkingLevel {
+		t.Fatalf("ThinkingLevel = %q, want configured default", got)
 	}
 	after := store.Meta()
 	if after.Locked == nil || !reflect.DeepEqual(after.Locked, before.Locked) {

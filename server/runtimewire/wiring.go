@@ -298,11 +298,18 @@ func (r launchPromptFacingSnapshotReloader) ReloadPromptFacingSnapshotConfig(con
 	if err != nil {
 		return runtime.PromptFacingSnapshotConfig{}, err
 	}
+	meta := r.store.Meta()
+	meta.ChatSettings = nil
+	configured, err := launch.ResolveReadOnlySessionContextSettings(app, meta, r.skipContinuationAgentRoleValidation)
+	if err != nil {
+		return runtime.PromptFacingSnapshotConfig{}, err
+	}
 	return runtime.PromptFacingSnapshotConfig{
-		Settings:      resolved.Settings,
-		Source:        resolved.Source,
-		ActiveToolIDs: append([]toolspec.ID(nil), resolved.ActiveToolIDs...),
-		WebSearchMode: resolved.WebSearchMode,
+		ConfiguredThinking: configured.Settings.ThinkingLevel,
+		Settings:           resolved.Settings,
+		Source:             resolved.Source,
+		ActiveToolIDs:      append([]toolspec.ID(nil), resolved.ActiveToolIDs...),
+		WebSearchMode:      resolved.WebSearchMode,
 	}, nil
 }
 

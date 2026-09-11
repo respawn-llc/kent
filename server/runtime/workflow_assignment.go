@@ -88,16 +88,6 @@ func (e *Engine) SteerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnap
 	return e.steerWorkflowAssignmentSnapshot(snapshot)
 }
 
-func (e *Engine) RestoreWorkflowAssignmentSnapshotThinking(snapshot WorkflowAssignmentSnapshot) error {
-	if snapshot.thinking == nil {
-		return nil
-	}
-	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-		return struct{}{}, e.setThinkingValue(*snapshot.thinking)
-	})
-	return err
-}
-
 func (e *Engine) steerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnapshot) (WorkflowAssignmentSteer, error) {
 	if e == nil || e.closed.Load() {
 		return WorkflowAssignmentSteer{}, ErrEngineClosed
@@ -129,7 +119,6 @@ func CapturePersistedWorkflowAssignment(
 	if err != nil {
 		return WorkflowAssignmentSnapshot{}, false, err
 	}
-	meta := store.Meta()
 	snapshot := WorkflowAssignmentSnapshot{}
 	if activeAssignment != nil {
 		message, err := llmMessageFromSessionRecord(*activeAssignment)
@@ -137,10 +126,6 @@ func CapturePersistedWorkflowAssignment(
 			return WorkflowAssignmentSnapshot{}, false, err
 		}
 		snapshot.message = &message
-	}
-	if meta.ChatSettings != nil && meta.ChatSettings.Thinking != nil {
-		thinking := *meta.ChatSettings.Thinking
-		snapshot.thinking = &thinking
 	}
 	if err := validateWorkflowAssignmentSnapshot(snapshot); err != nil {
 		return WorkflowAssignmentSnapshot{}, false, err

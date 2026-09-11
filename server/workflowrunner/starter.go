@@ -34,6 +34,8 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -336,6 +338,12 @@ func (s *Starter) PrepareManualMoveAssignments(
 		if input.Node.Kind == workflow.NodeKindScript && input.CurrentNode.AgentExecutionSelection == nil {
 			continue
 		}
+		if input.ContextMode == workflow.ContextModeCompactAndContinueSession && input.CurrentNode.SessionID != nil {
+			assignments = append(assignments, workflowstore.ManualMoveTargetAssignment{
+				CurrentNode: input.CurrentNode.Reference, SessionID: *input.CurrentNode.SessionID,
+			})
+			continue
+		}
 		if input.Node.Kind != workflow.NodeKindAgent || input.CurrentNode.AgentExecutionSelection == nil {
 			return workflowstore.ManualMoveTargetAssignmentPreparation{}, nil, abort(
 				fmt.Errorf("current node %v execution shape is inconsistent", input.CurrentNode.Reference),
@@ -429,19 +437,6 @@ func (s *Starter) captureManualMoveAssignmentSnapshot(
 		snapshot, found, captureErr = runtime.CapturePersistedWorkflowAssignment(store)
 		return captureErr
 	})
-	if err == nil {
-		runtimeErr := s.runtimeAuthority.WithCurrentRuntime(
-			ctx,
-			sessionID,
-			func(_ context.Context, engine *runtime.Engine) error {
-				snapshot = snapshot.WithThinkingLevel(engine.ThinkingLevel())
-				return nil
-			},
-		)
-		if runtimeErr != nil && !errors.Is(runtimeErr, serverapi.ErrRuntimeUnavailable) {
-			err = runtimeErr
-		}
-	}
 	return snapshot, found, err
 }
 
@@ -454,16 +449,6 @@ func (s *Starter) restoreManualMoveAssignmentSnapshot(
 ) error {
 	restoreCtx := context.WithoutCancel(ctx)
 	if !assignmentCommitted {
-		runtimeErr := s.runtimeAuthority.WithCurrentRuntime(
-			restoreCtx,
-			sessionID,
-			func(_ context.Context, engine *runtime.Engine) error {
-				return engine.RestoreWorkflowAssignmentSnapshotThinking(snapshot)
-			},
-		)
-		if runtimeErr != nil && !errors.Is(runtimeErr, serverapi.ErrRuntimeUnavailable) {
-			return fmt.Errorf("restore Manual Move Session %q thinking: %w", sessionID, runtimeErr)
-		}
 		return nil
 	}
 	descriptor, err := session.NewScopedOpenSessionDescriptor(
@@ -522,6 +507,34 @@ func (s *Starter) StartAgentCurrentNode(
 		input, err := s.store.ResolveCurrentNodeStartContext(ctx, reference)
 		if err != nil {
 			return nil, err
+		}
+		if input.ContextMode == workflow.ContextModeCompactAndContinueSession && input.CurrentNode.SessionID != nil {
+			descriptor, err := session.NewScopedOpenSessionDescriptor(*input.CurrentNode.SessionID, filepath.Join(s.cfg.PersistenceRoot, "projects", input.Task.ProjectID, "sessions"))
+			if err != nil {
+				return nil, err
+			}
+			var outgoingAssignment bool
+			if err := s.withSessionStore(ctx, descriptor, func(_ context.Context, store *session.Store) error {
+				assignment, err := store.ActiveWorkflowAssignmentProjection()
+				if err != nil {
+					return err
+				}
+				outgoingAssignment = assignment != nil && assignment.SourcePath != nil &&
+					*assignment.SourcePath != workflowruntime.CurrentNodePromptIdentity(reference)
+				return nil
+			}); err != nil {
+				return nil, err
+			}
+			if outgoingAssignment {
+				assignment, err := s.prepareCurrentNodeAgentAssignment(ctx, input, true)
+				if err != nil {
+					return nil, err
+				}
+				if err := assignment.Prepare(ctx); err != nil {
+					return nil, err
+				}
+				return s.startCurrentNodeAgent(ctx, input, assignment.prepared, workflowruntime.TaskPromptDeliveryAssignment, onRetire, controller)
+			}
 		}
 		prepared, err := s.prepareCurrentNodeAgentSession(ctx, input, false, true, true)
 		if err != nil {
@@ -986,6 +999,11 @@ func (s *Starter) planCurrentNodeSession(
 		return launch.SessionPlan{}, disposable, err
 	}
 	if input.ContextMode == workflow.ContextModeCompactAndContinueSession {
+		if !sessionPrepared {
+			if err := s.compactOutgoingCurrentNodeSession(ctx, input, root, plan); err != nil {
+				return launch.SessionPlan{}, disposable, err
+			}
+		}
 		runtimeErr := s.runtimeAuthority.WithCurrentRuntime(
 			ctx,
 			plan.Descriptor.SessionID(),
@@ -1066,6 +1084,60 @@ func (s *Starter) planCurrentNodeSession(
 		return applyErr
 	})
 	return plan, disposable, err
+}
+
+func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input workflowstore.CurrentNodeStartContext, root workflowstore.ExecutionRoot, plan launch.SessionPlan) (resultErr error) {
+	client, err := s.newWorkflowProviderClient(ctx, plan)
+	if err != nil {
+		return err
+	}
+	runtimePlan, err := s.buildCurrentNodeAgentRuntimePlan(input, preparedCurrentNodeAgentSession{root: root, plan: plan, client: client})
+	if err != nil {
+		return err
+	}
+	attachment, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+		SessionID: plan.Descriptor.SessionID(), OwnerID: uuid.NewString(), Runtime: &runtimePlan,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_, releaseErr := attachment.Release(context.WithoutCancel(ctx), sessionruntime.RuntimeReleaseCloseIfIdle)
+		resultErr = errors.Join(resultErr, releaseErr)
+	}()
+	required := false
+	var resource sessionruntime.AgentResourceSelection = sessionruntime.CurrentAgentResource{}
+	err = s.runtimeAuthority.WithRuntime(ctx, attachment.Resource(), func(_ context.Context, engine *runtime.Engine) error {
+		required = engine.WorkflowContinuationCompactionRequired()
+		if engine.CompactionMode() != string(plan.ActiveSettings.CompactionMode) {
+			resource = sessionruntime.ReplaceAgentResource{}
+		}
+		return nil
+	})
+	if err != nil || !required {
+		return err
+	}
+	handle, err := s.runtimeAuthority.StartAgentExecution(ctx, sessionruntime.AgentExecutionRequest{
+		Descriptor: plan.Descriptor,
+		Resource:   resource,
+		Runtime:    &runtimePlan,
+		Workflow: &sessionruntime.WorkflowAgentExecution{
+			Reference: sessionruntime.WorkflowExecutionRef{ProjectID: input.Task.ProjectID, WorkflowID: input.Workflow.ID, CurrentNode: input.CurrentNode.Reference},
+		},
+		Runner: func(runCtx context.Context, _ sessionruntime.ExecutionScope, bridge sessionruntime.AgentRuntimeBridge) error {
+			return bridge.WithEngine(runCtx, func(engineCtx context.Context, engine *runtime.Engine) error {
+				return engine.CompactContextForWorkflowContinuation(engineCtx)
+			})
+		},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = handle.Wait(context.WithoutCancel(ctx))
+	if err != nil {
+		return workflowexecution.NewTaskStartPreparationError(err, workflow.NewCurrentNodeInterruptionDetail("workflow_compaction_failed", err))
+	}
+	return err
 }
 
 type currentNodeSessionAssigneePolicy = workflow.AssigneeSessionPolicy

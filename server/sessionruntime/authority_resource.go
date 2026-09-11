@@ -166,8 +166,10 @@ type AgentExecutionRequest struct {
 
 type WorkflowAgentExecution struct {
 	Reference WorkflowExecutionRef
-	Config    *workflowruntime.CurrentNodeExecutionConfig
-	OnRetire  func()
+	// Config is absent during pre-assignment compaction, which is Workflow
+	// scoped but must retain the outgoing Session's request configuration.
+	Config   *workflowruntime.CurrentNodeExecutionConfig
+	OnRetire func()
 }
 
 type agentResource struct {
@@ -813,7 +815,7 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 	executionGeneration := a.nextExecutionGenerationLocked()
 	scope := newAgentExecutionScope(scopeID, executionGeneration, resource.ref, workflowRef)
 	var workflowBinding *runtime.CurrentNodeExecutionBinding
-	if request.Workflow != nil {
+	if request.Workflow != nil && request.Workflow.Config != nil {
 		config := *request.Workflow.Config
 		config.ScopeID = scopeID
 		workflowBinding, err = resource.engine.BindCurrentNodeExecution(&config)
@@ -897,7 +899,7 @@ func validateWorkflowAgentExecution(request *WorkflowAgentExecution) error {
 		return nil
 	}
 	if request.Config == nil {
-		return errors.New("workflow Agent execution config is required")
+		return nil
 	}
 	if !request.Config.Instructions.CurrentNode.Equal(request.Reference.CurrentNode) {
 		return errors.New("workflow runtime config does not match execution current node")

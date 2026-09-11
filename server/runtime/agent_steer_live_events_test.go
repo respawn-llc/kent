@@ -6,7 +6,6 @@ import (
 	"core/server/llm"
 	"core/server/tools"
 	"core/shared/runtimeids"
-	"core/shared/textutil"
 )
 
 func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
@@ -30,7 +29,7 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 
 	t.Run("queued flush", func(t *testing.T) {
 		var events []Event
-		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
+		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{responses: []llm.Response{finalOutputItemResponse("done")}}, tools.NewRegistry(), Config{
 			Model: "gpt-5",
 			OnEvent: func(event Event) {
 				events = append(events, event)
@@ -40,15 +39,10 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAgentSteer: %v", err)
 		}
-		message := steer.Message()
-		item := QueuedUserMessage{
-			ID:                    runtimeids.NewQueueItemID().String(),
-			Message:               message,
-			CanonicalPresentation: *message.Content,
+		if _, err := eng.QueueAgentSteer(t.Context(), steer, nil); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := eng.appendQueuedUserMessageFlush(textutil.OptionalExactString("018fdd67-89ab-4cde-8123-456789abc001"), message, nil, []QueuedUserMessage{item}); err != nil {
-			t.Fatalf("appendQueuedUserMessageFlush: %v", err)
-		}
+		waitEngineLifecycleTasks(t, eng)
 		assertAgentSteerConversationEvent(t, events)
 	})
 }

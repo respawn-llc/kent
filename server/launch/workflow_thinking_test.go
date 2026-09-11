@@ -65,7 +65,7 @@ func TestApplyRunPromptOverridesClearsWorkflowThinking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyRunPromptOverridesWithStore: %v", err)
 	}
-	if updated.ActiveSettings.ThinkingLevel != "" {
-		t.Fatalf("thinking level = %q, want cleared", updated.ActiveSettings.ThinkingLevel)
+	if updated.ActiveSettings.ThinkingLevel != loaded.Settings.ThinkingLevel {
+		t.Fatalf("thinking level = %q, want configured %q", updated.ActiveSettings.ThinkingLevel, loaded.Settings.ThinkingLevel)
 	}
 }

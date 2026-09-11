@@ -43,10 +43,19 @@ func TestSessionChatSettingsRoundTripThroughMetadataDocument(t *testing.T) {
 	if err := chat.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable: %v", err)
 	}
+	if err := chat.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := chat.AdoptOriginalThinkingEffort("low"); err != nil {
+		t.Fatal(err)
+	}
 
 	record, err := store.ResolvePersistedSession(context.Background(), chat.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
+	}
+	if record.Meta.OriginalThinkingEffort == nil || *record.Meta.OriginalThinkingEffort != "high" {
+		t.Fatalf("original effort = %v", record.Meta.OriginalThinkingEffort)
 	}
 	state, err := session.ChatDraftStateFromMeta(*record.Meta)
 	if err != nil {
@@ -56,7 +65,7 @@ func TestSessionChatSettingsRoundTripThroughMetadataDocument(t *testing.T) {
 		state.Agent != "worker" ||
 		state.Settings == nil ||
 		state.Settings.Supervisor == nil || *state.Settings.Supervisor != "all" ||
-		state.Settings.Thinking == nil || *state.Settings.Thinking != "provider-specific-depth" ||
+		state.Settings.Thinking == nil || *state.Settings.Thinking != "high" ||
 		state.Settings.Fast == nil || !*state.Settings.Fast ||
 		state.Settings.Questions == nil || *state.Settings.Questions ||
 		state.Settings.AutoCompaction == nil || *state.Settings.AutoCompaction {

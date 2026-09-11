@@ -85,14 +85,15 @@ type ResponseItemType string
 type ResponseItemLinkKind string
 
 const (
-	ResponseItemTypeMessage            ResponseItemType = "message"
-	ResponseItemTypeFunctionCall       ResponseItemType = "function_call"
-	ResponseItemTypeFunctionCallOutput ResponseItemType = "function_call_output"
-	ResponseItemTypeCustomToolCall     ResponseItemType = "custom_tool_call"
-	ResponseItemTypeCustomToolOutput   ResponseItemType = "custom_tool_call_output"
-	ResponseItemTypeReasoning          ResponseItemType = "reasoning"
-	ResponseItemTypeCompaction         ResponseItemType = "compaction"
-	ResponseItemTypeOther              ResponseItemType = "other"
+	ResponseItemTypeMessage             ResponseItemType = "message"
+	ResponseItemTypeFunctionCall        ResponseItemType = "function_call"
+	ResponseItemTypeFunctionCallOutput  ResponseItemType = "function_call_output"
+	ResponseItemTypeCustomToolCall      ResponseItemType = "custom_tool_call"
+	ResponseItemTypeCustomToolOutput    ResponseItemType = "custom_tool_call_output"
+	ResponseItemTypeReasoning           ResponseItemType = "reasoning"
+	ResponseItemTypeCompaction          ResponseItemType = "compaction"
+	ResponseItemTypeConfigurationUpdate ResponseItemType = "configuration_update"
+	ResponseItemTypeOther               ResponseItemType = "other"
 )
 
 const (
@@ -137,6 +138,7 @@ type ResponseItem struct {
 	CustomInput          *string                  `json:"custom_input,omitempty"`
 	Output               json.RawMessage          `json:"output,omitempty"`
 	ReasoningSummary     []ReasoningEntry         `json:"reasoning_summary,omitempty"`
+	ConfigurationEffort  *string                  `json:"configuration_effort,omitempty"`
 	EncryptedContent     *string                  `json:"encrypted_content,omitempty"`
 	Raw                  json.RawMessage          `json:"raw,omitempty"`
 	LinkedCallID         *string                  `json:"linked_call_id,omitempty"`
@@ -158,6 +160,7 @@ func CloneResponseItems(items []ResponseItem) []ResponseItem {
 		copyItem.Name = textutil.Pointer(item.Name)
 		copyItem.CallID = textutil.Pointer(item.CallID)
 		copyItem.Content = textutil.Pointer(item.Content)
+		copyItem.ConfigurationEffort = textutil.Pointer(item.ConfigurationEffort)
 		copyItem.CompactContent = textutil.Pointer(item.CompactContent)
 		copyItem.BackgroundActivityID = textutil.Pointer(item.BackgroundActivityID)
 		copyItem.BackgroundExitCode = textutil.Pointer(item.BackgroundExitCode)

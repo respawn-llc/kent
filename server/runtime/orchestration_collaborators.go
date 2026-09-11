@@ -61,11 +61,10 @@ type backgroundNoticeScheduler interface {
 type contextCompactor interface {
 	CompactContextWithAcceptance(ctx context.Context, requestID runtimeids.CompactionRequestID, args string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error)
 	CompactContextAdmissionWithAcceptance(ctx context.Context, requestID runtimeids.CompactionRequestID, admission runtimeinput.ManualCompactionAdmission, accept CommandAcceptance) (session.CommitReceipt, error)
-	CompactContextForWorkflowContinuation(ctx context.Context) (session.CommitReceipt, error)
 	CompactContextForWorkflowPostCompletion(ctx context.Context) (session.CommitReceipt, error)
 	CompactContextForPreSubmitWithAcceptance(ctx context.Context, text string, onActive func(), accept CommandAcceptance) (session.CommitReceipt, error)
 	TriggerHandoff(ctx context.Context, stepID string, activeCall llm.ToolCall, summarizerPrompt string, futureAgentMessage string) (string, bool, error)
-	AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode) error
+	AutoCompactIfNeeded(ctx context.Context, stepID string, mode compactionMode, preview ...llm.ResponseItem) error
 	ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error)
 }
 
@@ -73,12 +72,13 @@ type stepLoopOptions struct {
 	ReviewerFrequency              string
 	ReviewerClient                 *observedModelClient
 	RefreshReviewerConfigOnResolve bool
-	OnQueuedUserFlushCommitted     func(session.CommitReceipt)
+	OnQueuedUserFlushCommitted     func(userInjectionCommitResult)
+	UserInputSelection             userInjectionSelection
 }
 
-func observeQueuedUserFlushCommit(options stepLoopOptions, receipt session.CommitReceipt) {
-	if receipt.Committed && options.OnQueuedUserFlushCommitted != nil {
-		options.OnQueuedUserFlushCommitted(receipt)
+func observeQueuedUserFlushCommit(options stepLoopOptions, result userInjectionCommitResult) {
+	if result.receipt.Committed && options.OnQueuedUserFlushCommitted != nil {
+		options.OnQueuedUserFlushCommitted(result)
 	}
 }
 
@@ -137,8 +137,9 @@ type toolExecutor interface {
 
 type messageLifecycle interface {
 	RestoreMessages() error
-	CommitPendingUserInjections(stepID string, selection userInjectionSelection) (userInjectionCommitResult, error)
-	FlushPendingUserInjections(stepID string, selection userInjectionSelection) (userInjectionCommitResult, error)
+	PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error)
+	ReleasePreparedUserInjections(prepared *preparedUserInjections)
+	CommitPreparedUserInjections(ctx context.Context, stepID string, prepared *preparedUserInjections, thinking nativeThinkingProjection) (userInjectionCommitResult, error)
 	DrainPendingUserInjections() []QueuedUserMessage
 	DrainPendingUserInjectionsByID(ids map[string]struct{}) []QueuedUserMessage
 	PendingUserMessages() []QueuedUserMessage
@@ -201,7 +202,7 @@ func (e *Engine) ensureOrchestrationCollaborators() {
 			e.phaseProtocol = &defaultPhaseProtocol{engine: e}
 		}
 		if e.messageFlow == nil {
-			e.messageFlow = newDefaultMessageLifecycle(e, e.backgroundFlow)
+			e.messageFlow = newDefaultMessageLifecycle(e)
 		}
 		if e.toolFlow == nil {
 			e.toolFlow = &defaultToolExecutor{engine: e}

@@ -295,6 +295,13 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("resolve provider capabilities during runtime construction: %w", err)
 	}
+	if cfg.ProviderCapabilitiesOverride != nil || store.Meta().Locked != nil {
+		resolved, err := eng.llm.capabilities(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("resolve native provider capabilities: %w", err)
+		}
+		providerCapabilities.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
+	}
 	eng.cfg.ProviderCapabilitiesOverride = &providerCapabilities
 	policySettings := config.Settings{
 		ModelContextWindow:               eng.cfg.ContextWindowTokens,
@@ -784,17 +791,18 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		if _, err := e.QueueAgentSteer(stepCtx, steer, nil); err != nil {
+		message := steer.Message()
+		if message.Content == nil {
+			return errInvalidQueuedUserMessage
+		}
+		item, err := e.queueMessage(stepCtx, message, *message.Content, true, false, nil)
+		if err != nil {
 			return err
 		}
-		if _, err := e.flushPendingUserInjections(stepID, steerUserInjections()); err != nil {
-			return err
+		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, ownedInputFlushObserver(item.ID, onFlushed), steerUserInjections(map[string]struct{}{item.ID: {}}))
+		if result.FinalAnswer != nil {
+			assistant = *result.FinalAnswer
 		}
-		if onFlushed != nil {
-			onFlushed()
-		}
-		msg, runErr := e.runStepLoop(stepCtx, stepID)
-		assistant = msg
 		return runErr
 	})
 	e.surfaceRunError(err)
@@ -825,16 +833,11 @@ func (e *Engine) submitUserMessageWithOutcome(ctx context.Context, text string, 
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		if _, err := e.Steer(stepCtx, text, accept); err != nil {
+		item, err := e.queueUserInput(stepCtx, plainQueuedUserInput(text), true, false, accept)
+		if err != nil {
 			return err
 		}
-		if _, err := e.flushPendingUserInjections(stepID, steerUserInjections()); err != nil {
-			return err
-		}
-		if onFlushed != nil {
-			onFlushed()
-		}
-		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, nil)
+		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, ownedInputFlushObserver(item.ID, onFlushed), steerUserInjections(map[string]struct{}{item.ID: {}}))
 		outcome = userTurnResultFromStepLoop(result)
 		return runErr
 	})
@@ -949,18 +952,18 @@ func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, e
 	return e.runStepLoopWithPendingUserInjectionObserver(ctx, stepID, nil)
 }
 
-func (e *Engine) runStepLoopWithPendingUserInjectionObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(session.CommitReceipt)) (llm.Message, error) {
-	result, err := e.runStepLoopWithPendingUserInjectionOutcomeObserver(ctx, stepID, onQueuedUserFlushCommitted)
+func (e *Engine) runStepLoopWithPendingUserInjectionObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(userInjectionCommitResult), selection ...userInjectionSelection) (llm.Message, error) {
+	result, err := e.runStepLoopWithPendingUserInjectionOutcomeObserver(ctx, stepID, onQueuedUserFlushCommitted, selection...)
 	if result.FinalAnswer == nil {
 		return llm.Message{}, err
 	}
 	return *result.FinalAnswer, err
 }
 
-func (e *Engine) runStepLoopWithPendingUserInjectionOutcomeObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(session.CommitReceipt)) (stepLoopResult, error) {
+func (e *Engine) runStepLoopWithPendingUserInjectionOutcomeObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(userInjectionCommitResult), selection ...userInjectionSelection) (stepLoopResult, error) {
 	reviewerFrequency := e.ReviewerFrequency()
 	reviewerClient := e.reviewerRuntimeState().Client()
-	result, err := e.runStepLoopWithQueuedUserFlushObserver(ctx, stepID, reviewerFrequency, reviewerClient, true, onQueuedUserFlushCommitted)
+	result, err := e.runStepLoopWithQueuedUserFlushObserver(ctx, stepID, reviewerFrequency, reviewerClient, true, onQueuedUserFlushCommitted, selection...)
 	outcome := userTurnResultFromStepLoop(result)
 	if outcome.Kind == UserTurnResultAssistantFinal && outcome.FinalAnswer != nil {
 		e.recordLiveRunAssistantFinalAnswer(stepID, *outcome.FinalAnswer)
@@ -977,14 +980,27 @@ func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, revi
 	return e.runStepLoopWithQueuedUserFlushObserver(ctx, stepID, reviewerFrequency, reviewerClient, refreshReviewerConfigOnResolve, nil)
 }
 
-func (e *Engine) runStepLoopWithQueuedUserFlushObserver(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient *observedModelClient, refreshReviewerConfigOnResolve bool, onQueuedUserFlushCommitted func(session.CommitReceipt)) (stepLoopResult, error) {
+func (e *Engine) runStepLoopWithQueuedUserFlushObserver(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient *observedModelClient, refreshReviewerConfigOnResolve bool, onQueuedUserFlushCommitted func(userInjectionCommitResult), selection ...userInjectionSelection) (stepLoopResult, error) {
 	e.ensureOrchestrationCollaborators()
+	inputSelection := steerUserInjections()
+	if len(selection) > 0 {
+		inputSelection = selection[0]
+	}
 	return e.stepFlow.RunStepLoopWithOptions(ctx, stepID, stepLoopOptions{
 		ReviewerFrequency:              reviewerFrequency,
 		ReviewerClient:                 reviewerClient,
 		RefreshReviewerConfigOnResolve: refreshReviewerConfigOnResolve,
 		OnQueuedUserFlushCommitted:     onQueuedUserFlushCommitted,
+		UserInputSelection:             inputSelection,
 	})
+}
+
+func ownedInputFlushObserver(id string, onFlushed func()) func(userInjectionCommitResult) {
+	return func(result userInjectionCommitResult) {
+		if _, committed := result.queueItemIDs[id]; committed && onFlushed != nil {
+			onFlushed()
+		}
+	}
 }
 
 func (e *Engine) ensureLocked() (session.LockedContract, error) {

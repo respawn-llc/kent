@@ -168,13 +168,29 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 }
 
 func (e *Engine) compactionRequest(ctx context.Context, input []llm.ResponseItem, instructions string) (llm.CompactionRequest, error) {
-	return e.compactionRequestFromItems(ctx, compactionConversationWithPromptItems(input, instructions))
+	request, err := e.compactionRequestFromItems(ctx, input)
+	if err != nil {
+		return llm.CompactionRequest{}, err
+	}
+	request.Items = compactionConversationWithPromptItems(request.Items, instructions)
+	return request, nil
 }
 
 func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.ResponseItem) (llm.CompactionRequest, error) {
 	locked, err := e.ensureLocked()
 	if err != nil {
 		return llm.CompactionRequest{}, err
+	}
+	caps, err := e.providerCapabilities(ctx)
+	if err != nil {
+		return llm.CompactionRequest{}, err
+	}
+	thinking, err := prepareNativeThinking(items, nil, e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
+	if err != nil {
+		return llm.CompactionRequest{}, err
+	}
+	if thinking.update != nil {
+		items = append(items, *thinking.update)
 	}
 	systemPrompt, err := e.systemPromptWithoutBackfill(locked)
 	if err != nil {
@@ -199,7 +215,7 @@ func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.Res
 	if err != nil {
 		return llm.CompactionRequest{}, err
 	}
-	req.ReasoningEffort = e.ThinkingLevel()
+	req.ReasoningEffort = thinking.effort
 	req.FastMode = e.FastModeEnabled()
 	if e.supportsPromptCacheKey(ctx) {
 		req.PromptCacheKey = e.conversationPromptCacheKey(e.SessionID())

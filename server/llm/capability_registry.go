@@ -21,17 +21,18 @@ type ModelKnowledgeCutoff struct {
 // provider capability flags, and model metadata.
 
 type ModelCapabilityContract struct {
-	Model                     string
-	ContextWindowTokens       int
-	LargeContextWindowTokens  int
-	KnowledgeCutoff           ModelKnowledgeCutoff
-	HasKnowledgeCutoff        bool
-	SupportsReasoningEffort   bool
-	SupportedReasoningEfforts []string
-	SupportsReasoningSummary  bool
-	SupportsVerbosity         bool
-	SupportedVerbosityLevels  []string
-	SupportsVisionInputs      bool
+	Model                         string
+	ContextWindowTokens           int
+	LargeContextWindowTokens      int
+	KnowledgeCutoff               ModelKnowledgeCutoff
+	HasKnowledgeCutoff            bool
+	SupportsReasoningEffort       bool
+	SupportsNativeThinkingUpdates bool
+	SupportedReasoningEfforts     []string
+	SupportsReasoningSummary      bool
+	SupportsVerbosity             bool
+	SupportedVerbosityLevels      []string
+	SupportsVisionInputs          bool
 }
 
 func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {

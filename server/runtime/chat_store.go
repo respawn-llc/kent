@@ -117,7 +117,7 @@ type chatStore struct {
 
 type chatMessageRecord struct {
 	StepID        *string
-	Message       llm.Message
+	Message       *llm.Message
 	ProviderItems []llm.ResponseItem
 	Provenance    *TranscriptCommittedRowProvenance
 }
@@ -196,7 +196,7 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances .
 	}
 	s.messageRecords = append(s.messageRecords, chatMessageRecord{
 		StepID:        textutil.Pointer(stepID),
-		Message:       cloneChatStoreMessage(msg),
+		Message:       textutil.Value(cloneChatStoreMessage(msg)),
 		ProviderItems: llm.ItemsFromMessages([]llm.Message{msg}),
 		Provenance:    cloneTranscriptCommittedRowProvenance(provenance),
 	})
@@ -1035,7 +1035,9 @@ func (s *chatStore) walkProjectionLocked(
 	}
 	appendLocalEntries(0)
 	for _, record := range s.messageRecords {
-		applyMessage(record)
+		if record.Message != nil {
+			applyMessage(record)
+		}
 		messageIndex++
 		appendLocalEntries(messageIndex)
 	}
@@ -1054,7 +1056,7 @@ func (s *chatStore) deliverySnapshot() transcriptDeliverySnapshot {
 	scan := newTranscriptDeliveryFactScan(s.toolCompletions, s.toolCompletionProvenance, materializedToolResults, streamIDsByEntry, s.activeSegmentEntryStart)
 	s.walkProjectionLocked(
 		func(record chatMessageRecord) {
-			scan.ApplyMessage(record.StepID, record.Message, record.Provenance)
+			scan.ApplyMessage(record.StepID, *record.Message, record.Provenance)
 		},
 		func(local localChatEntry) {
 			entry := local.Entry

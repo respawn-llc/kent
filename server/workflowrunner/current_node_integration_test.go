@@ -1830,8 +1830,8 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 	f.startTask(t, task)
 	approval := f.waitForPendingApproval(t, task.ID)
 	f.waitForTaskQuiescence(t, approval.Source.TaskID)
-	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
-		t.Fatalf("apply CAC target Approval: %v", err)
+	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err == nil {
+		t.Fatal("disabled lazy compaction did not surface its preparation failure")
 	}
 	interrupted := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 &&
@@ -1850,11 +1850,8 @@ func TestDisabledCACRetriesExistingTargetOnResumeAfterConfigurationChange(t *tes
 	if len(client.CompactionCalls()) != 1 {
 		t.Fatalf("resumed target-time compactions = %d, want one", len(client.CompactionCalls()))
 	}
-	targets := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
-		return len(nodes) == 1 && nodes[0].Reference.Equal(interrupted.Reference)
-	})
-	if targets[0].SessionID == nil || *targets[0].SessionID != *interrupted.SessionID {
-		t.Fatalf("resumed target Session = %v, want assigned Session %v", targets[0].SessionID, interrupted.SessionID)
+	if requests[2].SessionID == nil || *requests[2].SessionID != interrupted.SessionID.String() {
+		t.Fatalf("resumed target Session = %v, want assigned Session %v", requests[2].SessionID, interrupted.SessionID)
 	}
 	if len(requests) != 3 {
 		t.Fatalf("resumed model requests = %d, want source, source, target", len(requests))
