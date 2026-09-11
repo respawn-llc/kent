@@ -45,6 +45,7 @@ const (
 	ScopeProcessActiveProject       ScopePolicy = "process_active_project"
 	ScopeNotification               ScopePolicy = "notification"
 	ScopeChatTarget                 ScopePolicy = "chat_target"
+	ScopeWorktreeManagement         ScopePolicy = "worktree_management"
 )
 
 type ConnectionStrategy string

@@ -376,6 +376,7 @@ func TestDeleteWorktreeRejectsLiveRunAndCompletesUnrelatedWorktree(t *testing.T)
 	case <-time.After(3 * time.Second):
 		t.Fatal("busy delete waited for the live run to finish")
 	}
+	assertForeignManagementDeleteBlocked(t, env, busy.WorktreeID)
 	state.assertUnchanged(t, env, busySession.Meta().SessionID, busy.WorktreeID)
 
 	unrelatedDeleted := deleteServiceTestWorktree(env, unrelated.WorktreeID)
@@ -595,6 +596,7 @@ func TestDeleteTaskWorktreeRejectsInFlightStartUnchanged(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("DeleteTaskWorktree waited for the in-flight start")
 	}
+	assertForeignManagementDeleteBlocked(t, env, busy.WorktreeID)
 	state.assertUnchanged(t, env, busySession.Meta().SessionID, busy.WorktreeID)
 
 	lifecycle.Unblock()
@@ -679,8 +681,8 @@ func TestDeleteWorktreeRechecksDirtyStateBeforeRemoval(t *testing.T) {
 			updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, env.binding.WorkspaceID, target.WorktreeID, ".")
 			state := captureDeleteTargetState(t, env, env.session.Meta().SessionID, target)
 			preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-				SessionId: env.session.Meta().SessionID,
-				Selector:  target.WorktreeID,
+				Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+				Selector: target.WorktreeID,
 			})
 			if err != nil {
 				t.Fatalf("PreviewWorktreeDelete: %v", err)

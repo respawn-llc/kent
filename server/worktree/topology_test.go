@@ -204,13 +204,13 @@ func TestLinkedMainWorkspaceDeletionBoundariesBlockGitMainWithoutMutation(t *tes
 		t.Fatalf("Git main projection = %+v, want switch without delete preview", gitMain.GetProjection())
 	}
 	if _, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  "main",
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: "main",
 	}); !errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
 		t.Fatalf("PreviewWorktreeDelete error = %v, want ErrWorktreeBlocked", err)
 	}
 	if _, err := env.service.DeleteWorktree(env.ctx, &worktreepb.DeleteRequest{
-		SessionId:           env.session.Meta().SessionID,
+		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Selector:            "main",
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	}); !errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
@@ -255,8 +255,8 @@ func TestPreviewWorktreeDeleteResolvesCleanNonCurrentRegisteredTarget(t *testing
 	created := mustCreateWorktree(t, env, "feature/delete-preview-clean")
 
 	response, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  created.WorktreeID,
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: created.WorktreeID,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -291,8 +291,8 @@ func TestPreviewWorktreeDeleteBindsExternalConfirmationToCanonicalRoot(t *testin
 	})
 
 	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  branch,
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: branch,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -307,7 +307,7 @@ func TestPreviewWorktreeDeleteBindsExternalConfirmationToCanonicalRoot(t *testin
 	runGit(t, env.workspaceRoot, "worktree", "add", rootB, branch)
 
 	_, err = env.service.DeleteWorktree(env.ctx, &worktreepb.DeleteRequest{
-		SessionId:           env.session.Meta().SessionID,
+		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Selector:            preview.DeletionSelector,
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	})
@@ -365,8 +365,8 @@ func TestPreviewWorktreeDeleteClassifiesModifiedUntrackedAndMixedDirtyStates(t *
 			test.prepare(t, created.CanonicalRoot)
 
 			response, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-				SessionId: env.session.Meta().SessionID,
-				Selector:  created.WorktreeID,
+				Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+				Selector: created.WorktreeID,
 			})
 			if err != nil {
 				t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -390,8 +390,8 @@ func TestPreviewWorktreeDeleteHandlesInspectionFailureCancellationAndMainWorkspa
 		})
 
 		response, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-			SessionId: env.session.Meta().SessionID,
-			Selector:  "feature/delete-preview-unknown",
+			Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+			Selector: "feature/delete-preview-unknown",
 		})
 		if err != nil {
 			t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -415,8 +415,8 @@ func TestPreviewWorktreeDeleteHandlesInspectionFailureCancellationAndMainWorkspa
 		})
 
 		_, err := env.service.PreviewWorktreeDelete(ctx, &worktreepb.DeletePreviewRequest{
-			SessionId: env.session.Meta().SessionID,
-			Selector:  "feature/delete-preview-canceled",
+			Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+			Selector: "feature/delete-preview-canceled",
 		})
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("PreviewWorktreeDelete error = %v, want context.Canceled", err)
@@ -426,8 +426,8 @@ func TestPreviewWorktreeDeleteHandlesInspectionFailureCancellationAndMainWorkspa
 	t.Run("main workspace is blocked", func(t *testing.T) {
 		env := newServiceTestEnv(t)
 		_, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-			SessionId: env.session.Meta().SessionID,
-			Selector:  env.workspaceRoot,
+			Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+			Selector: env.workspaceRoot,
 		})
 		if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
 			t.Fatalf("PreviewWorktreeDelete error = %v, want ErrWorktreeBlocked", err)
@@ -446,8 +446,8 @@ func TestPreviewWorktreeDeleteLeavesTopologyAndSubsequentOperationsUnchanged(t *
 	}
 
 	if _, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-		SessionId: env.session.Meta().SessionID,
-		Selector:  created.WorktreeID,
+		Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+		Selector: created.WorktreeID,
 	}); err != nil {
 		t.Fatalf("PreviewWorktreeDelete: %v", err)
 	}
@@ -482,8 +482,8 @@ func TestPreviewWorktreeDeleteDoesNotHoldMutationLane(t *testing.T) {
 	previewDone := make(chan previewResult, 1)
 	go func() {
 		response, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
-			SessionId: env.session.Meta().SessionID,
-			Selector:  target.WorktreeID,
+			Scope:    worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
+			Selector: target.WorktreeID,
 		})
 		previewDone <- previewResult{response: response, err: err}
 	}()
@@ -504,7 +504,7 @@ func TestPreviewWorktreeDeleteDoesNotHoldMutationLane(t *testing.T) {
 		branchName := "feature/delete-preview-independent-mutation"
 		response, err := env.service.CreateWorktree(env.ctx, &worktreepb.CreateRequest{
 			SetupOperationId: setupOperationID.String(),
-			SessionId:        env.session.Meta().SessionID,
+			Scope:            worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 			Spec: &worktreepb.CreateSpec{
 				BaseRef:      &baseRef,
 				CreateBranch: true,
@@ -748,7 +748,7 @@ func TestCreateRegistersOnlyTheCreatedWorktreeWithoutReconcilingOtherTopology(t 
 	branchName := "feature/explicit-register"
 	response, err := env.service.CreateWorktree(env.ctx, &worktreepb.CreateRequest{
 		SetupOperationId: setupOperationID.String(),
-		SessionId:        env.session.Meta().SessionID,
+		Scope:            worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Spec: &worktreepb.CreateSpec{
 			BaseRef:      &baseRef,
 			CreateBranch: true,

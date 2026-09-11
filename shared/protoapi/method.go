@@ -178,7 +178,8 @@ func validateMethodOptions(options *sharedpb.KentMethodOptions) error {
 		sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_OPTIONAL,
 		sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_ACTIVE_PROJECT,
 		sharedpb.ScopePolicy_SCOPE_POLICY_NOTIFICATION,
-		sharedpb.ScopePolicy_SCOPE_POLICY_CHAT_TARGET:
+		sharedpb.ScopePolicy_SCOPE_POLICY_CHAT_TARGET,
+		sharedpb.ScopePolicy_SCOPE_POLICY_WORKTREE_MANAGEMENT:
 	default:
 		return fmt.Errorf("scope policy %s is invalid", options.ScopePolicy)
 	}

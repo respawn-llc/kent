@@ -599,8 +599,21 @@ message SelectorResolveResult {
   }
 }
 
+message ManagementScope {
+  oneof scope {
+    option (buf.validate.oneof).required = true;
+    string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    WorkspaceManagementTarget workspace = 2;
+  }
+}
+
+message WorkspaceManagementTarget {
+  kent.api.project.SelectedProjectWorkspace target = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
 message DeletePreviewRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 1 [(buf.validate.field).required = true];
   string selector = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
@@ -628,6 +641,14 @@ message DeletePreviewError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -660,7 +681,7 @@ message DeletePreviewResult {
 }
 
 message CreateTargetResolveRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 1 [(buf.validate.field).required = true];
   string target = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
@@ -691,6 +712,14 @@ message CreateTargetResolveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -746,19 +775,20 @@ message CreateRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 2 [(buf.validate.field).required = true];
   CreateSpec spec = 3 [(buf.validate.field).required = true];
   optional string root_path = 4;
 }
 
 message CreateSuccess {
-  SessionExecutionTarget target = 1 [(buf.validate.field).required = true];
+  SessionExecutionTarget target = 1;
   ListEntry worktree = 2 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.create_projection"
     message: "created worktree must expose every eligible session operation"
     expression:
+      "!has(this.target) ? (!this.worktree.projection.is_current && !has(this.worktree.projection.switch) && !has(this.worktree.projection.delete_preview)) : "
       "has(this.worktree.projection.switch) == "
       "(!this.worktree.projection.is_current && "
       "((has(this.worktree.topology.main_workspace) && this.worktree.topology.main_workspace.git.path_available) || "
@@ -777,6 +807,14 @@ message CreateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     CreateFailureDetails create_failed = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "create_failed"
@@ -914,7 +952,7 @@ message LeaveResult {
 }
 
 message DeleteRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ManagementScope scope = 1 [(buf.validate.field).required = true];
   string selector = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   bool force_folder_removal = 3;
   BranchCleanupMode branch_cleanup_policy = 4 [(buf.validate.field).enum = {
@@ -934,6 +972,14 @@ message DeleteError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.ProjectNotFoundDetails project_not_found = 10 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "project_not_found"
+    }];
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 11 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -1183,7 +1229,7 @@ service DeletePreviewService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };
@@ -1195,7 +1241,7 @@ service CreateTargetService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };
@@ -1207,7 +1253,7 @@ service CreateService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };
@@ -1237,7 +1283,7 @@ service TransitionService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      scope_policy: SCOPE_POLICY_WORKTREE_MANAGEMENT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
     };

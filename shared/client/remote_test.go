@@ -185,8 +185,8 @@ func TestRemotePreviewWorktreeDeleteSendsRouteAndDecodesEveryCleanlinessVariant(
 			defer func() { _ = remote.Close() }()
 
 			got, err := remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-				SessionId: "session-1",
-				Selector:  "feature",
+				Scope:    worktreecontract.SessionManagementScope("session-1"),
+				Selector: "feature",
 			})
 			if err != nil {
 				t.Fatalf("PreviewWorktreeDelete: %v", err)
@@ -233,8 +233,8 @@ func TestRemotePreviewWorktreeDeleteRejectsMismatchedResponseSelector(t *testing
 	defer func() { _ = remote.Close() }()
 
 	_, err = remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-		SessionId: "session-1",
-		Selector:  "external",
+		Scope:    worktreecontract.SessionManagementScope("session-1"),
+		Selector: "external",
 	})
 	if err == nil {
 		t.Fatal("mismatched delete preview selector was accepted")
@@ -904,10 +904,10 @@ func TestRemoteDeleteWorktreeCarriesTypedCleanupPolicyAndResult(t *testing.T) {
 		acceptRemoteHandshake(t, ws)
 		var params worktreepb.DeleteRequest
 		call := receiveRemoteGeneratedCall(t, ws, "TransitionService", "Delete", &params)
-		if params.SessionId != "session-1" ||
+		if params.Scope.GetSessionId() != "session-1" ||
 			params.Selector != "wt-1" ||
 			params.BranchCleanupPolicy != worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE {
-			t.Fatalf("unexpected delete params: session=%q selector=%q cleanup=%v", params.GetSessionId(), params.GetSelector(), params.GetBranchCleanupPolicy())
+			t.Fatalf("unexpected delete params: session=%q selector=%q cleanup=%v", params.Scope.GetSessionId(), params.GetSelector(), params.GetBranchCleanupPolicy())
 		}
 		if params.ProtoReflect().Descriptor().Fields().ByName("operation_id") != nil {
 			t.Fatal("delete request unexpectedly contains operation_id")
@@ -930,7 +930,7 @@ func TestRemoteDeleteWorktreeCarriesTypedCleanupPolicyAndResult(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	resp, err := remote.DeleteWorktree(context.Background(), &worktreepb.DeleteRequest{
-		SessionId:           "session-1",
+		Scope:               worktreecontract.SessionManagementScope("session-1"),
 		Selector:            "wt-1",
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE,
 	})
@@ -947,8 +947,8 @@ func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) 
 		acceptRemoteHandshake(t, ws)
 		var params worktreepb.CreateTargetResolveRequest
 		call := receiveRemoteGeneratedCall(t, ws, "CreateTargetService", "Resolve", &params)
-		if params.SessionId != "session-1" || params.Target != "HEAD~1" {
-			t.Fatalf("unexpected resolve params: session=%q target=%q", params.GetSessionId(), params.GetTarget())
+		if params.Scope.GetSessionId() != "session-1" || params.Target != "HEAD~1" {
+			t.Fatalf("unexpected resolve params: session=%q target=%q", params.Scope.GetSessionId(), params.GetTarget())
 		}
 		resolvedRef := "abc123"
 		sendRemoteGeneratedResult(t, ws, call, &worktreepb.CreateTargetResolveResult{
@@ -968,7 +968,7 @@ func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) 
 	}
 	defer func() { _ = remote.Close() }()
 
-	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{SessionId: "session-1", Target: "HEAD~1"})
+	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{Scope: worktreecontract.SessionManagementScope("session-1"), Target: "HEAD~1"})
 	if err != nil {
 		t.Fatalf("ResolveWorktreeCreateTarget: %v", err)
 	}
@@ -990,8 +990,8 @@ func TestRemoteCreateWorktreeUsesOnlySetupOperationIdentity(t *testing.T) {
 		if params.ProtoReflect().Descriptor().Fields().ByName("client_request_id") != nil {
 			t.Fatal("create request retained generic identity")
 		}
-		if params.SetupOperationId != setupID || params.SessionId != "session-1" {
-			t.Fatalf("create params: setup operation=%q session=%q", params.GetSetupOperationId(), params.GetSessionId())
+		if params.SetupOperationId != setupID || params.Scope.GetSessionId() != "session-1" {
+			t.Fatalf("create params: setup operation=%q session=%q", params.GetSetupOperationId(), params.Scope.GetSessionId())
 		}
 		sendRemoteGeneratedResult(t, ws, call, &worktreepb.CreateResult{
 			Outcome: &worktreepb.CreateResult_Success{Success: &worktreepb.CreateSuccess{
@@ -1008,7 +1008,7 @@ func TestRemoteCreateWorktreeUsesOnlySetupOperationIdentity(t *testing.T) {
 	baseRef := "feature"
 	response, err := remote.CreateWorktree(context.Background(), &worktreepb.CreateRequest{
 		SetupOperationId: setupID,
-		SessionId:        "session-1",
+		Scope:            worktreecontract.SessionManagementScope("session-1"),
 		Spec:             &worktreepb.CreateSpec{BaseRef: &baseRef},
 	})
 	if err != nil {
@@ -1097,7 +1097,7 @@ func TestRemoteWorktreeProjectedResponsesRejectContradictoryScope(t *testing.T) 
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.CreateWorktree(ctx, &worktreepb.CreateRequest{
 					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
-					SessionId:        "session",
+					Scope:            worktreecontract.SessionManagementScope("session"),
 					Spec:             &worktreepb.CreateSpec{BaseRef: &branchName},
 				})
 				return err
@@ -1119,6 +1119,44 @@ func TestRemoteWorktreeProjectedResponsesRejectContradictoryScope(t *testing.T) 
 			defer func() { _ = remote.Close() }()
 			if err := test.call(context.Background(), remote); err == nil {
 				t.Fatal("Remote accepted contradictory Worktree projection scope")
+			}
+		})
+	}
+}
+
+func TestRemoteCreateRejectsCallerLocationPresenceMismatch(t *testing.T) {
+	caller := "caller"
+	for _, tc := range []struct {
+		name      string
+		scope     *worktreepb.ManagementScope
+		hasCaller bool
+	}{
+		{"session", worktreecontract.SessionManagementScope(caller), true},
+		{"workspace with caller", worktreecontract.WorkspaceManagementScope("project", "workspace", &caller), true},
+		{"sessionless", worktreecontract.WorkspaceManagementScope("project", "workspace", nil), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &worktreepb.CreateSuccess{Worktree: remoteTestRegisteredWorktreeEntry(t, !tc.hasCaller)}
+			if !tc.hasCaller {
+				result.Target = remoteTestWorktreeExecutionTarget()
+			}
+			server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+				acceptRemoteHandshake(t, ws)
+				call := receiveRemoteGeneratedCall(t, ws, "CreateService", "Create", &worktreepb.CreateRequest{})
+				sendRemoteGeneratedResult(t, ws, call, &worktreepb.CreateResult{Outcome: &worktreepb.CreateResult_Success{Success: result}})
+			})
+			defer server.Close()
+			remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = remote.Close() }()
+			_, err = remote.CreateWorktree(context.Background(), &worktreepb.CreateRequest{
+				SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+				Scope:            tc.scope, Spec: &worktreepb.CreateSpec{BaseRef: proto.String("HEAD")},
+			})
+			if err == nil {
+				t.Fatal("create accepted contradictory caller location presence")
 			}
 		})
 	}
@@ -1502,7 +1540,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 				baseRef := "feature"
 				_, err := remote.CreateWorktree(ctx, &worktreepb.CreateRequest{
 					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
-					SessionId:        "session",
+					Scope:            worktreecontract.SessionManagementScope("session"),
 					Spec:             &worktreepb.CreateSpec{BaseRef: &baseRef},
 				})
 				return err
@@ -1532,7 +1570,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 			}},
 			call: func(ctx context.Context, remote *Remote) error {
 				_, err := remote.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-					SessionId:           "session",
+					Scope:               worktreecontract.SessionManagementScope("session"),
 					Selector:            "feature",
 					BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 				})
@@ -1564,7 +1602,7 @@ func remoteTestWorktreeStructuredErrors() []remoteTestWorktreeStructuredError {
 				baseRef := "feature"
 				_, err := remote.CreateWorktree(ctx, &worktreepb.CreateRequest{
 					SetupOperationId: worktreecontract.NewSetupOperationID().String(),
-					SessionId:        "session",
+					Scope:            worktreecontract.SessionManagementScope("session"),
 					Spec:             &worktreepb.CreateSpec{BaseRef: &baseRef},
 				})
 				return err

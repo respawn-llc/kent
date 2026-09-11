@@ -88,7 +88,10 @@ export async function resolveWorktreeCreateTarget(
   const method = CreateTargetService.method.resolve;
   const success = requireUnarySuccess(
     method,
-    await transport.callDescriptor(method, create(method.input, { sessionId: sessionID, target })),
+    await transport.callDescriptor(
+      method,
+      create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, target }),
+    ),
   );
   authorizeWorktreeCreateTargetResolution(required(success.resolution));
   return success;
@@ -103,7 +106,10 @@ export async function previewWorktreeDelete(
   return authorizeWorktreeDeletePreview(
     requireWorktreeSuccess(
       method,
-      await transport.callDescriptor(method, create(method.input, { sessionId: sessionID, selector })),
+      await transport.callDescriptor(
+        method,
+        create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, selector }),
+      ),
     ),
   );
 }
@@ -125,7 +131,7 @@ export async function createWorktree(
       method,
       create(method.input, {
         setupOperationId: input.setupOperationID.toJSONValue(),
-        sessionId: input.sessionID,
+        scope: { scope: { case: "sessionId", value: input.sessionID } },
         spec: {
           baseRef: createBranch ? required(input.baseRef) : required(resolution.resolvedRef),
           createBranch,
@@ -135,6 +141,9 @@ export async function createWorktree(
       { timeoutMs: null },
     ),
   );
+  if (success.target === undefined) {
+    throw new ContractError("Session Worktree creation returned no caller location.");
+  }
   if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
   return success;
 }
@@ -184,7 +193,7 @@ export async function deleteWorktree(
     await transport.callDescriptor(
       method,
       create(method.input, {
-        sessionId: sessionID,
+        scope: { scope: { case: "sessionId", value: sessionID } },
         selector: authority.deletionSelector,
         forceFolderRemoval: required(authority.cleanliness).kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
         branchCleanupPolicy:
@@ -255,32 +264,31 @@ export function requireWorktreeSuccess<Success, Failure extends WorktreeFailure>
 
 function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): RpcError {
   const generic = protobufRpcError(method, failure);
-  switch (failure.detail.case) {
-    case "selectorError":
-      return new WorktreeError(generic, { kind: "selector", details: failure.detail.value });
-    case "createFailed":
-      return new WorktreeError(generic, {
-        kind: "create",
-        owner:
-          failure.detail.value.owner === CreateErrorOwner.WORKTREE_CREATE_ERROR_OWNER_BASE_REF
-            ? "base_ref"
-            : "form",
-        diagnostic: failure.detail.value.diagnostic,
-      });
-    case "setupRetained":
-      return new WorktreeError(generic, { kind: "setup_retained", details: failure.detail.value });
-    case "deletePrecondition":
-      return new WorktreeError(generic, { kind: "delete_precondition", details: failure.detail.value });
-    case "worktreeBlocked":
-      return new WorktreeError(generic, { kind: "blocked" });
-    case "pendingWorkCapacity":
-      return new WorktreeError(generic, { kind: "capacity" });
-    case "authRequired":
-    case "serverNotReady":
-    case "internalFailure":
-    case undefined:
-      return generic;
+  const detail = failure.detail;
+  if (detail.case === "selectorError") {
+    return new WorktreeError(generic, { kind: "selector", details: detail.value });
   }
+  if (detail.case === "createFailed") {
+    return new WorktreeError(generic, {
+      kind: "create",
+      owner:
+        detail.value.owner === CreateErrorOwner.WORKTREE_CREATE_ERROR_OWNER_BASE_REF ? "base_ref" : "form",
+      diagnostic: detail.value.diagnostic,
+    });
+  }
+  if (detail.case === "setupRetained") {
+    return new WorktreeError(generic, { kind: "setup_retained", details: detail.value });
+  }
+  if (detail.case === "deletePrecondition") {
+    return new WorktreeError(generic, { kind: "delete_precondition", details: detail.value });
+  }
+  if (detail.case === "worktreeBlocked") {
+    return new WorktreeError(generic, { kind: "blocked" });
+  }
+  if (detail.case === "pendingWorkCapacity") {
+    return new WorktreeError(generic, { kind: "capacity" });
+  }
+  return generic;
 }
 
 function hasDeletableBranch(preview: WorktreeDeletePreview): boolean {

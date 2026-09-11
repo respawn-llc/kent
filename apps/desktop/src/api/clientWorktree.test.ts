@@ -31,6 +31,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import { ApiClient } from "./client";
+import { ContractError } from "./errors";
 import { requireWorktreeSuccess, WorktreeError } from "./clientWorktree";
 import { newSetupOperationID } from "./index";
 
@@ -285,6 +286,7 @@ describe("Desktop Worktree client", () => {
     expect(mutations.slice(0, 3).map(({ request }) => request)).toMatchObject(
       setupIDs.map((setupOperationID) => ({
         setupOperationId: setupOperationID.toJSONValue(),
+        scope: { scope: { case: "sessionId", value: "session-1" } },
       })),
     );
     for (const { request } of mutations.slice(0, 3)) {
@@ -300,6 +302,9 @@ describe("Desktop Worktree client", () => {
       request: { selector: "feature" },
     });
     expect(mutations[4]?.descriptor).toBe(TransitionService.method.leave);
+    for (const { request } of mutations.slice(5)) {
+      expect(request).toMatchObject({ scope: { scope: { case: "sessionId", value: "session-1" } } });
+    }
     expect(mutations.slice(5).map(({ request }) => request)).toMatchObject([
       {
         forceFolderRemoval: true,
@@ -340,6 +345,33 @@ describe("Desktop Worktree client", () => {
     ).rejects.toThrow("decoded authority");
     await expect(client.deleteWorktree("s", branchless, "confirm_and_branch")).rejects.toThrow(TypeError);
     expect(transport.descriptorCalls).toHaveLength(callsBeforeForgery);
+  });
+
+  it("requires caller location for Session creation", async () => {
+    const resolution = await resolveTarget(
+      CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH,
+      "feature",
+      "refs/heads/feature",
+    );
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: CreateService.method.create,
+        result: create(CreateResultSchema, {
+          outcome: {
+            case: "success",
+            value: { worktree: { topology, projection: { selector: "feature" } } },
+          },
+        }),
+      },
+    ]);
+    await expect(
+      new ApiClient(transport).createWorktree({
+        sessionID: "caller",
+        setupOperationID: newSetupOperationID(),
+        resolution,
+        baseRef: null,
+      }),
+    ).rejects.toThrow(ContractError);
   });
 
   it("rejects acknowledgement mismatches and maps every typed error family", async () => {

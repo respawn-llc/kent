@@ -35,6 +35,7 @@ func TestDeleteWorktreeBlocksWhenBackgroundProcessUsesDescendantPath(t *testing.
 		t.Fatalf("DeleteWorktree error = %v, want ErrWorktreeBlocked", err)
 	}
 	snapshots := env.processes.CurrentSnapshots()
+	assertForeignManagementDeleteBlocked(t, env, busy.WorktreeID)
 	if len(snapshots) != 1 || !snapshots[0].Running {
 		t.Fatalf("background process snapshot changed after blocked delete: %+v", snapshots)
 	}
@@ -386,7 +387,7 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 	baseRef := "HEAD"
 	resp, err := env.service.CreateWorktree(env.ctx, &worktreepb.CreateRequest{
 		SetupOperationId: setupOperationID.String(),
-		SessionId:        env.session.Meta().SessionID,
+		Scope:            worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Spec: &worktreepb.CreateSpec{
 			BaseRef:      &baseRef,
 			CreateBranch: true,
@@ -401,7 +402,7 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 
 func worktreeDeleteRequest(env *serviceTestEnv, worktreeID string) *worktreepb.DeleteRequest {
 	return &worktreepb.DeleteRequest{
-		SessionId:           env.session.Meta().SessionID,
+		Scope:               worktreecontract.SessionManagementScope(env.session.Meta().SessionID),
 		Selector:            worktreeID,
 		BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
 	}

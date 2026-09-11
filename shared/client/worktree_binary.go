@@ -99,6 +99,11 @@ func (c *Remote) CreateWorktree(ctx context.Context, request *worktreepb.CreateR
 	if err != nil {
 		return nil, err
 	}
+	workspace := request.Scope.GetWorkspace()
+	hasCaller := workspace == nil || workspace.CallerSessionId != nil
+	if (success.Target != nil) != hasCaller {
+		return nil, invalidResponseError("worktree create", errors.New("caller location presence does not match management scope"))
+	}
 	if err := validateWorktreeListFallback(success.Worktree); err != nil {
 		return nil, invalidResponseError("worktree create", err)
 	}
@@ -156,6 +161,8 @@ type worktreeFailure interface {
 
 func worktreeError[Failure worktreeFailure](failure Failure) error {
 	switch failure.GetCode() {
+	case "project_not_found":
+		return serverapi.ErrProjectNotFound
 	case "workspace_not_registered":
 		return serverapi.ErrWorkspaceNotRegistered
 	case "selector_error":
