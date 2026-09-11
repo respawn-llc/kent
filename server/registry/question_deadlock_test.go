@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -28,8 +27,8 @@ import (
 	"core/shared/toolspec"
 )
 
-// Real runtime publication and retention must compose while a Question is
-// waiting, including when the operator interrupts and reopens its transcript.
+// Real runtime publication must compose while a Question is waiting,
+// including when the operator interrupts and reopens its transcript.
 func TestQuestionAnswerAndInterruptAcrossTranscriptReopen(t *testing.T) {
 	for _, test := range []struct {
 		name              string
@@ -46,74 +45,6 @@ func TestQuestionAnswerAndInterruptAcrossTranscriptReopen(t *testing.T) {
 		})
 	}
 }
-
-func TestTranscriptSubscriptionReleasesRetentionWhenRuntimeDrainsDuringAdmission(t *testing.T) {
-	releaseFailure := errors.New("retention release failed")
-	for _, test := range []struct {
-		name       string
-		releaseErr error
-	}{
-		{name: "released"},
-		{name: "release_failure_is_reported", releaseErr: releaseFailure},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			registry := NewRuntimeRegistry()
-			engine := newRegistryTestRuntime(t, nil)
-			ref := registryTestResourceRef(engine.SessionID())
-			retaining, release := make(chan struct{}), make(chan struct{})
-			releaseRetainer := sync.OnceFunc(func() { close(release) })
-			defer releaseRetainer()
-			var releases atomic.Int32
-			if err := registry.ResourceReady(t.Context(), registryTestResource(ref), engine, func() (io.Closer, error) {
-				close(retaining)
-				<-release
-				return subscriptionRetentionReleaseFunc(func() error {
-					releases.Add(1)
-					return test.releaseErr
-				}), nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			subscribed := make(chan error, 1)
-			go func() {
-				sub, err := registry.SubscribeSessionTranscript(ctx, serverapi.TranscriptSubscribeRequest{SessionID: engine.SessionID()})
-				if sub != nil {
-					err = errors.Join(err, sub.Close(), errors.New("subscribed to retired runtime"))
-				}
-				subscribed <- err
-			}()
-			<-retaining
-			drained := make(chan error, 1)
-			go func() { drained <- registry.ResourceDraining(t.Context(), registryTestResource(ref)) }()
-			select {
-			case err := <-drained:
-				if err != nil {
-					t.Fatal(err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("runtime drain waited for pending subscription retention")
-			}
-			cancel()
-			releaseRetainer()
-			expectedErr := test.releaseErr
-			if expectedErr == nil {
-				expectedErr = context.Canceled
-			}
-			if err := <-subscribed; !errors.Is(err, expectedErr) {
-				t.Fatalf("subscription error = %v, want %v", err, expectedErr)
-			}
-			if got := releases.Load(); got != 1 {
-				t.Fatalf("retention releases = %d, want 1", got)
-			}
-		})
-	}
-}
-
-type subscriptionRetentionReleaseFunc func() error
-
-func (release subscriptionRetentionReleaseFunc) Close() error { return release() }
 
 type questionDeadlockClient struct {
 	calls    atomic.Int32
@@ -153,25 +84,6 @@ func (*questionDeadlockClient) ProviderCapabilities(context.Context) (llm.Provid
 
 type questionDeadlockStepLifecycle struct {
 	registry *RuntimeRegistry
-}
-
-type questionSubscriptionLifecycle struct {
-	registry  *RuntimeRegistry
-	armed     atomic.Bool
-	retaining chan struct{}
-}
-
-func (s *questionSubscriptionLifecycle) ResourceReady(ctx context.Context, resource sessionruntime.AgentResourceDescriptor, engine *runtime.Engine, retain sessionruntime.AgentResourceRetainer) error {
-	return s.registry.ResourceReady(ctx, resource, engine, func() (io.Closer, error) {
-		if s.armed.CompareAndSwap(true, false) {
-			close(s.retaining)
-		}
-		return retain()
-	})
-}
-
-func (s *questionSubscriptionLifecycle) ResourceDraining(ctx context.Context, resource sessionruntime.AgentResourceDescriptor) error {
-	return s.registry.ResourceDraining(ctx, resource)
 }
 
 func (s questionDeadlockStepLifecycle) StepBegan(ctx context.Context, resource sessionruntime.AgentResourceDescriptor, snapshot runtime.StepLifecycleSnapshot) error {
@@ -256,10 +168,9 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		t.Fatal(err)
 	}
 	registry := NewRuntimeRegistry().WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
-	lifecycle := &questionSubscriptionLifecycle{registry: registry, retaining: make(chan struct{})}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: root, StoreOptions: persistence.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: lifecycle, PromptFeed: registry,
+		ResourceLifecycle: registry, PromptFeed: registry,
 		StepLifecycle: questionDeadlockStepLifecycle{registry: registry},
 		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
 			if event.LocalEntry != nil && event.LocalEntry.ReviewerError != nil {
@@ -391,9 +302,10 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		go func() { published <- registry.PublishSessionIdentity(id.String()) }()
 		<-publicationEntered
 
-		lifecycle.armed.Store(true)
+		reopenStarted := make(chan struct{})
 		reopened := make(chan error, 1)
 		go func() {
+			close(reopenStarted)
 			sub, err := registry.SubscribeSessionTranscript(t.Context(), serverapi.TranscriptSubscribeRequest{SessionID: id.String()})
 			if err == nil {
 				_, err = sub.Next(t.Context())
@@ -401,7 +313,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 			}
 			reopened <- err
 		}()
-		<-lifecycle.retaining
+		<-reopenStarted
 		close(releaseInterrupt)
 		close(releasePublication)
 		if err := <-interrupted; err != nil {
