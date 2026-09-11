@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -29,11 +30,18 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 					responses: []llm.Response{finalOutputItemResponse("seed")},
 				}
 				var flushed atomic.Int32
+				var restorationMu sync.Mutex
+				var restored []string
 				engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
 					Model: "gpt-6-astra", ThinkingLevel: "high",
 					OnEvent: func(event Event) {
 						if event.Kind == EventUserMessageFlushed {
 							flushed.Add(1)
+						}
+						if event.PendingWorkRestoration != nil {
+							restorationMu.Lock()
+							restored = append(restored, event.PendingWorkRestoration.CanonicalInput)
+							restorationMu.Unlock()
 						}
 					},
 				})
@@ -77,6 +85,20 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 				}
 				if updates != want || next != want || int(flushed.Load()) != 1+want || fakeClientCallCount(client) != 1+want {
 					t.Fatalf("updates=%d input=%d flushed=%d requests=%d", updates, next, flushed.Load(), fakeClientCallCount(client))
+				}
+				if !providerFailure {
+					restorationMu.Lock()
+					got := append([]string(nil), restored...)
+					restorationMu.Unlock()
+					if len(got) != 1 || got[0] != "next" {
+						t.Errorf("uncommitted input restoration = %v, want next exactly once", got)
+					}
+					if pending := pendingWorkTestSnapshot(t, engine); len(pending.Items) != 0 {
+						t.Error("uncommitted required input remained pending")
+					}
+					if _, err := engine.SubmitUserMessage(t.Context(), "must not replay"); !errors.Is(err, ErrEngineClosed) {
+						t.Errorf("Runtime admission after required write failure = %v, want closed", err)
+					}
 				}
 			})
 		}

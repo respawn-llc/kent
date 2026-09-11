@@ -628,6 +628,9 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 	}
 	appended, appendErr := e.eventLog.AppendModelInputRecords(stepID, payloads, input.thinking.original)
 	if !appended.Committed {
+		if appendErr != nil {
+			return appended.CommitReceipt, &resultGroupFatal{Committed: false, Cause: appendErr}
+		}
 		return appended.CommitReceipt, appendErr
 	}
 	recordIndex := 0

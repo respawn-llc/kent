@@ -474,6 +474,9 @@ func (m *defaultMessageLifecycle) CommitPreparedUserInjections(ctx context.Conte
 	receipt, err := m.engine.steerWithCommitReceipt(stepID, steerPreparedModelInputIntent(ctx, prepared, thinking))
 	result.receipt = receipt
 	if !receipt.Committed {
+		if fatal, failedWrite := resultGroupFatalFromError(err); failedWrite {
+			return result, &resultGroupFatal{Committed: false, Cause: errors.Join(fatal.Cause, m.restoreFailedPreparedInput(prepared))}
+		}
 		return result, err
 	}
 	result.queueItemIDs = make(map[string]struct{})
@@ -488,6 +491,31 @@ func (m *defaultMessageLifecycle) CommitPreparedUserInjections(ctx context.Conte
 	m.engine.completeQueuedUserMessages(result.queueItemIDs)
 	m.engine.publishPendingWorkChanged()
 	return result, err
+}
+
+func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedUserInjections) error {
+	ids := make(map[string]struct{})
+	for _, group := range prepared.groups {
+		for id := range queuedUserMessageIDSet(group.queueItems) {
+			ids[id] = struct{}{}
+		}
+	}
+	e := m.engine
+	e.outputMutationMu.Lock()
+	technical, stopped := m.queue.FailClaimItems(prepared.claim, ids)
+	e.emitInterruptedHumanInputs(stopped)
+	var restorationErr error
+	for _, pending := range technical {
+		item, err := pendingWorkMessage(pending)
+		if err == nil {
+			err = e.publishPendingWorkTechnicalRestoration(item)
+		}
+		restorationErr = errors.Join(restorationErr, err)
+	}
+	e.outputMutationMu.Unlock()
+	e.completeQueuedUserMessages(ids)
+	e.publishPendingWorkChanged()
+	return restorationErr
 }
 
 func queuedUserMessageFlushGroups(messages []queuedUserMessage) ([]queuedUserMessageFlushGroup, error) {

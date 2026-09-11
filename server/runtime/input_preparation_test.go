@@ -10,6 +10,8 @@ import (
 	"core/server/llm"
 	"core/server/tools"
 	"core/shared/runtimeids"
+
+	"github.com/google/uuid"
 )
 
 type heldPromptPreparation struct {
@@ -33,6 +35,68 @@ func TestInputRemainsPendingUntilPreparationCompletes(t *testing.T) {
 
 func TestStopBeforeInputCommitReleasesClaim(t *testing.T) {
 	testInputPreparationOutcome(t, true)
+}
+
+func TestBackgroundCompletionDuringPreparationFinishesWithinSubmission(t *testing.T) {
+	store := mustCreateTestSession(t)
+	seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{finalOutputItemResponse("seed")}}, tools.NewRegistry(), Config{})
+	if _, err := seed.SubmitUserMessage(t.Context(), "seed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkLockedPromptFacingSnapshotsStale(); err != nil {
+		t.Fatal(err)
+	}
+	preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}
+	client := &fakeClient{responses: []llm.Response{
+		finalOutputItemResponse("before completion"), finalOutputItemResponse("after completion"),
+	}}
+	engine := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, tools.NewRegistry(), Config{
+		PromptFacingSnapshotReloader: preparation,
+	})
+	type outcome struct {
+		message llm.Message
+		err     error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		message, err := engine.SubmitUserMessage(t.Context(), "continue")
+		done <- outcome{message: message, err: err}
+	}()
+	pendingWorkTestWait(t, preparation.started, "request preparation")
+	eventApplied := make(chan struct{})
+	activityID := uuid.New()
+	go func() {
+		engine.HandleBackgroundShellUpdate(BackgroundShellEvent{
+			Type: BackgroundShellEventCompleted, ID: "background-job", ActivityID: activityID, State: "completed",
+		}, true)
+		close(eventApplied)
+	}()
+	waitForPendingRuntimeOperation(t, engine)
+	close(preparation.release)
+	pendingWorkTestWait(t, eventApplied, "background completion")
+	result := <-done
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if result.message.Content == nil || *result.message.Content != "after completion" {
+		t.Fatal("original submission returned before consuming its ready background completion")
+	}
+	client.mu.Lock()
+	requests := append([]llm.Request(nil), client.calls...)
+	client.mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("submission requests = %d, want two", len(requests))
+	}
+	found := false
+	for _, item := range requests[1].Items {
+		found = found || item.BackgroundActivityID != nil && *item.BackgroundActivityID == activityID.String()
+	}
+	if !found {
+		t.Fatal("follow-up request omitted the background completion")
+	}
 }
 
 func testInputPreparationOutcome(t *testing.T, stop bool) {

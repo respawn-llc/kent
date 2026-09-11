@@ -435,7 +435,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				}
 				continue
 			}
-			if s.messages.HasPendingUserSteers() {
+			if s.messages.HasPendingUserSteers() || e.backgroundFlow != nil && e.backgroundFlow.HasPendingNotices() {
 				if len(localToolCalls) == 0 && len(hostedToolExecutions) == 0 {
 					if err := e.stepLifecycle.DrainAgentStepBoundary(ctx); err != nil {
 						return stepLoopResult{}, err

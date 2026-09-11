@@ -185,12 +185,9 @@ func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.Res
 	if err != nil {
 		return llm.CompactionRequest{}, err
 	}
-	thinking, err := prepareNativeThinking(items, nil, e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
+	thinking, err := prepareNativeThinkingBaseline(e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
 	if err != nil {
 		return llm.CompactionRequest{}, err
-	}
-	if thinking.update != nil {
-		items = append(items, *thinking.update)
 	}
 	systemPrompt, err := e.systemPromptWithoutBackfill(locked)
 	if err != nil {

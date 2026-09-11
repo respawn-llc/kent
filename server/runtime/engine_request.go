@@ -28,7 +28,7 @@ type nativeThinkingProjection struct {
 	update   *llm.ResponseItem
 }
 
-func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desired string, original *string, supported bool) (nativeThinkingProjection, error) {
+func prepareNativeThinkingBaseline(desired string, original *string, supported bool) (nativeThinkingProjection, error) {
 	projection := nativeThinkingProjection{effort: desired}
 	if !supported {
 		return projection, nil
@@ -44,7 +44,15 @@ func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desire
 	}
 	projection.effort = *original
 	projection.original = original
-	applied := *original
+	return projection, nil
+}
+
+func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desired string, original *string, supported bool) (nativeThinkingProjection, error) {
+	projection, err := prepareNativeThinkingBaseline(desired, original, supported)
+	if err != nil || !supported {
+		return projection, err
+	}
+	applied := projection.effort
 	reestablish := replacementEnd != nil
 	for i := len(items) - 1; i >= 0; i-- {
 		if items[i].Type != llm.ResponseItemTypeConfigurationUpdate {

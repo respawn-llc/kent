@@ -7,9 +7,27 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/server/workflow"
 )
 
 func TestThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
+	testThinkingChangesPreserveDispatchedPrefix(t, func(engine *Engine, effort string) error {
+		return engine.SetThinkingLevel(t.Context(), effort)
+	})
+}
+
+func TestWorkflowNativeThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
+	testThinkingChangesPreserveDispatchedPrefix(t, func(engine *Engine, effort string) error {
+		value, err := workflow.NewThinkingValue(effort)
+		if err != nil {
+			return err
+		}
+		return engine.SetWorkflowThinkingValue(value)
+	})
+}
+
+func testThinkingChangesPreserveDispatchedPrefix(t *testing.T, selectThinking func(*Engine, string) error) {
+	t.Helper()
 	for _, queued := range []bool{false, true} {
 		name := "synchronous"
 		if queued {
@@ -20,7 +38,7 @@ func TestThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
 				caps: llm.ProviderCapabilities{
 					ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true, SupportsNativeThinkingUpdates: true,
 				},
-				responses: []llm.Response{finalOutputItemResponse("one"), finalOutputItemResponse("two")},
+				responses: []llm.Response{finalOutputItemResponse("one"), finalOutputItemResponse("two"), finalOutputItemResponse("three")},
 			}
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
 				Model: "gpt-6-astra", ThinkingLevel: "xhigh",
@@ -39,7 +57,7 @@ func TestThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
 			}
 			submit("first")
 			for _, effort := range []string{"medium", "high", "low"} {
-				if err := engine.SetThinkingLevel(t.Context(), effort); err != nil {
+				if err := selectThinking(engine, effort); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -81,6 +99,33 @@ func TestThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
 			}
 			if updates != 1 {
 				t.Fatalf("configuration updates = %d, want one", updates)
+			}
+			for _, effort := range []string{"high", "low"} {
+				if err := selectThinking(engine, effort); err != nil {
+					t.Fatal(err)
+				}
+			}
+			submit("third")
+			if len(client.calls) != 3 {
+				t.Fatalf("requests after no-op selections = %d, want three", len(client.calls))
+			}
+			third := client.calls[2]
+			if third.ReasoningEffort != first.ReasoningEffort {
+				t.Fatal("no-op selections changed the original request baseline")
+			}
+			for i, item := range second.Items {
+				if i >= len(third.Items) || !bytes.Equal(item.Raw, third.Items[i].Raw) {
+					t.Fatal("no-op selections changed earlier dispatched input")
+				}
+			}
+			updates = 0
+			for _, item := range third.Items {
+				if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+					updates++
+				}
+			}
+			if updates != 1 || engine.ThinkingLevel() != "low" {
+				t.Fatal("final-value no-op appended another update or changed desired Thinking")
 			}
 		})
 	}

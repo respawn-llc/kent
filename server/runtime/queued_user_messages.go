@@ -214,6 +214,32 @@ func (s *queuedUserMessageStore) ClaimStopped(claim *queuedUserMessageClaim) boo
 	return false
 }
 
+func (s *queuedUserMessageStore) FailClaimItems(claim *queuedUserMessageClaim, ids map[string]struct{}) (technical []queuedUserMessage, stopped []QueuedUserMessage) {
+	if s == nil || claim == nil || len(ids) == 0 {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	remaining := s.items[:0]
+	for _, pending := range s.items {
+		_, selected := ids[pending.message.ID]
+		if !selected || pending.claimID == nil || *pending.claimID != claim.id {
+			remaining = append(remaining, pending)
+			continue
+		}
+		if pending.removeOnRelease {
+			stopped = append(stopped, pending.message)
+		} else {
+			technical = append(technical, pending)
+		}
+	}
+	s.items = remaining
+	if len(technical)+len(stopped) != len(ids) {
+		panic("queued user message claim lost an owned item before failure")
+	}
+	return technical, stopped
+}
+
 func (s *queuedUserMessageStore) ReleaseClaim(claim *queuedUserMessageClaim) []QueuedUserMessage {
 	if s == nil || claim == nil {
 		return nil

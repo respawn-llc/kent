@@ -1,12 +1,95 @@
 package runtime
 
 import (
+	"bytes"
 	"testing"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/textutil"
 )
+
+func TestLocalCompactionKeepsCommittedThinkingAcrossToolRetry(t *testing.T) {
+	for _, adjacent := range []bool{false, true} {
+		name := "new update"
+		if adjacent {
+			name = "deferred adjacent update"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{finalOutputItemResponse("seed")}}, tools.NewRegistry(), Config{
+				Model: "gpt-6-astra", ThinkingLevel: "high",
+			})
+			if _, err := seed.SubmitUserMessage(t.Context(), "seed"); err != nil {
+				t.Fatal(err)
+			}
+			if err := seed.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
+				t.Fatal(err)
+			}
+			log := mustMaterializeTestEventLog(t, store)
+			if adjacent {
+				item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+					Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: textutil.Value("medium"),
+				}})[0]
+				history, err := sessionProviderHistoryItemFromLLM(0, item)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := log.AppendRecord(textutil.Value("prior-step"), session.ConfigurationUpdateRecord{Item: history}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			client := &hookClient{
+				caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeThinkingUpdates: true},
+				response: llm.Response{ToolCalls: []llm.ToolCall{{
+					ID: "rejected-tool", Name: "tool", Input: []byte(`{}`),
+				}}},
+			}
+			var persisted []session.ProviderHistoryItem
+			client.beforeReturn = func() error {
+				client.mu.Lock()
+				call := len(client.calls)
+				client.response = finalOutputItemResponse("summary")
+				client.mu.Unlock()
+				if call == 1 {
+					persisted = collectThinkingForkItems(t, mustMaterializeTestEventLog(t, store))
+				}
+				return nil
+			}
+			engine := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, tools.NewRegistry(), Config{
+				Model: "gpt-6-astra", ThinkingLevel: "low", CompactionMode: "local",
+			})
+			scheduleManualCompactionAndWait(t, engine)
+			if len(client.calls) != 2 {
+				t.Fatalf("local summary requests = %d, want two", len(client.calls))
+			}
+			for _, request := range client.calls {
+				count := 0
+				for _, item := range request.Items {
+					if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+						if count >= len(persisted) || !bytes.Equal(item.Raw, persisted[count].Raw) {
+							t.Fatal("local compaction dispatched an unpersisted Thinking update")
+						}
+						count++
+					}
+				}
+				if request.ReasoningEffort != "high" || count != 1 {
+					t.Fatalf("local summary effort=%q updates=%d", request.ReasoningEffort, count)
+				}
+			}
+			first, retry := client.calls[0], client.calls[1]
+			for i, item := range first.Items {
+				if i >= len(retry.Items) || !bytes.Equal(item.Raw, retry.Items[i].Raw) {
+					t.Fatal("local tool retry changed an already dispatched input position")
+				}
+			}
+		})
+	}
+}
 
 func TestIndependentSessionsAdoptIndependentThinking(t *testing.T) {
 	for _, effort := range []string{"high", "low"} {
