@@ -461,7 +461,17 @@ func connectionSessionWorkspaceNotRegisteredDetails(
 	sessionID string,
 	err error,
 ) *connectionpb.SessionAttachmentTargetDetails {
-	details := &connectionpb.SessionAttachmentTargetDetails{SessionId: sessionID}
+	workspace := binaryWorkspaceNotRegisteredDetails(g, state, err)
+	return &connectionpb.SessionAttachmentTargetDetails{
+		SessionId:     sessionID,
+		ProjectId:     workspace.ProjectId,
+		WorkspaceId:   workspace.WorkspaceId,
+		WorkspaceRoot: workspace.WorkspaceRoot,
+	}
+}
+
+func binaryWorkspaceNotRegisteredDetails(g *Gateway, state *connectionState, err error) *projectpb.WorkspaceNotRegisteredDetails {
+	details := &projectpb.WorkspaceNotRegisteredDetails{}
 	var attachmentErr sessionWorkspaceNotRegisteredError
 	if errors.As(err, &attachmentErr) {
 		if attachmentErr.projectID != "" {

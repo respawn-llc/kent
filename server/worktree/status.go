@@ -15,7 +15,7 @@ func (s *Service) GetWorktreeStatus(ctx context.Context, req *worktreepb.StatusR
 	if s == nil || s.metadata == nil || s.git == nil {
 		return nil, errors.New("worktree service dependencies are required")
 	}
-	target, err := s.metadata.ResolveSessionExecutionTarget(ctx, req.SessionId)
+	workspaceContext, err := s.resolveSessionWorkspaceContext(ctx, req.SessionId)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"resolve worktree status target for session %q: %w",
@@ -23,6 +23,7 @@ func (s *Service) GetWorktreeStatus(ctx context.Context, req *worktreepb.StatusR
 			err,
 		)
 	}
+	target := workspaceContext.target
 	root := strings.TrimSpace(target.WorkspaceRoot)
 	if target.Worktree != nil {
 		root = strings.TrimSpace(target.Worktree.Root)
