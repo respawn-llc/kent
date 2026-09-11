@@ -17,6 +17,7 @@ import (
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -112,12 +113,12 @@ type sessionLifecycleRetargeterStub struct {
 func (s *sessionLifecycleRetargeterStub) ScheduleWorkspaceRetarget(
 	_ context.Context,
 	req metadata.SessionWorkspaceRetargetRequest,
-	_ serverapi.RuntimeStepOrigin,
+	_ *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
-) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error) {
+) (*worktreepb.ScheduledAcknowledgement, error) {
 	s.req = req
 	s.scheduled = true
-	return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{OperationID: operationID}, s.err
+	return &worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()}, s.err
 }
 
 type sessionNavigationTargetResolverStub struct {
@@ -145,9 +146,12 @@ func (s *sessionNavigationTargetResolverStub) ResolveSessionNavigationBinding(ct
 	return s.target, s.err
 }
 
-func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(_ context.Context, req metadata.SessionWorkspaceRetargetRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(_ context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	s.req = req
-	return completedWorkspaceRetargetResponse(s.result), s.err
+	if s.err != nil {
+		return nil, s.err
+	}
+	return completedWorkspaceRetargetResponse(s.result)
 }
 
 func createPersistedSession(t *testing.T) (string, string, *session.Store) {
@@ -306,10 +310,10 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 		WorkspaceBindingCreated: true,
 	}}
 	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil).WithWorkspaceRetargeter(retargeter)
-	resp, err := service.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     "session-1",
+	resp, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     "session-1",
 		WorkspaceRoot: retargeter.result.Binding.CanonicalRoot,
-		ProjectID:     &projectID,
+		ProjectId:     &projectID,
 	})
 	if err != nil {
 		t.Fatalf("RetargetSessionWorkspace: %v", err)
@@ -317,7 +321,7 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 	if retargeter.req.ProjectID == nil || *retargeter.req.ProjectID != projectID {
 		t.Fatalf("retarget request = %+v, want target project %q", retargeter.req, projectID)
 	}
-	if resp.Binding == nil || resp.Binding.ProjectID != projectID || resp.Binding.ProjectKey != "TAR" {
+	if resp.Binding == nil || resp.Binding.ProjectId != projectID || resp.Binding.ProjectKey != "TAR" {
 		t.Fatalf("binding = %+v, want mapped retarget result", resp.Binding)
 	}
 	if !resp.WorkspaceBindingCreated {
@@ -328,12 +332,12 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 	retargeter := &sessionLifecycleRetargeterStub{}
 	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, nil).WithWorkspaceRetargeter(retargeter)
-	origin := &serverapi.RuntimeStepOrigin{
-		RunID:  "11111111-1111-4111-8111-111111111111",
-		StepID: "22222222-2222-4222-8222-222222222222",
+	origin := &sessionlaunchpb.RuntimeStepOrigin{
+		RunId:  "11111111-1111-4111-8111-111111111111",
+		StepId: "22222222-2222-4222-8222-222222222222",
 	}
-	response, err := service.RetargetSessionWorkspace(t.Context(), serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     "session-1",
+	response, err := service.RetargetSessionWorkspace(t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     "session-1",
 		WorkspaceRoot: t.TempDir(),
 		Origin:        origin,
 	})
@@ -347,8 +351,8 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 
 func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
 	service := NewSessionLifecycleService(t.TempDir(), nil, nil)
-	_, err := service.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     "session-1",
+	_, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     "session-1",
 		WorkspaceRoot: t.TempDir(),
 	})
 	if !errors.Is(err, errSessionWorkspaceRetargeterRequired) {

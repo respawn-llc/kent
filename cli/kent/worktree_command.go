@@ -294,8 +294,8 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 	var transitionOrigin *worktreepb.TransitionRuntimeStepOrigin
 	if origin != nil {
 		transitionOrigin = &worktreepb.TransitionRuntimeStepOrigin{
-			RunId:  origin.RunID,
-			StepId: origin.StepID,
+			RunId:  origin.RunId,
+			StepId: origin.StepId,
 		}
 	}
 	operationID := worktreecontract.NewOperationID()

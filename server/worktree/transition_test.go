@@ -16,6 +16,7 @@ import (
 	"core/server/sessionservice"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -36,7 +37,7 @@ func (emptySessionRetargetProcessSource) List() []shelltool.Snapshot { return ni
 type scheduledSessionRetargeterStub struct {
 	request    metadata.SessionWorkspaceRetargetRequest
 	resolve    func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error)
-	origin     *serverapi.RuntimeStepOrigin
+	origin     *sessionlaunchpb.RuntimeStepOrigin
 	operation  worktreecontract.OperationID
 	completion func(error)
 }
@@ -44,17 +45,17 @@ type scheduledSessionRetargeterStub struct {
 func (s *scheduledSessionRetargeterStub) ScheduleWorkspaceRetargetResolutionWithCompletion(
 	_ context.Context,
 	sessionID string,
-	origin *serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operation worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),
-) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error) {
+) (*worktreepb.ScheduledAcknowledgement, error) {
 	s.request.SessionID = sessionID
 	s.resolve = resolve
 	s.origin = origin
 	s.operation = operation
 	s.completion = completion
-	return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{OperationID: operation}, nil
+	return &worktreepb.ScheduledAcknowledgement{OperationId: operation.String()}, nil
 }
 
 func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *testing.T) {
@@ -138,8 +139,8 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 		*retargeter.request.TargetWorktreeID != next.WorktreeID {
 		t.Fatalf("scheduled Session retarget = %+v", retargeter.request)
 	}
-	if retargeter.origin.RunID != runID ||
-		retargeter.origin.StepID != stepID ||
+	if retargeter.origin.RunId != runID ||
+		retargeter.origin.StepId != stepID ||
 		retargeter.operation.String() != operationID.String() ||
 		retargeter.completion == nil {
 		t.Fatalf("scheduled transition context = origin:%+v operation:%s completion:%t", retargeter.origin, retargeter.operation.String(), retargeter.completion != nil)

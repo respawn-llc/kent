@@ -192,13 +192,13 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		if active == nil {
 			return errors.New("originating Agent Step is required")
 		}
-		response, err := remote.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{
-			SessionID:     movedSession.Meta().SessionID,
+		response, err := remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+			SessionId:     movedSession.Meta().SessionID,
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
-			ProjectID:     &targetBinding.ProjectID,
-			Origin: &serverapi.RuntimeStepOrigin{
-				RunID:  active.RunID.String(),
-				StepID: active.StepID.String(),
+			ProjectId:     &targetBinding.ProjectID,
+			Origin: &sessionlaunchpb.RuntimeStepOrigin{
+				RunId:  active.RunID.String(),
+				StepId: active.StepID.String(),
 			},
 		})
 		if err != nil {
@@ -330,11 +330,10 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 	capability := firstAttachment.GetSession().GetReattachCapability()
 
 	if _, err := appCore.SessionLifecycleClient().RetargetSessionWorkspace(
-		t.Context(),
-		serverapi.SessionRetargetWorkspaceRequest{
-			SessionID:     movedSession.Meta().SessionID,
+		t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+			SessionId:     movedSession.Meta().SessionID,
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
-			ProjectID:     &targetBinding.ProjectID,
+			ProjectId:     &targetBinding.ProjectID,
 		},
 	); err != nil {
 		t.Fatalf("move Session: %v", err)

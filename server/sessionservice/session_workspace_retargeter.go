@@ -18,6 +18,8 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
 	"core/shared/config"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -60,7 +62,7 @@ func NewSessionWorkspaceRetargeter(
 	}
 }
 
-func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	return s.retargetWorkspaceResolution(ctx, req.SessionID, nil, worktreecontract.NewOperationID(),
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return req, nil }, nil)
 }
@@ -68,13 +70,13 @@ func (s *SessionWorkspaceRetargeter) RetargetWorkspace(ctx context.Context, req 
 func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 	ctx context.Context,
 	req metadata.SessionWorkspaceRetargetRequest,
-	origin serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
-) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error) {
+) (*worktreepb.ScheduledAcknowledgement, error) {
 	return s.ScheduleWorkspaceRetargetResolutionWithCompletion(
 		ctx,
 		req.SessionID,
-		&origin,
+		origin,
 		operationID,
 		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
 			return req, nil
@@ -86,42 +88,42 @@ func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetarget(
 func (s *SessionWorkspaceRetargeter) ScheduleWorkspaceRetargetResolutionWithCompletion(
 	ctx context.Context,
 	sessionID string,
-	origin *serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),
-) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error) {
+) (*worktreepb.ScheduledAcknowledgement, error) {
 	_, err := s.retargetWorkspaceResolution(ctx, sessionID, origin, operationID, resolve, completion)
 	if err != nil {
-		return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{}, err
+		return &worktreepb.ScheduledAcknowledgement{}, err
 	}
-	return serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{OperationID: operationID}, nil
+	return &worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()}, nil
 }
 
 func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	ctx context.Context,
 	sessionID string,
-	origin *serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operationID worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
 	completion func(error),
-) (serverapi.SessionRetargetWorkspaceResponse, error) {
+) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	if s == nil || s.metadata == nil || s.authority == nil || s.publisher == nil || s.processes == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("session workspace retarget dependencies are required")
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget dependencies are required")
 	}
 	if resolve == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("session workspace retarget resolver is required")
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("session workspace retarget resolver is required")
 	}
 	parsedSessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	sessionID = parsedSessionID.String()
 	if err := context.Cause(ctx); err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	type outcome struct {
-		response serverapi.SessionRetargetWorkspaceResponse
+		response *sessionlaunchpb.SessionRetargetWorkspaceSuccess
 		err      error
 	}
 	result := make(chan outcome, 1)
@@ -129,8 +131,8 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	go func() {
 		defer cancelRun()
 		var completionErr error
-		var scheduled *serverapi.SessionWorkspaceRetargetScheduledAcknowledgement
-		var completed serverapi.SessionRetargetWorkspaceResponse
+		var scheduled *worktreepb.ScheduledAcknowledgement
+		var completed *sessionlaunchpb.SessionRetargetWorkspaceSuccess
 		defer func() {
 			if completion != nil {
 				completion(completionErr)
@@ -149,8 +151,8 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 			sessionID,
 			origin,
 			func() {
-				scheduled = &serverapi.SessionWorkspaceRetargetScheduledAcknowledgement{OperationID: operationID}
-				result <- outcome{response: serverapi.SessionRetargetWorkspaceResponse{Scheduled: scheduled}}
+				scheduled = &worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()}
+				result <- outcome{response: &sessionlaunchpb.SessionRetargetWorkspaceSuccess{Scheduled: scheduled}}
 			},
 			func(boundaryCtx context.Context, store *session.Store, activeRuntime *sessionruntime.ActiveRuntimeMaintenance) (callbackErr error) {
 				steerUnplannedFailure := func(cause error) error {
@@ -213,7 +215,11 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 					failureCause = applyErr
 					return steerPlannedFailure(applyErr)
 				}
-				completed = completedWorkspaceRetargetResponse(applied)
+				var projectionErr error
+				completed, projectionErr = completedWorkspaceRetargetResponse(applied)
+				if projectionErr != nil {
+					return projectionErr
+				}
 				publicationErr = s.publisher.PublishSessionIdentity(currentPlan.SessionID)
 				return nil
 			},
@@ -262,7 +268,7 @@ func (s *SessionWorkspaceRetargeter) retargetWorkspaceResolution(
 	case outcome := <-result:
 		return outcome.response, outcome.err
 	case <-ctx.Done():
-		return serverapi.SessionRetargetWorkspaceResponse{}, context.Cause(ctx)
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, context.Cause(ctx)
 	}
 }
 

@@ -30,8 +30,8 @@ func (s *lifecycleResultGatewayService) PersistInputDraft(context.Context, *sess
 	return &emptypb.Empty{}, nil
 }
 
-func (s *lifecycleResultGatewayService) RetargetSessionWorkspace(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	return serverapi.SessionRetargetWorkspaceResponse{}, nil
+func (s *lifecycleResultGatewayService) RetargetSessionWorkspace(context.Context, *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+	return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, nil
 }
 
 func (s *lifecycleResultGatewayService) ResolveTransition(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionDirective, error) {

@@ -360,11 +360,14 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	); err == nil {
 		t.Fatal("active project foreign prompt follow-up watch unexpectedly allowed")
 	}
-	attachedRoute := routeForTest(t, protocol.MethodSessionRetargetWorkspace)
-	if err := executor.authorizeScope(ctx, &connectionState{}, attachedRoute, serverapi.SessionRetargetWorkspaceRequest{SessionID: fixture.foreignSessionID}); err != nil {
+	attachedOperation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("RetargetWorkspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{}, routeScopePolicy(attachedOperation.Options.ScopePolicy), attachedOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err != nil {
 		t.Fatalf("attached-project unscoped session: %v", err)
 	}
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, attachedRoute, serverapi.SessionRetargetWorkspaceRequest{SessionID: fixture.foreignSessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(attachedOperation.Options.ScopePolicy), attachedOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
 		t.Fatal("attached-project foreign session unexpectedly allowed")
 	}
 

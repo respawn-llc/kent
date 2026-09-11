@@ -1,13 +1,10 @@
 package serverapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
-
-	"core/shared/protocol"
 )
 
 var ErrSessionRetarget = errors.New("session workspace retarget failed")
@@ -99,38 +96,4 @@ func (e *SessionRetargetError) SortedCandidateProjects() []ProjectReference {
 		return sorted[i].ID < sorted[j].ID
 	})
 	return sorted
-}
-
-func (e *SessionRetargetError) RPCErrorCode() int {
-	return protocol.ErrCodeSessionRetarget
-}
-
-func (e *SessionRetargetError) RPCErrorData() json.RawMessage {
-	if e == nil || e.Validate() != nil {
-		return nil
-	}
-	normalized := *e
-	normalized.CandidateProjects = e.SortedCandidateProjects()
-	return marshalRPCErrorData(struct {
-		Type string `json:"type"`
-		SessionRetargetError
-	}{
-		Type:                 "session_retarget_error",
-		SessionRetargetError: normalized,
-	})
-}
-
-func DecodeSessionRetargetError(data json.RawMessage, message string) error {
-	var envelope struct {
-		Type string `json:"type"`
-		SessionRetargetError
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != "session_retarget_error" || envelope.SessionRetargetError.Validate() != nil {
-		trimmed := strings.TrimSpace(message)
-		if trimmed == "" {
-			trimmed = ErrSessionRetarget.Error()
-		}
-		return errors.New(trimmed)
-	}
-	return &envelope.SessionRetargetError
 }

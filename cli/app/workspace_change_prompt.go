@@ -11,7 +11,7 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	"core/shared/serverapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -159,7 +159,7 @@ func retargetInteractiveSessionWorkspace(ctx context.Context, server sessionLife
 	if trimmedWorkspaceRoot == "" {
 		return errors.New("workspace root is required")
 	}
-	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, serverapi.SessionRetargetWorkspaceRequest{SessionID: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
+	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
 	return err
 }
 

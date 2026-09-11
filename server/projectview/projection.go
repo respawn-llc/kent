@@ -100,7 +100,7 @@ func projectHomeSummaryToGenerated(summary serverapi.ProjectHomeSummary) (*proje
 	return project, nil
 }
 
-func projectBindingToGenerated(binding metadata.Binding) (*projectpb.ProjectBinding, error) {
+func BindingToProto(binding metadata.Binding) (*projectpb.ProjectBinding, error) {
 	availability, err := projectAvailabilityToGenerated(clientui.ProjectAvailability(binding.WorkspaceStatus))
 	if err != nil {
 		return nil, err

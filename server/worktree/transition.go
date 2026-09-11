@@ -12,9 +12,9 @@ import (
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/shared/clientui"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 
 	"github.com/google/uuid"
@@ -102,11 +102,11 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 		}
 		_ = s.publishWorktreeTransitionResult(request, runErr, nil)
 	}
-	var runtimeOrigin *serverapi.RuntimeStepOrigin
+	var runtimeOrigin *sessionlaunchpb.RuntimeStepOrigin
 	if origin != nil {
-		runtimeOrigin = &serverapi.RuntimeStepOrigin{
-			RunID:  strings.TrimSpace(origin.RunId),
-			StepID: strings.TrimSpace(origin.StepId),
+		runtimeOrigin = &sessionlaunchpb.RuntimeStepOrigin{
+			RunId:  strings.TrimSpace(origin.RunId),
+			StepId: strings.TrimSpace(origin.StepId),
 		}
 	}
 	if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(

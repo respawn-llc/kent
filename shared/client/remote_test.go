@@ -1368,25 +1368,6 @@ func TestProtocolErrorDecodesWorkflowLabelError(t *testing.T) {
 	}
 }
 
-func TestProtocolErrorDecodesSessionRetargetError(t *testing.T) {
-	source := &serverapi.SessionRetargetError{
-		Reason:        serverapi.SessionRetargetTargetProjectRequired,
-		SessionID:     "session-1",
-		SourceProject: serverapi.ProjectReference{ID: "project-source", Name: "Source"},
-		TargetRoot:    "/work/target",
-		CandidateProjects: []serverapi.ProjectReference{{
-			ID:   "project-target",
-			Name: "Target",
-		}},
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeSessionRetarget,
-		Message: source.Error(),
-		Data:    mustRPCErrorData(t, source),
-	})
-	assertRemoteSessionRetargetError(t, err, source)
-}
-
 func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	source := &serverapi.SessionRetargetError{
 		Reason:        serverapi.SessionRetargetTargetProjectRequired,
@@ -1399,13 +1380,24 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 		}},
 	}
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		req := acceptRemoteHandshake(t, ws)
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive session retarget request: %v", err)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewErrorResponseWithData(req.ID, source.RPCErrorCode(), source.Error(), mustRPCErrorData(t, source))); err != nil {
-			t.Fatalf("send session retarget error: %v", err)
-		}
+		acceptRemoteHandshake(t, ws)
+		request := &sessionlaunchpb.SessionRetargetWorkspaceRequest{}
+		call := receiveRemoteGeneratedCall(t, ws, "SessionLifecycleService", "RetargetWorkspace", request)
+		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRetargetWorkspaceResult{
+			Outcome: &sessionlaunchpb.SessionRetargetWorkspaceResult_Error{Error: &sessionlaunchpb.SessionRetargetWorkspaceError{
+				Code: "target_project_required",
+				Detail: &sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectRequired{
+					TargetProjectRequired: &sessionlaunchpb.SessionRetargetTargetProjectRequiredDetails{
+						Facts: &sessionlaunchpb.SessionRetargetFacts{
+							SessionId:         source.SessionID,
+							SourceProject:     &sessionlaunchpb.ProjectReference{Id: source.SourceProject.ID, Name: source.SourceProject.Name},
+							TargetRoot:        source.TargetRoot,
+							CandidateProjects: []*sessionlaunchpb.ProjectReference{{Id: source.CandidateProjects[0].ID, Name: source.CandidateProjects[0].Name}},
+						},
+					},
+				},
+			}},
+		})
 	})
 	defer server.Close()
 
@@ -1414,8 +1406,8 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     source.SessionID,
+	_, err = remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     source.SessionID,
 		WorkspaceRoot: source.TargetRoot,
 	})
 	assertRemoteSessionRetargetError(t, err, source)

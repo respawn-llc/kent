@@ -720,17 +720,6 @@ func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, req servera
 	return c.sessionExecutionResponseContract.Decode(raw)
 }
 
-func (c *Remote) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	response, err := callUnscopedRPC[serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](c, ctx, protocol.MethodSessionRetargetWorkspace, req)
-	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, invalidResponseError("session retarget", err)
-	}
-	return response, nil
-}
-
 func (c *Remote) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
 	var resp serverapi.SessionResolveTransitionResponse
 	return resp, c.call(ctx, protocol.MethodSessionResolveTransition, req, &resp)

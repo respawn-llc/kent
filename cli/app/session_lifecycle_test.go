@@ -372,7 +372,7 @@ func (s *reattachSessionLifecycleServer) ReattachSession(ctx context.Context, se
 type recordingSessionLifecycleClient struct {
 	getInitialInput          func(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error)
 	persistInputDraft        func(context.Context, *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error)
-	retargetSessionWorkspace func(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
+	retargetSessionWorkspace func(context.Context, *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
 	resolveTransition        func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
 }
 
@@ -392,9 +392,9 @@ func (c *recordingSessionLifecycleClient) PersistInputDraft(ctx context.Context,
 	return c.persistInputDraft(ctx, req)
 }
 
-func (c *recordingSessionLifecycleClient) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func (c *recordingSessionLifecycleClient) RetargetSessionWorkspace(ctx context.Context, req *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	if c.retargetSessionWorkspace == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("unexpected RetargetSessionWorkspace call")
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, errors.New("unexpected RetargetSessionWorkspace call")
 	}
 	return c.retargetSessionWorkspace(ctx, req)
 }

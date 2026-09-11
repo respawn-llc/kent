@@ -13,6 +13,7 @@ import (
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -201,7 +202,7 @@ func (a *Authority) RunSessionMaintenance(
 func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 	ctx context.Context,
 	sessionID string,
-	origin *serverapi.RuntimeStepOrigin,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
 	onScheduled func(),
 	fn func(context.Context, *session.Store, *ActiveRuntimeMaintenance) error,
 ) error {
@@ -225,7 +226,7 @@ func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 		}
 		if origin != nil {
 			activeStep := runtimeactivity.ActiveStepFromProvider(engine)
-			if activeStep == nil || activeStep.RunID != origin.RunID || activeStep.StepID != origin.StepID {
+			if activeStep == nil || activeStep.RunID != origin.RunId || activeStep.StepID != origin.StepId {
 				return false, runtime.ErrActiveStepInactive
 			}
 		}

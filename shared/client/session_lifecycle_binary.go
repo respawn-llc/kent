@@ -3,10 +3,16 @@ package client
 import (
 	"context"
 
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func (c *Remote) RetargetSessionWorkspace(ctx context.Context, request *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+	return callGeneratedBinary(c, ctx, sessionLifecycleMethod("RetargetWorkspace"), request,
+		&sessionlaunchpb.SessionRetargetWorkspaceResult{}, protoapi.SessionRetargetErrorFromProto)
+}
 
 func (c *Remote) GetInitialInput(ctx context.Context, request *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
 	return callGeneratedBinary(c, ctx, sessionLifecycleMethod("GetInitialInput"), request,

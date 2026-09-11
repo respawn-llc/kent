@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"core/shared/runtimeids"
-	"core/shared/worktreecontract"
 )
 
 type SessionTransitionAction string
@@ -29,80 +28,12 @@ type SessionTransition struct {
 	PreviousSessionID            *runtimeids.SessionID   `json:"previous_session_id,omitempty"`
 }
 
-type RuntimeStepOrigin struct {
-	RunID  string `json:"run_id"`
-	StepID string `json:"step_id"`
-}
-
-type SessionRetargetWorkspaceRequest struct {
-	SessionID     string             `json:"session_id"`
-	WorkspaceRoot string             `json:"workspace_root"`
-	ProjectID     *string            `json:"project_id,omitempty"`
-	Origin        *RuntimeStepOrigin `json:"origin,omitempty"`
-}
-
-type SessionRetargetWorkspaceResponse struct {
-	Binding                 *ProjectBinding                                   `json:"binding,omitempty"`
-	WorkspaceBindingCreated bool                                              `json:"workspace_binding_created,omitempty"`
-	Scheduled               *SessionWorkspaceRetargetScheduledAcknowledgement `json:"scheduled,omitempty"`
-}
-
-type SessionWorkspaceRetargetScheduledAcknowledgement struct {
-	OperationID worktreecontract.OperationID `json:"operation_id"`
-}
-
 type SessionResolveTransitionRequest struct {
 	SessionID  string            `json:"session_id,omitempty"`
 	Transition SessionTransition `json:"transition"`
 }
 
 type SessionResolveTransitionResponse = SessionDirective
-
-func (r SessionRetargetWorkspaceRequest) Validate() error {
-	if err := validateScopedSessionID(r.SessionID); err != nil {
-		return err
-	}
-	if strings.TrimSpace(r.WorkspaceRoot) == "" {
-		return errors.New("workspace_root is required")
-	}
-	if r.ProjectID != nil && strings.TrimSpace(*r.ProjectID) == "" {
-		return errors.New("project_id must not be blank when provided")
-	}
-	if r.Origin != nil {
-		return r.Origin.Validate()
-	}
-	return nil
-}
-
-func (origin RuntimeStepOrigin) Validate() error {
-	if err := runtimeids.ValidateUUIDv4(origin.RunID, "run_id"); err != nil {
-		return err
-	}
-	return runtimeids.ValidateUUIDv4(origin.StepID, "step_id")
-}
-
-func (r SessionRetargetWorkspaceResponse) Validate() error {
-	switch {
-	case r.Binding != nil && r.Scheduled == nil:
-		if strings.TrimSpace(r.Binding.ProjectID) == "" ||
-			strings.TrimSpace(r.Binding.WorkspaceID) == "" ||
-			strings.TrimSpace(r.Binding.CanonicalRoot) == "" {
-			return errors.New("completed retarget response requires a complete binding")
-		}
-		return nil
-	case r.Binding == nil && r.Scheduled != nil:
-		if r.WorkspaceBindingCreated {
-			return errors.New("scheduled retarget response cannot report workspace creation")
-		}
-		return r.Scheduled.Validate()
-	default:
-		return errors.New("retarget response requires exactly one completed binding or scheduled acknowledgement")
-	}
-}
-
-func (a SessionWorkspaceRetargetScheduledAcknowledgement) Validate() error {
-	return a.OperationID.Validate()
-}
 
 func (r SessionResolveTransitionRequest) Validate() error {
 	if strings.TrimSpace(r.SessionID) != "" {

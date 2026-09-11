@@ -28,6 +28,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -48,7 +49,7 @@ type processSource interface {
 }
 
 type sessionWorkspaceRetargeter interface {
-	ScheduleWorkspaceRetargetResolutionWithCompletion(context.Context, string, *serverapi.RuntimeStepOrigin, worktreecontract.OperationID, func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error), func(error)) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error)
+	ScheduleWorkspaceRetargetResolutionWithCompletion(context.Context, string, *sessionlaunchpb.RuntimeStepOrigin, worktreecontract.OperationID, func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error), func(error)) (*worktreepb.ScheduledAcknowledgement, error)
 }
 
 type ServiceOptions struct {

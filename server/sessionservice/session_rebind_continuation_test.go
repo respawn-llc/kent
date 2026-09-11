@@ -12,7 +12,7 @@ import (
 	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/serverapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/worktreecontract"
@@ -48,7 +48,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 			targetProject := fixture.targetProject.ProjectID
 			_, err := retargeter.ScheduleWorkspaceRetarget(ctx, metadata.SessionWorkspaceRetargetRequest{
 				SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetProject,
-			}, serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID}, worktreecontract.NewOperationID())
+			}, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID())
 			if err != nil {
 				return llm.Response{}, err
 			}
@@ -150,8 +150,8 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	}
 	callerCtx, disconnect := context.WithCancel(ctx)
 	targetProject := fixture.targetProject.ProjectID
-	response, err := service.RetargetSessionWorkspace(callerCtx, serverapi.SessionRetargetWorkspaceRequest{
-		SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetProject,
+	response, err := service.RetargetSessionWorkspace(callerCtx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectId: &targetProject,
 	})
 	disconnect()
 	if err != nil || response.Scheduled == nil || response.Binding != nil {
@@ -227,7 +227,7 @@ func TestSelfRebindRejectsAStaleOriginWithoutInterruptingExecution(t *testing.T)
 		targetProject := fixture.targetProject.ProjectID
 		_, err := retargeter.ScheduleWorkspaceRetarget(ctx, metadata.SessionWorkspaceRetargetRequest{
 			SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetProject,
-		}, serverapi.RuntimeStepOrigin{RunID: uuid.NewString(), StepID: uuid.NewString()}, worktreecontract.NewOperationID())
+		}, &sessionlaunchpb.RuntimeStepOrigin{RunId: uuid.NewString(), StepId: uuid.NewString()}, worktreecontract.NewOperationID())
 		rejected <- err
 		return llm.Response{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("continued"), Phase: textutil.Value(llm.MessagePhaseFinal)},

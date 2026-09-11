@@ -15,7 +15,9 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 
@@ -161,14 +163,14 @@ func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "session rebind response omitted its result")
 		return 1
 	}
-	_, _ = fmt.Fprintln(stdout, response.Binding.WorkspaceID)
+	_, _ = fmt.Fprintln(stdout, response.Binding.WorkspaceId)
 	if response.WorkspaceBindingCreated {
 		_, _ = fmt.Fprintf(
 			stderr,
 			"Attached workspace %q to project %q (%s).\n",
 			response.Binding.CanonicalRoot,
 			response.Binding.ProjectName,
-			response.Binding.ProjectID,
+			response.Binding.ProjectId,
 		)
 	}
 	return 0
@@ -240,20 +242,20 @@ func rebindWorkspaceWithTimeout(ctx context.Context, remote apicontract.ProjectV
 	return remote.RebindWorkspace(rpcCtx, &projectpb.RebindWorkspaceRequest{OldWorkspaceRoot: oldWorkspaceRoot, NewWorkspaceRoot: newWorkspaceRoot})
 }
 
-func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLifecycleService, sessionID string, workspaceRoot string, projectID *string) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLifecycleService, sessionID string, workspaceRoot string, projectID *string) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	origin, err := sessionRetargetRuntimeOrigin(sessionID)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
-	return remote.RetargetSessionWorkspace(ctx, serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     sessionID,
+	return remote.RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     sessionID,
 		WorkspaceRoot: workspaceRoot,
-		ProjectID:     projectID,
+		ProjectId:     projectID,
 		Origin:        origin,
 	})
 }
 
-func sessionRetargetRuntimeOrigin(sessionID string) (*serverapi.RuntimeStepOrigin, error) {
+func sessionRetargetRuntimeOrigin(sessionID string) (*sessionlaunchpb.RuntimeStepOrigin, error) {
 	currentSessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok || currentSessionID != strings.TrimSpace(sessionID) {
 		return nil, nil
@@ -262,8 +264,8 @@ func sessionRetargetRuntimeOrigin(sessionID string) (*serverapi.RuntimeStepOrigi
 	if runID == "" && stepID == "" {
 		return nil, nil
 	}
-	origin := &serverapi.RuntimeStepOrigin{RunID: runID, StepID: stepID}
-	return origin, origin.Validate()
+	origin := &sessionlaunchpb.RuntimeStepOrigin{RunId: runID, StepId: stepID}
+	return origin, protoapi.Validate(origin)
 }
 
 func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
@@ -308,15 +310,15 @@ func createProject(ctx context.Context, displayName string, workspaceRoot string
 	return resp.Binding, nil
 }
 
-func retargetSessionWorkspaceResponse(ctx context.Context, sessionID string, newPath string, projectID *string) (serverapi.SessionRetargetWorkspaceResponse, error) {
+func retargetSessionWorkspaceResponse(ctx context.Context, sessionID string, newPath string, projectID *string) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	newCfg, remote, err := openBindingCommandRemote(ctx, newPath)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	defer func() { _ = remote.Close() }()
 	resp, err := retargetSessionWorkspace(ctx, remote, sessionID, newCfg.WorkspaceRoot, projectID)
 	if err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
 	}
 	return resp, nil
 }

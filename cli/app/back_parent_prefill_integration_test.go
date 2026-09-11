@@ -140,11 +140,10 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	targetProjectID := bindingB.ProjectID
 	if _, err := sourceServer.SessionLifecycleClient().RetargetSessionWorkspace(
-		context.Background(),
-		serverapi.SessionRetargetWorkspaceRequest{
-			SessionID:     parent.Meta().SessionID,
+		context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+			SessionId:     parent.Meta().SessionID,
 			WorkspaceRoot: workspaceB,
-			ProjectID:     &targetProjectID,
+			ProjectId:     &targetProjectID,
 		},
 	); err != nil {
 		t.Fatalf("move parent to target project: %v", err)

@@ -8,9 +8,11 @@ import (
 
 	"core/server/auth"
 	"core/server/metadata"
+	"core/server/projectview"
 	"core/server/session"
 	"core/server/sessionruntime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -45,8 +47,8 @@ func (s *SessionLifecycleService) WithPersistedSessionResolver(resolver session.
 }
 
 type sessionWorkspaceRetargeter interface {
-	RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
-	ScheduleWorkspaceRetarget(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest, origin serverapi.RuntimeStepOrigin, operationID worktreecontract.OperationID) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error)
+	RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
+	ScheduleWorkspaceRetarget(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest, origin *sessionlaunchpb.RuntimeStepOrigin, operationID worktreecontract.OperationID) (*worktreepb.ScheduledAcknowledgement, error)
 }
 
 type sessionNavigationTargetResolver interface {
@@ -132,48 +134,39 @@ func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *se
 	return &emptypb.Empty{}, err
 }
 
-func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
-	}
+func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, req *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	if s == nil || s.retargeter == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errSessionWorkspaceRetargeterRequired
+		return nil, errSessionWorkspaceRetargeterRequired
 	}
 	retargetRequest := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     req.SessionID,
+		SessionID:     req.SessionId,
 		WorkspaceRoot: req.WorkspaceRoot,
-		ProjectID:     req.ProjectID,
+		ProjectID:     req.ProjectId,
 	}
 	if req.Origin != nil {
 		acknowledgement, err := s.retargeter.ScheduleWorkspaceRetarget(
 			ctx,
 			retargetRequest,
-			*req.Origin,
+			req.Origin,
 			worktreecontract.NewOperationID(),
 		)
 		if err != nil {
-			return serverapi.SessionRetargetWorkspaceResponse{}, err
+			return nil, err
 		}
-		return serverapi.SessionRetargetWorkspaceResponse{Scheduled: &acknowledgement}, nil
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{Scheduled: acknowledgement}, nil
 	}
 	return s.retargeter.RetargetWorkspace(ctx, retargetRequest)
 }
 
-func completedWorkspaceRetargetResponse(result metadata.SessionWorkspaceRetargetResult) serverapi.SessionRetargetWorkspaceResponse {
-	binding := result.Binding
-	bindingResponse := serverapi.ProjectBinding{
-		ProjectID:       binding.ProjectID,
-		ProjectKey:      binding.ProjectKey,
-		ProjectName:     binding.ProjectName,
-		WorkspaceID:     binding.WorkspaceID,
-		CanonicalRoot:   binding.CanonicalRoot,
-		WorkspaceName:   binding.WorkspaceName,
-		WorkspaceStatus: binding.WorkspaceStatus,
+func completedWorkspaceRetargetResponse(result metadata.SessionWorkspaceRetargetResult) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+	binding, err := projectview.BindingToProto(result.Binding)
+	if err != nil {
+		return nil, err
 	}
-	return serverapi.SessionRetargetWorkspaceResponse{
-		Binding:                 &bindingResponse,
+	return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{
+		Binding:                 binding,
 		WorkspaceBindingCreated: result.WorkspaceBindingCreated,
-	}
+	}, nil
 }
 
 func (s *SessionLifecycleService) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
