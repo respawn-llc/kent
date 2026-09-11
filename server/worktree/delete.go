@@ -18,26 +18,22 @@ import (
 )
 
 func (s *Service) DeleteWorktree(ctx context.Context, req *worktreepb.DeleteRequest) (*worktreepb.DeleteSuccess, error) {
-	release, workspaceCtx, err := s.beginWorkspaceMutation(ctx, req.SessionId)
+	release, management, err := s.beginManagementMutation(ctx, req.Scope)
 	if err != nil {
 		return nil, err
 	}
-	topology, err := s.projectTopology(ctx, workspaceCtx.workspaceID, workspaceCtx.workspaceRoot)
-	if err != nil {
-		release()
-		return nil, err
-	}
-	match, err := resolveTopologySelector(topology, req.Selector)
+	workspaceCtx := management.binding
+	resolution, err := s.resolveWorktreeSelector(ctx, workspaceCtx, req.Selector)
 	if err != nil {
 		release()
 		return nil, err
 	}
-	if _, err := deletionSelector(match.entry); err != nil {
+	if _, err := deletionSelector(resolution.match.entry); err != nil {
 		release()
 		return nil, err
 	}
 	defer release()
-	result, err := s.executeDeleteLocked(ctx, workspaceCtx, match.entry, req)
+	result, err := s.executeDeleteLocked(ctx, workspaceCtx, resolution.match.entry, req)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +42,7 @@ func (s *Service) DeleteWorktree(ctx context.Context, req *worktreepb.DeleteRequ
 
 func (s *Service) executeDeleteLocked(
 	ctx context.Context,
-	workspaceCtx sessionWorkspaceContext,
+	workspaceCtx metadata.Binding,
 	entry *worktreepb.TopologyEntry,
 	req *worktreepb.DeleteRequest,
 ) (*worktreepb.DeleteSuccess, error) {
@@ -85,9 +81,9 @@ func (s *Service) executeDeleteLocked(
 		var err error
 		if req.ForceFolderRemoval && entry.GetRegistered() != nil &&
 			entry.GetRegistered().GetGit().PrunableReason != nil {
-			err = s.git.ForceRemovePrunableWorktree(ctx, workspaceCtx.workspaceRoot, target.record.CanonicalRoot)
+			err = s.git.ForceRemovePrunableWorktree(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot)
 		} else {
-			err = s.git.Remove(ctx, workspaceCtx.workspaceRoot, target.record.CanonicalRoot, req.ForceFolderRemoval)
+			err = s.git.Remove(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot, req.ForceFolderRemoval)
 		}
 		if err != nil {
 			var recoveryError *PrunableWorktreeRecoveryError
@@ -102,7 +98,7 @@ func (s *Service) executeDeleteLocked(
 			return nil, err
 		}
 	}
-	cleanup := s.cleanupDeletedBranch(ctx, workspaceCtx.workspaceRoot, entry, record, req.BranchCleanupPolicy)
+	cleanup := s.cleanupDeletedBranch(ctx, workspaceCtx.CanonicalRoot, entry, record, req.BranchCleanupPolicy)
 	return &worktreepb.DeleteSuccess{Cleanup: cleanup, LeftoverRoot: leftoverRoot}, nil
 }
 
@@ -123,7 +119,7 @@ func (s *Service) ensureDeleteFolderRemovalAuthorized(
 
 func (s *Service) deleteTarget(
 	ctx context.Context,
-	workspaceCtx sessionWorkspaceContext,
+	workspaceCtx metadata.Binding,
 	entry *worktreepb.TopologyEntry,
 ) (*syncedWorktree, *metadata.WorktreeRecord, error) {
 	switch {
@@ -145,7 +141,7 @@ func (s *Service) deleteTarget(
 		}
 		target := syncedWorktree{
 			record: metadata.WorktreeRecord{
-				WorkspaceID:   workspaceCtx.workspaceID,
+				WorkspaceID:   workspaceCtx.WorkspaceID,
 				CanonicalRoot: entry.GetExternal().GetGit().GetCanonicalRoot(),
 				DisplayName:   filepath.Base(entry.GetExternal().GetGit().GetCanonicalRoot()),
 			},
@@ -269,13 +265,13 @@ func activeDeleteBlockerError(blockers []metadata.WorktreeSessionBlocker) error 
 
 func (s *Service) retargetDeleteSessions(
 	ctx context.Context,
-	workspaceCtx sessionWorkspaceContext,
+	workspaceCtx metadata.Binding,
 	record metadata.WorktreeRecord,
 ) (worktreeSessionRetargetCompensation, error) {
 	return s.retargetSessionsFromWorktree(
 		ctx,
-		workspaceCtx.workspaceID,
-		workspaceCtx.workspaceRoot,
+		workspaceCtx.WorkspaceID,
+		workspaceCtx.CanonicalRoot,
 		record,
 		worktreeSessionRetargetOptions{
 			reminder:        worktreeReminderStateForExitedWorktree,

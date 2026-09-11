@@ -98,7 +98,8 @@ func (a *Authority) RunWorktreeTransition(
 		if resource == nil {
 			runErr := fn(
 				runCtx,
-				nil,
+				// Dormant maintenance already holds Session admission for this callback.
+				func(apply func(context.Context) error) error { return apply(runCtx) },
 				func(syncCtx context.Context, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 					if err := context.Cause(syncCtx); err != nil {
 						return err

@@ -29,6 +29,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+	"core/shared/worktreecontract"
 )
 
 func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *httptest.Server) {
@@ -563,8 +564,8 @@ func TestGatewayRemoteResolveWorktreeCreateTarget(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{
-		SessionId: store.Meta().SessionID,
-		Target:    "HEAD",
+		Scope:  worktreecontract.SessionManagementScope(store.Meta().SessionID),
+		Target: "HEAD",
 	})
 	if err != nil {
 		t.Fatalf("ResolveWorktreeCreateTarget: %v", err)

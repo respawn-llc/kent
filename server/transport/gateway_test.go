@@ -723,10 +723,12 @@ func (c *countingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Contex
 }
 
 func (c *countingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-	c.releaseCount.Add(1)
-	if c.releaseRequests != nil {
-		c.releaseRequests <- req
-	}
+	defer func() {
+		c.releaseCount.Add(1)
+		if c.releaseRequests != nil {
+			c.releaseRequests <- req
+		}
+	}()
 	if c.releaseResponse != nil {
 		return *c.releaseResponse, nil
 	}
@@ -907,7 +909,13 @@ func TestGatewayCloseIfIdleReleasePropagatesPolicy(t *testing.T) {
 }
 
 func TestGatewayDisconnectKeepsRuntimeAvailableUntilExplicitCloseIfIdle(t *testing.T) {
-	appCore, server := newGatewayTestServer(t)
+	appCore, _ := newGatewayTestCore(t, true, true)
+	counter := &countingSessionRuntimeClient{SessionRuntimeService: appCore.SessionRuntimeClient()}
+	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
 	defer func() { _ = appCore.Close() }()
 	defer server.Close()
 	store := createGatewayAuthoritativeSession(t, appCore)
@@ -926,6 +934,9 @@ func TestGatewayDisconnectKeepsRuntimeAvailableUntilExplicitCloseIfIdle(t *testi
 	if err := first.Close(); err != nil {
 		t.Fatalf("close first gateway connection: %v", err)
 	}
+	waitForGatewayCondition(t, "completed first connection owner release", func() bool {
+		return counter.releaseCount.Load() == 1
+	})
 
 	second := dialGateway(t, server)
 	defer second.Close()

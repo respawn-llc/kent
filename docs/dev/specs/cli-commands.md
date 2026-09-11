@@ -304,11 +304,31 @@
 - Run control commands accept only `--persistence-root`, plus `--output-mode=json` for wait and watch.
 - Run control commands reject workspace, model, provider, agent, timeout, tools, and progress flags.
 - Headless stdin is not a steering channel.
-- `kent worktree list` resolves the workspace bound to the current directory without a Session.
-- Current Session context or `--session` adds that Session's current-Worktree view.
-- Without Session context, the list is markerless, and Kent never infers a Session from workspace history.
+- `kent worktree list`, `create`, and `delete` must accept `--project <project-id>` and `--workspace <workspace-id>`.
+- With `--project` and no `--workspace`, Worktree management must use the selected Project's default Workspace independently of the caller's Project and current directory.
+- With `--workspace`, Worktree management must select that Workspace within the selected or inferred Project.
+- Without `--project`, Worktree management must infer its Project and default target Workspace from the issuing agent Session, otherwise from `--session`, otherwise from the current directory.
+- Worktree list, create, and delete must not require a Session.
+- Inside agent shells, the issuing Session must remain the caller even when `--session` names another Session.
+- Every part of a Worktree management action, including discovery, selector and reference resolution, previews, validation, setup, and mutation, must use the same selected Project and Workspace.
+- Invalid Project or Workspace selection must fail without falling back to the caller's Project or changing Session targets, Worktree information, Git state, or branches.
+- Managing another Project's Worktrees must not rebind the issuing Session, change its Working Directory, or produce a Session-moved interruption.
+- Worktree management must preserve the deletion protection, blockers, and dependent-Session retargeting defined in [Worktree Management](tui-transcript.md#worktree-management).
+- With `--project` or `--workspace`, Worktree lists must be markerless.
+- Without explicit Project or Workspace selection, current Session context or `--session` must add that Session's current-Worktree view.
+- Without Session context, Worktree lists must be markerless.
+- Worktree management must never infer a Session from Workspace history.
 - Agent Worktree deletion always retains branches.
-- Agent Worktree creation stops after setup and prints a separate enter action.
+- CLI Worktree creation must stop after setup without entering the created Worktree.
+- When Session context exists, successful CLI Worktree creation must print a separate enter action.
+- For cross-Workspace creation, the enter action must use the created Worktree's absolute path.
+- Outside agent shells, the enter action must include `--session`.
+- Without Session context, successful human-readable CLI Worktree creation must print the created root without an enter action.
+- With Session context, `worktree create --json` must retain the existing Session-location and created-Worktree fields, including during cross-Project creation.
+- The creation result's `target` must describe the caller Session's location, not the selected management Project's location.
+- Without Session context, `worktree create --json` must omit the Session-location field.
+- Outside agent shells, `kent worktree leave` without `--session` must fail with "This command makes no sense outside agent shells. Try supplying --session if you want to move an agent out of its worktree forcibly".
+- Outside agent shells, `kent worktree leave --session <id>` must apply the ordinary leave operation to the specified Session without bypassing navigation safety or timing.
 - Worktree enter and leave for an Active Session Runtime return the Worktree Operation acknowledgement before an active Agent Step or the transition finishes.
 - Human-readable `worktree enter` and `worktree leave` confirm acceptance without printing the Worktree Operation ID.
 - Worktree `--json` includes the Worktree Operation ID.

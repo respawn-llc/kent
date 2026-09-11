@@ -14,6 +14,7 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 )
@@ -306,6 +307,16 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 		return err
 	case rpccontract.ScopeChatTarget:
 		return e.gateway.requireChatTargetAccess(ctx, state, scopeParams.chatTarget)
+	case rpccontract.ScopeWorktreeManagement:
+		switch selected := scopeParams.worktreeManagement.GetScope().(type) {
+		case *worktreepb.ManagementScope_SessionId:
+			return e.gateway.requireSessionInActiveProject(ctx, state, selected.SessionId)
+		case *worktreepb.ManagementScope_Workspace:
+			target := selected.Workspace.GetTarget()
+			return e.gateway.requireProjectWorkspaceBinding(ctx, state, target.GetProjectId(), target.GetWorkspaceId())
+		default:
+			return errors.New("worktree management scope is required")
+		}
 	default:
 		return fmt.Errorf("unsupported route scope %q for method %q", scope, method)
 	}
@@ -318,6 +329,7 @@ type routeScopeParams struct {
 	projectID                 string
 	workspaceID               string
 	chatTarget                *chatpb.ChatTarget
+	worktreeManagement        *worktreepb.ManagementScope
 }
 
 func routeScopeParamsFor(route rpccontract.Route, params any) (routeScopeParams, error) {

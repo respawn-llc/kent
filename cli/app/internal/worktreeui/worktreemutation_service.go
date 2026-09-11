@@ -55,8 +55,8 @@ func (s Service) ResolveCreateTarget(target string) (*worktreepb.CreateTargetRes
 	ctx, cancel := s.resolveContext()
 	defer cancel()
 	return s.Client.ResolveWorktreeCreateTarget(ctx, &worktreepb.CreateTargetResolveRequest{
-		SessionId: strings.TrimSpace(s.SessionID),
-		Target:    target,
+		Scope:  worktreecontract.SessionManagementScope(strings.TrimSpace(s.SessionID)),
+		Target: target,
 	})
 }
 
@@ -77,7 +77,7 @@ func (s Service) Create(req *worktreepb.CreateRequest) (*worktreepb.CreateSucces
 		req.SetupOperationId = worktreecontract.NewSetupOperationID().String()
 	}
 	return runCreateMutation(s, func(ctx context.Context) (*worktreepb.CreateSuccess, error) {
-		req.SessionId = s.SessionID
+		req.Scope = worktreecontract.SessionManagementScope(s.SessionID)
 		return s.Client.CreateWorktree(ctx, req)
 	})
 }
@@ -114,7 +114,7 @@ func (s Service) Delete(
 ) (*worktreepb.DeleteSuccess, error) {
 	return runMutation(s, func(ctx context.Context) (*worktreepb.DeleteSuccess, error) {
 		return s.Client.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-			SessionId:           s.SessionID,
+			Scope:               worktreecontract.SessionManagementScope(s.SessionID),
 			Selector:            strings.TrimSpace(selector),
 			ForceFolderRemoval:  forceFolderRemoval,
 			BranchCleanupPolicy: cleanupPolicy,

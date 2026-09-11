@@ -16,6 +16,16 @@ kent worktree delete <selector>
 
 Every command supports `--json`. Session-scoped commands automatically use the current Session inside a Kent shell or accept `--session <id>` explicitly.
 
+## Select a Project or Workspace
+
+`list`, `create`, and `delete` work without a Session. Use `--project <project-id>` for that Project's default Workspace, or add `--workspace <workspace-id>` to choose another Workspace within it.
+
+```bash
+kent worktree create --project <project-id> --workspace <workspace-id> feature/search
+```
+
+Without `--project`, Kent uses the agent's Session, otherwise `--session`, otherwise the current directory. `--workspace` alone selects within that Project. These management commands do not move the Session.
+
 ## Select
 
 Select a worktree by its exact ID, branch, display name, or path. IDs take precedence, followed by branch, display name, and path. Ambiguous selectors fail.
@@ -26,13 +36,13 @@ Select a worktree by its exact ID, branch, display name, or path. IDs take prece
 - **external**: available to Git but not managed by Kent; entering it registers it
 - **missing**: managed by Kent, but absent from Git
 
-`list` resolves the workspace bound to the current directory and does not require a Session. With current Session context or `--session`, it marks that Session's current worktree with `*`; Kent does not infer a Session from workspace history.
+`list` marks the Session's current worktree with `*` unless `--project` or `--workspace` is supplied. Lists without a Session are markerless.
 
 `status` reports a missing checkout or branch without changing the session's worktree.
 
 ## Create and enter
 
-`create` prepares the checkout and runs its setup script. The CLI prints a separate `kent worktree enter` command; the TUI enters the worktree after creation succeeds.
+`create` prepares the checkout and runs its setup script. With a Session, the CLI prints a separate `kent worktree enter` command; the TUI enters the worktree after creation succeeds.
 
 `enter`, `leave`, and deletion of the active worktree may finish after the command returns. For an active Session, `enter` and `leave` join Pending Work until the next eligible Agent Step boundary; the Session keeps its current worktree until the change starts. Kent presents these queued actions as `/wt switch <selector>` and `/wt leave`, regardless of whether they came from the TUI or CLI. `--json` returns the operation acknowledgement. Kent reports completion or failure in session activity. A server restart cancels a pending change.
 
@@ -73,7 +83,7 @@ Kent supplies these reserved environment variables, replacing conflicting inheri
 - `KENT_WORKTREE_SOURCE_WORKSPACE_ROOT` - Original/main workspace root that created the worktree, e.g. `/home/user/dev/app` or `C:\Users\user\dev\app`.
 - `KENT_WORKTREE_BRANCH_NAME` - Branch/ref name selected for the new worktree, e.g. `feature/search-fix`.
 - `KENT_WORKTREE_ROOT` - Opaque filesystem path to the newly created worktree; setup script runs with this as cwd, for example `/home/user/.kent/worktrees/app/417`. Use this value instead of deriving a path from the branch name.
-- `KENT_WORKTREE_SESSION_ID` - Kent session id that requested the worktree, e.g. `b31234ab-78ce-43d1-8f4c-2d6c6d4adbc1`. Present only when a session initiates creation; workflow task setup omits it.
+- `KENT_WORKTREE_SESSION_ID` - Kent session id that requested the worktree, e.g. `b31234ab-78ce-43d1-8f4c-2d6c6d4adbc1`. Present only when a session initiates creation; Sessionless CLI creation and workflow task setup omit it.
 - `KENT_WORKTREE_PROJECT_ID` - Kent project id for the workspace/project, e.g. `project-94b18685-19ed-4513-96bb-bcffa10410ff`.
 - `KENT_WORKTREE_WORKSPACE_ID` - Kent workspace binding id for the source workspace, e.g. `workspace-2f7b6d4a`.
 - `KENT_WORKTREE_WORKTREE_ID` - UUID for the created worktree, e.g. `c4aaf0cf-4c50-4560-b6a2-6c294d0b1495`.
@@ -95,4 +105,4 @@ It also receives the same payload as JSON on stdin:
 }
 ```
 
-`session_id` is nullable: workflow task setup supplies `null`, while session-originated creation supplies the requesting session ID.
+`session_id` is nullable: Sessionless CLI creation and workflow task setup supply `null`, while session-originated creation supplies the requesting session ID.

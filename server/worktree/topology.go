@@ -143,11 +143,15 @@ func topologyIsCurrent(entry *worktreepb.TopologyEntry, target clientui.SessionE
 }
 
 func (s *Service) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {
-	resolution, err := s.resolveWorktreeSelector(ctx, req.SessionId, req.Selector)
+	selected, err := s.resolveManagementContext(ctx, worktreecontract.SessionManagementScope(req.SessionId))
 	if err != nil {
 		return nil, err
 	}
-	projected, err := projectWorktreeList(resolution.entries, &resolution.target)
+	resolution, err := s.resolveWorktreeSelector(ctx, selected.binding, req.Selector)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectWorktreeList(resolution.entries, selected.target())
 	if err != nil {
 		return nil, err
 	}
@@ -157,15 +161,10 @@ func (s *Service) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.S
 type worktreeSelectorResolution struct {
 	entries []*worktreepb.TopologyEntry
 	match   topologySelectorMatch
-	target  clientui.SessionExecutionTarget
 }
 
-func (s *Service) resolveWorktreeSelector(ctx context.Context, sessionID string, selector string) (worktreeSelectorResolution, error) {
-	workspaceCtx, err := s.resolveSessionWorkspaceContext(ctx, sessionID)
-	if err != nil {
-		return worktreeSelectorResolution{}, err
-	}
-	entries, err := s.projectTopology(ctx, workspaceCtx.workspaceID, workspaceCtx.workspaceRoot)
+func (s *Service) resolveWorktreeSelector(ctx context.Context, binding metadata.Binding, selector string) (worktreeSelectorResolution, error) {
+	entries, err := s.projectTopology(ctx, binding.WorkspaceID, binding.CanonicalRoot)
 	if err != nil {
 		return worktreeSelectorResolution{}, err
 	}
@@ -173,11 +172,15 @@ func (s *Service) resolveWorktreeSelector(ctx context.Context, sessionID string,
 	if err != nil {
 		return worktreeSelectorResolution{}, err
 	}
-	return worktreeSelectorResolution{entries: entries, match: match, target: workspaceCtx.target}, nil
+	return worktreeSelectorResolution{entries: entries, match: match}, nil
 }
 
 func (s *Service) PreviewWorktreeDelete(ctx context.Context, req *worktreepb.DeletePreviewRequest) (*worktreepb.DeletePreviewSuccess, error) {
-	resolution, err := s.resolveWorktreeSelector(ctx, req.SessionId, req.Selector)
+	selected, err := s.resolveManagementContext(ctx, req.Scope)
+	if err != nil {
+		return nil, err
+	}
+	resolution, err := s.resolveWorktreeSelector(ctx, selected.binding, req.Selector)
 	if err != nil {
 		return nil, err
 	}
