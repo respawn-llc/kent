@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"core/server/llm"
@@ -99,13 +100,13 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
-			providerUsageTestResponse(2),
-			providerUsageTestResponse(5),
+			providerUsageTestMixedResponse(2),
+			providerUsageTestMixedResponse(5),
 		},
 		compactionResponses: []llm.CompactionResponse{{
 			Checkpoint:       remoteCompactionReplacement(9, 4, 200_000).Checkpoint,
 			Usage:            llm.Usage{InputTokens: 9, OutputTokens: 4},
-			ProviderEvidence: providerUsageTestResponse(7).ProviderEvidence,
+			ProviderEvidence: providerUsageTestMixedResponse(7).ProviderEvidence,
 		}},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
@@ -149,12 +150,12 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 		if records[index].OperationID != before.OperationID || records[index].SessionID != before.SessionID {
 			t.Fatalf("record %d identity after compaction/reopen = %+v, want %+v", index, records[index], before)
 		}
-		if records[index].Evidence.Usage == nil || before.Evidence.Usage == nil ||
-			string(*records[index].Evidence.Usage) != string(*before.Evidence.Usage) {
-			t.Fatalf("record %d usage after compaction/reopen = %v, want %v", index, records[index].Evidence.Usage, before.Evidence.Usage)
+		if !reflect.DeepEqual(records[index].Evidence, before.Evidence) {
+			t.Fatalf("record %d evidence after compaction/reopen = %+v, want %+v", index, records[index].Evidence, before.Evidence)
 		}
 	}
 	operationIDs := make(map[string]struct{}, len(records))
+	expectedOutputTokens := []int{2, 5, 7}
 	for index, record := range records {
 		if _, exists := operationIDs[record.OperationID]; exists {
 			t.Fatalf("operation ID %q was reused", record.OperationID)
@@ -169,8 +170,12 @@ func TestProviderUsageHistorySurvivesCompactionAndReopen(t *testing.T) {
 		if err := json.Unmarshal(*record.Evidence.Usage, &usage); err != nil {
 			t.Fatalf("decode record %d usage: %v", index, err)
 		}
-		if got, want := usage.OutputTokens, []int{2, 5, 7}[index]; got != want {
+		if got, want := usage.OutputTokens, expectedOutputTokens[index]; got != want {
 			t.Fatalf("record %d output tokens = %d, want %d", index, got, want)
+		}
+		expectedEvidence := providerUsageTestMixedResponse(expectedOutputTokens[index]).ProviderEvidence
+		if !reflect.DeepEqual(record.Evidence, expectedEvidence) {
+			t.Fatalf("record %d mixed evidence = %+v, want %+v", index, record.Evidence, expectedEvidence)
 		}
 	}
 	if records[0].Purpose != modelcontract.ProviderOperationPurposeGeneration ||

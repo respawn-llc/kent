@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/session"
@@ -113,6 +114,53 @@ func providerUsageTestResponse(outputTokens int) llm.Response {
 		ProviderEvidence: modelcontract.ProviderUsageEvidence{
 			ProviderID: textutil.Value("test-provider"),
 			Usage:      &raw,
+		},
+	}
+}
+
+func providerUsageTestMixedResponse(outputTokens int) llm.Response {
+	usage := json.RawMessage(fmt.Sprintf(
+		`{"input_tokens":11,"input_tokens_details":{"cached_tokens":4,"cache_write_tokens":6},"output_tokens":%d,"output_tokens_details":{"reasoning_tokens":3},"total_tokens":%d,"provider_extension":{"units":"3.5"}}`,
+		outputTokens,
+		outputTokens+11,
+	))
+	usageMetadata := json.RawMessage(`{"amount":"0.42","provider":"codex"}`)
+	hostedUsage := json.RawMessage(`{"searches":2}`)
+	hostedOptions := json.RawMessage(`{"search_context_size":"high"}`)
+	createdAt := time.Unix(1_720_000_000+int64(outputTokens), 0).UTC()
+	return llm.Response{
+		Assistant: llm.Message{
+			Role:    llm.RoleAssistant,
+			Phase:   textutil.Value(llm.MessagePhaseFinal),
+			Content: textutil.Value("retained"),
+		},
+		Usage: llm.Usage{
+			InputTokens:       11,
+			OutputTokens:      outputTokens,
+			CachedInputTokens: textutil.Value(4),
+		},
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{
+			ProviderID:           textutil.Value("mixed-provider"),
+			EndpointOrigin:       textutil.Value("https://api.example.test"),
+			RequestedModel:       "gpt-5",
+			ServedModel:          textutil.Value("gpt-5-served"),
+			RequestedServiceTier: textutil.Value("priority"),
+			ServedServiceTier:    textutil.Value("default"),
+			ResponseID:           textutil.Value(fmt.Sprintf("mixed-response-%d", outputTokens)),
+			ResponseCreatedAt:    &createdAt,
+			Usage:                &usage,
+			UsageMetadata:        &usageMetadata,
+			HostedTools: []modelcontract.HostedToolUsageEvidence{{
+				ID:         textutil.Value(fmt.Sprintf("mixed-web-%d", outputTokens)),
+				Type:       textutil.Value("web_search_call"),
+				Status:     textutil.Value("completed"),
+				ActionKind: textutil.Value("search"),
+				Usage:      &hostedUsage,
+			}},
+			RequestedHostedTools: []modelcontract.HostedToolConfiguration{{
+				Type:    "web_search",
+				Options: hostedOptions,
+			}},
 		},
 	}
 }
