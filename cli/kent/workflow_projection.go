@@ -67,23 +67,23 @@ func workflowValidationForCLI(response serverapi.WorkflowValidateResponse) serve
 func workflowValidationErrorsForCLI(errors []serverapi.WorkflowValidationError) []serverapi.WorkflowValidationError {
 	projected := append([]serverapi.WorkflowValidationError(nil), errors...)
 	for i := range projected {
-		projected[i].Message = workflowValidationErrorMessageForCLI(projected[i])
+		projected[i].Message, _ = workflowValidationErrorMessageForCLI(projected[i])
 	}
 	return projected
 }
 
-func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError) string {
+func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError) (string, bool) {
 	switch err.Code {
 	case string(workflow.CodeSessionSourceCannotOwnSession):
-		return "This prompt references a source node that cannot own a Session. Use an agent source node for this placeholder."
+		return "This prompt references a source node that cannot own a Session. Use an agent source node for this placeholder.", true
 	case string(workflow.CodeSessionTransitionMissing):
-		return "This prompt references an unknown transition. Correct the transition key or define the transition before using this placeholder."
+		return "This prompt references an unknown transition. Correct the transition key or define the transition before using this placeholder.", true
 	case string(workflow.CodeSessionTransitionNotGuaranteed):
-		return "This prompt references a transition that is not guaranteed to run before the prompt. Reference a transition that runs on every incoming path."
+		return "This prompt references a transition that is not guaranteed to run before the prompt. Reference a transition that runs on every incoming path.", true
 	case string(workflow.CodeSessionTransitionAmbiguous):
-		return "This prompt references more than one matching transition. Make the Session-producing transition unambiguous before using this placeholder."
+		return "This prompt references more than one matching transition. Make the Session-producing transition unambiguous before using this placeholder.", true
 	default:
-		return err.Message
+		return err.Message, false
 	}
 }
 

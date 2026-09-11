@@ -322,9 +322,9 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 			result := outcome.ValidationResults[mode]
 			write("- %s: valid=%t\n", mode, result.Valid)
 			for _, validationError := range result.Errors {
-				message := workflowValidationErrorMessageForCLI(validationError)
+				message, isSessionReference := workflowValidationErrorMessageForCLI(validationError)
 				write("  - [%s] %s\n", validationError.Code, message)
-				if validationError.Details != nil && validationError.Details.Placeholder != "" {
+				if isSessionReference && validationError.Details != nil && validationError.Details.Placeholder != "" {
 					write("    placeholder: %s\n", validationError.Details.Placeholder)
 				}
 				identities := make([]struct{ name, value string }, 0, 4)

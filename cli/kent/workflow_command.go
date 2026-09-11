@@ -985,13 +985,14 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 }
 
 func writeWorkflowValidationError(stdout io.Writer, err serverapi.WorkflowValidationError) {
+	_, isSessionReference := workflowValidationErrorMessageForCLI(err)
 	location := workflowValidationErrorLocation(err)
 	if location != "" {
 		fmt.Fprintf(stdout, "- [%s] %s (%s)\n", err.Code, err.Message, location)
 	} else {
 		fmt.Fprintf(stdout, "- [%s] %s\n", err.Code, err.Message)
 	}
-	if err.Details != nil && err.Details.Placeholder != "" {
+	if isSessionReference && err.Details != nil && err.Details.Placeholder != "" {
 		fmt.Fprintf(stdout, "  placeholder: %s\n", err.Details.Placeholder)
 	}
 }
