@@ -4,8 +4,25 @@ import (
 	"core/shared/clientui"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
+	"strings"
 	"testing"
 )
+
+func TestPatchFailurePreservesInputBeforeStatus(t *testing.T) {
+	presentation := patchformat.Render("*** Begin Patch\n*** Update File: dir/file.go\n-old\n+new\n*** End Patch\n", "/worktree")
+	row := patchRow(presentation)
+	status := strings.Repeat("failure ", 30)
+	row.Tool.IsError = true
+	row.Tool.ResultSummary = &status
+	for _, mode := range []Mode{ModeOngoing, ModeOngoingCollapsed} {
+		input := RenderCommittedRow(patchRow(presentation), 40, "dark", mode).Lines[0]
+		failed := RenderCommittedRow(row, 40, "dark", mode).Lines[0]
+		if !strings.HasPrefix(failed.Plain(), input.Plain()) {
+			t.Fatalf("failure displaced patch input: %q; input %q", failed.Plain(), input.Plain())
+		}
+		assertPatchLink(t, []Line{failed}, "./dir/file.go", "file:///worktree/dir/file.go")
+	}
+}
 
 func TestPatchHyperlinks(t *testing.T) {
 	patch := "*** Begin Patch\n*** Update File: dir/file.go\n-old\n+new\n*** End Patch\n"
