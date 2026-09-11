@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	workflowdefinitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
-	"core/shared/workflowcontract"
 )
 
 func workflowRecordForCLI(record serverapi.WorkflowRecord) (serverapi.WorkflowRecord, error) {
@@ -90,19 +90,16 @@ func workflowValidationErrorMessageForCLI(err serverapi.WorkflowValidationError)
 	}
 	var message string
 	switch *err.Details.Reason {
-	case workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession:
+	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION:
 		message = "This prompt references a source node that cannot own a Session. Use an agent source node for this placeholder."
-	case workflowcontract.ValidationErrorReasonSessionTransitionMissing:
+	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING:
 		message = "This prompt references an unknown transition. Correct the transition key or define the transition before using this placeholder."
-	case workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed:
+	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED:
 		message = "This prompt references a transition that is not guaranteed to run before the prompt. Reference a transition that runs on every incoming path."
-	case workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous:
+	case workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS:
 		message = "This prompt references more than one matching transition. Make the Session-producing transition unambiguous before using this placeholder."
 	default:
 		return "", fmt.Errorf("workflow validation reason %q is unsupported", *err.Details.Reason)
-	}
-	if err.Details.Placeholder != "" {
-		message += fmt.Sprintf(" (placeholder %q)", err.Details.Placeholder)
 	}
 	return message, nil
 }

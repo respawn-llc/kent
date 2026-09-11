@@ -992,9 +992,12 @@ func writeWorkflowValidationError(stdout io.Writer, err serverapi.WorkflowValida
 	location := workflowValidationErrorLocation(err)
 	if location != "" {
 		fmt.Fprintf(stdout, "- [%s] %s (%s)\n", err.Code, err.Message, location)
-		return
+	} else {
+		fmt.Fprintf(stdout, "- [%s] %s\n", err.Code, err.Message)
 	}
-	fmt.Fprintf(stdout, "- [%s] %s\n", err.Code, err.Message)
+	if err.Details != nil && err.Details.Placeholder != "" {
+		fmt.Fprintf(stdout, "  placeholder: %s\n", err.Details.Placeholder)
+	}
 }
 
 // workflowValidationErrorLocation names the graph element a validation error

@@ -327,6 +327,9 @@ func writeWorkflowGraphApplyDetails(stderr io.Writer, outcome workflowGraphApply
 					return err
 				}
 				write("  - [%s] %s\n", validationError.Code, message)
+				if validationError.Details != nil && validationError.Details.Placeholder != "" {
+					write("    placeholder: %s\n", validationError.Details.Placeholder)
+				}
 				identities := make([]struct{ name, value string }, 0, 4)
 				if validationError.WorkflowID != nil {
 					identities = append(identities, struct{ name, value string }{"workflow", validationError.WorkflowID.String()})

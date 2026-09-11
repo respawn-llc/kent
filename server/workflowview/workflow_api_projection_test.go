@@ -5,6 +5,7 @@ import (
 
 	"core/server/workflow"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 	"core/shared/workflowcontract"
 )
 
@@ -25,18 +26,27 @@ func TestValidationErrorsInheritOnlyAnExplicitOptionalWorkflowID(t *testing.T) {
 }
 
 func TestValidationErrorsProjectTypedSessionReferenceReason(t *testing.T) {
-	reason := workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession
-	projected := ValidationErrors(nil, []workflow.ValidationError{
-		{
-			Code:   workflow.CodeInvalidTemplatePlaceholder,
-			Reason: &reason,
-		},
-	})
+	for _, reason := range []workflowcontract.ValidationErrorReason{
+		workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession,
+		workflowcontract.ValidationErrorReasonSessionTransitionMissing,
+		workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed,
+		workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous,
+	} {
+		t.Run(string(reason), func(t *testing.T) {
+			projected := ValidationErrors(nil, []workflow.ValidationError{
+				{
+					Code:   workflow.CodeInvalidTemplatePlaceholder,
+					Reason: &reason,
+				},
+			})
 
-	if len(projected) != 1 || projected[0].Details == nil || projected[0].Details.Reason == nil {
-		t.Fatalf("projected Session reference reason = %+v, want typed reason", projected)
-	}
-	if *projected[0].Details.Reason != reason {
-		t.Fatalf("projected Session reference reason = %q, want %q", *projected[0].Details.Reason, reason)
+			if len(projected) != 1 || projected[0].Details == nil || projected[0].Details.Reason == nil {
+				t.Fatalf("projected Session reference reason = %+v, want typed reason", projected)
+			}
+			want := serverapi.WorkflowValidationErrorReasonFromDomain(reason)
+			if *projected[0].Details.Reason != want {
+				t.Fatalf("projected Session reference reason = %v, want %v", *projected[0].Details.Reason, want)
+			}
+		})
 	}
 }

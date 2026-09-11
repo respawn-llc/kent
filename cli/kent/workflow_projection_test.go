@@ -2,27 +2,28 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
 	"core/server/workflow"
+	workflowdefinitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
-	"core/shared/workflowcontract"
 )
 
 func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 	placeholder := ".Params.review.session_id"
 	for _, reason := range []serverapi.WorkflowValidationErrorReason{
-		workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession,
-		workflowcontract.ValidationErrorReasonSessionTransitionMissing,
-		workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed,
-		workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous,
+		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION,
+		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING,
+		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED,
+		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS,
 	} {
-		t.Run(string(reason), func(t *testing.T) {
+		t.Run(reason.String(), func(t *testing.T) {
 			projected, err := workflowValidationForCLI(serverapi.WorkflowValidateResponse{
 				Errors: []serverapi.WorkflowValidationError{{
 					Code:    string(workflow.CodeInvalidTemplatePlaceholder),
-					Message: string(reason),
+					Message: "server-provided message",
 					Details: &serverapi.WorkflowValidationErrorDetails{
 						Placeholder: placeholder,
 						Reason:      &reason,
@@ -34,11 +35,13 @@ func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 			}
 
 			message := projected.Errors[0].Message
-			if message == string(reason) || strings.Contains(message, string(reason)) {
-				t.Fatalf("message = %q, contains internal reason %q", message, reason)
+			if message == "server-provided message" {
+				t.Fatalf("message = %q, want client-formatted diagnostic", message)
 			}
-			if !strings.Contains(message, placeholder) {
-				t.Fatalf("message = %q, does not identify placeholder %q", message, placeholder)
+			var stdout bytes.Buffer
+			writeWorkflowValidationError(&stdout, projected.Errors[0])
+			if !slices.Contains(strings.Split(stdout.String(), "\n"), "  placeholder: "+placeholder) {
+				t.Fatalf("validation output = %q, want placeholder detail", stdout.String())
 			}
 		})
 	}
@@ -46,7 +49,9 @@ func TestWorkflowValidationForCLIFormatsSessionReferenceReasons(t *testing.T) {
 
 func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceReasons(t *testing.T) {
 	const placeholder = ".Params.review.session_id"
-	reason := serverapi.WorkflowValidationErrorReason(workflowcontract.ValidationErrorReasonSessionTransitionMissing)
+	reason := serverapi.WorkflowValidationErrorReason(
+		workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING,
+	)
 	var stderr bytes.Buffer
 	err := writeWorkflowGraphApplyHumanOutcome(
 		&bytes.Buffer{},
@@ -61,7 +66,7 @@ func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceReasons(t *testing.
 				serverapi.WorkflowValidationModeExecution: {
 					Errors: []serverapi.WorkflowValidationError{{
 						Code:    string(workflow.CodeInvalidTemplatePlaceholder),
-						Message: string(reason),
+						Message: "server-provided message",
 						Details: &serverapi.WorkflowValidationErrorDetails{
 							Placeholder: placeholder,
 							Reason:      &reason,
@@ -75,10 +80,10 @@ func TestWorkflowGraphApplyHumanOutputFormatsSessionReferenceReasons(t *testing.
 		t.Fatalf("write graph apply output: %v", err)
 	}
 	output := stderr.String()
-	if strings.Contains(output, string(reason)) {
-		t.Fatalf("output = %q, contains internal reason %q", output, reason)
+	if slices.Contains(strings.Split(output, "\n"), "  - ["+string(workflow.CodeInvalidTemplatePlaceholder)+"] server-provided message") {
+		t.Fatalf("output = %q, want client-formatted diagnostic", output)
 	}
-	if !strings.Contains(output, placeholder) {
+	if !slices.Contains(strings.Split(output, "\n"), "    placeholder: "+placeholder) {
 		t.Fatalf("output = %q, does not identify placeholder %q", output, placeholder)
 	}
 }

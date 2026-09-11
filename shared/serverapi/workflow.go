@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"core/shared/clientui"
+	workflowdefinitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -660,7 +661,22 @@ type WorkflowValidationErrorDetails struct {
 	RequiredTool   *string                        `json:"required_tool,omitempty"`
 }
 
-type WorkflowValidationErrorReason = workflowcontract.ValidationErrorReason
+type WorkflowValidationErrorReason = workflowdefinitionpb.ValidationErrorReason
+
+func WorkflowValidationErrorReasonFromDomain(reason workflowcontract.ValidationErrorReason) WorkflowValidationErrorReason {
+	switch reason {
+	case workflowcontract.ValidationErrorReasonSessionSourceCannotOwnSession:
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_SOURCE_CANNOT_OWN_SESSION
+	case workflowcontract.ValidationErrorReasonSessionTransitionMissing:
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_MISSING
+	case workflowcontract.ValidationErrorReasonSessionTransitionNotGuaranteed:
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_NOT_GUARANTEED
+	case workflowcontract.ValidationErrorReasonSessionTransitionAmbiguous:
+		return workflowdefinitionpb.ValidationErrorReason_VALIDATION_ERROR_REASON_SESSION_TRANSITION_AMBIGUOUS
+	default:
+		panic(fmt.Sprintf("workflow validation reason %q is unsupported", reason))
+	}
+}
 
 type WorkflowTaskCreateRequest struct {
 	ProjectID         string                               `json:"project_id"`

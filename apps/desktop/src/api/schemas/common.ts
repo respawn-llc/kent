@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ValidationErrorReason } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 
 import type {
   ApprovalDecision,
@@ -179,12 +180,8 @@ export const projectBindingSchema: z.ZodType<ProjectBinding> = z
   }));
 
 const validationErrorReasonSchema: z.ZodType<WorkflowValidationErrorReason | null> = z
-  .enum([
-    "session_source_cannot_own_session",
-    "session_transition_missing",
-    "session_transition_not_guaranteed",
-    "session_transition_ambiguous",
-  ])
+  .enum(ValidationErrorReason)
+  .refine((value) => value !== ValidationErrorReason.UNSPECIFIED)
   .nullish()
   .transform((value) => value ?? null);
 

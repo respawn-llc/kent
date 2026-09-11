@@ -1,17 +1,19 @@
 import type { TFunction } from "i18next";
 
-import type { WorkflowValidationError } from "@/api";
+import { workflowValidationErrorReason, type WorkflowValidationError } from "@/api";
 
 export function workflowValidationErrorMessage(error: WorkflowValidationError, t: TFunction): string {
   switch (error.details.reason) {
-    case "session_source_cannot_own_session":
+    case workflowValidationErrorReason.SESSION_SOURCE_CANNOT_OWN_SESSION:
       return t("workflowEditor.validationSessionSourceCannotOwnSession");
-    case "session_transition_missing":
+    case workflowValidationErrorReason.SESSION_TRANSITION_MISSING:
       return t("workflowEditor.validationSessionTransitionMissing");
-    case "session_transition_not_guaranteed":
+    case workflowValidationErrorReason.SESSION_TRANSITION_NOT_GUARANTEED:
       return t("workflowEditor.validationSessionTransitionNotGuaranteed");
-    case "session_transition_ambiguous":
+    case workflowValidationErrorReason.SESSION_TRANSITION_AMBIGUOUS:
       return t("workflowEditor.validationSessionTransitionAmbiguous");
+    case workflowValidationErrorReason.UNSPECIFIED:
+      return error.message;
     case null:
       return error.message;
   }

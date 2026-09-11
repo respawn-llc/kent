@@ -91,11 +91,16 @@ func validationErrorDetails(err workflow.ValidationError) *serverapi.WorkflowVal
 		value := string(*err.RequiredTool)
 		requiredTool = &value
 	}
+	var reason *serverapi.WorkflowValidationErrorReason
+	if err.Reason != nil {
+		value := serverapi.WorkflowValidationErrorReasonFromDomain(*err.Reason)
+		reason = &value
+	}
 	details := serverapi.WorkflowValidationErrorDetails{
 		FieldName:      err.FieldName,
 		InputName:      err.InputName,
 		Placeholder:    err.Placeholder,
-		Reason:         err.Reason,
+		Reason:         reason,
 		ProviderEdgeID: graphIDPointer(err.ProviderEdgeID),
 		Role:           err.AgentRole,
 		RequiredTool:   requiredTool,
