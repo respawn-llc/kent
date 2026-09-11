@@ -27,14 +27,24 @@ it.each([
     projectID: "project-1",
     t: appI18n.t,
     push,
-    completion: { navigator, openHome },
+    navigator,
   });
   const user = userEvent.setup();
-  render(
+  const view = render(
     <RegistryProvider>
       <AppServicesProvider services={services}>
         <StatusProvider>
-          <ProjectDeleteButton model={model} projectID="project-1" />
+          <ProjectDeleteButton model={model} projectID="project-1" openHome={openHome} />
+        </StatusProvider>
+      </AppServicesProvider>
+    </RegistryProvider>,
+  );
+  const selectedProjectOpenHome = vi.fn(async () => undefined);
+  view.rerender(
+    <RegistryProvider>
+      <AppServicesProvider services={services}>
+        <StatusProvider>
+          <ProjectDeleteButton model={model} projectID="project-1" openHome={selectedProjectOpenHome} />
         </StatusProvider>
       </AppServicesProvider>
     </RegistryProvider>,
@@ -50,6 +60,7 @@ it.each([
     expect(push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
   });
   expect(navigator.close).toHaveBeenCalledOnce();
-  expect(openHome).toHaveBeenCalledTimes(homeCalls);
+  expect(selectedProjectOpenHome).toHaveBeenCalledTimes(homeCalls);
+  expect(openHome).not.toHaveBeenCalled();
   expect(remove).toHaveBeenCalledOnce();
 });

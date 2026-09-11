@@ -48,7 +48,7 @@ function fixture(metadata = project) {
     projectID: project.projectID,
     t: appI18n.t,
     push,
-    completion: { navigator, openHome },
+    navigator,
   });
   return { response, update, client, push, services, navigator, openHome, model };
 }
@@ -252,7 +252,7 @@ it("finishes Delete after navigation without taking over the replacement destina
   const close = vi.fn();
   const invalidate = vi.spyOn(view.client, "invalidateQueries");
   await act(async () => {
-    view.result.current.deleteProject({ close });
+    view.result.current.deleteProject({ close, openHome: view.openHome });
   });
   expect(remove).toHaveBeenCalledTimes(1);
   vi.mocked(view.navigator.close).mockReturnValue("stale");

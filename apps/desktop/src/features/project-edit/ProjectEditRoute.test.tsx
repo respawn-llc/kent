@@ -12,7 +12,12 @@ import {
   type WorkspaceCatalogRow,
   type ApiService,
 } from "@/api";
-import { AppServicesProvider, queryKeys } from "@/app-facade";
+import {
+  AppServicesProvider,
+  queryKeys,
+  SidebarHeaderActionProvider,
+  SidebarHeaderActionSlot,
+} from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
@@ -27,14 +32,13 @@ let getMetadata: MockInstance<ApiService["getProjectEdit"]>;
 let listWorkspaces: MockInstance<ApiService["listWorkspaces"]>;
 const statusPush = vi.hoisted(() => vi.fn());
 const sidebarBackWhen = vi.hoisted(() => vi.fn());
-const openHome = vi.hoisted(() => vi.fn(async () => undefined));
+const navigation = vi.hoisted(() => ({ openHome: vi.fn(async () => undefined) }));
 
 vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   useAppServices: () => services,
-  useAppNavigation: () => ({ openHome }),
+  useAppNavigation: () => navigation,
   useNativeDialogFallback: () => ({ fallback: null, open: vi.fn(async () => undefined) }),
-  usePublishSidebarHeaderAction: () => undefined,
   useSidebarBackWhen: sidebarBackWhen,
   useSidebarHeaderOffset: () => 0,
   useStatusController: () => ({ push: statusPush }),
@@ -82,7 +86,12 @@ function mount(navigator?: ReturnType<typeof createTestSidebarNavigator>) {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>
           <RegistryProvider>
-            <AppServicesProvider services={services}>{children}</AppServicesProvider>
+            <AppServicesProvider services={services}>
+              <SidebarHeaderActionProvider>
+                <SidebarHeaderActionSlot />
+                {children}
+              </SidebarHeaderActionProvider>
+            </AppServicesProvider>
           </RegistryProvider>
         </QueryClientProvider>
       ),
@@ -110,6 +119,46 @@ beforeEach(() => {
   client.setQueryData(queryKeys.projectEdit(project.projectID), project);
   statusPush.mockClear();
   sidebarBackWhen.mockClear();
+  navigation.openHome = vi.fn(async () => undefined);
+});
+
+it("keeps drafts when unrelated Home selection changes the navigation callback", () => {
+  const view = mount();
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") }), {
+    target: { value: "Draft name" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("projectEdit.taskKey") }), {
+    target: { value: "DRAFT" },
+  });
+  navigation.openHome = vi.fn(async () => undefined);
+  view.rerender(<ProjectEditRoute projectId={project.projectID} />);
+  expect(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") })).toHaveValue("Draft name");
+  expect(screen.getByRole("textbox", { name: appI18n.t("projectEdit.taskKey") })).toHaveValue("DRAFT");
+});
+
+it("keeps the pending Save observer when unrelated Home selection changes the navigation callback", async () => {
+  const response = deferred<Awaited<ReturnType<ApiService["updateProject"]>>>();
+  const update = vi.spyOn(services.api, "updateProject").mockReturnValue(response.promise);
+  const view = mount();
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") }), {
+    target: { value: "Draft name" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("projectEdit.saveName") }));
+  await waitFor(() => {
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+  navigation.openHome = vi.fn(async () => undefined);
+  view.rerender(<ProjectEditRoute projectId={project.projectID} />);
+  const save = screen.getByRole("button", { name: appI18n.t("projectEdit.saveName") });
+  expect(save).toBeDisabled();
+  expect(screen.getByRole("textbox", { name: appI18n.t("projectEdit.name") })).toHaveValue("Draft name");
+  fireEvent.click(save);
+  expect(update).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    response.reject(new Error("Save failed"));
+    await response.promise.catch(() => undefined);
+  });
+  expect(statusPush).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
 });
 
 it("keeps metadata editable and Attach available while the first catalog page owns Retry", async () => {

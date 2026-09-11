@@ -41,14 +41,14 @@ export function createProjectEditViewModel({
   projectID,
   t,
   push,
-  completion,
+  navigator,
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
   projectID: string;
   t: TFunction;
   push: StatusController["push"];
-  completion?: Readonly<{ navigator: SidebarPageNavigator; openHome(): Promise<void> }> | undefined;
+  navigator?: SidebarPageNavigator | undefined;
 }>) {
   const workspaceChanges = Atom.make(
     projectWorkspaceChanges(services.nativeBridge.projectWorkspace, projectID).pipe(
@@ -210,7 +210,7 @@ export function createProjectEditViewModel({
   const deleteObserver = new MutationObserver(client, {
     ...projectDeleteMutationOptions(services.api, projectID),
     ...explicitRequestOptions,
-    onSuccess: async (response, input: { close(): void }) => {
+    onSuccess: async (response, input: { close(): void; openHome: () => Promise<void> }) => {
       if (!response.deleted) {
         await invalidateProjectEditQueries(client, projectID);
         push({
@@ -222,11 +222,11 @@ export function createProjectEditViewModel({
         return;
       }
       input.close();
-      const outcome = completion?.navigator.close();
+      const outcome = navigator?.close();
       await completeProjectDeletion({
         projectID,
         queryClient: client,
-        navigateHome: outcome === "accepted" ? completion?.openHome : undefined,
+        navigateHome: outcome === "accepted" ? input.openHome : undefined,
         pushDeletedToast: () => {
           push({ id: "project-delete-deleted", tone: "success", title: t("projectEdit.deleteDeleted") });
         },
@@ -242,10 +242,10 @@ export function createProjectEditViewModel({
     },
   });
   const deleting = queryAtom(deleteObserver);
-  const deleteProject = Atom.fn<{ close(): void }>()(
+  const deleteProject = Atom.fn<{ close(): void; openHome: () => Promise<void> }>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (completion === undefined || requestPending() || get(picker).waiting) return;
+        if (navigator === undefined || requestPending() || get(picker).waiting) return;
         yield* Effect.tryPromise(async () => deleteObserver.mutate(input)).pipe(Effect.ignore);
       }),
     { concurrent: true },

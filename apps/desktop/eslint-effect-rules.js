@@ -26,6 +26,8 @@ const forbiddenMembers = new Map([
   ["@effect/atom-react/RegistryContext", new Set(["RegistryContext"])],
 ]);
 
+const namespaceBarrels = new Set(["effect", "effect/unstable/reactivity"]);
+
 function libraryModule(value) {
   if (typeof value !== "string") return null;
   const parts = value.split("/");
@@ -40,8 +42,8 @@ function effectOrigin(origin) {
 
 function member(origin, name) {
   if (origin === null) return null;
-  if (origin.path.length === 0 && origin.module === "effect") {
-    return { module: `effect/${name}`, path: [] };
+  if (origin.path.length === 0 && namespaceBarrels.has(origin.module)) {
+    return { module: `${origin.module}/${name}`, path: [] };
   }
   return { ...origin, path: [...origin.path, name] };
 }

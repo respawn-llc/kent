@@ -1,4 +1,4 @@
-import { useMemo, type ReactElement, type ReactNode } from "react";
+import { useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 import { Plus, Save } from "lucide-react";
@@ -54,17 +54,15 @@ export function ProjectEditRoute({
   const client = useQueryClient();
   const { push } = useStatusController();
   const { openHome } = useAppNavigation();
-  const model = useMemo(
-    () =>
-      createProjectEditViewModel({
-        services,
-        client,
-        projectID: projectId,
-        t,
-        push,
-        completion: navigator === undefined ? undefined : { navigator, openHome },
-      }),
-    [services, client, projectId, t, push, navigator, openHome],
+  const [model] = useState(() =>
+    createProjectEditViewModel({
+      services,
+      client,
+      projectID: projectId,
+      t,
+      push,
+      navigator,
+    }),
   );
   useAtomMount(model.workspaceChanges);
   const query = useAtomValue(model.metadata);
@@ -82,7 +80,9 @@ export function ProjectEditRoute({
       catalogBoundary={projectCatalogBoundary(catalog, actions, t)}
       catalogPending={catalog.isPending}
       headerAccessory={
-        navigator === undefined ? null : <ProjectDeleteButton model={model} projectID={projectId} />
+        navigator === undefined ? null : (
+          <ProjectDeleteButton model={model} projectID={projectId} openHome={openHome} />
+        )
       }
       hasNextPage={catalog.hasNextPage}
       hasPreviousPage={catalog.hasPreviousPage}

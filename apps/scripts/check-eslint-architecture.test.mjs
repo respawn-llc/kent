@@ -250,16 +250,24 @@ test("staged contracts follow Effect values across application imports", async (
   );
 });
 
-test("the required Just policy command exits unsuccessfully for forbidden input", () => {
-  const result = spawnSync(
-    "just",
-    [
-      "_lint",
-      "_effect-policy",
-      "apps/desktop/eslint-fixtures/architecture/src/features/alpha/forbidden-effect.ts",
-    ],
-    { cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8" },
-  );
-  assert.ifError(result.error);
-  assert.equal(result.status, 1, result.stderr);
-});
+for (const fixture of [
+  "forbidden-effect.ts",
+  "forbidden-effect-registry-barrel.ts",
+  "forbidden-effect-registry-namespace.ts",
+])
+  test(`the required Just policy command rejects ${fixture}`, () => {
+    const result = spawnSync(
+      "just",
+      [
+        "_lint",
+        "_effect-policy",
+        `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
+      ],
+      {
+        cwd: fileURLToPath(new URL("../..", import.meta.url)),
+        encoding: "utf8",
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stderr);
+  });

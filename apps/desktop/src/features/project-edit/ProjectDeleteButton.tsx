@@ -22,7 +22,8 @@ type ProjectDeleteTarget = Readonly<{
 export function ProjectDeleteButton({
   model,
   projectID,
-}: Readonly<{ model: ProjectEditViewModel; projectID: string }>) {
+  openHome,
+}: Readonly<{ model: ProjectEditViewModel; projectID: string; openHome(): Promise<void> }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
   const disabled = useAtomValue(model.state).pending;
@@ -40,7 +41,7 @@ export function ProjectDeleteButton({
         disabled={disabled}
         onClose={close}
         onConfirm={() => {
-          deleteProject({ close });
+          deleteProject({ close, openHome });
         }}
       />
     ),
