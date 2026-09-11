@@ -81,6 +81,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 	} else {
 		_, err = service.SetGoal(t.Context(), serverapi.RuntimeGoalSetRequest{
 			SessionID: sessionID.String(), Objective: "ask before proceeding", Actor: "user",
+			ExecutionPolicy: serverapi.RuntimeGoalExecutionPolicyStartOrContinue,
 		})
 	}
 	if err != nil {

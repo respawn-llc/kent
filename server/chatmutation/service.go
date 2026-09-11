@@ -4,17 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"core/server/sessionruntime"
+	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TargetResolutionService interface {
@@ -40,11 +44,16 @@ type RuntimeAdmissionService interface {
 	) (bool, error)
 }
 
+type GoalSetService interface {
+	SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error)
+}
+
 type Service struct {
 	operations *OperationOwner
 	targets    TargetResolutionService
 	runtimes   RuntimeOpeningService
 	admissions RuntimeAdmissionService
+	goals      GoalSetService
 }
 
 func NewService(
@@ -52,12 +61,337 @@ func NewService(
 	targets TargetResolutionService,
 	runtimes RuntimeOpeningService,
 	admissions RuntimeAdmissionService,
+	goals GoalSetService,
 ) *Service {
 	return &Service{
 		operations: operations,
 		targets:    targets,
 		runtimes:   runtimes,
 		admissions: admissions,
+		goals:      goals,
+	}
+}
+
+func (s *Service) SetGoal(
+	ctx context.Context,
+	request *runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	if err := validateGoalSetRequest(request); err != nil {
+		return nil, err
+	}
+	if s == nil || s.operations == nil {
+		return nil, errors.New("Chat operation owner is required")
+	}
+	var result *runtimepb.GoalSetSuccess
+	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
+		var operationErr error
+		result, operationErr = s.setGoal(scope, request)
+		return operationErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := operation.Await(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func validateGoalSetRequest(request *runtimepb.GoalSetRequest) error {
+	if err := protoapi.Validate(request); err != nil {
+		return err
+	}
+	if request == nil || request.Target == nil {
+		return errors.New("Goal Set target is required")
+	}
+	runID := strings.TrimSpace(request.GetRunId())
+	stepID := strings.TrimSpace(request.GetStepId())
+	if request.RunId != nil && runID == "" {
+		return errors.New("run_id must not be blank when present")
+	}
+	if request.StepId != nil && stepID == "" {
+		return errors.New("step_id must not be blank when present")
+	}
+	actor := strings.TrimSpace(request.GetActor())
+	switch request.Target.Target.(type) {
+	case *chatpb.ChatTarget_NewChat:
+		if actor != "user" {
+			return errors.New("New Chat Goal Set requires actor=user")
+		}
+		if request.ExecutionPolicy != runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE {
+			return errors.New("New Chat Goal Set requires start_or_continue execution policy")
+		}
+		if runID != "" || stepID != "" {
+			return errors.New("New Chat Goal Set cannot include execution identity")
+		}
+	case *chatpb.ChatTarget_Session:
+		if request.InitialInputDraft != nil {
+			return errors.New("exact-Session Goal Set cannot include initial_input_draft")
+		}
+		switch request.ExecutionPolicy {
+		case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE:
+			if actor != "user" {
+				return errors.New("start_or_continue Goal Set requires actor=user")
+			}
+			if runID != "" || stepID != "" {
+				return errors.New("start_or_continue Goal Set cannot include execution identity")
+			}
+		case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE:
+			if actor == "agent" {
+				if runID == "" || stepID == "" {
+					return errors.New("agent preserve_runtime_state Goal Set requires Run and Step identity")
+				}
+			} else if runID != "" || stepID != "" {
+				return errors.New("non-agent preserve_runtime_state Goal Set cannot include execution identity")
+			}
+		default:
+			return errors.New("exact-Session Goal Set requires an execution policy")
+		}
+	default:
+		return errors.New("Goal Set target selection is required")
+	}
+	return nil
+}
+
+func (s *Service) setGoal(
+	scope OperationScope,
+	request *runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	target, err := s.resolveTarget(scope, request.Target, request.InitialInputDraft)
+	if err != nil {
+		if target.SessionID.IsZero() {
+			return nil, err
+		}
+		return goalSetSuccessRejected(target.SessionID, err), nil
+	}
+	if request.ExecutionPolicy == runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
+		mutation, mutationErr := s.invokeGoal(scope, request, target)
+		if mutationErr != nil {
+			return nil, mutationErr
+		}
+		return goalSetSuccess(target.SessionID, mutation), nil
+	}
+	_, attachment, err := s.openRuntime(scope, target)
+	if err != nil {
+		if target.SessionID.IsZero() {
+			return nil, err
+		}
+		return goalSetSuccessRejected(target.SessionID, err), nil
+	}
+	if s.goals == nil {
+		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+		})
+		err := errors.Join(errors.New("Goal Set service is required"), releaseErr)
+		if target.Created {
+			return goalSetSuccessRejected(target.SessionID, err), nil
+		}
+		return nil, err
+	}
+	mutation, err := s.invokeGoal(scope, request, target)
+	if err != nil {
+		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+		})
+		err = errors.Join(err, releaseErr)
+		if target.Created {
+			return goalSetSuccessRejected(target.SessionID, err), nil
+		}
+		return nil, err
+	}
+	if err := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+		return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseDetach)
+	}); err != nil {
+		success := goalSetSuccess(target.SessionID, mutation)
+		success.Diagnostic = protoapi.GoalSetErrorFromError(err)
+		return success, nil
+	}
+	return goalSetSuccess(target.SessionID, mutation), nil
+}
+
+func (s *Service) invokeGoal(
+	scope OperationScope,
+	request *runtimepb.GoalSetRequest,
+	target ResolvedTarget,
+) (*runtimepb.GoalMutationSuccess, error) {
+	if s.goals == nil {
+		return nil, errors.New("Goal Set service is required")
+	}
+	executionPolicy, err := runtimeGoalExecutionPolicy(request.ExecutionPolicy)
+	if err != nil {
+		return nil, err
+	}
+	response, err := s.goals.SetGoal(scope.Context(), serverapi.RuntimeGoalSetRequest{
+		SessionID:       target.SessionID.String(),
+		Objective:       strings.TrimSpace(request.Objective),
+		Actor:           strings.TrimSpace(request.Actor),
+		RunID:           strings.TrimSpace(request.GetRunId()),
+		StepID:          strings.TrimSpace(request.GetStepId()),
+		ExecutionPolicy: executionPolicy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return goalMutationSuccess(response)
+}
+
+func goalSetSuccess(
+	sessionID runtimeids.SessionID,
+	mutation *runtimepb.GoalMutationSuccess,
+) *runtimepb.GoalSetSuccess {
+	return &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: mutation},
+	}
+}
+
+func (s *Service) prepareRuntimeWithDraft(
+	scope OperationScope,
+	targetRequest *chatpb.ChatTarget,
+	initialDraft *string,
+) (ResolvedTarget, RuntimeAttachment, error) {
+	target, err := s.resolveTarget(scope, targetRequest, initialDraft)
+	if err != nil {
+		return target, nil, err
+	}
+	return s.openRuntime(scope, target)
+}
+
+func (s *Service) resolveTarget(
+	scope OperationScope,
+	targetRequest *chatpb.ChatTarget,
+	initialDraft *string,
+) (ResolvedTarget, error) {
+	if s == nil || s.targets == nil {
+		return ResolvedTarget{}, errors.New("Chat target resolver is required")
+	}
+	target, err := s.targets.Resolve(scope.Context(), TargetResolutionRequest{
+		Target:       targetRequest,
+		InitialDraft: initialDraft,
+	})
+	if err != nil {
+		return ResolvedTarget{}, err
+	}
+	return target, nil
+}
+
+func (s *Service) openRuntime(
+	scope OperationScope,
+	target ResolvedTarget,
+) (ResolvedTarget, RuntimeAttachment, error) {
+	if s == nil || s.runtimes == nil {
+		return target, nil, errors.New("Session Runtime planner is required")
+	}
+	attachment, err := s.runtimes.Open(scope.Context(), target.SessionID)
+	if err != nil {
+		if attachment == nil {
+			return target, nil, err
+		}
+		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+		})
+		return target, nil, errors.Join(err, releaseErr)
+	}
+	if attachment == nil {
+		return target, nil, errors.New("Session Runtime attachment is required")
+	}
+	if attachment.SessionID() != target.SessionID {
+		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+		})
+		return target, nil, errors.Join(
+			errors.New("Session Runtime attachment targets another Session"),
+			releaseErr,
+		)
+	}
+	return target, attachment, nil
+}
+
+func runtimeGoalExecutionPolicy(
+	policy runtimepb.GoalExecutionPolicy,
+) (serverapi.RuntimeGoalExecutionPolicy, error) {
+	switch policy {
+	case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE:
+		return serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState, nil
+	case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE:
+		return serverapi.RuntimeGoalExecutionPolicyStartOrContinue, nil
+	default:
+		return "", errors.New("execution_policy is required")
+	}
+}
+
+func goalMutationSuccess(response serverapi.RuntimeGoalMutationResponse) (*runtimepb.GoalMutationSuccess, error) {
+	result := response.Result
+	if err := result.Validate(); err != nil {
+		return nil, err
+	}
+	converted := &runtimepb.GoalMutationSuccess{}
+	switch result.Kind {
+	case clientui.GoalMutationResultAuthoritativeGoal:
+		if result.Goal == nil {
+			return nil, errors.New("authoritative Goal result requires Goal")
+		}
+		status, err := goalStatusToProto(result.Goal.Status)
+		if err != nil {
+			return nil, err
+		}
+		converted.Kind = runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL
+		converted.Goal = &runtimepb.Goal{
+			Id:        result.Goal.ID,
+			Objective: result.Goal.Objective,
+			Status:    status,
+			CreatedAt: timestamppb.New(result.Goal.CreatedAt),
+			UpdatedAt: timestamppb.New(result.Goal.UpdatedAt),
+		}
+	case clientui.GoalMutationResultAuthoritativeClear:
+		converted.Kind = runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR
+	default:
+		return nil, fmt.Errorf("unsupported Goal mutation result %q", result.Kind)
+	}
+	if result.Availability != nil {
+		availability, err := goalAvailabilityToProto(*result.Availability)
+		if err != nil {
+			return nil, err
+		}
+		converted.Availability = &availability
+	}
+	if err := protoapi.Validate(converted); err != nil {
+		return nil, err
+	}
+	return converted, nil
+}
+
+func goalStatusToProto(status clientui.RuntimeGoalStatus) (runtimepb.GoalStatus, error) {
+	switch status {
+	case clientui.RuntimeGoalStatusActive:
+		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE, nil
+	case clientui.RuntimeGoalStatusPaused:
+		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED, nil
+	case clientui.RuntimeGoalStatusComplete:
+		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE, nil
+	default:
+		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_UNSPECIFIED, fmt.Errorf("unknown Goal status %q", status)
+	}
+}
+
+func goalAvailabilityToProto(availability clientui.GoalAvailability) (runtimepb.GoalAvailability, error) {
+	switch availability {
+	case clientui.GoalAvailabilityAvailable:
+		return runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE, nil
+	case clientui.GoalAvailabilityAgentCapabilityMissing:
+		return runtimepb.GoalAvailability_GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING, nil
+	default:
+		return runtimepb.GoalAvailability_GOAL_AVAILABILITY_UNSPECIFIED, fmt.Errorf("unknown Goal availability %q", availability)
+	}
+}
+
+func goalSetSuccessRejected(
+	sessionID runtimeids.SessionID,
+	err error,
+) *runtimepb.GoalSetSuccess {
+	return &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+		Outcome: &runtimepb.GoalSetSuccess_Rejected{Rejected: protoapi.GoalSetErrorFromError(err)},
 	}
 }
 
@@ -289,43 +623,7 @@ func (s *Service) prepareRuntime(
 	targetRequest *chatpb.ChatTarget,
 	initialDraft string,
 ) (ResolvedTarget, RuntimeAttachment, error) {
-	ctx := scope.Context()
-	if s == nil || s.targets == nil {
-		return ResolvedTarget{}, nil, errors.New("Chat target resolver is required")
-	}
-	target, err := s.targets.Resolve(ctx, TargetResolutionRequest{
-		Target:       targetRequest,
-		InitialDraft: &initialDraft,
-	})
-	if err != nil {
-		return ResolvedTarget{}, nil, err
-	}
-	if s.runtimes == nil {
-		return target, nil, errors.New("Session Runtime planner is required")
-	}
-	attachment, err := s.runtimes.Open(ctx, target.SessionID)
-	if err != nil {
-		if attachment == nil {
-			return target, nil, err
-		}
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return target, nil, errors.Join(err, releaseErr)
-	}
-	if attachment == nil {
-		return target, nil, errors.New("Session Runtime attachment is required")
-	}
-	if attachment.SessionID() != target.SessionID {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return target, nil, errors.Join(
-			errors.New("Session Runtime attachment targets another Session"),
-			releaseErr,
-		)
-	}
-	return target, attachment, nil
+	return s.prepareRuntimeWithDraft(scope, targetRequest, &initialDraft)
 }
 
 func (s *Service) admitInput(

@@ -266,6 +266,28 @@ export const englishResources = {
       },
     },
     chat: {
+      goal: {
+        title: "Goal",
+        guidance:
+          "A good Goal is specific and outcome-focused. State what should be true when the work is complete, plus any constraints Kent must respect.",
+        objective: "Goal",
+        objectivePlaceholder: "Describe the outcome Kent should achieve",
+        save: "Save",
+        pause: "Pause",
+        resume: "Resume",
+        reopen: "Reopen",
+        clear: "Clear",
+        active: "Active",
+        paused: "Paused",
+        complete: "Complete",
+        unavailableForAgent: "Unavailable for this Agent",
+        mutationFailed: "Goal action failed",
+        setFailed: "Goal could not be saved",
+        loading: "Loading Goal",
+        loadFailed: "Goal could not be loaded",
+        setAt: "Set at {{date}} ({{age}} ago)",
+        clearFailed: "Goal could not be cleared",
+      },
       toolRows: {
         backgrounded: "Backgrounded",
         collapse: "Collapse tool details",

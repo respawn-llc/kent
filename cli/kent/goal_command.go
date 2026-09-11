@@ -141,7 +141,14 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		runID, stepID = sessionenv.LookupRunStepID(os.LookupEnv)
 	}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
-		resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{SessionID: target, Objective: objective, Actor: actor, RunID: runID, StepID: stepID})
+		resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{
+			SessionID:       target,
+			Objective:       objective,
+			Actor:           actor,
+			RunID:           runID,
+			StepID:          stepID,
+			ExecutionPolicy: serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState,
+		})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target, err))
 			return 1

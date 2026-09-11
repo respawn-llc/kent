@@ -230,7 +230,6 @@ var routeContracts = []Route{
 	unary[serverapi.RuntimeRemovePendingWorkRequest, serverapi.RuntimeRemovePendingWorkResponse](protocol.MethodRuntimeRemovePendingWork, AuthServer, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.RuntimeRecordPromptHistoryRequest, struct{}](protocol.MethodRuntimeRecordPromptHistory, AuthServer, ScopeSessionActiveProject, ConnectionControl),
 	unary[serverapi.RuntimeGoalShowRequest, serverapi.RuntimeGoalShowResponse](protocol.MethodRuntimeGoalShow, AuthServer, ScopeGoalSession, ConnectionControl),
-	unary[serverapi.RuntimeGoalSetRequest, serverapi.RuntimeGoalMutationResponse](protocol.MethodRuntimeGoalSet, AuthServer, ScopeGoalSession, ConnectionControl),
 	unary[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](protocol.MethodRuntimeGoalPause, AuthServer, ScopeGoalSession, ConnectionControl),
 	unary[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](protocol.MethodRuntimeGoalResume, AuthServer, ScopeGoalSession, ConnectionControl),
 	unary[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](protocol.MethodRuntimeGoalComplete, AuthServer, ScopeGoalSession, ConnectionControl),

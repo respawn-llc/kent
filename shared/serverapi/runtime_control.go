@@ -193,12 +193,20 @@ func (r RuntimeGoalMutationResponse) Validate() error {
 }
 
 type RuntimeGoalSetRequest struct {
-	SessionID string `json:"session_id"`
-	Objective string `json:"objective"`
-	Actor     string `json:"actor"`
-	RunID     string `json:"run_id,omitempty"`
-	StepID    string `json:"step_id,omitempty"`
+	SessionID       string                     `json:"session_id"`
+	Objective       string                     `json:"objective"`
+	Actor           string                     `json:"actor"`
+	RunID           string                     `json:"run_id,omitempty"`
+	StepID          string                     `json:"step_id,omitempty"`
+	ExecutionPolicy RuntimeGoalExecutionPolicy `json:"execution_policy,omitempty"`
 }
+
+type RuntimeGoalExecutionPolicy string
+
+const (
+	RuntimeGoalExecutionPolicyStartOrContinue      RuntimeGoalExecutionPolicy = "start_or_continue"
+	RuntimeGoalExecutionPolicyPreserveRuntimeState RuntimeGoalExecutionPolicy = "preserve_runtime_state"
+)
 
 type RuntimeGoalStatusRequest struct {
 	SessionID string `json:"session_id"`
@@ -366,6 +374,11 @@ func (r RuntimeGoalSetRequest) Validate() error {
 	}
 	if strings.TrimSpace(r.Objective) == "" {
 		return errors.New("objective is required")
+	}
+	switch r.ExecutionPolicy {
+	case RuntimeGoalExecutionPolicyStartOrContinue, RuntimeGoalExecutionPolicyPreserveRuntimeState:
+	default:
+		return errors.New("execution_policy is required and must be start_or_continue or preserve_runtime_state")
 	}
 	return validateGoalActor(r.Actor)
 }

@@ -5,6 +5,7 @@ package kent.api.runtime;
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "kent/api/chat/chat.proto";
 import "kent/api/prompt_command/validation.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -35,6 +36,12 @@ enum GoalMutationResultKind {
   GOAL_MUTATION_RESULT_KIND_UNSPECIFIED = 0;
   GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL = 1;
   GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR = 2;
+}
+
+enum GoalExecutionPolicy {
+  GOAL_EXECUTION_POLICY_UNSPECIFIED = 0;
+  GOAL_EXECUTION_POLICY_START_OR_CONTINUE = 1;
+  GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE = 2;
 }
 
 enum GoalObservationKind {
@@ -668,10 +675,7 @@ message GoalMutationRequest {
 }
 
 message GoalSetRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.chat.ChatTarget target = 1 [(buf.validate.field).required = true];
   string objective = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -688,8 +692,27 @@ message GoalSetRequest {
       expression: "this.trim() in ['user', 'agent', 'system']"
     }
   ];
-  optional string run_id = 4 [(buf.validate.field).string.min_len = 1];
-  optional string step_id = 5 [(buf.validate.field).string.min_len = 1];
+  GoalExecutionPolicy execution_policy = 4 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional string initial_input_draft = 5;
+  optional string run_id = 6 [(buf.validate.field).string.min_len = 1];
+  optional string step_id = 7 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_target_execution"
+    message: "Goal Set target, actor, execution policy, draft, and execution identity must form a legal combination"
+    expression:
+      "has(this.target.new_chat) && this.execution_policy == 1 && this.actor.trim() == 'user' && "
+      "!has(this.run_id) && !has(this.step_id) || "
+      "has(this.target.session) && !has(this.initial_input_draft) && ("
+      "(this.execution_policy == 1 && this.actor.trim() == 'user' && !has(this.run_id) && !has(this.step_id)) || "
+      "(this.execution_policy == 2 && ("
+      "(this.actor.trim() == 'agent' && has(this.run_id) && has(this.step_id)) || "
+      "(this.actor.trim() != 'agent' && !has(this.run_id) && !has(this.step_id))"
+      ")))"
+  };
 }
 
 message GoalClearRequest {
@@ -928,6 +951,25 @@ message GoalSetError {
       error_code: "internal_failure"
     }];
   }
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_error_detail"
+    message: "Goal Set error code and detail must match"
+    expression:
+      "(this.code == 'runtime_unavailable' && has(this.runtime_unavailable)) || "
+      "(this.code == 'internal_failure' && has(this.internal_failure))"
+  };
+}
+
+message GoalSetSuccess {
+  kent.api.chat.ExistingSessionTarget session = 1 [(buf.validate.field).required = true];
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+
+    GoalMutationSuccess mutation = 2;
+    GoalSetError rejected = 3;
+  }
+  optional GoalSetError diagnostic = 4;
 }
 
 message GoalPauseError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }
@@ -1035,7 +1077,7 @@ message GoalShowResult {
 message GoalSetResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
-    GoalMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GoalSetSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     GoalSetError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
@@ -1180,10 +1222,9 @@ service GoalService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_GOAL_SESSION
+      scope_policy: SCOPE_POLICY_CHAT_TARGET
       direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.goal.set"
+      unary_connection: UNARY_CONNECTION_DEDICATED
     };
   }
   rpc Pause(GoalMutationRequest) returns (GoalPauseResult) {

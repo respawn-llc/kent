@@ -861,10 +861,6 @@ func (c *Remote) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequ
 	return callValidatedControlRPC[serverapi.RuntimeGoalShowRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalShow, req)
 }
 
-func (c *Remote) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalSetRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalSet, req)
-}
-
 func (c *Remote) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalPause, req)
 }
