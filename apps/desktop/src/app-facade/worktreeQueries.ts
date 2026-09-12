@@ -45,7 +45,23 @@ export const worktreeListQueryOptions = (api: ApiService, sessionID: string) =>
   queryOptions({
     queryKey: queryKeys.worktreeList(sessionID),
     queryFn: async () => api.listWorktrees(sessionID),
+    staleTime: 0,
+    structuralSharing: false,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
+
+export async function replaceWorktreeListRead(
+  queryClient: QueryClient,
+  api: ApiService,
+  sessionID: string,
+): Promise<void> {
+  const options = worktreeListQueryOptions(api, sessionID);
+  await queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+  // The query retains the error and previous data for the browser's Error + Retry state.
+  await queryClient.fetchQuery(options).catch(() => undefined);
+}
 
 const createKey = (request: WorktreeCreateTargetResolutionRequest) =>
   queryKeys.worktreeCreateTargetResolution(request.sessionID, request.target);

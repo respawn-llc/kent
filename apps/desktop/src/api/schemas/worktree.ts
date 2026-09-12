@@ -7,6 +7,12 @@ import type {
 
 import type { SetupOperationID } from "../setupOperationID";
 
+export type {
+  ListEntry as WorktreeListEntry,
+  ListSuccess as WorktreeList,
+  DeletePreviewOperation as WorktreeDeletePreviewOperation,
+} from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
+
 type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
   ? Value
   : Value extends readonly (infer Item)[]

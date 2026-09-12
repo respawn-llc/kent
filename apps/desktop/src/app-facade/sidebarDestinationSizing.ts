@@ -31,7 +31,8 @@ export function sidebarWidthProfile(destination: SidebarDestination): SidebarWid
   if (
     destination.kind === "workflowCreate" ||
     destination.kind === "linkWorkflow" ||
-    destination.kind === "processes"
+    destination.kind === "processes" ||
+    destination.kind === "worktree"
   ) {
     return { kind: "workflowList" };
   }

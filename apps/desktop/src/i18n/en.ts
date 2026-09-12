@@ -266,6 +266,16 @@ export const englishResources = {
       },
     },
     chat: {
+      worktree: {
+        title: "Worktree",
+        refresh: "Refresh worktrees",
+        create: "Create worktree",
+        switch: "Switch",
+        delete: "Delete worktree",
+        empty: "No worktrees",
+        external: "External",
+        missing: "Missing",
+      },
       toolRows: {
         backgrounded: "Backgrounded",
         collapse: "Collapse tool details",

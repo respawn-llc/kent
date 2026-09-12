@@ -20,6 +20,7 @@ export type ActionableListRowProps = Readonly<{
   contextualActions?: ReactNode;
   leadingActions?: ReactNode;
   selected?: boolean;
+  wrapActions?: boolean;
 }> &
   ActionableListRowSelection &
   Omit<HTMLAttributes<HTMLDivElement>, "children" | "className">;
@@ -31,6 +32,7 @@ export function ActionableListRow({
   contextualActions,
   leadingActions,
   selected = false,
+  wrapActions = false,
   selectionControl,
   selectButtonProps,
   ...props
@@ -40,6 +42,7 @@ export function ActionableListRow({
       className={cx(
         "group/actionable-row app-region-no-drag relative flex min-h-9 w-full items-center rounded-[var(--radius-s)] border border-transparent bg-transparent transition-colors duration-100 motion-reduce:transition-none focus-within:bg-[var(--color-island-1)] data-[selected=true]:bg-[var(--color-island-2)] [@media(pointer:coarse)]:min-h-11",
         className,
+        wrapActions && "flex-wrap gap-y-[var(--space-1)]",
       )}
       data-selected={selected}
       {...props}

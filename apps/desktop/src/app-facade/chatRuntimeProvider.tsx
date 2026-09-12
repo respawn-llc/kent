@@ -14,10 +14,17 @@ export type ChatRuntimeProviderProps = Readonly<{
   api: ChatRuntimeProviderApi;
   target: ChatSessionTarget;
   host: ChatRuntimeHost;
+  onReconnected?: () => void;
   children: ReactNode;
 }>;
 
-export function ChatRuntimeProvider({ api, target, host, children }: ChatRuntimeProviderProps) {
+export function ChatRuntimeProvider({
+  api,
+  target,
+  host,
+  onReconnected,
+  children,
+}: ChatRuntimeProviderProps) {
   const queryClient = useQueryClient();
   const owner = useMemo(
     () => new ChatRuntimeOwner(api.chat, target, queryClient, host),
@@ -37,10 +44,11 @@ export function ChatRuntimeProvider({ api, target, host, children }: ChatRuntime
       if (connection.phase === "connected" && armed) {
         armed = false;
         owner.controlReconnected();
+        onReconnected?.();
       }
     };
     observe();
     return api.connection.subscribe(observe);
-  }, [api, owner]);
+  }, [api, onReconnected, owner]);
   return <ChatRuntimeContext.Provider value={owner}>{children}</ChatRuntimeContext.Provider>;
 }
