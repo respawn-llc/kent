@@ -171,7 +171,7 @@ func TestServiceSetGoalDeliversResolvedNewChatSessionWithAuthoritativeGoal(t *te
 		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
 	}
 	goals := &goalSetTestGoalService{
-		response: serverapi.RuntimeGoalMutationResponse{
+		response: serverapi.RuntimeGoalSetResponse{
 			Result: clientui.GoalMutationResult{
 				Kind: clientui.GoalMutationResultAuthoritativeGoal,
 				Goal: &clientui.Goal{
@@ -218,6 +218,58 @@ func TestServiceSetGoalDeliversResolvedNewChatSessionWithAuthoritativeGoal(t *te
 	}
 }
 
+func TestServiceSetGoalCarriesCommittedDiagnosticWithAuthoritativeGoal(t *testing.T) {
+	owner := newTestOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	sessionID := runtimeids.NewSessionID()
+	attachment := &goalSetTestAttachment{
+		sessionID: sessionID,
+		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
+	}
+	goals := &goalSetTestGoalService{
+		response: serverapi.RuntimeGoalSetResponse{
+			Result: clientui.GoalMutationResult{
+				Kind: clientui.GoalMutationResultAuthoritativeGoal,
+				Goal: &clientui.Goal{
+					ID:        "goal-1",
+					Objective: "ship the feature",
+					Status:    clientui.RuntimeGoalStatusActive,
+					CreatedAt: time.Unix(10, 0),
+					UpdatedAt: time.Unix(10, 0),
+				},
+			},
+			Diagnostic: errors.New("goal notice failed"),
+		},
+	}
+	service := NewService(
+		owner,
+		goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID, Created: true}},
+		goalSetTestRuntime{attachment: attachment},
+		nil,
+		goals,
+	)
+
+	success, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
+		},
+		Objective:       "ship the feature",
+		Actor:           "user",
+		ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+	})
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if success.GetMutation().GetGoal().GetObjective() != "ship the feature" {
+		t.Fatalf("Goal result = %+v, want authoritative objective", success.GetMutation())
+	}
+	if success.GetDiagnostic() == nil ||
+		success.GetDiagnostic().Code != "internal_failure" ||
+		success.GetDiagnostic().GetInternalFailure().GetCause() != "goal notice failed" {
+		t.Fatalf("diagnostic = %+v, want committed internal failure", success.GetDiagnostic())
+	}
+}
+
 func TestServiceSetGoalCallerDisconnectDoesNotCancelServerOperation(t *testing.T) {
 	owner := newTestOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })
@@ -230,7 +282,7 @@ func TestServiceSetGoalCallerDisconnectDoesNotCancelServerOperation(t *testing.T
 		started:  make(chan context.Context, 1),
 		release:  make(chan struct{}),
 		finished: make(chan struct{}),
-		response: serverapi.RuntimeGoalMutationResponse{
+		response: serverapi.RuntimeGoalSetResponse{
 			Result: clientui.GoalMutationResult{
 				Kind: clientui.GoalMutationResultAuthoritativeGoal,
 				Goal: &clientui.Goal{
@@ -290,7 +342,7 @@ func TestServiceSetGoalPreservesDormantRuntimeForPreservePolicy(t *testing.T) {
 	t.Cleanup(func() { _ = owner.Close() })
 	sessionID := runtimeids.NewSessionID()
 	goals := &goalSetTestGoalService{
-		response: serverapi.RuntimeGoalMutationResponse{
+		response: serverapi.RuntimeGoalSetResponse{
 			Result: clientui.GoalMutationResult{
 				Kind: clientui.GoalMutationResultAuthoritativeGoal,
 				Goal: &clientui.Goal{
@@ -387,20 +439,20 @@ func (a *goalSetTestAttachment) Release(
 
 type goalSetTestGoalService struct {
 	request  serverapi.RuntimeGoalSetRequest
-	response serverapi.RuntimeGoalMutationResponse
+	response serverapi.RuntimeGoalSetResponse
 }
 
 type goalSetBlockingService struct {
 	started  chan context.Context
 	release  chan struct{}
 	finished chan struct{}
-	response serverapi.RuntimeGoalMutationResponse
+	response serverapi.RuntimeGoalSetResponse
 }
 
 func (s *goalSetBlockingService) SetGoal(
 	ctx context.Context,
 	_ serverapi.RuntimeGoalSetRequest,
-) (serverapi.RuntimeGoalMutationResponse, error) {
+) (serverapi.RuntimeGoalSetResponse, error) {
 	s.started <- ctx
 	<-s.release
 	close(s.finished)
@@ -410,7 +462,7 @@ func (s *goalSetBlockingService) SetGoal(
 func (s *goalSetTestGoalService) SetGoal(
 	_ context.Context,
 	request serverapi.RuntimeGoalSetRequest,
-) (serverapi.RuntimeGoalMutationResponse, error) {
+) (serverapi.RuntimeGoalSetResponse, error) {
 	s.request = request
 	return s.response, nil
 }

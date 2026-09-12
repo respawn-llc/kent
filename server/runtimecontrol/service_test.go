@@ -1556,7 +1556,7 @@ func TestGoalResponseFromRuntimeResultUsesAuthoritativeProducerMatrix(t *testing
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil)
+			response, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil, false)
 			if err != nil {
 				t.Fatalf("goalResponseFromRuntimeResult: %v", err)
 			}
@@ -1602,10 +1602,42 @@ func TestGoalResponseFromRuntimeResultRejectsImpossibleProducerCombinations(t *t
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil); err == nil {
+			if _, err := goalResponseFromRuntimeResult(test.result, test.mutation, nil, false); err == nil {
 				t.Fatal("goalResponseFromRuntimeResult accepted an impossible producer result")
 			}
 		})
+	}
+}
+
+func TestGoalResponseFromRuntimeResultPreservesCommittedDiagnostic(t *testing.T) {
+	availability := session.GoalAvailable
+	goal := session.GoalState{
+		ID:        "goal-1",
+		Objective: "ship",
+		Status:    session.GoalStatusActive,
+		CreatedAt: time.Unix(1, 0).UTC(),
+		UpdatedAt: time.Unix(1, 0).UTC(),
+	}
+
+	response, err := goalResponseFromRuntimeResult(
+		runtime.GoalCommandResult{
+			GoalState:       goal,
+			Disposition:     runtime.GoalCommandApplied,
+			Availability:    &availability,
+			MetadataReceipt: session.CommitReceipt{Committed: true},
+		},
+		goalMutation{kind: goalMutationSet},
+		errors.New("goal notice failed"),
+		true,
+	)
+	if err != nil {
+		t.Fatalf("goalResponseFromRuntimeResult: %v", err)
+	}
+	if response.Result.Goal == nil || response.Result.Goal.Objective != goal.Objective {
+		t.Fatalf("Goal result = %+v, want committed Goal", response.Result)
+	}
+	if response.Diagnostic == nil || response.Diagnostic.Error() != "goal notice failed" {
+		t.Fatalf("diagnostic = %v, want committed notice failure", response.Diagnostic)
 	}
 }
 
@@ -1718,7 +1750,7 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 	}
 
 	type goalResult struct {
-		response serverapi.RuntimeGoalMutationResponse
+		response serverapi.RuntimeGoalSetResponse
 		err      error
 	}
 	before := runtimeControlGoalDeveloperMessages(t, store)
@@ -1732,7 +1764,7 @@ func TestServiceSetGoalPersistsBeforeReminderBoundary(t *testing.T) {
 		})
 		goalDone <- goalResult{response: response, err: goalErr}
 	}()
-	var accepted serverapi.RuntimeGoalMutationResponse
+	var accepted serverapi.RuntimeGoalSetResponse
 	select {
 	case result := <-goalDone:
 		if result.err != nil {

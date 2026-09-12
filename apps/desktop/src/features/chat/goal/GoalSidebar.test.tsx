@@ -1,12 +1,18 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { ChatGoalSetResult } from "@/api";
+import type {
+  ApiSubscription,
+  ChatGoalFact,
+  ChatGoalMutationResult,
+  ChatGoalObservationHandler,
+  ChatGoalSetResult,
+} from "@/api";
 import { TransportError } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import * as ui from "@/ui";
 import { NewChatGoalBinding } from "./goalBinding";
-import { GoalSidebarPage } from "./GoalSidebar";
+import { GoalSidebarPage, type GoalSidebarApi } from "./GoalSidebar";
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
@@ -202,6 +208,230 @@ describe("Goal sidebar", () => {
     expect(notice).toHaveBeenCalledOnce();
     expect(notice.mock.lastCall?.[0].tone).toBe("danger");
   });
+
+  it("reports a committed Set diagnostic after the exact Goal sidebar closes", async () => {
+    const services = createTestServices([]);
+    const pending = deferred<ChatGoalSetResult>();
+    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+    const api = createGoalSidebarApi({
+      goal: null,
+      setGoal: vi.fn(async () => pending.promise),
+    });
+    const view = render(
+      <TestAppProviders services={services}>
+        <GoalSidebarPage input={{ kind: "session", api, target }} />
+      </TestAppProviders>,
+    );
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), "close-safe success");
+    await user.click(screen.getByTestId("goal-save"));
+    view.unmount();
+
+    await act(async () => {
+      pending.resolve({
+        sessionID,
+        outcome: {
+          kind: "mutation",
+          mutation: {
+            kind: "authoritative_goal",
+            fact: {
+              goal: {
+                id: "goal-close-safe",
+                objective: "close-safe success",
+                status: "active",
+                createdAt: "2026-09-12T10:00:00Z",
+                updatedAt: "2026-09-12T10:00:00Z",
+              },
+              availability: "available",
+            },
+          },
+        },
+        diagnostic: { kind: "internal_failure", operation: "runtime.detach", cause: "release failed" },
+      });
+      await pending.promise;
+    });
+
+    await waitFor(() => {
+      expect(notice).toHaveBeenCalledOnce();
+    });
+    expect(notice.mock.lastCall?.[0].tone).toBe("warning");
+  });
+
+  it("presents first exact-Session Save as Active without a timestamp while pending", async () => {
+    const pending = deferred<ChatGoalSetResult>();
+    const setGoal = vi.fn(async () => pending.promise);
+    const api = createGoalSidebarApi({ goal: null, setGoal });
+    mountExactGoal(api);
+
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), "Create this Goal");
+    await user.click(screen.getByTestId("goal-save"));
+
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Active")).toBeInTheDocument();
+    expect(screen.queryByText(/Set at/)).not.toBeInTheDocument();
+
+    pending.resolve({
+      sessionID,
+      outcome: {
+        kind: "mutation",
+        mutation: {
+          kind: "authoritative_goal",
+          fact: {
+            goal: {
+              id: "goal-created",
+              objective: "Create this Goal",
+              status: "active",
+              createdAt: "2026-09-12T10:00:00Z",
+              updatedAt: "2026-09-12T10:00:00Z",
+            },
+            availability: "available",
+          },
+        },
+      },
+      diagnostic: null,
+    });
+    expect(await screen.findByText(/Set at/)).toBeInTheDocument();
+  });
+
+  it("applies a committed Goal before showing one non-failure diagnostic warning", async () => {
+    let goalVisibleWhenWarningWasShown = false;
+    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation((value) => {
+      if (value.tone === "warning") {
+        goalVisibleWhenWarningWasShown = screen.queryByRole("button", { name: "Pause" }) !== null;
+      }
+    });
+    const api = createGoalSidebarApi({
+      goal: null,
+      setGoal: vi.fn(async () => ({
+        sessionID,
+        outcome: {
+          kind: "mutation" as const,
+          mutation: {
+            kind: "authoritative_goal" as const,
+            fact: {
+              goal: {
+                id: "goal-1",
+                objective: "Save this Goal",
+                status: "active" as const,
+                createdAt: "2026-09-12T10:00:00Z",
+                updatedAt: "2026-09-12T10:00:00Z",
+              },
+              availability: "available" as const,
+            },
+          },
+        },
+        diagnostic: {
+          kind: "internal_failure" as const,
+          operation: "runtime.detach",
+          cause: "release failed",
+        },
+      })),
+    });
+    mountExactGoal(api);
+
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "Goal" }), "Save this Goal");
+    await user.click(screen.getByTestId("goal-save"));
+
+    await waitFor(() => {
+      expect(notice).toHaveBeenCalledOnce();
+    });
+    expect(notice.mock.lastCall?.[0].tone).toBe("warning");
+    expect(notice.mock.lastCall?.[0].id).not.toBe("goal-set-diagnostic");
+    expect(goalVisibleWhenWarningWasShown).toBe(true);
+  });
+
+  it("keeps the requested lifecycle presentation when authority clears during the request", async () => {
+    const pending = deferred<ChatGoalMutationResult>();
+    const api = createGoalSidebarApi({
+      goal: {
+        id: "goal-1",
+        objective: "Keep this Goal",
+        status: "paused",
+        createdAt: "2026-09-12T10:00:00Z",
+        updatedAt: "2026-09-12T10:00:00Z",
+      },
+      resumeGoal: vi.fn(async () => pending.promise),
+    });
+    mountExactGoal(api);
+
+    await screen.findByRole("button", { name: "Resume" });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Resume" }));
+    act(() => {
+      api.emit?.({
+        sequence: 2,
+        kind: "update",
+        fact: { goal: null, availability: "available" },
+      });
+    });
+
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByText("Keep this Goal")).toBeInTheDocument();
+    await act(async () => {
+      pending.resolve({
+        kind: "authoritative_goal",
+        fact: {
+          goal: {
+            id: "goal-1",
+            objective: "Keep this Goal",
+            status: "active",
+            createdAt: "2026-09-12T10:00:00Z",
+            updatedAt: "2026-09-12T10:00:00Z",
+          },
+          availability: "available",
+        },
+      });
+      await pending.promise;
+    });
+  });
+
+  it.each(["deferred", "fast"] as const)(
+    "does not submit a second Save during %s completion fade",
+    async (completion) => {
+      const result: ChatGoalSetResult = {
+        sessionID,
+        outcome: {
+          kind: "mutation",
+          mutation: {
+            kind: "authoritative_goal",
+            fact: {
+              goal: {
+                id: "goal-1",
+                objective: "one objective",
+                status: "active",
+                createdAt: "2026-09-12T10:00:00Z",
+                updatedAt: "2026-09-12T10:00:00Z",
+              },
+              availability: "available",
+            },
+          },
+        },
+        diagnostic: null,
+      };
+      const pending = deferred<ChatGoalSetResult>();
+      const setGoal = vi.fn(async () => (completion === "fast" ? Promise.resolve(result) : pending.promise));
+      const api = createGoalSidebarApi({ goal: null, setGoal });
+      mountExactGoal(api);
+
+      const user = userEvent.setup();
+      await user.type(await screen.findByRole("textbox", { name: "Goal" }), "one objective");
+      const save = screen.getByTestId("goal-save");
+      await user.click(save);
+      if (completion === "deferred") {
+        await act(async () => {
+          pending.resolve(result);
+          await pending.promise;
+        });
+      }
+      if (completion === "fast") {
+        await screen.findByText("one objective");
+      }
+      fireEvent.click(save);
+
+      expect(setGoal).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 function deferred<Value>() {
@@ -212,4 +442,64 @@ function deferred<Value>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function mountExactGoal(api: GoalSidebarApi) {
+  const services = createTestServices([]);
+  render(
+    <TestAppProviders services={services}>
+      <GoalSidebarPage input={{ kind: "session", api, target }} />
+    </TestAppProviders>,
+  );
+}
+
+function createGoalSidebarApi({
+  goal,
+  setGoal = vi.fn(async () => {
+    throw new Error("Unexpected Goal mutation.");
+  }),
+  resumeGoal = vi.fn(async () => {
+    throw new Error("Unexpected Goal mutation.");
+  }),
+}: Readonly<{
+  goal: ChatGoalFact["goal"];
+  setGoal?: GoalSidebarApi["setGoal"];
+  resumeGoal?: GoalSidebarApi["resumeGoal"];
+}>): GoalSidebarApi &
+  Readonly<{ emit?: (observation: Parameters<ChatGoalObservationHandler["onEvent"]>[0]) => void }> {
+  let handler: ChatGoalObservationHandler | null = null;
+  const api: GoalSidebarApi &
+    Readonly<{
+      emit?: (observation: Parameters<ChatGoalObservationHandler["onEvent"]>[0]) => void;
+    }> = {
+    clearGoal: vi.fn(async () => {
+      throw new Error("Unexpected Goal mutation.");
+    }),
+    pauseGoal: vi.fn(async () => {
+      throw new Error("Unexpected Goal mutation.");
+    }),
+    resumeGoal,
+    setGoal,
+    subscribeGoal: (_target, nextHandler): ApiSubscription => {
+      handler = nextHandler;
+      queueMicrotask(() => {
+        nextHandler.onEvent({
+          sequence: 1,
+          kind: "hydration",
+          fact: { goal, availability: "available" },
+        });
+      });
+      return {
+        close: () => {
+          if (handler === nextHandler) {
+            handler = null;
+          }
+        },
+      };
+    },
+    emit: (observation) => {
+      handler?.onEvent(observation);
+    },
+  };
+  return api;
 }

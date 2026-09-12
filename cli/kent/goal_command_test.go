@@ -14,6 +14,7 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/serverapi"
+	"core/shared/sessionenv"
 )
 
 type goalTimeoutRemote struct {
@@ -28,8 +29,8 @@ func (r goalTimeoutRemote) ShowGoal(context.Context, serverapi.RuntimeGoalShowRe
 	return serverapi.RuntimeGoalShowResponse{}, nil
 }
 
-func (goalTimeoutRemote) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error) {
+	return serverapi.RuntimeGoalSetResponse{}, context.DeadlineExceeded
 }
 
 func (goalTimeoutRemote) PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
@@ -51,6 +52,7 @@ func (goalTimeoutRemote) ClearGoal(context.Context, serverapi.RuntimeGoalClearRe
 func (goalTimeoutRemote) Close() error { return nil }
 
 func TestGoalCommandsPresentTimeoutWithoutReportingSuccess(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "")
 	for _, phase := range []string{"connect", "read", "mutation"} {
 		for _, action := range []string{"show", "set", "pause", "resume", "complete", "clear"} {
 			if phase == "read" && action != "show" && action != "complete" || phase == "mutation" && action == "show" {
@@ -110,6 +112,53 @@ func TestGoalTimeoutPresentationPreservesCause(t *testing.T) {
 	cause := errors.New("invalid goal")
 	if client.PresentGoalRequestError(cause) != cause {
 		t.Fatal("unrelated error was replaced")
+	}
+}
+
+type goalMutationOutputRemote struct {
+	goalCommandRemote
+	response serverapi.RuntimeGoalSetResponse
+}
+
+func (r goalMutationOutputRemote) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error) {
+	return r.response, nil
+}
+
+func (goalMutationOutputRemote) Close() error { return nil }
+
+type goalCommandOutputWriter struct {
+	label  string
+	events *[]string
+	buffer bytes.Buffer
+}
+
+func (w *goalCommandOutputWriter) Write(value []byte) (int, error) {
+	*w.events = append(*w.events, w.label+":"+string(value))
+	return w.buffer.Write(value)
+}
+
+func TestGoalSetPrintsCommittedResultBeforeOneWarning(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "")
+	previous := goalCommandRemoteOpener
+	t.Cleanup(func() { goalCommandRemoteOpener = previous })
+	goalCommandRemoteOpener = func(context.Context) (goalCommandRemote, error) {
+		return goalMutationOutputRemote{
+			response: serverapi.RuntimeGoalSetResponse{
+				Result:     completedGoalMutationResponse(clientui.RuntimeGoalStatusActive).Result,
+				Diagnostic: errors.New("post-commit release warning"),
+			},
+		}, nil
+	}
+	var events []string
+	stdout := &goalCommandOutputWriter{label: "stdout", events: &events}
+	stderr := &goalCommandOutputWriter{label: "stderr", events: &events}
+
+	if code := goalSubcommand([]string{"set", "--session", "session-1", "finish", "the", "task"}, stdout, stderr); code != 0 {
+		t.Fatalf("exit code = %d, want success", code)
+	}
+	if len(events) != 2 || events[0] != "stdout:Goal: finish the task\nStatus: active\n" ||
+		events[1] != "stderr:Warning: post-commit release warning\n" {
+		t.Fatalf("output events = %#v, want committed result followed by one warning", events)
 	}
 }
 

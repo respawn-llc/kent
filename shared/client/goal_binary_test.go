@@ -1,0 +1,165 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"testing"
+
+	"core/shared/clientui"
+	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	"core/shared/runtimeids"
+	"core/shared/serverapi"
+
+	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+func TestRemoteSetGoalPreservesSuccessfulDiagnostic(t *testing.T) {
+	sessionID := runtimeids.NewSessionID()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		acceptRemoteHandshake(t, ws)
+		var encoded []byte
+		if err := websocket.Message.Receive(ws, &encoded); err != nil {
+			return
+		}
+		envelope, err := protoapi.DecodeEnvelope(encoded)
+		if err != nil {
+			t.Errorf("decode Goal Set envelope: %v", err)
+			return
+		}
+		call := envelope.GetCall()
+		if call == nil || call.Correlation == nil {
+			return
+		}
+		operation, err := protoapi.OperationFromDescriptor(goalMethod("Set"))
+		if err != nil {
+			t.Errorf("Goal Set operation: %v", err)
+			return
+		}
+		if call.Operation != operation.Name {
+			return
+		}
+		request := &runtimepb.GoalSetRequest{}
+		if err := protoapi.Decode(call.Payload, request); err != nil {
+			t.Errorf("decode Goal Set request: %v", err)
+			return
+		}
+		now := timestamppb.Now()
+		result := &runtimepb.GoalSetResult{
+			Outcome: &runtimepb.GoalSetResult_Success{
+				Success: &runtimepb.GoalSetSuccess{
+					Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+					Outcome: &runtimepb.GoalSetSuccess_Mutation{
+						Mutation: &runtimepb.GoalMutationSuccess{
+							Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+							Goal: &runtimepb.Goal{
+								Id:        "goal-1",
+								Objective: "ship the feature",
+								Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+								CreatedAt: now,
+								UpdatedAt: now,
+							},
+						},
+					},
+					Diagnostic: &runtimepb.GoalSetError{
+						Code: "internal_failure",
+						Detail: &runtimepb.GoalSetError_InternalFailure{
+							InternalFailure: &sharedpb.InternalFailureDetails{
+								Operation: stringPointer("runtime.detach"),
+								Cause:     stringPointer("release failed"),
+							},
+						},
+					},
+				},
+			},
+		}
+		sendRemoteDescriptorResult(t, ws, goalMethod("Set"), call.Correlation, result)
+	})
+	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	response, err := remote.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		SessionID:       sessionID.String(),
+		Objective:       "ship the feature",
+		Actor:           "user",
+		ExecutionPolicy: serverapi.RuntimeGoalExecutionPolicyStartOrContinue,
+	})
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if response.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal {
+		t.Fatalf("mutation result = %+v, want authoritative Goal", response.Result)
+	}
+	if response.Diagnostic == nil || response.Diagnostic.Error() == "" {
+		t.Fatalf("diagnostic = %v, want post-commit diagnostic", response.Diagnostic)
+	}
+}
+
+func TestGoalSetGeneratedErrorPreservesUnknownDetailsAndFields(t *testing.T) {
+	unknown := []byte{0x98, 0x06, 0x07}
+	failure := &runtimepb.GoalSetError{
+		Code: "future_code",
+		Detail: &runtimepb.GoalSetError_InternalFailure{
+			InternalFailure: &sharedpb.InternalFailureDetails{
+				Operation: stringPointer("goal.set"),
+				Cause:     stringPointer("fixture failure"),
+			},
+		},
+	}
+	failure.ProtoReflect().SetUnknown(unknown)
+
+	err := goalSetGeneratedError(failure)
+	var generated *GoalSetGeneratedError
+	if !errors.As(err, &generated) {
+		t.Fatalf("error = %T %v, want GoalSetGeneratedError", err, err)
+	}
+	if generated.Code != "future_code" ||
+		generated.InternalFailureOperation == nil ||
+		*generated.InternalFailureOperation != "goal.set" ||
+		generated.InternalFailureCause == nil ||
+		*generated.InternalFailureCause != "fixture failure" {
+		t.Fatalf("generated error = %+v, want typed future detail", generated)
+	}
+	if !bytes.Equal(generated.UnknownFields, unknown) {
+		t.Fatalf("unknown fields = %x, want %x", generated.UnknownFields, unknown)
+	}
+}
+
+func TestGoalSetGeneratedErrorPreservesUnknownDetailsThroughGenericDecoder(t *testing.T) {
+	failure := &runtimepb.GoalSetError{
+		Code: "future_code",
+		Detail: &runtimepb.GoalSetError_InternalFailure{
+			InternalFailure: &sharedpb.InternalFailureDetails{
+				Operation: stringPointer("goal.set"),
+				Cause:     stringPointer("fixture failure"),
+			},
+		},
+	}
+	failure.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 0x07})
+	result := &runtimepb.GoalSetResult{
+		Outcome: &runtimepb.GoalSetResult_Error{Error: failure},
+	}
+
+	_, err := decodeGeneratedResultWithFailureClassifier(
+		goalMethod("Set"),
+		result,
+		goalSetGeneratedError,
+		noGeneratedPlatformFailure[*runtimepb.GoalSetError],
+	)
+	var generated *GoalSetGeneratedError
+	if !errors.As(err, &generated) {
+		t.Fatalf("error = %T %v, want GoalSetGeneratedError", err, err)
+	}
+	if generated.Code != failure.Code ||
+		generated.InternalFailureOperation == nil ||
+		*generated.InternalFailureOperation != "goal.set" {
+		t.Fatalf("generated error = %+v, want future Goal detail", generated)
+	}
+}

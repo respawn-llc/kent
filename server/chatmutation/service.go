@@ -45,7 +45,7 @@ type RuntimeAdmissionService interface {
 }
 
 type GoalSetService interface {
-	SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error)
+	SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error)
 }
 
 type Service struct {
@@ -109,11 +109,11 @@ func (s *Service) setGoal(
 		return goalSetSuccessRejected(target.SessionID, err), nil
 	}
 	if request.ExecutionPolicy == runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
-		mutation, mutationErr := s.invokeGoal(scope, request, target)
+		invocation, mutationErr := s.invokeGoal(scope, request, target)
 		if mutationErr != nil {
 			return nil, mutationErr
 		}
-		return goalSetSuccess(target.SessionID, mutation), nil
+		return goalSetSuccess(target.SessionID, invocation.mutation, invocation.diagnostic), nil
 	}
 	_, attachment, err := s.openRuntime(scope, target)
 	if err != nil {
@@ -132,7 +132,7 @@ func (s *Service) setGoal(
 		}
 		return nil, err
 	}
-	mutation, err := s.invokeGoal(scope, request, target)
+	invocation, err := s.invokeGoal(scope, request, target)
 	if err != nil {
 		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
 			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
@@ -146,24 +146,31 @@ func (s *Service) setGoal(
 	if err := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
 		return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseDetach)
 	}); err != nil {
-		success := goalSetSuccess(target.SessionID, mutation)
-		success.Diagnostic = protoapi.GoalSetErrorFromError(err)
-		return success, nil
+		return goalSetSuccess(
+			target.SessionID,
+			invocation.mutation,
+			errors.Join(invocation.diagnostic, err),
+		), nil
 	}
-	return goalSetSuccess(target.SessionID, mutation), nil
+	return goalSetSuccess(target.SessionID, invocation.mutation, invocation.diagnostic), nil
+}
+
+type goalSetInvocation struct {
+	mutation   *runtimepb.GoalMutationSuccess
+	diagnostic error
 }
 
 func (s *Service) invokeGoal(
 	scope OperationScope,
 	request *runtimepb.GoalSetRequest,
 	target ResolvedTarget,
-) (*runtimepb.GoalMutationSuccess, error) {
+) (goalSetInvocation, error) {
 	if s.goals == nil {
-		return nil, errors.New("Goal Set service is required")
+		return goalSetInvocation{}, errors.New("Goal Set service is required")
 	}
 	executionPolicy, err := runtimeGoalExecutionPolicy(request.ExecutionPolicy)
 	if err != nil {
-		return nil, err
+		return goalSetInvocation{}, err
 	}
 	response, err := s.goals.SetGoal(scope.Context(), serverapi.RuntimeGoalSetRequest{
 		SessionID:       target.SessionID.String(),
@@ -174,19 +181,28 @@ func (s *Service) invokeGoal(
 		ExecutionPolicy: executionPolicy,
 	})
 	if err != nil {
-		return nil, err
+		return goalSetInvocation{}, err
 	}
-	return goalMutationSuccess(response)
+	mutation, err := goalMutationSuccess(response)
+	if err != nil {
+		return goalSetInvocation{}, err
+	}
+	return goalSetInvocation{mutation: mutation, diagnostic: response.Diagnostic}, nil
 }
 
 func goalSetSuccess(
 	sessionID runtimeids.SessionID,
 	mutation *runtimepb.GoalMutationSuccess,
+	diagnostic error,
 ) *runtimepb.GoalSetSuccess {
-	return &runtimepb.GoalSetSuccess{
+	success := &runtimepb.GoalSetSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: mutation},
 	}
+	if diagnostic != nil {
+		success.Diagnostic = protoapi.GoalSetErrorFromError(diagnostic, sessionID)
+	}
+	return success
 }
 
 func (s *Service) prepareRuntimeWithDraft(
@@ -264,7 +280,7 @@ func runtimeGoalExecutionPolicy(
 	}
 }
 
-func goalMutationSuccess(response serverapi.RuntimeGoalMutationResponse) (*runtimepb.GoalMutationSuccess, error) {
+func goalMutationSuccess(response serverapi.RuntimeGoalSetResponse) (*runtimepb.GoalMutationSuccess, error) {
 	result := response.Result
 	if err := result.Validate(); err != nil {
 		return nil, err
@@ -335,7 +351,9 @@ func goalSetSuccessRejected(
 ) *runtimepb.GoalSetSuccess {
 	return &runtimepb.GoalSetSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
-		Outcome: &runtimepb.GoalSetSuccess_Rejected{Rejected: protoapi.GoalSetErrorFromError(err)},
+		Outcome: &runtimepb.GoalSetSuccess_Rejected{
+			Rejected: protoapi.GoalSetErrorFromError(err, sessionID),
+		},
 	}
 }
 

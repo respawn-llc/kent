@@ -1,14 +1,39 @@
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import { GoalBrowserFixture } from "./GoalBrowserFixture";
+import { SidebarHost } from "@/app/sidebar";
+import { SidebarProvider } from "@/app/sidebarProvider";
+import { sidebarDestinationPolicy } from "@/app/sidebarDestinationPolicy";
+import { SidebarRootOwner } from "@/app-facade";
+import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
 
 function renderFixture() {
+  const services = createTestServices([]);
   render(
-    <TestAppProviders services={createTestServices([])}>
-      <GoalBrowserFixture />
+    <TestAppProviders services={services}>
+      <SidebarProvider policy={sidebarDestinationPolicy}>
+        <SidebarRootOwner>
+          <GoalBrowserFixtureHarness />
+        </SidebarRootOwner>
+        <SidebarHost />
+      </SidebarProvider>
     </TestAppProviders>,
+  );
+}
+
+function GoalBrowserFixtureHarness() {
+  const [pendingPrompt, setPendingPrompt] = useState<GoalBrowserPendingPrompt | null>(null);
+  return (
+    <>
+      <GoalBrowserFixture onPromptOpen={setPendingPrompt} />
+      <div
+        data-prompt-id={pendingPrompt?.promptID}
+        data-prompt-kind={pendingPrompt?.kind}
+        data-testid="pending-chat-prompt"
+      />
+    </>
   );
 }
 
@@ -57,8 +82,20 @@ describe("Goal browser fixture", () => {
     expect(screen.getByTestId("goal-save")).toBeInTheDocument();
 
     await selectFixture("question-picker");
-    expect(screen.getByTestId("goal-question-picker")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Open pending Question" }));
+    expect(screen.getByTestId("pending-chat-prompt")).toHaveAttribute("data-prompt-kind", "question");
+    expect(screen.getByTestId("pending-chat-prompt")).toHaveAttribute("data-prompt-id", "question-1");
     expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+
+    await selectFixture("approval-picker");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Open pending Approval" }));
+    expect(screen.getByTestId("pending-chat-prompt")).toHaveAttribute("data-prompt-kind", "approval");
+    expect(screen.getByTestId("pending-chat-prompt")).toHaveAttribute("data-prompt-id", "approval-1");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByTestId("pending-chat-prompt")).toHaveAttribute("data-prompt-kind", "approval");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Goal" }));
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByTestId("pending-chat-prompt")).toHaveAttribute("data-prompt-kind", "approval");
   });
 
   it("renders the submitted Markdown during pending Save", async () => {

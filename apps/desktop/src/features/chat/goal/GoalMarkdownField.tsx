@@ -8,7 +8,7 @@ export type GoalMarkdownFieldProps = Readonly<{
   editing: boolean;
   error: string | undefined;
   expanded: boolean;
-  floatingAction: ReactNode | undefined;
+  floatingAction: Awaited<ReactNode> | undefined;
   onChange: (value: string) => void;
   onEdit: () => void;
   onEditingChange: (editing: boolean) => void;

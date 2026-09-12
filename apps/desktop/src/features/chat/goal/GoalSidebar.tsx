@@ -73,6 +73,7 @@ function NewChatGoalSidebar({
     if (!canSave) return;
     setError(null);
     setEditing(false);
+    const diagnosticID = goalSetDiagnosticNotificationID();
     void binding
       .setGoal(draft)
       .then((result) => {
@@ -85,12 +86,7 @@ function NewChatGoalSidebar({
           }
         }
         if (result.diagnostic !== null) {
-          push({
-            id: "goal-set-diagnostic",
-            title: t("chat.goal.setFailed"),
-            body: goalErrorMessage(result.diagnostic, t),
-            tone: "danger",
-          });
+          reportGoalSetDiagnostic(push, t, result.diagnostic, diagnosticID);
         }
       })
       .catch((cause: unknown) => {
@@ -233,12 +229,17 @@ type GoalMutationRunnerInput = Readonly<{
   setLocalDraft: React.Dispatch<React.SetStateAction<DraftState>>;
   t: ReturnType<typeof useTranslation>["t"];
 }>;
+type GoalMutationOperationResult = Readonly<{
+  mutation: ChatGoalMutationResult;
+  diagnostic: ChatGoalError | null;
+}>;
+
 function useGoalMutationRunner(input: GoalMutationRunnerInput) {
   return useCallback(
     async (
       intent: ChatGoalMutationIntent,
       action: "set" | "pause" | "resume" | "reopen" | "clear",
-      operation: () => Promise<ChatGoalMutationResult>,
+      operation: () => Promise<GoalMutationOperationResult>,
     ) => {
       if (input.actionsDisabled) return;
       const previous = { draft: input.draftState.draft, editing: input.editing, expanded: input.expanded };
@@ -251,8 +252,11 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       const handle = input.controller.begin(intent);
       try {
         const result = await operation();
-        if (input.controller.succeed(handle, result)) {
+        if (input.controller.succeed(handle, result.mutation)) {
           input.setError(null);
+        }
+        if (action === "set" && result.diagnostic !== null) {
+          reportGoalSetDiagnostic(input.push, input.t, result.diagnostic, goalSetDiagnosticNotificationID());
         }
       } catch (cause: unknown) {
         const current = input.controller.fail(handle);
@@ -308,8 +312,8 @@ function deriveGoalSidebarState(
   const pendingIntent = pendingGoalIntent(snapshot);
   const draftState = reconcileDraftState(localDraft, fact, pendingIntent);
   const presentation = goalPresentation(fact, pendingIntent, draftState.draft);
-  const displayedFact = presentation.fact;
-  const displayedStatus = displayedFact?.goal?.status ?? null;
+  const displayedFact = fact;
+  const displayedStatus = presentation.status;
   const dirty = draftState.draft !== draftState.base;
   const unavailable = goalUnavailable(fact);
   const saveAvailable = dirty && nonBlank(draftState.draft) && pendingIntent === null;
@@ -341,39 +345,29 @@ function goalPresentation(
   fact: ChatGoalFact | null,
   pendingIntent: ChatGoalMutationIntent | null,
   draft: string,
-): Readonly<{ fact: ChatGoalFact | null; objective: string; createdAt: string | null }> {
+): Readonly<{ objective: string; status: ChatGoalStatus | null; createdAt: string | null }> {
   if (pendingIntent?.kind === "clear") {
-    return { fact: fact === null ? null : { ...fact, goal: null }, objective: "", createdAt: null };
+    return { objective: "", status: null, createdAt: null };
   }
   if (pendingIntent?.kind === "goal") {
     return pendingGoalPresentation(fact, pendingIntent, draft);
   }
-  return { fact, objective: draft, createdAt: fact?.goal?.createdAt ?? null };
+  return { objective: draft, status: fact?.goal?.status ?? null, createdAt: fact?.goal?.createdAt ?? null };
 }
 
 function pendingGoalPresentation(
   fact: ChatGoalFact | null,
   pendingIntent: Extract<ChatGoalMutationIntent, { kind: "goal" }>,
   draft: string,
-): Readonly<{ fact: ChatGoalFact | null; objective: string; createdAt: string | null }> {
+): Readonly<{ objective: string; status: ChatGoalStatus; createdAt: string | null }> {
   const authoritativeGoal = fact?.goal;
-  if (fact === null || authoritativeGoal === undefined || authoritativeGoal === null) {
-    return {
-      fact,
-      objective: pendingIntent.preview.objective === draft ? pendingIntent.preview.objective : draft,
-      createdAt: null,
-    };
+  const objective = pendingIntent.preview.objective === draft ? pendingIntent.preview.objective : draft;
+  if (authoritativeGoal === undefined || authoritativeGoal === null) {
+    return { objective, status: pendingIntent.preview.status, createdAt: null };
   }
   return {
-    fact: {
-      ...fact,
-      goal: {
-        ...authoritativeGoal,
-        objective: pendingIntent.preview.objective,
-        status: pendingIntent.preview.status,
-      },
-    },
-    objective: pendingIntent.preview.objective === draft ? pendingIntent.preview.objective : draft,
+    objective,
+    status: pendingIntent.preview.status,
     createdAt:
       authoritativeGoal.objective === pendingIntent.preview.objective ? authoritativeGoal.createdAt : null,
   };
@@ -474,15 +468,7 @@ function useExactGoalSidebarModel(
       if (result.outcome.kind === "rejected") {
         throw new GoalDomainError(result.outcome.error);
       }
-      if (result.diagnostic !== null) {
-        push({
-          id: "goal-set-diagnostic",
-          title: t("chat.goal.setFailed"),
-          body: goalErrorMessage(result.diagnostic, t),
-          tone: "danger",
-        });
-      }
-      return result.outcome.mutation;
+      return { mutation: result.outcome.mutation, diagnostic: result.diagnostic };
     });
   };
 
@@ -497,12 +483,17 @@ function useExactGoalSidebarModel(
         },
       },
       lifecycle,
-      lifecycle === "pause" ? async () => api.pauseGoal(target) : async () => api.resumeGoal(target),
+      lifecycle === "pause"
+        ? async () => ({ mutation: await api.pauseGoal(target), diagnostic: null })
+        : async () => ({ mutation: await api.resumeGoal(target), diagnostic: null }),
     );
   };
 
   const clear = () => {
-    void runMutation({ kind: "clear" }, "clear", async () => api.clearGoal(target));
+    void runMutation({ kind: "clear" }, "clear", async () => ({
+      mutation: await api.clearGoal(target),
+      diagnostic: null,
+    }));
   };
   const setDraft = useCallback((value: string) => {
     setLocalDraft((current) => ({ ...current, draft: value }));
@@ -546,6 +537,9 @@ function reconcileDraftState(
   if (pendingIntent?.kind === "clear") {
     return { base: "", draft: "" };
   }
+  if (pendingIntent?.kind === "goal" && fact?.goal === null) {
+    return localDraft;
+  }
   if (fact === null) {
     return localDraft.draft === localDraft.base ? { base: "", draft: "" } : { ...localDraft, base: "" };
   }
@@ -558,11 +552,10 @@ function reconcileDraftState(
 function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>) {
   const { fact } = model;
   if (fact === null) return null;
-  const visibleGoal = fact.goal;
-  const showActions = visibleGoal !== null;
+  const showActions = model.displayedStatus !== null;
   return (
     <div className="flex h-full min-h-0 flex-col gap-[var(--space-3)] p-[var(--space-4)]">
-      {visibleGoal === null ? (
+      {!showActions ? (
         <p className="m-0 text-sm leading-relaxed text-[var(--color-muted)]">
           {model.t("chat.goal.guidance")}
         </p>
@@ -588,7 +581,7 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
       </div>
       {showActions ? (
         <>
-          <GoalMetadata createdAt={model.displayedCreatedAt} fact={fact} now={model.now} />
+          <GoalMetadata createdAt={model.displayedCreatedAt} now={model.now} status={model.displayedStatus} />
           <GoalActions model={model} />
         </>
       ) : null}
@@ -647,6 +640,26 @@ function goalErrorMessage(error: ChatGoalError, t: ReturnType<typeof useTranslat
     default:
       throw new Error("Unknown Goal error kind.");
   }
+}
+
+type StatusPush = ReturnType<typeof useStatusController>["push"];
+
+function goalSetDiagnosticNotificationID(): string {
+  return `goal-set-diagnostic:${crypto.randomUUID()}`;
+}
+
+function reportGoalSetDiagnostic(
+  push: StatusPush,
+  t: ReturnType<typeof useTranslation>["t"],
+  diagnostic: ChatGoalError,
+  id: string,
+): void {
+  push({
+    id,
+    title: t("chat.goal.savedWithWarning"),
+    body: goalErrorMessage(diagnostic, t),
+    tone: "warning",
+  });
 }
 
 class GoalDomainError extends Error {

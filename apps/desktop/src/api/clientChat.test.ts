@@ -276,46 +276,6 @@ describe("Desktop Chat read client", () => {
     });
   });
 
-  it.each([
-    ["runtime_unavailable", { kind: "runtime_unavailable" as const }],
-    [
-      "internal_failure",
-      { kind: "internal_failure" as const, operation: "goal.set", cause: "fixture failure" },
-    ],
-    ["future_code", { kind: "unknown" as const, code: "future_code" }],
-  ])("returns a typed top-level Goal Set failure for %s", async (code, expected) => {
-    const transport = new FakeRpcTransport([
-      {
-        descriptor: GoalService.method.set,
-        result: create(GoalSetResultSchema, {
-          outcome: {
-            case: "error",
-            value:
-              code === "runtime_unavailable"
-                ? { code, detail: { case: "runtimeUnavailable", value: { sessionId: sessionID } } }
-                : code === "internal_failure"
-                  ? {
-                      code,
-                      detail: {
-                        case: "internalFailure",
-                        value: { operation: "goal.set", cause: "fixture failure" },
-                      },
-                    }
-                  : { code },
-          },
-        }),
-      },
-    ]);
-
-    await expect(
-      new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship"),
-    ).resolves.toEqual({
-      sessionID: null,
-      outcome: { kind: "rejected", error: expected },
-      diagnostic: null,
-    });
-  });
-
   it("rejects Goal mutation dispositions that are illegal for the invoked method", async () => {
     const transport = new FakeRpcTransport([
       {

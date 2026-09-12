@@ -282,6 +282,7 @@ export const englishResources = {
         unavailableForAgent: "Unavailable for this Agent",
         mutationFailed: "Goal action failed",
         setFailed: "Goal could not be saved",
+        savedWithWarning: "Goal saved with a warning",
         loading: "Loading Goal",
         loadFailed: "Goal could not be loaded",
         setAt: "Set at {{date}} ({{age}} ago)",

@@ -54,7 +54,7 @@ type reconnectRetryRuntimeControlClient struct {
 	recordRequestID  []string
 	localEntries     []serverapi.RuntimeAppendCommittedEntryRequest
 	showGoalResp     serverapi.RuntimeGoalShowResponse
-	setGoalResp      serverapi.RuntimeGoalMutationResponse
+	setGoalResp      serverapi.RuntimeGoalSetResponse
 	pauseGoalResp    serverapi.RuntimeGoalMutationResponse
 	resumeGoalResp   serverapi.RuntimeGoalMutationResponse
 	completeGoalResp serverapi.RuntimeGoalMutationResponse
@@ -147,7 +147,7 @@ func (c *reconnectRetryRuntimeControlClient) ShowGoal(context.Context, serverapi
 	return c.showGoalResp, nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+func (c *reconnectRetryRuntimeControlClient) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error) {
 	return c.setGoalResp, nil
 }
 

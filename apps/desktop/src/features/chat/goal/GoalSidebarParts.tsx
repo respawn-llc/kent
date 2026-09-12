@@ -2,7 +2,7 @@ import { Check, CircleDot, Pause, PauseCircle, Play, RotateCcw, Save, Trash2 } f
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
-import type { ChatGoalFact, ChatGoalStatus } from "@/api";
+import type { ChatGoalStatus } from "@/api";
 import {
   Button,
   DisabledInteractionGuard,
@@ -61,38 +61,36 @@ export function GoalActions({ model }: Readonly<{ model: GoalActionsModel }>) {
 
 export function GoalMetadata({
   createdAt,
-  fact,
   now,
-}: Readonly<{ createdAt: string | null; fact: ChatGoalFact; now: number }>) {
+  status,
+}: Readonly<{ createdAt: string | null; now: number; status: ChatGoalStatus }>) {
   const { t } = useTranslation();
-  const goal = fact.goal;
-  if (goal === null) return null;
   const icon =
-    goal.status === "active" ? (
+    status === "active" ? (
       <CircleDot size={16} />
-    ) : goal.status === "paused" ? (
+    ) : status === "paused" ? (
       <PauseCircle size={16} />
     ) : (
       <Check size={16} />
     );
   return (
     <IslandSurface
-      aria-label={t(`chat.goal.${goal.status}`)}
+      aria-label={t(`chat.goal.${status}`)}
       className="grid gap-[var(--space-1)] p-[var(--space-3)]"
       level={1}
     >
       <div
         className={cx(
           "flex items-center gap-[var(--space-2)] font-medium",
-          goal.status === "active"
+          status === "active"
             ? "text-[var(--color-primary)]"
-            : goal.status === "paused"
+            : status === "paused"
               ? "text-[var(--color-warning)]"
               : "text-[var(--color-success)]",
         )}
       >
         {icon}
-        <span>{t(`chat.goal.${goal.status}`)}</span>
+        <span>{t(`chat.goal.${status}`)}</span>
       </div>
       {createdAt === null ? null : (
         <span className="text-sm text-[var(--color-muted)]">

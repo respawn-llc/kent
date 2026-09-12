@@ -985,6 +985,12 @@ message GoalSetSuccess {
     GoalSetError rejected = 3;
   }
   optional GoalSetError diagnostic = 4;
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_success_diagnostic"
+    message: "Goal Set diagnostics require a committed mutation and cannot report runtime unavailability"
+    expression: "!has(this.diagnostic) || (has(this.mutation) && this.diagnostic.code != 'runtime_unavailable')"
+  };
 }
 
 message GoalPauseError { string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE]; oneof detail { RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "runtime_unavailable" }]; kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = { role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure" }]; } }

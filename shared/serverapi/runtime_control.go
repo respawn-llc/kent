@@ -192,6 +192,15 @@ func (r RuntimeGoalMutationResponse) Validate() error {
 	return r.Result.Validate()
 }
 
+type RuntimeGoalSetResponse struct {
+	Result     clientui.GoalMutationResult `json:"result"`
+	Diagnostic error                       `json:"-"`
+}
+
+func (r RuntimeGoalSetResponse) Validate() error {
+	return r.Result.Validate()
+}
+
 type RuntimeGoalSetRequest struct {
 	SessionID       string                     `json:"session_id"`
 	Objective       string                     `json:"objective"`
