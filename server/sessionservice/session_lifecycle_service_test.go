@@ -86,6 +86,7 @@ func newSessionLifecycleServiceWithOptions(root string, authManager *auth.Manage
 		StoreOptions:    storeOptions,
 	})
 	return NewSessionLifecycleService(root, authority, authManager).
+		WithPersistenceRoot(root).
 		WithPersistedSessionResolver(sessionServiceTestPersistence)
 }
 

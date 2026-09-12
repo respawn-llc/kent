@@ -8,11 +8,32 @@ import (
 	"reflect"
 	"testing"
 
+	"core/server/auth"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
+	"core/shared/config"
 	"core/shared/sessioncontract"
 )
+
+func TestInspectionResolvesNativeSupportOutsideLockedContract(t *testing.T) {
+	for _, endpoint := range []string{"", "https://proxy.example/v1"} {
+		for _, override := range []string{"", "openai"} {
+			caps, _, err := resolveInspectionProviderCapabilities(auth.EmptyState(), config.Settings{
+				Model: "gpt-6-astra", OpenAIBaseURL: endpoint,
+			}, &session.LockedContract{
+				Model:            "gpt-6-astra",
+				ProviderContract: session.LockedProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true},
+			}, override)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if caps.SupportsNativeThinkingUpdates != (endpoint == "") {
+				t.Fatalf("endpoint=%q native=%v", endpoint, caps.SupportsNativeThinkingUpdates)
+			}
+		}
+	}
+}
 
 func TestCaptureSessionRequestLeavesSourceSessionUntouched(t *testing.T) {
 	fixture := newCaptureSessionFixture(t, false)

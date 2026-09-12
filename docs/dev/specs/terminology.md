@@ -208,6 +208,8 @@ The model, provider, generation settings, enabled tools, and native web-search m
 
 The context window, automatic-compaction threshold, and Compaction Mode are activation policy, not Session Contract fields. A Session preserves its provider-capability facts across runs for continuity. These facts and the activation policy do not independently invalidate prompt caches or rotate cache lineage.
 
+Thinking effort is Session-owned state outside the Session Contract, as defined in [Model Requests And Cache Continuity](core-runtime-tools.md#model-requests-and-cache-continuity).
+
 ### Runtime Parameter Contract
 
 The possible and required Transition Parameters for an executable Current Node. Kent derives this contract from the latest Workflow definition when work starts or resumes. Kent does not retain an obsolete contract as execution history.

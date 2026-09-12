@@ -175,6 +175,9 @@ func buildReviewerTranscriptItems(items []llm.ResponseItem) []llm.ResponseItem {
 		transcriptMessages = append(transcriptMessages, msg)
 	})
 	for _, item := range items {
+		if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+			continue
+		}
 		walker.Apply(item)
 	}
 	walker.Flush()

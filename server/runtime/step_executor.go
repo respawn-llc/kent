@@ -278,9 +278,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
 		}
-		if err := s.prepareModelTurn(ctx, stepID); err != nil {
-			return stepLoopResult{}, err
-		}
 		e.assertWorkflowInstructionsPresent(stepNo)
 
 		var reasoningSteerErr error
@@ -305,6 +302,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		if err != nil {
 			return stepLoopResult{}, err
 		}
+		options.UserInputSelection = steerUserInjections()
 		if reasoningSteerErr != nil {
 			return stepLoopResult{}, fmt.Errorf("apply streamed reasoning update: %w", reasoningSteerErr)
 		}
@@ -397,9 +395,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 				return stepLoopResult{ExecutedToolCall: true}, nil
 			}
-			if _, err := s.flushPendingUserInjections(stepID, options, &mismatchWarningCommitted); err != nil {
-				return stepLoopResult{}, err
-			}
 			continue
 		}
 
@@ -432,25 +427,15 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 
 		if len(localToolCalls) == 0 {
 			if phaseTurn.MissingAssistantPhase {
-				if _, err := s.flushPendingUserInjections(stepID, options, &mismatchWarningCommitted); err != nil {
-					return stepLoopResult{}, err
-				}
 				continue
 			}
 			if phaseTurn.EnforcePhaseProtocol && !messagePhaseIs(assistantMsg, llm.MessagePhaseFinal) {
 				if err := e.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeErrorFeedback), Content: textutil.Value(commentaryWithoutToolCallsWarning)}})); err != nil {
 					return stepLoopResult{}, err
 				}
-				if _, err := s.flushPendingUserInjections(stepID, options, &mismatchWarningCommitted); err != nil {
-					return stepLoopResult{}, err
-				}
 				continue
 			}
-			flushed, err := s.flushPendingUserInjections(stepID, options, &mismatchWarningCommitted)
-			if err != nil {
-				return stepLoopResult{}, err
-			}
-			if flushed > 0 {
+			if s.messages.HasPendingUserSteers() || e.backgroundFlow != nil && e.backgroundFlow.HasPendingNotices() {
 				if len(localToolCalls) == 0 && len(hostedToolExecutions) == 0 {
 					if err := e.stepLifecycle.DrainAgentStepBoundary(ctx); err != nil {
 						return stepLoopResult{}, err
@@ -525,30 +510,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 	}
 }
 
-func (s *defaultStepExecutor) flushPendingUserInjections(stepID string, options stepLoopOptions, mismatchWarningCommitted *bool) (int, error) {
-	result, err := s.messages.FlushPendingUserInjections(stepID, steerUserInjections())
-	observeQueuedUserFlushCommit(options, result.receipt)
-	if err != nil {
-		return 0, err
-	}
-	if result.startedStep {
-		*mismatchWarningCommitted = false
-	}
-	return result.flushed, nil
-}
-
-func (s *defaultStepExecutor) commitPendingUserSteer(stepID string, options stepLoopOptions, mismatchWarningCommitted *bool) error {
-	result, err := s.messages.CommitPendingUserInjections(stepID, steerUserInjections())
-	observeQueuedUserFlushCommit(options, result.receipt)
-	if err != nil {
-		return err
-	}
-	if result.startedStep {
-		*mismatchWarningCommitted = false
-	}
-	return nil
-}
-
 func (s *defaultStepExecutor) buildActiveTurnRequestAtBoundary(
 	ctx context.Context,
 	stepID string,
@@ -559,22 +520,53 @@ func (s *defaultStepExecutor) buildActiveTurnRequestAtBoundary(
 		if err := ctx.Err(); err != nil {
 			return llm.Request{}, err
 		}
-		if err := s.commitPendingUserSteer(stepID, options, mismatchWarningCommitted); err != nil {
-			return llm.Request{}, err
-		}
-		request, err := s.engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
-		if err != nil {
-			return llm.Request{}, err
-		}
-		// Request preparation may persist contract state. Reopen the boundary
-		// when mutations arrived during that work, then rebuild from their result.
-		if !s.engine.HasPendingRuntimeOperations() && !s.messages.HasPendingUserSteers() {
-			return request, nil
+		request, rebuild, err := s.prepareActiveTurnRequest(ctx, stepID, options, mismatchWarningCommitted)
+		if err != nil || !rebuild {
+			return request, err
 		}
 		if err := s.engine.stepLifecycle.BeginAgentStepBoundary(ctx); err != nil {
 			return llm.Request{}, err
 		}
 	}
+}
+
+func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, stepID string, options stepLoopOptions, mismatchWarningCommitted *bool) (llm.Request, bool, error) {
+	selection := options.UserInputSelection
+	if selection == nil {
+		selection = steerUserInjections()
+	}
+	prepared, err := s.messages.PreparePendingUserInjections(selection)
+	if err != nil {
+		return llm.Request{}, false, err
+	}
+	defer s.messages.ReleasePreparedUserInjections(prepared)
+	if err := s.prepareModelTurn(ctx, stepID, prepared.items...); err != nil {
+		return llm.Request{}, false, err
+	}
+	assembly, err := s.engine.assembleRequest(ctx, stepID, prepared.items, true, true)
+	if err != nil {
+		return llm.Request{}, false, err
+	}
+	if s.engine.HasPendingRuntimeOperations() || s.messages.HasPendingUserSteers() {
+		return llm.Request{}, true, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return llm.Request{}, false, err
+	}
+	factory, err := s.engine.activeDispatchRequestFactory(stepID, llm.CodexRequestKindTurn.Optional())
+	if err != nil {
+		return llm.Request{}, false, err
+	}
+	request, err := factory.generation(assembly.request)
+	if err != nil {
+		return llm.Request{}, false, err
+	}
+	result, err := s.messages.CommitPreparedUserInjections(ctx, stepID, prepared, assembly.thinking)
+	observeQueuedUserFlushCommit(options, result)
+	if result.startedStep {
+		*mismatchWarningCommitted = false
+	}
+	return request, false, err
 }
 
 func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, stepID string, resp llm.Response, options stepLoopOptions) (preparedCompletedResponse, error) {
@@ -945,7 +937,7 @@ func (e *Engine) currentWorkflowCompletionInstructions(ctx context.Context) (str
 	return workflowCompletionInstructionsFragment(mode, execution.Instructions.WorkflowID, execution.Contract)
 }
 
-func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID string) error {
+func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID string, preview ...llm.ResponseItem) error {
 	e := s.engine
 	handoffRequestPending := e.handoffRuntimeState().RequestSnapshot() != nil
 	if !handoffRequestPending {
@@ -971,7 +963,7 @@ func (s *defaultStepExecutor) prepareModelTurn(ctx context.Context, stepID strin
 			return err
 		}
 	}
-	if err := e.autoCompactIfNeeded(ctx, stepID, compactionModeAuto); err != nil {
+	if err := e.autoCompactIfNeeded(ctx, stepID, compactionModeAuto, preview...); err != nil {
 		return err
 	}
 	if err := e.materializePendingExecutionTargetReminders(stepID); err != nil {

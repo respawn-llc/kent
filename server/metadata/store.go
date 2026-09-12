@@ -70,6 +70,7 @@ type sessionMetadataDocument struct {
 	WorkspaceRoot                   string                                 `json:"workspace_root"`
 	WorkspaceContainer              string                                 `json:"workspace_container"`
 	ChatSettings                    *session.ChatSettingsOverrides         `json:"chat_settings,omitempty"`
+	OriginalThinkingEffort          *string                                `json:"original_thinking_effort,omitempty"`
 	ConversationEstablished         bool                                   `json:"conversation_established"`
 	HeadlessActive                  bool                                   `json:"headless_active"`
 	CompactionSoonReminderIssued    bool                                   `json:"compaction_soon_reminder_issued"`
@@ -2393,6 +2394,9 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		return fmt.Errorf("validate session Chat settings: %w", err)
 	}
 	snapshot.Meta.ChatSettings = chatSettings
+	if err := session.ValidateOriginalThinkingEffort(snapshot.Meta.OriginalThinkingEffort); err != nil {
+		return err
+	}
 	if snapshot.Meta.RebindReminder != nil {
 		rebindReminder, err := session.NormalizeSessionRebindReminder(*snapshot.Meta.RebindReminder)
 		if err != nil {
@@ -2463,6 +2467,7 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		WorkspaceRoot:                   workspaceRoot,
 		WorkspaceContainer:              workspaceContainer,
 		ChatSettings:                    snapshot.Meta.ChatSettings,
+		OriginalThinkingEffort:          snapshot.Meta.OriginalThinkingEffort,
 		ConversationEstablished:         snapshot.Meta.ConversationEstablished,
 		HeadlessActive:                  snapshot.Meta.HeadlessActive,
 		CompactionSoonReminderIssued:    snapshot.Meta.CompactionSoonReminderIssued,
@@ -2624,6 +2629,9 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	if err != nil {
 		return session.Meta{}, fmt.Errorf("validate session Chat settings: %w", err)
 	}
+	if err := session.ValidateOriginalThinkingEffort(metadataPayload.OriginalThinkingEffort); err != nil {
+		return session.Meta{}, err
+	}
 	var decodedContinuation session.ContinuationContext
 	if err := unmarshalStoredJSON(row.ContinuationJson, &decodedContinuation); err != nil {
 		return session.Meta{}, fmt.Errorf("decode continuation json: %w", err)
@@ -2676,6 +2684,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		WorkspaceContainer:              workspaceContainer,
 		Continuation:                    continuation,
 		ChatSettings:                    chatSettings,
+		OriginalThinkingEffort:          metadataPayload.OriginalThinkingEffort,
 		CreatedAt:                       timeFromStoredTimestamp(row.CreatedAtUnixMs),
 		UpdatedAt:                       timeFromStoredTimestamp(row.UpdatedAtUnixMs),
 		LastSequence:                    row.LastSequence,

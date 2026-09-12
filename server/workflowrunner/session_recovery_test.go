@@ -151,6 +151,16 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "gpt-5"}); err != nil {
 		t.Fatalf("lock retained workflow session: %v", err)
 	}
+	log, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := "completed-source"
+	if _, _, err := log.AppendRecord(&step, session.HistoryReplacementRecord{
+		Engine: "local", Mode: session.CompactionModeWorkflowPostCompletion,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("parse retained session id: %v", err)

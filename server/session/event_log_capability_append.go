@@ -30,6 +30,38 @@ type EventRecordAppendResult struct {
 	EndByteCursor *int64
 }
 
+type EventRecordBatchAppendResult struct {
+	Records []EventRecord
+	CommitReceipt
+	EndByteCursor *int64
+}
+
+func (c MaterializedEventLog) AppendModelInputRecords(stepID *string, payloads []EventRecordPayload, originalThinking *string) (EventRecordBatchAppendResult, error) {
+	if err := ValidateOriginalThinkingEffort(originalThinking); err != nil {
+		return EventRecordBatchAppendResult{}, err
+	}
+	if len(payloads) == 0 {
+		if originalThinking != nil && c.store.Meta().OriginalThinkingEffort == nil {
+			err := c.store.AdoptOriginalThinkingEffort(*originalThinking)
+			return EventRecordBatchAppendResult{}, err
+		}
+		return EventRecordBatchAppendResult{}, nil
+	}
+	inputs := make([]EventRecordAppendInput, len(payloads))
+	for i, payload := range payloads {
+		inputs[i] = EventRecordAppendInput{StepID: stepID, Payload: payload}
+	}
+	outcome, err := c.appendRecordInputsAtomic(inputs, func(meta *Meta) (bool, error) {
+		if originalThinking != nil {
+			adoptOriginalThinkingEffort(meta, *originalThinking)
+		}
+		return true, nil
+	})
+	return EventRecordBatchAppendResult{
+		Records: outcome.records, CommitReceipt: CommitReceipt{Committed: outcome.committed}, EndByteCursor: outcome.endByteCursor,
+	}, err
+}
+
 func (c MaterializedEventLog) AppendRecord(
 	stepID *string,
 	payload EventRecordPayload,

@@ -578,6 +578,7 @@ func sessionProviderHistoryItemFromLLM(
 		CustomInput:          textutil.Pointer(item.CustomInput),
 		Output:               append(json.RawMessage(nil), item.Output...),
 		EncryptedContent:     textutil.Pointer(item.EncryptedContent),
+		ConfigurationEffort:  textutil.Pointer(item.ConfigurationEffort),
 		Raw:                  append(json.RawMessage(nil), item.Raw...),
 		LinkedCallID:         textutil.Pointer(item.LinkedCallID),
 	}
@@ -624,6 +625,7 @@ func llmResponseItemFromSessionHistory(item session.ProviderHistoryItem) llm.Res
 		CustomInput:          textutil.Pointer(item.CustomInput),
 		Output:               append(json.RawMessage(nil), item.Output...),
 		EncryptedContent:     textutil.Pointer(item.EncryptedContent),
+		ConfigurationEffort:  textutil.Pointer(item.ConfigurationEffort),
 		Raw:                  append(json.RawMessage(nil), item.Raw...),
 		LinkedCallID:         textutil.Pointer(item.LinkedCallID),
 		LinkKind: convertOptionalString[

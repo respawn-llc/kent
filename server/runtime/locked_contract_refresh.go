@@ -16,10 +16,11 @@ type PromptFacingSnapshotReloader interface {
 }
 
 type PromptFacingSnapshotConfig struct {
-	Settings      config.Settings
-	Source        config.SourceReport
-	ActiveToolIDs []toolspec.ID
-	WebSearchMode string
+	ConfiguredThinking string
+	Settings           config.Settings
+	Source             config.SourceReport
+	ActiveToolIDs      []toolspec.ID
+	WebSearchMode      string
 }
 
 func (e *Engine) ensureMainPromptFacingContractFresh(ctx context.Context, locked session.LockedContract) (session.LockedContract, error) {
@@ -91,6 +92,7 @@ func (e *Engine) reloadPromptFacingSnapshotConfig(ctx context.Context) (PromptFa
 		return e.cfg.PromptFacingSnapshotReloader.ReloadPromptFacingSnapshotConfig(ctx, e.SessionID())
 	}
 	return PromptFacingSnapshotConfig{
+		ConfiguredThinking: config.DefaultOnboardingSettings().ThinkingLevel,
 		Settings: config.Settings{
 			SystemPromptFiles: e.cfg.SystemPromptFiles,
 			ToolPreambles:     e.cfg.ToolPreambles,

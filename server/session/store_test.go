@@ -758,7 +758,7 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	appendSessionTestRecord(t, parent, "s2", sessionTestMessage(MessageRoleAssistant, "a2"))
 
 	parentLog := mustMaterializeSessionTestEventLog(t, parent)
-	forked, _, err := ForkAtUserMessage(parentLog, userMessageSeqAt(t, parent, 2), "Parent → edit u2", testSessionCategory)
+	forked, _, err := ForkAtUserMessage(parentLog, userMessageSeqAt(t, parent, 2), "Parent → edit u2", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}
@@ -837,8 +837,8 @@ func TestForkAtUserMessageCopiesGoalSnapshot(t *testing.T) {
 				parentLog,
 				userMessageSeqAt(t, parent, 2),
 				"Parent → edit u2",
-				testSessionCategory,
-			)
+				testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 			if err != nil {
 				t.Fatalf("fork at user message: %v", err)
 			}
@@ -919,7 +919,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 					t.Fatalf("persist reminder state: %v", err)
 				}
 			}
-			forked, _, err := ForkAtUserMessage(parentLog, userMessageSeqAt(t, parent, tc.forkAtUser), tc.name, testSessionCategory)
+			forked, _, err := ForkAtUserMessage(parentLog, userMessageSeqAt(t, parent, tc.forkAtUser), tc.name, testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("fork: %v", err)
 			}
@@ -947,7 +947,7 @@ func TestForkAtUserMessageCopiesWorktreeReminderTarget(t *testing.T) {
 	appendSessionTestRecord(t, parent, "s2", sessionTestMessage(MessageRoleUser, "u2"))
 
 	parentLog := mustMaterializeSessionTestEventLog(t, parent)
-	forked, _, err := ForkAtUserMessage(parentLog, userMessageSeqAt(t, parent, 2), "forked", testSessionCategory)
+	forked, _, err := ForkAtUserMessage(parentLog, userMessageSeqAt(t, parent, 2), "forked", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}

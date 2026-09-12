@@ -117,7 +117,7 @@ type chatStore struct {
 
 type chatMessageRecord struct {
 	StepID        *string
-	Message       llm.Message
+	Message       *llm.Message
 	ProviderItems []llm.ResponseItem
 	Provenance    *TranscriptCommittedRowProvenance
 }
@@ -196,7 +196,7 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances .
 	}
 	s.messageRecords = append(s.messageRecords, chatMessageRecord{
 		StepID:        textutil.Pointer(stepID),
-		Message:       cloneChatStoreMessage(msg),
+		Message:       textutil.Value(cloneChatStoreMessage(msg)),
 		ProviderItems: llm.ItemsFromMessages([]llm.Message{msg}),
 		Provenance:    cloneTranscriptCommittedRowProvenance(provenance),
 	})
@@ -301,7 +301,8 @@ func (s *chatStore) estimatedProviderTokens() int {
 	if !s.providerTokenEstimateDirty {
 		return s.providerTokenEstimate
 	}
-	total := estimateItemsTokens(s.snapshotProviderItemsLocked())
+	items, _ := s.snapshotProviderItemsLocked()
+	total := estimateItemsTokens(items)
 	if total < 0 {
 		total = 0
 	}
@@ -313,7 +314,8 @@ func (s *chatStore) estimatedProviderTokens() int {
 func (s *chatStore) snapshotItems() []llm.ResponseItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.snapshotProviderItemsLocked()
+	items, _ := s.snapshotProviderItemsLocked()
+	return items
 }
 
 func (s *chatStore) toolCallSnapshot(callID string) (llm.ToolCall, bool) {
@@ -657,15 +659,17 @@ func (s *chatStore) seedLastCommittedAssistantFinalAnswerIfAbsent(answer *string
 func (s *chatStore) snapshotMessages() []llm.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return llm.MessagesFromItems(s.snapshotProviderItemsLocked())
+	items, _ := s.snapshotProviderItemsLocked()
+	return llm.MessagesFromItems(items)
 }
 
-func (s *chatStore) snapshotProviderItemsLocked() []llm.ResponseItem {
+func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 	items := s.providerItemsSourceLocked()
 	materializedToolResults := collectMaterializedToolCalls(items)
 	out := make([]llm.ResponseItem, 0, len(items)+len(s.toolCompletions))
 	pendingOutputs := make([]llm.ResponseItem, 0, len(s.toolCompletions))
 	inFunctionOutputRun := false
+	var replacementEnd *int
 	flushPendingOutputs := func() {
 		if len(pendingOutputs) == 0 {
 			return
@@ -673,7 +677,10 @@ func (s *chatStore) snapshotProviderItemsLocked() []llm.ResponseItem {
 		out = append(out, pendingOutputs...)
 		pendingOutputs = pendingOutputs[:0]
 	}
-	for _, item := range items {
+	for index, item := range items {
+		if s.compact != nil && index == len(s.compact.Items) {
+			replacementEnd = textutil.Value(len(out))
+		}
 		if !isToolOutputItem(item.Type) {
 			if inFunctionOutputRun {
 				flushPendingOutputs()
@@ -718,7 +725,10 @@ func (s *chatStore) snapshotProviderItemsLocked() []llm.ResponseItem {
 		}})...)
 	}
 	flushPendingOutputs()
-	return out
+	if s.compact != nil && replacementEnd == nil {
+		replacementEnd = textutil.Value(len(out))
+	}
+	return out, replacementEnd
 }
 
 // danglingToolCalls reports tool calls in the current provider-bound item
@@ -1035,7 +1045,9 @@ func (s *chatStore) walkProjectionLocked(
 	}
 	appendLocalEntries(0)
 	for _, record := range s.messageRecords {
-		applyMessage(record)
+		if record.Message != nil {
+			applyMessage(record)
+		}
 		messageIndex++
 		appendLocalEntries(messageIndex)
 	}
@@ -1054,7 +1066,7 @@ func (s *chatStore) deliverySnapshot() transcriptDeliverySnapshot {
 	scan := newTranscriptDeliveryFactScan(s.toolCompletions, s.toolCompletionProvenance, materializedToolResults, streamIDsByEntry, s.activeSegmentEntryStart)
 	s.walkProjectionLocked(
 		func(record chatMessageRecord) {
-			scan.ApplyMessage(record.StepID, record.Message, record.Provenance)
+			scan.ApplyMessage(record.StepID, *record.Message, record.Provenance)
 		},
 		func(local localChatEntry) {
 			entry := local.Entry

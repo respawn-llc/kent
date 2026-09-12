@@ -52,6 +52,47 @@ type authorityAutoReleaseLifecycle struct {
 	release func() error
 }
 
+type authorityHeldDrainingLifecycle struct {
+	authorityLifecycleProbe
+	resume chan struct{}
+}
+
+func (l *authorityHeldDrainingLifecycle) ResourceDraining(ctx context.Context, descriptor AgentResourceDescriptor) error {
+	err := l.authorityLifecycleProbe.ResourceDraining(ctx, descriptor)
+	<-l.resume
+	return err
+}
+
+func TestAuthorityShutdownDuringResourceRetirement(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	lifecycle := &authorityHeldDrainingLifecycle{
+		authorityLifecycleProbe: authorityLifecycleProbe{draining: make(chan struct{})},
+		resume:                  make(chan struct{}),
+	}
+	authority := NewAuthority(AuthorityOptions{
+		PersistenceRoot:   fixture.config.PersistenceRoot,
+		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+		ResourceLifecycle: lifecycle,
+	})
+	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+	attachment := openLifecycleRuntime(t, authority, lifecycleSessionID(t, fixture), "owner", &plan)
+	retired := make(chan error, 1)
+	go func() {
+		_, err := attachment.Release(context.Background(), RuntimeReleaseClose)
+		retired <- err
+	}()
+	<-lifecycle.draining
+	shutdownErr := authority.Close(context.Background())
+	close(lifecycle.resume)
+	if err := <-retired; err != nil {
+		t.Errorf("retire resource during shutdown: %v", err)
+	}
+	if shutdownErr != nil {
+		t.Errorf("shutdown during resource retirement: %v", shutdownErr)
+	}
+	assertRuntimeUnavailable(t, authority, attachment.Resource(), "shutdown completed")
+}
+
 type authorityPromptEvent struct {
 	resource  runtimeids.SessionResourceRef
 	scopeID   runtimeids.ExecutionScopeID

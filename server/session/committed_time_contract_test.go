@@ -199,11 +199,11 @@ func TestReplayPreservesPresentTimeThroughForkCloneAndReplacementRebase(t *testi
 	if err != nil {
 		t.Fatalf("append target: %v", err)
 	}
-	forked, _, err := ForkAtUserMessage(log, target.Seq(), "fork", testSessionCategory)
+	forked, _, err := ForkAtUserMessage(log, target.Seq(), "fork", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("fork source records: %v", err)
 	}
-	cloned, err := CloneSession(log, "clone", testSessionCategory)
+	cloned, err := CloneSession(log, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone source records: %v", err)
 	}

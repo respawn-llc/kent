@@ -545,6 +545,9 @@ func (s *Store) Meta() Meta {
 
 func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 	meta := s.Meta()
+	if meta.ChatSettings != nil {
+		meta.ChatSettings.Thinking = nil
+	}
 	return PromptFacingMetadataSnapshot{
 		Name:                          meta.Name,
 		FirstPromptPreview:            meta.FirstPromptPreview,
@@ -561,7 +564,14 @@ func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapsho
 		s.meta.Name = snapshot.Name
 		s.meta.FirstPromptPreview = snapshot.FirstPromptPreview
 		s.meta.Continuation = cloneContinuationContext(snapshot.Continuation)
-		s.meta.ChatSettings = cloneChatSettingsOverrides(snapshot.ChatSettings)
+		settings := cloneChatSettingsOverrides(snapshot.ChatSettings)
+		if s.meta.ChatSettings != nil && s.meta.ChatSettings.Thinking != nil {
+			if settings == nil {
+				settings = &ChatSettingsOverrides{}
+			}
+			settings.Thinking = s.meta.ChatSettings.Thinking
+		}
+		s.meta.ChatSettings = settings
 		s.meta.Locked = cloneLockedContract(snapshot.Locked)
 		s.meta.ActiveWorkflowAssignment = cloneMessageRecord(snapshot.ActiveWorkflowAssignment)
 		s.meta.ActiveWorkflowAssignmentState = cloneActiveWorkflowAssignmentState(snapshot.ActiveWorkflowAssignmentState)

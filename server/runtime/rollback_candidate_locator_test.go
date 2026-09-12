@@ -111,8 +111,8 @@ func TestLatestRollbackCandidateLocatorSurvivesCandidateFreeCompactionsAndRestar
 		reopened.eventLog,
 		forkTargetPage.LatestRollbackCandidate.UserMessageSeq,
 		"rollback locator fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork at newer rollback target: %v", err)
 	}

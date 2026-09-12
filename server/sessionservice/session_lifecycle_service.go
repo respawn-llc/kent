@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -256,9 +258,18 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		return serverapi.SessionResolveTransitionResponse{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
+	app, err := config.Load(store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
+	if err != nil {
+		return serverapi.SessionResolveTransitionResponse{}, err
+	}
+	thinking, err := launch.ResolveForkThinking(ctx, app, store.Meta(), s.authManager, false)
+	if err != nil {
+		return serverapi.SessionResolveTransitionResponse{}, err
+	}
 	resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{
-		Store:      store,
-		Transition: transition,
+		Store:        store,
+		Transition:   transition,
+		ForkThinking: thinking,
 	})
 	if err != nil {
 		return serverapi.SessionResolveTransitionResponse{}, err
