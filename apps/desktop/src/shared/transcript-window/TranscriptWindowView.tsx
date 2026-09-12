@@ -60,6 +60,7 @@ type TranscriptRowWrapperProps = HTMLAttributes<HTMLDivElement> &
   Readonly<{ "data-transcript-presentation-key": string }>;
 
 const presentationKeyAttribute = "data-transcript-presentation-key";
+const transcriptContentClassName = "mx-auto w-full max-w-[1200px]";
 
 export function TranscriptWindowView({
   snapshot,
@@ -164,6 +165,13 @@ export function TranscriptWindowView({
     <VirtualizedInfiniteList
       className="h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto"
       estimateSize={estimateSize}
+      footer={
+        snapshot.showsLive ? (
+          <div className={transcriptContentClassName} data-transcript-presentation-key="thinking-status-tail">
+            {slots.thinkingStatus(snapshot.thinkingStatus)}
+          </div>
+        ) : undefined
+      }
       getItemAnchorKey={presentationKey}
       getItemKey={presentationKey}
       getItemWrapperProps={rowWrapperProps}
@@ -185,7 +193,7 @@ export function TranscriptWindowView({
       pixelOffsetRequest={pixelOffsetRequest}
       previousBoundary={previousBoundary}
       renderItem={(item) => (
-        <div className="mx-auto w-full max-w-[1200px]">
+        <div className={transcriptContentClassName}>
           <TranscriptFamilySlot item={item} slots={slots} />
         </div>
       )}
@@ -271,7 +279,5 @@ function TranscriptFamilySlot({
     case "reviewer_feedback":
     case "reviewer_error":
       return slots.notice(item);
-    case "thinking_status":
-      return slots.thinkingStatus(item);
   }
 }

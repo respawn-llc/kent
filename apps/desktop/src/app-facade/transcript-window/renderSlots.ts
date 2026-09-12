@@ -1,6 +1,6 @@
 import { ContractError, type ChatTranscriptPayloadByKind } from "@/api";
 
-import type { CommittedRow } from "./types";
+import type { CommittedRow, ThinkingStatusPresentation } from "./types";
 
 interface CommittedValues {
   user: NonNullable<CommittedRow["User"]>;
@@ -37,13 +37,7 @@ type LiveItem = {
   }>;
 }[keyof LiveValues];
 
-export type TranscriptProvisionalItem =
-  | LiveItem
-  | Readonly<{
-      kind: "thinking_status";
-      key: string;
-      value: ChatTranscriptPayloadByKind["thinking_status_update"];
-    }>;
+export type TranscriptProvisionalItem = LiveItem;
 export type TranscriptRenderItem = TranscriptCommittedItem | TranscriptProvisionalItem;
 
 /** The host supplies every family, including live-or-committed variants, without a fallback renderer. */
@@ -55,7 +49,7 @@ export type TranscriptRenderSlots<Output> = Readonly<{
   notice(
     item: Extract<TranscriptRenderItem, { kind: "notice" | "reviewer_feedback" | "reviewer_error" }>,
   ): Output;
-  thinkingStatus(item: Extract<TranscriptRenderItem, { kind: "thinking_status" }>): Output;
+  thinkingStatus(presentation: ThinkingStatusPresentation | null): Output;
 }>;
 
 export function locatorKey(row: CommittedRow): string {

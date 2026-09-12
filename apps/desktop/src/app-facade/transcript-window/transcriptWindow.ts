@@ -3,6 +3,7 @@ import { ContractError } from "@/api";
 import { mergeRows, rowBatch, shareSegment, validateAdjacent, validateTail } from "./segments";
 import type { TranscriptProvisionalItem } from "./renderSlots";
 import { committedCorrelation, hydratedLive, present, reduceLive } from "./live";
+import { thinkingStatus } from "./thinkingStatus";
 import {
   beginStage,
   bindStatus,
@@ -32,6 +33,7 @@ type State = Readonly<{
   pool: readonly CommittedRow[];
   checkpoint: number | null;
   activity: RuntimeActivity | null;
+  latestStatus: Hydration["ActiveThinkingStatus"];
   lifecycle: CompactionLifecycle;
   provisional: readonly TranscriptProvisionalItem[];
   pending: Readonly<{ request: TranscriptPageRequest; previous: TranscriptBoundary }> | null;
@@ -48,11 +50,22 @@ function showsLive(state: State): boolean {
 }
 
 function project(state: State, admitted: readonly CommittedRow[] = []): State {
+  const latestStatus =
+    state.activity?.State === "awaiting_prompt" ||
+    state.activity?.ActiveStep?.StepID !== state.latestStatus?.StepID
+      ? null
+      : state.latestStatus;
   const presentation = present({ ...state, showLive: showsLive(state) }, state.snapshot.items, admitted);
   return {
     ...state,
+    latestStatus,
     provisional: presentation.provisional,
-    snapshot: { ...state.snapshot, items: presentation.items },
+    snapshot: {
+      ...state.snapshot,
+      showsLive: showsLive(state),
+      items: presentation.items,
+      thinkingStatus: showsLive(state) ? thinkingStatus(state.activity, latestStatus) : null,
+    },
   };
 }
 
@@ -97,6 +110,8 @@ function install(
       lifecycle,
       pending: null,
       snapshot: {
+        showsLive: state.snapshot.showsLive,
+        thinkingStatus: state.snapshot.thinkingStatus,
         items: state.snapshot.items,
         older: boundary("older", segments[0]?.olderCursor ?? null),
         newer: boundary("newer", segments.at(-1)?.newerCursor ?? null),
@@ -113,10 +128,13 @@ function emptyState(opening: "loading" | "disposed"): State {
     pool: [],
     checkpoint: null,
     activity: null,
+    latestStatus: null,
     lifecycle: null,
     provisional: [],
     pending: null,
     snapshot: {
+      showsLive: false,
+      thinkingStatus: null,
       items: [],
       older: { kind: "idle", cursor: null },
       newer: { kind: "idle", cursor: null },
@@ -167,7 +185,21 @@ export class TranscriptWindow {
       return { kind: "accepted", effects: [] };
     }
     if (input.kind === "live-fact") {
-      this.state = project({ ...this.state, provisional: reduceLive(this.state.provisional, input.fact) });
+      const fact = input.fact;
+      if (fact.kind === "thinking_status_update") {
+        this.state = project({ ...this.state, latestStatus: fact.payload });
+      } else {
+        this.state = project({
+          ...this.state,
+          latestStatus:
+            fact.kind === "step_state" &&
+            fact.payload.Lifecycle === "finished" &&
+            fact.payload.StepID === this.state.latestStatus?.StepID
+              ? null
+              : this.state.latestStatus,
+          provisional: reduceLive(this.state.provisional, fact),
+        });
+      }
       return { kind: "accepted", effects: [] };
     }
     return this.reduceWindowOperation(input);
@@ -252,13 +284,15 @@ export class TranscriptWindow {
       ...this.state,
       pending: null,
       provisional: [],
+      activity: null,
+      latestStatus: null,
       snapshot,
     });
     return { kind: "accepted", effects: [] };
   }
 
   private discardProvisional(): TranscriptWindowResult {
-    this.state = project({ ...this.state, provisional: [] });
+    this.state = project({ ...this.state, provisional: [], activity: null, latestStatus: null });
     return { kind: "accepted", effects: [] };
   }
 
@@ -352,12 +386,13 @@ export class TranscriptWindow {
         {
           ...this.state,
           activity: hydration.RuntimeReadModelUpdate.Activity,
+          latestStatus: hydration.ActiveThinkingStatus,
           provisional,
           lifecycle: null,
         },
         segment.entries,
       );
-      this.state = { ...state, lifecycle };
+      this.state = project({ ...state, lifecycle });
       return { kind: "accepted", effects: [] };
     }
     const shared = shareSegment(segment, this.state.segments, this.state.pool);
@@ -369,6 +404,7 @@ export class TranscriptWindow {
         lifecycle,
         provisional,
         activity: hydration.RuntimeReadModelUpdate.Activity,
+        latestStatus: hydration.ActiveThinkingStatus,
       },
       {
         segments: [shared],
@@ -384,15 +420,15 @@ export class TranscriptWindow {
     const step = compactionStep(activity);
     const previous = this.state.lifecycle;
     if (activityContinues(previous, this.state.activity, activity)) {
-      this.state = { ...this.state, activity };
+      this.state = project({ ...this.state, activity });
       return { kind: "accepted", effects: [] };
     }
     const lifecycle = step === null ? null : beginStage(this.state.checkpoint, step);
     if (previous?.kind === "stage") {
       const state = admitRows({ ...this.state, lifecycle: null }, previous.rows);
-      this.state = { ...state, activity, lifecycle };
+      this.state = project({ ...state, activity, lifecycle });
     } else {
-      this.state = { ...this.state, activity, lifecycle };
+      this.state = project({ ...this.state, activity, lifecycle });
     }
     return { kind: "accepted", effects: [] };
   }

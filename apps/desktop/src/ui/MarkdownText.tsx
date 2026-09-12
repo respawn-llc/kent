@@ -19,7 +19,7 @@ export type StaticMarkdownProps = Readonly<{
   taskListItemToggleLabel?: (checked: boolean) => string;
   value: string;
 }>;
-export type StreamingMarkdownProps = Readonly<{ value: string }>;
+export type StreamingMarkdownProps = Readonly<{ value: string; streaming?: boolean }>;
 export type TaskBodyMarkdownProps = Readonly<{ value: string }>;
 
 type MarkdownTaskListItemContextValue = Readonly<{
@@ -55,8 +55,8 @@ export function StaticMarkdown({
   );
 }
 
-export function StreamingMarkdown({ value }: StreamingMarkdownProps) {
-  return <MarkdownCore animated value={value} />;
+export function StreamingMarkdown({ value, streaming = true }: StreamingMarkdownProps) {
+  return <MarkdownCore animated={streaming} value={value} />;
 }
 
 export function TaskBodyMarkdown({ value }: TaskBodyMarkdownProps) {

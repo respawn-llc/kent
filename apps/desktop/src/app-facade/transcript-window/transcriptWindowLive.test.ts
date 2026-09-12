@@ -26,6 +26,128 @@ const completed: ChatTranscriptPayloadByKind["compaction_status"] = {
 };
 
 describe("transcript live membership and compaction", () => {
+  it("retains status through reasoning and retry but clears lost observation until hydration", () => {
+    const window = new TranscriptWindow();
+    const source = {
+      ...hydration([row(1)], 0, {
+        ...idle,
+        State: "running",
+        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+      }),
+      ActiveThinkingStatus: { StepID: "step", Text: "status" },
+    };
+    window.dispatch({ kind: "initial-hydration", hydration: source });
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "reasoning_trace_update",
+        payload: {
+          StepID: "step",
+          Identity: { Kent: "trace" },
+          Text: "reasoning",
+          CompactText: "reasoning",
+        },
+      },
+    });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "status" });
+    window.dispatch({
+      kind: "live-fact",
+      fact: { kind: "reasoning_trace_reset", payload: { StepID: "step" } },
+    });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "status" });
+    expect(sequences(window)).toEqual([1]);
+    for (const kind of ["observation-loss", "recovery-begin"] as const) {
+      window.dispatch({ kind });
+      expect(window.snapshot.thinkingStatus).toBeNull();
+      window.dispatch({ kind: "reattachment-hydration", hydration: source });
+      expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "status" });
+    }
+    window.dispatch({ kind: "dispose" });
+    expect(window.snapshot.thinkingStatus).toBeNull();
+  });
+  it("hides status while awaiting a prompt and resumes with fresh matching text", () => {
+    const window = new TranscriptWindow();
+    const running = {
+      ...idle,
+      State: "running",
+      Reviewer: "invoking",
+      ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+    } as const;
+    const status = (StepID: string, Text: string) =>
+      window.dispatch({
+        kind: "live-fact",
+        fact: { kind: "thinking_status_update", payload: { StepID, Text } },
+      });
+    window.dispatch({
+      kind: "initial-hydration",
+      hydration: {
+        ...hydration([row(1)], 0, running),
+        ActiveThinkingStatus: { StepID: "step", Text: "first" },
+      },
+    });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "first" });
+    window.dispatch({ kind: "runtime-activity", activity: { ...running, State: "awaiting_prompt" } });
+    expect(window.snapshot.thinkingStatus).toBeNull();
+    status("step", "during wait");
+    window.dispatch({ kind: "runtime-activity", activity: running });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "working" });
+    status("step", "fresh");
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text: "fresh" });
+    window.dispatch({
+      kind: "runtime-activity",
+      activity: {
+        ...running,
+        ActiveStep: { ...running.ActiveStep, StepID: "next" },
+      },
+    });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "working" });
+    status("step", "late");
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "working" });
+  });
+  it("shows asynchronous Reviewer work, with main work taking precedence", () => {
+    const window = new TranscriptWindow();
+    const reviewer = { ...idle, Reviewer: "invoking" } as const;
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([row(1)], 0, reviewer) });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "reviewing" });
+    window.dispatch({
+      kind: "runtime-activity",
+      activity: {
+        ...reviewer,
+        State: "running",
+        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+      },
+    });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "working" });
+    window.dispatch({ kind: "runtime-activity", activity: reviewer });
+    expect(window.snapshot.thinkingStatus).toEqual({ kind: "reviewing" });
+    window.dispatch({ kind: "runtime-activity", activity: idle });
+    expect(window.snapshot.thinkingStatus).toBeNull();
+  });
+  it("selects the authoritative active-kind fallback without adding a transcript row", () => {
+    const kinds = [
+      ["user_turn", "working"],
+      ["workflow_turn", "working"],
+      ["goal_loop", "working"],
+      ["compaction", "compacting"],
+      ["pre_submit_compaction", "compacting"],
+      ["user_shell", "running"],
+      ["background", "running"],
+      ["runtime_maintenance", "running"],
+    ] as const;
+    for (const [ActiveKind, kind] of kinds) {
+      const window = new TranscriptWindow();
+      window.dispatch({
+        kind: "initial-hydration",
+        hydration: hydration([row(1)], 0, {
+          ...idle,
+          State: "running",
+          ActiveStep: { RunID: "run", StepID: "step", ActiveKind },
+        }),
+      });
+      expect(window.snapshot.thinkingStatus).toEqual({ kind });
+      expect(sequences(window)).toEqual([1]);
+    }
+  });
   it("retains hidden live rows while browsing and reveals them at the global tail", () => {
     const window = new TranscriptWindow();
     window.dispatch({ kind: "opening-success", permit: window.openingPermit, page: page([row(30)], 300) });

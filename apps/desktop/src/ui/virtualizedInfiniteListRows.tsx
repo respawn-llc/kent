@@ -1,10 +1,9 @@
 import type { AriaRole, CSSProperties, HTMLAttributes, ReactNode } from "react";
-import { type Range, type VirtualItem } from "@tanstack/react-virtual";
+import { type VirtualItem } from "@tanstack/react-virtual";
 
 import { cx } from "./classes";
 import { InfiniteListBoundary, type VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 import { Spinner } from "./Spinner";
-import { pinnedVirtualRangeExtractor } from "./virtualizedPinnedRange";
 
 export type VirtualizedInfiniteListLayout = Readonly<{
   count: number;
@@ -75,46 +74,16 @@ function resolveLegacyPlaceholderIndex(
   return nextBoundary === undefined && hasNextPage && hasHorizontalContent ? nextBoundaryIndex : null;
 }
 
-export function fallbackVirtualizedRowStyle({
-  count,
-  index,
-  orientation,
-  paddingEnd,
-  paddingStart,
-}: Readonly<{
-  count: number;
-  index: number;
-  orientation: "vertical" | "horizontal";
-  paddingEnd: number;
-  paddingStart: number;
-}>): CSSProperties | undefined {
-  if (count === 0) {
-    return undefined;
-  }
-  if (orientation === "horizontal") {
-    return {
-      paddingLeft: index === 0 ? paddingStart : undefined,
-      paddingRight: index === count - 1 ? paddingEnd : undefined,
-    };
-  }
-  return {
-    paddingBottom: index === count - 1 ? paddingEnd : undefined,
-    paddingTop: index === 0 ? paddingStart : undefined,
-  };
-}
-
 export function virtualizedRowClassName({
   count,
   index,
   orientation,
   rowSpacing,
-  virtualized,
 }: Readonly<{
   count: number;
   index: number;
   orientation: "vertical" | "horizontal";
   rowSpacing: "default" | "compact" | "tight";
-  virtualized: boolean;
 }>): string {
   if (orientation === "horizontal") {
     return index === count - 1 ? "shrink-0" : "shrink-0 pr-[var(--space-2)]";
@@ -125,7 +94,7 @@ export function virtualizedRowClassName({
   if (rowSpacing === "tight") {
     return cx("pb-[var(--space-1)]", index === count - 1 && "pb-0");
   }
-  return cx(virtualized ? index !== 0 && "pt-[var(--space-3)]" : "pt-[var(--space-3)] first:pt-0");
+  return cx(index !== 0 && "pt-[var(--space-3)]");
 }
 
 export function virtualizedRowKey<TItem>({
@@ -191,13 +160,12 @@ export function renderVirtualizedRow<TItem>({
     return <InfiniteListBoundary direction="next" state={nextBoundary} />;
   }
   if (layout.legacyPlaceholderIndex === virtualIndex) {
-    return <VirtualizedPlaceholder loading={isFetchingNextPage} loadingLabel={loadingLabel} />;
+    return renderVirtualizedPlaceholder({ loading: isFetchingNextPage, loadingLabel });
   }
   return item === undefined ? null : renderItem(item, virtualIndex - layout.itemStartIndex);
 }
 
 export function renderVirtualizedInfiniteListRow<TItem>({
-  fallbackIndex,
   getItemKey,
   getItemWrapperProps,
   itemRole,
@@ -205,14 +173,12 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   layout,
   measureElement,
   orientation,
-  paddingEnd,
   paddingStart,
   renderContent,
   rowSpacing,
   stickyItemKeys,
   virtualItem,
 }: Readonly<{
-  fallbackIndex: number;
   getItemKey: (item: TItem) => string;
   getItemWrapperProps: ((item: TItem, itemIndex: number) => HTMLAttributes<HTMLDivElement>) | undefined;
   itemRole: AriaRole;
@@ -220,15 +186,13 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   layout: VirtualizedInfiniteListLayout;
   measureElement: ((element: Element | null) => void) | undefined;
   orientation: "vertical" | "horizontal";
-  paddingEnd: number;
   paddingStart: number;
   renderContent: (item: TItem | undefined, virtualIndex: number) => ReactNode;
   rowSpacing: "default" | "compact" | "tight";
   stickyItemKeys: ReadonlySet<string> | undefined;
-  virtualItem: VirtualItem | undefined;
+  virtualItem: VirtualItem;
 }>): ReactNode {
-  const virtualIndex = virtualItem?.index ?? fallbackIndex;
-  const virtualized = virtualItem !== undefined;
+  const virtualIndex = virtualItem.index;
   const { item, itemKey, wrapperProps } = resolveVirtualizedRowItem({
     getItemKey,
     getItemWrapperProps,
@@ -250,27 +214,22 @@ export function renderVirtualizedInfiniteListRow<TItem>({
         virtualizedRowPositionClassName({
           orientation,
           sticky,
-          virtualized,
         }),
         virtualizedRowClassName({
           count: layout.count,
           index: virtualIndex,
           orientation,
           rowSpacing,
-          virtualized,
         }),
         boundary ? "min-w-64" : undefined,
         wrapperProps?.className,
       )}
-      data-index={virtualItem?.index}
-      key={virtualItem?.key ?? virtualizedRowKey({ getItemKey, index: virtualIndex, items, layout })}
-      ref={virtualized ? measureElement : undefined}
+      data-index={virtualItem.index}
+      key={virtualItem.key}
+      ref={measureElement}
       role={itemRole}
       style={resolveVirtualizedRowStyle({
-        count: layout.count,
-        index: virtualIndex,
         orientation,
-        paddingEnd,
         paddingStart,
         sticky,
         virtualItem,
@@ -309,46 +268,6 @@ function resolveVirtualizedRowItem<TItem>({
     itemKey: getItemKey(item),
     wrapperProps: getItemWrapperProps?.(item, itemIndex),
   };
-}
-
-export function renderVirtualizedInfiniteListRows(
-  fallbackIndexes: readonly number[],
-  virtualItems: readonly VirtualItem[],
-  renderRow: (fallbackIndex: number, virtualItem: VirtualItem | undefined) => ReactNode,
-): ReactNode[] {
-  if (virtualItems.length === 0) {
-    return fallbackIndexes.map((fallbackIndex): ReactNode => renderRow(fallbackIndex, undefined));
-  }
-  return virtualItems.map((virtualItem): ReactNode => renderRow(virtualItem.index, virtualItem));
-}
-
-export function fallbackVirtualIndexes({
-  count,
-  estimateSize,
-  pinnedIndexes,
-}: Readonly<{
-  count: number;
-  estimateSize: () => number;
-  pinnedIndexes: ReadonlySet<number>;
-}>): number[] {
-  if (count === 0) {
-    return [];
-  }
-  const visibleCount = Math.max(1, Math.ceil(600 / Math.max(1, estimateSize())));
-  const range: Range = {
-    count,
-    startIndex: 0,
-    endIndex: Math.min(count - 1, visibleCount - 1),
-    overscan: 6,
-  };
-  return pinnedVirtualRangeExtractor(range, pinnedIndexes);
-}
-
-export function virtualizedVisibleIndexes(
-  fallbackIndexes: readonly number[],
-  virtualItems: readonly VirtualItem[],
-): readonly number[] {
-  return virtualItems.length === 0 ? fallbackIndexes : virtualItems.map((virtualItem) => virtualItem.index);
 }
 
 export function virtualizedScrollOffsetProperty(horizontal: boolean): "scrollLeft" | "scrollTop" {
@@ -390,15 +309,10 @@ export function resolveVirtualizedInnerStyle(
 function virtualizedRowPositionClassName({
   orientation,
   sticky,
-  virtualized,
 }: Readonly<{
   orientation: "vertical" | "horizontal";
   sticky: boolean;
-  virtualized: boolean;
 }>): string | undefined {
-  if (!virtualized) {
-    return undefined;
-  }
   if (sticky) {
     return orientation === "horizontal" ? "sticky z-[1] w-max" : "sticky top-0 z-[1] w-full";
   }
@@ -430,33 +344,18 @@ function resolveVirtualizedRowGeometry({
 }
 
 function resolveVirtualizedRowStyle({
-  count,
-  index,
   orientation,
-  paddingEnd,
   paddingStart,
   sticky,
   virtualItem,
   wrapperStyle,
 }: Readonly<{
-  count: number;
-  index: number;
   orientation: "vertical" | "horizontal";
-  paddingEnd: number;
   paddingStart: number;
   sticky: boolean;
-  virtualItem: VirtualItem | undefined;
+  virtualItem: VirtualItem;
   wrapperStyle: CSSProperties | undefined;
 }>): CSSProperties | undefined {
-  if (virtualItem === undefined) {
-    return fallbackVirtualizedRowStyle({
-      count,
-      index,
-      orientation,
-      paddingEnd,
-      paddingStart,
-    });
-  }
   if (sticky) {
     return {
       ...wrapperStyle,
@@ -472,7 +371,7 @@ function resolveVirtualizedRowStyle({
   };
 }
 
-function VirtualizedPlaceholder({
+export function renderVirtualizedPlaceholder({
   loading,
   loadingLabel,
 }: Readonly<{ loading: boolean; loadingLabel: string }>) {

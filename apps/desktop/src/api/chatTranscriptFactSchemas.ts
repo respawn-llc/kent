@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  activeKindSchema,
   diagnosticSchema,
   goalSchema,
   identifier,
@@ -61,7 +62,7 @@ export const stepStateSchema = z
     RunID: identifier,
     StepID: identifier,
     Lifecycle: z.enum(["started", "finished"]),
-    ActiveKind: identifier,
+    ActiveKind: activeKindSchema,
     Status: z.enum(["running", "completed", "interrupted", "failed"]),
   })
   .strict();
