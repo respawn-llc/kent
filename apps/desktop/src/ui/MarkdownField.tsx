@@ -3,6 +3,7 @@ import {
   useId,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
@@ -47,7 +48,7 @@ type MarkdownFieldCommonProps = Readonly<{
   disabled?: boolean;
   editorMinHeight: number;
   error?: string | undefined;
-  floatingAction?: ReactNode | undefined;
+  floatingAction?: MarkdownFloatingAction | undefined;
   label: string;
   onChange: (value: string) => void;
   onEdit: () => void;
@@ -193,14 +194,31 @@ function MarkdownFieldCore({
   );
 }
 
-function MarkdownFieldFloatingAction({ action }: Readonly<{ action: ReactNode | undefined }>) {
+type MarkdownFloatingAction = Awaited<ReactNode>;
+
+function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloatingAction | undefined }>) {
   const phase = useOpacityExit(action !== undefined);
-  const [lastAction, setLastAction] = useState<ReactNode | undefined>(action);
-  if (action !== undefined && lastAction === undefined) {
-    setLastAction(action);
-  } else if (action === undefined && phase === "hidden" && lastAction !== undefined) {
-    setLastAction(undefined);
-  }
+  const [actionStore] = useState(() => createRetainedActionStore(action));
+  const actionRef = useRef<HTMLDivElement | null>(null);
+  const lastAction = useSyncExternalStore(
+    actionStore.subscribe,
+    actionStore.getSnapshot,
+    actionStore.getSnapshot,
+  );
+  useEffect(() => {
+    if (action !== undefined) {
+      actionStore.remember(action);
+    }
+  }, [action, actionStore]);
+  useEffect(() => {
+    if (phase !== "exiting") {
+      return;
+    }
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && actionRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }, [phase]);
   if (phase === "hidden") {
     return null;
   }
@@ -208,6 +226,7 @@ function MarkdownFieldFloatingAction({ action }: Readonly<{ action: ReactNode | 
   if (renderedAction === undefined) {
     return null;
   }
+  const exiting = phase === "exiting";
   return (
     <div
       className={cx(
@@ -215,10 +234,48 @@ function MarkdownFieldFloatingAction({ action }: Readonly<{ action: ReactNode | 
         phase === "visible" ? "opacity-100" : "opacity-0",
       )}
       data-slot="markdown-field-floating-action"
+      inert={exiting}
+      aria-hidden={exiting}
+      onClickCapture={
+        exiting
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          : undefined
+      }
+      onKeyDownCapture={
+        exiting
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          : undefined
+      }
+      ref={actionRef}
     >
-      <div className="pointer-events-auto">{renderedAction}</div>
+      <div className={exiting ? "pointer-events-none" : "pointer-events-auto"}>{renderedAction}</div>
     </div>
   );
+}
+
+type RetainedActionStore = Readonly<{
+  getSnapshot(): MarkdownFloatingAction | undefined;
+  remember: (action: MarkdownFloatingAction) => void;
+  subscribe: (listener: () => void) => () => void;
+}>;
+
+function createRetainedActionStore(initialAction: MarkdownFloatingAction | undefined): RetainedActionStore {
+  let currentAction = initialAction;
+  return {
+    getSnapshot() {
+      return currentAction;
+    },
+    remember: (nextAction) => {
+      currentAction = nextAction;
+    },
+    subscribe: () => () => undefined,
+  };
 }
 
 function MarkdownFieldEditor({

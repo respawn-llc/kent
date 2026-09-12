@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   ApiSubscription,
@@ -9,17 +9,11 @@ import type {
   ChatSessionTarget,
 } from "@/api";
 import { TransportError } from "@/api";
-import {
-  SidebarRootContext,
-  type SidebarDestination,
-  type SidebarRootHandle,
-  type SidebarRootOutcome,
-} from "@/app-facade";
 import { Button } from "@/ui";
 import { GoalAffordance } from "./GoalAffordance";
 import { type GoalSidebarApi, type GoalSidebarInput } from "./GoalSidebar";
-import { goalSidebarDestination } from "./goalSidebarDestination";
 import { NewChatGoalBinding } from "./goalBinding";
+import { useGoalSidebarLauncher } from "./useGoalSidebarLauncher";
 import {
   goalFixtureConfigs,
   goalFixtureFact,
@@ -48,7 +42,16 @@ type GoalFixtureRuntime = Readonly<{
   failPending(): void;
 }>;
 
-export function GoalBrowserFixture() {
+export type GoalBrowserPendingPrompt = Readonly<{
+  kind: "question" | "approval";
+  promptID: string;
+}>;
+
+export function GoalBrowserFixture({
+  onPromptOpen,
+}: Readonly<{
+  onPromptOpen?: ((prompt: GoalBrowserPendingPrompt) => void) | undefined;
+}> = {}) {
   const [state, setState] = useState<GoalFixtureState>("absent");
   const [, rerender] = useState(0);
   const config = goalFixtureConfigs[state];
@@ -81,117 +84,102 @@ export function GoalBrowserFixture() {
     }
     return { kind: "session", api: runtime.api, target: fixtureTarget };
   }, [config.mode, runtime.api, state]);
-  const [opened, setOpened] = useState(true);
-  const [destination, setDestination] = useState<SidebarDestination | null>(null);
-  const defaultDestination = useMemo(() => goalSidebarDestination(input), [input]);
-  const currentDestination = destination ?? defaultDestination;
-  const activeRoot = useRef<FixtureRoot | null>(null);
-  const open = useCallback((next: SidebarDestination): SidebarRootHandle => {
-    activeRoot.current?.replace();
-    let settle: ((outcome: SidebarRootOutcome) => void) | undefined;
-    const lifecycle = new Promise<SidebarRootOutcome>((resolve) => {
-      settle = resolve;
-    });
-    if (settle === undefined) throw new Error("Goal fixture sidebar lifecycle did not initialize.");
-    const token = {};
-    const root: FixtureRoot = {
-      release: () => {
-        if (activeRoot.current?.token === token) {
-          activeRoot.current = null;
-          setOpened(false);
-          settle?.("released");
-        }
-      },
-      replace: () => {
-        settle?.("replaced");
-      },
-      token,
-    };
-    const handle: SidebarRootHandle = { lifecycle, release: root.release };
-    activeRoot.current = root;
-    setDestination(next);
-    setOpened(true);
-    return handle;
-  }, []);
-  const activate = useCallback(() => {
-    const handle = open(defaultDestination);
-    void handle.lifecycle;
-  }, [defaultDestination, open]);
-
   return (
-    <SidebarRootContext.Provider value={{ open }}>
-      <div
-        className="grid min-h-full gap-[var(--space-3)] p-[var(--space-4)]"
-        data-testid="goal-browser-fixture"
-      >
-        <label className="grid gap-[var(--space-1)] text-sm">
-          Goal fixture state
-          <select
-            aria-label="Goal fixture state"
-            onChange={(event) => {
-              const nextState = goalFixtureStates.find((candidate) => candidate === event.target.value);
-              if (nextState !== undefined) {
-                setState(nextState);
-                setDestination(null);
-                setOpened(true);
-              }
-            }}
-            value={state}
-          >
-            {goalFixtureStates.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <GoalAffordance goal={goalFixtureFact(state)} onActivate={activate} />
-        <p className="m-0 text-sm text-[var(--color-muted)]" data-testid="goal-browser-fixture-description">
-          {config.description}
-        </p>
-        {config.picker === "question" ? (
-          <div data-testid="goal-question-picker">Question picker is open.</div>
-        ) : config.picker === "approval" ? (
-          <div data-testid="goal-approval-picker">Approval picker is open.</div>
-        ) : null}
-        {config.observation === "loading" ? <Button onClick={runtime.hydrate}>Hydrate Goal</Button> : null}
-        {runtime.pending === null ? null : (
-          <div className="flex flex-wrap gap-[var(--space-2)]">
-            <Button onClick={runtime.resolvePending}>Resolve pending Goal action</Button>
-            <Button onClick={runtime.failPending} variant="danger">
-              Fail pending Goal action
-            </Button>
-          </div>
-        )}
-        <Button
-          onClick={() => {
-            activeRoot.current?.release();
-            setOpened(false);
-          }}
-        >
-          Close Goal sidebar
-        </Button>
-        <div
-          aria-label="Goal sidebar host"
-          className="min-h-0 min-w-0 overflow-y-auto rounded-[var(--radius-m)] border border-[var(--color-outline)]"
-          data-testid="goal-browser-sidebar-host"
-        >
-          <div className="min-h-[420px]">
-            {opened && currentDestination.kind === "custom" ? currentDestination.content : null}
-          </div>
-        </div>
-        {state === "dirty-broadcast" || state === "overlapping-read" ? (
-          <Button onClick={runtime.broadcast}>Broadcast authoritative Goal update</Button>
-        ) : null}
-      </div>
-    </SidebarRootContext.Provider>
+    <GoalBrowserFixtureControls
+      key={state}
+      config={config}
+      input={input}
+      runtime={runtime}
+      setState={setState}
+      state={state}
+      onPromptOpen={onPromptOpen}
+    />
   );
 }
 
-interface FixtureRoot {
-  token: object;
-  release: () => void;
-  replace: () => void;
+function GoalBrowserFixtureControls({
+  config,
+  input,
+  runtime,
+  setState,
+  state,
+  onPromptOpen,
+}: Readonly<{
+  config: (typeof goalFixtureConfigs)[GoalFixtureState];
+  input: GoalSidebarInput;
+  onPromptOpen?: ((prompt: GoalBrowserPendingPrompt) => void) | undefined;
+  runtime: GoalFixtureRuntime;
+  setState: (state: GoalFixtureState) => void;
+  state: GoalFixtureState;
+}>) {
+  const activate = useGoalSidebarLauncher(input);
+  useEffect(() => {
+    activate();
+  }, [activate]);
+
+  const openPicker = (prompt: GoalBrowserPendingPrompt) => {
+    onPromptOpen?.(prompt);
+  };
+
+  return (
+    <div
+      className="grid min-h-full gap-[var(--space-3)] p-[var(--space-4)]"
+      data-testid="goal-browser-fixture"
+    >
+      <label className="grid gap-[var(--space-1)] text-sm">
+        Goal fixture state
+        <select
+          aria-label="Goal fixture state"
+          onChange={(event) => {
+            const nextState = goalFixtureStates.find((candidate) => candidate === event.target.value);
+            if (nextState !== undefined) {
+              setState(nextState);
+            }
+          }}
+          value={state}
+        >
+          {goalFixtureStates.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <GoalAffordance goal={goalFixtureFact(state)} onActivate={activate} />
+      <p className="m-0 text-sm text-[var(--color-muted)]" data-testid="goal-browser-fixture-description">
+        {config.description}
+      </p>
+      {config.picker === "question" ? (
+        <Button
+          onClick={() => {
+            openPicker({ kind: "question", promptID: "question-1" });
+          }}
+        >
+          Open pending Question
+        </Button>
+      ) : config.picker === "approval" ? (
+        <Button
+          onClick={() => {
+            openPicker({ kind: "approval", promptID: "approval-1" });
+          }}
+        >
+          Open pending Approval
+        </Button>
+      ) : null}
+      {config.observation === "loading" ? <Button onClick={runtime.hydrate}>Hydrate Goal</Button> : null}
+      {runtime.pending === null ? null : (
+        <div className="flex flex-wrap gap-[var(--space-2)]">
+          <Button onClick={runtime.resolvePending}>Resolve pending Goal action</Button>
+          <Button onClick={runtime.failPending} variant="danger">
+            Fail pending Goal action
+          </Button>
+        </div>
+      )}
+      {state === "dirty-broadcast" || state === "overlapping-read" ? (
+        <Button onClick={runtime.broadcast}>Broadcast authoritative Goal update</Button>
+      ) : null}
+    </div>
+  );
 }
 
 function createFixtureRuntime(state: GoalFixtureState, notify: () => void): GoalFixtureRuntime {

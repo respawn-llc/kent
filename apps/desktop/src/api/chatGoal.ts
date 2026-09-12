@@ -40,7 +40,14 @@ export type ChatGoalMutationResult =
 export type ChatGoalError =
   | Readonly<{ kind: "runtime_unavailable" }>
   | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
-  | Readonly<{ kind: "unknown"; code: string }>;
+  | Readonly<{
+      kind: "unknown";
+      code: string;
+      runtimeUnavailableSessionID?: string;
+      internalFailureOperation?: string | null;
+      internalFailureCause?: string | null;
+      unknownFields: readonly NonNullable<GoalSetError["$unknown"]>[number][];
+    }>;
 export type ChatGoalSetTarget =
   | Readonly<{
       kind: "session";
@@ -247,7 +254,34 @@ export function goalErrorFromGenerated(error: GoalSetError): ChatGoalError {
         cause: error.detail.value.cause ?? null,
       };
     default:
-      return { kind: "unknown", code: error.code };
+      return {
+        kind: "unknown",
+        code: error.code,
+        ...unknownGoalErrorDetail(error),
+        unknownFields: (error.$unknown ?? []).map((field) => ({
+          no: field.no,
+          wireType: field.wireType,
+          data: field.data.slice(),
+        })),
+      };
+  }
+}
+
+function unknownGoalErrorDetail(error: GoalSetError): Readonly<{
+  runtimeUnavailableSessionID?: string;
+  internalFailureOperation?: string | null;
+  internalFailureCause?: string | null;
+}> {
+  switch (error.detail.case) {
+    case "runtimeUnavailable":
+      return { runtimeUnavailableSessionID: error.detail.value.sessionId };
+    case "internalFailure":
+      return {
+        internalFailureOperation: error.detail.value.operation ?? null,
+        internalFailureCause: error.detail.value.cause ?? null,
+      };
+    case undefined:
+      return {};
   }
 }
 

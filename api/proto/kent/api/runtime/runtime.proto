@@ -1258,6 +1258,12 @@ message GoalSetSuccess {
     GoalSetError rejected = 3;
   }
   optional GoalSetError diagnostic = 4;
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_set_success_diagnostic"
+    message: "Goal Set diagnostics require a committed mutation and cannot report runtime unavailability"
+    expression: "!has(this.diagnostic) || (has(this.mutation) && this.diagnostic.code != 'runtime_unavailable')"
+  };
 }
 
 message GoalPauseError {

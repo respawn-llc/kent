@@ -245,14 +245,14 @@ func (m *uiModel) showRuntimeGoal() (*runtimepb.GoalView, error) {
 	return nil, nil
 }
 
-func (m *uiModel) setRuntimeGoal(objective string) (clientui.GoalMutationResult, error) {
+func (m *uiModel) setRuntimeGoal(objective string) (clientui.GoalSetResult, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "set goal")
 	if client := m.runtimeClient(); client != nil {
 		result, err := client.SetGoal(objective)
 		m.observeRuntimeRequestResult(err)
 		return result, err
 	}
-	return clientui.GoalMutationResult{}, nil
+	return clientui.GoalSetResult{}, nil
 }
 
 func (m *uiModel) pauseRuntimeGoal() (clientui.GoalMutationResult, error) {

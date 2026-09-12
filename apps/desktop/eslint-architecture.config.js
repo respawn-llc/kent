@@ -190,6 +190,24 @@ const testDependencyPolicies = Object.freeze([
     allow: {
       to: {
         element: {
+          types: architectureOwners.SHELL,
+          fileInternalPath: ["sidebar.tsx", "sidebarProvider.tsx", "sidebarDestinationPolicy.ts"],
+        },
+      },
+      dependency: {
+        source: ["@/app/sidebar", "@/app/sidebarProvider", "@/app/sidebarDestinationPolicy"],
+      },
+    },
+  }),
+  Object.freeze({
+    from: {
+      file: {
+        categories: architectureFileCategories.TEST,
+      },
+    },
+    allow: {
+      to: {
+        element: {
           types: architectureOwners.TEST_SUPPORT,
           fileInternalPath: "*/index.ts",
         },

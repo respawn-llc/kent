@@ -25,9 +25,9 @@ func goalMethod(name string) protoreflect.MethodDescriptor {
 func (c *Remote) SetGoal(
 	ctx context.Context,
 	request serverapi.RuntimeGoalSetRequest,
-) (serverapi.RuntimeGoalMutationResponse, error) {
+) (serverapi.RuntimeGoalSetResponse, error) {
 	if err := request.Validate(); err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
 	var executionPolicy runtimepb.GoalExecutionPolicy
 	switch request.ExecutionPolicy {
@@ -36,7 +36,7 @@ func (c *Remote) SetGoal(
 	case serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState:
 		executionPolicy = runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE
 	default:
-		return serverapi.RuntimeGoalMutationResponse{}, errors.New("execution_policy is required")
+		return serverapi.RuntimeGoalSetResponse{}, errors.New("execution_policy is required")
 	}
 	generatedRequest := &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{
@@ -56,39 +56,59 @@ func (c *Remote) SetGoal(
 		value := request.StepID
 		generatedRequest.StepId = &value
 	}
-	success, err := callGeneratedBinary(
+	success, err := callGeneratedBinaryWithFailureClassifier(
 		c,
 		ctx,
 		goalMethod("Set"),
 		generatedRequest,
 		&runtimepb.GoalSetResult{},
 		goalSetGeneratedError,
+		noGeneratedPlatformFailure[*runtimepb.GoalSetError],
 	)
 	if err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
 	if success == nil || success.Session == nil {
-		return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal Set response Session is required")
+		return serverapi.RuntimeGoalSetResponse{}, errors.New("Goal Set response Session is required")
 	}
 	if success.Session.SessionId != strings.TrimSpace(request.SessionID) {
-		return serverapi.RuntimeGoalMutationResponse{}, fmt.Errorf(
+		return serverapi.RuntimeGoalSetResponse{}, fmt.Errorf(
 			"Goal Set response Session %q does not match requested Session %q",
 			success.Session.SessionId,
 			request.SessionID,
 		)
 	}
 	if rejected := success.GetRejected(); rejected != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, goalSetGeneratedError(rejected)
+		return serverapi.RuntimeGoalSetResponse{}, goalSetGeneratedError(rejected)
 	}
 	mutation := success.GetMutation()
 	if mutation == nil {
-		return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal Set response mutation is required")
+		return serverapi.RuntimeGoalSetResponse{}, errors.New("Goal Set response mutation is required")
 	}
 	result, err := goalMutationFromProto(mutation)
 	if err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
-	return serverapi.RuntimeGoalMutationResponse{Result: result}, nil
+	response := serverapi.RuntimeGoalSetResponse{Result: result}
+	if diagnostic := success.GetDiagnostic(); diagnostic != nil {
+		response.Diagnostic = goalSetGeneratedError(diagnostic)
+	}
+	return response, nil
+}
+
+type GoalSetGeneratedError struct {
+	Code                        string
+	RuntimeUnavailableSessionID *string
+	InternalFailureOperation    *string
+	InternalFailureCause        *string
+	UnknownFields               []byte
+}
+
+func (e *GoalSetGeneratedError) Error() string {
+	if e == nil || e.Code == "" {
+		return "Goal Set failed"
+	}
+	return fmt.Sprintf("Goal Set failed with code %q", e.Code)
 }
 
 func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
@@ -104,8 +124,32 @@ func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
 	case "internal_failure":
 		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
-		return fmt.Errorf("Goal Set failed with code %q", failure.Code)
+		generated := &GoalSetGeneratedError{
+			Code:          failure.Code,
+			UnknownFields: append([]byte(nil), failure.ProtoReflect().GetUnknown()...),
+		}
+		switch detail := failure.Detail.(type) {
+		case *runtimepb.GoalSetError_RuntimeUnavailable:
+			if detail.RuntimeUnavailable != nil {
+				sessionID := detail.RuntimeUnavailable.SessionId
+				generated.RuntimeUnavailableSessionID = &sessionID
+			}
+		case *runtimepb.GoalSetError_InternalFailure:
+			if detail.InternalFailure != nil {
+				generated.InternalFailureOperation = cloneOptionalString(detail.InternalFailure.Operation)
+				generated.InternalFailureCause = cloneOptionalString(detail.InternalFailure.Cause)
+			}
+		}
+		return generated
 	}
+}
+
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func goalMutationFromProto(

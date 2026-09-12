@@ -242,6 +242,7 @@
 - Models may use normal shell commands `kent goal show`, `kent goal complete`, and first-time `kent goal set <objective>` for the current Session, but other Goal commands detect invocation by the agent and refuse it.
 - Agent `goal set` is allowed only when no active or paused Goal exists. Completed Goals do not block the next agent-set Goal.
 - Successful Goal mutation commands must print the committed result and return independently of model-visible reminder delivery, following [Core Runtime And Tools](core-runtime-tools.md#goals).
+- `kent goal set` prints the committed Goal result to standard output before one warning to standard error when the successful Set result carries a diagnostic, and exits 0.
 - Goal commands must share one 15-second budget across connection, inspection, and mutation. A timeout must advise the caller to inspect the Goal before retrying because server-owned work may still complete, rather than expose an internal deadline error.
 - Goal completion is explicit CLI state mutation, not natural-language inference.
 - After successful Goal completion, the CLI must print `Goal marked as completed, changes will come into effect in a few seconds. After that you may end your turn normally.`

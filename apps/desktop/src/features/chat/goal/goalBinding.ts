@@ -1,6 +1,7 @@
 import type {
   ChatApi,
   ChatGoalAvailability,
+  ChatGoalMutationResult,
   ChatGoalSetResult,
   ChatGoalSetTarget,
   ChatSessionTarget,
@@ -21,11 +22,18 @@ export type NewChatGoalBindingSnapshot =
 export type NewChatGoalBindingOptions = Readonly<{
   api: Pick<ChatApi, "setGoal">;
   captureTarget: () => Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
+  onResolved?: (delivery: NewChatGoalDelivery) => void;
+}>;
+
+export type NewChatGoalDelivery = Readonly<{
+  target: ChatSessionTarget;
+  mutation: ChatGoalMutationResult | null;
 }>;
 
 export class NewChatGoalBinding {
   readonly #api: Pick<ChatApi, "setGoal">;
   readonly #captureTarget: NewChatGoalBindingOptions["captureTarget"];
+  readonly #onResolved: NewChatGoalBindingOptions["onResolved"];
   readonly #listeners = new Set<() => void>();
   #snapshot: NewChatGoalBindingSnapshot = {
     kind: "unresolved",
@@ -36,6 +44,7 @@ export class NewChatGoalBinding {
   constructor(options: NewChatGoalBindingOptions) {
     this.#api = options.api;
     this.#captureTarget = options.captureTarget;
+    this.#onResolved = options.onResolved;
   }
 
   get snapshot(): NewChatGoalBindingSnapshot {
@@ -77,6 +86,10 @@ export class NewChatGoalBinding {
         workspace: { workspaceID: target.workspaceID },
         sessionID: result.sessionID,
       };
+      this.#onResolved?.({
+        target: exactTarget,
+        mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
+      });
       this.#snapshot = { kind: "resolved_session", target: exactTarget };
       this.#notify();
       return result;
