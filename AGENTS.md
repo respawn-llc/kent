@@ -93,12 +93,13 @@ Just is the sole public developer command interface. Do not add standalone devel
 
 --- End of critical rules --- 
 
-## Frozen Rust code
+## Frozen Rust terminal UI
 
-- `tui-rs/` and all Rust client, contract, fixture, manifest, and test code are dead and frozen.
-- Do not edit, regenerate, migrate, build, or test Rust code unless the user explicitly reactivates Rust work for the task.
-- Rust artifacts do not constrain Go server/API, Desktop, CLI, or protocol changes. Do not include `just check rust --dry-run` in non-Rust completion criteria.
-- Documents under `docs/dev/rust/` and `docs/dev/rust-tui-tests.md` are historical records and do not authorize Rust implementation.
+- `tui-rs/`, including its client, contract, fixture, manifest, and test code, is dead and frozen.
+- Do not edit, regenerate, migrate, build, or test `tui-rs/` unless the user explicitly reactivates that terminal UI for the task.
+- The Tauri desktop host under `apps/desktop/src-tauri/` is active and is not covered by this freeze.
+- Artifacts under `tui-rs/` do not constrain Go server/API, Desktop, CLI, or protocol changes. Do not include `just check rust --dry-run` in completion criteria for work outside `tui-rs/`.
+- Documents under `docs/dev/rust/` and `docs/dev/rust-tui-tests.md` are historical records and do not authorize Rust terminal UI implementation.
 
 ## Coding Guidelines & Memories
 -- Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.

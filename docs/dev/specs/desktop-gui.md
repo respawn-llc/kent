@@ -2,6 +2,9 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
+- File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops while preserving internal board dragging.
+
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
 - Desktop never starts or bundles the Kent server. It connects using Kent's configured host and port and does not store a separate endpoint. It maps configured listener host `0.0.0.0` to `127.0.0.1` and `::` to `::1`, preserves the configured port, leaves concrete hosts unchanged, and does not edit Kent configuration.
 - A compatible, ready server is required before feature content opens. If protocols are incompatible, show `Update Kent`, the client and server protocol values, instructions to update the service and desktop from the same build, and Retry. Use the same blocker whichever side is newer.
