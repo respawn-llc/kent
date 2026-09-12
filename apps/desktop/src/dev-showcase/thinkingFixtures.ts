@@ -73,16 +73,19 @@ export function fixtureReasoningRow(
   };
 }
 
+const historyPageSize = 60;
+const historyPageBoundary = historyPageSize + 1;
+
 export function fixturePage(older: boolean): ChatTranscriptPage {
-  const start = older ? 1 : 61;
+  const start = older ? 1 : historyPageBoundary;
   return {
     sessionID: "fixture-session",
     sessionName: null,
     conversationFreshness: 0,
     latestRollbackCandidate: null,
-    entries: Array.from({ length: 60 }, (_, index) => fixtureUserRow(start + index)),
-    olderCursor: older ? null : 1,
-    newerCursor: older ? 61 : null,
+    entries: Array.from({ length: historyPageSize }, (_, index) => fixtureUserRow(start + index)),
+    olderCursor: older ? null : historyPageBoundary,
+    newerCursor: older ? historyPageBoundary : null,
     hasMoreAbove: !older,
     hasMoreBelow: older,
   };

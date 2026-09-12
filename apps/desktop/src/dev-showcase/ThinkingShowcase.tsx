@@ -262,7 +262,11 @@ export function ThinkingShowcase() {
           kind: "initial-hydration",
           hydration: {
             ...fixtureHydration(fixtureRunning, [fixtureTrace(180)], latest.entries),
-            TailSegment: { Entries: latest.entries, OlderCursor: 1, HasMoreAbove: true },
+            TailSegment: {
+              Entries: latest.entries,
+              OlderCursor: latest.olderCursor,
+              HasMoreAbove: latest.hasMoreAbove,
+            },
           },
         });
       },
