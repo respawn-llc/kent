@@ -193,7 +193,7 @@ func TestReviewerFactsSurviveSessionCloneReplay(t *testing.T) {
 		t.Fatalf("append clone error: %v", err)
 	}
 	parentLog := mustMaterializeTestEventLog(t, parent)
-	child, err := session.CloneSession(parentLog, "reviewer-clone", sessioncontract.SessionCategoryMain)
+	child, err := session.CloneSession(parentLog, "reviewer-clone", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone session: %v", err)
 	}

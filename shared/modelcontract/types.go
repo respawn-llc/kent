@@ -8,6 +8,7 @@ type ModelMetadata struct {
 type ProviderCapabilities struct {
 	ProviderID                     string
 	SupportsResponsesAPI           bool
+	SupportsNativeThinkingUpdates  bool
 	SupportsResponsesCompact       bool
 	SupportsRequestInputTokenCount bool
 	SupportsPromptCacheKey         bool

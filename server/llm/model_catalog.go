@@ -10,6 +10,12 @@ import (
 type ModelMetadata = modelcontract.ModelMetadata
 
 var defaultSupportedThinkingLevels = []string{"low", "medium", "high"}
+
+func SupportsNativeThinkingUpdates(model string, capabilities ProviderCapabilities) bool {
+	contract, ok := LookupModelCapabilityContract(model)
+	return ok && contract.SupportsNativeThinkingUpdates && capabilities.SupportsNativeThinkingUpdates
+}
+
 var defaultSupportedVerbosityLevels = []string{"low", "medium", "high"}
 
 type ModelVerbositySupportSource string

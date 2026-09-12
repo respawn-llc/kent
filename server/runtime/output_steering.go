@@ -47,12 +47,12 @@ type steeringItem struct {
 	resultGroupFlush            *steeringResultGroupFlush
 	resultGroupClose            *steeringResultGroupClose
 	missingToolOutputRepair     *steeringMissingToolOutputRepair
-	queuedFlush                 *steeringQueuedUserMessageFlush
+	modelInput                  *steeringPreparedModelInput
 	compactionActivity          *steeringCompactionActivity
 	event                       *Event
 	streaming                   *steeringStreamingOutput
 	cacheWarning                *steeringCacheWarning
-	cacheObservation            *steeringCacheObservation
+	providerObservation         *steeringProviderObservation
 	liveToolAbort               *steeringLiveToolAbort
 	commitReceipt               *session.CommitReceipt
 }
@@ -180,7 +180,7 @@ type steeringCacheWarning struct {
 	emit       bool
 }
 
-type steeringCacheObservation struct {
+type steeringProviderObservation struct {
 	records    []session.EventRecordPayload
 	response   persistedCacheResponseObserved
 	warning    transcript.CacheWarning
@@ -193,10 +193,17 @@ type steeringLiveToolAbort struct {
 	reason string
 }
 
-type steeringQueuedUserMessageFlush struct {
-	message    llm.Message
-	batch      []string
-	queueItems []QueuedUserMessage
+type steeringPreparedModelInput struct {
+	ctx      context.Context
+	prepared *preparedUserInjections
+	thinking nativeThinkingProjection
+}
+
+func steerPreparedModelInputIntent(ctx context.Context, prepared *preparedUserInjections, thinking nativeThinkingProjection) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityUser,
+		items:    []steeringItem{{modelInput: &steeringPreparedModelInput{ctx: ctx, prepared: prepared, thinking: thinking}}},
+	}
 }
 
 type steeringCompactionActivity struct {
@@ -350,17 +357,6 @@ func steerResultGroupCloseIntent(collector *resultGroupCollector) steeringIntent
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{resultGroupClose: &steeringResultGroupClose{
 			collector: collector,
-		}}},
-	}
-}
-
-func steerQueuedUserMessageFlushIntent(message llm.Message, batch []string, queueItems []QueuedUserMessage) steeringIntent {
-	return steeringIntent{
-		priority: steeringPriorityUser,
-		items: []steeringItem{{queuedFlush: &steeringQueuedUserMessageFlush{
-			message:    message,
-			batch:      append([]string(nil), batch...),
-			queueItems: append([]QueuedUserMessage(nil), queueItems...),
 		}}},
 	}
 }
@@ -523,7 +519,13 @@ func steerCacheWarningIntent(warning transcript.CacheWarning, visibility transcr
 	}
 }
 
-func steerCacheObservationIntent(records []session.EventRecordPayload, response persistedCacheResponseObserved, warning *transcript.CacheWarning, visibility transcript.EntryVisibility, emit bool) steeringIntent {
+func steerProviderObservationIntent(
+	records []session.EventRecordPayload,
+	response persistedCacheResponseObserved,
+	warning *transcript.CacheWarning,
+	visibility transcript.EntryVisibility,
+	emit bool,
+) steeringIntent {
 	copyRecords := append([]session.EventRecordPayload(nil), records...)
 	var copyWarning transcript.CacheWarning
 	if warning != nil {
@@ -531,7 +533,7 @@ func steerCacheObservationIntent(records []session.EventRecordPayload, response 
 	}
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
-		items: []steeringItem{{cacheObservation: &steeringCacheObservation{
+		items: []steeringItem{{providerObservation: &steeringProviderObservation{
 			records:    copyRecords,
 			response:   response,
 			warning:    copyWarning,
@@ -720,7 +722,7 @@ func workflowPostCompletionActivityForSteeringItem(item steeringItem) workflowPo
 		item.toolCompletion != nil ||
 		(item.resultGroupFlush != nil && item.resultGroupFlush.committed) ||
 		(item.missingToolOutputRepair != nil && item.missingToolOutputRepair.repaired > 0) ||
-		item.queuedFlush != nil {
+		(item.modelInput != nil && len(item.modelInput.prepared.groups) > 0) {
 		return workflowPostCompletionDurableActivity
 	}
 	return workflowPostCompletionNoActivity
@@ -1022,11 +1024,11 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		}
 		return err
 	}
-	if item.queuedFlush != nil {
+	if item.modelInput != nil {
 		if _, err := provenance.requireExactStepID(); err != nil {
 			return err
 		}
-		receipt, err := e.appendQueuedUserMessageFlush(provenance.stepID(), item.queuedFlush.message, item.queuedFlush.batch, item.queuedFlush.queueItems)
+		receipt, err := e.appendPreparedModelInput(provenance.stepID(), *item.modelInput)
 		item.recordCommitReceipt(receipt)
 		return err
 	}
@@ -1069,8 +1071,8 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		}
 		return appendErr
 	}
-	if item.cacheObservation != nil {
-		observation := item.cacheObservation
+	if item.providerObservation != nil {
+		observation := item.providerObservation
 		records, receipt, appendErr := e.eventLog.AppendRecordsAtomic(provenance.stepID(), observation.records)
 		item.recordCommitReceipt(receipt)
 		if !receipt.Committed {

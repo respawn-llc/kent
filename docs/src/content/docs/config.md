@@ -102,6 +102,16 @@ verbose_output = false # set true to show complete supervisor suggestions in ong
 
 `workflow_subagent` is optional role metadata and defaults to `true`. A custom role is callable by a workflow agent only when `agent_callable`, `[workflow] subagents`, and its effective `workflow_subagent` value all permit it. The global workflow setting remains authoritative.
 
+## Thinking
+
+Thinking selects the model's reasoning effort. The Session's override takes precedence over its Agent configuration, global `thinking_level`, and Kent's default. Clearing a Workflow override returns to that configuration hierarchy. The displayed value is the desired selection.
+
+For `gpt-6-astra` on official OpenAI and ChatGPT/Codex endpoints, Kent automatically applies Thinking changes through native updates while preserving earlier input and the Session's original request-level effort. Supported levels are `low`, `medium`, `high`, `xhigh`, and `max`. Other models and custom endpoints use ordinary request-level effort settings.
+
+Several selections before a Step coalesce into the final needed change, placed before the new input. If the provider's input rules prevent an update at that position, Kent retains the previous effort until the next legal position; the displayed selection remains unchanged. Compaction re-establishes the desired effort for subsequent generation. Native updates add no Chat message.
+
+Preserving input avoids invalidating the cache solely because Thinking changed; cache reuse depends on the provider. Existing Sessions adopt their current effort once and can incur a cache miss on adoption. Provider rejection surfaces as a request failure.
+
 ## CLI Overrides
 
 | Flag                               | Overrides                        | Notes                              |

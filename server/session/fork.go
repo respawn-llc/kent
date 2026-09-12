@@ -119,7 +119,7 @@ func (b *forkReplayBatch) validateDrained() error {
 // conversation up to (but excluding) the visible user message persisted at
 // userMessageSeq. It returns the forked store and the 1-based ordinal of that
 // user message among the parent's visible user messages (for naming/display).
-func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory) (*Store, int, error) {
+func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
 	if userMessageSeq <= 0 {
 		return nil, 0, fmt.Errorf("user message seq must be >= 1")
 	}
@@ -127,18 +127,18 @@ func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, for
 		InheritLockedContract: true,
 		InheritContinuation:   true,
 		InheritGoal:           true,
-	}, userMessageSeq)
+	}, userMessageSeq, thinking)
 }
 
 // CloneSession creates a child session that replays the parent's entire
 // conversation history. Workflow compact-and-continue fan-out branches use this
 // so each parallel continuation compacts its own isolated copy of the source
 // conversation instead of mutating the shared source session.
-func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory) (*Store, error) {
+func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
 	child, _, err := streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
 		InheritLockedContract: true,
 		InheritContinuation:   true,
-	}, 0)
+	}, 0, thinking)
 	return child, err
 }
 
@@ -153,7 +153,11 @@ func streamChildFromParent(
 	category sessioncontract.SessionCategory,
 	contextOptions ChildContextOptions,
 	targetSeq int64,
+	thinking ForkThinking,
 ) (_ *Store, _ int, resultErr error) {
+	if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
+		return nil, 0, err
+	}
 	parent, err := materializedForkParent(parentLog)
 	if err != nil {
 		return nil, 0, err
@@ -177,6 +181,10 @@ func streamChildFromParent(
 
 	child.mu.Lock()
 	child.meta.Name = strings.TrimSpace(forkName)
+	child.meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
+	if thinking.PreserveNativeUpdates {
+		child.meta.OriginalThinkingEffort = textutil.Pointer(parentMeta.OriginalThinkingEffort)
+	}
 	child.mu.Unlock()
 
 	if err := child.EnsureDurable(); err != nil {
@@ -186,7 +194,7 @@ func streamChildFromParent(
 	if err != nil {
 		return nil, 0, fmt.Errorf("materialize fork child event log: %w", err)
 	}
-	derived, cutOrdinal, err := streamReplayIntoChild(parentLog, childLog, targetSeq)
+	derived, cutOrdinal, err := streamReplayIntoChild(parentLog, childLog, targetSeq, thinking.PreserveNativeUpdates)
 	if err != nil {
 		return nil, 0, fmt.Errorf("stream fork replay events: %w", err)
 	}
@@ -198,6 +206,13 @@ func streamChildFromParent(
 	}
 	keepChild = true
 	return child, cutOrdinal, nil
+}
+
+// ForkThinking is resolved by the launch owner for the child's first provider
+// request. Independent children do not copy conversation input or this state.
+type ForkThinking struct {
+	Desired               string
+	PreserveNativeUpdates bool
 }
 
 func materializedForkParent(parentLog MaterializedEventLog) (*Store, error) {
@@ -216,7 +231,7 @@ func materializedForkParent(parentLog MaterializedEventLog) (*Store, error) {
 // targetSeq > 0 it stops just before the visible user message persisted at that
 // sequence and returns that message's 1-based visible-user-message ordinal; it
 // returns 0 when the target is not found (or when cloning the whole log).
-func streamReplayIntoChild(parentLog MaterializedEventLog, childLog MaterializedEventLog, targetSeq int64) (replayDerivedState, int, error) {
+func streamReplayIntoChild(parentLog MaterializedEventLog, childLog MaterializedEventLog, targetSeq int64, preserveNativeUpdates bool) (replayDerivedState, int, error) {
 	derived := replayDerivedState{}
 	visibleUserCount := 0
 	cutOrdinal := 0
@@ -262,7 +277,19 @@ func streamReplayIntoChild(parentLog MaterializedEventLog, childLog Materialized
 		if err != nil {
 			return err
 		}
+		if _, configuration := payload.(ConfigurationUpdateRecord); configuration && !preserveNativeUpdates {
+			return nil
+		}
 		if replacement, ok := payload.(HistoryReplacementRecord); ok {
+			if !preserveNativeUpdates {
+				items := make([]ProviderHistoryItem, 0, len(replacement.Items))
+				for _, item := range replacement.Items {
+					if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+						items = append(items, item)
+					}
+				}
+				replacement.Items = items
+			}
 			if err := flush(); err != nil {
 				return err
 			}

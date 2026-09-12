@@ -371,11 +371,16 @@ func (c *CurrentNodeController) completeLiveCurrentNode(
 func (c *CurrentNodeController) ContinueCurrentNode(
 	ctx context.Context,
 	completed workflowstore.CurrentNodeCompletionResult,
+	preparationErr error,
 ) error {
 	if c == nil {
 		return errors.New("current node workflow controller is required")
 	}
 	starts := automaticQueuedStarts(completed.AutomaticIntents)
+	var startFailure *TaskStartPreparationError
+	if errors.As(preparationErr, &startFailure) {
+		return errors.Join(preparationErr, c.recoverCurrentNodeStartFailures(ctx, starts, false, preparationErr))
+	}
 	if len(starts) == 0 {
 		c.wakeAdmissionWorker()
 		return nil

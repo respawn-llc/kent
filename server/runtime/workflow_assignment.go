@@ -22,7 +22,7 @@ type WorkflowAssignment struct {
 
 type WorkflowAssignmentSnapshot struct {
 	message  *llm.Message
-	thinking *string
+	thinking workflow.ThinkingMutation
 }
 
 // PersistedWorkflowAssignmentContext supplies the runtime-owned context needed
@@ -32,6 +32,7 @@ type PersistedWorkflowAssignmentContext struct {
 	GlobalConfigDir         string
 	Model                   string
 	ThinkingLevel           string
+	ThinkingMutation        workflow.ThinkingMutation
 	SkillPolicy             config.SkillPolicy
 	SubagentCatalogSettings config.Settings
 	EnabledTools            []toolspec.ID
@@ -88,16 +89,6 @@ func (e *Engine) SteerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnap
 	return e.steerWorkflowAssignmentSnapshot(snapshot)
 }
 
-func (e *Engine) RestoreWorkflowAssignmentSnapshotThinking(snapshot WorkflowAssignmentSnapshot) error {
-	if snapshot.thinking == nil {
-		return nil
-	}
-	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-		return struct{}{}, e.setThinkingValue(*snapshot.thinking)
-	})
-	return err
-}
-
 func (e *Engine) steerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnapshot) (WorkflowAssignmentSteer, error) {
 	if e == nil || e.closed.Load() {
 		return WorkflowAssignmentSteer{}, ErrEngineClosed
@@ -108,9 +99,14 @@ func (e *Engine) steerWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnap
 		true,
 		[]llm.Message{snapshot.restorationMessage()},
 	)
-	deferred := submitEngineRuntimeOperation(e, func(context.Context) (session.CommitReceipt, error) {
-		if snapshot.thinking != nil {
-			if err := e.setThinkingValue(*snapshot.thinking); err != nil {
+	deferred := submitEngineRuntimeOperation(e, func(ctx context.Context) (session.CommitReceipt, error) {
+		switch snapshot.thinking.Kind() {
+		case workflow.ThinkingMutationSet:
+			if err := e.setThinkingValue(string(snapshot.thinking.Value())); err != nil {
+				return session.CommitReceipt{}, err
+			}
+		case workflow.ThinkingMutationClear:
+			if err := e.clearThinkingValue(ctx); err != nil {
 				return session.CommitReceipt{}, err
 			}
 		}
@@ -129,7 +125,6 @@ func CapturePersistedWorkflowAssignment(
 	if err != nil {
 		return WorkflowAssignmentSnapshot{}, false, err
 	}
-	meta := store.Meta()
 	snapshot := WorkflowAssignmentSnapshot{}
 	if activeAssignment != nil {
 		message, err := llmMessageFromSessionRecord(*activeAssignment)
@@ -138,19 +133,14 @@ func CapturePersistedWorkflowAssignment(
 		}
 		snapshot.message = &message
 	}
-	if meta.ChatSettings != nil && meta.ChatSettings.Thinking != nil {
-		thinking := *meta.ChatSettings.Thinking
-		snapshot.thinking = &thinking
-	}
 	if err := validateWorkflowAssignmentSnapshot(snapshot); err != nil {
 		return WorkflowAssignmentSnapshot{}, false, err
 	}
 	return snapshot, true, nil
 }
 
-func (s WorkflowAssignmentSnapshot) WithThinkingLevel(level string) WorkflowAssignmentSnapshot {
-	value := level
-	s.thinking = &value
+func (s WorkflowAssignmentSnapshot) WithThinkingMutation(mutation workflow.ThinkingMutation) WorkflowAssignmentSnapshot {
+	s.thinking = mutation
 	return s
 }
 
@@ -172,6 +162,11 @@ func SteerPersistedWorkflowAssignmentSnapshot(
 }
 
 func validateWorkflowAssignmentSnapshot(snapshot WorkflowAssignmentSnapshot) error {
+	if snapshot.thinking.Kind() == workflow.ThinkingMutationSet {
+		if err := snapshot.thinking.Value().Validate(); err != nil {
+			return err
+		}
+	}
 	if snapshot.message != nil &&
 		(snapshot.message.MessageType == nil || *snapshot.message.MessageType != llm.MessageTypeWorkflowMode) {
 		return errors.New("workflow assignment snapshot is required")
@@ -207,6 +202,19 @@ func SteerPersistedWorkflowAssignment(
 	engine, err := newPersistedSteeringEngine(store)
 	if err != nil {
 		return WorkflowAssignmentSteer{}, err
+	}
+	switch deliveryContext.ThinkingMutation.Kind() {
+	case workflow.ThinkingMutationSet:
+		if err := deliveryContext.ThinkingMutation.Value().Validate(); err != nil {
+			return WorkflowAssignmentSteer{}, err
+		}
+		if err := store.SetThinkingOverride(textutil.Value(string(deliveryContext.ThinkingMutation.Value()))); err != nil {
+			return WorkflowAssignmentSteer{}, err
+		}
+	case workflow.ThinkingMutationClear:
+		if err := store.SetThinkingOverride(nil); err != nil {
+			return WorkflowAssignmentSteer{}, err
+		}
 	}
 	recent, err := engine.eventLog.ReadRecentRecords(1)
 	if err != nil {

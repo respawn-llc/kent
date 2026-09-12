@@ -36,6 +36,26 @@ func TestCompleteCurrentNodeWithoutApprovalDoesNotEmitQueryFailureDiagnostics(t 
 	}
 }
 
+func TestCompleteCurrentNodeRejectsAgentSuppliedSessionID(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+
+	_, err := store.CompleteCurrentNode(ctx, CurrentNodeCompletionRequest{
+		Source:       source.Reference,
+		TransitionID: "review",
+		OutputValues: map[string]string{
+			"session_id": "agent-supplied",
+			"summary":    "completed",
+		},
+	})
+	if !completionHasCode(err, CompletionCodeUnknownOutputField) {
+		t.Fatalf("agent-supplied Session ID error = %v, want unknown output", err)
+	}
+}
+
 func TestCompleteCurrentNodeAssociationReadFailureIsDefinitelyUncommitted(t *testing.T) {
 	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)

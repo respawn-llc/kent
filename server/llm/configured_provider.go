@@ -33,6 +33,11 @@ func ResolveEffectiveProviderCapabilities(
 		locked,
 		settings.ProviderCapabilities,
 	); configured {
+		resolved, err := ResolveRuntimeProviderCapabilities(auth.EmptyState(), settings)
+		if err != nil {
+			return EffectiveProviderResolution{}, err
+		}
+		capabilities.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
 		return EffectiveProviderResolution{
 			AuthState:    auth.EmptyState(),
 			Capabilities: capabilities,
@@ -61,9 +66,6 @@ func ProviderCapabilitiesForSettings(authState auth.State, settings config.Setti
 }
 
 func ResolveRuntimeProviderCapabilities(authState auth.State, settings config.Settings) (ProviderCapabilities, error) {
-	if caps, ok := ProviderCapabilitiesFromOverride(settings.ProviderCapabilities); ok {
-		return caps, nil
-	}
 	provider := Provider(strings.TrimSpace(settings.ProviderOverride))
 	if provider == "" {
 		if strings.TrimSpace(settings.OpenAIBaseURL) != "" {
@@ -86,7 +88,12 @@ func ResolveRuntimeProviderCapabilities(authState auth.State, settings config.Se
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
-	return variant.Capabilities, nil
+	caps := variant.Capabilities
+	if override, ok := ProviderCapabilitiesFromOverride(settings.ProviderCapabilities); ok {
+		caps = override
+		caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
+	}
+	return caps, nil
 }
 
 func newProviderTransportEndpoint(rawURL string, explicit bool) (ProviderTransportEndpoint, error) {

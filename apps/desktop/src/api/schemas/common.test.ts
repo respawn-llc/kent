@@ -327,6 +327,18 @@ describe("validationErrorSchema", () => {
     expect(present.details).toMatchObject({ role: "coder", requiredTool: "ask_question" });
   });
 
+  it("preserves Session validation codes and placeholder details", () => {
+    const parsed = validationErrorSchema.parse({
+      ...base,
+      code: "workflow.validation.session_transition_missing",
+      details: {
+        placeholder: ".Params.review.session_id",
+      },
+    });
+    expect(parsed.code).toBe("workflow.validation.session_transition_missing");
+    expect(parsed.details.placeholder).toBe(".Params.review.session_id");
+  });
+
   it("preserves absent graph identities as null", () => {
     expect(validationErrorSchema.parse(base)).toMatchObject({
       edgeID: null,

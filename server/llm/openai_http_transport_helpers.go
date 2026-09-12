@@ -119,19 +119,18 @@ func (t *HTTPTransport) providerVariantForMode(mode OpenAIAuthMode) (ProviderVar
 }
 
 func (t *HTTPTransport) providerCapabilitiesForMode(mode OpenAIAuthMode) (ProviderCapabilities, error) {
-	if t.ProviderCapabilitiesOverride != nil {
-		return *t.ProviderCapabilitiesOverride, nil
-	}
 	variant, err := t.providerVariantForMode(mode)
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
-	return variant.Capabilities, nil
+	return t.providerCapabilitiesForVariant(variant), nil
 }
 
 func (t *HTTPTransport) providerCapabilitiesForVariant(variant ProviderVariantContract) ProviderCapabilities {
 	if t.ProviderCapabilitiesOverride != nil {
-		return *t.ProviderCapabilitiesOverride
+		caps := *t.ProviderCapabilitiesOverride
+		caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
+		return caps
 	}
 	return variant.Capabilities
 }

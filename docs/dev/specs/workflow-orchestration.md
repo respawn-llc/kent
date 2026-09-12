@@ -435,7 +435,7 @@
 - As part of that interruption, Manual Move cancels every pending Question and denies and removes every pending Approval on the Task before applying the move. A direct Manual Move and a concurrent live Approval answer race at the exact live tool call owner. If the Approval is accepted first, Manual Move waits for that acceptance and then continues its interruption and move. If Manual Move closes the Approval first, the answer is Skipped without commentary.
 - Human `kent task complete --force` composes Task Interrupt and Manual Move. It explicitly interrupts and waits first, then invokes this same Manual Move owner with the selected outgoing Transition, commentary, and Parameter values; it is not another completion authority. Its Manual Move phase must not publish an already-closed Approval again, block on it, or apply its commentary.
 - Other conflicting lifecycle operations block Manual Move.
-- If revalidation or movement fails after live work has been interrupted, the origin Current Nodes remain interrupted and Kent surfaces the move failure instead of resuming them.
+- If revalidation or movement fails before the move commits and after live work has been interrupted, the origin Current Nodes remain interrupted and Kent surfaces the move failure instead of resuming them.
 
 ## Context Preservation And Bindings
 
@@ -457,6 +457,9 @@
 - Transition-selected Assignees never rotate or invalidate an established Session's prompt-cache lineage.
 - A retained Session may adopt the target Current Node's materialized thinking without rotating or invalidating its prompt-cache lineage.
 - `compact_and_continue_session` compacts the reused Session and establishes the target Current Node's materialized Assignee and thinking in a fresh contract generation, resolving current role configuration for model/provider setup, generation parameters, capabilities, enabled tools, native web-search mode, prompt snapshots, context budget, and prompt-facing request content.
+- Eager and lazy compaction must use the outgoing Session's model configuration and Thinking. Kent must apply the target configuration only after compaction succeeds and must not add configuration-reminder messages.
+- For a direct automatic Compact-and-Continue transition, the outgoing Exact Execution Scope must compact before handing the retained Active Session Runtime to the target. An Idle Session must use a separate pre-target compaction execution. Task Interrupt must remain available during either compaction.
+- For lazy Compact-and-Continue, Manual Move must commit its selected target before compaction. If compaction fails or is interrupted, the target must remain interrupted and the outgoing Session configuration must remain unchanged. Kent must preserve cache-relevant request settings and the dispatched input prefix until summary replacement; provider cache availability remains provider-dependent.
 - `new_session` establishes the target Current Node's materialized Assignee and thinking at its fresh context boundary and resolves current role configuration for that Assignee.
 - Kent derives `compact_and_continue_session` timing from the accepted Workflow path. Workflow authors do not configure eager or lazy timing.
 - Guaranteed future reuse compacts eagerly after the source assignment completes, regardless of context usage. Reuse is guaranteed when at least one branch that the accepted fan-out will execute guarantees it; unrelated accepted siblings do not need to reuse the Session.
@@ -469,6 +472,7 @@
 - Nodes own no agent input or output contract. Transition Branches exclusively declare the Parameters they provide to their targets.
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.
 - Applying a Transition materializes each branch's declared Parameters for its target. Prompt rendering uses those values and never searches discarded execution history.
+- Built-in [Session references](workflow-editor.md#session-references) resolve the Task's existing Session associations when the prompt is rendered.
 - If the latest Workflow definition requires an already-current executable Node to have a Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. Kent does not reconstruct discarded Workflow history, and another selected parallel Current Node remains independently admissible.
 - The Start Node's outgoing Transition cannot declare Parameters and should use task fields such as `.TaskTitle` and `.TaskBody`.
 - Kent derives Parameter flow and completion requirements from Transition Branch declarations, Workflow structure, and Join sources.

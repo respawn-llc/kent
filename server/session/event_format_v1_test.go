@@ -781,17 +781,22 @@ func TestEventLogV1CacheRequestObservationRoundTrip(t *testing.T) {
 func TestEventLogV1CacheResponseObservationRoundTrip(t *testing.T) {
 	cachedInputTokens := 1_024
 	terminalHash := strings.Repeat("b", 64)
+	digestVersion := 1
+	cacheKey := "session-cache-key"
+	scope := CacheScopeConversation
+	chunkCount := 4
 	record, err := NewEventRecord(6, nil, CacheResponseObservationRecord{
-		DigestVersion:     1,
-		CacheKey:          "session-cache-key",
-		Scope:             CacheScopeConversation,
-		ChunkCount:        4,
-		TerminalHash:      terminalHash,
+		DigestVersion:     &digestVersion,
+		CacheKey:          &cacheKey,
+		Scope:             &scope,
+		ChunkCount:        &chunkCount,
+		TerminalHash:      &terminalHash,
 		CachedInputTokens: &cachedInputTokens,
 	})
 	if err != nil {
 		t.Fatalf("create cache response observation: %v", err)
 	}
+	chunkCount = 99
 
 	line, err := encodeEventRecordV1(record)
 	if err != nil {
@@ -805,7 +810,8 @@ func TestEventLogV1CacheResponseObservationRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload type = %T, want CacheResponseObservationRecord", mustEventRecordPayload(decoded))
 	}
-	if observation.CachedInputTokens == nil || *observation.CachedInputTokens != cachedInputTokens {
+	if observation.ChunkCount == nil || *observation.ChunkCount != 4 ||
+		observation.CachedInputTokens == nil || *observation.CachedInputTokens != cachedInputTokens {
 		t.Fatalf("observation = %#v", observation)
 	}
 }
@@ -918,14 +924,9 @@ func TestEventLogV1RejectsInvalidRecordContracts(t *testing.T) {
 			Scope:         CacheScopeConversation,
 			TerminalHash:  terminalHash,
 		}},
-		{name: "negative cached tokens", seq: 1, payload: CacheResponseObservationRecord{
-			DigestVersion:     1,
-			CacheKey:          "cache",
-			Scope:             CacheScopeConversation,
-			ChunkCount:        1,
-			TerminalHash:      terminalHash,
-			CachedInputTokens: &negativeTokens,
-		}},
+		{name: "negative cached tokens", seq: 1, payload: cacheResponseObservationFixture(
+			1, "cache", CacheScopeConversation, 1, terminalHash, &negativeTokens,
+		)},
 		{name: "unknown cache warning reason", seq: 1, payload: CacheWarningRecord{
 			Scope:           CacheScopeConversation,
 			Reason:          "evicted",
@@ -1036,6 +1037,24 @@ func TestEventLogV1GoldenFixture(t *testing.T) {
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("scan golden fixture: %v", err)
+	}
+}
+
+func cacheResponseObservationFixture(
+	digestVersion int,
+	cacheKey string,
+	scope CacheScope,
+	chunkCount int,
+	terminalHash string,
+	cachedInputTokens *int,
+) CacheResponseObservationRecord {
+	return CacheResponseObservationRecord{
+		DigestVersion:     intPointer(digestVersion),
+		CacheKey:          stringPointer(cacheKey),
+		Scope:             &scope,
+		ChunkCount:        intPointer(chunkCount),
+		TerminalHash:      stringPointer(terminalHash),
+		CachedInputTokens: cachedInputTokens,
 	}
 }
 

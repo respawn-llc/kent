@@ -957,6 +957,7 @@ func (c *externallyCompletedWorkflowController) CompleteScriptCurrentNode(
 func (c *externallyCompletedWorkflowController) ContinueCurrentNode(
 	context.Context,
 	workflowstore.CurrentNodeCompletionResult,
+	error,
 ) error {
 	return nil
 }

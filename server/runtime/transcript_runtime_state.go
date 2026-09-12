@@ -420,6 +420,13 @@ func (s *transcriptRuntimeState) SnapshotItems() []llm.ResponseItem {
 	return nil
 }
 
+func (s *transcriptRuntimeState) SnapshotRequestItems() ([]llm.ResponseItem, *int) {
+	chat := s.chatProjection()
+	chat.mu.RLock()
+	defer chat.mu.RUnlock()
+	return chat.snapshotProviderItemsLocked()
+}
+
 func (s *transcriptRuntimeState) CommittedEntryCount() int {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.committedEntryCount()
@@ -482,6 +489,14 @@ func (s *transcriptRuntimeState) ValidateMessage(stepID *string, msg llm.Message
 
 func (s *transcriptRuntimeState) AppendMessage(stepID *string, msg llm.Message, provenances ...*TranscriptCommittedRowProvenance) error {
 	return s.chatProjection().appendMessage(stepID, msg, provenances...)
+}
+
+func (s *transcriptRuntimeState) AppendConfigurationItem(item llm.ResponseItem) {
+	chat := s.chatProjection()
+	chat.mu.Lock()
+	defer chat.mu.Unlock()
+	chat.messageRecords = append(chat.messageRecords, chatMessageRecord{ProviderItems: llm.CloneResponseItems([]llm.ResponseItem{item})})
+	chat.providerTokenEstimateDirty = true
 }
 
 func (s *transcriptRuntimeState) AppendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {

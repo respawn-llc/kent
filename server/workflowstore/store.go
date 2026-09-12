@@ -280,6 +280,8 @@ type CurrentNodeStartContext struct {
 	EnteringEdge                   workflow.Edge
 	ContextMode                    workflow.ContextMode
 	SourceSessionID                *runtimeids.SessionID
+	PromptSessionID                *runtimeids.SessionID
+	PriorSessionIDs                map[workflow.ModelKey]*runtimeids.SessionID
 	IsFanoutBranch                 bool
 	AcceptedTransitionPath         AcceptedTransitionPath
 	TransitionIDs                  []string

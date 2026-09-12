@@ -73,6 +73,7 @@ func estimateItemTokens(item llm.ResponseItem) int {
 		item.Name,
 		item.CallID,
 		item.EncryptedContent,
+		item.ConfigurationEffort,
 	} {
 		if value != nil {
 			totalTokens += estimateTokensFromBytes(len(*value))

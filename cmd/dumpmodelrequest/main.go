@@ -323,18 +323,23 @@ func resolvePersistedWorkflowInspection(ctx context.Context, app config.App, met
 }
 
 func resolveInspectionProviderCapabilities(authState auth.State, active config.Settings, locked *session.LockedContract, providerOverride string) (llm.ProviderCapabilities, bool, error) {
+	resolved, err := llm.ResolveRuntimeProviderCapabilities(authState, active)
+	if err != nil {
+		return llm.ProviderCapabilities{}, false, err
+	}
 	if requested := strings.TrimSpace(providerOverride); requested != "" {
 		caps, ok := llm.LookupProviderCapabilityContract(requested)
 		if !ok {
 			return llm.ProviderCapabilities{}, false, fmt.Errorf("unsupported provider override %q", requested)
 		}
+		caps.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
 		return caps, true, nil
 	}
 	if caps, ok := llm.ProviderCapabilitiesFromLockedOrOverride(locked, active.ProviderCapabilities); ok {
+		caps.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
 		return caps, false, nil
 	}
-	caps, err := llm.ResolveRuntimeProviderCapabilities(authState, active)
-	return caps, false, err
+	return resolved, false, nil
 }
 
 func validateOpenAIResponsesInspectionProvider(caps llm.ProviderCapabilities) error {

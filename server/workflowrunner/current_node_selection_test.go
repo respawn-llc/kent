@@ -45,7 +45,7 @@ func TestCurrentNodeStartUsesMaterializedSelectedRoleAndForcesQuestions(t *testi
 }
 
 func TestCurrentNodeStartUsesMaterializedSelectedRoleAtCompactionBoundary(t *testing.T) {
-	f, input := newMaterializedRoleSelectionStart(t)
+	f, input := newMaterializedRoleSelectionStart(t, ScriptedFinalAnswer("source summary"))
 	input.ContextMode = workflow.ContextModeCompactAndContinueSession
 	input.EnteringEdge.ContextMode = workflow.ContextModeCompactAndContinueSession
 	store, err := session.Create(
@@ -180,9 +180,9 @@ func TestCurrentNodeStartFailsWhenMaterializedRoleIsRemovedFromConfig(t *testing
 	}
 }
 
-func newMaterializedRoleSelectionStart(t *testing.T) (*currentNodeRunnerFixture, workflowstore.CurrentNodeStartContext) {
+func newMaterializedRoleSelectionStart(t *testing.T, steps ...ScriptedRuntimeStep) (*currentNodeRunnerFixture, workflowstore.CurrentNodeStartContext) {
 	t.Helper()
-	f := newCurrentNodeRunnerFixture(t)
+	f := newCurrentNodeRunnerFixture(t, steps...)
 	workflowID := createCurrentNodeRoleSelectionWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
 	if err := f.store.LockTaskExecutionTarget(context.Background(), task.ID, &workflowstore.ExecutionTargetCandidate{

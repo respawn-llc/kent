@@ -527,7 +527,6 @@ func TestFlushPendingUserInjectionsRestoresOnlyLaterNoticeAfterCommittedObserver
 	scheduler := &defaultBackgroundNoticeScheduler{engine: engine, steps: steps}
 	engine.stepLifecycle = steps
 	engine.backgroundFlow = scheduler
-	lifecycle := newDefaultMessageLifecycle(engine, scheduler)
 	for _, sessionID := range []string{"first", "second"} {
 		scheduler.QueueDeveloperNotice(llm.Message{
 			Role:    llm.RoleDeveloper,
@@ -537,7 +536,7 @@ func TestFlushPendingUserInjectionsRestoresOnlyLaterNoticeAfterCommittedObserver
 	}
 	gate.FailNext(observerErr)
 
-	_, err := lifecycle.FlushPendingUserInjections(stepID, allPendingUserInjectionSelection{})
+	_, err := scheduler.flushPendingNotices(stepID)
 	if !errors.Is(err, observerErr) {
 		t.Fatalf("flush error = %v, want observer failure", err)
 	}

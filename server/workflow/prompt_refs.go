@@ -20,6 +20,7 @@ type PromptPriorParameterReference struct {
 type PromptTemplateReferences struct {
 	Params      []PromptParameterReference
 	PriorParams []PromptPriorParameterReference
+	SessionID   bool
 	Invalid     []PromptReferenceIssue
 }
 
@@ -168,6 +169,9 @@ func recordPromptFieldReference(ident []string, refs *PromptTemplateReferences) 
 			if len(ident) != 1 {
 				refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: "prompt built-in references must not be chained"})
 			}
+			if ident[0] == "SessionId" && len(ident) == 1 {
+				refs.SessionID = true
+			}
 			return
 		}
 		refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: "prompt field reference is unsupported"})
@@ -180,9 +184,252 @@ func promptNamespace(value string) bool {
 
 func promptBuiltin(value string) bool {
 	switch value {
-	case "TaskId", "TaskShortId", "TaskTitle", "TaskBody", "NodeId", "NodeKey", "NodeDisplayName":
+	case "TaskId", "TaskShortId", "TaskTitle", "TaskBody", "NodeId", "NodeKey", "NodeDisplayName", "SessionId":
 		return true
 	default:
 		return false
 	}
+}
+
+type PromptSessionNodeScope struct {
+	BranchKey *TransitionBranchKey
+	Ambiguous bool
+}
+
+type PromptSessionReferenceResolution struct {
+	Matched              int
+	Guaranteed           []TransitionGroup
+	SourceNodeID         NodeID
+	BranchKey            *TransitionBranchKey
+	BranchScopeAmbiguous bool
+}
+
+type promptSessionReferenceCandidate struct {
+	group         TransitionGroup
+	fanoutGroupID TransitionGroupID
+	branchKey     TransitionBranchKey
+}
+
+func filterPromptSessionReferenceCandidates(
+	candidates []promptSessionReferenceCandidate,
+	currentFanoutGroups map[TransitionGroupID]struct{},
+	currentBranch TransitionBranchKey,
+) []promptSessionReferenceCandidate {
+	hasCandidateInCurrentFanout := false
+	for _, candidate := range candidates {
+		if _, belongsToCurrentFanout := currentFanoutGroups[candidate.fanoutGroupID]; belongsToCurrentFanout {
+			hasCandidateInCurrentFanout = true
+			break
+		}
+	}
+	if !hasCandidateInCurrentFanout {
+		return candidates
+	}
+	filtered := make([]promptSessionReferenceCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, belongsToCurrentFanout := currentFanoutGroups[candidate.fanoutGroupID]; belongsToCurrentFanout &&
+			candidate.branchKey == currentBranch {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
+func promptSessionFanoutGroupsForCurrentNode(
+	topology fanoutTopology,
+	currentNodeID NodeID,
+	currentBranch TransitionBranchKey,
+) map[TransitionGroupID]struct{} {
+	groups := map[TransitionGroupID]struct{}{}
+	for groupID, edges := range topology.edgesByGroup {
+		if len(edges) < 2 {
+			continue
+		}
+		for _, edge := range edges {
+			if TransitionBranchKey(strings.TrimSpace(string(edge.Key))) != currentBranch {
+				continue
+			}
+			traversal, ok := fanoutBranchTraversal(
+				topology.nodesByID,
+				topology.groupsBySource,
+				topology.edgesByGroup,
+				topology.outgoingByNode,
+				edge.TargetNodeID,
+			)
+			if !ok {
+				continue
+			}
+			if _, exists := traversal.pathNodes[currentNodeID]; exists {
+				groups[groupID] = struct{}{}
+			}
+		}
+	}
+	return groups
+}
+
+func ResolvePromptSessionNodeScope(
+	def Definition,
+	nodeID NodeID,
+	currentNodeID NodeID,
+	currentBranch *TransitionBranchKey,
+) PromptSessionNodeScope {
+	topology := newFanoutTopology(def)
+	candidates := []promptSessionReferenceCandidate{}
+	for _, group := range def.TransitionGroups {
+		edges := topology.edgesByGroup[group.ID]
+		if len(edges) < 2 {
+			continue
+		}
+		for _, edge := range edges {
+			traversal, ok := fanoutBranchTraversal(
+				topology.nodesByID,
+				topology.groupsBySource,
+				topology.edgesByGroup,
+				topology.outgoingByNode,
+				edge.TargetNodeID,
+			)
+			if !ok {
+				continue
+			}
+			if _, exists := traversal.pathNodes[nodeID]; !exists {
+				continue
+			}
+			branchKey := TransitionBranchKey(strings.TrimSpace(string(edge.Key)))
+			if branchKey == "" {
+				continue
+			}
+			candidates = append(candidates, promptSessionReferenceCandidate{
+				fanoutGroupID: group.ID,
+				branchKey:     branchKey,
+			})
+		}
+	}
+	if currentBranch != nil {
+		currentFanoutGroups := promptSessionFanoutGroupsForCurrentNode(topology, currentNodeID, *currentBranch)
+		matching := filterPromptSessionReferenceCandidates(candidates, currentFanoutGroups, *currentBranch)
+		if len(matching) == 1 {
+			branchKey := matching[0].branchKey
+			return PromptSessionNodeScope{BranchKey: &branchKey}
+		}
+		if len(matching) > 1 {
+			return PromptSessionNodeScope{Ambiguous: true}
+		}
+		return PromptSessionNodeScope{}
+	}
+	if len(candidates) == 0 {
+		return PromptSessionNodeScope{}
+	}
+	if len(candidates) != 1 {
+		return PromptSessionNodeScope{Ambiguous: true}
+	}
+	branchKey := candidates[0].branchKey
+	return PromptSessionNodeScope{BranchKey: &branchKey}
+}
+
+func ResolvePromptSessionReference(
+	def Definition,
+	transitionKey ModelKey,
+	consumerSourceNodeID NodeID,
+	currentNodeID NodeID,
+	currentBranch *TransitionBranchKey,
+) PromptSessionReferenceResolution {
+	prior := ResolvePriorTransitionGroups(def, transitionKey, consumerSourceNodeID)
+	resolution := PromptSessionReferenceResolution{
+		Matched:    prior.Matched,
+		Guaranteed: append([]TransitionGroup(nil), prior.Guaranteed...),
+	}
+	if len(prior.Guaranteed) == 1 {
+		resolution.SourceNodeID = prior.Guaranteed[0].SourceNodeID
+		scope := ResolvePromptSessionNodeScope(def, resolution.SourceNodeID, currentNodeID, currentBranch)
+		resolution.BranchKey = scope.BranchKey
+		resolution.BranchScopeAmbiguous = scope.Ambiguous
+		return resolution
+	}
+	if len(prior.Guaranteed) != 0 || prior.Matched == 0 {
+		return resolution
+	}
+
+	startNodeID, hasSingleStart := singleStartNodeID(def.Nodes)
+	if !hasSingleStart {
+		return resolution
+	}
+	topology := newFanoutTopology(def)
+	candidates := []promptSessionReferenceCandidate{}
+	for _, group := range def.TransitionGroups {
+		if strings.TrimSpace(string(group.TransitionID)) != strings.TrimSpace(string(transitionKey)) {
+			continue
+		}
+		for _, fanoutGroup := range def.TransitionGroups {
+			fanoutEdges := topology.edgesByGroup[fanoutGroup.ID]
+			if len(fanoutEdges) < 2 {
+				continue
+			}
+			branchKeys := make([]TransitionBranchKey, 0, len(fanoutEdges))
+			for _, edge := range fanoutEdges {
+				branchKeys = append(branchKeys, TransitionBranchKey(strings.TrimSpace(string(edge.Key))))
+			}
+			join, ok := ResolveFanoutJoin(def, branchKeys)
+			if !ok {
+				continue
+			}
+			joinID := NodeIDOf(join.Join)
+			if consumerSourceNodeID != joinID &&
+				!nodeDominatesFromStart(startNodeID, joinID, consumerSourceNodeID, topology.outgoingByNode) {
+				continue
+			}
+			for _, edge := range fanoutEdges {
+				traversal, ok := fanoutBranchTraversal(
+					topology.nodesByID,
+					topology.groupsBySource,
+					topology.edgesByGroup,
+					topology.outgoingByNode,
+					edge.TargetNodeID,
+				)
+				if !ok {
+					continue
+				}
+				if _, exists := traversal.pathNodes[group.SourceNodeID]; !exists {
+					continue
+				}
+				branchKey := TransitionBranchKey(strings.TrimSpace(string(edge.Key)))
+				if branchKey == "" {
+					continue
+				}
+				candidates = append(candidates, promptSessionReferenceCandidate{
+					group:         group,
+					fanoutGroupID: fanoutGroup.ID,
+					branchKey:     branchKey,
+				})
+			}
+		}
+	}
+	if currentBranch != nil {
+		currentFanoutGroups := promptSessionFanoutGroupsForCurrentNode(topology, currentNodeID, *currentBranch)
+		candidates = filterPromptSessionReferenceCandidates(candidates, currentFanoutGroups, *currentBranch)
+	}
+	if len(candidates) == 0 {
+		return resolution
+	}
+	if len(candidates) > 1 {
+		firstGroupID := candidates[0].group.ID
+		sameGroup := true
+		for _, candidate := range candidates[1:] {
+			sameGroup = sameGroup && candidate.group.ID == firstGroupID
+		}
+		if !sameGroup {
+			resolution.Guaranteed = make([]TransitionGroup, 0, len(candidates))
+			for _, candidate := range candidates {
+				resolution.Guaranteed = append(resolution.Guaranteed, candidate.group)
+			}
+			return resolution
+		}
+	}
+	resolution.Guaranteed = []TransitionGroup{candidates[0].group}
+	resolution.SourceNodeID = candidates[0].group.SourceNodeID
+	if len(candidates) > 1 {
+		resolution.BranchScopeAmbiguous = true
+		return resolution
+	}
+	resolution.BranchKey = &candidates[0].branchKey
+	return resolution
 }

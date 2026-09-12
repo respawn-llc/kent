@@ -243,11 +243,22 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Required tool choice validates against the complete advertised tool set, including local, custom, and enabled provider-hosted tools. An empty set is invalid. A provider that cannot represent required choice returns a policy error before dispatch. Automatic and required requests use the same bounded provider- and transport-failure retry policy; a retry preserves the request's tool-choice mode and advertised tools, and Kent never falls back from required to automatic choice.
 - Tool-choice mode changes only tool selection. It never changes the advertised tools or their order, parallel-tool behavior, or prompt-cache identity. Exact counting of a built request preserves its tool mode and complete tool set; standalone estimation uses automatic choice.
 - On supported models and request modes, existing human and Workflow Thinking controls must use native configuration updates while keeping the original request-level reasoning effort unchanged.
+- The Session must own its desired Thinking effort independently of Session Contract snapshots. Effort resolution must use the Session override, then the Agent configuration, then global top-level configuration, then Kent's default.
+- On each Agent Step, Kent must compare desired Thinking with the last applied effort and issue only the final needed configuration update. Idle and between-Step changes must not produce intermediate updates.
+- Dispatched configuration updates in the active conversation must determine the last applied Thinking effort. If no update exists, the original provider effort applies, subject to the post-compaction re-establishment requirement.
+- The fixed original provider effort must belong to the Session independently of Session Contract snapshots. Kent must retain it for the Session lifetime across resume, compaction, and model/provider changes. Forks with compatible copied history must inherit it. Unsupported requests must ignore it.
 - Kent must retain dispatched configuration updates in their original conversation positions without creating an ordinary visible Chat message.
 - Changes made before dispatch must use the final effective Thinking value without producing adjacent configuration updates.
+- For all models, Kent must keep queued input pending through request preparation and commit it at the final preparation boundary. When a native Thinking update is needed, Kent must commit it before the new user input. Preparation failure may leave input pending rather than submitted. Input remains subject to the process-local Pending Work lifetime until commitment.
+- If applying desired Thinking would require adjacent configuration updates or changing dispatched history, Kent must continue with the last legally applied effort and reevaluate on the next Agent Step. The existing Thinking display must retain the desired selection.
 - Compaction must re-establish the effective Thinking effort for subsequent generation through the supported configuration-update protocol.
-- An existing Session must initialize its fixed reasoning baseline from its current effective Thinking level when it first uses configuration updates. This initialization may cause a cache miss and must not reconstruct or rewrite earlier requests.
+- An existing Session must initialize its fixed reasoning baseline from its current effective Thinking level when it first uses configuration updates. Kent must preserve that effective selection in Session-owned state during adoption. This initialization may cause a cache miss and must not reconstruct or rewrite earlier requests.
 - Unsupported models and request modes must retain ordinary Thinking behavior.
+- Native Thinking updates must apply to supported Astra requests on the official OpenAI and ChatGPT/Codex endpoints. Custom OpenAI-compatible endpoints must retain ordinary Thinking behavior.
+- If an enabled endpoint rejects a native Thinking update, Kent must surface the request failure without falling back to request-level Thinking changes.
+- When constructing the separate Reviewer input, Kent must exclude the main agent's configuration updates and preserve the Reviewer's independent Thinking selection. This exclusion must not alter the main Session's recorded history or replay.
+- When a new fork targets a model or provider that does not support native Thinking updates, Kent must exclude those updates from the child's initial input rather than fail because of them. Kent must preserve the parent history and the order of the remaining child input. This exception must not change input already dispatched by the child.
+- A fork must inherit the parent's current desired Thinking selection subject to the target model's existing settings rules. Its next Agent Step must reconcile that selection with the copied history.
 
 ## Fast Mode And Context Usage
 
@@ -263,6 +274,16 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Context usage uses current provider-reported usage when available and Kent's established current-context estimate otherwise.
 - Compaction selection compares current usage with the configured thresholds.
 - Kent does not predict future token growth from earlier turns or maintain a separate adaptive compaction policy.
+
+## Historical Provider Usage
+
+- Kent must retain provider usage for successful model operations in Session history, including ordinary turns, compaction, Reviewer work, and Supervisor work.
+- Kent must retain the operation's provider, model, time, reported token categories, and available billing-relevant details, including hosted-tool usage, so external consumers can look up prices independently.
+- Kent must preserve historical usage across Session resume and compaction independently of current context usage.
+- Missing usage information must be nullable and must not mean zero consumption.
+- Recording subsequent operations must not fabricate missing historical usage. Retained observations must not certify complete Session billing history.
+- When Session history is copied, retained usage must preserve its original Session and operation identity. Copying history must not represent another provider operation.
+- Usage retention must not calculate monetary costs or fetch or maintain model prices.
 
 ## Compaction
 

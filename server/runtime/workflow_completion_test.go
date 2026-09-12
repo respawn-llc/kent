@@ -90,7 +90,7 @@ func (c *fakeWorkflowController) CompleteScriptCurrentNode(context.Context, work
 	return workflowruntime.CompletionResult{}, err
 }
 
-func (c *fakeWorkflowController) ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult) error {
+func (c *fakeWorkflowController) ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult, error) error {
 	return nil
 }
 

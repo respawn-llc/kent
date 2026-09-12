@@ -185,7 +185,7 @@ type ViolationResult struct {
 type Controller interface {
 	CompleteAgentCurrentNode(context.Context, AgentCompletionRequest) (CompletionResult, error)
 	CompleteScriptCurrentNode(context.Context, ScriptCompletionRequest) (CompletionResult, error)
-	ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult) error
+	ContinueCurrentNode(context.Context, workflowstore.CurrentNodeCompletionResult, error) error
 	RecordProtocolViolation(context.Context, ViolationRequest) (ViolationResult, error)
 	ResetProtocolViolationBudget(context.Context, ViolationResetRequest) error
 }

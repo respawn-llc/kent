@@ -15,6 +15,7 @@ import (
 
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 // ErrOpenAIInputItemUnprepared reports that provider-neutral history reached
@@ -233,6 +234,15 @@ type openAICompactionRaw struct {
 
 func openAIInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {
 	switch item.Type {
+	case ResponseItemTypeConfigurationUpdate:
+		if item.ConfigurationEffort == nil || *item.ConfigurationEffort == "" {
+			return nil, false
+		}
+		return marshalOpenAIInputRaw(responses.ResponseConfigurationUpdateItemParam{
+			Reasoning: responses.ResponseConfigurationUpdateItemParamReasoning{
+				Effort: shared.ReasoningEffort(*item.ConfigurationEffort),
+			},
+		})
 	case ResponseItemTypeMessage:
 		return openAIMessageInputRaw(item)
 	case ResponseItemTypeFunctionCall:
