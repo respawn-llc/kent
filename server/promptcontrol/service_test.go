@@ -8,6 +8,8 @@ import (
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -56,8 +58,8 @@ func (s *stubPromptResponder) SubscribePromptFollowUp(
 
 type stubPromptFollowUpSubscription struct{}
 
-func (*stubPromptFollowUpSubscription) Next(context.Context) (serverapi.PromptFollowUpEvent, error) {
-	return serverapi.PromptFollowUpEvent{}, errors.New("unexpected Next")
+func (*stubPromptFollowUpSubscription) Next(context.Context) (*promptpb.FollowUpEvent, error) {
+	return nil, errors.New("unexpected Next")
 }
 
 func (*stubPromptFollowUpSubscription) Close() error { return nil }
@@ -69,10 +71,10 @@ func newPromptControlTestService() (*PromptControlService, *stubPromptResponder)
 
 func TestServiceSubscribeFollowUpInstallsWatcherBeforeReturning(t *testing.T) {
 	service, responder := newPromptControlTestService()
-	request := serverapi.PromptFollowUpWatchRequest{
-		SessionID:  runtimeids.NewSessionID(),
-		StepID:     promptControlStepID(t),
-		ToolCallID: "prompt-1",
+	request := &promptpb.FollowUpWatchRequest{
+		SessionId:  runtimeids.NewSessionID().String(),
+		StepId:     promptControlStepID(t).String(),
+		ToolCallId: "prompt-1",
 	}
 	subscription := &stubPromptFollowUpSubscription{}
 	responder.followUp = subscription
@@ -82,9 +84,9 @@ func TestServiceSubscribeFollowUpInstallsWatcherBeforeReturning(t *testing.T) {
 		t.Fatalf("SubscribeFollowUp: %v", err)
 	}
 	if got != subscription || responder.followUpCalls != 1 ||
-		responder.followUpSession != request.SessionID ||
-		responder.followUpStep != request.StepID ||
-		responder.followUpToolCall != request.ToolCallID {
+		responder.followUpSession.String() != request.SessionId ||
+		responder.followUpStep.String() != request.StepId ||
+		string(responder.followUpToolCall) != request.ToolCallId {
 		t.Fatalf("follow-up installation = subscription %p responder %+v", got, responder)
 	}
 }
@@ -102,7 +104,7 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnswerPromptBatch: %v", err)
 	}
-	if responder.batchCalls != 1 || responder.batchSession != request.SessionID || responder.batchStep != request.StepID {
+	if responder.batchCalls != 1 || responder.batchSession.String() != request.SessionId || responder.batchStep.String() != request.StepId {
 		t.Fatalf("batch delegation = calls %d session %s step %s", responder.batchCalls, responder.batchSession, responder.batchStep)
 	}
 	if len(responder.batchCommands) != 3 {
@@ -126,14 +128,14 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 	if _, ok := responder.batchCommands[2].Payload.(sessionruntime.PromptDeclinedCommand); !ok {
 		t.Fatalf("declined command = %+v", responder.batchCommands[2])
 	}
-	if err := serverapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
+	if err := protoapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
 		t.Fatalf("response correlation: %v", err)
 	}
 }
 
-func promptAnswerBatchRequest(t *testing.T) serverapi.PromptAnswerBatchRequest {
+func promptAnswerBatchRequest(t *testing.T) *promptpb.AnswerBatchRequest {
 	t.Helper()
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
@@ -141,28 +143,28 @@ func promptAnswerBatchRequest(t *testing.T) serverapi.PromptAnswerBatchRequest {
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
 	}
-	selected := 2
+	selected := int32(2)
 	questionCommentary := "question commentary"
 	approvalCommentary := "approval commentary"
-	return serverapi.PromptAnswerBatchRequest{
-		SessionID: sessionID,
-		StepID:    stepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{
+	return &promptpb.AnswerBatchRequest{
+		SessionId: sessionID.String(),
+		StepId:    stepID.String(),
+		Entries: []*promptpb.AnswerBatchEntry{
 			{
-				ToolCallID: "question-1",
-				QuestionAnswer: &serverapi.PromptQuestionAnswer{
+				ToolCallId: "question-1",
+				Answer: &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{
 					SelectedOptionNumber: &selected,
 					Freeform:             &questionCommentary,
-				},
+				}},
 			},
 			{
-				ToolCallID: "approval-1",
-				ApprovalAnswer: &serverapi.PromptApprovalAnswer{
-					Decision:   clientui.ApprovalDecisionDeny,
+				ToolCallId: "approval-1",
+				Answer: &promptpb.AnswerBatchEntry_ApprovalAnswer{ApprovalAnswer: &promptpb.ApprovalAnswer{
+					Decision:   promptpb.ApprovalDecision_APPROVAL_DECISION_DENY,
 					Commentary: &approvalCommentary,
-				},
+				}},
 			},
-			{ToolCallID: "declined-1", Declined: &serverapi.PromptDeclined{}},
+			{ToolCallId: "declined-1", Answer: &promptpb.AnswerBatchEntry_Declined{Declined: &promptpb.Declined{}}},
 		},
 	}
 }

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
@@ -16,13 +17,13 @@ import (
 )
 
 func renderToolRowWithLinkPresentation(
-	row clientui.TranscriptToolRow,
+	row *transcriptpb.ToolRow,
 	width int,
 	mode Mode,
 	syntax *syntaxProjector,
 	linkPresentation MarkdownLinkPresentation,
 ) []Line {
-	meta := normalizeToolMeta(row.ToolName, row.Presentation)
+	meta := projectedToolMeta(row.GetToolName(), row.Presentation)
 	meta.syntax = syntax
 	meta.IsError = row.IsError || shellExitFailed(meta)
 	role := toolRole(meta)
@@ -75,7 +76,7 @@ func renderToolRowWithLinkPresentation(
 }
 
 func renderAnsweredQuestion(
-	row clientui.TranscriptToolRow,
+	row *transcriptpb.ToolRow,
 	meta toolMeta,
 	width int,
 	mode Mode,
@@ -103,8 +104,8 @@ func renderAnsweredQuestion(
 	return attachPrefixWithTree(StyleRoleToolQuestion, lines, width, mode, meta), true
 }
 
-func RenderPendingTool(tool clientui.TranscriptToolStart, width int, themeName string, spinner string) Line {
-	meta := normalizeToolMeta(tool.ToolName, tool.Presentation)
+func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string, spinner string) Line {
+	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
 	syntax := newSyntaxProjector(themeName)
 	meta.syntax = &syntax
 	role := toolRole(meta)
@@ -148,20 +149,15 @@ type toolMeta struct {
 	syntax          *syntaxProjector
 }
 
-func normalizeToolMeta(toolName string, in *transcript.ToolCallMeta) toolMeta {
+func projectedToolMeta(toolName string, presentation *transcriptpb.ToolPresentation) toolMeta {
+	in, err := protoapi.ToolPresentationFromProto(toolName, presentation)
+	if err != nil {
+		panic(fmt.Sprintf("render invalid tool presentation: %v", err))
+	}
 	adapted := transcript.ToolCallMeta{ToolName: strings.TrimSpace(toolName)}
 	if in != nil {
 		adapted = *in
-		adapted.ToolName = firstNonEmpty(in.ToolName, toolName)
-		adapted.Suggestions = append([]string(nil), in.Suggestions...)
-		if in.RenderHint != nil {
-			adapted.RenderHint = &transcript.ToolRenderHint{
-				Kind:         in.RenderHint.Kind,
-				Path:         in.RenderHint.Path,
-				ResultOnly:   in.RenderHint.ResultOnly,
-				ShellDialect: in.RenderHint.ShellDialect,
-			}
-		}
+		adapted.ToolName = strings.TrimSpace(toolName)
 	}
 	return toolMeta{ToolCallMeta: transcript.NormalizeToolCallMeta(adapted)}
 }
@@ -199,7 +195,7 @@ type toolDisplay struct {
 	kind       toolDisplayKind
 }
 
-func toolDisplayText(row clientui.TranscriptToolRow, meta toolMeta, mode Mode) toolDisplay {
+func toolDisplayText(row *transcriptpb.ToolRow, meta toolMeta, mode Mode) toolDisplay {
 	if mode == ModeOngoing || mode == ModeOngoingCollapsed || mode == ModeDetailCollapsed {
 		text := compactToolText(meta, firstNonEmpty(optionalString(row.CondensedText), row.Text))
 		status := ""
@@ -326,7 +322,7 @@ func webSearchDisplayText(meta toolMeta) (string, bool) {
 	return webSearchDisplayPrefix + `"` + query + `"`, true
 }
 
-func detailedToolResultText(row clientui.TranscriptToolRow) string {
+func detailedToolResultText(row *transcriptpb.ToolRow) string {
 	output := strings.TrimSpace(safeTranscriptText(row.Text))
 	summary := strings.TrimSpace(safeTranscriptText(optionalString(row.ResultSummary)))
 	if output == summary {

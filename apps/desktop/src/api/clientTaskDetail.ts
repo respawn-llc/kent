@@ -1,3 +1,8 @@
+import { create } from "@app/server-api-contract";
+import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
+import { timestampMillis } from "./clientTime";
+import { required } from "./chatWire";
+import { requireUnarySuccess } from "./protobufRpc";
 import { parseRpcResponse } from "./clientParse";
 import { requireTaskBoundItems } from "./clientParse";
 import type { ActivityPage, CommentPage, PendingAsk, TaskAttention, TaskComment, TaskDetail } from "./models";
@@ -5,11 +10,10 @@ import {
   activityPageSchema,
   commentAddResponseSchema,
   commentPageSchema,
-  pendingAskListSchema,
   taskAttentionSchema,
   taskDetailSchema,
 } from "./schemas/workflowBoard";
-import type { RpcTransport } from "./transport";
+import type { DescriptorRpcTransport, RpcTransport } from "./transport";
 
 export async function listTaskAttention(transport: RpcTransport, taskID: string): Promise<TaskAttention> {
   const response = parseRpcResponse(
@@ -81,14 +85,25 @@ export async function addComment(
 }
 
 export async function listPendingAsks(
-  transport: RpcTransport,
+  transport: DescriptorRpcTransport,
   sessionID: string,
 ): Promise<readonly PendingAsk[]> {
-  return parseRpcResponse(
-    "ask.listPendingBySession",
-    pendingAskListSchema,
-    await transport.callAttachedSession(sessionID, "ask.listPendingBySession", {
-      SessionID: sessionID,
-    }),
+  const method = QuestionService.method.listPending;
+  const result = requireUnarySuccess(
+    method,
+    await transport.callDescriptorAttachedSession(
+      sessionID,
+      method,
+      create(method.input, { sessionId: sessionID }),
+    ),
   );
+  return result.questions.map((question) => ({
+    toolCallID: question.toolCallId,
+    sessionID: question.sessionId,
+    stepID: question.stepId,
+    question: question.question,
+    suggestions: question.suggestions,
+    recommendedOptionIndex: question.recommendedOptionIndex ?? null,
+    createdAt: new Date(timestampMillis(required(question.createdAt))).toISOString(),
+  }));
 }

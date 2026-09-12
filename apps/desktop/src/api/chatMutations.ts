@@ -404,7 +404,7 @@ function pendingWorkLane(value: PendingWorkLane): "steer" | "queue" {
   }
 }
 
-function pendingWorkKind(value: PendingWorkItemKind) {
+export function pendingWorkKind(value: PendingWorkItemKind) {
   switch (value) {
     case PendingWorkItemKind.MESSAGE:
       return "message" as const;

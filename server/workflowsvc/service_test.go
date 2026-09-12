@@ -3427,7 +3427,7 @@ func newWorkflowServiceReadModels(
 		TaskSessions:     taskSessions,
 		Activity:         activity,
 		Attention:        attention,
-		Approvals:        emptyWorkflowApprovalView{},
+		PendingPrompts:   observationPendingPromptSourceStub{},
 	}
 }
 
@@ -3457,12 +3457,6 @@ func (s workflowViewStatusObservationSource) ObserveWorkflowTaskExecutions(taskI
 }
 
 type emptyWorkflowPendingPromptSource struct{}
-
-type emptyWorkflowApprovalView struct{}
-
-func (emptyWorkflowApprovalView) ListPendingApprovalsBySession(context.Context, serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-	return serverapi.ApprovalListPendingBySessionResponse{}, nil
-}
 
 func (emptyWorkflowPendingPromptSource) ListPendingPrompts(string) ([]workflowview.PendingPromptSnapshot, error) {
 	return nil, nil

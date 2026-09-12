@@ -1,10 +1,11 @@
 package app
 
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"context"
-	"testing"
-	"time"
-
 	"core/cli/app/internal/status"
 	"core/shared/apicontract"
 	"core/shared/clientui"
@@ -12,6 +13,8 @@ import (
 	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"testing"
+	"time"
 )
 
 type strictBlockingProbeMsg struct{}
@@ -36,9 +39,9 @@ type countingProcessClient struct {
 	listCalls int
 }
 
-func (c *countingProcessClient) ListProcesses(context.Context) ([]clientui.BackgroundProcess, error) {
+func (c *countingProcessClient) ListProcesses(context.Context) ([]*processpb.BackgroundProcess, error) {
 	c.listCalls++
-	return []clientui.BackgroundProcess{{ID: "proc-1", Running: true, State: "running"}}, nil
+	return []*processpb.BackgroundProcess{{Id: "proc-1", Running: true, State: "running"}}, nil
 }
 
 func (*countingProcessClient) KillProcess(context.Context, string) error {
@@ -70,8 +73,8 @@ type strictRuntimeClient struct {
 	submitCalls    int
 }
 
-func (*strictRuntimeClient) MainView() clientui.RuntimeMainView {
-	return clientui.RuntimeMainView{}
+func (*strictRuntimeClient) MainView() *runtimepb.MainView {
+	return &runtimepb.MainView{}
 }
 
 func (c *strictRuntimeClient) SubmitRuntimeInput(_ context.Context, request clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
@@ -205,13 +208,10 @@ func setStrictTestRuntimeBusy(t *testing.T, m *uiModel) {
 	if err != nil {
 		t.Fatalf("parse step id: %v", err)
 	}
-	if err := m.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-		State:    clientui.RuntimeActivityRunning,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			RunID: runID, StepID: stepID, ActiveKind: clientui.RuntimeActivityActiveKindUserTurn,
-		},
-	}); err != nil {
+	if err := m.applyRuntimeActivityProjection(&runtimepb.Activity{
+		State:      runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+		Reviewer:   runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{RunId: runID.String(), StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN}}); err != nil {
 		t.Fatalf("set busy runtime activity: %v", err)
 	}
 }

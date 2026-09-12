@@ -1,14 +1,12 @@
-import { create, decodeJson, encodeJson, legacyWireName, operationName } from "@app/server-api-contract";
+import { create } from "@app/server-api-contract";
 import {
   ControlService,
-  ListSuccessSchema,
   ViewService,
   type BackgroundProcess,
 } from "@app/server-api-contract/gen/kent/api/process/process_pb";
 
 import { timestampMillis } from "./clientTime";
-import { ContractError } from "./errors";
-import { jsonValueSchema } from "./json";
+import { requireUnarySuccess } from "./protobufRpc";
 import type { DesktopProcess } from "./processes";
 import type { DescriptorRpcTransport } from "./transport";
 
@@ -18,19 +16,14 @@ export async function listProcesses(
 ): Promise<readonly DesktopProcess[]> {
   const method = ViewService.method.list;
   const request = create(method.input, { projectId: projectID.trim() });
-  const raw = await transport.call(legacyWireName(method), encodeJson(method.input, request));
-  try {
-    const success = decodeJson(ListSuccessSchema, jsonValueSchema.parse(raw));
-    return success.processes.map(processFromGenerated);
-  } catch {
-    throw new ContractError(`${operationName(method)} response did not match GUI contract.`);
-  }
+  const success = requireUnarySuccess(method, await transport.callDescriptor(method, request));
+  return success.processes.map(processFromGenerated);
 }
 
 export async function killProcess(transport: DescriptorRpcTransport, processID: string): Promise<void> {
   const method = ControlService.method.kill;
   const request = create(method.input, { processId: processID.trim() });
-  await transport.call(legacyWireName(method), encodeJson(method.input, request));
+  requireUnarySuccess(method, await transport.callDescriptor(method, request));
 }
 
 function processFromGenerated(process: BackgroundProcess): DesktopProcess {

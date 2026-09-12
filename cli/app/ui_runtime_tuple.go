@@ -1,7 +1,10 @@
 package app
 
 import (
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
+	"google.golang.org/protobuf/proto"
 )
 
 type runtimeTupleIngress uint8
@@ -21,25 +24,25 @@ const (
 )
 
 type runtimeTupleCandidate struct {
-	Version  clientui.ReadModelVersion
-	Activity clientui.RuntimeActivity
+	Version  *runtimepb.ReadModelVersion
+	Activity *runtimepb.Activity
 }
 
 type runtimeTupleMergeResult struct {
 	decision runtimeTupleDecision
-	view     clientui.RuntimeMainView
+	view     *runtimepb.MainView
 	project  bool
 }
 
 func decideRuntimeTuple(
-	current clientui.ReadModelVersion,
-	incoming clientui.ReadModelVersion,
+	current *runtimepb.ReadModelVersion,
+	incoming *runtimepb.ReadModelVersion,
 	ingress runtimeTupleIngress,
 ) runtimeTupleDecision {
-	if incoming.Validate() != nil {
+	if incoming == nil || protoapi.Validate(incoming) != nil {
 		return runtimeTupleIgnore
 	}
-	if current.Validate() != nil {
+	if current == nil || protoapi.Validate(current) != nil {
 		return runtimeTupleApply
 	}
 	if incoming.Epoch != current.Epoch {
@@ -63,44 +66,35 @@ func decideRuntimeTuple(
 	return runtimeTupleApply
 }
 
-func runtimeTupleFromMainView(view clientui.RuntimeMainView) runtimeTupleCandidate {
+func runtimeTupleFromMainView(view *runtimepb.MainView) runtimeTupleCandidate {
 	return runtimeTupleCandidate{
 		Version:  view.Version,
 		Activity: view.Activity,
 	}
 }
 
-func runtimeTupleFromReadModelUpdate(update clientui.RuntimeReadModelUpdate) runtimeTupleCandidate {
+func runtimeTupleFromReadModelUpdate(update *runtimepb.ReadModelUpdate) runtimeTupleCandidate {
 	return runtimeTupleCandidate{
 		Version:  update.Version,
 		Activity: update.Activity,
 	}
 }
 
-func applyRuntimeTuple(view *clientui.RuntimeMainView, candidate runtimeTupleCandidate) {
-	view.Version = candidate.Version
-	view.Activity = candidate.Activity
+func applyRuntimeTuple(view *runtimepb.MainView, candidate runtimeTupleCandidate) {
+	view.Version = proto.Clone(candidate.Version).(*runtimepb.ReadModelVersion)
+	view.Activity = proto.Clone(candidate.Activity).(*runtimepb.Activity)
 }
 
-func runtimeTupleMatchesView(candidate runtimeTupleCandidate, view clientui.RuntimeMainView) bool {
-	return candidate.Version == view.Version && runtimeActivitiesEqual(candidate.Activity, view.Activity)
+func runtimeTupleMatchesView(candidate runtimeTupleCandidate, view *runtimepb.MainView) bool {
+	return protoapi.ReadModelVersionsEqual(candidate.Version, view.Version) && runtimeActivitiesEqual(candidate.Activity, view.Activity)
 }
 
-func runtimeActivitiesEqual(left, right clientui.RuntimeActivity) bool {
-	if left.State != right.State ||
-		left.Reviewer != right.Reviewer ||
-		left.QueueAccepting != right.QueueAccepting ||
-		left.DiagnosticRecovery != right.DiagnosticRecovery {
-		return false
-	}
-	if left.ActiveStep == nil || right.ActiveStep == nil {
-		return left.ActiveStep == nil && right.ActiveStep == nil
-	}
-	return *left.ActiveStep == *right.ActiveStep
+func runtimeActivitiesEqual(left, right *runtimepb.Activity) bool {
+	return proto.Equal(left, right)
 }
 
 type hydrationRuntimeTupleConflictError struct {
-	current  clientui.RuntimeMainView
+	current  *runtimepb.MainView
 	incoming runtimeTupleCandidate
 }
 
@@ -117,7 +111,7 @@ func (e hydrationRuntimeTupleConflictError) facts() map[string]any {
 	}
 }
 
-func hydrationRuntimeTupleError(current clientui.RuntimeMainView, incoming runtimeTupleCandidate) error {
+func hydrationRuntimeTupleError(current *runtimepb.MainView, incoming runtimeTupleCandidate) error {
 	return hydrationRuntimeTupleConflictError{current: current, incoming: incoming}
 }
 

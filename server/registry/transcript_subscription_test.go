@@ -8,53 +8,56 @@ import (
 	"time"
 
 	"core/server/runtime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/transcript"
+	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
 )
 
 func init() {
 	transcriptContractViolationsPanic = true
 }
 
-func transcriptBrokerHydration(t *testing.T) clientui.TranscriptEvent {
+func transcriptBrokerHydration(t *testing.T) *transcriptpb.Event {
 	t.Helper()
 	sessionID, err := runtimeids.ParseSessionID("session-1")
 	if err != nil {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
-	version, err := clientui.NewReadModelVersion("registry-test", 1, 1)
+	version, err := protoapi.NewReadModelVersion("registry-test", 1, 1)
 	if err != nil {
 		t.Fatalf("NewReadModelVersion: %v", err)
 	}
-	hydration := clientui.TranscriptHydration{
-		SessionIdentity: clientui.TranscriptSessionIdentity{
-			SessionID:             sessionID,
-			ConversationFreshness: clientui.ConversationFreshnessFresh,
+	hydration := &transcriptpb.Hydration{
+		SessionIdentity: &transcriptpb.SessionIdentity{
+			SessionId:             sessionID.String(),
+			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 		},
-		SessionStatus: clientui.TranscriptSessionStatus{
+		SessionStatus: &transcriptpb.SessionStatus{
 			ReviewerFrequency: "off",
 			ThinkingLevel:     "medium",
-			CompactionMode:    "auto",
+			CompactionMode:    "local",
 		},
-		RuntimeReadModelUpdate: clientui.RuntimeReadModelUpdate{
+		RuntimeReadModelUpdate: &runtimepb.ReadModelUpdate{
 			Version: version,
-			Activity: clientui.RuntimeActivity{
-				State:    clientui.RuntimeActivityUnavailable,
-				Reviewer: clientui.ReviewerActivityInactive,
+			Activity: &runtimepb.Activity{
+				State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
+				Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 			},
 		},
-		TailSegment: clientui.TranscriptTailSegment{Entries: []clientui.TranscriptCommittedRow{}},
+		TailSegment: &transcriptpb.TailSegment{Entries: []*transcriptpb.CommittedRow{}},
 	}
-	return clientui.NewTranscriptEvent(hydration)
+	return &transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: hydration}}
 }
 
-func transcriptBrokerDiagnostic(code clientui.OperationalDiagnosticCode, detail string) clientui.TranscriptEvent {
-	return clientui.NewTranscriptEvent(clientui.TranscriptOperationalDiagnostic{
+func transcriptBrokerDiagnostic(code transcriptpb.OperationalDiagnosticCode, detail string) *transcriptpb.Event {
+	return &transcriptpb.Event{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: &transcriptpb.OperationalDiagnostic{
 		Code:   code,
 		Detail: detail,
-	})
+	}}}
 }
 
 func mustRegistryStepID(t *testing.T) runtimeids.StepID {
@@ -66,12 +69,6 @@ func mustRegistryStepID(t *testing.T) runtimeids.StepID {
 	return stepID
 }
 
-func mustRegistryStepIDPointer(t *testing.T) *runtimeids.StepID {
-	t.Helper()
-	stepID := mustRegistryStepID(t)
-	return &stepID
-}
-
 func TestTranscriptSubscriptionBrokerSequencesEachSubscriberFromHydration(t *testing.T) {
 	broker := newTranscriptSubscriptionBroker()
 	first, err := broker.Subscribe(transcriptBrokerHydration(t))
@@ -81,18 +78,18 @@ func TestTranscriptSubscriptionBrokerSequencesEachSubscriberFromHydration(t *tes
 	defer func() { _ = first.Close() }()
 
 	firstHydration := nextTranscriptMessage(t, first)
-	if firstHydration.Sequence != 1 || firstHydration.Kind() != clientui.TranscriptMessageHydration {
+	if firstHydration.Sequence != 1 || firstHydration.Event.GetHydration() == nil {
 		t.Fatalf("first hydration = %+v, want seq=1 hydration", firstHydration)
 	}
 
-	broker.Publish([]clientui.TranscriptEvent{
-		transcriptBrokerDiagnostic(clientui.OperationalDiagnosticSleepGuardFailed, "sleep guard failed"),
-		transcriptBrokerDiagnostic(clientui.OperationalDiagnosticPromptHistoryPersistFailed, "prompt history failed"),
+	broker.Publish([]*transcriptpb.Event{
+		transcriptBrokerDiagnostic(transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_SLEEP_GUARD_FAILED, "sleep guard failed"),
+		transcriptBrokerDiagnostic(transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_PROMPT_HISTORY_PERSIST_FAILED, "prompt history failed"),
 	})
-	if got := nextTranscriptMessage(t, first); got.Sequence != 2 || got.Kind() != clientui.TranscriptMessageOperationalDiagnostic {
+	if got := nextTranscriptMessage(t, first); got.Sequence != 2 || got.Event.GetOperationalDiagnostic() == nil {
 		t.Fatalf("first live one = %+v, want seq=2 operational diagnostic", got)
 	}
-	if got := nextTranscriptMessage(t, first); got.Sequence != 3 || got.Kind() != clientui.TranscriptMessageOperationalDiagnostic {
+	if got := nextTranscriptMessage(t, first); got.Sequence != 3 || got.Event.GetOperationalDiagnostic() == nil {
 		t.Fatalf("first live two = %+v, want seq=3 operational diagnostic", got)
 	}
 
@@ -102,7 +99,7 @@ func TestTranscriptSubscriptionBrokerSequencesEachSubscriberFromHydration(t *tes
 	}
 	defer func() { _ = second.Close() }()
 	secondHydration := nextTranscriptMessage(t, second)
-	if secondHydration.Sequence != 1 || secondHydration.Kind() != clientui.TranscriptMessageHydration {
+	if secondHydration.Sequence != 1 || secondHydration.Event.GetHydration() == nil {
 		t.Fatalf("second hydration = %+v, want fresh seq=1 hydration", secondHydration)
 	}
 	if event, err := nextTranscriptMessageTimeout(second, 20*time.Millisecond); err == nil {
@@ -132,7 +129,8 @@ func TestTranscriptSubscriptionBrokerCloseAndOverflowUseTerminalErrors(t *testin
 			t.Fatalf("Subscribe: %v", err)
 		}
 		for i := 0; i < transcriptSubscriptionBufferSize+1; i++ {
-			broker.Publish([]clientui.TranscriptEvent{transcriptBrokerDiagnostic(clientui.OperationalDiagnosticSleepGuardFailed, "sleep guard failed")})
+			broker.Publish([]*transcriptpb.Event{transcriptBrokerDiagnostic(transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_SLEEP_GUARD_FAILED,
+				"sleep guard failed")})
 		}
 		for {
 			_, err = sub.Next(context.Background())
@@ -164,11 +162,12 @@ func TestTranscriptSubscriptionBrokerPanicsOnContractViolationInTestMode(t *test
 			t.Fatal("contract-invalid tool completion did not panic in test mode")
 		}
 	}()
-	broker.Publish([]clientui.TranscriptEvent{clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-		Visibility: clientui.EntryVisibilityDetail,
-		Kind:       clientui.TranscriptRowTool,
-		Tool:       &clientui.TranscriptToolRow{StepID: mustRegistryStepIDPointer(t), ToolCallID: ""},
-	})})
+	broker.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			StepId: textutil.Value(mustRegistryStepID(t).String()),
+		}},
+	}}}})
 }
 
 func TestTranscriptSubscriptionBrokerPublishesCommittedReasoningTraceRow(t *testing.T) {
@@ -179,41 +178,40 @@ func TestTranscriptSubscriptionBrokerPublishesCommittedReasoningTraceRow(t *test
 	}
 	_ = nextTranscriptMessage(t, sub)
 
-	broker.Publish([]clientui.TranscriptEvent{clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-		Visibility: clientui.EntryVisibilityDetail,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowReasoningTrace,
-		Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
-		ReasoningTrace: &clientui.TranscriptReasoningTraceRow{
-			StepID:      mustRegistryStepID(t),
+	broker.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
+		Row: &transcriptpb.CommittedRow_ReasoningTrace{ReasoningTrace: &transcriptpb.ReasoningTraceRow{
+			StepId:      mustRegistryStepID(t).String(),
 			CompactText: "Planning",
 			Text:        "Planning\nDetails",
-		},
-	})})
+		}},
+	}}}})
 
 	message := nextTranscriptMessage(t, sub)
-	row, ok := message.Payload().(clientui.TranscriptCommittedRow)
-	if !ok || row.Kind != clientui.TranscriptRowReasoningTrace || row.ReasoningTrace == nil {
-		t.Fatalf("published reasoning row = %+v, want a populated reasoning trace row", message.Payload())
+	row := message.Event.GetCommittedRow()
+	if row.GetReasoningTrace() == nil {
+		t.Fatalf("published reasoning row = %+v, want a populated reasoning trace row", message.Event.Payload)
 	}
 }
 
 func TestSessionFeedSequencerRejectsInvalidBatchBeforePrefixMutation(t *testing.T) {
 	broker := newTranscriptSubscriptionBroker()
 	sequencer := newSessionFeedSequencer(broker)
-	hydration := transcriptBrokerHydration(t).Payload().(clientui.TranscriptHydration)
-	sub, err := sequencer.Subscribe(func() (clientui.TranscriptHydration, error) {
+	hydration := transcriptBrokerHydration(t).GetHydration()
+	sub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
 		return hydration, nil
 	})
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
 	_ = nextTranscriptMessage(t, sub)
-	valid := clientui.NewTranscriptEvent(clientui.TranscriptToolStart{
-		StepID:     mustRegistryStepID(t),
-		ToolCallID: "tool-call-prefix",
+	valid := &transcriptpb.Event{Payload: &transcriptpb.Event_ToolStart{ToolStart: &transcriptpb.ToolStart{
+		StepId:     mustRegistryStepID(t).String(),
+		ToolCallId: "tool-call-prefix",
 		ToolName:   "exec_command",
-	})
+	}}}
 	defer func() {
 		if recovered := recover(); recovered == nil {
 			t.Fatal("invalid batch did not fail fast")
@@ -221,7 +219,7 @@ func TestSessionFeedSequencerRejectsInvalidBatchBeforePrefixMutation(t *testing.
 		if _, err := nextTranscriptMessageTimeout(sub, 20*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("valid prefix was delivered after invalid batch: %v", err)
 		}
-		hydratedSub, err := sequencer.Subscribe(func() (clientui.TranscriptHydration, error) {
+		hydratedSub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
 			return hydration, nil
 		})
 		if err != nil {
@@ -229,27 +227,29 @@ func TestSessionFeedSequencerRejectsInvalidBatchBeforePrefixMutation(t *testing.
 		}
 		defer func() { _ = hydratedSub.Close() }()
 		hydratedMessage := nextTranscriptMessage(t, hydratedSub)
-		hydrated, ok := hydratedMessage.Payload().(clientui.TranscriptHydration)
-		if !ok {
-			t.Fatalf("post-batch hydration payload = %T, want TranscriptHydration", hydratedMessage.Payload())
+		hydrated := hydratedMessage.Event.GetHydration()
+		if hydrated == nil {
+			t.Fatalf("post-batch hydration payload = %T, want TranscriptHydration", hydratedMessage.Event.Payload)
 		}
 		for _, tool := range hydrated.InFlightTools {
-			if tool.ToolCallID == "tool-call-prefix" {
+			if tool.ToolCallId == "tool-call-prefix" {
 				t.Fatalf("post-batch hydration contains rejected tool prefix: %+v", tool)
 			}
 		}
 	}()
-	sequencer.Publish([]clientui.TranscriptEvent{valid, {}})
+	sequencer.Publish([]*transcriptpb.Event{valid, {}})
 }
 
 func TestSessionFeedSequencerBuildsHydrationWithoutPriorRuntimeReadModel(t *testing.T) {
-	h := transcriptBrokerHydration(t).Payload().(clientui.TranscriptHydration)
-	sub, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (clientui.TranscriptHydration, error) { return h, nil })
+	h := transcriptBrokerHydration(t).GetHydration()
+	sub, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
+		return h, nil
+	})
 	if err != nil {
 		t.Fatalf("subscribe without prior read-model: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
-	if message := nextTranscriptMessage(t, sub); message.Sequence != 1 || message.Kind() != clientui.TranscriptMessageHydration {
+	if message := nextTranscriptMessage(t, sub); message.Sequence != 1 || message.Event.GetHydration() == nil {
 		t.Fatalf("first message = %+v, want sequence 1 hydration", message)
 	}
 }
@@ -258,8 +258,8 @@ func TestSessionFeedSequencerHydrationProjectionUsesContractFailurePolicy(t *tes
 	t.Run("production returns contract error", func(t *testing.T) {
 		restore := withTranscriptContractViolationPanic(false)
 		defer restore()
-		_, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (clientui.TranscriptHydration, error) {
-			return clientui.TranscriptHydration{}, transcriptHydrationProjectionError{cause: errors.New("malformed hydration locator")}
+		_, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
+			return &transcriptpb.Hydration{}, transcriptHydrationProjectionError{cause: errors.New("malformed hydration locator")}
 		})
 		if err == nil {
 			t.Fatal("malformed hydration projection returned nil error")
@@ -277,8 +277,8 @@ func TestSessionFeedSequencerHydrationProjectionUsesContractFailurePolicy(t *tes
 				t.Fatal("malformed hydration projection did not panic")
 			}
 		}()
-		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (clientui.TranscriptHydration, error) {
-			return clientui.TranscriptHydration{}, transcriptHydrationProjectionError{cause: errors.New("malformed hydration locator")}
+		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
+			return &transcriptpb.Hydration{}, transcriptHydrationProjectionError{cause: errors.New("malformed hydration locator")}
 		})
 	})
 }
@@ -295,7 +295,7 @@ func TestRegistryHydrationCompositionUsesContractFailurePolicy(t *testing.T) {
 	t.Run("production returns contract error", func(t *testing.T) {
 		restore := withTranscriptContractViolationPanic(false)
 		defer restore()
-		_, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (clientui.TranscriptHydration, error) {
+		_, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
 			return registry.composeTranscriptHydration(context.Background(), "", nil, runtime.TranscriptHydrationSnapshot{}, tailPage)
 		})
 		if err == nil {
@@ -314,7 +314,7 @@ func TestRegistryHydrationCompositionUsesContractFailurePolicy(t *testing.T) {
 				t.Fatal("malformed hydration composition did not panic")
 			}
 		}()
-		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (clientui.TranscriptHydration, error) {
+		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
 			return registry.composeTranscriptHydration(context.Background(), "", nil, runtime.TranscriptHydrationSnapshot{}, tailPage)
 		})
 	})
@@ -329,7 +329,7 @@ func TestTranscriptBrokerRejectsUninitializedEventWithoutSequenceOrDelivery(t *t
 		t.Fatalf("Subscribe: %v", err)
 	}
 	_ = nextTranscriptMessage(t, sub)
-	broker.Publish([]clientui.TranscriptEvent{{}})
+	broker.Publish([]*transcriptpb.Event{{}})
 	_, err = nextTranscriptMessageTimeout(sub, time.Second)
 	if err == nil {
 		t.Fatal("uninitialized event was delivered")
@@ -351,11 +351,12 @@ func TestTranscriptSubscriptionBrokerClosesOnContractViolationWhenPanicDisabled(
 	}
 	_ = nextTranscriptMessage(t, sub)
 
-	broker.Publish([]clientui.TranscriptEvent{clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-		Visibility: clientui.EntryVisibilityDetail,
-		Kind:       clientui.TranscriptRowTool,
-		Tool:       &clientui.TranscriptToolRow{StepID: mustRegistryStepIDPointer(t), ToolCallID: ""},
-	})})
+	broker.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			StepId: textutil.Value(mustRegistryStepID(t).String()),
+		}},
+	}}}})
 	_, err = sub.Next(context.Background())
 	if err == nil {
 		t.Fatal("contract-invalid tool completion was delivered")
@@ -367,20 +368,21 @@ func TestTranscriptSubscriptionBrokerClosesOnContractViolationWhenPanicDisabled(
 }
 
 func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing.T) {
-	valid := clientui.TranscriptCommittedRow{
-		Visibility: clientui.EntryVisibilityDetail,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowUser,
-		Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
-		User:       &clientui.TranscriptUserRow{StepID: mustRegistryStepIDPointer(t), Text: "valid"},
+	valid := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
+		Row: &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			StepId: textutil.Value(mustRegistryStepID(t).String()), Text: "valid",
+		}},
 	}
 	if err := validateCommittedRow(valid); err != nil {
-		t.Fatalf("zero-value valid integrity was rejected: %v", err)
+		t.Fatalf("valid integrity was rejected: %v", err)
 	}
 
-	invalidRows := []clientui.TranscriptCommittedRow{valid, valid}
-	invalidRows[0].Integrity = transcript.RowIntegrity(255)
-	invalidRows[1].Visibility = clientui.EntryVisibilityAuto
+	invalidRows := []*transcriptpb.CommittedRow{proto.Clone(valid).(*transcriptpb.CommittedRow), proto.Clone(valid).(*transcriptpb.CommittedRow)}
+	invalidRows[0].Integrity = transcriptpb.RowIntegrity(255)
+	invalidRows[1].Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED
 	for _, invalid := range invalidRows {
 		err := validateCommittedRow(invalid)
 		if err == nil {
@@ -399,23 +401,23 @@ func TestTranscriptSubscriptionContractValidatesLiveLocatorProgression(t *testin
 
 	tests := []struct {
 		name        string
-		hydrated    []transcript.CommittedRowLocator
-		live        []transcript.CommittedRowLocator
+		hydrated    []*transcriptpb.CommittedRowLocator
+		live        []*transcriptpb.CommittedRowLocator
 		wantFailure bool
 	}{
 		{
 			name: "empty hydration starts at first live event",
-			live: []transcript.CommittedRowLocator{{EventSequence: 5, RowOrdinal: 1}},
+			live: []*transcriptpb.CommittedRowLocator{{EventSequence: 5, RowOrdinal: 1}},
 		},
 		{
 			name:     "hydrated watermark accepts newer event",
-			hydrated: []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
-			live:     []transcript.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}},
+			hydrated: []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			live:     []*transcriptpb.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}},
 		},
 		{
 			name:     "same event continues contiguously",
-			hydrated: []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
-			live: []transcript.CommittedRowLocator{
+			hydrated: []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			live: []*transcriptpb.CommittedRowLocator{
 				{EventSequence: 11, RowOrdinal: 1},
 				{EventSequence: 11, RowOrdinal: 2},
 				{EventSequence: 12, RowOrdinal: 1},
@@ -423,26 +425,26 @@ func TestTranscriptSubscriptionContractValidatesLiveLocatorProgression(t *testin
 		},
 		{
 			name:        "duplicate ordinal fails",
-			hydrated:    []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
-			live:        []transcript.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}, {EventSequence: 11, RowOrdinal: 1}},
+			hydrated:    []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			live:        []*transcriptpb.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}, {EventSequence: 11, RowOrdinal: 1}},
 			wantFailure: true,
 		},
 		{
 			name:        "regressed event fails",
-			hydrated:    []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
-			live:        []transcript.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}, {EventSequence: 10, RowOrdinal: 1}},
+			hydrated:    []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			live:        []*transcriptpb.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}, {EventSequence: 10, RowOrdinal: 1}},
 			wantFailure: true,
 		},
 		{
 			name:        "skipped ordinal fails",
-			hydrated:    []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
-			live:        []transcript.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}, {EventSequence: 11, RowOrdinal: 3}},
+			hydrated:    []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			live:        []*transcriptpb.CommittedRowLocator{{EventSequence: 11, RowOrdinal: 1}, {EventSequence: 11, RowOrdinal: 3}},
 			wantFailure: true,
 		},
 		{
 			name:        "first live row must be newer than hydration",
-			hydrated:    []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
-			live:        []transcript.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			hydrated:    []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
+			live:        []*transcriptpb.CommittedRowLocator{{EventSequence: 10, RowOrdinal: 1}},
 			wantFailure: true,
 		},
 	}
@@ -458,7 +460,7 @@ func TestTranscriptSubscriptionContractValidatesLiveLocatorProgression(t *testin
 			defer func() { _ = sub.Close() }()
 			_ = nextTranscriptMessage(t, sub)
 			for _, locator := range test.live {
-				broker.Publish([]clientui.TranscriptEvent{clientui.NewTranscriptEvent(transcriptBrokerCommittedRow(t, locator))})
+				broker.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: transcriptBrokerCommittedRow(t, locator)}}})
 			}
 			if !test.wantFailure {
 				for range test.live {
@@ -480,23 +482,24 @@ func TestTranscriptSubscriptionContractValidatesLiveLocatorProgression(t *testin
 	}
 }
 
-func transcriptBrokerHydrationWithLocators(t *testing.T, locators []transcript.CommittedRowLocator) clientui.TranscriptEvent {
+func transcriptBrokerHydrationWithLocators(t *testing.T, locators []*transcriptpb.CommittedRowLocator) *transcriptpb.Event {
 	t.Helper()
-	hydration := transcriptBrokerHydration(t).Payload().(clientui.TranscriptHydration)
+	hydration := transcriptBrokerHydration(t).GetHydration()
 	for _, locator := range locators {
 		hydration.TailSegment.Entries = append(hydration.TailSegment.Entries, transcriptBrokerCommittedRow(t, locator))
 	}
-	return clientui.NewTranscriptEvent(hydration)
+	return &transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: hydration}}
 }
 
-func transcriptBrokerCommittedRow(t *testing.T, locator transcript.CommittedRowLocator) clientui.TranscriptCommittedRow {
+func transcriptBrokerCommittedRow(t *testing.T, locator *transcriptpb.CommittedRowLocator) *transcriptpb.CommittedRow {
 	t.Helper()
-	return clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowUser,
+	return &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
 		Locator:    locator,
-		User:       &clientui.TranscriptUserRow{StepID: mustRegistryStepIDPointer(t), Text: "row"},
+		Row: &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			StepId: textutil.Value(mustRegistryStepID(t).String()), Text: "row",
+		}},
 	}
 }
 
@@ -508,7 +511,7 @@ func withTranscriptContractViolationPanic(enabled bool) func() {
 	}
 }
 
-func nextTranscriptMessage(t *testing.T, sub serverapi.TranscriptSubscription) clientui.TranscriptMessage {
+func nextTranscriptMessage(t *testing.T, sub serverapi.TranscriptSubscription) *transcriptpb.Message {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -519,7 +522,7 @@ func nextTranscriptMessage(t *testing.T, sub serverapi.TranscriptSubscription) c
 	return message
 }
 
-func nextTranscriptMessageTimeout(sub serverapi.TranscriptSubscription, timeout time.Duration) (clientui.TranscriptMessage, error) {
+func nextTranscriptMessageTimeout(sub serverapi.TranscriptSubscription, timeout time.Duration) (*transcriptpb.Message, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return sub.Next(ctx)

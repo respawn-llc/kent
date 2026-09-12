@@ -5,17 +5,23 @@ import (
 	"errors"
 
 	"core/cli/app/commands"
+	"core/shared/protoapi"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 )
 
-func promptCatalogSnapshot(response serverapi.PromptCommandCatalogResponse) ([]commands.PromptCommandCatalogEntry, error) {
-	if err := response.Validate(); err != nil {
+func promptCatalogSnapshot(response *promptcommandpb.Catalog) ([]commands.PromptCommandCatalogEntry, error) {
+	if err := protoapi.Validate(response); err != nil {
 		return nil, err
 	}
-	return append([]commands.PromptCommandCatalogEntry(nil), response.Commands...), nil
+	entries := make([]commands.PromptCommandCatalogEntry, 0, len(response.Commands))
+	for _, entry := range response.Commands {
+		entries = append(entries, commands.PromptCommandCatalogEntry{Name: entry.Name, Preview: entry.Preview})
+	}
+	return entries, nil
 }
 
 func (m *uiModel) removePromptCatalogEntry(name string) {
@@ -42,7 +48,7 @@ func (m *uiModel) startPromptCatalogRefresh(name string) tea.Cmd {
 	m.promptCatalogRefreshToken = &token
 	catalog := m.promptCatalog
 	return func() tea.Msg {
-		response, err := catalog.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+		response, err := catalog.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 		if err != nil {
 			return promptCatalogRefreshDoneMsg{token: &token, err: err}
 		}

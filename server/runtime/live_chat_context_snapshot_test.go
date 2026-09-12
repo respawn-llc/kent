@@ -6,7 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
 func TestLiveChatContextSnapshotUsesRuntimeFactsBehindPersistencePresenceGates(t *testing.T) {
@@ -38,7 +38,7 @@ func TestLiveChatContextSnapshotUsesRuntimeFactsBehindPersistencePresenceGates(t
 	absent := engine.LiveChatContextSnapshot()
 	if absent.Policy.ContextWindowTokens != 100_000 ||
 		absent.Policy.AutomaticThresholdTokens != 75_000 ||
-		absent.Policy.CompactionMode != serverapi.ChatContextCompactionModeLocal ||
+		absent.Policy.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_LOCAL ||
 		absent.UsedTokens != 64_000 ||
 		absent.AutoCompactionEnabled ||
 		absent.CompletedCompactionCount != 0 ||

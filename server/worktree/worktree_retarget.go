@@ -9,14 +9,14 @@ import (
 
 	"core/server/metadata"
 	"core/server/session"
-	"core/shared/clientui"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 )
 
 type worktreeSessionRetargetFilter func(metadata.WorktreeSessionBlocker) bool
 
-type worktreeReminderFactory func(metadata.WorktreeRecord, clientui.SessionExecutionTarget) (session.WorktreeReminderState, error)
+type worktreeReminderFactory func(metadata.WorktreeRecord, *worktreepb.SessionExecutionTarget) (session.WorktreeReminderState, error)
 
-type worktreeSessionTargetSync func(context.Context, string, clientui.SessionExecutionTarget, *session.WorktreeReminderState) error
+type worktreeSessionTargetSync func(context.Context, string, *worktreepb.SessionExecutionTarget, *session.WorktreeReminderState) error
 
 type worktreeSessionRetargetOptions struct {
 	filter          worktreeSessionRetargetFilter
@@ -27,7 +27,7 @@ type worktreeSessionRetargetOptions struct {
 
 type pendingWorktreeSessionRetarget struct {
 	sessionID      string
-	previousTarget clientui.SessionExecutionTarget
+	previousTarget *worktreepb.SessionExecutionTarget
 }
 
 type worktreeSessionRetargetCompensation struct {
@@ -203,8 +203,8 @@ func (s *Service) rollbackRetargetedSessions(
 	return errors.Join(collected...)
 }
 
-func (s *Service) switchSessionTarget(ctx context.Context, workspaceCtx sessionWorkspaceContext, previous *syncedWorktree, next syncedWorktree) (clientui.SessionExecutionTarget, error) {
-	target, err := s.switchSessionTargetWithSync(ctx, workspaceCtx, previous, next, nil, func(syncCtx context.Context, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+func (s *Service) switchSessionTarget(ctx context.Context, workspaceCtx sessionWorkspaceContext, previous *syncedWorktree, next syncedWorktree) (*worktreepb.SessionExecutionTarget, error) {
+	target, err := s.switchSessionTargetWithSync(ctx, workspaceCtx, previous, next, nil, func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 		return s.syncExecutionTarget(syncCtx, workspaceCtx.sessionID, target, reminder)
 	})
 	return target, err
@@ -217,18 +217,18 @@ func (s *Service) switchSessionTargetWithSync(
 	next syncedWorktree,
 	stepAuthority transitionAuthority,
 	sync transitionTargetSync,
-) (clientui.SessionExecutionTarget, error) {
+) (*worktreepb.SessionExecutionTarget, error) {
 	if sync == nil {
-		return clientui.SessionExecutionTarget{}, worktreeUnappliedTechnical(errors.New("execution target synchronizer is required"))
+		return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(errors.New("execution target synchronizer is required"))
 	}
 	if stepAuthority == nil {
 		sessionIDs, err := parseSessionStartAdmissionIDs([]string{workspaceCtx.sessionID})
 		if err != nil {
-			return clientui.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
+			return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
 		}
 		release, err := s.acquireSessionStartAdmission(ctx, sessionIDs, sessionStartAdmissionWait)
 		if err != nil {
-			return clientui.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
+			return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
 		}
 		defer releaseSessionStarts(release)
 		ctx = authorizeSessionMaintenance(ctx, release)
@@ -243,7 +243,7 @@ func (s *Service) switchSessionTargetWithSync(
 	}
 	previousTarget := workspaceCtx.target
 	if err := validatePresentExecutionTargetWorktreeID(previousTarget); err != nil {
-		return clientui.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
+		return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
 	}
 	cwdRelpath := clampCwdRelpath(previousTarget.CwdRelpath, nextBaseRoot)
 	if err := s.metadata.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdate{
@@ -252,7 +252,7 @@ func (s *Service) switchSessionTargetWithSync(
 		Worktree:   nextWorktree,
 		CwdRelpath: cwdRelpath,
 	}); err != nil {
-		return clientui.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
+		return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
 	}
 	rollback := func(err error) error {
 		failure := worktreeUnappliedTechnicalUnlessClassified(err)
@@ -263,20 +263,20 @@ func (s *Service) switchSessionTargetWithSync(
 	}
 	nextTarget, err := s.metadata.ResolveSessionExecutionTarget(ctx, workspaceCtx.sessionID)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, rollback(err)
+		return &worktreepb.SessionExecutionTarget{}, rollback(err)
 	}
 	reminder, ok, err := worktreeReminderStateForTransition(previous, previousTarget, next, nextTarget)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, rollback(err)
+		return &worktreepb.SessionExecutionTarget{}, rollback(err)
 	}
 	if ok {
 		if err := sync(ctx, nextTarget, &reminder); err != nil {
-			return clientui.SessionExecutionTarget{}, rollback(err)
+			return &worktreepb.SessionExecutionTarget{}, rollback(err)
 		}
 		return nextTarget, nil
 	}
 	if err := sync(ctx, nextTarget, nil); err != nil {
-		return clientui.SessionExecutionTarget{}, rollback(err)
+		return &worktreepb.SessionExecutionTarget{}, rollback(err)
 	}
 	return nextTarget, nil
 }
@@ -284,7 +284,7 @@ func (s *Service) switchSessionTargetWithSync(
 func (s *Service) rollbackSessionTargetWithSync(
 	ctx context.Context,
 	workspaceCtx sessionWorkspaceContext,
-	previousTarget clientui.SessionExecutionTarget,
+	previousTarget *worktreepb.SessionExecutionTarget,
 	sync transitionTargetSync,
 ) error {
 	rollbackCtx, cancel := liveRollbackContext(ctx)
@@ -314,7 +314,7 @@ func (s *Service) rollbackSessionTargetWithSync(
 	return worktreeApplied(err)
 }
 
-func (s *Service) syncExecutionTarget(ctx context.Context, sessionID string, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+func (s *Service) syncExecutionTarget(ctx context.Context, sessionID string, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 	if err := s.authority.SyncExecutionTarget(ctx, sessionID, target, reminder); err != nil {
 		return err
 	}
@@ -331,7 +331,7 @@ func liveRollbackContext(ctx context.Context) (context.Context, context.CancelFu
 	return context.WithTimeout(context.WithoutCancel(ctx), rollbackSessionTargetTimeout)
 }
 
-func worktreeReminderStateForTransition(previous *syncedWorktree, previousTarget clientui.SessionExecutionTarget, next syncedWorktree, nextTarget clientui.SessionExecutionTarget) (session.WorktreeReminderState, bool, error) {
+func worktreeReminderStateForTransition(previous *syncedWorktree, previousTarget *worktreepb.SessionExecutionTarget, next syncedWorktree, nextTarget *worktreepb.SessionExecutionTarget) (session.WorktreeReminderState, bool, error) {
 	if err := validatePresentExecutionTargetWorktreeID(previousTarget); err != nil {
 		return session.WorktreeReminderState{}, false, err
 	}
@@ -360,7 +360,7 @@ func worktreeReminderStateForTransition(previous *syncedWorktree, previousTarget
 	}, true, nil
 }
 
-func worktreeReminderStateForExitedWorktree(worktree metadata.WorktreeRecord, nextTarget clientui.SessionExecutionTarget) (session.WorktreeReminderState, error) {
+func worktreeReminderStateForExitedWorktree(worktree metadata.WorktreeRecord, nextTarget *worktreepb.SessionExecutionTarget) (session.WorktreeReminderState, error) {
 	gitMetadata, err := worktreeGitMetadataFromRecord(worktree)
 	if err != nil {
 		return session.WorktreeReminderState{}, err

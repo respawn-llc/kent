@@ -3,24 +3,19 @@ package transcriptrender
 import (
 	"testing"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
 )
 
 func TestThinkingUpdateIsDetailOnlyAndNonExpandable(t *testing.T) {
-	row := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityDetail,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{
-			Reason:         clientui.TranscriptNoticeThinkingUpdate,
-			Severity:       clientui.TranscriptNoticeInfo,
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{
+			Reason:         transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+			Severity:       transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
 			ThinkingEffort: textutil.Value("high"),
-		},
-	}
-	if err := row.Notice.Validate(); err != nil {
-		t.Fatal(err)
+		}},
 	}
 	if rendered := RenderCommittedRow(row, 80, "dark", ModeOngoing); len(rendered.Lines) != 0 {
 		t.Fatal("Thinking update must be hidden in ongoing mode")

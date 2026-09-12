@@ -7,7 +7,8 @@ import (
 
 	"core/server/llm"
 	"core/server/runtime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 )
 
@@ -17,7 +18,7 @@ func TestTranscriptProjectsLiveRunResultWithoutRuntimeIDs(t *testing.T) {
 	tests := []struct {
 		name   string
 		result runtime.LiveRunResult
-		check  func(*testing.T, clientui.TranscriptLiveRunResult)
+		check  func(*testing.T, *transcriptpb.LiveRunFinished)
 	}{
 		{
 			name: "final answer",
@@ -29,7 +30,7 @@ func TestTranscriptProjectsLiveRunResultWithoutRuntimeIDs(t *testing.T) {
 				StartedAt:        startedAt,
 				FinishedAt:       finishedAt,
 			},
-			check: func(t *testing.T, result clientui.TranscriptLiveRunResult) {
+			check: func(t *testing.T, result *transcriptpb.LiveRunFinished) {
 				if result.FinalAnswer == nil || *result.FinalAnswer != "done" || !result.WorkPerformed {
 					t.Fatalf("result = %+v", result)
 				}
@@ -44,7 +45,7 @@ func TestTranscriptProjectsLiveRunResultWithoutRuntimeIDs(t *testing.T) {
 				StartedAt:  startedAt,
 				FinishedAt: finishedAt,
 			},
-			check: func(t *testing.T, result clientui.TranscriptLiveRunResult) {
+			check: func(t *testing.T, result *transcriptpb.LiveRunFinished) {
 				if result.Failure == nil || *result.Failure != "provider failed" {
 					t.Fatalf("result = %+v", result)
 				}
@@ -60,7 +61,7 @@ func TestTranscriptProjectsLiveRunResultWithoutRuntimeIDs(t *testing.T) {
 				StartedAt:        startedAt,
 				FinishedAt:       finishedAt,
 			},
-			check: func(t *testing.T, result clientui.TranscriptLiveRunResult) {
+			check: func(t *testing.T, result *transcriptpb.LiveRunFinished) {
 				if result.FinalAnswer == nil || *result.FinalAnswer != "partial final" {
 					t.Fatalf("final answer = %+v", result.FinalAnswer)
 				}
@@ -77,11 +78,11 @@ func TestTranscriptProjectsLiveRunResultWithoutRuntimeIDs(t *testing.T) {
 				Kind:          runtime.EventLiveRunFinished,
 				LiveRunResult: &test.result,
 			})
-			if len(messages) != 1 || messages[0].Kind() != clientui.TranscriptMessageLiveRunFinished {
+			if len(messages) != 1 || messages[0].GetLiveRunFinished() == nil {
 				t.Fatalf("messages = %+v", messages)
 			}
-			projected := transcriptPayload[clientui.TranscriptLiveRunResult](t, messages[0])
-			if err := projected.Validate(); err != nil {
+			projected := messages[0].GetLiveRunFinished()
+			if err := protoapi.Validate(projected); err != nil {
 				t.Fatalf("validate: %v", err)
 			}
 			test.check(t, projected)
@@ -106,8 +107,8 @@ func TestTranscriptProjectsMissingAssistantFinalTextAsNoFinalResult(t *testing.T
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one live-run completion", messages)
 	}
-	projected := transcriptPayload[clientui.TranscriptLiveRunResult](t, messages[0])
-	if projected.ResultKind != clientui.LiveRunResultNoFinalAnswer || projected.FinalAnswer != nil {
+	projected := messages[0].GetLiveRunFinished()
+	if projected.ResultKind != transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER || projected.FinalAnswer != nil {
 		t.Fatalf("projected live run = %+v, want no-final result without fabricated answer", projected)
 	}
 }

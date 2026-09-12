@@ -1,7 +1,6 @@
 package sessionlaunch
 
 import (
-	"reflect"
 	"slices"
 	"testing"
 
@@ -10,8 +9,10 @@ import (
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/protoapi"
-	"core/shared/serverapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/toolspec"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
@@ -24,8 +25,8 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := response.NewChat
-	if catalog == nil || response.Session != nil {
+	catalog := response.GetNewChat()
+	if catalog == nil || response.GetSession() != nil {
 		t.Fatalf("New Chat response = %+v", response)
 	}
 	entries := prepared.Entries()
@@ -34,14 +35,18 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	}
 	for i, choice := range catalog.Choices {
 		entry := entries[i]
-		if !reflect.DeepEqual(choice.Agent, entry.Choice) ||
+		supervisor, err := protoapi.ChatSettingsSupervisorFromProto(choice.Baseline.Supervisor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(choice.Agent, entry.Choice) ||
 			choice.Baseline.AgentRole != entry.Choice.Role ||
-			string(choice.Baseline.Supervisor) != entry.Settings.Baseline.Supervisor ||
-			choice.Baseline.QuestionsEnabled != entry.Settings.Baseline.Questions ||
-			choice.Baseline.AutoCompactionEnabled != entry.Settings.Baseline.AutoCompaction ||
+			supervisor != entry.Settings.Baseline.Supervisor ||
+			choice.Baseline.GetQuestionsEnabled() != entry.Settings.Baseline.Questions ||
+			choice.Baseline.GetAutoCompactionEnabled() != entry.Settings.Baseline.AutoCompaction ||
 			(choice.Thinking != nil) != (choice.Baseline.Thinking != nil) ||
 			(choice.Fast != nil) != (choice.Baseline.Fast != nil) ||
-			choice.AutoCompaction.Policy != serverapi.ChatSettingsAutoCompactionDisabled {
+			choice.AutoCompaction.Policy != chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED {
 			t.Fatalf("choice does not preserve prepared baseline: %+v, entry %+v", choice, entry)
 		}
 		if choice.Baseline.Thinking != nil && *choice.Baseline.Thinking != entry.Settings.Baseline.Thinking {
@@ -51,7 +56,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 			t.Fatalf("Fast baseline = %v", *choice.Baseline.Fast)
 		}
 	}
-	if !reflect.DeepEqual(catalog.InitialSettings, catalog.Choices[0].Baseline) {
+	if !proto.Equal(catalog.InitialSettings, catalog.Choices[0].Baseline) {
 		t.Fatalf("initial selection differs from default baseline")
 	}
 }
@@ -62,19 +67,13 @@ func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := serverapi.NewChatSettingsTarget("project", "workspace")
-	generated, err := protoapi.ChatSettingsReadToProto(response, target)
-	if err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := protoapi.ChatSettingsReadFromProto(generated, target)
-	if err != nil || !reflect.DeepEqual(decoded.NewChat, response.NewChat) {
-		t.Fatalf("catalog round trip: %+v, %v", decoded, err)
-	}
-	for _, choice := range generated.GetNewChat().Choices {
+	for _, choice := range response.GetNewChat().Choices {
 		if choice.Fast != nil {
 			choice.Baseline.Fast = nil
-			if _, err := protoapi.ChatSettingsReadFromProto(generated, target); err == nil {
+			if err := protoapi.Validate(response); err == nil {
 				t.Fatal("catalog accepted a capable Agent without its Fast baseline selection")
 			}
 			return
@@ -100,9 +99,9 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	}
 	if repaired.SelectedAgent.Role != "default" ||
 		repaired.SelectedAgent.Thinking != baseline.Settings.Baseline.Thinking ||
-		repaired.AgentEditability != serverapi.ChatSettingsWorkflowLock ||
+		repaired.AgentEditability != chatsettingspb.Editability_EDITABILITY_WORKFLOW_LOCK ||
 		!repaired.AutoCompaction.Effective ||
-		repaired.AutoCompaction.Policy != serverapi.ChatSettingsAutoCompactionRequired {
+		repaired.AutoCompaction.Policy != chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_REQUIRED {
 		t.Fatalf("repaired projection = %+v", repaired)
 	}
 
@@ -117,7 +116,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 		t.Fatalf("project custom settings: %v", err)
 	}
 	if custom.Thinking == nil ||
-		custom.Thinking.Kind != serverapi.ChatSettingsThinkingCustom ||
+		custom.Thinking.Kind != chatsettingspb.ThinkingKind_THINKING_KIND_CUSTOM ||
 		custom.Fast == nil || !custom.Fast.Value ||
 		custom.Questions.Capable ||
 		!custom.Questions.Enabled {
@@ -144,7 +143,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	}
 	if locked.SelectedAgent.Role != "historical" ||
 		locked.SelectedAgent.Model != "gpt-5" ||
-		locked.AgentEditability != serverapi.ChatSettingsCachingLock ||
+		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_CACHING_LOCK ||
 		!locked.AgentLocked || !locked.CachingLocked ||
 		locked.Questions.Capable || !locked.Questions.Enabled ||
 		locked.Fast != nil {
@@ -160,10 +159,10 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project disabled compaction: %v", err)
 	}
-	if disabled.AutoCompaction.Policy != serverapi.ChatSettingsAutoCompactionDisabled ||
+	if disabled.AutoCompaction.Policy != chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED ||
 		disabled.AutoCompaction.Effective ||
 		disabled.AutoCompaction.Stored != baseline.Settings.Baseline.AutoCompaction ||
-		disabled.AutoCompaction.Editability != serverapi.ChatSettingsPolicyDisabled {
+		disabled.AutoCompaction.Editability != chatsettingspb.Editability_EDITABILITY_POLICY_DISABLED {
 		t.Fatalf("disabled compaction = %+v", disabled.AutoCompaction)
 	}
 	if got := choiceRoles(disabled.AgentChoices); !slices.Equal(
@@ -219,7 +218,7 @@ func testNewChatSettingsApp(t *testing.T) config.App {
 	return app
 }
 
-func choiceRoles(choices []serverapi.ChatSettingsAgentChoice) []string {
+func choiceRoles(choices []*chatsettingspb.AgentChoice) []string {
 	roles := make([]string, len(choices))
 	for i, choice := range choices {
 		roles[i] = choice.Role

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"core/server/promptcontrol"
 	"core/server/workflow"
-	"core/shared/apicontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -64,7 +64,7 @@ type ReadModels struct {
 	TaskSessions     WorkflowTaskSessionReadModel
 	Activity         WorkflowActivityReadModel
 	Attention        WorkflowAttentionReadModel
-	Approvals        apicontract.ApprovalViewService
+	PendingPrompts   promptcontrol.PendingPromptSource
 }
 
 func (r ReadModels) validate() error {
@@ -87,8 +87,8 @@ func (r ReadModels) validate() error {
 		return errors.New("workflow activity read model is required")
 	case r.Attention == nil:
 		return errors.New("workflow attention read model is required")
-	case r.Approvals == nil:
-		return errors.New("workflow approval read model is required")
+	case r.PendingPrompts == nil:
+		return errors.New("workflow pending prompt source is required")
 	default:
 		return nil
 	}

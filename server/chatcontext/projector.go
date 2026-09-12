@@ -1,11 +1,13 @@
 package chatcontext
 
-import "core/shared/serverapi"
+import (
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+)
 
 type Policy struct {
 	ContextWindowTokens      int64
 	AutomaticThresholdTokens int64
-	CompactionMode           serverapi.ChatContextCompactionMode
+	CompactionMode           contextpb.CompactionMode
 }
 
 type ProjectionInput struct {
@@ -17,14 +19,14 @@ type ProjectionInput struct {
 	ManualCompactEligible    bool
 }
 
-func Project(input ProjectionInput) serverapi.ChatContext {
+func Project(input ProjectionInput) *contextpb.Context {
 	window := input.Policy.ContextWindowTokens
 	used := max(input.UsedTokens, 0)
 	threshold := min(max(input.Policy.AutomaticThresholdTokens, 0), window)
 	count := max(input.CompletedCompactionCount, 0)
 	mode := input.Policy.CompactionMode
 
-	return serverapi.ChatContext{
+	return &contextpb.Context{
 		ContextWindowTokens:      window,
 		UsedTokens:               used,
 		RemainingTokens:          window - used,
@@ -33,7 +35,7 @@ func Project(input ProjectionInput) serverapi.ChatContext {
 		CompactionMode:           mode,
 		CompletedCompactionCount: count,
 		CompactionRunning:        input.CompactionRunning,
-		ManualCompactAvailable: mode != serverapi.ChatContextCompactionModeDisabled &&
+		ManualCompactAvailable: mode != contextpb.CompactionMode_COMPACTION_MODE_DISABLED &&
 			!input.CompactionRunning &&
 			input.ManualCompactEligible,
 	}

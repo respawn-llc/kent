@@ -17,6 +17,7 @@ import (
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -86,14 +87,14 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	if err != nil {
 		return nil, err
 	}
-	var sessionStarted *serverapi.RunPromptSessionStarted
+	var sessionStarted *runpromptpb.SessionStarted
 	if req.Intent.Kind() == serverapi.SessionLaunchIntentCreateNew {
 		sessionID, err := uuid.Parse(runtimePlan.sessionID)
 		if err != nil || sessionID.Version() != 4 {
 			runtimePlan.CloseWithFailure(true)
 			return nil, fmt.Errorf("new headless session id %q is not a UUIDv4", runtimePlan.sessionID)
 		}
-		sessionStarted = &serverapi.RunPromptSessionStarted{SessionID: sessionID}
+		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String()}
 	}
 	return &headlessPromptRuntime{
 		plan:           runtimePlan,
@@ -201,9 +202,8 @@ func (l *headlessPromptLauncher) prepareRuntime(ctx context.Context, plan launch
 		StartLogLines:         startLogLines,
 		OnLoggingFailure: func(message string) {
 			if progress != nil {
-				progress.PublishRunPromptProgress(serverapi.RunPromptProgress{
-					Kind:    serverapi.RunPromptProgressKindRunLoggingFailed,
-					Failure: runPromptFailure(message),
+				progress.PublishRunPromptProgress(&runpromptpb.ProgressEvent{
+					Payload: &runpromptpb.ProgressEvent_RunLoggingFailed{RunLoggingFailed: runPromptFailure(message)},
 				})
 			}
 		},
@@ -293,25 +293,25 @@ type headlessPromptRuntime struct {
 	plan           *headlessRuntimePlan
 	warnings       []string
 	progress       serverapi.RunPromptProgressSink
-	sessionStarted *serverapi.RunPromptSessionStarted
+	sessionStarted *runpromptpb.SessionStarted
 }
 
-func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt string) (serverapi.RunPromptResponse, error) {
+func (r *headlessPromptRuntime) submitUserMessage(ctx context.Context, prompt string) (*runpromptpb.Success, error) {
 	if r.plan == nil || r.plan.handle == nil {
-		return serverapi.RunPromptResponse{}, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("headless runtime is unavailable"))
+		return &runpromptpb.Success{}, errors.Join(serverapi.ErrRuntimeUnavailable, errors.New("headless runtime is unavailable"))
 	}
 	r.plan.onActive = r.publishSessionStarted
 	select {
 	case r.plan.submission <- headlessPromptSubmission{prompt: prompt, steer: r.plan.agentSteer}:
 	case <-ctx.Done():
-		return serverapi.RunPromptResponse{}, context.Cause(ctx)
+		return &runpromptpb.Success{}, context.Cause(ctx)
 	}
 	_, err := r.plan.handle.Wait(ctx)
 	if err != nil && context.Cause(ctx) != nil {
 		err = errors.Join(err, r.plan.handle.Stop(context.Background()))
 	}
-	return serverapi.RunPromptResponse{
-		SessionID:   r.plan.sessionID,
+	return &runpromptpb.Success{
+		SessionId:   r.plan.sessionID,
 		SessionName: r.plan.name,
 		Result:      r.plan.content,
 		Warnings:    append([]string(nil), r.warnings...),
@@ -324,9 +324,8 @@ func (r *headlessPromptRuntime) publishSessionStarted() {
 	}
 	started := r.sessionStarted
 	r.sessionStarted = nil
-	r.progress.PublishRunPromptProgress(serverapi.RunPromptProgress{
-		Kind:           serverapi.RunPromptProgressKindSessionStarted,
-		SessionStarted: started,
+	r.progress.PublishRunPromptProgress(&runpromptpb.ProgressEvent{
+		Payload: &runpromptpb.ProgressEvent_SessionStarted{SessionStarted: started},
 	})
 }
 

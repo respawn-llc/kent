@@ -14,6 +14,12 @@ import {
   ServerService,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { z } from "zod";
+import { createChatApi } from "./chat";
+import type { ChatTranscriptCompletion } from "./chatTypes";
+import { ContractError } from "./errors";
+import { StreamService, MessageSchema } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import type { RpcEventHandler } from "./transport";
 
 type SentFrame = Readonly<{
@@ -183,27 +189,35 @@ describe("JsonRpcWebSocketTransport", () => {
 
   it("attaches a dedicated Session before a Session-scoped call", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const answer = transport.callAttachedSession("session-1", "prompt.answerBatch", {
-      session_id: "session-1",
-    });
+    const method = QuestionService.method.listPending;
+    const answer = transport.callDescriptorAttachedSession(
+      "session-1",
+      method,
+      create(method.input, { sessionId: "session-1" }),
+    );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
     await socket.setup();
     expect(descriptorOperation(socket, 1)).toBe(operationName(ConnectionService.method.attachSession));
     ack(socket, 1);
     await waitForSent(socket, 3);
-    expect(frame(socket, 2)).toMatchObject({ method: "prompt.answerBatch" });
-    ack(socket, 2);
+    expect(descriptorOperation(socket, 2)).toBe(operationName(method));
+    binaryAck(socket, 2, method, {
+      result: create(method.output, { outcome: { case: "success", value: { questions: [] } } }),
+    });
 
-    await expect(answer).resolves.toEqual({});
+    await expect(answer).resolves.toMatchObject({ outcome: { case: "success", value: { questions: [] } } });
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
   });
 
   it("does not send a Session-scoped call when Session attachment fails", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
-    const answer = transport.callAttachedSession("session-1", "prompt.answerBatch", {
-      session_id: "session-1",
-    });
+    const method = QuestionService.method.listPending;
+    const answer = transport.callDescriptorAttachedSession(
+      "session-1",
+      method,
+      create(method.input, { sessionId: "session-1" }),
+    );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
     await socket.setup();
@@ -539,7 +553,179 @@ describe("JsonRpcWebSocketTransport", () => {
       "attention.notification.complete",
     );
   });
+
+  it("discards invalid transcript events on the same socket and makes invalid completion terminal", async () => {
+    vi.useFakeTimers();
+    const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const onEvent = vi.fn();
+    const onError = vi.fn();
+    const onOpen = vi.fn();
+    const subscription = createChatApi(transport).subscribeTranscript(
+      {
+        projectID: "project-1",
+        workspace: { workspaceID: "workspace-1" },
+        sessionID,
+      },
+      { onEvent, onError, onOpen, onComplete: vi.fn() },
+    );
+    const socket = sockets[0] ?? failTest("Transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onOpen).not.toHaveBeenCalled();
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, {
+        outcome: { case: "success", value: {} },
+      }),
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+    // Sequence without the required Event is an invalid expected event, not a bad envelope.
+    binaryNotification(socket, StreamService.method.event, Uint8Array.of(8, 2));
+    binaryNotification(
+      socket,
+      StreamService.method.event,
+      encode(
+        MessageSchema,
+        create(MessageSchema, {
+          sequence: 3n,
+          event: {
+            payload: {
+              case: "sessionIdentity",
+              value: {
+                sessionId: "223e4567-e89b-42d3-a456-426614174000",
+                conversationFreshness: ConversationFreshness.FRESH,
+              },
+            },
+          },
+        }),
+      ),
+    );
+    binaryNotification(
+      socket,
+      StreamService.method.event,
+      encode(
+        MessageSchema,
+        create(MessageSchema, {
+          sequence: 4n,
+          event: {
+            payload: {
+              case: "sessionIdentity",
+              value: { sessionId: sessionID, conversationFreshness: ConversationFreshness.FRESH },
+            },
+          },
+        }),
+      ),
+    );
+    expect(onEvent).toHaveBeenCalledOnce();
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 4, kind: "session_identity" }));
+    expect(onError).toHaveBeenCalledTimes(2);
+    for (const [error] of onError.mock.calls) expect(error).toBeInstanceOf(ContractError);
+    expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    // Present zero code is invalid; successful completion is the empty message.
+    binaryNotification(socket, StreamService.method.complete, Uint8Array.of(8, 0));
+    expect(onError).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+    expect(sockets).toHaveLength(1);
+    subscription.close();
+  });
+
+  it("reconnects transcript transport loss and failed completion, but ends on successful completion", async () => {
+    vi.useFakeTimers();
+    const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+    const onComplete = vi.fn<(completion: ChatTranscriptCompletion) => void>();
+    const onTransportLoss = vi.fn();
+    const onError = vi.fn();
+    const subscription = createChatApi(
+      createJsonRpcTransport("ws://127.0.0.1:53082/rpc"),
+    ).subscribeTranscript(
+      {
+        projectID: "project-1",
+        workspace: { workspaceID: "workspace-1" },
+        sessionID,
+      },
+      { onEvent: vi.fn(), onComplete, onTransportLoss, onError },
+    );
+    let socket = sockets[0] ?? failTest("Transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    socket.close();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(onTransportLoss).toHaveBeenCalledOnce();
+    socket = sockets[1] ?? failTest("Reconnected transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    binaryNotification(
+      socket,
+      StreamService.method.complete,
+      encode(
+        StreamService.method.complete.input,
+        create(StreamService.method.complete.input, {
+          code: -17,
+          message: "stream gap",
+        }),
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(onTransportLoss).toHaveBeenCalledTimes(2);
+    socket = sockets[2] ?? failTest("Resubscribed transcript socket missing.");
+    await prepareTranscriptSocket(socket, sessionID);
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    binaryNotification(
+      socket,
+      StreamService.method.complete,
+      encode(StreamService.method.complete.input, create(StreamService.method.complete.input)),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onComplete.mock.calls.map(([completion]) => completion.code)).toEqual([-17, 0]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(sockets).toHaveLength(3);
+    subscription.close();
+  });
 });
+
+async function prepareTranscriptSocket(socket: MockWebSocket, sessionID: string): Promise<void> {
+  await socket.setup();
+  binaryAck(socket, 1, ConnectionService.method.attachSession, {
+    result: create(AttachSessionResultSchema, {
+      outcome: {
+        case: "success",
+        value: {
+          attachment: {
+            case: "session",
+            value: {
+              projectId: "project-1",
+              workspaceId: "workspace-1",
+              workspaceRoot: "/workspace",
+              sessionId: sessionID,
+              reattachCapability: "capability",
+            },
+          },
+        },
+      },
+    }),
+  });
+  await waitForSent(socket, 3);
+}
+
+function binaryNotification(
+  socket: MockWebSocket,
+  method: typeof StreamService.method.event | typeof StreamService.method.complete,
+  payload: Uint8Array,
+): void {
+  const bytes = encodeEnvelope({
+    frame: { case: "notificationEvent", value: { operation: operationName(method), payload } },
+  });
+  const frame = new ArrayBuffer(bytes.length);
+  new Uint8Array(frame).set(bytes);
+  socket.receive(frame);
+}
 
 function subscribeProject(handler: Partial<RpcEventHandler>) {
   const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
@@ -738,7 +924,9 @@ function binaryAck<
   Method extends
     | typeof ServerService.method.getReadiness
     | typeof ConnectionService.method.handshake
-    | typeof ConnectionService.method.attachSession,
+    | typeof ConnectionService.method.attachSession
+    | typeof QuestionService.method.listPending
+    | typeof StreamService.method.subscribe,
 >(
   socket: MockWebSocket,
   sentIndex: number,

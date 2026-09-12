@@ -8,7 +8,8 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/sessionruntime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -26,26 +27,28 @@ func (p userTurnProjection) queuedInput() runtime.QueuedUserInput {
 	}
 }
 
-func queuedUserTurnResponse(compacted bool, queueItemID string) serverapi.RuntimeSubmitUserTurnResponse {
-	return serverapi.RuntimeSubmitUserTurnResponse{Compacted: compacted, ResultKind: clientui.UserTurnResultKindQueued, Steered: true, QueueItemID: queueItemID}
+func queuedUserTurnResponse(compacted bool, queueItemID string) *runtimepb.SubmitUserTurnSuccess {
+	return &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{
+		Queued: &runtimepb.SubmitUserTurnQueued{Compacted: compacted, Steered: true, QueueItemId: queueItemID},
+	}}
 }
 
-func canonicalUserTurnRequest(req serverapi.RuntimeSubmitUserTurnRequest) sessionUserTurnRequest {
+func canonicalUserTurnRequest(sessionID string, input runtimeinput.Input) sessionUserTurnRequest {
 	request := sessionUserTurnRequest{
-		SessionID: strings.TrimSpace(req.SessionID),
-		Kind:      req.Input.Kind,
+		SessionID: strings.TrimSpace(sessionID),
+		Kind:      input.Kind,
 	}
-	if req.Input.Text != nil {
-		request.Text = *req.Input.Text
+	if input.Text != nil {
+		request.Text = *input.Text
 	}
-	if req.Input.PromptCommand != nil {
-		request.Name = strings.TrimSpace(req.Input.PromptCommand.Name)
-		request.Arguments = req.Input.PromptCommand.Arguments
+	if input.PromptCommand != nil {
+		request.Name = strings.TrimSpace(input.PromptCommand.Name)
+		request.Arguments = input.PromptCommand.Arguments
 	}
 	return request
 }
 
-func (s *Service) resolveUserTurnInput(ctx context.Context, sessionID string, input serverapi.RuntimeUserTurnInput) (userTurnProjection, error) {
+func (s *Service) resolveUserTurnInput(ctx context.Context, sessionID string, input runtimeinput.Input) (userTurnProjection, error) {
 	if input.Kind == runtimeinput.KindPromptCommand && (s == nil || s.promptCommands == nil) {
 		return userTurnProjection{}, errors.New("prompt command resolver is required")
 	}
@@ -62,11 +65,11 @@ func (s *Service) resolveUserTurnInput(ctx context.Context, sessionID string, in
 	return userTurnProjection{ExecutionText: execution, HistoryText: history}, nil
 }
 
-func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, err
+func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	return runRuntimeCommand(ctx, func(ctx context.Context) (serverapi.RuntimeSubmitUserTurnResponse, bool, error) {
+	return runRuntimeCommand(ctx, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, bool, error) {
 		response, accepted, _, err := s.admitUserTurn(ctx, req)
 		return response, accepted, err
 	})
@@ -74,13 +77,13 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmi
 
 func (s *Service) AdmitChatUserTurn(
 	ctx context.Context,
-	req serverapi.RuntimeSubmitUserTurnRequest,
+	req *runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	response, accepted, historyErr, commandErr := s.admitUserTurn(ctx, req)
 	if !accepted {
 		return serverapi.ChatInputAdmissionResult{}, commandErr
 	}
-	queueItemID, parseErr := runtimeids.ParseQueueItemID(response.QueueItemID)
+	queueItemID, parseErr := runtimeids.ParseQueueItemID(response.GetQueued().GetQueueItemId())
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID:          queueItemID,
 		Accepted:             true,
@@ -90,21 +93,25 @@ func (s *Service) AdmitChatUserTurn(
 
 func (s *Service) admitUserTurn(
 	ctx context.Context,
-	req serverapi.RuntimeSubmitUserTurnRequest,
-) (serverapi.RuntimeSubmitUserTurnResponse, bool, error, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, false, nil, err
+	req *runtimepb.SubmitUserTurnRequest,
+) (*runtimepb.SubmitUserTurnSuccess, bool, error, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, false, nil, err
 	}
-	request := canonicalUserTurnRequest(req)
-	projection, err := s.resolveUserTurnInput(ctx, req.SessionID, req.Input)
+	input, err := protoapi.UserTurnInputFromProto(req.Input)
 	if err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, false, nil, err
+		return nil, false, nil, err
+	}
+	request := canonicalUserTurnRequest(req.SessionId, input)
+	projection, err := s.resolveUserTurnInput(ctx, req.SessionId, input)
+	if err != nil {
+		return nil, false, nil, err
 	}
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
 	response, commandErr := s.submitUserTurn(attempt, request, projection, req)
 	if commandErr == nil {
-		commandErr = response.Validate()
+		commandErr = protoapi.Validate(response)
 	}
 	accepted := attempt.Accepted()
 	var historyErr error
@@ -118,19 +125,19 @@ func (s *Service) submitUserTurn(
 	attempt *runtimeCommandAttempt,
 	request sessionUserTurnRequest,
 	projection userTurnProjection,
-	req serverapi.RuntimeSubmitUserTurnRequest,
-) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-	var response serverapi.RuntimeSubmitUserTurnResponse
-	sessionID, err := runtimeids.ParseSessionID(req.SessionID)
+	req *runtimepb.SubmitUserTurnRequest,
+) (*runtimepb.SubmitUserTurnSuccess, error) {
+	var response *runtimepb.SubmitUserTurnSuccess
+	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
 	if err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, err
+		return nil, err
 	}
 	if s == nil || s.authority == nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, errors.New("session runtime authority is required")
+		return nil, errors.New("session runtime authority is required")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, err
+		return nil, err
 	}
 	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
 		shouldCompact, err := engine.ShouldCompactBeforeUserMessage(runCtx, projection.ExecutionText)

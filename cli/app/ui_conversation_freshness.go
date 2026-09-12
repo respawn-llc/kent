@@ -1,13 +1,13 @@
 package app
 
-import "core/shared/clientui"
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
-func (m *uiModel) currentConversationFreshness() clientui.ConversationFreshness {
+func (m *uiModel) currentConversationFreshness() runtimepb.ConversationFreshness {
 	switch cached := m.cachedRuntimeStatus().ConversationFreshness; cached {
-	case clientui.ConversationFreshnessEstablished:
+	case runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED:
 		m.conversationFreshness = cached
 		m.localConversationTurn = true
-	case clientui.ConversationFreshnessFresh:
+	case runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH:
 		if !m.localConversationTurn {
 			m.conversationFreshness = cached
 		}

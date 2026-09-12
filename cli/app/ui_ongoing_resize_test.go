@@ -2,15 +2,13 @@ package app
 
 import (
 	"bytes"
-	"fmt"
-	"reflect"
-	"testing"
-
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
-
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"reflect"
+	"testing"
 )
 
 func TestOngoingWidthRehydrationDebounceTokenRestarts(t *testing.T) {
@@ -50,15 +48,13 @@ func TestWindowResizeDoesNotWriteOngoingSurfaceWhileDetailOwnsTerminal(t *testin
 func TestWindowResizeWhileDetailOwnsTerminalRepaintsOnReturn(t *testing.T) {
 	for _, target := range []ongoing.Size{
 		{Width: 100, Height: 24},
-		{Width: 80, Height: 30},
-	} {
+		{Width: 80, Height: 30}} {
 		t.Run(fmt.Sprintf("%dx%d", target.Width, target.Height), func(t *testing.T) {
 			var raw bytes.Buffer
 			nativeSurface := ongoing.NewSurface(&raw)
 			surface := &ongoingSurfaceSpy{}
 			m := sizedTestUIModel(newProjectedStaticUIModel(
-				WithUIOngoingSurface(nativeSurface),
-			), 80, 24)
+				WithUIOngoingSurface(nativeSurface)), 80, 24)
 			controller := newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 			m.ongoingTranscript = controller
 			if _, _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
@@ -112,13 +108,10 @@ func TestAppleTerminalWidthResizeWhileDetailOwnsTerminalRehydratesOnReturn(t *te
 		&raw,
 		ongoing.SurfaceOptions{
 			TerminalResize: ongoing.TerminalResizeWidthRehydration,
-			MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly,
-		},
-	)
+			MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly})
 	if _, err := nativeSurface.ApplyTerminalMessage(
 		committedMessageForOngoingResizeTest(),
-		ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 24}},
-	); err != nil {
+		ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 24}}); err != nil {
 		t.Fatalf("prime immutable ongoing scrollback: %v", err)
 	}
 	raw.Reset()
@@ -131,8 +124,7 @@ func TestAppleTerminalWidthResizeWhileDetailOwnsTerminalRehydratesOnReturn(t *te
 	m := newProjectedStaticUIModel(
 		WithUIOngoingSurface(nativeSurface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopenCount++ }),
-	)
+		WithUIOngoingTranscriptReopen(func() { reopenCount++ }))
 
 	if cmd := m.activateSurface(uiSurfaceTranscriptDetail); cmd == nil {
 		t.Fatal("expected detail activation command")
@@ -175,13 +167,12 @@ func TestWindowResizeKeepsControllerLiveFrameSections(t *testing.T) {
 	nativeSurface := ongoing.NewSurface(&raw)
 	surface := &ongoingSurfaceSpy{}
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(nativeSurface),
-	), 40, 10)
+		WithUIOngoingSurface(nativeSurface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 	if _, _, err := m.ongoingTranscript.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
-	if _, _, err := m.ongoingTranscript.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessagePrompt)); err != nil {
+	if _, _, err := m.ongoingTranscript.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_Prompt]())); err != nil {
 		t.Fatalf("accept pending prompt: %v", err)
 	}
 	surface.calls = nil
@@ -199,8 +190,8 @@ func TestWindowResizeKeepsControllerLiveFrameSections(t *testing.T) {
 	}
 }
 
-func committedMessageForOngoingResizeTest() clientui.TranscriptMessage {
-	message := ongoingTranscriptMessage(2, clientui.TranscriptMessageCommittedRow)
-	message.Payload().(clientui.TranscriptCommittedRow).User.Text = "committed"
+func committedMessageForOngoingResizeTest() *transcriptpb.Message {
+	message := ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_CommittedRow]())
+	message.GetEvent().GetCommittedRow().GetUser().Text = "committed"
 	return message
 }

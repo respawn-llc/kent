@@ -5,7 +5,6 @@ import (
 
 	"core/cli/app/internal/worktreeui"
 	tuiinput "core/cli/tui/input"
-	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	sharedtheme "core/shared/theme"
 
@@ -89,10 +88,10 @@ func worktreeDeleteActionsAvailableForSelection(m *uiModel) bool {
 	return ok && worktreeui.CanDelete(target)
 }
 
-func worktreeOverlaySummary(target clientui.SessionExecutionTarget) string {
-	current := strings.TrimSpace(target.EffectiveWorkdir)
+func worktreeOverlaySummary(target *worktreepb.SessionExecutionTarget) string {
+	current := strings.TrimSpace(target.GetEffectiveWorkdir())
 	if current == "" {
-		current = strings.TrimSpace(target.WorkspaceRoot)
+		current = strings.TrimSpace(target.GetWorkspaceRoot())
 	}
 	if current == "" {
 		current = "unknown"

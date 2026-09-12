@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
-	"core/shared/serverapi"
+	processpb "core/shared/protoapi/gen/kent/api/process"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ProcessSource interface {
@@ -29,67 +29,77 @@ func NewProcessViewService(processes ProcessSource, membership ProjectSessionMem
 	return &ProcessViewService{processes: processes, membership: membership}
 }
 
-func (s *ProcessViewService) ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
+func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.ListRequest) (*processpb.ListSuccess, error) {
 	if s == nil || s.processes == nil {
-		return serverapi.ProcessListResponse{}, fmt.Errorf("process source is required")
+		return nil, fmt.Errorf("process source is required")
 	}
 	if s.membership == nil {
-		return serverapi.ProcessListResponse{}, fmt.Errorf("project session membership is required")
+		return nil, fmt.Errorf("project session membership is required")
 	}
-	projectSessionIDs, err := s.membership.ListProjectSessionIDs(ctx, req.ProjectID)
+	projectSessionIDs, err := s.membership.ListProjectSessionIDs(ctx, req.ProjectId)
 	if err != nil {
-		return serverapi.ProcessListResponse{}, err
+		return nil, err
 	}
 	projectSessions := make(map[string]struct{}, len(projectSessionIDs))
 	for _, sessionID := range projectSessionIDs {
 		projectSessions[sessionID] = struct{}{}
 	}
 	snapshots := s.processes.List()
-	processes := make([]clientui.BackgroundProcess, 0, len(snapshots))
+	processes := make([]*processpb.BackgroundProcess, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		if _, matchesProject := projectSessions[snapshot.OwnerSessionID]; !matchesProject {
 			continue
 		}
-		if req.OwnerSessionID != nil && snapshot.OwnerSessionID != *req.OwnerSessionID {
+		if req.OwnerSessionId != nil && snapshot.OwnerSessionID != *req.OwnerSessionId {
 			continue
 		}
-		if req.OwnerRunID != nil && snapshot.OwnerRunID != *req.OwnerRunID {
+		if req.OwnerRunId != nil && snapshot.OwnerRunID != *req.OwnerRunId {
 			continue
 		}
-		processes = append(processes, ProcessFromSnapshot(snapshot))
+		process, err := ProcessFromSnapshot(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		processes = append(processes, process)
 	}
-	return serverapi.ProcessListResponse{Processes: processes}, nil
+	return &processpb.ListSuccess{Processes: processes}, nil
 }
 
-func (s *ProcessViewService) GetProcess(_ context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
+func (s *ProcessViewService) GetProcess(_ context.Context, req *processpb.GetRequest) (*processpb.GetSuccess, error) {
 	if s == nil || s.processes == nil {
-		return serverapi.ProcessGetResponse{}, fmt.Errorf("process source is required")
+		return nil, fmt.Errorf("process source is required")
 	}
-	snapshot, err := s.processes.Snapshot(req.ProcessID)
+	snapshot, err := s.processes.Snapshot(req.ProcessId)
 	if err != nil {
-		return serverapi.ProcessGetResponse{}, err
+		return nil, err
 	}
-	process := ProcessFromSnapshot(snapshot)
-	return serverapi.ProcessGetResponse{Process: &process}, nil
+	process, err := ProcessFromSnapshot(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return &processpb.GetSuccess{Process: process}, nil
 }
 
-func (s *ProcessViewService) KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
+func (s *ProcessViewService) KillProcess(ctx context.Context, req *processpb.KillRequest) (*emptypb.Empty, error) {
 	if s == nil || s.processes == nil {
-		return serverapi.ProcessKillResponse{}, fmt.Errorf("process source is required")
+		return nil, fmt.Errorf("process source is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return serverapi.ProcessKillResponse{}, err
+		return nil, err
 	}
-	return serverapi.ProcessKillResponse{}, s.processes.Kill(req.ProcessID)
+	if err := s.processes.Kill(req.ProcessId); err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
 }
 
-func (s *ProcessViewService) GetInlineOutput(_ context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
+func (s *ProcessViewService) GetInlineOutput(_ context.Context, req *processpb.InlineOutputRequest) (*processpb.InlineOutputSuccess, error) {
 	if s == nil || s.processes == nil {
-		return serverapi.ProcessInlineOutputResponse{}, fmt.Errorf("process source is required")
+		return nil, fmt.Errorf("process source is required")
 	}
-	output, logPath, err := s.processes.InlineOutput(req.ProcessID, req.MaxChars)
+	output, logPath, err := s.processes.InlineOutput(req.ProcessId, int(req.MaxChars))
 	if err != nil {
-		return serverapi.ProcessInlineOutputResponse{}, err
+		return nil, err
 	}
-	return serverapi.ProcessInlineOutputResponse{Output: output, LogPath: logPath}, nil
+	return &processpb.InlineOutputSuccess{Output: output, LogPath: logPath}, nil
 }

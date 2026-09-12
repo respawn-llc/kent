@@ -1,12 +1,7 @@
 package serverapi
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"strings"
-
-	"core/shared/protocol"
 )
 
 var ErrRuntimeCommandNotAccepted = errors.New("runtime command was not accepted")
@@ -32,34 +27,3 @@ func (e *RuntimeCommandNotAcceptedError) Unwrap() []error {
 	}
 	return []error{ErrRuntimeCommandNotAccepted, e.Cause}
 }
-
-func (e *RuntimeCommandNotAcceptedError) RPCErrorCode() int {
-	return protocol.ErrCodeRuntimeCommandNotAccepted
-}
-
-func (e *RuntimeCommandNotAcceptedError) RPCErrorData() json.RawMessage {
-	cause := protocol.ResponseError{
-		Code:    protocol.ErrCodeInternalError,
-		Message: ErrRuntimeCommandNotAccepted.Error(),
-	}
-	if e != nil && e.Cause != nil {
-		cause.Message = strings.TrimSpace(e.Cause.Error())
-		if cause.Message == "" {
-			cause.Message = ErrRuntimeCommandNotAccepted.Error()
-		}
-		var structured protocol.StructuredRPCError
-		if errors.Is(e.Cause, context.Canceled) {
-			cause.Code = protocol.ErrCodeRequestCanceled
-		} else if errors.Is(e.Cause, ErrRuntimeUnavailable) {
-			cause.Code = protocol.ErrCodeRuntimeUnavailable
-		} else if errors.As(e.Cause, &structured) {
-			cause.Code = structured.RPCErrorCode()
-			cause.Data = structured.RPCErrorData()
-		}
-	}
-	return marshalRPCErrorData(struct {
-		Cause protocol.ResponseError `json:"cause"`
-	}{Cause: cause})
-}
-
-var _ protocol.StructuredRPCError = (*RuntimeCommandNotAcceptedError)(nil)

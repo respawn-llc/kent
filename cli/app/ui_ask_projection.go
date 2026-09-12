@@ -9,6 +9,7 @@ import (
 	"core/cli/tui"
 	"core/cli/tui/transcriptrender"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -70,9 +71,9 @@ func (m *uiModel) currentQuestionRenderIdentity() (questionRenderIdentity, bool)
 		return questionRenderIdentity{}, false
 	}
 	prompt := m.ask.current.prompt
-	question := prompt.Question
-	if len(prompt.AccessTargets) > 0 {
-		question = clientui.FormatFileAccessApprovalMarkdown(prompt.AccessTargets)
+	question := transcriptPromptQuestion(prompt)
+	if targets := prompt.GetApproval().GetAccessTargets(); len(targets) > 0 {
+		question = clientui.FormatFileAccessApprovalMarkdown(protoapi.FileAccessTargetsFromProto(targets))
 	}
 	return questionRenderIdentity{
 		questionSource:   question,
@@ -177,7 +178,7 @@ func cloneAskEventForProjection(event askEvent) askEvent {
 func (m *uiModel) handleQuestionProjectionError(result questionRenderResultMsg) tea.Cmd {
 	toolCallID := ""
 	if m.ask.current != nil {
-		toolCallID = string(m.ask.current.prompt.ToolCallID)
+		toolCallID = transcriptPromptToolCallID(m.ask.current.prompt)
 	}
 	m.logf(
 		"ask.question_projection.error tool_call_id=%q current_token=%d operation_token=%s rendered_at=%+v desired=%+v delivery_generation=%s err=%q stack=%s",

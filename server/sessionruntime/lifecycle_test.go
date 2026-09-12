@@ -16,7 +16,8 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
-	"core/shared/clientui"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -31,15 +32,15 @@ func lifecycleSessionID(t *testing.T, fixture sessionRuntimeFixture) runtimeids.
 	return sessionID
 }
 
-func lifecycleWorktreeTarget(workspaceRoot, worktreeRoot string) clientui.SessionExecutionTarget {
-	return clientui.SessionExecutionTarget{
-		WorkspaceID:           "workspace-1",
+func lifecycleWorktreeTarget(workspaceRoot, worktreeRoot string) *worktreepb.SessionExecutionTarget {
+	return &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           textutil.Value("workspace-1"),
 		WorkspaceRoot:         workspaceRoot,
-		WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		Worktree: &clientui.SessionExecutionWorktreeTarget{
-			ID:           "worktree-1",
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		Worktree: &worktreepb.SessionExecutionWorktreeTarget{
+			Id:           "worktree-1",
 			Root:         worktreeRoot,
-			Availability: string(clientui.ProjectAvailabilityAvailable),
+			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		},
 		CwdRelpath:       ".",
 		EffectiveWorkdir: worktreeRoot,

@@ -9,14 +9,20 @@ import (
 	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/projectview"
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/shared/config"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var errSessionWorkspaceRetargeterRequired = errors.New("session workspace retargeter is required")
@@ -44,12 +50,12 @@ func (s *SessionLifecycleService) WithPersistedSessionResolver(resolver session.
 }
 
 type sessionWorkspaceRetargeter interface {
-	RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
-	ScheduleWorkspaceRetarget(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest, origin serverapi.RuntimeStepOrigin, operationID worktreecontract.OperationID) (serverapi.SessionWorkspaceRetargetScheduledAcknowledgement, error)
+	RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
+	ScheduleWorkspaceRetarget(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest, origin *sessionlaunchpb.RuntimeStepOrigin, operationID worktreecontract.OperationID) (*worktreepb.ScheduledAcknowledgement, error)
 }
 
 type sessionNavigationTargetResolver interface {
-	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (serverapi.SessionNavigationBinding, error)
+	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error)
 }
 
 func NewSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager) *SessionLifecycleService {
@@ -91,21 +97,18 @@ func (s *SessionLifecycleService) WithNavigationTargetResolver(resolver sessionN
 	return s
 }
 
-func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionInitialInputResponse{}, err
-	}
-	if strings.TrimSpace(req.SessionID) == "" {
-		return serverapi.SessionInitialInputResponse{Input: req.TransitionInput}, nil
+func (s *SessionLifecycleService) GetInitialInput(ctx context.Context, req *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
+	if req.SessionId == nil {
+		return &sessionlaunchpb.SessionInitialInputSuccess{Input: req.TransitionInput}, nil
 	}
 	if req.OverrideStoredDraft {
-		return serverapi.SessionInitialInputResponse{Input: req.TransitionInput}, nil
+		return &sessionlaunchpb.SessionInitialInputSuccess{Input: req.TransitionInput}, nil
 	}
-	meta, err := s.resolvePersistedSessionMeta(ctx, req.SessionID)
+	meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
 	if err != nil {
-		return serverapi.SessionInitialInputResponse{}, err
+		return nil, err
 	}
-	return serverapi.SessionInitialInputResponse{Input: initialSessionInput(meta, req.TransitionInput)}, nil
+	return &sessionlaunchpb.SessionInitialInputSuccess{Input: initialSessionInput(meta, req.TransitionInput)}, nil
 }
 
 func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Context, sessionID string) (session.Meta, error) {
@@ -127,144 +130,118 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 	return *record.Meta, nil
 }
 
-func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionPersistInputDraftResponse{}, err
-	}
-	err := s.withStore(ctx, req.SessionID, func(_ context.Context, store *session.Store) error {
+func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
+	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
 		return persistSessionInputDraft(store, req.Input)
 	})
-	return serverapi.SessionPersistInputDraftResponse{}, err
+	return &emptypb.Empty{}, err
 }
 
-func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, err
-	}
+func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, req *sessionlaunchpb.SessionRetargetWorkspaceRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	if s == nil || s.retargeter == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errSessionWorkspaceRetargeterRequired
+		return nil, errSessionWorkspaceRetargeterRequired
 	}
 	retargetRequest := metadata.SessionWorkspaceRetargetRequest{
-		SessionID:     req.SessionID,
+		SessionID:     req.SessionId,
 		WorkspaceRoot: req.WorkspaceRoot,
-		ProjectID:     req.ProjectID,
+		ProjectID:     req.ProjectId,
 	}
 	if req.Origin != nil {
 		acknowledgement, err := s.retargeter.ScheduleWorkspaceRetarget(
 			ctx,
 			retargetRequest,
-			*req.Origin,
+			req.Origin,
 			worktreecontract.NewOperationID(),
 		)
 		if err != nil {
-			return serverapi.SessionRetargetWorkspaceResponse{}, err
+			return nil, err
 		}
-		return serverapi.SessionRetargetWorkspaceResponse{Scheduled: &acknowledgement}, nil
+		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{Scheduled: acknowledgement}, nil
 	}
 	return s.retargeter.RetargetWorkspace(ctx, retargetRequest)
 }
 
-func completedWorkspaceRetargetResponse(result metadata.SessionWorkspaceRetargetResult) serverapi.SessionRetargetWorkspaceResponse {
-	binding := result.Binding
-	bindingResponse := serverapi.ProjectBinding{
-		ProjectID:       binding.ProjectID,
-		ProjectKey:      binding.ProjectKey,
-		ProjectName:     binding.ProjectName,
-		WorkspaceID:     binding.WorkspaceID,
-		CanonicalRoot:   binding.CanonicalRoot,
-		WorkspaceName:   binding.WorkspaceName,
-		WorkspaceStatus: binding.WorkspaceStatus,
+func completedWorkspaceRetargetResponse(result metadata.SessionWorkspaceRetargetResult) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+	binding, err := projectview.BindingToProto(result.Binding)
+	if err != nil {
+		return nil, err
 	}
-	return serverapi.SessionRetargetWorkspaceResponse{
-		Binding:                 &bindingResponse,
+	return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{
+		Binding:                 binding,
 		WorkspaceBindingCreated: result.WorkspaceBindingCreated,
-	}
+	}, nil
 }
 
-func (s *SessionLifecycleService) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.SessionResolveTransitionResponse{}, err
-	}
+func (s *SessionLifecycleService) ResolveTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	return s.resolveTransitionOnce(ctx, req)
 }
 
-func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	if req.Transition.Action == serverapi.SessionTransitionActionLogout {
+func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
+	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT {
 		if s.authManager == nil {
-			return serverapi.SessionResolveTransitionResponse{}, errors.New("auth manager is required for logout")
+			return &sessionlaunchpb.SessionDirective{}, errors.New("auth manager is required for logout")
 		}
-		currentID := strings.TrimSpace(req.SessionID)
+		currentID := req.GetSessionId()
 		if currentID == "" {
-			return serverapi.SelectSessionDirective(serverapi.SessionAuthPreparationReauthenticate), nil
+			return &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
+				SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE},
+			}}, nil
 		}
 		sessionID, err := runtimeids.ParseSessionID(currentID)
 		if err != nil {
-			return serverapi.SessionResolveTransitionResponse{}, err
+			return &sessionlaunchpb.SessionDirective{}, err
 		}
-		return serverapi.LaunchSessionDirective(
+		return protoapi.SessionLaunchDirectiveToProto(
 			serverapi.OpenExistingSessionLaunchIntent(sessionID),
-			serverapi.NewSessionLaunchPreparation(
-				nil,
-				serverapi.RestoreStoredDraftSessionDraftDisposition(),
-				serverapi.SessionAuthPreparationReauthenticate,
-			),
-		), nil
+			sessionLaunchPreparation(nil, nil, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE),
+		)
 	}
-	if req.Transition.Action == serverapi.SessionTransitionActionForkRollback {
-		var resolved serverapi.SessionResolveTransitionResponse
-		err := s.withStore(ctx, req.SessionID, func(runCtx context.Context, store *session.Store) error {
+	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK {
+		var resolved *sessionlaunchpb.SessionDirective
+		err := s.withStore(ctx, req.GetSessionId(), func(runCtx context.Context, store *session.Store) error {
 			var err error
 			resolved, err = s.resolveForkRollbackTransition(runCtx, req, store)
 			return err
 		})
 		return resolved, err
 	}
-	if req.Transition.Action == serverapi.SessionTransitionActionOpenSession {
-		meta, err := s.resolvePersistedSessionMeta(ctx, strings.TrimSpace(req.SessionID))
+	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION {
+		meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
 		if err != nil {
-			return serverapi.SessionResolveTransitionResponse{}, err
+			return &sessionlaunchpb.SessionDirective{}, err
 		}
 		resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{Transition: sessionTransition{
-			Action: req.Transition.Action, InitialInput: textutil.Pointer(req.Transition.InitialInput), TargetSessionID: req.Transition.TargetSessionID,
+			Action: req.Transition.Action, InitialInput: textutil.Pointer(req.Transition.InitialInput), TargetSessionID: req.Transition.GetTargetSessionId(),
 		}})
 		if err != nil {
-			return serverapi.SessionResolveTransitionResponse{}, err
+			return &sessionlaunchpb.SessionDirective{}, err
 		}
 		return s.authorizeNavigationTransition(ctx, meta, resolved)
 	}
-	return resolveSessionTransition(ctx, sessionTransitionResolveRequest{
-		Transition: sessionTransition{
-			Action:                       req.Transition.Action,
-			InitialPrompt:                req.Transition.InitialPrompt,
-			InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
-			InitialInput:                 textutil.Pointer(req.Transition.InitialInput),
-			TargetSessionID:              req.Transition.TargetSessionID,
-			PreviousSessionID:            req.Transition.PreviousSessionID,
-		},
-	})
+	transition, err := sessionTransitionFromProto(req.Transition)
+	if err != nil {
+		return nil, err
+	}
+	return resolveSessionTransition(ctx, sessionTransitionResolveRequest{Transition: transition})
 }
 
-func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest, store *session.Store) (serverapi.SessionResolveTransitionResponse, error) {
-	transition := sessionTransition{
-		Action:                       req.Transition.Action,
-		InitialPrompt:                req.Transition.InitialPrompt,
-		InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
-		InitialInput:                 textutil.Pointer(req.Transition.InitialInput),
-		TargetSessionID:              req.Transition.TargetSessionID,
-		PreviousSessionID:            req.Transition.PreviousSessionID,
-	}
-	forkUserMessageSeq, err := rollbacktarget.DecodeUserMessageSeq(req.Transition.ForkRollbackTargetID)
+func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest, store *session.Store) (*sessionlaunchpb.SessionDirective, error) {
+	transition, err := sessionTransitionFromProto(req.Transition)
 	if err != nil {
-		return serverapi.SessionResolveTransitionResponse{}, err
+		return nil, err
+	}
+	forkUserMessageSeq, err := rollbacktarget.DecodeUserMessageSeq(req.Transition.GetForkRollbackTargetId())
+	if err != nil {
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
 	app, err := config.Load(store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
 	if err != nil {
-		return serverapi.SessionResolveTransitionResponse{}, err
+		return nil, err
 	}
 	thinking, err := launch.ResolveForkThinking(ctx, app, store.Meta(), s.authManager, false)
 	if err != nil {
-		return serverapi.SessionResolveTransitionResponse{}, err
+		return nil, err
 	}
 	resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{
 		Store:        store,
@@ -272,63 +249,40 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		ForkThinking: thinking,
 	})
 	if err != nil {
-		return serverapi.SessionResolveTransitionResponse{}, err
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	intent, ok := resolved.LaunchIntent()
-	if !ok {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("rollback transition did not resolve to a launch intent")
+	forkID, err := runtimeids.ParseSessionID(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
+	if err != nil {
+		return nil, err
 	}
-	forkID, ok := intent.SessionID()
-	if !ok {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("rollback transition launch intent omitted fork session ID")
-	}
-	if err := s.preserveForkExecutionTarget(ctx, req.SessionID, forkID.String()); err != nil {
-		return serverapi.SessionResolveTransitionResponse{}, err
+	if err := s.preserveForkExecutionTarget(ctx, req.GetSessionId(), forkID.String()); err != nil {
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	return resolved, nil
 }
 
-func (s *SessionLifecycleService) authorizeNavigationTransition(ctx context.Context, current session.Meta, resolved serverapi.SessionDirective) (serverapi.SessionDirective, error) {
-	intent, present := resolved.LaunchIntent()
-	if !present {
-		return serverapi.SessionDirective{}, errors.New("session navigation did not resolve to a launch intent")
-	}
-	requestedTarget, present := intent.SessionID()
-	if !present {
-		return serverapi.SessionDirective{}, errors.New("session navigation launch intent omitted target session id")
+func (s *SessionLifecycleService) authorizeNavigationTransition(ctx context.Context, current session.Meta, resolved *sessionlaunchpb.SessionDirective) (*sessionlaunchpb.SessionDirective, error) {
+	requestedTarget, err := runtimeids.ParseSessionID(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
+	if err != nil {
+		return nil, err
 	}
 	authorizedTarget := session.NavigationTargetSessionID(current)
 	if authorizedTarget == nil || *authorizedTarget != requestedTarget {
-		return serverapi.SessionDirective{}, errors.New("session navigation target does not match current session provenance")
+		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target does not match current session provenance")
 	}
 	if s == nil || s.navigation == nil {
-		return serverapi.SessionDirective{}, errors.New("session navigation target resolver is required")
+		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target resolver is required")
 	}
 	binding, err := s.navigation.ResolveSessionNavigationBinding(ctx, requestedTarget.String())
 	if err != nil {
-		return serverapi.SessionDirective{}, err
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	if err := binding.Validate(); err != nil {
-		return serverapi.SessionDirective{}, err
+	preparation := resolved.GetLaunch().GetPreparation()
+	if preparation == nil {
+		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation did not resolve launch preparation")
 	}
-	preparation, present := resolved.LaunchPreparation()
-	if !present {
-		return serverapi.SessionDirective{}, errors.New("session navigation did not resolve launch preparation")
-	}
-	initialPrompt, hasInitialPrompt := preparation.InitialPrompt()
-	var initialPromptPtr *serverapi.SessionInitialPromptMetadata
-	if hasInitialPrompt {
-		initialPromptPtr = &initialPrompt
-	}
-	return serverapi.LaunchSessionDirective(
-		intent,
-		serverapi.NewSessionNavigationLaunchPreparation(
-			initialPromptPtr,
-			preparation.DraftDisposition(),
-			preparation.AuthPreparation(),
-			binding,
-		),
-	), nil
+	preparation.NavigationBinding = binding
+	return resolved, nil
 }
 
 func (s *SessionLifecycleService) preserveForkExecutionTarget(ctx context.Context, parentSessionID string, childSessionID string) error {

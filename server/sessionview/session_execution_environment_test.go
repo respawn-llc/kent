@@ -12,12 +12,15 @@ import (
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/worktree"
-	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -67,8 +70,8 @@ type failingExecutionTargetResolver struct {
 	err error
 }
 
-func (r failingExecutionTargetResolver) ResolveSessionExecutionTarget(context.Context, string) (clientui.SessionExecutionTarget, error) {
-	return clientui.SessionExecutionTarget{}, r.err
+func (r failingExecutionTargetResolver) ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error) {
+	return nil, r.err
 }
 
 type sessionExecutionEnvironmentFixture struct {
@@ -85,8 +88,8 @@ func TestSessionExecutionEnvironmentRejectsMismatchedIdentity(t *testing.T) {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
 	service := NewService(mismatchedSessionStoreResolver{store: store}, nil, nil)
-	if _, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-		SessionID: otherID,
+	if _, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+		SessionId: otherID.String(),
 	}); err == nil {
 		t.Fatal("environment read accepted a response for another session")
 	}
@@ -119,10 +122,14 @@ func TestSessionExecutionEnvironmentCompleteResponseIsReadOnly(t *testing.T) {
 		}))
 
 	response := readEnvironmentAndAssertPersistenceUnchanged(t, fixture, service)
-	workspace, workspaceOK := response.Environment.Workspace.Value()
-	branch, branchOK := response.Environment.Branch.Value()
-	model, modelOK := response.Environment.Model.Value()
-	authState, authOK := response.Environment.Auth.Value()
+	workspace := response.Environment.Workspace.GetAvailable()
+	workspaceOK := workspace != nil
+	branch := response.Environment.Branch.GetAvailable()
+	branchOK := branch != nil
+	model := response.Environment.Model.GetAvailable()
+	modelOK := model != nil
+	authState := response.Environment.Auth.GetAvailable()
+	authOK := authState != nil
 	if !workspaceOK || workspace.Path != fixture.workspaceRoot {
 		t.Fatalf("workspace = %+v/%v, want %q", workspace, workspaceOK, fixture.workspaceRoot)
 	}
@@ -132,7 +139,7 @@ func TestSessionExecutionEnvironmentCompleteResponseIsReadOnly(t *testing.T) {
 	if !modelOK || model.Name != "gpt-5.6-sol" || model.Provider != "openai" || model.Locked {
 		t.Fatalf("model = %+v/%v, want unlocked OpenAI model", model, modelOK)
 	}
-	if !authOK || authState.Provider != "openai" || authState.Method != serverapi.SessionExecutionAuthMethodNone {
+	if !authOK || authState.Provider != "openai" || authState.Method != sessionpb.ExecutionAuthMethod_EXECUTION_AUTH_METHOD_NONE {
 		t.Fatalf("auth = %+v/%v, want explicit OpenAI no-auth", authState, authOK)
 	}
 	if authClient.calls != 1 {
@@ -157,10 +164,10 @@ func TestSessionExecutionEnvironmentBranchProjection(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		target      clientui.SessionExecutionTarget
+		target      *worktreepb.SessionExecutionTarget
 		runner      sessionExecutionEnvironmentGitRunner
 		branch      string
-		unavailable serverapi.SessionExecutionBranchUnavailableReason
+		unavailable sessionpb.ExecutionBranchUnavailableReason
 		failed      bool
 	}{
 		{
@@ -169,7 +176,7 @@ func TestSessionExecutionEnvironmentBranchProjection(t *testing.T) {
 			runner: sessionExecutionEnvironmentGitRunner{
 				output: []byte("worktree " + detachedRoot + "\nHEAD abc123\ndetached\n\n"),
 			},
-			unavailable: serverapi.SessionExecutionBranchUnavailableDetachedHead,
+			unavailable: sessionpb.ExecutionBranchUnavailableReason_EXECUTION_BRANCH_UNAVAILABLE_REASON_DETACHED_HEAD,
 		},
 		{
 			name:   "execution subdirectory",
@@ -183,7 +190,7 @@ func TestSessionExecutionEnvironmentBranchProjection(t *testing.T) {
 			name:        "non git workspace",
 			target:      availableSessionExecutionTarget(nonGitRoot),
 			runner:      sessionExecutionEnvironmentGitRunner{},
-			unavailable: serverapi.SessionExecutionBranchUnavailableNotGitRepository,
+			unavailable: sessionpb.ExecutionBranchUnavailableReason_EXECUTION_BRANCH_UNAVAILABLE_REASON_NOT_GIT_REPOSITORY,
 		},
 		{
 			name:   "unrelated git failure",
@@ -201,28 +208,31 @@ func TestSessionExecutionEnvironmentBranchProjection(t *testing.T) {
 			service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: test.target}).
 				WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}}).
 				WithExecutionEnvironmentGit(worktree.NewGitInspector(test.runner))
-			response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-				SessionID: sessionID,
+			response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+				SessionId: sessionID.String(),
 			})
 			if err != nil {
 				t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 			}
-			if err := response.Validate(); err != nil {
+			if err := protoapi.Validate(response); err != nil {
 				t.Fatalf("response validation: %v", err)
 			}
 			switch {
 			case test.branch != "":
-				branch, ok := response.Environment.Branch.Value()
+				branch := response.Environment.Branch.GetAvailable()
+				ok := branch != nil
 				if !ok || branch.Name != test.branch {
 					t.Fatalf("branch = %+v/%v, want %q", branch, ok, test.branch)
 				}
 			case test.failed:
-				failure, ok := response.Environment.Branch.Failure()
-				if !ok || failure.Code != serverapi.SessionExecutionFieldErrorSourceFailure {
+				failure := response.Environment.Branch.GetFailed()
+				ok := failure != nil
+				if !ok || failure.Code != sessionpb.ExecutionFieldErrorCode_EXECUTION_FIELD_ERROR_CODE_SOURCE_FAILURE {
 					t.Fatalf("branch failure = %+v/%v", failure, ok)
 				}
 			default:
-				reason, ok := response.Environment.Branch.UnavailableReason()
+				reason := response.Environment.Branch.GetUnavailable()
+				_, ok := response.Environment.Branch.GetResult().(*sessionpb.ExecutionBranchField_Unavailable)
 				if !ok || reason != test.unavailable {
 					t.Fatalf("branch unavailable = %q/%v, want %q", reason, ok, test.unavailable)
 				}
@@ -243,18 +253,19 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 			nil,
 			failingExecutionTargetResolver{err: errors.New("target unavailable")},
 		).WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}})
-		response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-			SessionID: sessionID,
+		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+			SessionId: sessionID.String(),
 		})
 		if err != nil {
 			t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 		}
-		if err := response.Validate(); err != nil {
+		if err := protoapi.Validate(response); err != nil {
 			t.Fatalf("response validation: %v", err)
 		}
-		failure, failed := response.Environment.Workspace.Failure()
-		_, modelAvailable := response.Environment.Model.Value()
-		if !failed || failure.Code != serverapi.SessionExecutionFieldErrorSourceFailure || !modelAvailable {
+		failure := response.Environment.Workspace.GetFailed()
+		failed := failure != nil
+		modelAvailable := response.Environment.Model.GetAvailable() != nil
+		if !failed || failure.Code != sessionpb.ExecutionFieldErrorCode_EXECUTION_FIELD_ERROR_CODE_SOURCE_FAILURE || !modelAvailable {
 			t.Fatalf("workspace/model fields = %+v/%v model_available=%v", failure, failed, modelAvailable)
 		}
 	})
@@ -262,27 +273,29 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 	t.Run("missing worktree", func(t *testing.T) {
 		missingRoot := filepath.Join(t.TempDir(), "missing-worktree")
 		missingTarget := availableSessionExecutionTarget(missingRoot)
-		missingTarget.Worktree = &clientui.SessionExecutionWorktreeTarget{
-			ID:           "worktree-id",
+		missingTarget.Worktree = &worktreepb.SessionExecutionWorktreeTarget{
+			Id:           "worktree-id",
 			Root:         missingRoot,
-			Availability: "missing",
+			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING,
 		}
 		service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: missingTarget}).
 			WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}})
-		response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-			SessionID: sessionID,
+		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+			SessionId: sessionID.String(),
 		})
 		if err != nil {
 			t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 		}
-		if err := response.Validate(); err != nil {
+		if err := protoapi.Validate(response); err != nil {
 			t.Fatalf("response validation: %v", err)
 		}
-		failure, workspaceFailed := response.Environment.Workspace.Failure()
-		branchReason, branchUnavailable := response.Environment.Branch.UnavailableReason()
-		_, modelAvailable := response.Environment.Model.Value()
-		if !workspaceFailed || failure.Code != serverapi.SessionExecutionFieldErrorSourceFailure ||
-			!branchUnavailable || branchReason != serverapi.SessionExecutionBranchUnavailableNotGitRepository ||
+		failure := response.Environment.Workspace.GetFailed()
+		workspaceFailed := failure != nil
+		branchReason := response.Environment.Branch.GetUnavailable()
+		_, branchUnavailable := response.Environment.Branch.GetResult().(*sessionpb.ExecutionBranchField_Unavailable)
+		modelAvailable := response.Environment.Model.GetAvailable() != nil
+		if !workspaceFailed || failure.Code != sessionpb.ExecutionFieldErrorCode_EXECUTION_FIELD_ERROR_CODE_SOURCE_FAILURE ||
+			!branchUnavailable || branchReason != sessionpb.ExecutionBranchUnavailableReason_EXECUTION_BRANCH_UNAVAILABLE_REASON_NOT_GIT_REPOSITORY ||
 			!modelAvailable {
 			t.Fatalf(
 				"workspace/branch/model = %+v/%v %q/%v model_available=%v",
@@ -300,19 +313,20 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 		service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
 			WithExecutionEnvironmentConfig(config.App{Settings: config.Settings{Model: "gpt-5.6-sol"}}).
 			WithExecutionEnvironmentAuth(authClient)
-		response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-			SessionID: sessionID,
+		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+			SessionId: sessionID.String(),
 		})
 		if err != nil {
 			t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 		}
-		if err := response.Validate(); err != nil {
+		if err := protoapi.Validate(response); err != nil {
 			t.Fatalf("response validation: %v", err)
 		}
-		failure, failed := response.Environment.Auth.Failure()
-		_, workspaceAvailable := response.Environment.Workspace.Value()
-		_, modelAvailable := response.Environment.Model.Value()
-		if !failed || failure.Code != serverapi.SessionExecutionFieldErrorSourceFailure ||
+		failure := response.Environment.Auth.GetFailed()
+		failed := failure != nil
+		workspaceAvailable := response.Environment.Workspace.GetAvailable() != nil
+		modelAvailable := response.Environment.Model.GetAvailable() != nil
+		if !failed || failure.Code != sessionpb.ExecutionFieldErrorCode_EXECUTION_FIELD_ERROR_CODE_SOURCE_FAILURE ||
 			!workspaceAvailable || !modelAvailable || authClient.calls != 1 {
 			t.Fatalf(
 				"auth/workspace/model = %+v/%v workspace_available=%v model_available=%v calls=%d",
@@ -333,17 +347,18 @@ func TestSessionExecutionEnvironmentFieldFailuresRemainIndependent(t *testing.T)
 				ProviderOverride: "anthropic",
 			}}).
 			WithExecutionEnvironmentAuth(authClient)
-		response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-			SessionID: sessionID,
+		response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+			SessionId: sessionID.String(),
 		})
 		if err != nil {
 			t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 		}
-		if err := response.Validate(); err != nil {
+		if err := protoapi.Validate(response); err != nil {
 			t.Fatalf("response validation: %v", err)
 		}
-		reason, unavailable := response.Environment.Auth.UnavailableReason()
-		if !unavailable || reason != serverapi.SessionExecutionAuthUnavailableNotApplicable || authClient.calls != 0 {
+		reason := response.Environment.Auth.GetUnavailable()
+		_, unavailable := response.Environment.Auth.GetResult().(*sessionpb.ExecutionAuthField_Unavailable)
+		if !unavailable || reason != sessionpb.ExecutionAuthUnavailableReason_EXECUTION_AUTH_UNAVAILABLE_REASON_NOT_APPLICABLE || authClient.calls != 0 {
 			t.Fatalf("auth unavailable = %q/%v calls=%d", reason, unavailable, authClient.calls)
 		}
 	})
@@ -392,30 +407,33 @@ func TestSessionExecutionEnvironmentModelFieldMapping(t *testing.T) {
 			}
 			service := NewService(newTestSessionResolver(store), nil, nil).
 				WithExecutionEnvironmentConfig(test.app)
-			response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-				SessionID: sessionID,
+			response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+				SessionId: sessionID.String(),
 			})
 			if err != nil {
 				t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 			}
-			if err := response.Validate(); err != nil {
+			if err := protoapi.Validate(response); err != nil {
 				t.Fatalf("response validation: %v", err)
 			}
 			if test.missing {
-				reason, ok := response.Environment.Model.UnavailableReason()
-				if !ok || reason != serverapi.SessionExecutionModelUnavailableNotConfigured {
+				reason := response.Environment.Model.GetUnavailable()
+				_, ok := response.Environment.Model.GetResult().(*sessionpb.ExecutionModelField_Unavailable)
+				if !ok || reason != sessionpb.ExecutionModelUnavailableReason_EXECUTION_MODEL_UNAVAILABLE_REASON_NOT_CONFIGURED {
 					t.Fatalf("model unavailable = %q/%v", reason, ok)
 				}
 				return
 			}
 			if test.invalid {
-				failure, ok := response.Environment.Model.Failure()
-				if !ok || failure.Code != serverapi.SessionExecutionFieldErrorInvalidConfiguration {
+				failure := response.Environment.Model.GetFailed()
+				ok := failure != nil
+				if !ok || failure.Code != sessionpb.ExecutionFieldErrorCode_EXECUTION_FIELD_ERROR_CODE_INVALID_CONFIGURATION {
 					t.Fatalf("model failure = %+v/%v", failure, ok)
 				}
 				return
 			}
-			model, ok := response.Environment.Model.Value()
+			model := response.Environment.Model.GetAvailable()
+			ok := model != nil
 			if !ok || model.Name != test.wantName || model.Provider != test.wantProvider || !model.Locked {
 				t.Fatalf("model = %+v/%v, want locked %s/%s", model, ok, test.wantName, test.wantProvider)
 			}
@@ -432,11 +450,12 @@ func sessionExecutionEnvironmentSessionID(t *testing.T, store *session.Store) ru
 	return sessionID
 }
 
-func availableSessionExecutionTarget(workdir string) clientui.SessionExecutionTarget {
-	return clientui.SessionExecutionTarget{
-		WorkspaceID:           "workspace-id",
+func availableSessionExecutionTarget(workdir string) *worktreepb.SessionExecutionTarget {
+	return &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           textutil.Value("workspace-id"),
+		WorkspaceName:         "workspace",
 		WorkspaceRoot:         workdir,
-		WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		CwdRelpath:            ".",
 		EffectiveWorkdir:      workdir,
 	}
@@ -487,7 +506,7 @@ func readEnvironmentAndAssertPersistenceUnchanged(
 	t *testing.T,
 	fixture sessionExecutionEnvironmentFixture,
 	service *Service,
-) serverapi.SessionExecutionEnvironmentResponse {
+) *sessionpb.ExecutionEnvironmentSuccess {
 	t.Helper()
 	eventsPath := filepath.Join(fixture.store.Dir(), "events.jsonl")
 	beforeEvents, err := os.ReadFile(eventsPath)
@@ -499,13 +518,13 @@ func readEnvironmentAndAssertPersistenceUnchanged(
 		t.Fatalf("ResolvePersistedSession before: %v", err)
 	}
 
-	response, err := service.GetSessionExecutionEnvironment(t.Context(), serverapi.SessionExecutionEnvironmentRequest{
-		SessionID: fixture.sessionID,
+	response, err := service.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{
+		SessionId: fixture.sessionID.String(),
 	})
 	if err != nil {
 		t.Fatalf("GetSessionExecutionEnvironment: %v", err)
 	}
-	if err := response.Validate(); err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("response validation: %v", err)
 	}
 

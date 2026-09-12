@@ -6,7 +6,7 @@ import (
 
 	"core/server/registry"
 	askquestion "core/server/tools"
-	"core/shared/serverapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 )
 
 type stubApprovalPendingPromptSource struct {
@@ -24,7 +24,7 @@ func TestApprovalViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc := NewApprovalViewService(&stubApprovalPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}})
-			if _, err := svc.ListPendingApprovalsBySession(context.Background(), serverapi.ApprovalListPendingBySessionRequest{SessionID: "session-1"}); err == nil {
+			if _, err := svc.ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: "session-1"}); err == nil {
 				t.Fatal("accepted malformed pending prompt identity")
 			}
 		})
@@ -32,7 +32,7 @@ func TestApprovalViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T
 }
 
 func TestApprovalViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewApprovalViewService(&stubApprovalPendingPromptSource{}).ListPendingApprovalsBySession(context.Background(), serverapi.ApprovalListPendingBySessionRequest{}); err == nil {
+	if _, err := NewApprovalViewService(&stubApprovalPendingPromptSource{}).ListPendingApprovalsBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
 		t.Fatal("expected validation error")
 	}
 }

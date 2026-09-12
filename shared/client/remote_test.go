@@ -1,33 +1,40 @@
 package client
 
 import (
+	"buf.build/go/protovalidate"
 	"context"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"encoding/json"
 	"errors"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"io"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
-	"core/shared/clientui"
 	"core/shared/llmerrors"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/transcript"
 	"core/shared/worktreecontract"
 	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestNormalizeWorkflowTaskObservationRPCErrorClassifiesConnectionEOF(t *testing.T) {
@@ -248,118 +255,99 @@ func TestDialRemoteWithTransportRejectsBlankSessionID(t *testing.T) {
 }
 
 func TestRemoteLiveWatchRejectsMalformedResponse(t *testing.T) {
+	method := promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("LiveWatchService").Methods().ByName("Watch")
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
-		var request protocol.Request
-		if err := websocket.JSON.Receive(ws, &request); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			t.Errorf("receive live watch request: %v", err)
+		correlation := receiveRemoteDescriptorCallIfOpen(t, ws, method, &promptpb.LiveWatchRequest{})
+		if correlation == nil {
 			return
 		}
-		if request.Method != protocol.MethodRuntimeLiveWatch {
-			t.Errorf("method = %q, want %q", request.Method, protocol.MethodRuntimeLiveWatch)
+		result := &promptpb.LiveWatchResult{Outcome: &promptpb.LiveWatchResult_Success{Success: &promptpb.LiveWatchSuccess{SessionId: "session-1", Outcome: &promptpb.LiveWatchOutcome{}}}}
+		frame, err := remoteDescriptorResultFrame(method, correlation, result, protoapi.Marshal)
+		if err != nil {
+			t.Error(err)
 			return
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, serverapi.RuntimeLiveWatchResponse{
-			SessionID: "session-1",
-			Outcome: serverapi.RuntimeLiveWatchOutcome{
-				Kind: serverapi.RuntimeLiveWatchQuestion,
-			},
-		})); err != nil {
-			t.Errorf("send malformed live watch response: %v", err)
+		if err := websocket.Message.Send(ws, frame.Payload); err != nil {
+			t.Error(err)
 		}
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-
-	_, err = remote.LiveWatch(context.Background(), serverapi.RuntimeLiveWatchRequest{SessionID: "session-1"})
-	var invalidResponse *InvalidResponseError
-	if err == nil || !strings.Contains(err.Error(), "validate runtime live watch response") || !errors.As(err, &invalidResponse) {
-		t.Fatalf("LiveWatch error = %v, want response validation error", err)
+	_, err = remote.LiveWatch(context.Background(), &promptpb.LiveWatchRequest{SessionId: "session-1"})
+	var validationError *protovalidate.ValidationError
+	if !errors.As(err, &validationError) {
+		t.Fatalf("LiveWatch error = %v, want generated response validation error", err)
 	}
 }
 
 func TestRemoteLiveWaitRejectsMalformedResponse(t *testing.T) {
+	method := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("LiveService").Methods().ByName("Wait")
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
-		var request protocol.Request
-		if err := websocket.JSON.Receive(ws, &request); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			t.Errorf("receive live wait request: %v", err)
+		correlation := receiveRemoteDescriptorCallIfOpen(t, ws, method, &runtimepb.LiveWaitRequest{})
+		if correlation == nil {
 			return
 		}
-		if request.Method != protocol.MethodRuntimeLiveWait {
-			t.Errorf("method = %q, want %q", request.Method, protocol.MethodRuntimeLiveWait)
+		result := &runtimepb.LiveWaitResult{Outcome: &runtimepb.LiveWaitResult_Success{Success: &runtimepb.LiveWaitSuccess{SessionId: "not-a-session"}}}
+		frame, err := remoteDescriptorResultFrame(method, correlation, result, protoapi.Marshal)
+		if err != nil {
+			t.Error(err)
 			return
 		}
-		_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, serverapi.RuntimeLiveWaitResponse{
-			SessionID: "not-a-session",
-		}))
+		if err := websocket.Message.Send(ws, frame.Payload); err != nil {
+			t.Error(err)
+		}
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-
-	_, err = remote.LiveWait(context.Background(), serverapi.RuntimeLiveWaitRequest{
-		SessionID: "018fdd67-89ab-4cde-8123-456789abcdef",
-	})
-	var invalidResponse *InvalidResponseError
-	if err == nil || !errors.As(err, &invalidResponse) {
-		t.Fatalf("LiveWait error = %v, want InvalidResponseError", err)
+	_, err = remote.LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: "018fdd67-89ab-4cde-8123-456789abcdef"})
+	var validationError *protovalidate.ValidationError
+	if !errors.As(err, &validationError) {
+		t.Fatalf("LiveWait error = %v, want generated response validation error", err)
 	}
 }
 
 func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 	tests := []struct {
 		name     string
-		method   string
-		response any
+		method   protoreflect.MethodDescriptor
+		request  proto.Message
+		response proto.Message
 		call     func(context.Context, *Remote) error
 	}{
 		{
-			name:   "live watch",
-			method: protocol.MethodRuntimeLiveWatch,
-			response: serverapi.RuntimeLiveWatchResponse{
-				SessionID: "session-b",
-				Outcome: serverapi.RuntimeLiveWatchOutcome{
-					Kind: serverapi.RuntimeLiveWatchFinalAnswer,
-					FinalAnswer: &serverapi.RuntimeLiveWatchFinal{
-						SessionName: "Session", DurationMillis: 1,
-					},
-				},
-			},
+			name:    "live watch",
+			method:  promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("LiveWatchService").Methods().ByName("Watch"),
+			request: &promptpb.LiveWatchRequest{},
+			response: &promptpb.LiveWatchSuccess{SessionId: "session-b", Outcome: &promptpb.LiveWatchOutcome{
+				Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{SessionName: "Session", Duration: durationpb.New(time.Millisecond)}},
+			}},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.LiveWatch(ctx, serverapi.RuntimeLiveWatchRequest{SessionID: "session-a"})
+				_, err := remote.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: "session-a"})
 				return err
 			},
 		},
 		{
-			name:   "live wait",
-			method: protocol.MethodRuntimeLiveWait,
-			response: serverapi.RuntimeLiveWaitResponse{
-				SessionID:      "018fdd67-89ab-4cde-8123-456789abcdee",
-				SessionName:    "Session",
-				Result:         stringPointer("done"),
-				DurationMillis: 1,
-				LiveRunGroupID: "018fdd67-89ab-4cde-8123-456789abcdef",
-				TerminalRunID:  "018fdd67-89ab-4cde-8123-456789abcdef",
-				TerminalStepID: "018fdd67-89ab-4cde-8123-456789abcdef",
-				TerminalStatus: "completed",
-				ResultKind:     serverapi.RuntimeLiveResultKindAssistantFinalAnswer,
+			name:    "live wait",
+			method:  runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("LiveService").Methods().ByName("Wait"),
+			request: &runtimepb.LiveWaitRequest{},
+			response: &runtimepb.LiveWaitSuccess{
+				SessionId: "018fdd67-89ab-4cde-8123-456789abcdee", SessionName: "Session",
+				Result:         &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
+				Duration:       durationpb.New(time.Millisecond),
+				LiveRunGroupId: "018fdd67-89ab-4cde-8123-456789abcdef",
+				TerminalRunId:  "018fdd67-89ab-4cde-8123-456789abcdef",
+				TerminalStepId: "018fdd67-89ab-4cde-8123-456789abcdef", TerminalStatus: "completed",
 			},
 			call: func(ctx context.Context, remote *Remote) error {
-				_, err := remote.LiveWait(ctx, serverapi.RuntimeLiveWaitRequest{
-					SessionID: "018fdd67-89ab-4cde-8123-456789abcdef",
-				})
+				_, err := remote.LiveWait(ctx, &runtimepb.LiveWaitRequest{SessionId: "018fdd67-89ab-4cde-8123-456789abcdef"})
 				return err
 			},
 		},
@@ -368,25 +356,26 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 				acceptRemoteHandshake(t, ws)
-				var request protocol.Request
-				if err := websocket.JSON.Receive(ws, &request); err != nil {
+				correlation := receiveRemoteDescriptorCallIfOpen(t, ws, test.method, test.request)
+				if correlation == nil {
 					return
 				}
-				if request.Method != test.method {
+				result, err := protoapi.SuccessResult(test.method, test.response)
+				if err != nil {
+					t.Error(err)
 					return
 				}
-				_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, test.response))
+				sendRemoteDescriptorResult(t, ws, test.method, correlation, result)
 			})
 			remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 			if err != nil {
-				t.Fatalf("DialRemoteURL: %v", err)
+				t.Fatal(err)
 			}
 			defer func() { _ = remote.Close() }()
-
 			err = test.call(context.Background(), remote)
-			var invalidResponse *InvalidResponseError
-			if err == nil || !errors.As(err, &invalidResponse) {
-				t.Fatalf("%s error = %v, want InvalidResponseError", test.name, err)
+			var invalid *InvalidResponseError
+			if !errors.As(err, &invalid) {
+				t.Fatalf("mismatched Session result: %v", err)
 			}
 		})
 	}
@@ -515,7 +504,7 @@ func receiveRemoteGeneratedCall(
 	if call == nil {
 		t.Fatal("generated frame is not a call")
 	}
-	method := worktreeMethod(protoreflect.Name(serviceName), protoreflect.Name(methodName))
+	method := bootstrapMethod(request.ProtoReflect().Descriptor().ParentFile(), protoreflect.Name(serviceName), protoreflect.Name(methodName))
 	operation, err := protoapi.OperationFromDescriptor(method)
 	if err != nil {
 		t.Fatalf("%s.%s operation: %v", serviceName, methodName, err)
@@ -550,37 +539,46 @@ func sendRemoteGeneratedResult(t *testing.T, ws *websocket.Conn, call *sharedpb.
 	}
 }
 
+func sendRemoteGeneratedNotification(t *testing.T, ws *websocket.Conn, method protoreflect.MethodDescriptor, event proto.Message) {
+	t.Helper()
+	operation, err := protoapi.OperationFromDescriptor(method)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := protoapi.Encode(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := protoapi.EncodeEnvelope(&sharedpb.Envelope{Frame: &sharedpb.Envelope_NotificationEvent{
+		NotificationEvent: &sharedpb.NotificationEvent{Operation: operation.Name, Payload: payload},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := websocket.Message.Send(ws, encoded); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemotePersistInputDraftSendsComposerInput(t *testing.T) {
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
-		var request protocol.Request
-		if err := websocket.JSON.Receive(ws, &request); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			t.Fatalf("receive persist input draft: %v", err)
-		}
-		if request.Method != protocol.MethodSessionPersistInputDraft {
-			t.Fatalf("method = %q, want %q", request.Method, protocol.MethodSessionPersistInputDraft)
-		}
-		var decoded serverapi.SessionPersistInputDraftRequest
-		if err := json.Unmarshal(request.Params, &decoded); err != nil {
-			t.Fatalf("decode persist input draft: %v", err)
-		}
+		decoded := &sessionlaunchpb.SessionPersistInputDraftRequest{}
+		request := receiveRemoteGeneratedCall(t, ws, "SessionLifecycleService", "PersistInputDraft", decoded)
 		if decoded.Input != "visible draft" {
 			t.Fatalf("input = %q, want visible draft", decoded.Input)
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, serverapi.SessionPersistInputDraftResponse{})); err != nil {
-			t.Fatalf("send persist input draft response: %v", err)
-		}
+		sendRemoteGeneratedResult(t, ws, request, &sessionlaunchpb.SessionPersistInputDraftResult{
+			Outcome: &sessionlaunchpb.SessionPersistInputDraftResult_Success{Success: &emptypb.Empty{}},
+		})
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: "session-1",
+	_, err = remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: "session-1",
 		Input:     "visible draft",
 	})
 	if err != nil {
@@ -591,16 +589,9 @@ func TestRemotePersistInputDraftSendsComposerInput(t *testing.T) {
 func TestRemoteGetsLatestCommittedAssistantFinalAnswer(t *testing.T) {
 	answer := "durable answer"
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		req := acceptRemoteHandshake(t, ws)
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive final-answer request: %v", err)
-		}
-		if req.Method != protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer {
-			t.Fatalf("method = %q, want %q", req.Method, protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{Answer: &answer})); err != nil {
-			t.Fatalf("send final-answer response: %v", err)
-		}
+		acceptRemoteHandshake(t, ws)
+		call := receiveRemoteGeneratedCall(t, ws, "ReadService", "GetLatestFinalAnswer", &transcriptpb.LatestFinalAnswerRequest{})
+		sendRemoteGeneratedResult(t, ws, call, &transcriptpb.LatestFinalAnswerResult{Outcome: &transcriptpb.LatestFinalAnswerResult_Success{Success: &transcriptpb.LatestFinalAnswerSuccess{Answer: &answer}}})
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -609,7 +600,7 @@ func TestRemoteGetsLatestCommittedAssistantFinalAnswer(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: "session-1"})
+	resp, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("GetLatestCommittedAssistantFinalAnswer: %v", err)
 	}
@@ -624,33 +615,16 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 		if acceptRemoteSessionAttachmentOrClosed(t, ws, "project-1", "workspace-1", "/workspace") == nil {
 			return
 		}
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			t.Fatalf("receive transcript subscribe: %v", err)
-		}
-		if req.Method != protocol.MethodSessionSubscribeTranscript {
-			t.Fatalf("subscribe method = %q, want %q", req.Method, protocol.MethodSessionSubscribeTranscript)
-		}
-		var params serverapi.TranscriptSubscribeRequest
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			t.Fatalf("decode transcript subscribe params: %v", err)
-		}
-		if params.SessionID != "session-1" {
+		params := &transcriptpb.SubscribeRequest{}
+		call := receiveRemoteGeneratedCall(t, ws, "StreamService", "Subscribe", params)
+		if params.SessionId != "session-1" {
 			t.Fatalf("transcript subscribe params = %+v, want session-1", params)
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{})); err != nil {
-			t.Fatalf("send subscribe response: %v", err)
-		}
-		event := protocol.SessionTranscriptEventParams{Message: clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptOperationalDiagnostic{
-			Code:   clientui.OperationalDiagnosticSleepGuardFailed,
-			Detail: "sleep prevention failed",
-		}))}
-		if err := websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionTranscriptEvent, Params: mustJSON(t, event)}); err != nil {
-			t.Fatalf("send transcript event: %v", err)
-		}
+		sendRemoteGeneratedResult(t, ws, call, &transcriptpb.SubscribeResult{Outcome: &transcriptpb.SubscribeResult_Success{Success: &emptypb.Empty{}}})
+		sendRemoteGeneratedNotification(t, ws, bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "StreamService", "Event"),
+			&transcriptpb.Message{Sequence: 2, Event: &transcriptpb.Event{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: &transcriptpb.OperationalDiagnostic{
+				Code: transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_SLEEP_GUARD_FAILED, Detail: "sleep prevention failed",
+			}}}})
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -659,7 +633,7 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 	}
 	defer func() { _ = remote.Close() }()
 
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{SessionID: "session-1"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}
@@ -669,69 +643,32 @@ func TestRemoteSessionTranscriptSubscriptionUsesSeparateRouteAndDecodesMessages(
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
-	if message.Sequence != 2 || message.Kind() != clientui.TranscriptMessageOperationalDiagnostic {
+	if message.Sequence != 2 || message.GetEvent().GetOperationalDiagnostic() == nil {
 		t.Fatalf("transcript message = %+v, want seq=2 operational diagnostic", message)
 	}
 }
 
 func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *testing.T) {
-	at := transcript.CommittedAtUnixMs(1_723_456_789_012)
+	at := timestamppb.New(time.UnixMilli(1_723_456_789_012))
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
 		if acceptRemoteSessionAttachmentOrClosed(t, ws, "project-1", "workspace-1", "/workspace") == nil {
 			return
 		}
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive Question-history subscribe: %v", err)
-		}
-		if req.Method != protocol.MethodSessionQuestionHistorySubscribe {
-			t.Fatalf("subscribe method = %q, want %q", req.Method, protocol.MethodSessionQuestionHistorySubscribe)
-		}
-		var params serverapi.QuestionHistorySubscribeRequest
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			t.Fatalf("decode Question-history subscribe params: %v", err)
-		}
-		if params.SessionID != "session-1" || params.MaxHandoffs != 3 {
+		params := &sessionpb.QuestionHistorySubscribeRequest{}
+		call := receiveRemoteGeneratedCall(t, ws, "QuestionHistoryService", "Subscribe", params)
+		if params.SessionId != "session-1" || params.MaxHandoffs != 3 {
 			t.Fatalf("Question-history subscribe params = %+v", params)
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{})); err != nil {
-			t.Fatalf("send subscribe response: %v", err)
-		}
-		large := false
-		started := protocol.SessionQuestionHistoryEventParams{Event: protocol.SessionQuestionHistoryEvent{
-			Kind: string(serverapi.QuestionHistoryEventStarted), LargeHistory: &large,
-		}}
-		if err := websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionQuestionHistoryEvent, Params: mustJSON(t, started)}); err != nil {
-			t.Fatalf("send started event: %v", err)
-		}
-		selected := 2
-		commentary := "context"
-		question := protocol.SessionQuestionHistoryEventParams{Event: protocol.SessionQuestionHistoryEvent{
-			Kind: string(serverapi.QuestionHistoryEventQuestion),
-			Question: &protocol.SessionQuestionHistoryQuestion{
-				Question: "choose",
-				Answer:   "second", SelectedOptionNumber: &selected,
-				Commentary: &commentary, At: &at,
-			},
-		}}
-		if err := websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionQuestionHistoryEvent, Params: mustJSON(t, question)}); err != nil {
-			t.Fatalf("send Question event: %v", err)
-		}
-		omitted := true
-		completed := protocol.SessionQuestionHistoryEventParams{Event: protocol.SessionQuestionHistoryEvent{
-			Kind: string(serverapi.QuestionHistoryEventCompleted), HistoryOmitted: &omitted,
-		}}
-		if err := websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionQuestionHistoryEvent, Params: mustJSON(t, completed)}); err != nil {
-			t.Fatalf("send completed event: %v", err)
-		}
-		if err := websocket.JSON.Send(ws, protocol.Request{
-			JSONRPC: protocol.JSONRPCVersion,
-			Method:  protocol.MethodSessionQuestionHistoryComplete,
-			Params:  mustJSON(t, protocol.StreamCompleteParams{Code: protocol.ErrCodeStreamFailed, Message: "terminal failure"}),
-		}); err != nil {
-			t.Fatalf("send terminal failure: %v", err)
-		}
+		sendRemoteGeneratedResult(t, ws, call, &sessionpb.QuestionHistorySubscribeResult{Outcome: &sessionpb.QuestionHistorySubscribeResult_Success{Success: &emptypb.Empty{}}})
+		eventMethod := bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "QuestionHistoryService", "Event")
+		sendRemoteGeneratedNotification(t, ws, eventMethod, &sessionpb.QuestionHistoryEvent{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{}}})
+		sendRemoteGeneratedNotification(t, ws, eventMethod, &sessionpb.QuestionHistoryEvent{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+			Question: "choose", Answer: "second", SelectedOptionNumber: proto.Int32(2), Commentary: proto.String("context"), CommittedAt: at,
+		}}})
+		sendRemoteGeneratedNotification(t, ws, eventMethod, &sessionpb.QuestionHistoryEvent{Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: true}}})
+		sendRemoteGeneratedNotification(t, ws, bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "QuestionHistoryService", "Complete"),
+			&sharedpb.StreamCompletion{Code: proto.Int32(protocol.ErrCodeStreamFailed), Message: proto.String("terminal failure")})
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -739,28 +676,27 @@ func TestRemoteQuestionHistorySubscriptionAttachesAndDecodesTerminalStream(t *te
 		t.Fatalf("DialRemote: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeQuestionHistory(context.Background(), serverapi.QuestionHistorySubscribeRequest{
-		SessionID: "session-1", MaxHandoffs: 3,
+	sub, err := remote.SubscribeQuestionHistory(context.Background(), &sessionpb.QuestionHistorySubscribeRequest{
+		SessionId: "session-1", MaxHandoffs: 3,
 	})
 	if err != nil {
 		t.Fatalf("SubscribeQuestionHistory: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
 	started, err := sub.Next(context.Background())
-	if err != nil || started.Kind != serverapi.QuestionHistoryEventStarted {
+	if err != nil || started.GetStarted() == nil {
 		t.Fatalf("started = %+v error %v", started, err)
 	}
 	question, err := sub.Next(context.Background())
-	if err != nil || question.Question == nil ||
-		question.Question.SelectedOptionNumber == nil ||
-		*question.Question.SelectedOptionNumber != 2 ||
-		question.Question.Commentary == nil ||
-		question.Question.At == nil ||
-		question.Question.At.UnixMs() != at.UnixMs() {
+	if err != nil || question.GetQuestion() == nil ||
+		question.GetQuestion().SelectedOptionNumber == nil ||
+		*question.GetQuestion().SelectedOptionNumber != 2 ||
+		question.GetQuestion().Commentary == nil ||
+		!proto.Equal(question.GetQuestion().CommittedAt, at) {
 		t.Fatalf("Question = %+v error %v", question, err)
 	}
 	completed, err := sub.Next(context.Background())
-	if err != nil || completed.HistoryOmitted == nil || !*completed.HistoryOmitted {
+	if err != nil || completed.GetCompleted() == nil || !completed.GetCompleted().HistoryOmitted {
 		t.Fatalf("completed = %+v error %v", completed, err)
 	}
 	if _, err := sub.Next(context.Background()); !errors.Is(err, serverapi.ErrStreamFailed) {
@@ -774,24 +710,14 @@ func TestRemoteSessionTranscriptSubscriptionPreservesTypedCloseReason(t *testing
 		if acceptRemoteSessionAttachmentOrClosed(t, ws, "project-1", "workspace-1", "/workspace") == nil {
 			return
 		}
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			t.Fatalf("receive transcript subscribe: %v", err)
+		call := receiveRemoteGeneratedCall(t, ws, "StreamService", "Subscribe", &transcriptpb.SubscribeRequest{})
+		sendRemoteGeneratedResult(t, ws, call, &transcriptpb.SubscribeResult{Outcome: &transcriptpb.SubscribeResult_Success{Success: &emptypb.Empty{}}})
+		complete := &sharedpb.StreamCompletion{
+			Code:                  proto.Int32(protocol.ErrCodeStreamGap),
+			Message:               proto.String(serverapi.ErrStreamGap.Error()),
+			TranscriptCloseReason: sharedpb.TranscriptCloseReason_TRANSCRIPT_CLOSE_REASON_SUBSCRIBER_OVERFLOW.Enum(),
 		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{})); err != nil {
-			t.Fatalf("send subscribe response: %v", err)
-		}
-		complete := protocol.StreamCompleteParams{
-			Code:                  protocol.ErrCodeStreamGap,
-			Message:               serverapi.ErrStreamGap.Error(),
-			TranscriptCloseReason: string(serverapi.TranscriptCloseReasonSubscriberOverflow),
-		}
-		if err := websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionTranscriptComplete, Params: mustJSON(t, complete)}); err != nil {
-			t.Fatalf("send transcript complete: %v", err)
-		}
+		sendRemoteGeneratedNotification(t, ws, bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "StreamService", "Complete"), complete)
 	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
@@ -800,7 +726,7 @@ func TestRemoteSessionTranscriptSubscriptionPreservesTypedCloseReason(t *testing
 	}
 	defer func() { _ = remote.Close() }()
 
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{SessionID: "session-1"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}
@@ -1188,7 +1114,7 @@ func remoteTestRegisteredWorktreeEntry(t *testing.T, sessionScoped bool) *worktr
 
 func remoteTestWorktreeExecutionTarget() *worktreepb.SessionExecutionTarget {
 	return &worktreepb.SessionExecutionTarget{
-		WorkspaceId:           "workspace",
+		WorkspaceId:           proto.String("workspace"),
 		WorkspaceName:         "Workspace",
 		WorkspaceRoot:         "/repo",
 		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
@@ -1378,25 +1304,6 @@ func TestProtocolErrorDecodesWorkflowLabelError(t *testing.T) {
 	}
 }
 
-func TestProtocolErrorDecodesSessionRetargetError(t *testing.T) {
-	source := &serverapi.SessionRetargetError{
-		Reason:        serverapi.SessionRetargetTargetProjectRequired,
-		SessionID:     "session-1",
-		SourceProject: serverapi.ProjectReference{ID: "project-source", Name: "Source"},
-		TargetRoot:    "/work/target",
-		CandidateProjects: []serverapi.ProjectReference{{
-			ID:   "project-target",
-			Name: "Target",
-		}},
-	}
-	err := protocolError(&protocol.ResponseError{
-		Code:    protocol.ErrCodeSessionRetarget,
-		Message: source.Error(),
-		Data:    mustRPCErrorData(t, source),
-	})
-	assertRemoteSessionRetargetError(t, err, source)
-}
-
 func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 	source := &serverapi.SessionRetargetError{
 		Reason:        serverapi.SessionRetargetTargetProjectRequired,
@@ -1409,13 +1316,24 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 		}},
 	}
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		req := acceptRemoteHandshake(t, ws)
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive session retarget request: %v", err)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewErrorResponseWithData(req.ID, source.RPCErrorCode(), source.Error(), mustRPCErrorData(t, source))); err != nil {
-			t.Fatalf("send session retarget error: %v", err)
-		}
+		acceptRemoteHandshake(t, ws)
+		request := &sessionlaunchpb.SessionRetargetWorkspaceRequest{}
+		call := receiveRemoteGeneratedCall(t, ws, "SessionLifecycleService", "RetargetWorkspace", request)
+		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRetargetWorkspaceResult{
+			Outcome: &sessionlaunchpb.SessionRetargetWorkspaceResult_Error{Error: &sessionlaunchpb.SessionRetargetWorkspaceError{
+				Code: "target_project_required",
+				Detail: &sessionlaunchpb.SessionRetargetWorkspaceError_TargetProjectRequired{
+					TargetProjectRequired: &sessionlaunchpb.SessionRetargetTargetProjectRequiredDetails{
+						Facts: &sessionlaunchpb.SessionRetargetFacts{
+							SessionId:         source.SessionID,
+							SourceProject:     &sessionlaunchpb.ProjectReference{Id: source.SourceProject.ID, Name: source.SourceProject.Name},
+							TargetRoot:        source.TargetRoot,
+							CandidateProjects: []*sessionlaunchpb.ProjectReference{{Id: source.CandidateProjects[0].ID, Name: source.CandidateProjects[0].Name}},
+						},
+					},
+				},
+			}},
+		})
 	})
 	defer server.Close()
 
@@ -1424,8 +1342,8 @@ func TestRemoteSessionRetargetErrorRoundTrip(t *testing.T) {
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{
-		SessionID:     source.SessionID,
+	_, err = remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+		SessionId:     source.SessionID,
 		WorkspaceRoot: source.TargetRoot,
 	})
 	assertRemoteSessionRetargetError(t, err, source)
@@ -1695,78 +1613,57 @@ func TestProtocolErrorMapsEquivalentRuntimeSentinel(t *testing.T) {
 	}
 }
 
-func TestProtocolErrorDecodesPendingWorkNotPending(t *testing.T) {
-	id := runtimeids.NewQueueItemID()
-	source := &serverapi.PendingWorkNotPendingError{ItemID: id}
-	decoded := protocolError(&protocol.ResponseError{Code: source.RPCErrorCode(), Message: source.Error(), Data: source.RPCErrorData()})
-	var typed *serverapi.PendingWorkNotPendingError
-	if !errors.Is(decoded, serverapi.ErrPendingWorkNotPending) || !errors.As(decoded, &typed) || typed.ItemID != id {
-		t.Fatalf("decoded = %+v", decoded)
-	}
-	if err := serverapi.DecodePendingWorkNotPendingError((&serverapi.PendingWorkNotPendingError{}).RPCErrorData()); err == nil {
-		t.Fatal("invalid internal item id encoded as typed not-pending")
-	}
-}
-
-func TestProtocolErrorDecodesPendingWorkCapacityDirectly(t *testing.T) {
-	source := &serverapi.PendingWorkCapacityError{}
-	decoded := protocolError(&protocol.ResponseError{
-		Code:    source.RPCErrorCode(),
-		Message: source.Error(),
-		Data:    source.RPCErrorData(),
-	})
-	var typed *serverapi.PendingWorkCapacityError
-	if !errors.Is(decoded, serverapi.ErrPendingWorkCapacity) || !errors.As(decoded, &typed) {
-		t.Fatalf("decoded = %T %v, want typed Pending Work capacity", decoded, decoded)
-	}
-	if err := serverapi.DecodePendingWorkCapacityError(json.RawMessage(`{"reason":"other"}`)); err == nil {
-		t.Fatal("invalid Pending Work capacity reason decoded as typed capacity")
-	}
-}
-
 func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	guidance := "keep details"
 	exact := "/compact keep details"
 	requestID := runtimeids.NewCompactionRequestID()
-	wire := mustJSON(t, serverapi.RuntimeCompactContextRequest{
-		SessionID: "session-1", RequestID: requestID,
-		Admission: serverapi.ManualCompactionAdmission{Guidance: &guidance}})
-	var compactRequest serverapi.RuntimeCompactContextRequest
-	if err := json.Unmarshal(wire, &compactRequest); err != nil {
+	wire, err := protoapi.Encode(&runtimepb.CompactContextRequest{
+		SessionId: "session-1", RequestId: requestID.String(),
+		Admission: &runtimepb.ManualCompactionAdmission{Guidance: &guidance}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if compactRequest.RequestID != requestID ||
+	var compactRequest runtimepb.CompactContextRequest
+	if err := protoapi.Decode(wire, &compactRequest); err != nil {
+		t.Fatal(err)
+	}
+	if compactRequest.RequestId != requestID.String() ||
 		compactRequest.Admission.Guidance == nil ||
 		*compactRequest.Admission.Guidance != guidance {
-		t.Fatalf("compact request = %+v", compactRequest)
+		t.Fatalf("compact request = %+v", &compactRequest)
 	}
 	id := runtimeids.NewQueueItemID()
-	list := serverapi.RuntimeListPendingWorkResponse{PendingWork: serverapi.PendingWork{Items: []serverapi.PendingWorkItem{{
-		ID: id, Lane: serverapi.PendingWorkLaneSteer, Kind: serverapi.PendingWorkItemKindManualCompaction,
+	list := &runtimepb.ListPendingWorkSuccess{PendingWork: &runtimepb.PendingWork{Items: []*runtimepb.PendingWorkItem{{
+		Id: id.String(), Lane: runtimepb.PendingWorkLane_PENDING_WORK_LANE_STEER, Kind: runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MANUAL_COMPACTION,
 		CanonicalInput: exact,
-		State:          serverapi.PendingWorkItemStatePending, ManualCompaction: &serverapi.PendingWorkManualCompaction{
-			Guidance: &guidance},
+		State:          runtimepb.PendingWorkItemState_PENDING_WORK_ITEM_STATE_PENDING,
+		Payload:        &runtimepb.PendingWorkItem_ManualCompaction{ManualCompaction: &runtimepb.ManualCompactionAdmission{Guidance: &guidance}},
 	}}}}
-	removed := serverapi.RuntimeRemovePendingWorkResponse{Restoration: serverapi.PendingWorkRestoration{
-		Kind:           serverapi.PendingWorkItemKindManualCompaction,
+	removed := &runtimepb.RemovePendingWorkSuccess{Restoration: &runtimepb.PendingWorkRestoration{
+		Kind:           runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MANUAL_COMPACTION,
 		CanonicalInput: exact,
 	}}
-	invalid := list
-	invalid.PendingWork.Items = []serverapi.PendingWorkItem{list.PendingWork.Items[0]}
-	invalid.PendingWork.Items[0].ManualCompaction = nil
-	methods := []string{protocol.MethodRuntimeListPendingWork, protocol.MethodRuntimeRemovePendingWork, protocol.MethodRuntimeListPendingWork}
-	responses := []any{list, removed, invalid}
+	invalid := proto.Clone(list).(*runtimepb.ListPendingWorkSuccess)
+	invalid.PendingWork.Items[0].Payload = nil
+	service := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService")
+	listMethod := service.Methods().ByName("ListPendingWork")
+	removeMethod := service.Methods().ByName("RemovePendingWork")
+	methods := []protoreflect.MethodDescriptor{listMethod, removeMethod, listMethod}
+	responses := []proto.Message{list, removed, invalid}
+	requests := []proto.Message{&runtimepb.ListPendingWorkRequest{}, &runtimepb.RemovePendingWorkRequest{}, &runtimepb.ListPendingWorkRequest{}}
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
 		for index, response := range responses {
-			var request protocol.Request
-			if err := websocket.JSON.Receive(ws, &request); err != nil {
+			correlation := receiveRemoteDescriptorCall(t, ws, methods[index], requests[index])
+			result, err := protoapi.SuccessResult(methods[index], response)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if request.Method != methods[index] {
-				t.Fatalf("method = %q, want %q", request.Method, methods[index])
+			frame, err := remoteDescriptorResultFrame(methods[index], correlation, result, protoapi.Marshal)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, response)); err != nil {
+			if err := websocket.Message.Send(ws, frame.Payload); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1776,28 +1673,28 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	gotList, err := remote.ListPendingWork(context.Background(), serverapi.RuntimeListPendingWorkRequest{SessionID: "session-1"})
+	gotList, err := remote.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	compaction := gotList.PendingWork.Items[0].ManualCompaction
+	compaction := gotList.PendingWork.Items[0].GetManualCompaction()
 	if compaction == nil || compaction.Guidance == nil || *compaction.Guidance != guidance ||
 		gotList.PendingWork.Items[0].CanonicalInput != exact {
 		t.Fatalf("listed compaction = %+v", compaction)
 	}
-	gotRemoval, err := remote.RemovePendingWork(context.Background(), serverapi.RuntimeRemovePendingWorkRequest{SessionID: "session-1", ItemID: id})
+	gotRemoval, err := remote.RemovePendingWork(context.Background(), &runtimepb.RemovePendingWorkRequest{SessionId: "session-1", ItemId: id.String()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotRemoval.Restoration.Kind != serverapi.PendingWorkItemKindManualCompaction ||
+	if gotRemoval.Restoration.Kind != runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MANUAL_COMPACTION ||
 		gotRemoval.Restoration.CanonicalInput != exact {
 		t.Fatalf("removal = %+v", gotRemoval.Restoration)
 	}
-	if _, err := remote.ListPendingWork(context.Background(), serverapi.RuntimeListPendingWorkRequest{SessionID: "session-1"}); err == nil {
+	if _, err := remote.ListPendingWork(context.Background(), &runtimepb.ListPendingWorkRequest{SessionId: "session-1"}); err == nil {
 		t.Fatal("invalid list response was accepted")
 	}
 }
-func TestProtocolErrorDecodesRuntimeCommandNotAcceptedCauses(t *testing.T) {
+func TestBinaryErrorDecodesRuntimeCommandNotAcceptedCauses(t *testing.T) {
 	command := runtimeinput.PromptCommandReviewName
 	promptCause := &serverapi.PromptCommandError{
 		Kind:    serverapi.PromptCommandErrorKindCommandNotFound,
@@ -1847,52 +1744,21 @@ func TestProtocolErrorDecodesRuntimeCommandNotAcceptedCauses(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			source := serverapi.NewRuntimeCommandNotAcceptedError(test.cause)
-			decoded := protocolError(&protocol.ResponseError{
-				Code:    source.RPCErrorCode(),
-				Message: source.Error(),
-				Data:    source.RPCErrorData(),
-			})
+			details := protoapi.RuntimeCommandNotAcceptedToProto("session-1", source)
+			wire, err := protoapi.Encode(details)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var received runtimepb.RuntimeCommandNotAcceptedDetails
+			if err := protoapi.Decode(wire, &received); err != nil {
+				t.Fatal(err)
+			}
+			decoded := protoapi.RuntimeCommandNotAcceptedFromProto(&received)
 			if !errors.Is(decoded, serverapi.ErrRuntimeCommandNotAccepted) {
 				t.Fatalf("decoded error = %v, want runtime command not accepted", decoded)
 			}
 			test.check(t, decoded)
 		})
-	}
-}
-
-func TestProtocolErrorRejectsMalformedRuntimeCommandNotAcceptedCause(t *testing.T) {
-	for _, data := range []json.RawMessage{
-		nil,
-		json.RawMessage(`{}`),
-		mustJSON(t, struct {
-			Cause protocol.ResponseError `json:"cause"`
-		}{Cause: protocol.ResponseError{
-			Code:    protocol.ErrCodeRuntimeCommandNotAccepted,
-			Message: "nested self",
-		}}),
-		mustJSON(t, struct {
-			Cause protocol.ResponseError `json:"cause"`
-		}{Cause: protocol.ResponseError{
-			Code:    protocol.ErrCodePromptCommands,
-			Message: "invalid prompt cause",
-			Data:    json.RawMessage(`{}`),
-		}}),
-		mustJSON(t, struct {
-			Cause protocol.ResponseError `json:"cause"`
-		}{Cause: protocol.ResponseError{
-			Code:    protocol.ErrCodeManualCompactionTooSoon,
-			Message: "invalid manual compaction cause",
-			Data:    json.RawMessage(`{"reason":"active"}`),
-		}}),
-	} {
-		err := protocolError(&protocol.ResponseError{
-			Code:    protocol.ErrCodeRuntimeCommandNotAccepted,
-			Message: "not accepted",
-			Data:    data,
-		})
-		if errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-			t.Fatalf("malformed nested cause decoded as runtime command not accepted: %v", err)
-		}
 	}
 }
 

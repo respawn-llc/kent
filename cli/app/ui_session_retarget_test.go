@@ -1,10 +1,13 @@
 package app
 
 import (
-	"testing"
-
-	"core/shared/clientui"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
+	textutil "core/shared/textutil"
+	"testing"
 )
 
 func TestSessionWorkspaceIdentityChangeReopensMovedSession(t *testing.T) {
@@ -14,22 +17,16 @@ func TestSessionWorkspaceIdentityChangeReopensMovedSession(t *testing.T) {
 	}
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{}, WithUISessionID(sessionID.String()))
 	identity := func(sequence uint64, workspaceID, root string) {
-		target := &clientui.SessionExecutionTarget{
-			WorkspaceID:           workspaceID,
+		target := &worktreepb.SessionExecutionTarget{WorkspaceId: textutil.Value(workspaceID),
 			WorkspaceName:         workspaceID,
 			WorkspaceRoot:         root,
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 			CwdRelpath:            ".",
-			EffectiveWorkdir:      root,
-		}
-		model.applyAdmittedTranscriptMessageState(
-			clientui.NewTranscriptMessage(sequence, clientui.NewTranscriptEvent(clientui.TranscriptSessionIdentity{
-				SessionID:             sessionID,
-				ConversationFreshness: clientui.ConversationFreshnessEstablished,
-				ExecutionTarget:       target,
-			})),
-			runtimeTupleMergeResult{},
-		)
+			EffectiveWorkdir:      root}
+		model.applyAdmittedTranscriptMessageState(transcriptTestMessage(sequence, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+			ExecutionTarget:       target}),
+			runtimeTupleMergeResult{})
 	}
 	identity(1, "workspace-a", "/workspace-a")
 	identity(2, "workspace-b", "/workspace-b")

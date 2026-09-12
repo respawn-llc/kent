@@ -1058,8 +1058,8 @@ func TestCommitSessionWorkspaceRetargetAttachesTargetAndUpdatesSession(t *testin
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != retargeted.WorkspaceID {
-		t.Fatalf("target workspace id = %q, want %q", target.WorkspaceID, retargeted.WorkspaceID)
+	if target.GetWorkspaceId() != retargeted.WorkspaceID {
+		t.Fatalf("target workspace id = %q, want %q", target.GetWorkspaceId(), retargeted.WorkspaceID)
 	}
 	if target.WorkspaceRoot != canonicalWorkspaceB {
 		t.Fatalf("target workspace root = %q, want %q", target.WorkspaceRoot, canonicalWorkspaceB)
@@ -1330,7 +1330,7 @@ func TestRebindWorkspaceRetargetsDescendantWorktrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.Worktree == nil || target.Worktree.ID != worktreeID {
+	if target.Worktree == nil || target.Worktree.Id != worktreeID {
 		t.Fatalf("target worktree = %+v, want %q", target.Worktree, worktreeID)
 	}
 	if target.Worktree == nil || target.Worktree.Root != canonicalNewWorktree {

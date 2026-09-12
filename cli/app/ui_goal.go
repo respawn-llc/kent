@@ -1,15 +1,19 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"strings"
 
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
+	"core/cli/tui"
 	"core/shared/clientui"
 	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"google.golang.org/protobuf/proto"
 )
 
 const noGoalHint = "No goal to manage yet. First, start a goal with /goal <objective>"
@@ -44,23 +48,23 @@ func (m *uiModel) workflowSessionActive() bool {
 	return status.WorkflowSession != nil
 }
 
-func goalIsActive(goal *clientui.RuntimeGoal) bool {
-	return goal != nil && goal.Goal != nil && goal.Goal.Status == clientui.RuntimeGoalStatusActive
+func goalIsActive(goal *runtimepb.GoalView) bool {
+	return goal != nil && goal.Goal != nil && goal.Goal.Status == runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE
 }
 
-func goalIsPresent(goal *clientui.RuntimeGoal) bool {
+func goalIsPresent(goal *runtimepb.GoalView) bool {
 	if goal == nil || goal.Goal == nil {
 		return false
 	}
 	switch goal.Goal.Status {
-	case clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused:
+	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE, runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED:
 		return true
 	default:
 		return false
 	}
 }
 
-func goalRequiresClearConfirmation(goal *clientui.RuntimeGoal) bool {
+func goalRequiresClearConfirmation(goal *runtimepb.GoalView) bool {
 	return goalIsActive(goal)
 }
 
@@ -335,7 +339,7 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	}
 }
 
-func (m *uiModel) openGoalOverlay(goal *clientui.RuntimeGoal, err error) {
+func (m *uiModel) openGoalOverlay(goal *runtimepb.GoalView, err error) {
 	m.goal.open = true
 	m.goal.scroll = 0
 	m.goal.goal = goalCoreFromRuntimeGoal(goal)
@@ -346,7 +350,7 @@ func (m *uiModel) openGoalOverlay(goal *clientui.RuntimeGoal, err error) {
 	m.setInputMode(uiInputModeGoal)
 }
 
-func (m *uiModel) openGoalConfirmOverlay(mode string, goal *clientui.RuntimeGoal, pendingObjective string, err error) {
+func (m *uiModel) openGoalConfirmOverlay(mode string, goal *runtimepb.GoalView, pendingObjective string, err error) {
 	m.openGoalOverlay(goal, err)
 	m.goal.confirmMode = strings.TrimSpace(mode)
 	m.goal.confirmSelection = goalConfirmSelectionCancel
@@ -480,10 +484,14 @@ func (l uiViewLayout) goalOverlayContentLines(width int) []string {
 		return builder.lines
 	}
 	goal := m.goal.goal
+	status, err := tui.GoalStatusLabel(goal.Status)
+	if err != nil {
+		panic(err)
+	}
 	builder.appendGap()
-	builder.appendWrapped("Status: "+strings.TrimSpace(string(goal.Status)), boldStyle)
-	if strings.TrimSpace(goal.ID) != "" {
-		builder.appendWrapped("ID: "+strings.TrimSpace(goal.ID), subtleStyle)
+	builder.appendWrapped("Status: "+status, boldStyle)
+	if strings.TrimSpace(goal.Id) != "" {
+		builder.appendWrapped("ID: "+strings.TrimSpace(goal.Id), subtleStyle)
 	}
 	builder.appendGap()
 	builder.appendWrapped("Objective", titleStyle)
@@ -525,21 +533,20 @@ func (l uiViewLayout) goalConfirmContentLines(width int, titleStyle, boldStyle, 
 	return builder.lines
 }
 
-func goalCoreFromMutationResult(result clientui.GoalMutationResult) *clientui.Goal {
+func goalCoreFromMutationResult(result clientui.GoalMutationResult) *runtimepb.Goal {
 	return cloneGoalCore(result.Goal)
 }
 
-func goalCoreFromRuntimeGoal(runtimeGoal *clientui.RuntimeGoal) *clientui.Goal {
+func goalCoreFromRuntimeGoal(runtimeGoal *runtimepb.GoalView) *runtimepb.Goal {
 	if runtimeGoal == nil {
 		return nil
 	}
 	return cloneGoalCore(runtimeGoal.Goal)
 }
 
-func cloneGoalCore(source *clientui.Goal) *clientui.Goal {
+func cloneGoalCore(source *runtimepb.Goal) *runtimepb.Goal {
 	if source == nil {
 		return nil
 	}
-	goal := *source
-	return &goal
+	return proto.Clone(source).(*runtimepb.Goal)
 }

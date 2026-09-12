@@ -74,8 +74,8 @@ func TestPlanSessionWorkspaceRetargetRejectsForeignOnlyDefaultWithoutMutation(t 
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != fixture.source.WorkspaceID {
-		t.Fatalf("session workspace = %q, want unchanged %q", target.WorkspaceID, fixture.source.WorkspaceID)
+	if target.GetWorkspaceId() != fixture.source.WorkspaceID {
+		t.Fatalf("session workspace = %q, want unchanged %q", target.GetWorkspaceId(), fixture.source.WorkspaceID)
 	}
 }
 

@@ -19,12 +19,12 @@ import (
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/tools"
-	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 type deleteInFlightStartLifecycle struct {
@@ -140,7 +140,7 @@ func deleteActivityRuntimePlan(
 }
 
 type deleteTargetState struct {
-	sessionTarget clientui.SessionExecutionTarget
+	sessionTarget *worktreepb.SessionExecutionTarget
 	topology      serviceTestWorktree
 	record        metadata.WorktreeRecord
 	git           GitWorktree
@@ -215,7 +215,7 @@ func (state deleteTargetState) assertUnchanged(t *testing.T, env *serviceTestEnv
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget after rejected delete: %v", err)
 	}
-	if !reflect.DeepEqual(target, state.sessionTarget) {
+	if !proto.Equal(target, state.sessionTarget) {
 		t.Fatalf("busy session target changed after rejected delete: before=%+v after=%+v", state.sessionTarget, target)
 	}
 	topology := findWorktreeByID(t, mustListWorktrees(t, env).Worktrees, worktreeID)

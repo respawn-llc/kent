@@ -8,7 +8,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 )
 
 type ReadOnlySessionModel struct {
@@ -37,7 +37,7 @@ func (p ReadOnlySessionModelProvider) ID() string {
 }
 
 type ReadOnlySessionModelUnavailableError struct {
-	Reason serverapi.SessionExecutionModelUnavailableReason
+	Reason sessionpb.ExecutionModelUnavailableReason
 }
 
 func (e *ReadOnlySessionModelUnavailableError) Error() string {
@@ -98,7 +98,7 @@ func ResolveReadOnlySessionModel(app config.App, meta session.Meta) (ReadOnlySes
 	name := strings.TrimSpace(active.Model)
 	if name == "" {
 		return ReadOnlySessionModel{}, &ReadOnlySessionModelUnavailableError{
-			Reason: serverapi.SessionExecutionModelUnavailableNotConfigured,
+			Reason: sessionpb.ExecutionModelUnavailableReason_EXECUTION_MODEL_UNAVAILABLE_REASON_NOT_CONFIGURED,
 		}
 	}
 	provider, err := resolveReadOnlySessionModelProviderFromSettings(active)

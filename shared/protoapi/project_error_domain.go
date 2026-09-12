@@ -30,7 +30,7 @@ func WorkspaceBindingAmbiguousFromProto(details *projectpb.WorkspaceBindingAmbig
 }
 
 func ProjectUnavailableToProto(value serverapi.ProjectUnavailableError) (*projectpb.ProjectUnavailableDetails, error) {
-	availability, err := projectAvailabilityToProto(value.Availability)
+	availability, err := ProjectAvailabilityToProto(value.Availability)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func ProjectUnavailableFromProto(details *projectpb.ProjectUnavailableDetails) (
 	if err := Validate(details); err != nil {
 		return serverapi.ProjectUnavailableError{}, fmt.Errorf("convert unavailable project from protobuf: %w", err)
 	}
-	availability, err := projectAvailabilityFromProto(details.Availability)
+	availability, err := ProjectAvailabilityFromProto(details.Availability)
 	if err != nil {
 		return serverapi.ProjectUnavailableError{}, err
 	}
@@ -95,7 +95,7 @@ func WorkspaceBindingAmbiguousMutationFromProto(details *projectpb.WorkspaceBind
 	return serverapi.WorkspaceBindingAmbiguousError{ProjectIDs: append([]string(nil), details.ProjectIds...)}
 }
 
-func projectAvailabilityToProto(value clientui.ProjectAvailability) (projectpb.ProjectAvailability, error) {
+func ProjectAvailabilityToProto(value clientui.ProjectAvailability) (projectpb.ProjectAvailability, error) {
 	switch value {
 	case clientui.ProjectAvailabilityAvailable:
 		return projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE, nil
@@ -110,7 +110,7 @@ func projectAvailabilityToProto(value clientui.ProjectAvailability) (projectpb.P
 	}
 }
 
-func projectAvailabilityFromProto(value projectpb.ProjectAvailability) (clientui.ProjectAvailability, error) {
+func ProjectAvailabilityFromProto(value projectpb.ProjectAvailability) (clientui.ProjectAvailability, error) {
 	switch value {
 	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE:
 		return clientui.ProjectAvailabilityAvailable, nil

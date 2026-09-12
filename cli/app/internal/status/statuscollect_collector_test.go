@@ -3,22 +3,21 @@ package status
 import (
 	"context"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	"core/shared/serverapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type statusSessionViewStub struct {
 	apicontract.SessionViewService
 	mainViewCalls int
-	view          clientui.RuntimeMainView
+	view          *runtimepb.MainView
 }
 
 type statusAuthStatusStub struct {
@@ -46,9 +45,9 @@ func (s *recordingStatusAuthStatusStub) GetStatus(
 	return s.response, nil
 }
 
-func (s *statusSessionViewStub) GetSessionMainView(_ context.Context, _ serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
+func (s *statusSessionViewStub) GetSessionMainView(_ context.Context, _ *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	s.mainViewCalls++
-	return serverapi.SessionMainViewResponse{MainView: s.view}, nil
+	return &sessionpb.MainViewSuccess{MainView: s.view}, nil
 }
 
 func TestCollectEnvironmentDisabledSkillRemainsVisibleAndStillCollectsAgents(t *testing.T) {
@@ -183,16 +182,9 @@ func TestCollectBasePreservesOptionalAgentRole(t *testing.T) {
 func TestEnrichBaseUsesCurrentSessionRoleAsAuthoritative(t *testing.T) {
 	cachedRole := "stale"
 	storedRole := "qa_tester"
-	for name, role := range map[string]*string{
-		"named agent":   &storedRole,
-		"default agent": nil,
-	} {
+	for name, role := range map[string]*string{"named agent": &storedRole, "default agent": nil} {
 		t.Run(name, func(t *testing.T) {
-			sessionViews := &statusSessionViewStub{
-				view: clientui.RuntimeMainView{
-					Session: clientui.RuntimeSessionView{SessionID: "session-1", AgentRole: role},
-				},
-			}
+			sessionViews := &statusSessionViewStub{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1", AgentRole: role}}}
 			snapshot := (Collector{}).EnrichBase(context.Background(), Request{
 				SessionID:    "session-1",
 				SessionViews: sessionViews,
@@ -200,7 +192,6 @@ func TestEnrichBaseUsesCurrentSessionRoleAsAuthoritative(t *testing.T) {
 				SessionID: "session-1",
 				AgentRole: &cachedRole,
 			})
-
 			if sessionViews.mainViewCalls != 1 {
 				t.Fatalf("current session view calls = %d, want 1", sessionViews.mainViewCalls)
 			}

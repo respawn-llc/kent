@@ -54,18 +54,10 @@ const (
 	ErrCodeWorktreeBlocked                   = -32048
 	ErrCodeWorkflowTaskSearch                = -32052
 	ErrCodeWorkflowTaskDependency            = -32053
-	ErrCodeManualCompactionTooSoon           = -32054
-	ErrCodeManualCompactionDisabled          = -32055
-	ErrCodeManualCompactionActive            = -32056
 	ErrCodeWorkflowTaskMutationSelfTarget    = -32057
 	ErrCodeWorktreeCreate                    = -32058
-	ErrCodePromptCommands                    = -32059
 	ErrCodeWorkflowTaskInitialBranch         = -32060
-	ErrCodeRuntimeCommandNotAccepted         = -32061
 	ErrCodeWorkflowTaskStartConflict         = -32062
-	ErrCodeChatSettingsAgentPreparation      = -32063
-	ErrCodePendingWorkNotPending             = -32064
-	ErrCodePendingWorkCapacity               = -32065
 )
 
 type Request struct {

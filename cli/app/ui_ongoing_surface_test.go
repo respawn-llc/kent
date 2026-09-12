@@ -2,20 +2,18 @@ package app
 
 import (
 	"bytes"
+	"core/cli/tui/ongoing"
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/analyzer"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	tea "github.com/charmbracelet/bubbletea"
+	xansi "github.com/charmbracelet/x/ansi"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
-
-	"core/cli/tui/ongoing"
-	"core/internal/testharness/pty"
-	"core/internal/testharness/pty/analyzer"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
-	"core/shared/transcript"
-
-	tea "github.com/charmbracelet/bubbletea"
-	xansi "github.com/charmbracelet/x/ansi"
 )
 
 func withUIOngoingTranscriptController(controller *ongoingTranscriptController) UIOption {
@@ -29,8 +27,7 @@ func TestNativeOngoingViewSuppressesBubbleTeaNormalBufferFrame(t *testing.T) {
 	gate := newUIRendererOutputGateState()
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIRendererOutputGateState(gate),
-		WithUIOngoingSurface(ongoing.NewSurface(&bytes.Buffer{})),
-	), 40, 10)
+		WithUIOngoingSurface(ongoing.NewSurface(&bytes.Buffer{}))), 40, 10)
 
 	if got := m.View(); got != "" {
 		t.Fatalf("ongoing View() = %q, want empty renderer frame", got)
@@ -54,8 +51,7 @@ func TestNativeOngoingSurfaceWritesBypassRendererGate(t *testing.T) {
 
 	if _, err := surface.Render(ongoing.FrameInput{
 		Size:     ongoing.Size{Width: 20, Height: 3},
-		Sections: []ongoing.FrameSection{{Kind: ongoing.FrameSectionStatus, Lines: []string{"ready"}}},
-	}); err != nil {
+		Sections: []ongoing.FrameSection{{Kind: ongoing.FrameSectionStatus, Lines: []string{"ready"}}}}); err != nil {
 		t.Fatalf("render ongoing surface: %v", err)
 	}
 
@@ -91,8 +87,7 @@ func TestNativeOngoingHydrationWaitsForWindowSize(t *testing.T) {
 	_ = m.Init()
 	_, _ = m.Update(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: ongoingHydrationMessage(1),
-	})
+		Message: ongoingHydrationMessage(1)})
 	if len(spySurface.calls) != 0 {
 		t.Fatalf("surface calls before window size = %v, want none", spySurface.callKinds())
 	}
@@ -112,21 +107,18 @@ func TestNativeOngoingFirstWindowSizeSuppressesDelayedRendererClearAfterHydratio
 	surface := ongoing.NewSurface(&out)
 	m := newProjectedStaticUIModel(
 		WithUIRendererOutputGateState(gate),
-		WithUIOngoingSurface(surface),
-	)
+		WithUIOngoingSurface(surface))
 	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 
 	_ = m.Init()
 	hydration := ongoingHydrationMessage(1)
-	hydrationPayload := hydration.Payload().(clientui.TranscriptHydration)
-	hydrationPayload.TailSegment.Entries = []clientui.TranscriptCommittedRow{
-		ongoingTranscriptMessage(2, clientui.TranscriptMessageCommittedRow).Payload().(clientui.TranscriptCommittedRow),
-	}
-	hydration = clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(hydrationPayload))
+	hydrationPayload := hydration.GetEvent().GetHydration()
+	hydrationPayload.TailSegment.Entries = []*transcriptpb.CommittedRow{
+		ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_CommittedRow]()).GetEvent().GetCommittedRow()}
+	hydration = transcriptTestMessage(1, hydrationPayload)
 	_, _ = m.Update(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: hydration,
-	})
+		Message: hydration})
 	beforeHydration := append([]byte(nil), out.Bytes()...)
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	afterHydration := append([]byte(nil), out.Bytes()...)
@@ -147,21 +139,18 @@ func TestOngoingTranscriptEventReachesNativeSurface(t *testing.T) {
 	var out bytes.Buffer
 	surface := ongoing.NewSurface(&out)
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(surface),
-	), 40, 10)
+		WithUIOngoingSurface(surface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 
 	hydration := ongoingHydrationMessage(1)
-	hydrationPayload := hydration.Payload().(clientui.TranscriptHydration)
-	hydrationPayload.TailSegment.Entries = []clientui.TranscriptCommittedRow{
-		ongoingTranscriptMessage(2, clientui.TranscriptMessageCommittedRow).Payload().(clientui.TranscriptCommittedRow),
-	}
-	hydrationPayload.TailSegment.Entries[0].User.Text = "hydrated row"
-	hydration = clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(hydrationPayload))
+	hydrationPayload := hydration.GetEvent().GetHydration()
+	hydrationPayload.TailSegment.Entries = []*transcriptpb.CommittedRow{
+		ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_CommittedRow]()).GetEvent().GetCommittedRow()}
+	hydrationPayload.TailSegment.Entries[0].GetUser().Text = "hydrated row"
+	hydration = transcriptTestMessage(1, hydrationPayload)
 	_, cmd := m.Update(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: hydration,
-	})
+		Message: hydration})
 
 	if cmd != nil {
 		_ = cmd()
@@ -175,28 +164,25 @@ func TestOngoingTranscriptHydrationRestoresAssistantCommentary(t *testing.T) {
 	var out bytes.Buffer
 	surface := ongoing.NewSurface(&out)
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(surface),
-	), 40, 10)
+		WithUIOngoingSurface(surface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 
 	hydration := ongoingHydrationMessage(1)
-	payload := hydration.Payload().(clientui.TranscriptHydration)
-	payload.TailSegment.Entries = []clientui.TranscriptCommittedRow{{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowAssistant,
-		Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
-		Assistant: &clientui.TranscriptAssistantRow{
-			StepID: ongoingTestStepID(),
+	payload := hydration.GetEvent().GetHydration()
+	payload.TailSegment.Entries = []*transcriptpb.CommittedRow{{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
+		Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
+			StepId: ongoingTestStepID().String(),
 			Text:   "restored assistant commentary",
-			Phase:  transcript.AssistantPhaseCommentary,
-		},
+			Phase:  transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+		}},
 	}}
-	hydration = clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(payload))
+	hydration = transcriptTestMessage(1, payload)
 	_, cmd := m.Update(ongoingTranscriptEvent{
 		Kind:    ongoingTranscriptEventMessage,
-		Message: hydration,
-	})
+		Message: hydration})
 
 	if cmd != nil {
 		_ = cmd()
@@ -211,8 +197,7 @@ func TestOngoingTranscriptDeliveryKeepsCursorAbsentForAskOptionPicker(t *testing
 	surface := ongoing.NewSurface(&out)
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(surface),
-		WithUITerminalCursorState(newUITerminalCursorState()),
-	), 77, 34)
+		WithUITerminalCursorState(newUITerminalCursorState())), 77, 34)
 	testSetMainInput(m, strings.Repeat("x", 91))
 	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
 
@@ -223,8 +208,7 @@ func TestOngoingTranscriptDeliveryKeepsCursorAbsentForAskOptionPicker(t *testing
 		"ask-1",
 		"Choose an option",
 		"first",
-		"second",
-	)})
+		"second")})
 	m = next.(*uiModel)
 
 	if got := m.surface(); got != uiSurfaceOngoingTranscript {
@@ -240,13 +224,9 @@ func TestOngoingTranscriptDeliveryKeepsCursorAbsentForAskOptionPicker(t *testing
 		t.Fatalf("ask option picker cursor = %+v, want absent", got)
 	}
 
-	if _, _, err := m.ongoingTranscript.Accept(clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptAssistantDelta{
-		StepID:   ongoingTestStepID(),
-		StreamID: runtimeids.NewAssistantStreamID(),
-		Delta:    "working",
-		Phase:    transcript.AssistantPhaseCommentary,
-	})),
-	); err != nil {
+	if _, _, err := m.ongoingTranscript.Accept(transcriptTestMessage(2, &transcriptpb.AssistantDelta{StepId: ongoingTestStepID().String(), StreamId: runtimeids.NewAssistantStreamID().String(),
+		Delta: "working",
+		Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY})); err != nil {
 		t.Fatalf("accept assistant delta: %v", err)
 	}
 
@@ -272,8 +252,7 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 			close: func(m *uiModel) {
 				testSetMainInput(m, "")
 				m.refreshSlashCommandFilterFromInputWithAuth(true)
-			},
-		},
+			}},
 		{
 			name: "file picker",
 			open: func(m *uiModel) {
@@ -282,11 +261,9 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 				m.pathReference.matches = []uiPathReferenceCandidate{
 					{Path: "match-00.go"}, {Path: "match-01.go"}, {Path: "match-02.go"},
 					{Path: "match-03.go"}, {Path: "match-04.go"}, {Path: "match-05.go"},
-					{Path: "match-06.go"}, {Path: "match-07.go"}, {Path: "match-08.go"},
-				}
+					{Path: "match-06.go"}, {Path: "match-07.go"}, {Path: "match-08.go"}}
 			},
-			close: func(m *uiModel) { m.clearPathReferenceState() },
-		},
+			close: func(m *uiModel) { m.clearPathReferenceState() }},
 		{
 			name: "active ask",
 			open: func(m *uiModel) {
@@ -296,9 +273,7 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 			},
 			close: func(m *uiModel) {
 				m.askController().resolvePrompt("ask-1")
-			},
-		},
-	}
+			}}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			const (
@@ -309,13 +284,11 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 			surface := ongoing.NewSurface(&out)
 			m := sizedTestUIModel(newProjectedStaticUIModel(
 				WithUIOngoingSurface(surface),
-				WithUITerminalCursorState(newUITerminalCursorState()),
-			), width, height)
+				WithUITerminalCursorState(newUITerminalCursorState())), width, height)
 			baseFrame := m.ongoingFrameInput()
 			if _, err := surface.ApplyTerminalMessage(
 				committedMessageForOngoingResizeTest(),
-				baseFrame,
-			); err != nil {
+				baseFrame); err != nil {
 				t.Fatalf("prime immutable output: %v", err)
 			}
 			test.open(m)
@@ -343,8 +316,7 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 
 			capture, err := pty.NewCapture(
 				pty.MustDimensions(height, width),
-				[]pty.Chunk{pty.NewChunk(0, time.Millisecond, out.Bytes())},
-			)
+				[]pty.Chunk{pty.NewChunk(0, time.Millisecond, out.Bytes())})
 			if err != nil {
 				t.Fatalf("create lifecycle capture: %v", err)
 			}
@@ -374,13 +346,12 @@ func TestNativeOngoingRepaintKeepsControllerLiveFrameSections(t *testing.T) {
 	nativeSurface := ongoing.NewSurface(&out)
 	spySurface := &ongoingSurfaceSpy{}
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(nativeSurface),
-	), 40, 10)
+		WithUIOngoingSurface(nativeSurface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(spySurface, m.ongoingFrameInput)
 	if _, _, err := m.ongoingTranscript.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
-	if _, _, err := m.ongoingTranscript.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessagePrompt)); err != nil {
+	if _, _, err := m.ongoingTranscript.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_Prompt]())); err != nil {
 		t.Fatalf("accept pending prompt: %v", err)
 	}
 	spySurface.calls = nil
@@ -401,16 +372,14 @@ func TestNativeOngoingClipboardPasteRepaintsInput(t *testing.T) {
 	nativeSurface := ongoing.NewSurface(&out)
 	spySurface := &ongoingSurfaceSpy{}
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(nativeSurface),
-	), 40, 10)
+		WithUIOngoingSurface(nativeSurface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(spySurface, m.ongoingFrameInput)
 	m.mainInputDraftToken = 3
 
 	next, _ := m.Update(clipboardPasteDoneMsg{
 		Target:         uiClipboardPasteTargetMain,
 		MainDraftToken: 3,
-		Content:        retainedClipboardImage("/tmp/kent-clipboard.png"),
-	})
+		Content:        retainedClipboardImage("/tmp/kent-clipboard.png")})
 	updated := next.(*uiModel)
 
 	if got, want := spySurface.callKinds(), []string{"render"}; !reflect.DeepEqual(got, want) {
@@ -433,14 +402,12 @@ func TestNativeOngoingClipboardPasteErrorRepaintsStatus(t *testing.T) {
 	nativeSurface := ongoing.NewSurface(&out)
 	spySurface := &ongoingSurfaceSpy{}
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(nativeSurface),
-	), 40, 10)
+		WithUIOngoingSurface(nativeSurface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(spySurface, m.ongoingFrameInput)
 
 	next, _ := m.Update(clipboardPasteDoneMsg{
 		Target: uiClipboardPasteTargetMain,
-		Err:    &uiClipboardPasteError{Kind: uiClipboardPasteErrorNoContent, Message: "Clipboard does not contain supported content"},
-	})
+		Err:    &uiClipboardPasteError{Kind: uiClipboardPasteErrorNoContent, Message: "Clipboard does not contain supported content"}})
 	updated := next.(*uiModel)
 
 	if got, want := spySurface.callKinds(), []string{"render"}; !reflect.DeepEqual(got, want) {
@@ -461,8 +428,7 @@ func TestNativeOngoingReconnectWarningRepaintsAndClearsStatus(t *testing.T) {
 	nativeSurface := ongoing.NewSurface(&out)
 	spySurface := &ongoingSurfaceSpy{}
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(nativeSurface),
-	), 40, 10)
+		WithUIOngoingSurface(nativeSurface)), 40, 10)
 	m.ongoingTranscript = newNoopOngoingTranscriptController(spySurface, m.ongoingFrameInput)
 
 	next, _ := m.Update(runtimeReconnectWarningMsg{text: "connection interrupted"})
@@ -492,8 +458,7 @@ func TestNativeOngoingViewClearsLegacyAppCursorPlacement(t *testing.T) {
 	cursor.Set(uiTerminalCursorPlacement{Visible: true, CursorRow: 1, CursorCol: 1, AnchorRow: 2})
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUITerminalCursorState(cursor),
-		WithUIOngoingSurface(ongoing.NewSurface(&bytes.Buffer{})),
-	), 40, 10)
+		WithUIOngoingSurface(ongoing.NewSurface(&bytes.Buffer{}))), 40, 10)
 
 	_ = m.View()
 
@@ -513,13 +478,11 @@ func TestScratchRehydrationResultRequestsTranscriptReopen(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(surface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopened = true }),
-	), 40, 10)
+		WithUIOngoingTranscriptReopen(func() { reopened = true })), 40, 10)
 
 	cmd := m.handleOngoingResult(ongoing.Result{
 		Action: ongoing.ResultRequestScratchRehydration,
-		Reason: ongoing.RehydrateReasonSequenceGap,
-	})
+		Reason: ongoing.RehydrateReasonSequenceGap})
 
 	if cmd != nil {
 		t.Fatalf("scratch rehydration command = %v, want synchronous handling", cmd)
@@ -540,18 +503,15 @@ func TestAwaitingPromptWithoutPromptRequestsTranscriptRehydration(t *testing.T) 
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(surface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopened++ }),
-	), 40, 10)
+		WithUIOngoingTranscriptReopen(func() { reopened++ })), 40, 10)
 	activity := runtimeTupleTestRunningActivity()
-	activity.State = clientui.RuntimeActivityAwaitingPrompt
+	activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT
 	command := m.applyAdmittedTranscriptMessageState(
 		runtimeTupleTestUpdateMessage(2, 2, activity),
 		runtimeTupleMergeResult{
 			decision: runtimeTupleApply,
 			project:  true,
-			view:     runtimeTupleTestView(2, activity),
-		},
-	)
+			view:     runtimeTupleTestView(2, activity)})
 	if command == nil {
 		t.Fatal("awaiting-prompt activity without a prompt did not schedule recovery")
 	}

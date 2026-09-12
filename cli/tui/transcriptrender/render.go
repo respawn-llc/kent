@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 	"core/shared/transcript"
 
@@ -20,7 +21,7 @@ const (
 	reviewerErrorGlyph      = "!"
 )
 
-func RenderCommittedRow(row clientui.TranscriptCommittedRow, width int, themeName string, mode Mode) Row {
+func RenderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string, mode Mode) Row {
 	return RenderCommittedRowWithLinkPresentation(
 		row,
 		width,
@@ -31,7 +32,7 @@ func RenderCommittedRow(row clientui.TranscriptCommittedRow, width int, themeNam
 }
 
 func RenderCommittedRowWithLinkPresentation(
-	row clientui.TranscriptCommittedRow,
+	row *transcriptpb.CommittedRow,
 	width int,
 	themeName string,
 	mode Mode,
@@ -41,7 +42,7 @@ func RenderCommittedRowWithLinkPresentation(
 		panic(fmt.Sprintf("render committed row with invalid Markdown link presentation %d", linkPresentation))
 	}
 	var syntax *syntaxProjector
-	if row.Kind == clientui.TranscriptRowTool {
+	if row.GetTool() != nil {
 		configured := newSyntaxProjector(themeName)
 		syntax = &configured
 	}
@@ -49,92 +50,92 @@ func RenderCommittedRowWithLinkPresentation(
 }
 
 func renderCommittedRow(
-	row clientui.TranscriptCommittedRow,
+	row *transcriptpb.CommittedRow,
 	width int,
 	mode Mode,
 	syntax *syntaxProjector,
 	linkPresentation MarkdownLinkPresentation,
 ) Row {
-	switch row.Kind {
-	case clientui.TranscriptRowUser:
+	switch row.GetRow().(type) {
+	case *transcriptpb.CommittedRow_User:
 		return Row{
-			Group: clientui.TranscriptRowUser,
+			Group: GroupUser,
 			Lines: renderUserAssistantTextBlock(
 				StyleRoleUser,
-				row.User.Text,
+				row.GetUser().Text,
 				width,
 				mode,
 				linkPresentation,
 			),
 		}
-	case clientui.TranscriptRowAssistant:
+	case *transcriptpb.CommittedRow_Assistant:
 		return Row{
-			Group: clientui.TranscriptRowAssistant,
+			Group: GroupAssistant,
 			Lines: renderUserAssistantTextBlock(
 				StyleRoleAssistant,
-				row.Assistant.Text,
+				row.GetAssistant().Text,
 				width,
 				mode,
 				linkPresentation,
 			),
 		}
-	case clientui.TranscriptRowTool:
+	case *transcriptpb.CommittedRow_Tool:
 		return Row{
-			Group: clientui.TranscriptRowTool,
+			Group: GroupTool,
 			Lines: renderToolRowWithLinkPresentation(
-				*row.Tool,
+				row.GetTool(),
 				width,
 				mode,
 				syntax,
 				linkPresentation,
 			),
 		}
-	case clientui.TranscriptRowReasoningTrace:
-		if row.ReasoningTrace == nil || (mode != ModeDetailCollapsed && mode != ModeDetailExpanded) {
-			return Row{Group: clientui.TranscriptRowReasoningTrace}
+	case *transcriptpb.CommittedRow_ReasoningTrace:
+		if row.GetReasoningTrace() == nil || (mode != ModeDetailCollapsed && mode != ModeDetailExpanded) {
+			return Row{Group: GroupReasoningTrace}
 		}
-		text := row.ReasoningTrace.CompactText
+		text := row.GetReasoningTrace().CompactText
 		if mode == ModeDetailExpanded {
-			text = row.ReasoningTrace.Text
+			text = row.GetReasoningTrace().Text
 		}
 		return Row{
-			Group: clientui.TranscriptRowReasoningTrace,
+			Group: GroupReasoningTrace,
 			Lines: renderTextBlock(StyleRoleNoticeForegroundFaint, text, width, mode),
 		}
-	case clientui.TranscriptRowNotice:
-		thinkingUpdate := row.Notice != nil && row.Notice.Reason == clientui.TranscriptNoticeThinkingUpdate
+	case *transcriptpb.CommittedRow_Notice:
+		thinkingUpdate := row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE
 		if thinkingUpdate {
 			if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
-				return Row{Group: clientui.TranscriptRowNotice}
+				return Row{Group: GroupNotice}
 			}
 			mode = ModeDetailCollapsed
 		}
-		role, text := noticeRoleAndText(row.Notice, row.Visibility, mode)
+		role, text := noticeRoleAndText(row.GetNotice(), row.Visibility, mode)
 		meta := toolMeta{}
-		if noticeUsesConfigurationSymbol(row.Notice) {
+		if noticeUsesConfigurationSymbol(row.GetNotice()) {
 			symbol := ConfigurationSymbol
 			meta.SymbolText = &symbol
 		}
-		group := clientui.TranscriptRowNotice
-		if row.Notice != nil && row.Notice.MessageType != nil && *row.Notice.MessageType == clientui.TranscriptMessageBackgroundNotice {
+		group := GroupNotice
+		if row.GetNotice() != nil && row.GetNotice().MessageType != nil && *row.GetNotice().MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE {
 			symbolRole := StyleRoleNoticePrimary
 			meta.SymbolStyleRole = &symbolRole
-			group = clientui.TranscriptRowTool
+			group = GroupTool
 		}
 		options := textBlockOptions{}
 		if thinkingUpdate {
 			options.forceFull = true
 		}
-		if row.Notice != nil && row.Notice.Severity == clientui.TranscriptNoticeError {
+		if row.GetNotice() != nil && row.GetNotice().Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR {
 			options.forceFull = true
 		}
-		if row.Notice != nil && row.Notice.Reason == clientui.TranscriptNoticeProviderModelMismatch {
+		if row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
 			options.forceFull = true
 		}
-		if isReviewerNotice(row.Notice) {
+		if isReviewerNotice(row.GetNotice()) {
 			options.compactEllipsis = compactEllipsisNever
 		}
-		if noticeUsesMarkdown(row.Notice) {
+		if noticeUsesMarkdown(row.GetNotice()) {
 			return Row{
 				Group: group,
 				Lines: renderMarkdownTextBlock(
@@ -152,22 +153,22 @@ func renderCommittedRow(
 			Group: group,
 			Lines: renderTextBlockWithOptions(role, text, "", width, mode, meta, options),
 		}
-	case clientui.TranscriptRowReviewerFeedback:
-		if row.ReviewerFeedback == nil {
+	case *transcriptpb.CommittedRow_ReviewerFeedback:
+		if row.GetReviewerFeedback() == nil {
 			panic(fmt.Sprintf("render reviewer feedback row missing payload at locator %+v", row.Locator))
 		}
-		text := fmt.Sprintf("%d suggestions", row.ReviewerFeedback.SuggestionCount)
+		text := fmt.Sprintf("%d suggestions", row.GetReviewerFeedback().SuggestionCount)
 		if mode == ModeOngoing || mode == ModeOngoingFull || mode == ModeDetailExpanded {
-			text = reviewerFeedbackText(row.ReviewerFeedback.Suggestions)
+			text = reviewerFeedbackText(row.GetReviewerFeedback().Suggestions)
 		}
-		return Row{Group: row.Kind, Lines: renderMarkdownTextBlock(StyleRoleNoticeReviewer, text, width, mode, toolMeta{}, textBlockOptions{}, linkPresentation)}
-	case clientui.TranscriptRowReviewerError:
-		if row.ReviewerError == nil {
+		return Row{Group: GroupReviewerFeedback, Lines: renderMarkdownTextBlock(StyleRoleNoticeReviewer, text, width, mode, toolMeta{}, textBlockOptions{}, linkPresentation)}
+	case *transcriptpb.CommittedRow_ReviewerError:
+		if row.GetReviewerError() == nil {
 			panic(fmt.Sprintf("render reviewer error row missing payload at locator %+v", row.Locator))
 		}
-		return Row{Group: row.Kind, Lines: renderTextBlock(StyleRoleError, row.ReviewerError.Detail, width, mode)}
+		return Row{Group: GroupReviewerError, Lines: renderTextBlock(StyleRoleError, row.GetReviewerError().Detail, width, mode)}
 	default:
-		return Row{Group: clientui.TranscriptRowNotice, Lines: renderTextBlock(StyleRoleNotice, "unknown transcript row", width, mode)}
+		return Row{Group: GroupNotice, Lines: renderTextBlock(StyleRoleNotice, "unknown transcript row", width, mode)}
 	}
 }
 
@@ -687,32 +688,32 @@ func roleSymbolText(role StyleRole, meta toolMeta) string {
 	return symbol
 }
 
-func noticeUsesConfigurationSymbol(row *clientui.TranscriptNoticeRow) bool {
-	if row == nil || row.Severity != clientui.TranscriptNoticeInfo {
+func noticeUsesConfigurationSymbol(row *transcriptpb.NoticeRow) bool {
+	if row == nil || row.Severity != transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO {
 		return false
 	}
-	if row.Reason == clientui.TranscriptNoticeThinkingUpdate {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
 		return true
 	}
 	if row.MessageType != nil {
 		switch *row.MessageType {
-		case clientui.TranscriptMessageHeadlessMode, clientui.TranscriptMessageHeadlessModeExit,
-			clientui.TranscriptMessageWorkflowMode, clientui.TranscriptMessageWorkflowModeExit,
-			clientui.TranscriptMessageWorktreeMode, clientui.TranscriptMessageWorktreeModeExit,
-			clientui.TranscriptMessageSessionRebind:
+		case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT,
+			transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE_EXIT,
+			transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE_EXIT,
+			transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND:
 			return true
 		}
 	}
 	return false
 }
 
-func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.EntryVisibility, mode Mode) (StyleRole, string) {
+func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.EntryVisibility, mode Mode) (StyleRole, string) {
 	if row == nil {
 		return StyleRoleNotice, "notice"
 	}
-	isError := row.Severity == clientui.TranscriptNoticeError
+	isError := row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR
 	role := noticeStyleRoleForMode(row, mode)
-	if row.Reason == clientui.TranscriptNoticeThinkingUpdate {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
 		if row.ThinkingEffort == nil {
 			panic("Thinking-update notice is missing its effort")
 		}
@@ -721,7 +722,7 @@ func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.En
 	if isError {
 		role = StyleRoleError
 	}
-	if !isError && row.MessageType != nil && *row.MessageType == clientui.TranscriptMessageAgentSteer {
+	if !isError && row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER {
 		if mode != ModeDetailCollapsed && mode != ModeDetailExpanded && row.Diagnostic != nil {
 			return StyleRoleUser, row.Diagnostic.Detail
 		}
@@ -730,26 +731,26 @@ func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.En
 		}
 		return StyleRoleUser, firstNonEmpty(optionalString(row.CompactLabel), "agent steer")
 	}
-	if row.Reason == clientui.TranscriptNoticeCompaction && row.Compaction != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION && row.Compaction != nil {
 		text := compactionNoticeText(row.Compaction.Count)
 		if row.Compaction.Detail != nil && (isError || mode == ModeDetailExpanded) {
 			text = *row.Compaction.Detail
 		}
 		return role, text
 	}
-	if row.Reason == clientui.TranscriptNoticeToolOutputRepair && row.ToolOutputRepair != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR && row.ToolOutputRepair != nil {
 		if !isError {
 			role = StyleRoleWarning
 		}
 		return role, toolOutputRepairNoticeText(row.ToolOutputRepair)
 	}
-	if row.Reason == clientui.TranscriptNoticeProviderModelMismatch && row.ProviderModelMismatch != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH && row.ProviderModelMismatch != nil {
 		if !isError {
 			role = StyleRoleWarning
 		}
 		return role, providerModelMismatchNoticeText(row.ProviderModelMismatch)
 	}
-	if isError && row.Reason == clientui.TranscriptNoticeLegacyUntypedNotice && row.LegacyText != nil {
+	if isError && row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE && row.LegacyText != nil {
 		return role, *row.LegacyText
 	}
 	worktreeMode := mode
@@ -759,7 +760,7 @@ func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.En
 	if text, ok := worktreeNoticeText(row, worktreeMode); ok {
 		return role, text
 	}
-	if row.MessageType != nil && *row.MessageType == clientui.TranscriptMessageSessionRebind {
+	if row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND {
 		if mode == ModeDetailExpanded && row.Diagnostic != nil {
 			return role, row.Diagnostic.Detail
 		}
@@ -768,14 +769,14 @@ func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.En
 	cacheWarningText := cacheWarningNoticeText(row.CacheWarning)
 	if isError {
 		switch row.Reason {
-		case clientui.TranscriptNoticeCacheWarning:
+		case transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING:
 			return role, cacheWarningText
-		case clientui.TranscriptNoticeRuntimeDiagnostic:
+		case transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC:
 			return role, row.Diagnostic.Detail
-		case clientui.TranscriptNoticeLegacyUntypedNotice:
+		case transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE:
 			messageType := "<nil>"
 			if row.MessageType != nil {
-				messageType = string(*row.MessageType)
+				messageType = row.MessageType.String()
 			}
 			panic(fmt.Sprintf(
 				"render legacy error notice with no content source: message_type=%q",
@@ -786,12 +787,12 @@ func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.En
 		}
 	}
 	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, optionalString(row.SourcePath))
-	compactText := firstNonEmpty(typedCompactText, string(row.Reason), "notice")
+	compactText := firstNonEmpty(typedCompactText, noticeReasonLabel(row.Reason))
 	text := compactText
 	if mode == ModeDetailExpanded {
 		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, optionalString(row.SourcePath))
 		if strings.TrimSpace(text) == "" {
-			text = firstNonEmpty(string(row.Reason), "notice")
+			text = noticeReasonLabel(row.Reason)
 		}
 	}
 	if row.Diagnostic != nil && (mode == ModeDetailExpanded || typedCompactText == "") {
@@ -800,7 +801,7 @@ func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.En
 	return role, text
 }
 
-func providerModelMismatchNoticeText(mismatch *transcript.ProviderModelMismatchNotice) string {
+func providerModelMismatchNoticeText(mismatch *transcriptpb.ProviderModelMismatch) string {
 	return fmt.Sprintf(
 		"The provider served the request with %s instead of %s",
 		mismatch.ServedModel,
@@ -808,12 +809,12 @@ func providerModelMismatchNoticeText(mismatch *transcript.ProviderModelMismatchN
 	)
 }
 
-func toolOutputRepairNoticeText(repair *transcript.ToolOutputRepairNotice) string {
+func toolOutputRepairNoticeText(repair *transcriptpb.ToolOutputRepair) string {
 	callNoun := "tool calls"
 	if repair.Count == 1 {
 		callNoun = "tool call"
 	}
-	switch repair.Kind {
+	switch transcript.ToolOutputRepairKind(repair.Kind) {
 	case transcript.ToolOutputRepairFreshResource:
 		return fmt.Sprintf("Closed %d %s with no committed output while restoring the session", repair.Count, callNoun)
 	case transcript.ToolOutputRepairLiveProviderRejection:
@@ -823,14 +824,14 @@ func toolOutputRepairNoticeText(repair *transcript.ToolOutputRepairNotice) strin
 	}
 }
 
-func compactionNoticeText(count *int) string {
+func compactionNoticeText(count *int32) string {
 	if count == nil {
 		return "Context compacted"
 	}
-	return fmt.Sprintf("Context compacted for the %s time.", textutil.Ordinal(*count))
+	return fmt.Sprintf("Context compacted for the %s time.", textutil.Ordinal(int(*count)))
 }
 
-func worktreeNoticeText(row *clientui.TranscriptNoticeRow, mode Mode) (string, bool) {
+func worktreeNoticeText(row *transcriptpb.NoticeRow, mode Mode) (string, bool) {
 	context := row.Worktree
 	if context == nil {
 		return "", false
@@ -846,7 +847,7 @@ func worktreeNoticeText(row *clientui.TranscriptNoticeRow, mode Mode) (string, b
 		return "", false
 	}
 	switch *row.MessageType {
-	case clientui.TranscriptMessageWorktreeMode:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE:
 		name := ""
 		if context.Branch != nil {
 			name = strings.TrimSpace(*context.Branch)
@@ -861,7 +862,7 @@ func worktreeNoticeText(row *clientui.TranscriptNoticeRow, mode Mode) (string, b
 			return "Switched worktree to " + name, true
 		}
 		return "Switched worktree to " + name + ": " + effectiveCWD, true
-	case clientui.TranscriptMessageWorktreeModeExit:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE_EXIT:
 		if effectiveCWD == "" {
 			return "Switched worktree to main workspace", true
 		}
@@ -871,14 +872,14 @@ func worktreeNoticeText(row *clientui.TranscriptNoticeRow, mode Mode) (string, b
 	}
 }
 
-func noticeStyleRole(row *clientui.TranscriptNoticeRow) StyleRole {
+func noticeStyleRole(row *transcriptpb.NoticeRow) StyleRole {
 	if row == nil {
 		return StyleRoleNotice
 	}
-	if row.Severity == clientui.TranscriptNoticeError {
+	if row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR {
 		return StyleRoleError
 	}
-	if row.Severity == clientui.TranscriptNoticeWarning || row.Reason == clientui.TranscriptNoticeCacheWarning {
+	if row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING || row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING {
 		return StyleRoleWarning
 	}
 	if isReviewerNotice(row) {
@@ -888,102 +889,113 @@ func noticeStyleRole(row *clientui.TranscriptNoticeRow) StyleRole {
 		return StyleRoleNotice
 	}
 	switch *row.MessageType {
-	case clientui.TranscriptMessageInterruption, clientui.TranscriptMessageErrorFeedback:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_INTERRUPTION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ERROR_FEEDBACK:
 		return StyleRoleError
-	case clientui.TranscriptMessageCompactionSoonReminder:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SOON_REMINDER:
 		return StyleRoleWarning
-	case clientui.TranscriptMessageCompactionSummary,
-		clientui.TranscriptMessageCompactionPreservedUserMessage:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_PRESERVED_USER_MESSAGE:
 		return StyleRoleNoticeSecondary
-	case clientui.TranscriptMessageHandoffFutureMessage,
-		clientui.TranscriptMessageWorktreeMode,
-		clientui.TranscriptMessageSessionRebind,
-		clientui.TranscriptMessageSubagents:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS:
 		return StyleRoleNotice
-	case clientui.TranscriptMessageGoal, clientui.TranscriptMessageWorkflowMode:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_GOAL, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE:
 		return StyleRoleNoticePrimary
-	case clientui.TranscriptMessageAgentSteer:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
 		return StyleRoleUser
-	case clientui.TranscriptMessageBackgroundNotice:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE:
 		return StyleRoleNoticeForeground
-	case clientui.TranscriptMessageWorktreeModeExit:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE_EXIT:
 		return StyleRoleNoticeForeground
 	default:
 		return StyleRoleNotice
 	}
 }
 
-func noticeStyleRoleForMode(row *clientui.TranscriptNoticeRow, mode Mode) StyleRole {
+func noticeStyleRoleForMode(row *transcriptpb.NoticeRow, mode Mode) StyleRole {
 	if mode == ModeDetailExpanded && isExpandedCompactionNotice(row) {
 		return StyleRoleNotice
 	}
 	return noticeStyleRole(row)
 }
 
-func isExpandedCompactionNotice(row *clientui.TranscriptNoticeRow) bool {
+func isExpandedCompactionNotice(row *transcriptpb.NoticeRow) bool {
 	if row == nil || row.MessageType == nil {
 		return false
 	}
 	switch *row.MessageType {
-	case clientui.TranscriptMessageCompactionSummary:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY:
 		return row.Compaction != nil && row.Compaction.Detail != nil
-	case clientui.TranscriptMessageCompactionSoonReminder:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SOON_REMINDER:
 		return true
 	default:
 		return false
 	}
 }
 
-func noticeDiagnosticHasReviewerRole(row *clientui.TranscriptNoticeRow) bool {
+func noticeDiagnosticHasReviewerRole(row *transcriptpb.NoticeRow) bool {
 	if row == nil || row.Diagnostic == nil {
 		return false
 	}
 	return transcript.IsReviewerEntryRole(strings.TrimSpace(string(row.Diagnostic.Code)))
 }
 
-func isReviewerNotice(row *clientui.TranscriptNoticeRow) bool {
+func isReviewerNotice(row *transcriptpb.NoticeRow) bool {
 	return row != nil &&
-		((row.MessageType != nil && *row.MessageType == clientui.TranscriptMessageReviewerFeedback) ||
+		((row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_REVIEWER_FEEDBACK) ||
 			noticeDiagnosticHasReviewerRole(row))
 }
 
-func noticeUsesMarkdown(row *clientui.TranscriptNoticeRow) bool {
+func noticeUsesMarkdown(row *transcriptpb.NoticeRow) bool {
 	if row == nil || row.MessageType == nil {
 		return false
 	}
 	switch *row.MessageType {
-	case clientui.TranscriptMessageAgentsMD,
-		clientui.TranscriptMessageSkills,
-		clientui.TranscriptMessageSubagents,
-		clientui.TranscriptMessageEnvironment,
-		clientui.TranscriptMessageCompactionSummary,
-		clientui.TranscriptMessageHeadlessMode,
-		clientui.TranscriptMessageHeadlessModeExit,
-		clientui.TranscriptMessageWorkflowMode,
-		clientui.TranscriptMessageActiveGoalContinuation,
-		clientui.TranscriptMessageAgentSteer:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
 		return true
 	default:
 		return false
 	}
 }
 
-func noticeLegacyText(row *clientui.TranscriptNoticeRow) string {
+func noticeLegacyText(row *transcriptpb.NoticeRow) string {
 	if row == nil || row.LegacyText == nil {
 		return ""
 	}
 	return *row.LegacyText
 }
 
-func cacheWarningNoticeText(data *clientui.TranscriptCacheWarning) string {
+func cacheWarningNoticeText(data *transcriptpb.CacheWarning) string {
 	if data == nil {
 		return ""
+	}
+	var lostInputTokens *int
+	if data.LostInputTokens != nil {
+		value := int(*data.LostInputTokens)
+		lostInputTokens = &value
 	}
 	return transcript.CacheWarningText(transcript.CacheWarning{
 		Scope:           transcript.CacheWarningScope(strings.TrimSpace(data.Scope)),
 		Reason:          transcript.CacheWarningReason(strings.TrimSpace(data.Reason)),
-		LostInputTokens: data.LostInputTokens,
+		LostInputTokens: lostInputTokens,
 	})
+}
+
+func noticeReasonLabel(reason transcriptpb.NoticeReason) string {
+	switch reason {
+	case transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING:
+		return transcript.NoticeReasonCacheWarning
+	case transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION:
+		return transcript.NoticeReasonCompaction
+	case transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE:
+		return transcript.NoticeReasonLegacyUntypedNotice
+	case transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC:
+		return transcript.NoticeReasonRuntimeDiagnostic
+	case transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR:
+		return transcript.NoticeReasonToolOutputRepair
+	case transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH:
+		return transcript.NoticeReasonProviderModelMismatch
+	default:
+		return "notice"
+	}
 }
 
 func modeUsesCompactTextBlock(mode Mode) bool {

@@ -10,8 +10,8 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -113,7 +113,7 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 	if !ok {
 		t.Fatal("published Goal Question has no interruptible execution")
 	}
-	if _, err := service.Interrupt(t.Context(), serverapi.RuntimeInterruptRequest{SessionID: sessionID.String()}); err != nil {
+	if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: sessionID.String()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := goalExecution.Wait(t.Context()); err != nil && !errors.Is(err, context.Canceled) {

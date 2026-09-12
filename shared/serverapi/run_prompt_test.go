@@ -1,120 +1,23 @@
 package serverapi
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
 func runPromptStringPtr(value string) *string { return &value }
 
-func TestRunPromptOverridesAgentRoleJSONRoundTrip(t *testing.T) {
-	req := RunPromptRequest{
-		Intent: CreateNewSessionLaunchIntent(IndependentSessionCreateOrigin()),
-		Prompt: "hello",
-		Overrides: RunPromptOverrides{
-			AgentRole: runPromptStringPtr("default"),
-		},
-	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var got RunPromptRequest
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if got.Overrides.AgentRole == nil || *got.Overrides.AgentRole != "default" {
-		t.Fatalf("AgentRole = %v, want default after round trip: %s", got.Overrides.AgentRole, data)
-	}
-	if !got.Overrides.HasAgentRoleOverride() {
-		t.Fatal("default role should count as a role override")
-	}
-}
-
-func TestRunPromptRequestParentIntentJSONRoundTrip(t *testing.T) {
-	parentID := mustSessionLaunchIntentID(t, "parent-session")
-	req := RunPromptRequest{
-		Intent: CreateNewSessionLaunchIntent(ParentAgentSessionCreateOrigin(parentID)),
-		Prompt: "hello",
-	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var got RunPromptRequest
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	origin, present := got.Intent.CreateOrigin()
-	gotParentID, hasSource := origin.SessionID()
-	if !present || origin.Kind() != SessionCreateOriginParentAgent || !hasSource || gotParentID != parentID {
-		t.Fatalf("origin = %+v/%v, want parent-agent %q", origin, present, parentID.String())
-	}
-}
-
-func TestRunPromptRequestJSONRejectsUnknownAndRemovedFields(t *testing.T) {
-	for _, raw := range []string{
-		`{"intent":{"kind":"create_new","origin":{"kind":"independent"}},"prompt":"hello","unknown":true}`,
-		`{"client_request_id":"req-1","intent":{"kind":"create_new","origin":{"kind":"independent"}},"prompt":"hello"}`,
-		`{"intent":{"kind":"create_new","origin":{"kind":"independent"}},"selected_session_id":"legacy","prompt":"hello"}`,
-		`{"intent":{"kind":"create_new","origin":{"kind":"independent"}},"parent_session_id":"legacy","prompt":"hello"}`,
-	} {
-		var request RunPromptRequest
-		if err := json.Unmarshal([]byte(raw), &request); err == nil {
-			t.Fatalf("Unmarshal(%s) succeeded, want strict rejection", raw)
-		}
-	}
-}
-
-func TestRunPromptRequestJSONRequiresTypedIntentWhenLegacySelectorIsMixed(t *testing.T) {
-	raw := `{"selected_session_id":"legacy","intent":{"kind":"open_existing","session_id":"target"},"prompt":"hello"}`
-	var request RunPromptRequest
-	if err := json.Unmarshal([]byte(raw), &request); err == nil {
-		t.Fatalf("Unmarshal(%s) succeeded, want legacy field rejection", raw)
-	}
-}
-
 func TestRunPromptOverridesAgentRoleContract(t *testing.T) {
-	var got RunPromptRequest
-	if err := json.Unmarshal([]byte(`{"intent":{"kind":"create_new","origin":{"kind":"independent"}},"prompt":"hello","overrides":{"agent_role":"worker"}}`), &got); err != nil {
-		t.Fatalf("Unmarshal request: %v", err)
+	got := RunPromptRequest{
+		Intent:    CreateNewSessionLaunchIntent(IndependentSessionCreateOrigin()),
+		Prompt:    "hello",
+		Overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("worker")},
 	}
-	if got.Overrides.AgentRole == nil || *got.Overrides.AgentRole != "worker" {
-		t.Fatalf("AgentRole = %v, want worker", got.Overrides.AgentRole)
+	if err := got.Validate(); err != nil {
+		t.Fatalf("Validate request: %v", err)
 	}
 	if !got.Overrides.HasAny() {
 		t.Fatal("AgentRole should count as an override")
 	}
 	if !got.Overrides.HasAgentRoleOverride() {
 		t.Fatal("AgentRole should count as a role override")
-	}
-}
-
-func TestRunPromptOverridesMarshalUsesSnakeCaseAndNullableSelector(t *testing.T) {
-	data, err := json.Marshal(RunPromptOverrides{
-		AgentRole:           runPromptStringPtr("worker"),
-		Model:               "gpt-5",
-		ProviderOverride:    "openai",
-		ThinkingLevel:       "medium",
-		Theme:               "dark",
-		ModelTimeoutSeconds: 30,
-		Tools:               "shell",
-		OpenAIBaseURL:       "https://example.test",
-	})
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal marshaled overrides: %v", err)
-	}
-	for key := range got {
-		if key == "AgentRole" || key == "Model" || key == "ProviderOverride" {
-			t.Fatalf("legacy override key %q in %s", key, data)
-		}
-	}
-	if got["agent_role"] != "worker" || got["model"] != "gpt-5" || got["provider_override"] != "openai" {
-		t.Fatalf("snake_case overrides = %v", got)
 	}
 }
 

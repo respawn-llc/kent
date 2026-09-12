@@ -3,25 +3,25 @@ package app
 import (
 	"sync"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type turnQueueHook interface {
-	OnTranscriptMessage(clientui.TranscriptMessage)
+	OnTranscriptMessage(*transcriptpb.Message)
 	OnTurnQueueDrained()
 	OnTurnQueueAborted()
 	OnUserCompactionCompleted(bool)
 }
 
 type taskCompletionSink interface {
-	enqueueTaskCompletion(clientui.TranscriptLiveRunResult)
+	enqueueTaskCompletion(*transcriptpb.LiveRunFinished)
 }
 
 type turnQueueHooks struct {
 	mu                     sync.Mutex
 	notifications          *bellHooks
 	taskCompletions        taskCompletionSink
-	pendingTaskCompletions []clientui.TranscriptLiveRunResult
+	pendingTaskCompletions []*transcriptpb.LiveRunFinished
 }
 
 func newTurnQueueHooks(
@@ -34,19 +34,19 @@ func newTurnQueueHooks(
 	}
 }
 
-func (h *turnQueueHooks) OnTranscriptMessage(message clientui.TranscriptMessage) {
+func (h *turnQueueHooks) OnTranscriptMessage(message *transcriptpb.Message) {
 	if h == nil {
 		return
 	}
 	if h.notifications != nil {
 		h.notifications.OnTranscriptMessage(message)
 	}
-	if h.taskCompletions == nil || message.Kind() != clientui.TranscriptMessageLiveRunFinished {
+	if h.taskCompletions == nil || message.Event.GetLiveRunFinished() == nil {
 		return
 	}
-	result := message.Payload().(clientui.TranscriptLiveRunResult)
-	if result.Status != clientui.LiveRunStatusCompleted ||
-		result.ResultKind != clientui.LiveRunResultAssistantFinalAnswer ||
+	result := message.Event.GetLiveRunFinished()
+	if result.Status != transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED ||
+		result.ResultKind != transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_ASSISTANT_FINAL_ANSWER ||
 		result.FinalAnswer == nil {
 		return
 	}

@@ -4,17 +4,16 @@ import (
 	"bytes"
 	"testing"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
 )
 
 func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
-	streamID := runtimeids.NewAssistantStreamID()
+	streamID := runtimeids.NewAssistantStreamID().String()
 	surface.activeAssistant = activeAssistantState{
 		streamID: &streamID,
-		phase:    transcript.AssistantPhaseFinal,
+		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
 	if !surface.activeAssistantPromotionDeferred() {
@@ -24,11 +23,11 @@ func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
 
 func TestSurfaceBlankFinalDefersWhitespaceStreamPromotion(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
-	streamID := runtimeids.NewAssistantStreamID()
+	streamID := runtimeids.NewAssistantStreamID().String()
 	surface.activeAssistant = activeAssistantState{
 		streamID: streamIDPointer(streamID),
 		source:   " \n\t ",
-		phase:    transcript.AssistantPhaseFinal,
+		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
 	if !surface.activeAssistantPromotionDeferred() {
@@ -38,11 +37,11 @@ func TestSurfaceBlankFinalDefersWhitespaceStreamPromotion(t *testing.T) {
 
 func TestSurfaceBlankFinalAbortClearsDeferredStream(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
-	streamID := runtimeids.NewAssistantStreamID()
+	streamID := runtimeids.NewAssistantStreamID().String()
 	surface.activeAssistant = activeAssistantState{
 		streamID: streamIDPointer(streamID),
 		source:   " \n\t ",
-		phase:    transcript.AssistantPhaseFinal,
+		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
 	if _, err := surface.abortAssistantStream(streamID, blankFinalFrame()); err != nil {
@@ -55,11 +54,11 @@ func TestSurfaceBlankFinalAbortClearsDeferredStream(t *testing.T) {
 
 func TestSurfaceBlankFinalHydrationDefersWhitespaceStream(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
-	streamID := runtimeids.NewAssistantStreamID()
-	if !surface.hydrateActiveAssistantStream(&clientui.TranscriptAssistantStream{
-		StreamID: streamID,
+	streamID := runtimeids.NewAssistantStreamID().String()
+	if !surface.hydrateActiveAssistantStream(&transcriptpb.AssistantStream{
+		StreamId: streamID,
 		Text:     " \n\t ",
-		Phase:    transcript.AssistantPhaseFinal,
+		Phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}) {
 		t.Fatal("whitespace active stream was not hydrated")
 	}
@@ -71,10 +70,10 @@ func TestSurfaceBlankFinalHydrationDefersWhitespaceStream(t *testing.T) {
 func TestSurfaceBlankFinalOrdinaryTextStillPromotes(t *testing.T) {
 	var output bytes.Buffer
 	surface := NewSurface(&output)
-	streamID := runtimeids.NewAssistantStreamID()
+	streamID := runtimeids.NewAssistantStreamID().String()
 	surface.activeAssistant = activeAssistantState{
 		streamID: streamIDPointer(streamID),
-		phase:    transcript.AssistantPhaseFinal,
+		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
 	if _, err := surface.finalizeAssistantStream(streamID, "ordinary final", blankFinalFrame()); err != nil {
@@ -88,7 +87,7 @@ func TestSurfaceBlankFinalOrdinaryTextStillPromotes(t *testing.T) {
 	}
 }
 
-func streamIDPointer(streamID runtimeids.AssistantStreamID) *runtimeids.AssistantStreamID {
+func streamIDPointer(streamID string) *string {
 	return &streamID
 }
 

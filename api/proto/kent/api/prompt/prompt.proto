@@ -3,8 +3,12 @@ syntax = "proto3";
 package kent.api.prompt;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/runtime/runtime.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -56,9 +60,7 @@ message Question {
     }
   ];
   repeated string suggestions = 5 [(buf.validate.field).repeated.items = {
-    string: {
-      min_len: 1
-    }
+    string: {min_len: 1}
     cel: {
       id: "kent.prompt.suggestion_nonblank"
       message: "suggestion must be non-blank"
@@ -83,8 +85,7 @@ message ApprovalOption {
     defined_only: true
     not_in: [0]
   }];
-  reserved 2;
-  reserved "label";
+  string label = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message FileAccessTarget {
@@ -170,6 +171,11 @@ message ListQuestionsError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -182,6 +188,11 @@ message ListApprovalsError {
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -312,6 +323,16 @@ message AnswerBatchError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -352,6 +373,16 @@ message FollowUpWatchError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -381,9 +412,23 @@ message RecordHistoryError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.runtime.RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -410,10 +455,11 @@ message ObservationQuestion {
 
 message LiveWatchFinal {
   string session_name = 1;
-  int64 duration_millis = 2 [(buf.validate.field).int64 = {
-    gte: 0
-    lte: 9007199254740991
-  }];
+  google.protobuf.Duration duration = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).duration.gte = {}
+  ];
+  optional string result = 3;
 }
 
 message LiveWatchFailure {
@@ -463,6 +509,28 @@ message LiveWatchError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+    kent.api.runtime.RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    google.protobuf.Empty no_active_run = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "no_active_run"
+    }];
+    kent.api.shared.InternalFailureDetails stream_failed = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "stream_failed"
+    }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -482,7 +550,6 @@ service QuestionService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "ask.listPendingBySession"
     };
   }
 }
@@ -495,7 +562,6 @@ service ApprovalService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "approval.listPendingBySession"
     };
   }
 }
@@ -508,7 +574,6 @@ service AnswerService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "prompt.answerBatch"
     };
   }
 }
@@ -520,9 +585,16 @@ service FollowUpService {
       authentication_stage: AUTHENTICATION_STAGE_SERVER
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
-      event: {package: "kent.api.prompt" service: "FollowUpService" method: "Event"}
-      completion: {package: "kent.api.prompt" service: "FollowUpService" method: "Complete"}
-      legacy_wire_name: "prompt.followUp.watch"
+      event: {
+        package: "kent.api.prompt"
+        service: "FollowUpService"
+        method: "Event"
+      }
+      completion: {
+        package: "kent.api.prompt"
+        service: "FollowUpService"
+        method: "Complete"
+      }
     };
   }
   rpc Event(FollowUpEvent) returns (google.protobuf.Empty) {
@@ -531,7 +603,6 @@ service FollowUpService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "prompt.followUp.event"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -540,7 +611,6 @@ service FollowUpService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "prompt.followUp.complete"
     };
   }
 }
@@ -553,7 +623,6 @@ service HistoryService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "runtime.recordPromptHistory"
     };
   }
 }
@@ -566,7 +635,6 @@ service LiveWatchService {
       scope_policy: SCOPE_POLICY_RUNTIME_LIVE_SESSION_OPTIONAL
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_DEDICATED
-      legacy_wire_name: "runtime.liveWatch"
     };
   }
 }

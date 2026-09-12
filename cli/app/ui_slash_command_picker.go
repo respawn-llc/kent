@@ -211,7 +211,7 @@ func (m *uiModel) applyAuthSlashCommandRefreshed(msg authSlashCommandRefreshedMs
 }
 
 func (m *uiModel) hasNavigationTargetSession() bool {
-	return m.cachedRuntimeStatus().NavigationTargetSessionID != nil
+	return m.cachedRuntimeStatus().NavigationTargetSessionId != nil
 }
 
 func (m *uiModel) clampSlashCommandSelection() {

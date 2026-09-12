@@ -8,7 +8,6 @@ import type {
   BoardNodeCardsPage,
   CommentPage,
   OffsetPage,
-  PendingAsk,
   TaskDetail,
   TaskAttention,
   TaskApproveResponse,
@@ -583,47 +582,6 @@ const activityItemSchema = z.discriminatedUnion("type", [
 ]);
 
 export const activityPageSchema: z.ZodType<ActivityPage> = offsetPageSchema(activityItemSchema);
-
-export const pendingAskListSchema = z
-  .object({
-    Asks: z
-      .array(
-        z
-          .object({
-            ToolCallID: z.string(),
-            SessionID: z.string(),
-            StepID: z.string(),
-            Question: z.string(),
-            Suggestions: z.array(z.string()).optional().default([]),
-            RecommendedOptionIndex: z.number().int().positive().nullable(),
-            CreatedAt: z.string().optional().default(""),
-          })
-          .superRefine((value, context) => {
-            if (
-              value.RecommendedOptionIndex !== null &&
-              value.RecommendedOptionIndex > value.Suggestions.length
-            ) {
-              context.addIssue({
-                code: "custom",
-                message: "recommended option index exceeds suggestions",
-                path: ["RecommendedOptionIndex"],
-              });
-            }
-          })
-          .transform((value): PendingAsk => ({
-            toolCallID: value.ToolCallID,
-            sessionID: value.SessionID,
-            stepID: value.StepID,
-            question: value.Question,
-            suggestions: value.Suggestions,
-            recommendedOptionIndex: value.RecommendedOptionIndex,
-            createdAt: value.CreatedAt,
-          })),
-      )
-      .optional()
-      .default([]),
-  })
-  .transform((value) => value.Asks);
 
 export const taskCreateResponseSchema = z
   .object({

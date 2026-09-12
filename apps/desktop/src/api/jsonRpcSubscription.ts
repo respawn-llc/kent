@@ -9,16 +9,8 @@ import {
   waitForSubscriptionEnd,
 } from "./jsonRpcSocket";
 import type { RpcEventHandler } from "./transport";
-
-class TerminalSubscriptionError extends Error {}
-const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
-
-export class SubscriptionErrorAlreadyReported extends Error {
-  constructor(readonly error: Error) {
-    super(error.message);
-    this.name = "SubscriptionErrorAlreadyReported";
-  }
-}
+import { TerminalSubscriptionError } from "./subscriptionErrors";
+export const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
 
 export async function runJsonSubscription(
   input: Readonly<{
@@ -39,8 +31,7 @@ export async function runJsonSubscription(
     establishmentTimeoutMs = defaultSubscriptionEstablishmentTimeoutMs,
   } = input;
   let terminal: Readonly<
-    | { kind: "complete"; code: number; message: string; reason: string | null }
-    | { kind: "error"; error: Error }
+    { kind: "complete"; code: number; message: string } | { kind: "error"; error: Error }
   > | null = null;
   let resolveTerminal: (() => void) | null = null;
   const terminalPromise = new Promise<void>((resolve) => {
@@ -48,21 +39,19 @@ export async function runJsonSubscription(
   });
   const completeMethod = subscriptionCompleteMethod(method);
   const currentTerminal = (): typeof terminal => terminal;
-  const failTerminal = (error: Error, report = true): void => {
+  const failTerminal = (error: Error): void => {
     if (terminal !== null) return;
     terminal = { kind: "error", error };
-    if (report) {
-      try {
-        handler.onError(error);
-      } catch (callbackError) {
-        terminal = {
-          kind: "error",
-          error:
-            callbackError instanceof Error
-              ? callbackError
-              : new TransportError("Subscription error handler failed."),
-        };
-      }
+    try {
+      handler.onError(error);
+    } catch (callbackError) {
+      terminal = {
+        kind: "error",
+        error:
+          callbackError instanceof Error
+            ? callbackError
+            : new TransportError("Subscription error handler failed."),
+      };
     }
     resolveTerminal?.();
     socket.close();
@@ -78,10 +67,6 @@ export async function runJsonSubscription(
         socket.close();
       }
     } catch (cause) {
-      if (cause instanceof SubscriptionErrorAlreadyReported) {
-        failTerminal(cause.error, false);
-        return;
-      }
       const error = cause instanceof Error ? cause : new TransportError("Subscription message failed.");
       failTerminal(error);
     }
@@ -111,8 +96,7 @@ export async function runJsonSubscription(
 function throwTerminalResult(
   method: string,
   result: Readonly<
-    | { kind: "complete"; code: number; message: string; reason: string | null }
-    | { kind: "error"; error: Error }
+    { kind: "complete"; code: number; message: string } | { kind: "error"; error: Error }
   > | null,
 ): void {
   if (result === null) return;
@@ -152,10 +136,7 @@ export function isTerminalSubscriptionError(error: unknown): boolean {
   return error instanceof TerminalSubscriptionError;
 }
 
-function throwNonZero(
-  method: string,
-  complete: Readonly<{ code: number; message: string; reason: string | null }>,
-): void {
+function throwNonZero(method: string, complete: Readonly<{ code: number; message: string }>): void {
   if (complete.code === 0) return;
   const suffix = complete.message.length === 0 ? "" : `: ${complete.message}`;
   throw new TransportError(`${method} subscription completed with code ${complete.code.toString()}${suffix}`);

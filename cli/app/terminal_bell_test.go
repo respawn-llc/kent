@@ -2,16 +2,16 @@ package app
 
 import (
 	"bytes"
+	"core/cli/tui/transcriptrender"
+	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
-	"core/shared/textutil"
-	"core/shared/transcript"
 )
 
 type countRinger struct {
@@ -489,11 +489,8 @@ func attentionNotificationID(kind clientui.AttentionNotificationKind, uuid strin
 	return clientui.AttentionNotificationID{Kind: kind, UUID: uuid}
 }
 
-func bellTestPrompt(id, question string) clientui.TranscriptPrompt {
-	prompt := ongoingTranscriptMessage(2, clientui.TranscriptMessagePrompt).Payload().(clientui.TranscriptPrompt)
-	prompt.ToolCallID = clientui.ToolCallID(id)
-	prompt.Question = question
-	return prompt
+func bellTestPrompt(id, question string) *transcriptpb.Prompt {
+	return testQuestionPrompt(id, question)
 }
 
 func bellTestStepID(index int) runtimeids.StepID {
@@ -512,52 +509,40 @@ func bellTestStepID(index int) runtimeids.StepID {
 	return id
 }
 
-func bellToolStartMessage(step int) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptToolStart{
-		StepID: bellTestStepID(step), ToolCallID: "tool-call", ToolName: "exec_command",
-	}))
+func bellToolStartMessage(step int) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.ToolStart{StepId: bellTestStepID(step).String(), ToolCallId: "tool-call", ToolName: "exec_command"})
 
 }
 
-func bellAssistantFinalMessage(step int) clientui.TranscriptMessage {
+func bellAssistantFinalMessage(step int) *transcriptpb.Message {
 	return bellAssistantFinalMessageWithText(step, "turn complete")
 }
 
-func bellAssistantFinalMessageWithText(step int, text string) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowAssistant,
-		Assistant: &clientui.TranscriptAssistantRow{
-			StepID: bellTestStepID(step), Text: text, Phase: transcript.AssistantPhaseFinal,
-		},
-	}))
+func bellAssistantFinalMessageWithText(step int, text string) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID, Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StepId: bellTestStepID(step).String(), Text: text, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL}}})
 
 }
 
-func bellStepFinishedMessage(step int) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptStepState{
-		StepID:    bellTestStepID(step),
-		Lifecycle: clientui.StepLifecycleFinished,
-	}))
+func bellStepFinishedMessage(step int) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.StepState{StepId: bellTestStepID(step).String(),
+		Lifecycle: transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED})
 
 }
 
-func bellAssistantDeltaMessage(step int, delta string) clientui.TranscriptMessage {
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptAssistantDelta{
-		StepID: bellTestStepID(step), StreamID: runtimeids.NewAssistantStreamID(), Delta: delta, Phase: transcript.AssistantPhaseFinal,
-	}))
+func bellAssistantDeltaMessage(step int, delta string) *transcriptpb.Message {
+	return transcriptTestMessage(2, &transcriptpb.AssistantDelta{StepId: bellTestStepID(step).String(), StreamId: runtimeids.NewAssistantStreamID().String(), Delta: delta, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL})
 
 }
 
-func bellLiveRunNoFinalMessage() clientui.TranscriptMessage {
+func bellLiveRunNoFinalMessage() *transcriptpb.Message {
 	startedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptLiveRunResult{
-		Status:     clientui.LiveRunStatusCompleted,
-		ResultKind: clientui.LiveRunResultNoFinalAnswer,
-		StartedAt:  startedAt,
-		FinishedAt: startedAt.Add(time.Second),
-	}))
+	return transcriptTestMessage(2, &transcriptpb.LiveRunFinished{
+		Status:     transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED,
+		ResultKind: transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER,
+		StartedAt:  timestamppb.New(startedAt),
+		FinishedAt: timestamppb.New(startedAt.Add(time.Second))})
 }
 
 func recordToolHeavyBellTurn(hooks *bellHooks, step int) {

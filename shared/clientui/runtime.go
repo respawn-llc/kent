@@ -5,81 +5,11 @@ import (
 	"errors"
 	"strings"
 
-	"core/shared/runtimeids"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
 )
-
-type ConversationFreshness uint8
-
-const (
-	ConversationFreshnessFresh ConversationFreshness = iota
-	ConversationFreshnessEstablished
-)
-
-func (f ConversationFreshness) IsFresh() bool {
-	return f == ConversationFreshnessFresh
-}
-
-type RuntimeContextUsage struct {
-	UsedTokens            int
-	WindowTokens          int
-	CacheHitPercent       int
-	HasCacheHitPercentage bool
-}
-
-type RuntimeGoal struct {
-	Goal         *Goal
-	Availability *GoalAvailability
-	Suspended    bool
-}
-
-type RuntimeGoalStatus string
-
-const (
-	RuntimeGoalStatusActive   RuntimeGoalStatus = "active"
-	RuntimeGoalStatusPaused   RuntimeGoalStatus = "paused"
-	RuntimeGoalStatusComplete RuntimeGoalStatus = "complete"
-)
-
-type RuntimeStatus struct {
-	ReviewerFrequency                 string
-	ReviewerEnabled                   bool
-	AutoCompactionEnabled             bool
-	QuestionsEnabled                  bool
-	FastModeAvailable                 bool
-	FastModeEnabled                   bool
-	ConversationFreshness             ConversationFreshness
-	PreviousSessionID                 *runtimeids.SessionID
-	ParentAgentSessionID              *runtimeids.SessionID
-	NavigationTargetSessionID         *runtimeids.SessionID
-	LastCommittedAssistantFinalAnswer *string
-	ThinkingLevel                     string
-	CompactionMode                    string
-	ContextUsage                      RuntimeContextUsage
-	CompactionCount                   int
-	Goal                              *RuntimeGoal
-	WorkflowSession                   *WorkflowSessionStatus
-}
-
-type WorkflowSessionStatus struct {
-	TaskID     string
-	WorkflowID runtimeids.WorkflowID
-}
-
-type RunStatus string
-
-const (
-	RunStatusRunning     RunStatus = "running"
-	RunStatusCompleted   RunStatus = "completed"
-	RunStatusInterrupted RunStatus = "interrupted"
-	RunStatusFailed      RunStatus = "failed"
-)
-
-type RuntimeMainView struct {
-	Version  ReadModelVersion
-	Status   RuntimeStatus
-	Session  RuntimeSessionView
-	Activity RuntimeActivity
-}
 
 type QueuedUserMessage struct {
 	ID   string
@@ -101,66 +31,45 @@ type UserTurnSubmission struct {
 	Queued     QueuedUserMessage
 }
 
-type SessionExecutionTarget struct {
-	WorkspaceID           string
-	WorkspaceName         string
-	WorkspaceRoot         string
-	WorkspaceAvailability ProjectAvailability
-	Worktree              *SessionExecutionWorktreeTarget
-	CwdRelpath            string
-	EffectiveWorkdir      string
-}
-
-type SessionExecutionWorktreeTarget struct {
-	ID           string
-	Name         string
-	Root         string
-	Availability string
-}
-
-func NormalizeSessionExecutionTarget(target SessionExecutionTarget) SessionExecutionTarget {
-	var worktree *SessionExecutionWorktreeTarget
-	if target.Worktree != nil {
-		worktree = &SessionExecutionWorktreeTarget{
-			ID:           strings.TrimSpace(target.Worktree.ID),
-			Name:         strings.TrimSpace(target.Worktree.Name),
-			Root:         strings.TrimSpace(target.Worktree.Root),
-			Availability: strings.TrimSpace(target.Worktree.Availability),
-		}
+func NormalizeSessionExecutionTarget(target *worktreepb.SessionExecutionTarget) *worktreepb.SessionExecutionTarget {
+	if target == nil {
+		return nil
 	}
-	return SessionExecutionTarget{
-		WorkspaceID:           strings.TrimSpace(target.WorkspaceID),
-		WorkspaceName:         strings.TrimSpace(target.WorkspaceName),
-		WorkspaceRoot:         strings.TrimSpace(target.WorkspaceRoot),
-		WorkspaceAvailability: ProjectAvailability(strings.TrimSpace(string(target.WorkspaceAvailability))),
-		Worktree:              worktree,
-		CwdRelpath:            strings.TrimSpace(target.CwdRelpath),
-		EffectiveWorkdir:      strings.TrimSpace(target.EffectiveWorkdir),
+	normalized := proto.Clone(target).(*worktreepb.SessionExecutionTarget)
+	if normalized.WorkspaceId != nil {
+		value := strings.TrimSpace(*normalized.WorkspaceId)
+		normalized.WorkspaceId = &value
 	}
+	normalized.WorkspaceName = strings.TrimSpace(normalized.WorkspaceName)
+	normalized.WorkspaceRoot = strings.TrimSpace(normalized.WorkspaceRoot)
+	normalized.CwdRelpath = strings.TrimSpace(normalized.CwdRelpath)
+	normalized.EffectiveWorkdir = strings.TrimSpace(normalized.EffectiveWorkdir)
+	if worktree := normalized.Worktree; worktree != nil {
+		worktree.Id = strings.TrimSpace(worktree.Id)
+		worktree.Name = strings.TrimSpace(worktree.Name)
+		worktree.Root = strings.TrimSpace(worktree.Root)
+	}
+	return normalized
 }
 
-func SessionExecutionTargetIsZero(target SessionExecutionTarget) bool {
-	normalized := NormalizeSessionExecutionTarget(target)
-	return normalized.WorkspaceID == "" &&
-		normalized.WorkspaceName == "" &&
-		normalized.WorkspaceRoot == "" &&
-		normalized.WorkspaceAvailability == "" &&
-		normalized.Worktree == nil &&
-		normalized.CwdRelpath == "" &&
-		normalized.EffectiveWorkdir == ""
+func SessionExecutionTargetIsZero(target *worktreepb.SessionExecutionTarget) bool {
+	return target == nil
 }
 
-func SessionExecutionTargetsEqual(a SessionExecutionTarget, b SessionExecutionTarget) bool {
+func SessionExecutionTargetsEqual(a, b *worktreepb.SessionExecutionTarget) bool {
 	normalizedA := NormalizeSessionExecutionTarget(a)
 	normalizedB := NormalizeSessionExecutionTarget(b)
+	if normalizedA == nil || normalizedB == nil {
+		return normalizedA == normalizedB
+	}
 	worktreesEqual := normalizedA.Worktree == normalizedB.Worktree
 	if normalizedA.Worktree != nil && normalizedB.Worktree != nil {
-		worktreesEqual = normalizedA.Worktree.ID == normalizedB.Worktree.ID &&
+		worktreesEqual = normalizedA.Worktree.Id == normalizedB.Worktree.Id &&
 			normalizedA.Worktree.Name == normalizedB.Worktree.Name &&
 			normalizedA.Worktree.Root == normalizedB.Worktree.Root &&
 			normalizedA.Worktree.Availability == normalizedB.Worktree.Availability
 	}
-	return normalizedA.WorkspaceID == normalizedB.WorkspaceID &&
+	return textutil.EqualOptional(normalizedA.WorkspaceId, normalizedB.WorkspaceId) &&
 		normalizedA.WorkspaceName == normalizedB.WorkspaceName &&
 		normalizedA.WorkspaceRoot == normalizedB.WorkspaceRoot &&
 		normalizedA.WorkspaceAvailability == normalizedB.WorkspaceAvailability &&
@@ -169,8 +78,8 @@ func SessionExecutionTargetsEqual(a SessionExecutionTarget, b SessionExecutionTa
 		normalizedA.EffectiveWorkdir == normalizedB.EffectiveWorkdir
 }
 
-func SessionExecutionWorkspaceRoot(target SessionExecutionTarget, fallback string) (string, error) {
-	if target.Worktree == nil {
+func SessionExecutionWorkspaceRoot(target *worktreepb.SessionExecutionTarget, fallback string) (string, error) {
+	if target.GetWorktree() == nil {
 		return fallback, nil
 	}
 	root := strings.TrimSpace(target.Worktree.Root)
@@ -180,21 +89,13 @@ func SessionExecutionWorkspaceRoot(target SessionExecutionTarget, fallback strin
 	return root, nil
 }
 
-type RuntimeSessionView struct {
-	SessionID             string
-	SessionName           string
-	AgentRole             *string
-	ConversationFreshness ConversationFreshness
-	ExecutionTarget       SessionExecutionTarget
-}
-
 type RuntimeClient interface {
-	MainView() RuntimeMainView
-	RefreshMainView() (RuntimeMainView, error)
-	Status() RuntimeStatus
-	SessionView() RuntimeSessionView
+	MainView() *runtimepb.MainView
+	RefreshMainView() (*runtimepb.MainView, error)
+	Status() *runtimepb.Status
+	SessionView() *runtimepb.SessionView
 	SetSessionName(name string) error
-	ShowGoal() (*RuntimeGoal, error)
+	ShowGoal() (*runtimepb.GoalView, error)
 	SetGoal(objective string) (GoalMutationResult, error)
 	PauseGoal() (GoalMutationResult, error)
 	ResumeGoal() (GoalMutationResult, error)

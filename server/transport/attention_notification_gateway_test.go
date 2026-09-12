@@ -13,7 +13,7 @@ import (
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/clientui"
-	"core/shared/protocol"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -69,9 +69,11 @@ func TestGatewaySessionAttentionRouteRequiresAttachedSession(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	errResp := callGatewayExpectError(t, conn, "attention-without-attach", protocol.MethodAttentionSessionNotificationSubscribe, serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: sessionOne.Meta().SessionID})
-	if errResp.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("missing attach error = %+v", errResp)
+	method := attentionpb.File_kent_api_attention_attention_proto.Services().ByName("SessionService").Methods().ByName("Subscribe")
+	var missing attentionpb.StartResult
+	callGatewayDescriptor(t, conn, "attention-without-attach", method, &attentionpb.SubscribeRequest{SessionId: sessionOne.Meta().SessionID}, &missing)
+	if missing.GetError() == nil {
+		t.Fatalf("missing attach accepted: %+v", &missing)
 	}
 	_ = conn.Close()
 
@@ -81,9 +83,10 @@ func TestGatewaySessionAttentionRouteRequiresAttachedSession(t *testing.T) {
 	if result := attachGatewaySession(t, conn, "attach-session-one", sessionOne.Meta().SessionID); result.GetSuccess() == nil {
 		t.Fatalf("attach Session one failed: %+v", result.GetError())
 	}
-	errResp = callGatewayExpectError(t, conn, "attention-wrong-session", protocol.MethodAttentionSessionNotificationSubscribe, serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: sessionTwo.Meta().SessionID})
-	if errResp.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("wrong attach error = %+v", errResp)
+	var wrong attentionpb.StartResult
+	callGatewayDescriptor(t, conn, "attention-wrong-session", method, &attentionpb.SubscribeRequest{SessionId: sessionTwo.Meta().SessionID}, &wrong)
+	if wrong.GetError() == nil {
+		t.Fatalf("wrong attach accepted: %+v", &wrong)
 	}
 }
 
@@ -99,13 +102,16 @@ func TestGatewayRemoteSessionAttentionReceivesAuthorizedGenericPrompt(t *testing
 		t.Fatalf("DialRemoteURL: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeSessionAttentionNotifications(context.Background(), serverapi.AttentionSessionNotificationSubscribeRequest{SessionID: sessionStore.Meta().SessionID})
+	sub, err := remote.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: sessionStore.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
 	beginGatewayPendingPrompt(t, broker, sessionStore.Meta().SessionID, askquestion.AskQuestionRequest{ToolCallID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
-	pending := nextGatewayAttentionEvent(t, sub)
-	if pending.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt || pending.Pending.Target.SessionID != sessionStore.Meta().SessionID {
+	pending, err := sub.Next(shortGatewayAttentionContext(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.GetPending() == nil || pending.GetPending().SessionId != sessionStore.Meta().SessionID {
 		t.Fatalf("session prompt pending = %+v", pending)
 	}
 }

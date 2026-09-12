@@ -19,6 +19,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/imagefileio"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
@@ -580,7 +581,7 @@ func runLiveStopSubcommand(args []string) int {
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		return 1
 	}
-	if result.Status == serverapi.RuntimeLiveStopStatusStopped {
+	if result.Status == runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED {
 		fmt.Fprintln(os.Stdout, "Stopped")
 	} else {
 		fmt.Fprintln(os.Stdout, "No active run")
@@ -619,7 +620,7 @@ func runLiveWaitSubcommand(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var result app.RunPromptResult
+	var result *runtimepb.LiveWaitSuccess
 	var runErr error
 	var closeFn func() error
 	if outputMode == runOutputModeJSON {
@@ -629,7 +630,7 @@ func runLiveWaitSubcommand(args []string) int {
 		result, runErr = runLiveWaitApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	}
 	continueRoot := continueCommandPersistenceRoot(*persistenceRoot)
-	continueHint := buildRunContinueHint(result.SessionID, continueRoot)
+	continueHint := buildRunContinueHint(sessionID.String(), continueRoot)
 	if runErr != nil {
 		if outputMode == runOutputModeJSON {
 			return emitRunWaitJSON(os.Stdout, sessionID.String(), result, runErr, ctx, closeFn)
@@ -648,7 +649,7 @@ func runLiveWaitSubcommand(args []string) int {
 	if outputMode == runOutputModeJSON {
 		return emitRunWaitJSON(os.Stdout, sessionID.String(), result, nil, ctx, closeFn)
 	}
-	emitRunFinalText(os.Stdout, result.Warnings, result.Result, continueHint)
+	emitRunFinalText(os.Stdout, nil, result.GetAssistantFinalAnswer().GetResult(), continueHint)
 	return 0
 }
 
@@ -712,7 +713,7 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if result.Close != nil {
 		_ = result.Close()
 	}
-	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(response.SessionID, continueCommandPersistenceRoot(*persistenceRoot)))
+	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(response.SessionId, continueCommandPersistenceRoot(*persistenceRoot)))
 }
 
 func runLiveFlagError(err error) int {

@@ -7,13 +7,17 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
+	"core/cli/tui"
 	"core/prompts"
 	"core/shared/client"
-	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
+	"core/shared/textutil"
 )
 
 type goalRuntimeUnavailablePresentationError struct {
@@ -28,12 +32,12 @@ func (e goalRuntimeUnavailablePresentationError) Error() string {
 }
 
 type goalCommandRemote interface {
-	ShowGoal(context.Context, serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error)
-	SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	ResumeGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	CompleteGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	ClearGoal(context.Context, serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error)
+	ShowGoal(context.Context, *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error)
+	SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error)
+	PauseGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
+	ResumeGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
+	CompleteGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
+	ClearGoal(context.Context, *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error)
 	Close() error
 }
 
@@ -105,16 +109,15 @@ func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
-		resp, err := remote.ShowGoal(ctx, serverapi.RuntimeGoalShowRequest{SessionID: target})
+		resp, err := remote.ShowGoal(ctx, &runtimepb.GoalShowRequest{SessionId: target})
 		if err != nil {
 			fmt.Fprintln(stderr, client.PresentGoalRequestError(err))
 			return 1
 		}
 		if *jsonOut {
-			return writeCommandJSON(stdout, stderr, resp)
+			return writeGoalShowJSON(stdout, stderr, resp)
 		}
-		writeGoalShowText(stdout, resp.Goal)
-		return 0
+		return writeGoalShowText(stdout, stderr, resp.Goal)
 	})
 }
 
@@ -135,18 +138,19 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	actor := "user"
-	runID, stepID := "", ""
+	var runID, stepID *string
 	if agent {
 		actor = "agent"
-		runID, stepID = sessionenv.LookupRunStepID(os.LookupEnv)
+		run, step := sessionenv.LookupRunStepID(os.LookupEnv)
+		runID, stepID = textutil.OptionalTrimmedString(run), textutil.OptionalTrimmedString(step)
 	}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
-		resp, err := remote.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{SessionID: target, Objective: objective, Actor: actor, RunID: runID, StepID: stepID})
+		resp, err := remote.SetGoal(ctx, &runtimepb.GoalSetRequest{SessionId: target, Objective: objective, Actor: actor, RunId: runID, StepId: stepID})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target, err))
 			return 1
 		}
-		return writeGoalMutationResult(stdout, stderr, resp.Result)
+		return writeGoalMutationResult(stdout, stderr, resp)
 	})
 }
 
@@ -173,10 +177,10 @@ func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr
 		fmt.Fprintln(stderr, prompts.RenderGoalAgentCommandDeniedPrompt())
 		return 1
 	}
-	req := serverapi.RuntimeGoalStatusRequest{SessionID: target, Actor: "user"}
+	req := &runtimepb.GoalMutationRequest{SessionId: target, Actor: "user"}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
 		var (
-			resp    serverapi.RuntimeGoalMutationResponse
+			resp    *runtimepb.GoalMutationSuccess
 			callErr error
 		)
 		if action == "pause" {
@@ -188,7 +192,7 @@ func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr
 			fmt.Fprintln(stderr, goalMutationCommandError(target, callErr))
 			return 1
 		}
-		return writeGoalMutationResult(stdout, stderr, resp.Result)
+		return writeGoalMutationResult(stdout, stderr, resp)
 	})
 }
 
@@ -209,7 +213,7 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		return 2
 	}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
-		current, err := remote.ShowGoal(ctx, serverapi.RuntimeGoalShowRequest{SessionID: target})
+		current, err := remote.ShowGoal(ctx, &runtimepb.GoalShowRequest{SessionId: target})
 		if err != nil {
 			fmt.Fprintln(stderr, client.PresentGoalRequestError(err))
 			return 1
@@ -227,23 +231,24 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			return 1
 		}
 		actor := "user"
-		runID, stepID := "", ""
+		var runID, stepID *string
 		if agent {
 			actor = "agent"
-			runID, stepID = sessionenv.LookupRunStepID(os.LookupEnv)
+			run, step := sessionenv.LookupRunStepID(os.LookupEnv)
+			runID, stepID = textutil.OptionalTrimmedString(run), textutil.OptionalTrimmedString(step)
 		}
-		response, err := remote.CompleteGoal(ctx, serverapi.RuntimeGoalStatusRequest{SessionID: target, Actor: actor, RunID: runID, StepID: stepID})
+		response, err := remote.CompleteGoal(ctx, &runtimepb.GoalMutationRequest{SessionId: target, Actor: actor, RunId: runID, StepId: stepID})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target, err))
 			return 1
 		}
-		if err := response.Validate(); err != nil {
+		if err := protoapi.Validate(response); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if response.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
-			response.Result.Goal == nil ||
-			response.Result.Goal.Status != clientui.RuntimeGoalStatusComplete {
+		if response.Kind != runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL ||
+			response.Goal == nil ||
+			response.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE {
 			fmt.Fprintln(stderr, "Goal completion response did not contain an authoritative completed Goal")
 			return 1
 		}
@@ -252,8 +257,8 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	})
 }
 
-func goalAlreadyComplete(goal *clientui.Goal) bool {
-	return goal != nil && goal.Status == clientui.RuntimeGoalStatusComplete
+func goalAlreadyComplete(goal *runtimepb.Goal) bool {
+	return goal != nil && goal.Status == runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE
 }
 
 func goalClearSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -276,12 +281,12 @@ func goalClearSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 		return 1
 	}
 	return withGoalCommandRemote(stderr, func(ctx context.Context, remote goalCommandRemote) int {
-		resp, err := remote.ClearGoal(ctx, serverapi.RuntimeGoalClearRequest{SessionID: target, Actor: "user"})
+		resp, err := remote.ClearGoal(ctx, &runtimepb.GoalClearRequest{SessionId: target, Actor: "user"})
 		if err != nil {
 			fmt.Fprintln(stderr, goalMutationCommandError(target, err))
 			return 1
 		}
-		return writeGoalMutationResult(stdout, stderr, resp.Result)
+		return writeGoalMutationResult(stdout, stderr, resp)
 	})
 }
 
@@ -315,23 +320,70 @@ func openGoalCommandRemote(ctx context.Context) (goalCommandRemote, error) {
 	return remote, nil
 }
 
-func writeGoalShowText(stdout io.Writer, goal *clientui.Goal) {
+func writeGoalShowText(stdout io.Writer, stderr io.Writer, goal *runtimepb.Goal) int {
 	if goal == nil {
 		fmt.Fprintln(stdout, "No goal")
-		return
+		return 0
 	}
-	fmt.Fprintf(stdout, "Goal: %s\nStatus: %s\n", goal.Objective, goal.Status)
+	status, err := tui.GoalStatusLabel(goal.Status)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Goal: %s\nStatus: %s\n", goal.Objective, status)
+	return 0
 }
 
-func writeGoalMutationResult(stdout io.Writer, stderr io.Writer, result clientui.GoalMutationResult) int {
-	if err := result.Validate(); err != nil {
+func writeGoalShowJSON(stdout io.Writer, stderr io.Writer, response *runtimepb.GoalShowSuccess) int {
+	if err := protoapi.Validate(response); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	output := struct {
+		Goal *struct {
+			ID        string    `json:"id"`
+			Objective string    `json:"objective"`
+			Status    string    `json:"status"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+		} `json:"goal,omitempty"`
+		Availability string `json:"availability"`
+	}{}
+	switch response.Availability {
+	case runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE:
+		output.Availability = "available"
+	case runtimepb.GoalAvailability_GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING:
+		output.Availability = "agent_capability_missing"
+	}
+	if goal := response.Goal; goal != nil {
+		status, err := tui.GoalStatusLabel(goal.Status)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		output.Goal = &struct {
+			ID        string    `json:"id"`
+			Objective string    `json:"objective"`
+			Status    string    `json:"status"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+		}{
+			ID: goal.Id, Objective: goal.Objective, Status: status,
+			CreatedAt: goal.CreatedAt.AsTime(), UpdatedAt: goal.UpdatedAt.AsTime(),
+		}
+	}
+	return writeCommandJSON(stdout, stderr, output)
+}
+
+func writeGoalMutationResult(stdout io.Writer, stderr io.Writer, result *runtimepb.GoalMutationSuccess) int {
+	if err := protoapi.Validate(result); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	switch result.Kind {
-	case clientui.GoalMutationResultAuthoritativeGoal:
-		writeGoalShowText(stdout, result.Goal)
-	case clientui.GoalMutationResultAuthoritativeClear:
+	case runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL:
+		return writeGoalShowText(stdout, stderr, result.Goal)
+	case runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR:
 		fmt.Fprintln(stdout, "Goal cleared")
 	}
 	return 0

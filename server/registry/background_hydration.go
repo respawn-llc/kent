@@ -3,10 +3,10 @@ package registry
 import (
 	"core/server/runtimeview"
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
-func (r *RuntimeRegistry) backgroundActivitiesForSession(sessionID string) ([]clientui.TranscriptBackgroundActivity, error) {
+func (r *RuntimeRegistry) backgroundActivitiesForSession(sessionID string) ([]*transcriptpb.BackgroundActivity, error) {
 	if r == nil || r.backgroundProcessSnapshots == nil {
 		return nil, nil
 	}
@@ -16,6 +16,6 @@ func (r *RuntimeRegistry) backgroundActivitiesForSession(sessionID string) ([]cl
 func transcriptBackgroundActivitiesFromProcessSnapshots(
 	sessionID string,
 	snapshots []shelltool.Snapshot,
-) ([]clientui.TranscriptBackgroundActivity, error) {
+) ([]*transcriptpb.BackgroundActivity, error) {
 	return runtimeview.TranscriptBackgroundActivitiesFromProcessSnapshots(sessionID, snapshots)
 }

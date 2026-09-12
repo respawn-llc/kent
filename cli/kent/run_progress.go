@@ -6,8 +6,7 @@ import (
 	"strings"
 
 	"core/prompts"
-	"core/shared/clientui"
-	"core/shared/serverapi"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 )
 
 type runProgressRenderer struct {
@@ -21,46 +20,37 @@ func newRunProgressRenderer(stdout io.Writer, stderr io.Writer) *runProgressRend
 	return &runProgressRenderer{stdout: stdout, stderr: stderr}
 }
 
-func (r *runProgressRenderer) PublishRunPromptProgress(progress serverapi.RunPromptProgress) {
+func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.ProgressEvent) {
 	if r == nil {
 		return
 	}
-	switch progress.Kind {
-	case serverapi.RunPromptProgressKindSessionStarted:
-		if progress.SessionStarted == nil {
-			return
-		}
+	switch event := progress.GetPayload().(type) {
+	case *runpromptpb.ProgressEvent_SessionStarted:
 		_, _ = fmt.Fprintf(
 			r.stderr,
 			"Started a new session, `%s run steer %s \"prompt\"` to send messages while it runs\n",
 			prompts.LaunchCommand(),
-			progress.SessionStarted.SessionID,
+			event.SessionStarted.SessionId,
 		)
-	case serverapi.RunPromptProgressKindAssistantMessage:
-		if progress.AssistantMessage == nil {
-			return
-		}
-		r.writeStdoutBlock(progress.AssistantMessage.Content)
-		if progress.AssistantMessage.Phase == clientui.MessagePhaseFinal {
+	case *runpromptpb.ProgressEvent_AssistantMessage:
+		r.writeStdoutBlock(event.AssistantMessage.Content)
+		if event.AssistantMessage.Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_FINAL {
 			r.finalResponseEmitted = true
 		}
-	case serverapi.RunPromptProgressKindSteeredMessage:
-		if progress.SteeredMessage == nil {
-			return
-		}
-		_, _ = fmt.Fprintf(r.stderr, "Steered message: %s\n", progress.SteeredMessage.Content)
-	case serverapi.RunPromptProgressKindCompactionStarted:
+	case *runpromptpb.ProgressEvent_SteeredMessage:
+		_, _ = fmt.Fprintf(r.stderr, "Steered message: %s\n", event.SteeredMessage.Content)
+	case *runpromptpb.ProgressEvent_CompactionStarted:
 		_, _ = fmt.Fprintln(r.stderr, "Compacting context")
-	case serverapi.RunPromptProgressKindCompactionFailed:
-		r.writeFailure("Context compaction failed", progress.Failure)
-	case serverapi.RunPromptProgressKindRunLoggingFailed:
-		r.writeFailure("Run logging degraded", progress.Failure)
-	case serverapi.RunPromptProgressKindRunCleanupFailed:
-		r.writeFailure("Run cleanup failed", progress.Failure)
+	case *runpromptpb.ProgressEvent_CompactionFailed:
+		r.writeFailure("Context compaction failed", event.CompactionFailed)
+	case *runpromptpb.ProgressEvent_RunLoggingFailed:
+		r.writeFailure("Run logging degraded", event.RunLoggingFailed)
+	case *runpromptpb.ProgressEvent_RunCleanupFailed:
+		r.writeFailure("Run cleanup failed", event.RunCleanupFailed)
 	}
 }
 
-func (r *runProgressRenderer) writeFailure(summary string, failure *serverapi.RunPromptFailure) {
+func (r *runProgressRenderer) writeFailure(summary string, failure *runpromptpb.ProgressFailure) {
 	if failure == nil || failure.Error == nil {
 		_, _ = fmt.Fprintln(r.stderr, summary)
 		return

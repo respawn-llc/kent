@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"core/shared/client"
-	"core/shared/clientui"
-	"core/shared/serverapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type goalTimeoutRemote struct {
@@ -21,31 +21,31 @@ type goalTimeoutRemote struct {
 	failRead bool
 }
 
-func (r goalTimeoutRemote) ShowGoal(context.Context, serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (r goalTimeoutRemote) ShowGoal(context.Context, *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error) {
 	if r.failRead {
-		return serverapi.RuntimeGoalShowResponse{}, context.DeadlineExceeded
+		return &runtimepb.GoalShowSuccess{}, context.DeadlineExceeded
 	}
-	return serverapi.RuntimeGoalShowResponse{}, nil
+	return &runtimepb.GoalShowSuccess{}, nil
 }
 
-func (goalTimeoutRemote) SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) PauseGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) PauseGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) ResumeGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) ResumeGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) CompleteGoal(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) CompleteGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, context.DeadlineExceeded
 }
 
-func (goalTimeoutRemote) ClearGoal(context.Context, serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, context.DeadlineExceeded
+func (goalTimeoutRemote) ClearGoal(context.Context, *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, context.DeadlineExceeded
 }
 
 func (goalTimeoutRemote) Close() error { return nil }
@@ -118,18 +118,18 @@ type goalDeadlineRemote struct {
 	t         *testing.T
 	deadline  time.Time
 	completed bool
-	response  serverapi.RuntimeGoalMutationResponse
+	response  *runtimepb.GoalMutationSuccess
 }
 
-func (r *goalDeadlineRemote) ShowGoal(ctx context.Context, _ serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (r *goalDeadlineRemote) ShowGoal(ctx context.Context, _ *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error) {
 	deadline, ok := ctx.Deadline()
 	if !ok || deadline != r.deadline {
 		r.t.Fatal("goal read must share the connection's command deadline")
 	}
-	return serverapi.RuntimeGoalShowResponse{}, nil
+	return &runtimepb.GoalShowSuccess{}, nil
 }
 
-func (r *goalDeadlineRemote) CompleteGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+func (r *goalDeadlineRemote) CompleteGoal(ctx context.Context, _ *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 	deadline, ok := ctx.Deadline()
 	if !ok || deadline != r.deadline {
 		r.t.Fatal("goal completion must use the remaining command budget")
@@ -143,7 +143,7 @@ func (r *goalDeadlineRemote) Close() error { return nil }
 func TestGoalCompleteSharesFifteenSecondBudget(t *testing.T) {
 	previous := goalCommandRemoteOpener
 	t.Cleanup(func() { goalCommandRemoteOpener = previous })
-	remote := &goalDeadlineRemote{t: t, response: completedGoalMutationResponse(clientui.RuntimeGoalStatusComplete)}
+	remote := &goalDeadlineRemote{t: t, response: completedGoalMutationResponse(runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE)}
 	goalCommandRemoteOpener = func(ctx context.Context) (goalCommandRemote, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok {
@@ -167,16 +167,16 @@ func TestGoalCompleteSharesFifteenSecondBudget(t *testing.T) {
 func TestGoalCompleteRejectsNonCompletedMutationResult(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		response serverapi.RuntimeGoalMutationResponse
+		response *runtimepb.GoalMutationSuccess
 	}{
 		{name: "invalid"},
 		{
 			name: "authoritative Clear",
-			response: serverapi.RuntimeGoalMutationResponse{Result: clientui.GoalMutationResult{
-				Kind: clientui.GoalMutationResultAuthoritativeClear,
-			}},
+			response: &runtimepb.GoalMutationSuccess{
+				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR,
+			},
 		},
-		{name: "active Goal", response: completedGoalMutationResponse(clientui.RuntimeGoalStatusActive)},
+		{name: "active Goal", response: completedGoalMutationResponse(runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			previous := goalCommandRemoteOpener
@@ -208,16 +208,16 @@ func TestGoalCompleteRejectsNonCompletedMutationResult(t *testing.T) {
 	}
 }
 
-func completedGoalMutationResponse(status clientui.RuntimeGoalStatus) serverapi.RuntimeGoalMutationResponse {
+func completedGoalMutationResponse(status runtimepb.GoalStatus) *runtimepb.GoalMutationSuccess {
 	now := time.Unix(1, 0).UTC()
-	return serverapi.RuntimeGoalMutationResponse{Result: clientui.GoalMutationResult{
-		Kind: clientui.GoalMutationResultAuthoritativeGoal,
-		Goal: &clientui.Goal{
-			ID:        "goal-1",
+	return &runtimepb.GoalMutationSuccess{
+		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+		Goal: &runtimepb.Goal{
+			Id:        "goal-1",
 			Objective: "finish the task",
 			Status:    status,
-			CreatedAt: now,
-			UpdatedAt: now,
+			CreatedAt: timestamppb.New(now),
+			UpdatedAt: timestamppb.New(now),
 		},
-	}}
+	}
 }

@@ -1,5 +1,7 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 import (
 	"context"
 	"strings"
@@ -24,7 +26,7 @@ const (
 type uiStatusConfig struct {
 	WorkspaceRoot   string
 	PersistenceRoot string
-	ExecutionTarget clientui.SessionExecutionTarget
+	ExecutionTarget *worktreepb.SessionExecutionTarget
 	SessionViews    apicontract.SessionViewService
 	Settings        config.Settings
 	AuthSelection   *authpb.ProviderSelection
@@ -153,9 +155,9 @@ func (m *uiModel) newStatusRequest(now time.Time) uiStatusRequest {
 	return populateStatusRequestCacheKeys(request)
 }
 
-func (m *uiModel) currentExecutionTarget() clientui.SessionExecutionTarget {
+func (m *uiModel) currentExecutionTarget() *worktreepb.SessionExecutionTarget {
 	if m == nil {
-		return clientui.SessionExecutionTarget{}
+		return nil
 	}
 	target := m.cachedRuntimeMainView().Session.ExecutionTarget
 	if !clientui.SessionExecutionTargetIsZero(target) {
@@ -164,8 +166,8 @@ func (m *uiModel) currentExecutionTarget() clientui.SessionExecutionTarget {
 	return m.statusConfig.ExecutionTarget
 }
 
-func (m *uiModel) currentExecutionWorkdir(target clientui.SessionExecutionTarget) string {
-	if workdir := strings.TrimSpace(target.EffectiveWorkdir); workdir != "" {
+func (m *uiModel) currentExecutionWorkdir(target *worktreepb.SessionExecutionTarget) string {
+	if workdir := strings.TrimSpace(target.GetEffectiveWorkdir()); workdir != "" {
 		return workdir
 	}
 	return strings.TrimSpace(m.statusConfig.WorkspaceRoot)

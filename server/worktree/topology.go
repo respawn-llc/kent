@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"core/server/metadata"
-	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -73,7 +72,7 @@ func projectTopologyEntries(workspaceRoot string, gitEntries []GitWorktree, reco
 	return out, nil
 }
 
-func projectWorktreeList(entries []*worktreepb.TopologyEntry, target *clientui.SessionExecutionTarget) ([]*worktreepb.ListEntry, error) {
+func projectWorktreeList(entries []*worktreepb.TopologyEntry, target *worktreepb.SessionExecutionTarget) ([]*worktreepb.ListEntry, error) {
 	out := make([]*worktreepb.ListEntry, 0, len(entries))
 	for index, topology := range entries {
 		selector, err := topologySelectorFor(entries, index)
@@ -83,7 +82,7 @@ func projectWorktreeList(entries []*worktreepb.TopologyEntry, target *clientui.S
 		entry, err := projectListEntry(
 			topology,
 			selector,
-			target != nil && topologyIsCurrent(topology, *target),
+			target != nil && topologyIsCurrent(topology, target),
 			target != nil,
 		)
 		if err != nil {
@@ -134,12 +133,12 @@ func projectListEntry(topology *worktreepb.TopologyEntry, selector string, isCur
 	return &worktreepb.ListEntry{Topology: topology, Projection: projection}, nil
 }
 
-func topologyIsCurrent(entry *worktreepb.TopologyEntry, target clientui.SessionExecutionTarget) bool {
+func topologyIsCurrent(entry *worktreepb.TopologyEntry, target *worktreepb.SessionExecutionTarget) bool {
 	if target.Worktree == nil {
 		return entry.GetMainWorkspace() != nil
 	}
 	worktreeID := topologyWorktreeID(entry)
-	return worktreeID != nil && strings.TrimSpace(*worktreeID) == strings.TrimSpace(target.Worktree.ID)
+	return worktreeID != nil && strings.TrimSpace(*worktreeID) == strings.TrimSpace(target.Worktree.Id)
 }
 
 func (s *Service) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {

@@ -8,7 +8,6 @@ import (
 	"core/cli/tui"
 	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -221,7 +220,7 @@ func (m *uiModel) Close() {
 func (m *uiModel) Transition() UITransition {
 	if m.exitAction == UIActionExit {
 		return UITransition{
-			Action: serverapi.SessionTransitionActionNone,
+			Action: UIActionNone,
 			Exit:   true,
 		}
 	}

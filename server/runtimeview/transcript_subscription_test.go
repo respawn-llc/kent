@@ -3,15 +3,17 @@ package runtimeview
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
+	"time"
 
 	"core/internal/testharness/scriptedllm"
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/tools"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -21,15 +23,28 @@ import (
 	patchformat "core/shared/transcript/patchformat"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
-func transcriptPayload[T any](t *testing.T, event clientui.TranscriptEvent) T {
+func assertTranscriptRoundTrip(t *testing.T, message *transcriptpb.Message) {
 	t.Helper()
-	payload, ok := event.Payload().(T)
-	if !ok {
-		t.Fatalf("transcript payload type = %T, want %T", event.Payload(), *new(T))
+	if err := protoapi.Validate(message); err != nil {
+		t.Fatalf("validate transcript: %v", err)
 	}
-	return payload
+	encoded, err := proto.Marshal(message)
+	if err != nil {
+		t.Fatalf("marshal transcript: %v", err)
+	}
+	decoded := new(transcriptpb.Message)
+	if err := proto.Unmarshal(encoded, decoded); err != nil {
+		t.Fatalf("unmarshal transcript: %v", err)
+	}
+	if err := protoapi.Validate(decoded); err != nil {
+		t.Fatalf("validate decoded transcript: %v", err)
+	}
+	if !proto.Equal(message, decoded) {
+		t.Fatalf("transcript binary round trip differs: got %v want %v", decoded, message)
+	}
 }
 
 func TestTranscriptProjectionOwnsNestedDeletionPresentation(t *testing.T) {
@@ -62,8 +77,11 @@ func TestTranscriptProjectionOwnsNestedDeletionPresentation(t *testing.T) {
 		},
 	}
 
-	cloned := cloneToolCallMeta(source)
-	deletion := cloned.PatchPresentation.Changes.Files[0].Operations[0].Deletion
+	projected, err := ToolPresentationToProto(source)
+	if err != nil {
+		t.Fatalf("project tool presentation: %v", err)
+	}
+	deletion := projected.PatchPresentation.GetChanges().Files[0].Operations[0].GetDelete()
 	deletion.Disposition.Removed = 9
 	deletion.Disposition.PhysicalGroup.FirstOperation.HunkOrdinal = 4
 
@@ -75,7 +93,7 @@ func TestTranscriptProjectionOwnsNestedDeletionPresentation(t *testing.T) {
 }
 
 func TestTranscriptCacheWarningProjectionPreservesAbsentTokenLoss(t *testing.T) {
-	notice := transcriptNoticeFromFact(nil, &runtime.TranscriptNoticeRowFact{
+	notice, err := transcriptNoticeFromFact(nil, &runtime.TranscriptNoticeRowFact{
 		Reason:   transcript.NoticeReasonCacheWarning,
 		Severity: transcript.NoticeSeverityWarning,
 		CacheWarning: &runtime.TranscriptCacheWarningFact{
@@ -84,6 +102,9 @@ func TestTranscriptCacheWarningProjectionPreservesAbsentTokenLoss(t *testing.T) 
 			Visibility: transcript.EntryVisibilityOngoing,
 		},
 	})
+	if err != nil {
+		t.Fatalf("project cache warning: %v", err)
+	}
 	if notice.CacheWarning == nil {
 		t.Fatal("cache-warning projection is absent")
 	}
@@ -97,11 +118,14 @@ func TestTranscriptProviderModelMismatchProjectionPreservesTypedFacts(t *testing
 		RequestedModel: "requested-model",
 		ServedModel:    "served-model",
 	}
-	notice := transcriptNoticeFromFact(nil, &runtime.TranscriptNoticeRowFact{
+	notice, err := transcriptNoticeFromFact(nil, &runtime.TranscriptNoticeRowFact{
 		Reason:                transcript.NoticeReasonProviderModelMismatch,
 		Severity:              transcript.NoticeSeverityWarning,
 		ProviderModelMismatch: &mismatch,
 	})
+	if err != nil {
+		t.Fatalf("project model mismatch: %v", err)
+	}
 	if notice.ProviderModelMismatch == nil ||
 		notice.ProviderModelMismatch.RequestedModel != mismatch.RequestedModel ||
 		notice.ProviderModelMismatch.ServedModel != mismatch.ServedModel {
@@ -112,7 +136,7 @@ func TestTranscriptProviderModelMismatchProjectionPreservesTypedFacts(t *testing
 func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentation(t *testing.T) {
 	count := 2
 	detail := "provider summary"
-	notice := transcriptNoticeFromFact(nil, &runtime.TranscriptNoticeRowFact{
+	notice, err := transcriptNoticeFromFact(nil, &runtime.TranscriptNoticeRowFact{
 		Reason:      transcript.NoticeReasonCompaction,
 		Severity:    transcript.NoticeSeverityInfo,
 		MessageType: llm.MessageTypeCompactionSummary,
@@ -121,9 +145,12 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 			Detail: &detail,
 		},
 	})
+	if err != nil {
+		t.Fatalf("project compaction: %v", err)
+	}
 	if notice.Compaction == nil ||
 		notice.Compaction.Count == nil ||
-		*notice.Compaction.Count != count ||
+		*notice.Compaction.Count != int32(count) ||
 		notice.Compaction.Detail == nil ||
 		*notice.Compaction.Detail != detail {
 		t.Fatalf("compaction projection = %+v", notice.Compaction)
@@ -147,9 +174,9 @@ func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing
 	if len(messages) != 1 {
 		t.Fatalf("compaction messages = %+v, want one", messages)
 	}
-	status := transcriptPayload[clientui.TranscriptCompactionStatus](t, messages[0])
-	if status.RequestID == nil || *status.RequestID != requestID {
-		t.Fatalf("projected request identity = %v, want %s", status.RequestID, requestID.String())
+	status := messages[0].GetCompactionStatus()
+	if status.RequestId == nil || *status.RequestId != requestID.String() {
+		t.Fatalf("projected request identity = %v, want %s", status.RequestId, requestID.String())
 	}
 }
 
@@ -167,8 +194,13 @@ func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("technical restoration messages = %+v, want one", messages)
 	}
-	projected := transcriptPayload[clientui.TranscriptPendingWorkRestored](t, messages[0])
-	if projected.Restoration != restoration {
+	projected := messages[0].GetPendingWorkRestored()
+	want := &transcriptpb.PendingWorkTechnicalRestoration{
+		ItemId:         itemID.String(),
+		Kind:           runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_WORKTREE_TRANSITION,
+		CanonicalInput: restoration.CanonicalInput,
+	}
+	if !proto.Equal(projected.Restoration, want) {
 		t.Fatalf("projected technical restoration = %+v, want %+v", projected.Restoration, restoration)
 	}
 }
@@ -178,8 +210,8 @@ func TestTranscriptPendingWorkChangedProjectionCarriesNoCollection(t *testing.T)
 	if len(messages) != 1 {
 		t.Fatalf("Pending Work Changed messages = %+v, want one", messages)
 	}
-	if _, ok := messages[0].Payload().(clientui.TranscriptPendingWorkChanged); !ok {
-		t.Fatalf("Pending Work Changed payload = %T", messages[0].Payload())
+	if messages[0].GetPendingWorkChanged() == nil {
+		t.Fatalf("Pending Work Changed event = %v", messages[0])
 	}
 }
 
@@ -255,22 +287,24 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 				}},
 			})
 			if len(hydration.TailSegment.Entries) != 1 ||
-				hydration.TailSegment.Entries[0].Tool == nil ||
-				hydration.TailSegment.Entries[0].Tool.Presentation == nil ||
-				hydration.TailSegment.Entries[0].Tool.Presentation.PatchPresentation == nil ||
-				hydration.TailSegment.Entries[0].Tool.Presentation.PatchPresentation.Changes == nil {
+				hydration.TailSegment.Entries[0].GetTool() == nil ||
+				hydration.TailSegment.Entries[0].GetTool().Presentation == nil ||
+				hydration.TailSegment.Entries[0].GetTool().Presentation.PatchPresentation == nil ||
+				hydration.TailSegment.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges() == nil {
 				t.Fatalf("projected deletion row = %+v", hydration.TailSegment.Entries)
 			}
-			file := hydration.TailSegment.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0]
-			removed = patchformat.RemovedLineCount(file)
+			file := hydration.TailSegment.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0]
+			projectedRemoved := file.Removed
+			disposition := file.Operations[0].GetDelete().Disposition
 			if test.wantRemoved == nil {
-				if removed != nil {
-					t.Fatalf("projected removed count = %d, want absent", *removed)
+				if projectedRemoved != nil || disposition != nil {
+					t.Fatalf("projected deletion = %v, want absent count and disposition", file)
 				}
 				return
 			}
-			if removed == nil || *removed != *test.wantRemoved {
-				t.Fatalf("projected removed count = %v, want %d", removed, *test.wantRemoved)
+			if projectedRemoved == nil || *projectedRemoved != int32(*test.wantRemoved) ||
+				disposition == nil || disposition.Removed != int32(*test.wantRemoved) {
+				t.Fatalf("projected deletion = %v, want removed %d", file, *test.wantRemoved)
 			}
 		})
 	}
@@ -281,7 +315,7 @@ const (
 	transcriptProjectionStepID = "10000000-0000-4000-8000-000000000012"
 )
 
-func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationSnapshot) clientui.TranscriptHydration {
+func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationSnapshot) *transcriptpb.Hydration {
 	t.Helper()
 	tailSegment, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false)
 	if err != nil {
@@ -305,18 +339,19 @@ func TestTranscriptHydrationCarriesRuntimeNativeAssistantStreamIdentity(t *testi
 	if hydration.ActiveAssistant == nil {
 		t.Fatal("expected active assistant stream in hydration")
 	}
-	if got := hydration.ActiveAssistant.StreamID.String(); got != streamID.String() {
+	if got := hydration.ActiveAssistant.StreamId; got != streamID.String() {
 		t.Fatalf("active assistant stream id = %q, want %q", got, streamID.String())
 	}
 	if hydration.ActiveAssistant.Text != "hello" {
 		t.Fatalf("active assistant stream text = %q, want hello", hydration.ActiveAssistant.Text)
 	}
-	if hydration.ActiveAssistant.Phase != transcript.AssistantPhaseFinal {
+	if hydration.ActiveAssistant.Phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
 		t.Fatalf("active assistant stream phase = %q, want final", hydration.ActiveAssistant.Phase)
 	}
 }
 
 func TestTranscriptHydrationProjectsRuntimeOwnedFacts(t *testing.T) {
+	goalTime := time.Date(2026, time.July, 20, 10, 0, 0, 0, time.UTC)
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		ActiveThinkingStatus: &runtime.TranscriptThinkingStatusState{
 			StepID: transcriptProjectionStepID, Text: "Planning",
@@ -332,14 +367,14 @@ func TestTranscriptHydrationProjectsRuntimeOwnedFacts(t *testing.T) {
 		InFlightTools:    []runtime.TranscriptLiveToolStart{{StepID: transcriptProjectionStepID, ToolCallID: "call-1", ToolName: "shell"}},
 		ActiveCompaction: &runtime.TranscriptCompactionState{StepID: transcriptProjectionStepID, Mode: "auto", Count: 3},
 		ContextUsage:     &runtime.ContextUsage{UsedTokens: 123, WindowTokens: 4000, CacheHitPercent: 25, HasCacheHitPercentage: true},
-		Goal:             &session.GoalState{ID: "goal-1", Objective: "ship", Status: session.GoalStatusActive},
+		Goal:             &session.GoalState{ID: "goal-1", Objective: "ship", Status: session.GoalStatusActive, CreatedAt: goalTime, UpdatedAt: goalTime},
 		GoalSuspended:    true,
 	})
 	if hydration.ActiveThinkingStatus == nil || hydration.ActiveThinkingStatus.Text != "Planning" ||
 		len(hydration.ActiveReasoningTraces) != 1 || hydration.ActiveReasoningTraces[0].Text != "inspect" {
 		t.Fatalf("reasoning = status %+v traces %+v", hydration.ActiveThinkingStatus, hydration.ActiveReasoningTraces)
 	}
-	if len(hydration.InFlightTools) != 1 || hydration.InFlightTools[0].ToolCallID != "call-1" {
+	if len(hydration.InFlightTools) != 1 || hydration.InFlightTools[0].ToolCallId != "call-1" {
 		t.Fatalf("tools = %+v", hydration.InFlightTools)
 	}
 	if hydration.ActiveCompaction == nil || hydration.ActiveCompaction.Count != 3 {
@@ -347,7 +382,7 @@ func TestTranscriptHydrationProjectsRuntimeOwnedFacts(t *testing.T) {
 	}
 	if hydration.ContextUsage == nil || hydration.ContextUsage.CacheHitPercent == nil ||
 		*hydration.ContextUsage.CacheHitPercent != 25 || hydration.GoalStatus == nil ||
-		hydration.GoalStatus.Goal == nil || !hydration.GoalStatus.Goal.Suspended {
+		hydration.GoalStatus.Goal == nil || !hydration.GoalStatus.Suspended {
 		t.Fatalf("usage/goal = usage %+v goal %+v", hydration.ContextUsage, hydration.GoalStatus)
 	}
 }
@@ -361,8 +396,8 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 			{StepID: transcriptProjectionStepID, Identity: runtime.TranscriptReasoningTraceIdentity{Provider: &llm.ReasoningItemIdentity{ItemID: "second", PartIndex: &secondIndex}}, Text: "second"},
 		},
 	})
-	if len(hydration.ActiveReasoningTraces) != 2 || hydration.ActiveReasoningTraces[0].Identity.Kent == nil ||
-		hydration.ActiveReasoningTraces[1].Identity.Provider == nil {
+	if len(hydration.ActiveReasoningTraces) != 2 || hydration.ActiveReasoningTraces[0].Identity.GetKentTraceId() != firstID.String() ||
+		hydration.ActiveReasoningTraces[1].Identity.GetProvider() == nil {
 		t.Fatalf("hydrated reasoning order = %+v", hydration.ActiveReasoningTraces)
 	}
 	output := int64(0)
@@ -390,9 +425,9 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 		t.Fatalf("live reasoning messages = %+v", live)
 	}
 	for index, event := range live {
-		update := transcriptPayload[clientui.TranscriptReasoningTraceUpdate](t, event)
+		update := event.GetReasoningTraceUpdate()
 		hydrated := hydration.ActiveReasoningTraces[index]
-		if update.Identity.String() != hydrated.Identity.String() ||
+		if !proto.Equal(update.Identity, hydrated.Identity) ||
 			update.Text != hydrated.Text {
 			t.Fatalf("live/hydration reasoning mismatch at %d: live=%+v hydration=%+v", index, update, hydrated)
 		}
@@ -416,8 +451,8 @@ func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one committed row", messages)
 	}
-	row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-	if got := row.Visibility; got != transcript.EntryVisibilityDetail {
+	row := messages[0].GetCommittedRow()
+	if got := row.Visibility; got != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
 		t.Fatalf("committed row visibility = %q, want detail", got)
 	}
 
@@ -436,7 +471,7 @@ func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 	if len(hydration.TailSegment.Entries) != 1 {
 		t.Fatalf("hydration rows = %+v, want one committed row", hydration.TailSegment.Entries)
 	}
-	if got := hydration.TailSegment.Entries[0].Visibility; got != clientui.EntryVisibilityHidden {
+	if got := hydration.TailSegment.Entries[0].Visibility; got != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_HIDDEN {
 		t.Fatalf("hydration visibility = %q, want hidden", got)
 	}
 }
@@ -458,7 +493,7 @@ func TestDeveloperMessageProjectsAsRegularNotice(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("native reminder events = %d, want one", len(messages))
 	}
-	live := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
+	live := messages[0].GetCommittedRow()
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(runtime.ChatSnapshot{
 			Entries: []runtime.ChatEntry{entry},
@@ -467,14 +502,13 @@ func TestDeveloperMessageProjectsAsRegularNotice(t *testing.T) {
 	if len(hydration.TailSegment.Entries) != 1 {
 		t.Fatalf("hydrated native reminder rows = %d, want one", len(hydration.TailSegment.Entries))
 	}
-	for _, row := range []clientui.TranscriptCommittedRow{live, hydration.TailSegment.Entries[0]} {
-		if row.Visibility != transcript.EntryVisibilityOngoing ||
-			row.Kind != clientui.TranscriptRowNotice ||
-			row.Notice == nil ||
-			row.Notice.MessageType != nil {
+	for _, row := range []*transcriptpb.CommittedRow{live, hydration.TailSegment.Entries[0]} {
+		if row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING ||
+			row.GetNotice() == nil ||
+			row.GetNotice().MessageType != nil {
 			t.Fatalf("developer context must use the ordinary notice contract: %+v", row)
 		}
-		if err := row.Validate(); err != nil {
+		if err := protoapi.Validate(row); err != nil {
 			t.Fatalf("native reminder notice contract: %v", err)
 		}
 	}
@@ -485,15 +519,19 @@ func TestTranscriptCommittedRowsProjectCommitTime(t *testing.T) {
 	stepID := runtimeStepIDPointer(transcriptProjectionStepID)
 	for _, fact := range []runtime.TranscriptCommittedRowFact{
 		{
-			Kind: runtime.TranscriptCommittedRowFactUser,
+			Visibility: transcript.EntryVisibilityOngoing,
+			Integrity:  transcript.RowIntegrityValid,
+			Kind:       runtime.TranscriptCommittedRowFactUser,
 			User: &runtime.TranscriptUserRowFact{
 				Text:              "user",
 				CommittedAtUnixMs: &committedAt,
 			},
 		},
 		{
-			StepID: stepID,
-			Kind:   runtime.TranscriptCommittedRowFactAssistant,
+			StepID:     stepID,
+			Visibility: transcript.EntryVisibilityOngoing,
+			Integrity:  transcript.RowIntegrityValid,
+			Kind:       runtime.TranscriptCommittedRowFactAssistant,
 			Assistant: &runtime.TranscriptAssistantRowFact{
 				Text:              "assistant",
 				Phase:             llm.MessagePhaseFinal,
@@ -501,15 +539,18 @@ func TestTranscriptCommittedRowsProjectCommitTime(t *testing.T) {
 			},
 		},
 	} {
-		row := transcriptRowFromFact(fact)
+		row, err := transcriptRowFromFact(fact)
+		if err != nil {
+			t.Fatalf("project committed time: %v", err)
+		}
 		switch {
-		case row.User != nil:
-			if row.User.CommittedAtUnixMs == nil || row.User.CommittedAtUnixMs.UnixMs() != committedAt.UnixMs() {
-				t.Fatalf("user committed time = %v, want %d", row.User.CommittedAtUnixMs, committedAt.UnixMs())
+		case row.GetUser() != nil:
+			if row.GetUser().CommittedAt == nil || row.GetUser().CommittedAt.AsTime().UnixMilli() != committedAt.UnixMs() {
+				t.Fatalf("user committed time = %v, want %d", row.GetUser().CommittedAt, committedAt.UnixMs())
 			}
-		case row.Assistant != nil:
-			if row.Assistant.CommittedAtUnixMs == nil || row.Assistant.CommittedAtUnixMs.UnixMs() != committedAt.UnixMs() {
-				t.Fatalf("assistant committed time = %v, want %d", row.Assistant.CommittedAtUnixMs, committedAt.UnixMs())
+		case row.GetAssistant() != nil:
+			if row.GetAssistant().CommittedAt == nil || row.GetAssistant().CommittedAt.AsTime().UnixMilli() != committedAt.UnixMs() {
+				t.Fatalf("assistant committed time = %v, want %d", row.GetAssistant().CommittedAt, committedAt.UnixMs())
 			}
 		default:
 			t.Fatalf("projected row = %+v, want user or assistant", row)
@@ -533,22 +574,18 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 	if len(messages) != 2 {
 		t.Fatalf("Runtime user flush messages = %+v, want committed row and flush", messages)
 	}
-	var userRow *clientui.TranscriptUserRow
-	var flushed *clientui.TranscriptUserMessageFlushed
+	var userRow *transcriptpb.UserRow
+	var flushed *transcriptpb.UserMessageFlushed
 	for index := range messages {
-		if err := messages[index].Validate(); err != nil {
-			t.Fatalf("Runtime user flush message %d failed validation: %v", index, err)
-		}
-		switch messages[index].Kind() {
-		case clientui.TranscriptMessageCommittedRow:
-			row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[index])
-			userRow = row.User
-		case clientui.TranscriptMessageUserMessageFlushed:
-			payload := transcriptPayload[clientui.TranscriptUserMessageFlushed](t, messages[index])
-			flushed = &payload
+		assertTranscriptRoundTrip(t, &transcriptpb.Message{Sequence: uint64(index + 2), Event: messages[index]})
+		switch payload := messages[index].Payload.(type) {
+		case *transcriptpb.Event_CommittedRow:
+			userRow = payload.CommittedRow.GetUser()
+		case *transcriptpb.Event_UserMessageFlushed:
+			flushed = payload.UserMessageFlushed
 		}
 	}
-	if userRow == nil || userRow.StepID != nil || flushed == nil || flushed.StepID != nil {
+	if userRow == nil || userRow.StepId != nil || flushed == nil || flushed.StepId != nil {
 		t.Fatalf("Runtime user/flush Step provenance = user:%+v flush:%+v, want absent", userRow, flushed)
 	}
 }
@@ -570,12 +607,10 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 	if len(messages) != 1 {
 		t.Fatalf("Runtime tool completion messages = %+v, want one committed row", messages)
 	}
-	if err := messages[0].Validate(); err != nil {
-		t.Fatalf("Runtime tool completion failed validation: %v", err)
-	}
-	liveRow := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-	if liveRow.Tool == nil || liveRow.Tool.StepID != nil {
-		t.Fatalf("Runtime live tool Step provenance = %+v, want absent", liveRow.Tool)
+	assertTranscriptRoundTrip(t, &transcriptpb.Message{Sequence: 2, Event: messages[0]})
+	liveRow := messages[0].GetCommittedRow()
+	if liveRow.GetTool() == nil || liveRow.GetTool().StepId != nil {
+		t.Fatalf("Runtime live tool Step provenance = %+v, want absent", liveRow.GetTool())
 	}
 
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
@@ -605,13 +640,34 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 	if len(hydration.TailSegment.Entries) != 2 {
 		t.Fatalf("Runtime hydration rows = %+v, want user and tool", hydration.TailSegment.Entries)
 	}
+	hydration.SessionIdentity = &transcriptpb.SessionIdentity{
+		SessionId:             projectionWorkspaceID,
+		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+	}
+	hydration.SessionStatus = &transcriptpb.SessionStatus{
+		ReviewerFrequency: "off",
+		ThinkingLevel:     "medium",
+		CompactionMode:    "local",
+	}
+	hydration.RuntimeReadModelUpdate = &runtimepb.ReadModelUpdate{
+		Version: &runtimepb.ReadModelVersion{Epoch: "runtime-scoped-hydration", Generation: 1, Sequence: 1},
+		Activity: &runtimepb.Activity{
+			State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+			Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+			QueueAccepting: true,
+		},
+	}
+	assertTranscriptRoundTrip(t, &transcriptpb.Message{
+		Sequence: 1,
+		Event:    &transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: hydration}},
+	})
 	for index := range hydration.TailSegment.Entries {
-		if err := hydration.TailSegment.Entries[index].Validate(); err != nil {
+		if err := protoapi.Validate(hydration.TailSegment.Entries[index]); err != nil {
 			t.Fatalf("Runtime hydration row %d failed validation: %v", index, err)
 		}
 	}
-	if hydration.TailSegment.Entries[0].User == nil || hydration.TailSegment.Entries[0].User.StepID != nil ||
-		hydration.TailSegment.Entries[1].Tool == nil || hydration.TailSegment.Entries[1].Tool.StepID != nil {
+	if hydration.TailSegment.Entries[0].GetUser() == nil || hydration.TailSegment.Entries[0].GetUser().StepId != nil ||
+		hydration.TailSegment.Entries[1].GetTool() == nil || hydration.TailSegment.Entries[1].GetTool().StepId != nil {
 		t.Fatalf("Runtime hydration Step provenance = %+v, want absent", hydration.TailSegment.Entries)
 	}
 }
@@ -636,17 +692,16 @@ func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) 
 	if len(messages) != 1 {
 		t.Fatalf("reasoning messages = %+v, want one committed row", messages)
 	}
-	row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-	if row.Kind != clientui.TranscriptRowReasoningTrace ||
-		row.ReasoningTrace == nil ||
-		row.ReasoningTrace.Text != "Planning\nDetails" ||
-		row.ReasoningTrace.CompactText != "Planning" ||
-		row.ReasoningTrace.DurationMs == nil ||
-		*row.ReasoningTrace.DurationMs != durationMs ||
-		row.ReasoningTrace.ProvisionalIdentity == nil {
+	row := messages[0].GetCommittedRow()
+	if row.GetReasoningTrace() == nil ||
+		row.GetReasoningTrace().Text != "Planning\nDetails" ||
+		row.GetReasoningTrace().CompactText != "Planning" ||
+		row.GetReasoningTrace().Duration == nil ||
+		row.GetReasoningTrace().Duration.AsDuration().Milliseconds() != durationMs ||
+		row.GetReasoningTrace().ProvisionalIdentity == nil {
 		t.Fatalf("projected reasoning row = %+v", row)
 	}
-	if err := row.Validate(); err != nil {
+	if err := protoapi.Validate(row); err != nil {
 		t.Fatalf("projected reasoning row failed validation: %v", err)
 	}
 }
@@ -654,9 +709,11 @@ func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) 
 func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T) {
 	durationMs := int64(321)
 	fact := runtime.TranscriptCommittedRowFact{
-		StepID:  runtimeStepIDPointer(transcriptProjectionStepID),
-		Kind:    runtime.TranscriptCommittedRowFactReasoningTrace,
-		Locator: transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
+		Visibility: transcript.EntryVisibilityOngoing,
+		Integrity:  transcript.RowIntegrityValid,
+		StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
+		Kind:       runtime.TranscriptCommittedRowFactReasoningTrace,
+		Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
 		ReasoningTrace: &runtime.TranscriptReasoningTraceRowFact{
 			Text:        "Planning\nDetails",
 			CompactText: "Planning",
@@ -666,16 +723,16 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: []runtime.TranscriptCommittedRowFact{fact},
 	})
-	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].ReasoningTrace == nil ||
-		hydration.TailSegment.Entries[0].ReasoningTrace.DurationMs == nil ||
-		*hydration.TailSegment.Entries[0].ReasoningTrace.DurationMs != durationMs {
+	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].GetReasoningTrace() == nil ||
+		hydration.TailSegment.Entries[0].GetReasoningTrace().Duration == nil ||
+		hydration.TailSegment.Entries[0].GetReasoningTrace().Duration.AsDuration().Milliseconds() != durationMs {
 		t.Fatalf("hydrated reasoning duration = %+v", hydration.TailSegment.Entries)
 	}
 
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
 		"name",
-		clientui.ConversationFreshnessEstablished,
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
 			Role:       string(transcript.EntryRoleReasoning),
@@ -689,9 +746,9 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 	if err != nil {
 		t.Fatalf("project bounded transcript page: %v", err)
 	}
-	if len(page.Entries) != 1 || page.Entries[0].ReasoningTrace == nil ||
-		page.Entries[0].ReasoningTrace.DurationMs == nil ||
-		*page.Entries[0].ReasoningTrace.DurationMs != durationMs {
+	if len(page.Entries) != 1 || page.Entries[0].GetReasoningTrace() == nil ||
+		page.Entries[0].GetReasoningTrace().Duration == nil ||
+		page.Entries[0].GetReasoningTrace().Duration.AsDuration().Milliseconds() != durationMs {
 		t.Fatalf("paged reasoning duration = %+v", page.Entries)
 	}
 }
@@ -740,29 +797,29 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 	}
 
 	messages := TranscriptMessagesFromRuntimeEvent(completion)
-	var row *clientui.TranscriptCommittedRow
+	var row *transcriptpb.CommittedRow
 	for _, message := range messages {
-		if message.Kind() == clientui.TranscriptMessageCommittedRow {
-			candidate := transcriptPayload[clientui.TranscriptCommittedRow](t, message)
-			if candidate.Tool == nil {
+		if message.GetCommittedRow() != nil {
+			candidate := message.GetCommittedRow()
+			if candidate.GetTool() == nil {
 				continue
 			}
 			if row != nil {
 				t.Fatalf("client transcript messages = %+v, want exactly one committed tool row", messages)
 			}
-			row = &candidate
+			row = candidate
 		}
 	}
 	if row == nil {
 		t.Fatalf("client transcript messages = %+v, want one committed tool row", messages)
 	}
-	if row.Kind != clientui.TranscriptRowTool || !row.Tool.IsError {
+	if row.GetTool() == nil || !row.GetTool().IsError {
 		t.Fatalf("client transcript row = %+v, want failed tool row", row)
 	}
-	if row.Tool.Presentation == nil ||
-		row.Tool.Presentation.Command != string(input) ||
-		row.Tool.Presentation.CompactText != string(input) {
-		t.Fatalf("projected tool presentation = %+v, want original input preserved", row.Tool.Presentation)
+	if row.GetTool().Presentation == nil ||
+		row.GetTool().Presentation.GetCommand() != string(input) ||
+		row.GetTool().Presentation.GetCompactText() != string(input) {
+		t.Fatalf("projected tool presentation = %+v, want original input preserved", row.GetTool().Presentation)
 	}
 }
 
@@ -775,7 +832,7 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
 		"name",
-		clientui.ConversationFreshnessEstablished,
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{
 			LatestRollbackCandidate: locator,
 			Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
@@ -793,13 +850,16 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 		t.Fatalf("project page: %v", err)
 	}
 
-	if len(page.Entries) != 1 || page.Entries[0].User == nil {
+	if len(page.Entries) != 1 || page.Entries[0].GetUser() == nil {
 		t.Fatalf("transcript page rows = %#v, want one user row", page.Entries)
 	}
-	if got := page.Entries[0].User.RollbackTargetID; got == nil || *got != targetID {
+	if got := page.Entries[0].GetUser().RollbackTargetId; got == nil || *got != string(targetID) {
 		t.Fatalf("projected rollback target = %v, want exact target %q", got, targetID)
 	}
-	if page.LatestRollbackCandidate == nil || *page.LatestRollbackCandidate != *locator {
+	if !proto.Equal(page.LatestRollbackCandidate, &transcriptpb.RollbackCandidate{
+		UserMessageSeq:       locator.UserMessageSeq,
+		CandidatePageEndByte: locator.CandidatePageEndByte,
+	}) {
 		t.Fatalf("projected rollback candidate locator = %#v, want %#v", page.LatestRollbackCandidate, locator)
 	}
 }
@@ -807,18 +867,20 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testing.T) {
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
 		CommittedRows: []runtime.TranscriptCommittedRowFact{{
-			StepID:  runtimeStepIDPointer(transcriptProjectionStepID),
-			Kind:    runtime.TranscriptCommittedRowFactAssistant,
-			Locator: transcript.CommittedRowLocator{EventSequence: 3, RowOrdinal: 1},
+			Visibility: transcript.EntryVisibilityOngoing,
+			Integrity:  transcript.RowIntegrityValid,
+			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
+			Kind:       runtime.TranscriptCommittedRowFactAssistant,
+			Locator:    transcript.CommittedRowLocator{EventSequence: 3, RowOrdinal: 1},
 			Assistant: &runtime.TranscriptAssistantRowFact{
 				Text: "legacy final answer",
 			},
 		}},
 	})
-	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].Assistant == nil {
+	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].GetAssistant() == nil {
 		t.Fatalf("hydration rows = %+v, want one assistant row", hydration.TailSegment.Entries)
 	}
-	if got := hydration.TailSegment.Entries[0].Assistant.Phase; got != transcript.AssistantPhaseFinal {
+	if got := hydration.TailSegment.Entries[0].GetAssistant().Phase; got != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
 		t.Fatalf("persisted assistant phase = %q, want canonical final phase", got)
 	}
 }
@@ -826,7 +888,7 @@ func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testin
 func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	exitCode := 9
 	activityID := uuid.New()
-	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", "name", clientui.ConversationFreshnessEstablished, runtime.TranscriptSegmentPage{
+	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", "name", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{
 		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{
 			{Role: "reviewer_status", Text: "review complete", CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 6}},
 			{
@@ -848,32 +910,29 @@ func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 		t.Fatalf("page entries = %+v", page.Entries)
 	}
 	reviewerStatus := page.Entries[0]
-	if reviewerStatus.Visibility != clientui.EntryVisibilityOngoingCollapsed ||
-		reviewerStatus.Kind != clientui.TranscriptRowNotice ||
-		reviewerStatus.Notice == nil ||
-		reviewerStatus.Notice.Diagnostic == nil ||
-		reviewerStatus.Notice.Diagnostic.Code != clientui.TranscriptDiagnosticCode(transcript.EntryRoleReviewerStatus) {
+	if reviewerStatus.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED ||
+		reviewerStatus.GetNotice() == nil ||
+		reviewerStatus.GetNotice().Diagnostic == nil ||
+		reviewerStatus.GetNotice().Diagnostic.Code != string(transcript.EntryRoleReviewerStatus) {
 		t.Fatalf("reviewer status row = %+v, want collapsed reviewer status notice", reviewerStatus)
 	}
 	backgroundRow := page.Entries[1]
-	if backgroundRow.Kind != clientui.TranscriptRowNotice || backgroundRow.Notice == nil {
+	if backgroundRow.GetNotice() == nil {
 		t.Fatalf("background row = %+v, want notice", backgroundRow)
 	}
-	if background := backgroundRow.Notice.Background; background == nil || background.ExitCode == nil || *background.ExitCode != exitCode {
+	if background := backgroundRow.GetNotice().Background; background == nil || background.ExitCode == nil || *background.ExitCode != int32(exitCode) {
 		t.Fatalf("background notice = %+v, want exit code %d", background, exitCode)
 	}
 }
 
 func TestTranscriptHydrationRejectsAssistantStreamWithoutRuntimeIdentity(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected partial assistant stream identity panic")
-		}
-	}()
-	_ = mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
+	_, err := TranscriptHydrationFromSnapshotChecked(runtime.TranscriptHydrationSnapshot{
 		ActiveAssistantText:     "hello",
 		ActiveAssistantMetadata: &runtime.AssistantStreamMetadata{StepID: transcriptProjectionStepID},
-	})
+	}, &transcriptpb.TailSegment{})
+	if err == nil {
+		t.Fatal("expected missing assistant stream identity to be rejected")
+	}
 }
 
 func TestTranscriptMessagesIgnoreEmptyAssistantDelta(t *testing.T) {
@@ -930,8 +989,8 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one background activity", messages)
 	}
-	background := transcriptPayload[clientui.TranscriptBackgroundActivity](t, messages[0])
-	if got := background.ActivityID.String(); got != activityID.String() {
+	background := messages[0].GetBackgroundActivity()
+	if got := background.ActivityId; got != activityID.String() {
 		t.Fatalf("background transcript id = %q, want activity id %q", got, activityID)
 	}
 }
@@ -941,11 +1000,11 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 		name           string
 		eventType      runtime.BackgroundShellEventType
 		previewRemoved int
-		wantLifecycle  clientui.BackgroundLifecycle
+		wantLifecycle  transcriptpb.BackgroundLifecycle
 	}{
-		{name: "running truncated preview remains live", eventType: runtime.BackgroundShellEventBackgrounded, previewRemoved: 2, wantLifecycle: clientui.BackgroundLifecycleBackgrounded},
-		{name: "completed activity is terminal", eventType: runtime.BackgroundShellEventCompleted, wantLifecycle: clientui.BackgroundLifecycleCompleted},
-		{name: "killed activity is terminal", eventType: runtime.BackgroundShellEventKilled, wantLifecycle: clientui.BackgroundLifecycleKilled},
+		{name: "running truncated preview remains live", eventType: runtime.BackgroundShellEventBackgrounded, previewRemoved: 2, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED},
+		{name: "completed activity is terminal", eventType: runtime.BackgroundShellEventCompleted, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_COMPLETED},
+		{name: "killed activity is terminal", eventType: runtime.BackgroundShellEventKilled, wantLifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_KILLED},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -967,7 +1026,7 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 			if len(messages) != 1 {
 				t.Fatalf("messages = %+v, want one background activity", messages)
 			}
-			background := transcriptPayload[clientui.TranscriptBackgroundActivity](t, messages[0])
+			background := messages[0].GetBackgroundActivity()
 			if got := background.Lifecycle; got != tt.wantLifecycle {
 				t.Fatalf("background activity lifecycle = %q, want %q", got, tt.wantLifecycle)
 			}
@@ -998,12 +1057,12 @@ func TestTranscriptBackgroundNoticeCarriesTypedExitCode(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one background notice", messages)
 	}
-	row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-	if row.Notice == nil {
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil {
 		t.Fatal("background notice row is missing notice payload")
 	}
-	background := row.Notice.Background
-	if background == nil || background.ExitCode == nil || *background.ExitCode != exitCode {
+	background := row.GetNotice().Background
+	if background == nil || background.ExitCode == nil || *background.ExitCode != int32(exitCode) {
 		t.Fatalf("background notice = %+v, want exit code %d", background, exitCode)
 	}
 }
@@ -1035,21 +1094,21 @@ func TestTranscriptWorktreeNoticeCarriesTypedContextWithoutServerPresentation(t 
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one worktree notice", messages)
 	}
-	row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-	if row.Notice == nil {
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil {
 		t.Fatal("worktree notice row is missing notice payload")
 	}
-	notice := row.Notice
+	notice := row.GetNotice()
 	if notice.Worktree == nil {
 		t.Fatal("worktree transcript context is missing")
 	}
-	wantContext := &clientui.TranscriptWorktreeContext{
+	wantContext := &transcriptpb.WorktreeContext{
 		Branch:        target.Branch,
 		WorktreePath:  target.WorktreePath,
 		WorkspaceRoot: target.WorkspaceRoot,
 		EffectiveCwd:  target.EffectiveCwd,
 	}
-	if !reflect.DeepEqual(notice.Worktree, wantContext) {
+	if !proto.Equal(notice.Worktree, wantContext) {
 		t.Fatalf("worktree transcript context = %+v, want %+v", notice.Worktree, wantContext)
 	}
 	if notice.CondensedText != nil || notice.CompactLabel != nil {
@@ -1078,11 +1137,11 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("messages = %+v, want one typed worktree notice", messages)
 	}
-	row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-	if row.Notice == nil || row.Notice.Worktree == nil {
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil || row.GetNotice().Worktree == nil {
 		t.Fatal("typed worktree notice is missing projected context")
 	}
-	if branch := row.Notice.Worktree.Branch; branch != nil {
+	if branch := row.GetNotice().Worktree.Branch; branch != nil {
 		t.Fatalf("projected detached worktree branch = %v, want null", branch)
 	}
 }
@@ -1132,11 +1191,11 @@ func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 			if len(messages) != 1 {
 				t.Fatalf("messages = %+v, want only assistant committed row", messages)
 			}
-			if messages[0].Kind() != clientui.TranscriptMessageCommittedRow {
+			if messages[0].GetCommittedRow() == nil {
 				t.Fatalf("message = %+v, want assistant committed row", messages[0])
 			}
-			row := transcriptPayload[clientui.TranscriptCommittedRow](t, messages[0])
-			if row.Assistant == nil {
+			row := messages[0].GetCommittedRow()
+			if row.GetAssistant() == nil {
 				t.Fatalf("message = %+v, want assistant committed row", messages[0])
 			}
 		})
@@ -1146,40 +1205,40 @@ func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 func TestInFlightClearFailureIsOperationalDiagnosticOnly(t *testing.T) {
 	event := runtime.Event{
 		Kind:   runtime.EventInFlightClearFailed,
+		Error:  "clear in-flight state failed",
 		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
 	}
 	if facts := runtime.TranscriptCommittedRowFactsFromEvent(event); len(facts) != 0 {
 		t.Fatalf("in-flight clear failure committed facts = %+v, want none", facts)
 	}
 	messages := TranscriptMessagesFromRuntimeEvent(event)
-	if len(messages) != 1 || messages[0].Kind() != clientui.TranscriptMessageOperationalDiagnostic {
+	if len(messages) != 1 || messages[0].GetOperationalDiagnostic() == nil {
 		t.Fatalf("in-flight clear failure messages = %+v, want one operational diagnostic", messages)
 	}
-	diagnostic := transcriptPayload[clientui.TranscriptOperationalDiagnostic](t, messages[0])
-	if diagnostic.Code != clientui.OperationalDiagnosticInFlightClearFailed {
-		t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code, clientui.OperationalDiagnosticInFlightClearFailed)
+	diagnostic := messages[0].GetOperationalDiagnostic()
+	if diagnostic.Code != transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_IN_FLIGHT_CLEAR_FAILED {
+		t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code, transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_IN_FLIGHT_CLEAR_FAILED)
 	}
 }
 
 func TestContextFactPersistenceFailureIsOperationalDiagnosticOnly(t *testing.T) {
-	stepID := mustTranscriptStepID(transcriptProjectionStepID, "test Context-fact diagnostic")
 	event := runtime.Event{
 		Kind:   runtime.EventContextFactsPersistFailed,
-		StepID: textutil.Value(stepID.String()),
+		StepID: textutil.Value(transcriptProjectionStepID),
 		Error:  "persist Session Context manual Compact eligibility: disk full",
 	}
 	if facts := runtime.TranscriptCommittedRowFactsFromEvent(event); len(facts) != 0 {
 		t.Fatalf("Context-fact persistence failure committed facts = %+v, want none", facts)
 	}
 	messages := TranscriptMessagesFromRuntimeEvent(event)
-	if len(messages) != 1 || messages[0].Kind() != clientui.TranscriptMessageOperationalDiagnostic {
+	if len(messages) != 1 || messages[0].GetOperationalDiagnostic() == nil {
 		t.Fatalf("Context-fact persistence failure messages = %+v, want one operational diagnostic", messages)
 	}
-	diagnostic := transcriptPayload[clientui.TranscriptOperationalDiagnostic](t, messages[0])
-	if diagnostic.Code != clientui.OperationalDiagnosticContextFactsPersistFailed ||
+	diagnostic := messages[0].GetOperationalDiagnostic()
+	if diagnostic.Code != transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_CONTEXT_FACTS_PERSIST_FAILED ||
 		diagnostic.Detail == "" ||
-		diagnostic.StepID == nil ||
-		*diagnostic.StepID != stepID {
+		diagnostic.StepId == nil ||
+		*diagnostic.StepId != transcriptProjectionStepID {
 		t.Fatalf("Context-fact persistence diagnostic = %+v", diagnostic)
 	}
 }

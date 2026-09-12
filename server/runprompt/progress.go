@@ -5,7 +5,10 @@ import (
 
 	"core/server/llm"
 	"core/server/runtime"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func PublishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runtime.Event) {
@@ -19,7 +22,7 @@ func PublishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runt
 	progress.PublishRunPromptProgress(state)
 }
 
-func RunPromptProgressFromRuntimeEvent(evt runtime.Event) (serverapi.RunPromptProgress, bool) {
+func RunPromptProgressFromRuntimeEvent(evt runtime.Event) (*runpromptpb.ProgressEvent, bool) {
 	switch evt.Kind {
 	case runtime.EventAssistantMessage:
 		content := evt.Message.Content
@@ -27,55 +30,56 @@ func RunPromptProgressFromRuntimeEvent(evt runtime.Event) (serverapi.RunPromptPr
 			content == nil ||
 			evt.Message.Phase == nil ||
 			strings.TrimSpace(*content) == "" {
-			return serverapi.RunPromptProgress{}, false
+			return nil, false
 		}
+		var phase runpromptpb.MessagePhase
 		switch *evt.Message.Phase {
-		case llm.MessagePhaseCommentary, llm.MessagePhaseFinal:
+		case llm.MessagePhaseCommentary:
+			phase = runpromptpb.MessagePhase_MESSAGE_PHASE_COMMENTARY
+		case llm.MessagePhaseFinal:
+			phase = runpromptpb.MessagePhase_MESSAGE_PHASE_FINAL
 		default:
-			return serverapi.RunPromptProgress{}, false
+			return nil, false
 		}
-		return serverapi.RunPromptProgress{
-			Kind: serverapi.RunPromptProgressKindAssistantMessage,
-			AssistantMessage: &serverapi.RunPromptVisibleResponse{
-				Phase:   *evt.Message.Phase,
+		return &runpromptpb.ProgressEvent{
+			Payload: &runpromptpb.ProgressEvent_AssistantMessage{AssistantMessage: &runpromptpb.AssistantMessage{
+				Phase:   phase,
 				Content: *content,
-			},
+			}},
 		}, true
 	case runtime.EventCompactionStarted:
-		return serverapi.RunPromptProgress{Kind: serverapi.RunPromptProgressKindCompactionStarted}, true
+		return &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_CompactionStarted{CompactionStarted: &emptypb.Empty{}}}, true
 	case runtime.EventCompactionFailed:
 		var detail string
 		if evt.Compaction != nil {
 			detail = evt.Compaction.Error
 		}
-		return serverapi.RunPromptProgress{Kind: serverapi.RunPromptProgressKindCompactionFailed, Failure: runPromptFailure(detail)}, true
+		return &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_CompactionFailed{CompactionFailed: runPromptFailure(detail)}}, true
 	case runtime.EventInFlightClearFailed:
-		return serverapi.RunPromptProgress{
-			Kind:    serverapi.RunPromptProgressKindRunCleanupFailed,
-			Failure: runPromptFailure(evt.Error),
+		return &runpromptpb.ProgressEvent{
+			Payload: &runpromptpb.ProgressEvent_RunCleanupFailed{RunCleanupFailed: runPromptFailure(evt.Error)},
 		}, true
 	case runtime.EventQueuedUserMessageStatus:
 		status := evt.QueuedUserMessageStatus
 		if status == nil || status.Status != runtime.QueuedUserMessageAccepted {
-			return serverapi.RunPromptProgress{}, false
+			return nil, false
 		}
 		content := status.Text
 		if strings.TrimSpace(content) == "" {
-			return serverapi.RunPromptProgress{}, false
+			return nil, false
 		}
-		return serverapi.RunPromptProgress{
-			Kind:           serverapi.RunPromptProgressKindSteeredMessage,
-			SteeredMessage: &serverapi.RunPromptSteeredMessage{Content: content},
+		return &runpromptpb.ProgressEvent{
+			Payload: &runpromptpb.ProgressEvent_SteeredMessage{SteeredMessage: &runpromptpb.SteeredMessage{Content: content}},
 		}, true
 	default:
-		return serverapi.RunPromptProgress{}, false
+		return nil, false
 	}
 }
 
-func runPromptFailure(raw string) *serverapi.RunPromptFailure {
+func runPromptFailure(raw string) *runpromptpb.ProgressFailure {
 	detail := strings.TrimSpace(raw)
 	if detail == "" {
-		return &serverapi.RunPromptFailure{}
+		return &runpromptpb.ProgressFailure{}
 	}
-	return &serverapi.RunPromptFailure{Error: &detail}
+	return &runpromptpb.ProgressFailure{Error: &detail}
 }

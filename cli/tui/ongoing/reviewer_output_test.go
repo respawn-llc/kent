@@ -5,9 +5,8 @@ import (
 	"testing"
 
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
 )
 
 func TestVerboseReviewerSuggestionsRenderFullyInOngoingMode(t *testing.T) {
@@ -19,16 +18,15 @@ func TestVerboseReviewerSuggestionsRenderFullyInOngoingMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse step id: %v", err)
 	}
-	row := clientui.TranscriptCommittedRow{
-		Visibility: clientui.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowReviewerFeedback,
-		ReviewerFeedback: &clientui.TranscriptReviewerFeedbackRow{
-			ID:              runtimeids.NewReviewerFeedbackID(),
-			StepID:          stepID,
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_ReviewerFeedback{ReviewerFeedback: &transcriptpb.ReviewerFeedbackRow{
+			Id:              runtimeids.NewReviewerFeedbackID().String(),
+			StepId:          stepID.String(),
 			Suggestions:     suggestions,
-			SuggestionCount: len(suggestions),
-		},
+			SuggestionCount: int32(len(suggestions)),
+		}},
 	}
 
 	if got := ongoingRenderMode(row); got != transcriptrender.ModeOngoingFull {
@@ -68,14 +66,13 @@ func TestVerboseReviewerSuggestionsRenderFullyInOngoingMode(t *testing.T) {
 }
 
 func TestAgentSteerRenderFullyInOngoingMode(t *testing.T) {
-	messageType := clientui.TranscriptMessageAgentSteer
-	row := clientui.TranscriptCommittedRow{
-		Visibility: clientui.EntryVisibilityOngoing,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{
 			MessageType: &messageType,
-			Diagnostic:  &clientui.TranscriptDiagnostic{Detail: "first\nsecond"},
-		},
+			Diagnostic:  &transcriptpb.Diagnostic{Detail: "first\nsecond"},
+		}},
 	}
 	if got := ongoingRenderMode(row); got != transcriptrender.ModeOngoingFull {
 		t.Fatalf("agent steer render mode = %d, want full ongoing mode", got)
@@ -92,20 +89,19 @@ func TestAgentSteerRenderFullyInOngoingMode(t *testing.T) {
 	}
 }
 
-func reviewerNoticeRow(visibility transcript.EntryVisibility, code, detail string) clientui.TranscriptCommittedRow {
-	messageType := clientui.TranscriptMessageReviewerFeedback
-	return clientui.TranscriptCommittedRow{
+func reviewerNoticeRow(visibility transcriptpb.EntryVisibility, code, detail string) *transcriptpb.CommittedRow {
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_REVIEWER_FEEDBACK
+	return &transcriptpb.CommittedRow{
 		Visibility: visibility,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{
-			Reason:      clientui.TranscriptNoticeRuntimeDiagnostic,
-			Severity:    clientui.TranscriptNoticeInfo,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{
+			Reason:      transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+			Severity:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
 			MessageType: &messageType,
-			Diagnostic: &clientui.TranscriptDiagnostic{
-				Code:   clientui.TranscriptDiagnosticCode(code),
+			Diagnostic: &transcriptpb.Diagnostic{
+				Code:   string(code),
 				Detail: detail,
 			},
-		},
+		}},
 	}
 }

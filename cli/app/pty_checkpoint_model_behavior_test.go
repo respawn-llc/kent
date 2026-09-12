@@ -3,17 +3,15 @@ package app
 import (
 	"bytes"
 	"context"
-	"testing"
-
 	"core/cli/tui/ongoing"
 	"core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
+	"testing"
 )
 
 type ptyCheckpointOrderingModel struct {
@@ -37,8 +35,7 @@ func TestPTYCheckpointModelEmitsInputAppliedAfterInnerUpdate(t *testing.T) {
 	model := newPTYCheckpointModel(
 		ptyCheckpointOrderingModel{output: writer},
 		writer,
-		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)),
-	)
+		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 
 	model.Update(tea.KeyMsg{Type: tea.KeyDown})
 
@@ -61,12 +58,10 @@ func TestPTYCheckpointModelEmitsPromptReadyOnInteractiveTransition(t *testing.T)
 	wrapped := newPTYCheckpointModel(
 		model,
 		writer,
-		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)),
-	)
+		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 
 	_, projection := wrapped.Update(askEventMsg{
-		event: testQuestionAskEvent("ask-ready", "Choose.", "continue"),
-	})
+		event: testQuestionAskEvent("ask-ready", "Choose.", "continue")})
 	if projection == nil {
 		t.Fatal("pending prompt did not schedule its projection")
 	}
@@ -89,16 +84,15 @@ func TestPTYCheckpointModelQueuesInitialDetailApplicationBeforeRendererWrite(t *
 	wrapped := newPTYCheckpointModel(
 		model,
 		writer,
-		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)),
-	)
+		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 
 	wrapped.Update(detailTranscriptLoadMsg{
 		requestID: requestID,
-		page: clientui.TranscriptPage{
-			SessionID: detailTestSessionID,
-			Entries:   []clientui.TranscriptCommittedRow{detailTestAssistantRow("hydrated row")},
-		},
-	})
+		page: &transcriptpb.Page{
+			SessionId:             detailTestSessionID,
+			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+			Entries:               []*transcriptpb.CommittedRow{detailTestAssistantRow("hydrated row")},
+		}})
 	view := wrapped.View()
 	if view == "" {
 		t.Fatal("detail application produced an empty view")
@@ -126,20 +120,18 @@ func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForMalformedPage(
 	wrapped := newPTYCheckpointModel(
 		model,
 		writer,
-		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)),
-	)
+		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 
 	wrapped.Update(detailTranscriptLoadMsg{
 		requestID: requestID,
-		page: clientui.TranscriptPage{
-			SessionID: detailTestSessionID,
-			Entries: []clientui.TranscriptCommittedRow{{
-				Visibility: clientui.EntryVisibilityAuto,
-				Kind:       clientui.TranscriptRowUser,
-				User:       &clientui.TranscriptUserRow{Text: "malformed"},
+		page: &transcriptpb.Page{
+			SessionId:             detailTestSessionID,
+			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+			Entries: []*transcriptpb.CommittedRow{{
+				Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED,
+				Row:        &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{Text: "malformed"}},
 			}},
-		},
-	})
+		}})
 	view := wrapped.View()
 	if view == "" {
 		t.Fatal("rejected detail page produced an empty error-state view")
@@ -158,8 +150,7 @@ func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForMalformedPage(
 		t.Fatalf(
 			"malformed detail page changed request state: pending=%#v loaded=%t",
 			model.pendingDetailTranscript,
-			model.detailTranscript.loaded,
-		)
+			model.detailTranscript.loaded)
 	}
 }
 
@@ -174,19 +165,12 @@ func TestPTYCheckpointModelEmitsScenarioFinalAppliedAfterTerminalTransaction(t *
 	wrapped := newPTYCheckpointModel(model, writer, scenario)
 	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
-		Message: clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-			Visibility: clientui.EntryVisibilityOngoing,
-			Integrity:  transcript.RowIntegrityValid,
-			Kind:       clientui.TranscriptRowAssistant,
-			Locator:    transcript.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1},
-			Assistant: &clientui.TranscriptAssistantRow{
-				StepID:   ptyCheckpointStepID(),
-				StreamID: ptyCheckpointAssistantStreamID(),
-				Text:     "final response",
-				Phase:    transcript.AssistantPhaseFinal,
-			},
-		})),
-	}))
+		Message: transcriptTestMessage(2, &transcriptpb.CommittedRow{
+			Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+			Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+			Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 1}, Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StepId: ptyCheckpointStepID().String(), StreamId: ptyCheckpointAssistantStreamID(),
+				Text:  "final response",
+				Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL}}})}))
 
 	analysis := analyzeCheckpointBytes(t, out.Bytes())
 	if len(analysis.PhaseEvents) != 1 ||
@@ -198,8 +182,7 @@ func TestPTYCheckpointModelEmitsScenarioFinalAppliedAfterTerminalTransaction(t *
 		t.Fatalf(
 			"scenario-final checkpoint starts at byte %d before terminal transaction ended at %d",
 			analysis.PhaseEvents[0].ByteRange.Start,
-			lastTerminalOperationEnd,
-		)
+			lastTerminalOperationEnd)
 	}
 }
 
@@ -212,16 +195,11 @@ func TestPTYCheckpointModelEmitsToolStartedOnceAfterAcceptedToolStart(t *testing
 	wrapped := newPTYCheckpointModel(
 		rejectedModel,
 		writer,
-		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)),
-	)
+		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
-		Message: clientui.NewTranscriptMessage(3, clientui.NewTranscriptEvent(clientui.TranscriptToolStart{
-			StepID:     ptyCheckpointStepID(),
-			ToolCallID: "66666666-6666-4666-8666-666666666666",
-			ToolName:   "exec_command",
-		})),
-	}))
+		Message: transcriptTestMessage(3, &transcriptpb.ToolStart{StepId: ptyCheckpointStepID().String(), ToolCallId: "66666666-6666-4666-8666-666666666666",
+			ToolName: "exec_command"})}))
 	if events := analyzeCheckpointBytes(t, out.Bytes()).PhaseEvents; len(events) != 0 {
 		t.Fatalf("rejected tool start emitted checkpoint events: %#v", events)
 	}
@@ -231,24 +209,15 @@ func TestPTYCheckpointModelEmitsToolStartedOnceAfterAcceptedToolStart(t *testing
 	wrapped = newPTYCheckpointModel(
 		model,
 		writer,
-		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)),
-	)
+		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
-		Message: clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptToolStart{
-			StepID:     ptyCheckpointStepID(),
-			ToolCallID: "77777777-7777-4777-8777-777777777777",
-			ToolName:   "exec_command",
-		})),
-	}))
+		Message: transcriptTestMessage(2, &transcriptpb.ToolStart{StepId: ptyCheckpointStepID().String(), ToolCallId: "77777777-7777-4777-8777-777777777777",
+			ToolName: "exec_command"})}))
 	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
-		Message: clientui.NewTranscriptMessage(3, clientui.NewTranscriptEvent(clientui.TranscriptToolStart{
-			StepID:     ptyCheckpointStepID(),
-			ToolCallID: "88888888-8888-4888-8888-888888888888",
-			ToolName:   "exec_command",
-		})),
-	}))
+		Message: transcriptTestMessage(3, &transcriptpb.ToolStart{StepId: ptyCheckpointStepID().String(), ToolCallId: "88888888-8888-4888-8888-888888888888",
+			ToolName: "exec_command"})}))
 
 	analysis := analyzeCheckpointBytes(t, out.Bytes())
 	if len(analysis.PhaseEvents) != 1 ||
@@ -262,8 +231,7 @@ func TestPTYCheckpointModelEmitsToolStartedOnceAfterAcceptedToolStart(t *testing
 
 func TestPTYCheckpointModelIgnoresUninitializedToolStartMessage(t *testing.T) {
 	message := dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
-		Kind: ongoingTranscriptEventMessage,
-	})
+		Kind: ongoingTranscriptEventMessage})
 
 	got := ongoingToolStartCandidate(nil, message)
 	if got.valid {
@@ -306,8 +274,7 @@ func TestPTYCheckpointModelEmitsScenarioFinalAppliedAfterDeferredDetailTransacti
 		t.Fatalf(
 			"deferred scenario-final checkpoint starts at byte %d before terminal transaction ended at %d",
 			analysis.PhaseEvents[0].ByteRange.Start,
-			lastTerminalOperationEnd,
-		)
+			lastTerminalOperationEnd)
 	}
 }
 
@@ -345,15 +312,16 @@ func newPTYCheckpointOngoingModel(t *testing.T, writer *analyzer.Writer) *uiMode
 	t.Helper()
 	surface := ongoing.NewSurface(writer)
 	model := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIOngoingSurface(surface),
-	), 40, 10)
-	runtimeClient := &sessionRuntimeClient{sessionID: ongoingTestSessionID().String()}
+		WithUIOngoingSurface(surface)), 40, 10)
+	runtimeClient := newUIRuntimeClientWithReads(
+		ongoingTestSessionID().String(), &countingSessionViewClient{},
+		newUnavailableRuntimeControlService(), nil,
+	).(*sessionRuntimeClient)
 	model.ongoingTranscript = newOngoingTranscriptController(
 		surface,
 		model.ongoingFrameInput,
 		runtimeClient.admitTranscriptMessageState,
-		model.applyAdmittedTranscriptMessageState,
-	)
+		model.applyAdmittedTranscriptMessageState)
 	if _, _, err := model.ongoingTranscript.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept initial hydration: %v", err)
 	}
@@ -373,19 +341,12 @@ func ptyLastTerminalOperationEnd(analysis analyzer.Analysis) int64 {
 func applyPTYCheckpointAssistantFinal(model *ptyCheckpointModel, sequence uint64, text string) {
 	model.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
-		Message: clientui.NewTranscriptMessage(sequence, clientui.NewTranscriptEvent(clientui.TranscriptCommittedRow{
-			Visibility: clientui.EntryVisibilityOngoing,
-			Integrity:  transcript.RowIntegrityValid,
-			Kind:       clientui.TranscriptRowAssistant,
-			Locator:    transcript.CommittedRowLocator{EventSequence: int64(sequence), RowOrdinal: 1},
-			Assistant: &clientui.TranscriptAssistantRow{
-				StepID:   ptyCheckpointStepID(),
-				StreamID: ptyCheckpointAssistantStreamID(),
-				Text:     text,
-				Phase:    transcript.AssistantPhaseFinal,
-			},
-		})),
-	}))
+		Message: transcriptTestMessage(sequence, &transcriptpb.CommittedRow{
+			Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+			Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+			Locator:    &transcriptpb.CommittedRowLocator{EventSequence: int64(sequence), RowOrdinal: 1}, Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StepId: ptyCheckpointStepID().String(), StreamId: ptyCheckpointAssistantStreamID(),
+				Text:  text,
+				Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL}}})}))
 }
 
 func ptyCheckpointStepID() runtimeids.StepID {
@@ -396,20 +357,20 @@ func ptyCheckpointStepID() runtimeids.StepID {
 	return id
 }
 
-func ptyCheckpointAssistantStreamID() *runtimeids.AssistantStreamID {
+func ptyCheckpointAssistantStreamID() *string {
 	id, err := runtimeids.ParseAssistantStreamID("22222222-2222-4222-8222-222222222222")
 	if err != nil {
 		panic(err)
 	}
-	return &id
+	value := id.String()
+	return &value
 }
 
 func newPendingPTYDetailCheckpointModel(t *testing.T) (*uiModel, uuid.UUID) {
 	t.Helper()
 	model := newProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
-		WithUISessionID(detailTestSessionID),
-	)
+		WithUISessionID(detailTestSessionID))
 	model.view = mustUpdateTUIModel(t, model.view, tea.KeyMsg{Type: tea.KeyShiftTab})
 	model.activeSurface = uiSurfaceTranscriptDetail
 	requestID := uuid.New()
@@ -421,10 +382,9 @@ func newPendingPTYDetailCheckpointModel(t *testing.T) (*uiModel, uuid.UUID) {
 	model.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{
 		id:         requestID,
 		sessionID:  sessionID,
-		request:    clientui.TranscriptPageRequest{},
+		request:    &transcriptpb.PageRequest{},
 		detailMode: true,
-		cancel:     cancel,
-	}
+		cancel:     cancel}
 	t.Cleanup(model.Close)
 	return model, requestID
 }
@@ -433,8 +393,7 @@ func analyzeCheckpointBytes(t *testing.T, payload []byte) analyzer.Analysis {
 	t.Helper()
 	capture, err := analyzer.NewCapture(
 		analyzer.MustDimensions(24, 80),
-		[]analyzer.Chunk{analyzer.NewChunk(0, 0, payload)},
-	)
+		[]analyzer.Chunk{analyzer.NewChunk(0, 0, payload)})
 	if err != nil {
 		t.Fatalf("new checkpoint capture: %v", err)
 	}

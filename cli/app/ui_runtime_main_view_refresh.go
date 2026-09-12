@@ -1,10 +1,11 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"strings"
 
 	"core/cli/tui"
-	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -30,7 +31,7 @@ type runtimeMainViewRefreshDecision struct {
 }
 
 type runtimeMainViewCandidateClient interface {
-	fetchMainView() (clientui.RuntimeMainView, error)
+	fetchMainView() (*runtimepb.MainView, error)
 }
 
 func (m *uiModel) startRuntimeMainViewRefreshRequest(request runtimeMainViewRefreshRequest) runtimeMainViewRefreshDecision {
@@ -54,7 +55,7 @@ func (m *uiModel) startRuntimeMainViewRefreshRequest(request runtimeMainViewRefr
 	}
 	cmd := func() tea.Msg {
 		var (
-			view clientui.RuntimeMainView
+			view *runtimepb.MainView
 			err  error
 		)
 		if candidateClient, ok := client.(runtimeMainViewCandidateClient); ok {
@@ -150,17 +151,17 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 	return sequenceCmds(applyCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh().cmd)
 }
 
-func (m *uiModel) applyRuntimeSessionMetadata(session clientui.RuntimeSessionView) tea.Cmd {
+func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) tea.Cmd {
 	if m == nil {
 		return nil
 	}
 	previousSessionID := strings.TrimSpace(m.sessionID)
-	nextSessionID := strings.TrimSpace(session.SessionID)
+	nextSessionID := strings.TrimSpace(session.SessionId)
 	if nextSessionID != "" {
 		m.sessionID = nextSessionID
 	}
-	if strings.TrimSpace(session.SessionName) != "" {
-		m.sessionName = strings.TrimSpace(session.SessionName)
+	if strings.TrimSpace(session.GetSessionName()) != "" {
+		m.sessionName = strings.TrimSpace(session.GetSessionName())
 	}
 	m.conversationFreshness = session.ConversationFreshness
 	if previousSessionID == "" || nextSessionID == "" || previousSessionID == nextSessionID {

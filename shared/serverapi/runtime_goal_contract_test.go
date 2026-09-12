@@ -1,78 +1,79 @@
-package serverapi
+package serverapi_test
 
 import (
-	"encoding/json"
 	"testing"
-	"time"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestRuntimeGoalShowResponseOmitsAbsentGoal(t *testing.T) {
-	wire, err := json.Marshal(RuntimeGoalShowResponse{
-		GoalEnvelope: clientui.GoalEnvelope{
-			Availability: clientui.GoalAvailabilityAvailable,
-		},
+	wire, err := protoapi.Encode(&runtimepb.GoalShowSuccess{
+		Availability: runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE,
 	})
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatal(err)
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(wire, &fields); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	var response runtimepb.GoalShowSuccess
+	if err := protoapi.Decode(wire, &response); err != nil {
+		t.Fatal(err)
 	}
-	if _, exists := fields["goal"]; exists {
-		t.Fatalf("goal field = %s; want absent", fields["goal"])
+	if response.Goal != nil {
+		t.Fatalf("goal = %+v; want absent", response.Goal)
 	}
 }
 
 func TestRuntimeGoalShowResponseRejectsUnknownGoalStatus(t *testing.T) {
-	now := time.Now().UTC()
-	err := (RuntimeGoalShowResponse{
-		GoalEnvelope: clientui.GoalEnvelope{
-			Availability: clientui.GoalAvailabilityAvailable,
-			Goal: &clientui.Goal{
-				ID:        "goal-1",
-				Objective: "ship",
-				Status:    clientui.RuntimeGoalStatus("unknown"),
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
+	now := timestamppb.Now()
+	err := protoapi.Validate(&runtimepb.GoalShowSuccess{
+		Availability: runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE,
+		Goal: &runtimepb.Goal{
+			Id: "goal-1", Objective: "ship", Status: runtimepb.GoalStatus(999),
+			CreatedAt: now, UpdatedAt: now,
 		},
-	}).Validate()
+	})
 	if err == nil {
-		t.Fatal("RuntimeGoalShowResponse accepted an unknown Goal status")
+		t.Fatal("Goal Show accepted an unknown Goal status")
 	}
 }
 
 func TestRuntimeGoalMutationResponseCarriesClosedAuthoritativeClear(t *testing.T) {
-	response := RuntimeGoalMutationResponse{Result: clientui.GoalMutationResult{
-		Kind: clientui.GoalMutationResultAuthoritativeClear,
-	}}
-	if err := response.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
+	response := &runtimepb.GoalMutationSuccess{
+		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR,
 	}
-	wire, err := json.Marshal(response)
+	wire, err := protoapi.Encode(response)
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatal(err)
 	}
-	var decoded struct {
-		Result clientui.GoalMutationResult `json:"result"`
+	var decoded runtimepb.GoalMutationSuccess
+	if err := protoapi.Decode(wire, &decoded); err != nil {
+		t.Fatal(err)
 	}
-	if err := json.Unmarshal(wire, &decoded); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if decoded.Result.Kind != clientui.GoalMutationResultAuthoritativeClear {
-		t.Fatalf("result kind = %q, want authoritative clear", decoded.Result.Kind)
+	if decoded.Kind != runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR || decoded.Goal != nil {
+		t.Fatalf("decoded result = %+v, want authoritative clear", &decoded)
 	}
 }
 
 func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
-	err := (RuntimeSubmitUserShellCommandRequest{
-		SessionID: "session-1",
-		Command:   " \t\n",
-	}).Validate()
+	err := protoapi.Validate(&runtimepb.ShellCommandRequest{
+		SessionId: "session-1", Command: " \t\n",
+	})
 	if err == nil {
-		t.Fatal("RuntimeSubmitUserShellCommandRequest accepted a blank command")
+		t.Fatal("Shell command accepted a blank command")
+	}
+}
+
+func TestRuntimeSubmitUserTurnRequestUsesInputAndRejectsMissingInput(t *testing.T) {
+	req := &runtimepb.SubmitUserTurnRequest{
+		SessionId: "session-1",
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
+	}
+	if err := protoapi.Validate(req); err != nil {
+		t.Fatalf("valid request: %v", err)
+	}
+	req.Input = nil
+	if err := protoapi.Validate(req); err == nil {
+		t.Fatal("missing input succeeded")
 	}
 }

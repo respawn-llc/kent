@@ -1,25 +1,21 @@
 package app
 
 import (
+	"core/cli/tui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/textutil"
 	"errors"
+	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 	"strconv"
 	"testing"
-
-	"core/cli/tui"
-	"core/shared/clientui"
-	"core/shared/serverapi"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestDetailModeTransitionLoadsServerBackedTranscriptPage(t *testing.T) {
-	sessionViews := &countingSessionViewClient{page: clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries:   []clientui.TranscriptCommittedRow{detailTestUserRow("first page")},
-	}}
-	runtimeClient := &runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{SessionID: detailTestSessionID}}
+	sessionViews := &countingSessionViewClient{page: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{detailTestUserRow("first page")}}}
+	runtimeClient := &runtimeControlFakeClient{sessionView: &runtimepb.SessionView{SessionId: detailTestSessionID}}
 	model := newProjectedClosedUIModel(
 		runtimeClient,
 		WithUISessionID(detailTestSessionID),
@@ -45,7 +41,7 @@ func TestDetailModeTransitionLoadsServerBackedTranscriptPage(t *testing.T) {
 		t.Fatal("detail transcript window was not loaded")
 	}
 	got := model.detailTranscript.page()
-	want := []clientui.TranscriptCommittedRow{detailTestUserRow("first page")}
+	want := []*transcriptpb.CommittedRow{detailTestUserRow("first page")}
 	if !detailTestRowsEqual(got.Entries, want) {
 		t.Fatalf("detail transcript entries = %#v, want %#v", got.Entries, want)
 	}
@@ -53,13 +49,10 @@ func TestDetailModeTransitionLoadsServerBackedTranscriptPage(t *testing.T) {
 
 func TestDetailModeReentryShowsCachedPageWhileRefreshingNewestPage(t *testing.T) {
 	sessionViews := newControlledTranscriptPageClient()
-	cached := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("cached detail page\nsecond line"),
-		},
-	}
-	cached.Entries[0].Visibility = clientui.EntryVisibilityOngoing
+	cached := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("cached detail page\nsecond line")}}
+	cached.Entries[0].Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING
 	model := newProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
 		WithUISessionID(detailTestSessionID),
@@ -83,7 +76,7 @@ func TestDetailModeReentryShowsCachedPageWhileRefreshingNewestPage(t *testing.T)
 	}
 	done := runDetailTranscriptCommand(cmd)
 	request := waitForDetailTranscriptRequest(t, sessionViews)
-	if request.Cursor != nil || request.NewerCursor != nil {
+	if request.Direction != nil {
 		t.Fatalf("detail reentry request = %#v, want newest-page request without cursors", request)
 	}
 	sessionViews.results <- controlledTranscriptPageResult{err: errors.New("stop test refresh")}
@@ -93,16 +86,13 @@ func TestDetailModeReentryShowsCachedPageWhileRefreshingNewestPage(t *testing.T)
 func TestDetailModeNewestRefreshPreservesCachedNavigationWhenSelectedRowSurvives(t *testing.T) {
 	sessionViews := newControlledTranscriptPageClient()
 	selected := detailTestUserRow("selected full detail")
-	selected.Visibility = clientui.EntryVisibilityOngoing
+	selected.Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING
 	selectedCondensed := "selected"
-	selected.User.CondensedText = &selectedCondensed
-	cached := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+	selected.GetUser().CondensedText = &selectedCondensed
+	cached := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			selected,
-			detailTestUserRow("cached newest"),
-		},
-	}
+			detailTestUserRow("cached newest")}}
 	model := newProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
 		WithUISessionID(detailTestSessionID),
@@ -130,16 +120,12 @@ func TestDetailModeNewestRefreshPreservesCachedNavigationWhenSelectedRowSurvives
 		t.Fatalf("cached navigation selected action = %v, want no action for complete surviving row", action)
 	}
 
-	sessionViews.results <- controlledTranscriptPageResult{response: serverapi.SessionTranscriptPageResponse{
-		Transcript: clientui.TranscriptPage{
-			SessionID: detailTestSessionID,
-			Entries: []clientui.TranscriptCommittedRow{
+	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{
+		Transcript: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+			Entries: []*transcriptpb.CommittedRow{
 				detailTestAssistantRow("fresh older boundary"),
 				selected,
-				detailTestUserRow("fresh newest"),
-			},
-		},
-	}}
+				detailTestUserRow("fresh newest")}}}}
 	model = updateUIModel(t, model, waitForDetailTranscriptCompletion(t, done))
 	if action := model.view.DetailSelectionAction(); action != tui.DetailSelectionActionNone {
 		t.Fatalf("newest refresh selected action = %v, want no action for complete surviving row", action)
@@ -148,22 +134,18 @@ func TestDetailModeNewestRefreshPreservesCachedNavigationWhenSelectedRowSurvives
 
 func TestDetailModeNewestRefreshAnchorsAtEndWhenCachedWindowHasNewerContent(t *testing.T) {
 	selected := detailTestUserRow("selected full detail")
-	selected.Visibility = clientui.EntryVisibilityOngoing
+	selected.Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING
 	selectedCondensed := "selected"
-	selected.User.CondensedText = &selectedCondensed
-	cached := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	selected.GetUser().CondensedText = &selectedCondensed
+	cached := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		NewerCursor:  appInt64Ptr(75),
 		HasMoreBelow: true,
-		Entries: []clientui.TranscriptCommittedRow{
+		Entries: []*transcriptpb.CommittedRow{
 			selected,
-			detailTestUserRow("cached page end"),
-		},
-	}
+			detailTestUserRow("cached page end")}}
 	model := newProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
-		WithUISessionID(detailTestSessionID),
-	)
+		WithUISessionID(detailTestSessionID))
 	model.detailTranscript.replace(cached)
 	model.view = tui.NewModel()
 	model.forwardToView(tui.SetViewportSizeMsg{Lines: 1, Width: 80})
@@ -178,14 +160,11 @@ func TestDetailModeNewestRefreshAnchorsAtEndWhenCachedWindowHasNewerContent(t *t
 		t.Fatalf("cached older-window selected action = %v, want no action for complete row", action)
 	}
 
-	model.applyDetailTranscriptLoad(detailTestSessionID, clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("fresh older boundary"),
 			selected,
-			detailTestUserRow("fresh newest"),
-		},
-	})
+			detailTestUserRow("fresh newest")}})
 
 	if action := model.view.DetailSelectionAction(); action != tui.DetailSelectionActionNone {
 		t.Fatalf("older-window refresh selected action = %v, want fresh page end", action)
@@ -193,19 +172,13 @@ func TestDetailModeNewestRefreshAnchorsAtEndWhenCachedWindowHasNewerContent(t *t
 }
 
 func TestDetailModeReentryReloadsNewestPageAndSelectsItsEnd(t *testing.T) {
-	stale := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("stale detail page"),
-		},
-	}
-	fresh := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
+	stale := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("stale detail page")}}
+	fresh := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("fresh expandable\nline two\nline three\nline four"),
-			detailTestUserRow("fresh newest"),
-		},
-	}
+			detailTestUserRow("fresh newest")}}
 	sessionViews := &countingSessionViewClient{page: fresh}
 	model := newProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
@@ -231,7 +204,7 @@ func TestDetailModeReentryReloadsNewestPageAndSelectsItsEnd(t *testing.T) {
 		}
 	}
 
-	if sessionViews.lastPageReq.Cursor != nil || sessionViews.lastPageReq.NewerCursor != nil {
+	if sessionViews.lastPageReq.Direction != nil {
 		t.Fatalf("detail reentry request = %#v, want newest-page request without cursors", sessionViews.lastPageReq)
 	}
 	if got := model.detailTranscript.page().Entries; !detailTestRowsEqual(got, fresh.Entries) {
@@ -244,31 +217,26 @@ func TestDetailModeReentryReloadsNewestPageAndSelectsItsEnd(t *testing.T) {
 
 func TestDetailTranscriptLoadMergesAdjacentCursorPages(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	newest := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	newest := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(40),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(80),
 		HasMoreBelow: false,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestAssistantRow("newer")},
-	}
-	older := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("newer")}}
+	older := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(20),
 		HasMoreAbove: false,
 		NewerCursor:  appInt64Ptr(40),
 		HasMoreBelow: true,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestUserRow("older")},
-	}
+		Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older")}}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{Cursor: appInt64Ptr(40)}, older)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
 
 	got := model.detailTranscript.page()
-	wantEntries := []clientui.TranscriptCommittedRow{
+	wantEntries := []*transcriptpb.CommittedRow{
 		detailTestUserRow("older"),
-		detailTestAssistantRow("newer"),
-	}
+		detailTestAssistantRow("newer")}
 	if !detailTestRowsEqual(got.Entries, wantEntries) {
 		t.Fatalf("merged detail entries = %#v, want %#v", got.Entries, wantEntries)
 	}
@@ -279,32 +247,27 @@ func TestDetailTranscriptLoadMergesAdjacentCursorPages(t *testing.T) {
 
 func TestDetailTranscriptLoadIgnoresDuplicateAdjacentCursorResponse(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	newest := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	newest := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(40),
 		HasMoreAbove: true,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestAssistantRow("newer")},
-		HasMoreBelow: false,
-	}
-	older := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("newer")},
+		HasMoreBelow: false}
+	older := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(20),
 		HasMoreAbove: false,
 		NewerCursor:  appInt64Ptr(40),
 		HasMoreBelow: true,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestUserRow("older")},
-	}
-	request := clientui.TranscriptPageRequest{Cursor: appInt64Ptr(40)}
+		Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older")}}
+	request := &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, newest)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
 	model.applyDetailTranscriptLoad("", request, older)
 	model.applyDetailTranscriptLoad("", request, older)
 
 	got := model.detailTranscript.page().Entries
-	want := []clientui.TranscriptCommittedRow{
+	want := []*transcriptpb.CommittedRow{
 		detailTestUserRow("older"),
-		detailTestAssistantRow("newer"),
-	}
+		detailTestAssistantRow("newer")}
 	if !detailTestRowsEqual(got, want) {
 		t.Fatalf("deduplicated detail entries = %#v, want %#v", got, want)
 	}
@@ -312,30 +275,25 @@ func TestDetailTranscriptLoadIgnoresDuplicateAdjacentCursorResponse(t *testing.T
 
 func TestDetailTranscriptNewestRefreshReplacesResidentWindow(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	newest := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	newest := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(40),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(80),
 		HasMoreBelow: false,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestAssistantRow("newer")},
-	}
-	older := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("newer")}}
+	older := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(20),
 		HasMoreAbove: false,
 		NewerCursor:  appInt64Ptr(40),
 		HasMoreBelow: true,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestUserRow("older")},
-	}
+		Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older")}}
 	refreshedNewest := newest
-	refreshedNewest.Entries = []clientui.TranscriptCommittedRow{
-		detailTestAssistantRow("newer refreshed\nline two\nline three\nline four"),
-	}
+	refreshedNewest.Entries = []*transcriptpb.CommittedRow{
+		detailTestAssistantRow("newer refreshed\nline two\nline three\nline four")}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{Cursor: appInt64Ptr(40)}, older)
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, refreshedNewest)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, refreshedNewest)
 
 	got := model.detailTranscript.page().Entries
 	want := refreshedNewest.Entries
@@ -352,37 +310,31 @@ func TestDetailTranscriptNewestRefreshReplacesChangedSelectedRow(t *testing.T) {
 	model.view = tui.NewModel()
 	model.view = mustUpdateTUIModel(t, model.view, tui.SetViewportSizeMsg{Lines: 2, Width: 80})
 	model.view = mustUpdateTUIModel(t, model.view, tui.SetModeMsg{Mode: tui.ModeDetail})
-	newest := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+	newest := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(40),
 		HasMoreAbove: true,
 		NewerCursor:  appInt64Ptr(80),
 		HasMoreBelow: false,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("newer\nline two\nline three\nline four"),
-		},
-	}
-	older := clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("newer\nline two\nline three\nline four")}}
+	older := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(20),
 		HasMoreAbove: false,
 		NewerCursor:  appInt64Ptr(40),
 		HasMoreBelow: true,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestUserRow("older")},
-	}
+		Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older")}}
 	refreshedNewest := newest
-	refreshedNewest.Entries = []clientui.TranscriptCommittedRow{
-		detailTestAssistantRow("newer refreshed\nline two\nline three\nline four"),
-	}
+	refreshedNewest.Entries = []*transcriptpb.CommittedRow{
+		detailTestAssistantRow("newer refreshed\nline two\nline three\nline four")}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{Cursor: appInt64Ptr(40)}, older)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
 	model.view = mustUpdateTUIModel(t, model.view, tea.KeyMsg{Type: tea.KeyEnter})
 	if got := model.view.DetailSelectionAction(); got != tui.DetailSelectionActionNone {
 		t.Fatalf("detail selection action after Enter = %v, want no action for complete row", got)
 	}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, refreshedNewest)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, refreshedNewest)
 
 	if got := model.view.DetailSelectionAction(); got != tui.DetailSelectionActionNone {
 		t.Fatalf("detail selection action after newest refresh = %v, want no action for complete row", got)
@@ -406,7 +358,7 @@ func TestDetailTranscriptWindowTrimsFarResidentSegmentsAfterAppend(t *testing.T)
 	if len(window.entries) != 1200 {
 		t.Fatalf("resident entry count = %d, want two retained 600-entry segments", len(window.entries))
 	}
-	if got := window.entries[0].Assistant.Text; got != "entry-600" {
+	if got := window.entries[0].GetAssistant().Text; got != "entry-600" {
 		t.Fatalf("first retained entry = %q, want appended window to unload oldest segment", got)
 	}
 }
@@ -423,15 +375,12 @@ func TestDetailTranscriptWindowTrimsFarResidentSegmentsAfterPrepend(t *testing.T
 	if len(window.entries) != 1200 {
 		t.Fatalf("resident entry count = %d, want two retained 600-entry segments", len(window.entries))
 	}
-	if got := window.entries[len(window.entries)-1].Assistant.Text; got != "entry-1199" {
+	if got := window.entries[len(window.entries)-1].GetAssistant().Text; got != "entry-1199" {
 		t.Fatalf("last retained entry = %q, want prepended window to unload newest far segment", got)
 	}
 }
 
-// Spec: the resident detail window is bounded to two pages max (current + one
-// adjacent), evicting the far page on cross. This must hold regardless of total
-// entry count — there is no entry-count ceiling. These tests use small pages
-// (well under any legacy 1000-entry gate) to prove eviction is segment-driven.
+// The resident detail window holds two pages regardless of their entry counts.
 func TestDetailTranscriptWindowTrimsFarSegmentByCountAfterAppend(t *testing.T) {
 	var window uiDetailTranscriptWindow
 	window.replace(detailTestPage(detailTestSessionID, 0, 2, appInt64Ptr(3), nil))
@@ -444,7 +393,7 @@ func TestDetailTranscriptWindowTrimsFarSegmentByCountAfterAppend(t *testing.T) {
 	if len(window.entries) != 6 {
 		t.Fatalf("resident entry count = %d, want two retained 3-entry segments", len(window.entries))
 	}
-	if got := window.entries[0].Assistant.Text; got != "entry-3" {
+	if got := window.entries[0].GetAssistant().Text; got != "entry-3" {
 		t.Fatalf("first retained entry = %q, want appended window to unload oldest segment", got)
 	}
 }
@@ -461,132 +410,91 @@ func TestDetailTranscriptWindowTrimsFarSegmentByCountAfterPrepend(t *testing.T) 
 	if len(window.entries) != 6 {
 		t.Fatalf("resident entry count = %d, want two retained 3-entry segments", len(window.entries))
 	}
-	if got := window.entries[len(window.entries)-1].Assistant.Text; got != "entry-5" {
+	if got := window.entries[len(window.entries)-1].GetAssistant().Text; got != "entry-5" {
 		t.Fatalf("last retained entry = %q, want prepended window to unload newest far segment", got)
 	}
 }
 
 func TestDetailTranscriptPageDeepClonesPatchPresentation(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	id := patchformat.WholeFileDeletionOperationID{HunkOrdinal: 0}
-	removed := 3
-	sourcePatch := &patchformat.Presentation{
-		Variant: patchformat.PresentationVariantChanges,
-		Changes: &patchformat.Changes{
-			Files: []patchformat.FileChange{
-				{
-					Path:    patchformat.Path{Absolute: "/workspace/file.txt", Relative: "file.txt"},
-					Removed: &removed,
-					Operations: []patchformat.FileOperation{
-						{
-							Kind: patchformat.FileOperationUpdate,
-							Groups: []patchformat.ChangeGroup{
-								{Lines: []patchformat.ChangedLine{
-									{Kind: patchformat.ChangedLineRemoved, Content: "old"},
-								}},
-							},
-						},
-						{
-							Kind: patchformat.FileOperationDelete,
-							Deletion: &patchformat.WholeFileDeletionOperation{
-								ID: id,
-								Disposition: &patchformat.WholeFileDeletionDisposition{
-									PhysicalGroup: patchformat.WholeFileDeletionGroupID{FirstOperation: id},
-									Removed:       2,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	page := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestToolRow(clientui.TranscriptToolRow{
-				ToolCallID: "3f14b1c8-5fee-4c0e-a72e-f38bb6c3c389",
-				ToolName:   "apply_patch",
-				Presentation: &transcript.ToolCallMeta{
-					ToolName:          "apply_patch",
-					Presentation:      transcript.ToolPresentationDefault,
-					RenderBehavior:    transcript.ToolCallRenderBehaviorDefault,
+	sourcePatch := detailTestPatchPresentation(3)
+	sourceFile := sourcePatch.GetChanges().Files[0]
+	sourceFile.Operations = append([]*transcriptpb.PatchFileOperation{{
+		Operation: &transcriptpb.PatchFileOperation_Update{Update: &transcriptpb.PatchUpdateOperation{
+			Groups: []*transcriptpb.PatchChangeGroup{
+				{Lines: []*transcriptpb.PatchChangedLine{
+					{Kind: transcriptpb.PatchChangedLineKind_PATCH_CHANGED_LINE_KIND_REMOVED, Content: "old"}}}},
+		}},
+	}}, sourceFile.Operations...)
+	sourceFile.Operations[1].GetDelete().Disposition.Removed = 2
+	page := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestToolRow(&transcriptpb.ToolRow{ToolCallId: proto.String(string("3f14b1c8-5fee-4c0e-a72e-f38bb6c3c389")),
+				ToolName: proto.String("patch"),
+				Presentation: &transcriptpb.ToolPresentation{
+					Presentation:      transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+					RenderBehavior:    transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
 					PatchPresentation: sourcePatch,
-				},
-			}),
-		},
-	}
+				}})}}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, page)
-	sourcePatch.Changes.Files[0].Operations[0].Groups[0].Lines[0].Content = "source changed"
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, page)
+	sourcePatch.GetChanges().Files[0].Operations[0].GetUpdate().Groups[0].Lines[0].Content = "source changed"
 	firstRead := model.detailTranscript.page()
-	if got := firstRead.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0].Operations[0].Groups[0].Lines[0].Content; got != "old" {
+	if got := firstRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[0].GetUpdate().Groups[0].Lines[0].Content; got != "old" {
 		t.Fatalf("stored patch diff = %q, want source-isolated old diff", got)
 	}
-	sourcePatch.Changes.Files[0].Operations[1].Deletion.Disposition.Removed = 8
-	if got := firstRead.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0].Operations[1].Deletion.Disposition.Removed; got != 2 {
+	sourcePatch.GetChanges().Files[0].Operations[1].GetDelete().Disposition.Removed = 8
+	if got := firstRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[1].GetDelete().Disposition.Removed; got != 2 {
 		t.Fatalf("stored deletion count = %d, want source-isolated 2", got)
 	}
 
-	firstRead.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0].Operations[0].Groups[0].Lines[0].Content = "read changed"
-	firstRead.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0].Operations[1].Deletion.Disposition.Removed = 9
+	firstRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[0].GetUpdate().Groups[0].Lines[0].Content = "read changed"
+	firstRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[1].GetDelete().Disposition.Removed = 9
 	secondRead := model.detailTranscript.page()
-	if got := secondRead.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0].Operations[0].Groups[0].Lines[0].Content; got != "old" {
+	if got := secondRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[0].GetUpdate().Groups[0].Lines[0].Content; got != "old" {
 		t.Fatalf("page patch diff = %q, want page-isolated old diff", got)
 	}
-	if got := secondRead.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0].Operations[1].Deletion.Disposition.Removed; got != 2 {
+	if got := secondRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[1].GetDelete().Disposition.Removed; got != 2 {
 		t.Fatalf("page deletion count = %d, want page-isolated 2", got)
 	}
 }
 
 func TestDetailTranscriptPagePreservesKnownZeroDeletionCount(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	id := patchformat.WholeFileDeletionOperationID{HunkOrdinal: 0}
-	removed := 0
-	page := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestToolRow(clientui.TranscriptToolRow{
-				ToolCallID: "da35dc7a-02e8-4993-aa45-5cfba6eb4546",
-				ToolName:   "patch",
-				Presentation: &transcript.ToolCallMeta{
-					ToolName:       "patch",
-					Presentation:   transcript.ToolPresentationDefault,
-					RenderBehavior: transcript.ToolCallRenderBehaviorDefault,
-					PatchPresentation: &patchformat.Presentation{
-						Variant: patchformat.PresentationVariantChanges,
-						Changes: &patchformat.Changes{
-							Files: []patchformat.FileChange{
-								{
-									Path:    patchformat.Path{Absolute: "/workspace/empty.txt", Relative: "empty.txt"},
-									Removed: &removed,
-									Operations: []patchformat.FileOperation{
-										{
-											Kind: patchformat.FileOperationDelete,
-											Deletion: &patchformat.WholeFileDeletionOperation{
-												ID: id,
-												Disposition: &patchformat.WholeFileDeletionDisposition{
-													PhysicalGroup: patchformat.WholeFileDeletionGroupID{FirstOperation: id},
-													Removed:       0,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}),
-		},
-	}
+	page := &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestToolRow(&transcriptpb.ToolRow{ToolCallId: proto.String(string("da35dc7a-02e8-4993-aa45-5cfba6eb4546")),
+				ToolName: proto.String(string("patch")),
+				Presentation: &transcriptpb.ToolPresentation{
+					Presentation:      transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+					RenderBehavior:    transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+					PatchPresentation: detailTestPatchPresentation(0),
+				}})}}
 
-	model.applyDetailTranscriptLoad("", clientui.TranscriptPageRequest{}, page)
+	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, page)
 	stored := model.detailTranscript.page()
-	file := stored.Entries[0].Tool.Presentation.PatchPresentation.Changes.Files[0]
-	if removed := patchformat.RemovedLineCount(file); removed == nil || *removed != 0 {
+	file := stored.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0]
+	if removed := file.Removed; removed == nil || *removed != 0 {
 		t.Fatalf("detail client removed count = %v, want present zero", removed)
 	}
+}
+
+func detailTestPatchPresentation(removed int32) *transcriptpb.PatchPresentation {
+	return &transcriptpb.PatchPresentation{Presentation: &transcriptpb.PatchPresentation_Changes{
+		Changes: &transcriptpb.PatchChanges{Files: []*transcriptpb.PatchFileChange{{
+			Path:    &transcriptpb.PatchPath{Absolute: "/workspace/file.txt", Relative: "file.txt"},
+			Removed: &removed,
+			Operations: []*transcriptpb.PatchFileOperation{{
+				Operation: &transcriptpb.PatchFileOperation_Delete{Delete: &transcriptpb.PatchDeletionOperation{
+					Id: &transcriptpb.PatchDeletionOperationID{HunkOrdinal: 0},
+					Disposition: &transcriptpb.PatchDeletionDisposition{
+						PhysicalGroup: &transcriptpb.PatchDeletionGroupID{FirstOperation: &transcriptpb.PatchDeletionOperationID{HunkOrdinal: 0}},
+						Removed:       removed,
+					},
+				}},
+			}},
+		}}},
+	}}
 }
 
 func mustUpdateTUIModel(t *testing.T, model tui.Model, msg tea.Msg) tui.Model {
@@ -599,23 +507,21 @@ func mustUpdateTUIModel(t *testing.T, model tui.Model, msg tea.Msg) tui.Model {
 	return updated
 }
 
-func detailTestPage(sessionID string, first int, last int, olderCursor *int64, newerCursor *int64) clientui.TranscriptPage {
-	return clientui.TranscriptPage{
-		SessionID:    sessionID,
+func detailTestPage(sessionID string, first int, last int, olderCursor *int64, newerCursor *int64) *transcriptpb.Page {
+	return &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: sessionID,
 		OlderCursor:  olderCursor,
 		HasMoreAbove: olderCursor != nil,
 		NewerCursor:  newerCursor,
 		HasMoreBelow: newerCursor != nil,
 		Entries:      detailTestEntries(first, last),
-		SessionName:  sessionID,
-	}
+		SessionName:  textutil.Value(sessionID)}
 }
 
-func detailTestEntries(first int, last int) []clientui.TranscriptCommittedRow {
+func detailTestEntries(first int, last int) []*transcriptpb.CommittedRow {
 	if last < first {
 		return nil
 	}
-	entries := make([]clientui.TranscriptCommittedRow, 0, last-first+1)
+	entries := make([]*transcriptpb.CommittedRow, 0, last-first+1)
 	for idx := first; idx <= last; idx++ {
 		entries = append(entries, detailTestAssistantRow("entry-"+strconv.Itoa(idx)))
 	}
@@ -625,25 +531,15 @@ func detailTestEntries(first int, last int) []clientui.TranscriptCommittedRow {
 func TestDetailTranscriptLoadIgnoresStaleSessionResponse(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{}, WithUISessionID(detailTestSessionID))
 	model.applyDetailTranscriptLoad(
-		detailTestSessionID,
-		clientui.TranscriptPageRequest{},
-		clientui.TranscriptPage{
-			SessionID: detailTestSessionID,
-			Entries:   []clientui.TranscriptCommittedRow{detailTestAssistantRow("current")},
-		},
-	)
+		detailTestSessionID, &transcriptpb.PageRequest{}, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+			Entries: []*transcriptpb.CommittedRow{detailTestAssistantRow("current")}})
 
 	model.applyDetailTranscriptLoad(
-		detailTestStaleSessionID,
-		clientui.TranscriptPageRequest{},
-		clientui.TranscriptPage{
-			SessionID: detailTestStaleSessionID,
-			Entries:   []clientui.TranscriptCommittedRow{detailTestAssistantRow("stale")},
-		},
-	)
+		detailTestStaleSessionID, &transcriptpb.PageRequest{}, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestStaleSessionID,
+			Entries: []*transcriptpb.CommittedRow{detailTestAssistantRow("stale")}})
 
 	got := model.detailTranscript.page().Entries
-	want := []clientui.TranscriptCommittedRow{detailTestAssistantRow("current")}
+	want := []*transcriptpb.CommittedRow{detailTestAssistantRow("current")}
 	if !detailTestRowsEqual(got, want) {
 		t.Fatalf("detail entries after stale response = %#v, want %#v", got, want)
 	}
@@ -652,37 +548,27 @@ func TestDetailTranscriptLoadIgnoresStaleSessionResponse(t *testing.T) {
 func TestDetailTranscriptIgnoresRuntimeCommittedChangesUntilPageIsRequested(t *testing.T) {
 	model := newProjectedClosedUIModel(&runtimeControlFakeClient{}, WithUISessionID(detailTestSessionID))
 	model.applyDetailTranscriptLoad(
-		detailTestSessionID,
-		clientui.TranscriptPageRequest{},
-		clientui.TranscriptPage{
-			SessionID: detailTestSessionID,
-			Entries:   []clientui.TranscriptCommittedRow{detailTestAssistantRow("loaded page")},
-		},
-	)
+		detailTestSessionID, &transcriptpb.PageRequest{}, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+			Entries: []*transcriptpb.CommittedRow{detailTestAssistantRow("loaded page")}})
 
 	got := model.detailTranscript.page().Entries
-	want := []clientui.TranscriptCommittedRow{detailTestAssistantRow("loaded page")}
+	want := []*transcriptpb.CommittedRow{detailTestAssistantRow("loaded page")}
 	if !detailTestRowsEqual(got, want) {
 		t.Fatalf("detail entries after committed runtime event = %#v, want stale loaded page %#v", got, want)
 	}
 }
 
 func TestDetailEdgeRequestMessageLoadsAdjacentPage(t *testing.T) {
-	sessionViews := &countingSessionViewClient{page: clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries:   []clientui.TranscriptCommittedRow{detailTestUserRow("older page")},
-	}}
+	sessionViews := &countingSessionViewClient{page: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{detailTestUserRow("older page")}}}
 	model := newProjectedClosedUIModel(
-		&runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{SessionID: detailTestSessionID}},
+		&runtimeControlFakeClient{sessionView: &runtimepb.SessionView{SessionId: detailTestSessionID}},
 		WithUISessionID(detailTestSessionID),
-		WithUIStatusConfig(uiStatusConfig{SessionViews: sessionViews}),
-	)
-	model.detailTranscript.replace(clientui.TranscriptPage{
-		SessionID:    detailTestSessionID,
+		WithUIStatusConfig(uiStatusConfig{SessionViews: sessionViews}))
+	model.detailTranscript.replace(&transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(25),
 		HasMoreAbove: true,
-		Entries:      []clientui.TranscriptCommittedRow{detailTestAssistantRow("current page")},
-	})
+		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("current page")}})
 
 	next, cmd := model.Update(tui.RequestDetailTranscriptPageMsg{Direction: tui.DetailTranscriptPageOlder})
 	model = next.(*uiModel)
@@ -693,10 +579,9 @@ func TestDetailEdgeRequestMessageLoadsAdjacentPage(t *testing.T) {
 	}
 
 	got := model.detailTranscript.page().Entries
-	want := []clientui.TranscriptCommittedRow{
+	want := []*transcriptpb.CommittedRow{
 		detailTestUserRow("older page"),
-		detailTestAssistantRow("current page"),
-	}
+		detailTestAssistantRow("current page")}
 	if !detailTestRowsEqual(got, want) {
 		t.Fatalf("loaded adjacent entries = %#v, want %#v", got, want)
 	}

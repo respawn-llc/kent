@@ -1,53 +1,55 @@
 package sessionservice
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"core/server/auth"
 	"core/server/session"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
-	parentID := mustSessionLifecycleResultID(t, "parent-session")
+	parentID := runtimeids.NewSessionID()
 	service := newTestSessionLifecycleService(t.TempDir(), nil)
 
 	tests := []struct {
 		name       string
-		transition serverapi.SessionTransition
-		wantKind   serverapi.SessionDirectiveKind
-		assert     func(t *testing.T, result serverapi.SessionDirective)
+		transition *sessionlaunchpb.SessionTransition
+		assert     func(t *testing.T, result *sessionlaunchpb.SessionDirective)
 	}{
 		{
 			name:       "none stops",
-			transition: serverapi.SessionTransition{Action: serverapi.SessionTransitionActionNone},
-			wantKind:   serverapi.SessionDirectiveStop,
+			transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NONE},
+			assert: func(t *testing.T, result *sessionlaunchpb.SessionDirective) {
+				if result.GetStop() == nil {
+					t.Fatalf("result = %v, want stop", result)
+				}
+			},
 		},
 		{
 			name:       "resume selects with current auth",
-			transition: serverapi.SessionTransition{Action: serverapi.SessionTransitionActionResume},
-			wantKind:   serverapi.SessionDirectiveSelectSession,
-			assert: func(t *testing.T, result serverapi.SessionDirective) {
-				assertSessionLifecycleAuth(t, result, serverapi.SessionAuthPreparationKeepCurrent)
+			transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_RESUME},
+			assert: func(t *testing.T, result *sessionlaunchpb.SessionDirective) {
+				assertSessionLifecycleAuth(t, result, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH)
 			},
 		},
 		{
 			name: "new session launches create with parent and prompt",
-			transition: serverapi.SessionTransition{
-				Action:                       serverapi.SessionTransitionActionNewSession,
+			transition: &sessionlaunchpb.SessionTransition{
+				Action:                       sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NEW_SESSION,
 				InitialPrompt:                "seed prompt",
 				InitialPromptHistoryRecorded: true,
-				PreviousSessionID:            &parentID,
+				PreviousSessionId:            proto.String(parentID.String()),
 			},
-			wantKind: serverapi.SessionDirectiveLaunch,
-			assert: func(t *testing.T, result serverapi.SessionDirective) {
+			assert: func(t *testing.T, result *sessionlaunchpb.SessionDirective) {
 				intent, preparation := requireSessionLifecycleLaunch(t, result)
 				if intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 					t.Fatalf("intent kind = %q, want create new", intent.Kind())
@@ -60,11 +62,9 @@ func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 				assertSessionLaunchPreparation(
 					t,
 					preparation,
-					&serverapi.SessionInitialPromptMetadata{Text: "seed prompt", HistoryRecorded: true},
-					serverapi.SessionDraftDispositionRestoreStoredDraft,
+					&sessionlaunchpb.SessionInitialPromptMetadata{Text: "seed prompt", HistoryRecorded: true},
 					"",
-					false,
-					serverapi.SessionAuthPreparationKeepCurrent,
+					false, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH,
 				)
 			},
 		},
@@ -72,14 +72,11 @@ func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := service.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
+			result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 				Transition: test.transition,
 			})
 			if err != nil {
 				t.Fatalf("ResolveTransition: %v", err)
-			}
-			if result.Kind() != test.wantKind {
-				t.Fatalf("result kind = %q, want %q", result.Kind(), test.wantKind)
 			}
 			if test.assert != nil {
 				test.assert(t, result)
@@ -94,13 +91,13 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
 	service := newTestSessionLifecycleService(containerDir, nil)
-	result, err := service.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
-		SessionID: store.Meta().SessionID,
-		Transition: serverapi.SessionTransition{
-			Action:                       serverapi.SessionTransitionActionForkRollback,
+	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
+		SessionId: proto.String(store.Meta().SessionID),
+		Transition: &sessionlaunchpb.SessionTransition{
+			Action:                       sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialPrompt:                "edited prompt",
 			InitialPromptHistoryRecorded: true,
-			ForkRollbackTargetID:         rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, store, 1)),
+			ForkRollbackTargetId:         proto.String(rollbacktarget.EncodeUserMessageSeq(userMessageSeqAt(t, store, 1))),
 		},
 	})
 	if err != nil {
@@ -123,11 +120,9 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	assertSessionLaunchPreparation(
 		t,
 		preparation,
-		&serverapi.SessionInitialPromptMetadata{Text: "edited prompt", HistoryRecorded: true},
-		serverapi.SessionDraftDispositionRestoreStoredDraft,
+		&sessionlaunchpb.SessionInitialPromptMetadata{Text: "edited prompt", HistoryRecorded: true},
 		"",
-		false,
-		serverapi.SessionAuthPreparationKeepCurrent,
+		false, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH,
 	)
 }
 
@@ -140,11 +135,11 @@ func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
 		},
 	}), nil, time.Now)
 	service := newTestSessionLifecycleService(t.TempDir(), manager)
-	currentID := mustSessionLifecycleResultID(t, "current-session")
+	currentID := runtimeids.NewSessionID()
 
-	withCurrent, err := service.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
-		SessionID:  currentID.String(),
-		Transition: serverapi.SessionTransition{Action: serverapi.SessionTransitionActionLogout},
+	withCurrent, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
+		SessionId:  proto.String(currentID.String()),
+		Transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT},
 	})
 	if err != nil {
 		t.Fatalf("ResolveTransition with current session: %v", err)
@@ -158,99 +153,69 @@ func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
 		t,
 		preparation,
 		nil,
-		serverapi.SessionDraftDispositionRestoreStoredDraft,
 		"",
-		false,
-		serverapi.SessionAuthPreparationReauthenticate,
+		false, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE,
 	)
 
-	withoutCurrent, err := service.ResolveTransition(context.Background(), serverapi.SessionResolveTransitionRequest{
-		Transition: serverapi.SessionTransition{Action: serverapi.SessionTransitionActionLogout},
+	withoutCurrent, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
+		Transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT},
 	})
 	if err != nil {
 		t.Fatalf("ResolveTransition without current session: %v", err)
 	}
-	if withoutCurrent.Kind() != serverapi.SessionDirectiveSelectSession {
-		t.Fatalf("result kind = %q, want select session", withoutCurrent.Kind())
+	if withoutCurrent.GetSelectSession() == nil {
+		t.Fatalf("result = %v, want select session", withoutCurrent)
 	}
-	assertSessionLifecycleAuth(t, withoutCurrent, serverapi.SessionAuthPreparationReauthenticate)
+	assertSessionLifecycleAuth(t, withoutCurrent, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE)
 }
 
-func requireSessionDirectiveWireEqual(t *testing.T, got serverapi.SessionDirective, want serverapi.SessionDirective) {
+func requireSessionDirectiveWireEqual(t *testing.T, got *sessionlaunchpb.SessionDirective, want *sessionlaunchpb.SessionDirective) {
 	t.Helper()
-	gotJSON, err := json.Marshal(got)
-	if err != nil {
-		t.Fatalf("Marshal directive: %v", err)
-	}
-	wantJSON, err := json.Marshal(want)
-	if err != nil {
-		t.Fatalf("Marshal expected directive: %v", err)
-	}
-	if !bytes.Equal(gotJSON, wantJSON) {
-		t.Fatalf("directive JSON = %s, want %s", gotJSON, wantJSON)
+	if !proto.Equal(got, want) {
+		t.Fatalf("directive = %v, want %v", got, want)
 	}
 }
 
-func requireSessionLifecycleLaunch(t *testing.T, result serverapi.SessionDirective) (serverapi.SessionLaunchIntent, serverapi.SessionLaunchPreparation) {
+func requireSessionLifecycleLaunch(t *testing.T, result *sessionlaunchpb.SessionDirective) (serverapi.SessionLaunchIntent, *sessionlaunchpb.SessionLaunchPreparation) {
 	t.Helper()
-	if result.Kind() != serverapi.SessionDirectiveLaunch {
-		t.Fatalf("result kind = %q, want launch", result.Kind())
+	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
+	if err != nil {
+		t.Fatal(err)
 	}
-	intent, ok := result.LaunchIntent()
-	if !ok {
-		t.Fatal("launch result omitted intent")
-	}
-	preparation, ok := result.LaunchPreparation()
-	if !ok {
+	preparation := result.GetLaunch().GetPreparation()
+	if preparation == nil {
 		t.Fatal("launch result omitted preparation")
 	}
 	return intent, preparation
 }
 
-func assertSessionLifecycleAuth(t *testing.T, result serverapi.SessionDirective, want serverapi.SessionAuthPreparation) {
+func assertSessionLifecycleAuth(t *testing.T, result *sessionlaunchpb.SessionDirective, want sessionlaunchpb.SessionAuthPreparation) {
 	t.Helper()
-	authPreparation, ok := result.AuthPreparation()
-	if !ok || authPreparation != want {
-		t.Fatalf("auth preparation = %q/%v, want %q", authPreparation, ok, want)
+	authPreparation := result.GetSelectSession()
+	if authPreparation == nil || authPreparation.Auth != want {
+		t.Fatalf("auth preparation = %v, want %v", authPreparation, want)
 	}
 }
 
 func assertSessionLaunchPreparation(
 	t *testing.T,
-	preparation serverapi.SessionLaunchPreparation,
-	wantPrompt *serverapi.SessionInitialPromptMetadata,
-	wantInputKind serverapi.SessionDraftDispositionKind,
+	preparation *sessionlaunchpb.SessionLaunchPreparation,
+	wantPrompt *sessionlaunchpb.SessionInitialPromptMetadata,
 	wantOverride string,
 	wantOverridePresent bool,
-	wantAuth serverapi.SessionAuthPreparation,
+	wantAuth sessionlaunchpb.SessionAuthPreparation,
 ) {
 	t.Helper()
-	prompt, hasPrompt := preparation.InitialPrompt()
-	if wantPrompt == nil {
-		if hasPrompt {
-			t.Fatalf("unexpected initial prompt %+v", prompt)
-		}
-	} else if !hasPrompt || prompt != *wantPrompt {
-		t.Fatalf("initial prompt = %+v/%v, want %+v", prompt, hasPrompt, *wantPrompt)
+	if !proto.Equal(preparation.InitialPrompt, wantPrompt) {
+		t.Fatalf("initial prompt = %v, want %v", preparation.InitialPrompt, wantPrompt)
 	}
-	inputPolicy := preparation.DraftDisposition()
-	if inputPolicy.Kind() != wantInputKind {
-		t.Fatalf("input policy kind = %q, want %q", inputPolicy.Kind(), wantInputKind)
+	inputPolicy := preparation.InputPolicy
+	override, hasOverride := inputPolicy.GetDisposition().(*sessionlaunchpb.SessionDraftDisposition_OverrideStoredDraft)
+	if hasOverride != wantOverridePresent || (hasOverride && override.OverrideStoredDraft != wantOverride) ||
+		(!hasOverride && inputPolicy.GetRestoreStoredDraft() == nil) {
+		t.Fatalf("input policy = %v, want override %q/%v", inputPolicy, wantOverride, wantOverridePresent)
 	}
-	override, hasOverride := inputPolicy.OverrideText()
-	if hasOverride != wantOverridePresent || override != wantOverride {
-		t.Fatalf("input override = %q/%v, want %q/%v", override, hasOverride, wantOverride, wantOverridePresent)
+	if preparation.Auth != wantAuth {
+		t.Fatalf("auth preparation = %v, want %v", preparation.Auth, wantAuth)
 	}
-	if preparation.AuthPreparation() != wantAuth {
-		t.Fatalf("auth preparation = %q, want %q", preparation.AuthPreparation(), wantAuth)
-	}
-}
-
-func mustSessionLifecycleResultID(t *testing.T, raw string) runtimeids.SessionID {
-	t.Helper()
-	id, err := runtimeids.ParseSessionID(raw)
-	if err != nil {
-		t.Fatalf("ParseSessionID(%q): %v", raw, err)
-	}
-	return id
 }

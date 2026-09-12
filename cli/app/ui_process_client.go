@@ -1,5 +1,7 @@
 package app
 
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
 import (
 	"context"
 	"errors"
@@ -7,7 +9,6 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/clientui"
-	"core/shared/serverapi"
 )
 
 type backgroundUIProcessClient struct {
@@ -27,7 +28,7 @@ func newUIProcessClientWithReads(projectID string, reads apicontract.ProcessView
 	}
 }
 
-func (m *uiModel) listProcesses() []clientui.BackgroundProcess {
+func (m *uiModel) listProcesses() []*processpb.BackgroundProcess {
 	if m == nil || m.processClient == nil {
 		return nil
 	}
@@ -38,7 +39,7 @@ func (m *uiModel) listProcesses() []clientui.BackgroundProcess {
 	return entries
 }
 
-func (m *uiModel) listProcessesWithError(ctx context.Context) ([]clientui.BackgroundProcess, error) {
+func (m *uiModel) listProcessesWithError(ctx context.Context) ([]*processpb.BackgroundProcess, error) {
 	if m == nil || m.processClient == nil {
 		return nil, nil
 	}
@@ -46,9 +47,9 @@ func (m *uiModel) listProcessesWithError(ctx context.Context) ([]clientui.Backgr
 	return m.processClient.ListProcesses(ctx)
 }
 
-func (c backgroundUIProcessClient) ListProcesses(ctx context.Context) ([]clientui.BackgroundProcess, error) {
+func (c backgroundUIProcessClient) ListProcesses(ctx context.Context) ([]*processpb.BackgroundProcess, error) {
 	if c.reads != nil {
-		resp, err := c.reads.ListProcesses(ctx, serverapi.ProcessListRequest{ProjectID: c.projectID})
+		resp, err := c.reads.ListProcesses(ctx, &processpb.ListRequest{ProjectId: c.projectID})
 		if err != nil {
 			return nil, err
 		}
@@ -60,7 +61,7 @@ func (c backgroundUIProcessClient) ListProcesses(ctx context.Context) ([]clientu
 func (c backgroundUIProcessClient) KillProcess(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if c.control != nil {
-		_, err := c.control.KillProcess(ctx, serverapi.ProcessKillRequest{ProcessID: id})
+		_, err := c.control.KillProcess(ctx, &processpb.KillRequest{ProcessId: id})
 		if err != nil {
 			return err
 		}
@@ -71,7 +72,7 @@ func (c backgroundUIProcessClient) KillProcess(ctx context.Context, id string) e
 
 func (c backgroundUIProcessClient) InlineOutput(ctx context.Context, id string, maxChars int) (string, string, error) {
 	if c.control != nil {
-		resp, err := c.control.GetInlineOutput(ctx, serverapi.ProcessInlineOutputRequest{ProcessID: id, MaxChars: maxChars})
+		resp, err := c.control.GetInlineOutput(ctx, &processpb.InlineOutputRequest{ProcessId: id, MaxChars: int32(maxChars)})
 		if err != nil {
 			return "", "", err
 		}

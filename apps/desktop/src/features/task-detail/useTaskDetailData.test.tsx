@@ -1,9 +1,11 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { PromptAnswerBatchResponse } from "@/api";
 
 import { appI18n } from "@/i18n";
 import {
   mountTaskDetailSurface,
+  promptAnswerBatchRoute,
   questionAttention,
   taskDetailResponse,
   taskQuestionWaitingEvent,
@@ -30,20 +32,17 @@ describe("Task Detail live refresh", () => {
             return attentionReadCount === 2 ? staleRead.promise : attention;
           },
         },
-        {
-          method: "prompt.answerBatch",
-          handler: async () => {
-            answerCount += 1;
-            if (answerCount === 1) {
-              await first.promise;
-              attention = staleAttention;
-              return { results: [{ tool_call_id: "ask-1", outcome: "resolved" }] };
-            }
-            await second.promise;
-            attention = { items: [], generated_at_unix_ms: 5 };
-            return { results: [{ tool_call_id: "ask-2", outcome: "resolved" }] };
-          },
-        },
+        promptAnswerBatchRoute(async () => {
+          answerCount += 1;
+          if (answerCount === 1) {
+            await first.promise;
+            attention = staleAttention;
+            return answered("ask-1");
+          }
+          await second.promise;
+          attention = { items: [], generated_at_unix_ms: 5 };
+          return answered("ask-2");
+        }),
       ],
     });
     const user = userEvent.setup();
@@ -85,10 +84,7 @@ describe("Task Detail live refresh", () => {
           method: "workflow.task.attention.list",
           handler: () => taskAttentionWithOneOption("ask-1", "ask-2", "ask-3"),
         },
-        {
-          method: "prompt.answerBatch",
-          handler: async () => new Promise(() => undefined),
-        },
+        promptAnswerBatchRoute(async () => new Promise<PromptAnswerBatchResponse>(() => undefined)),
       ],
     });
     const user = userEvent.setup();
@@ -126,13 +122,10 @@ describe("Task Detail live refresh", () => {
             return attention;
           },
         },
-        {
-          method: "prompt.answerBatch",
-          handler: async () => {
-            await delivery.promise;
-            return { results: [{ tool_call_id: "ask-1", outcome: "resolved" }] };
-          },
-        },
+        promptAnswerBatchRoute(async () => {
+          await delivery.promise;
+          return answered("ask-1");
+        }),
       ],
     });
     const user = userEvent.setup();
@@ -178,13 +171,10 @@ describe("Task Detail live refresh", () => {
             return taskAttention("ask-1", 1);
           },
         },
-        {
-          method: "prompt.answerBatch",
-          handler: async () => {
-            await delivery.promise;
-            return { results: [{ tool_call_id: "ask-1", outcome: "resolved" }] };
-          },
-        },
+        promptAnswerBatchRoute(async () => {
+          await delivery.promise;
+          return answered("ask-1");
+        }),
       ],
     });
     const user = userEvent.setup();
@@ -216,11 +206,11 @@ describe("Task Detail live refresh", () => {
 
   it("does not move focus when the intended next prompt disappears and the earlier prompt restores", async () => {
     let attention = taskAttentionWithOneOption("ask-1", "ask-2", "ask-3");
-    const answer = deferred<undefined>();
+    const answer = deferred<PromptAnswerBatchResponse>();
     mountTaskDetailSurface(taskDetailResponse, {
       routes: [
         { method: "workflow.task.attention.list", handler: () => attention },
-        { method: "prompt.answerBatch", handler: async () => answer.promise },
+        promptAnswerBatchRoute(async () => answer.promise),
       ],
     });
     const user = userEvent.setup();
@@ -254,13 +244,10 @@ describe("Task Detail live refresh", () => {
           method: "workflow.task.attention.list",
           handler: () => attention,
         },
-        {
-          method: "prompt.answerBatch",
-          handler: () => {
-            attention = taskAttention("ask-2", 2);
-            return { results: [{ tool_call_id: "ask-1", outcome: "resolved" }] };
-          },
-        },
+        promptAnswerBatchRoute(() => {
+          attention = taskAttention("ask-2", 2);
+          return answered("ask-1");
+        }),
       ],
     });
 
@@ -324,6 +311,10 @@ describe("Task Detail live refresh", () => {
     await waitForQuestionOptionCount(2);
   });
 });
+
+function answered(toolCallID: string): PromptAnswerBatchResponse {
+  return { results: [{ toolCallID, outcome: "resolved" }] };
+}
 
 function taskAttention(askID: string, optionCount: number) {
   return taskAttentionMany([[askID, optionCount]]);

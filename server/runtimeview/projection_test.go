@@ -12,7 +12,8 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -116,12 +117,12 @@ func TestActivityFromRuntimeSnapshotCopiesRuntimeOwnedActiveKinds(t *testing.T) 
 	tests := []struct {
 		name string
 		kind runtime.ActiveKind
-		want clientui.RuntimeActivityActiveKind
+		want runtimepb.ActivityActiveKind
 	}{
-		{name: "user turn", kind: runtime.ActiveKindUserTurn, want: clientui.RuntimeActivityActiveKindUserTurn},
-		{name: "workflow turn", kind: runtime.ActiveKindWorkflowTurn, want: clientui.RuntimeActivityActiveKindWorkflowTurn},
-		{name: "goal loop", kind: runtime.ActiveKindGoalLoop, want: clientui.RuntimeActivityActiveKindGoalLoop},
-		{name: "compaction", kind: runtime.ActiveKindCompaction, want: clientui.RuntimeActivityActiveKindCompaction},
+		{name: "user turn", kind: runtime.ActiveKindUserTurn, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN},
+		{name: "workflow turn", kind: runtime.ActiveKindWorkflowTurn, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN},
+		{name: "goal loop", kind: runtime.ActiveKindGoalLoop, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP},
+		{name: "compaction", kind: runtime.ActiveKindCompaction, want: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -131,7 +132,7 @@ func TestActivityFromRuntimeSnapshotCopiesRuntimeOwnedActiveKinds(t *testing.T) 
 				Status:     runtime.RunStatusRunning,
 				ActiveKind: tt.kind,
 			}, true)
-			if activity.State != clientui.RuntimeActivityRunning || activity.ActiveStep == nil || activity.ActiveStep.ActiveKind != tt.want {
+			if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING || activity.ActiveStep == nil || activity.ActiveStep.ActiveKind != tt.want {
 				t.Fatalf("activity = %+v, want running %q", activity, tt.want)
 			}
 			if !activity.QueueAccepting {
@@ -188,7 +189,7 @@ func TestTranscriptSessionStatusDoesNotAdvertiseUnavailableFastMode(t *testing.T
 	if status.FastModeEnabled {
 		t.Fatal("expected transcript status to disable unavailable fast mode")
 	}
-	if err := status.Validate(); err != nil {
+	if err := protoapi.Validate(status); err != nil {
 		t.Fatalf("transcript session status: %v", err)
 	}
 }
@@ -240,14 +241,14 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	}
 
 	view := mainViewFromRuntimeForTest(t, eng)
-	if view.Session.SessionID != store.Meta().SessionID || view.Session.SessionName != "Session Name" {
+	if view.Session.SessionId != store.Meta().SessionID || view.Session.GetSessionName() != "Session Name" {
 		t.Fatalf("unexpected session hydration: %+v", view.Session)
 	}
 	if view.Session.AgentRole == nil || *view.Session.AgentRole != role {
 		t.Fatalf("session agent role = %v, want %q", view.Session.AgentRole, role)
 	}
-	if view.Status.ParentAgentSessionID == nil || view.Status.ParentAgentSessionID.String() != parentSessionID ||
-		view.Status.NavigationTargetSessionID == nil || view.Status.NavigationTargetSessionID.String() != parentSessionID ||
+	if view.Status.ParentAgentSessionId == nil || *view.Status.ParentAgentSessionId != parentSessionID ||
+		view.Status.NavigationTargetSessionId == nil || *view.Status.NavigationTargetSessionId != parentSessionID ||
 		view.Status.LastCommittedAssistantFinalAnswer == nil ||
 		*view.Status.LastCommittedAssistantFinalAnswer != "final answer" {
 		t.Fatalf("unexpected status hydration: %+v", view.Status)
@@ -258,7 +259,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	if view.Status.ContextUsage.WindowTokens != 400_000 {
 		t.Fatalf("context window tokens = %d, want 400000", view.Status.ContextUsage.WindowTokens)
 	}
-	if view.Activity.ActiveForControl() {
+	if protoapi.RuntimeActivityActiveForControl(view.Activity) {
 		t.Fatalf("expected idle activity in idle main view, got %+v", view.Activity)
 	}
 }
@@ -275,12 +276,12 @@ func TestSessionViewFromRuntimeOmitsDefaultAgentRole(t *testing.T) {
 	}
 }
 
-func mainViewFromRuntimeForTest(t *testing.T, eng *runtime.Engine) clientui.RuntimeMainView {
+func mainViewFromRuntimeForTest(t *testing.T, eng *runtime.Engine) *runtimepb.MainView {
 	t.Helper()
-	version := clientui.ReadModelVersion{Epoch: "runtimeview-test", Generation: 1, Sequence: 1}
-	activity := clientui.RuntimeActivity{
-		State:          clientui.RuntimeActivityRegisteredIdle,
-		Reviewer:       clientui.ReviewerActivityInactive,
+	version := &runtimepb.ReadModelVersion{Epoch: "runtimeview-test", Generation: 1, Sequence: 1}
+	activity := &runtimepb.Activity{
+		State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+		Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		QueueAccepting: true,
 	}
 	view, err := MainViewFromRuntimeActivity(eng, version, activity)
@@ -315,7 +316,7 @@ func TestMainViewFromWorkflowRuntimeIncludesWorkflowStatus(t *testing.T) {
 	if view.Status.WorkflowSession == nil {
 		t.Fatalf("workflow status = %+v, want active workflow session", view.Status)
 	}
-	if view.Status.WorkflowSession.TaskID != projectionWorkflowTask || view.Status.WorkflowSession.WorkflowID != testsetup.WorkflowID(t, "runtimeview-projection") {
+	if view.Status.WorkflowSession.TaskId != projectionWorkflowTask || view.Status.WorkflowSession.WorkflowId != testsetup.WorkflowID(t, "runtimeview-projection").String() {
 		t.Fatalf("workflow session = %+v, want task/workflow ids", view.Status.WorkflowSession)
 	}
 }

@@ -28,6 +28,7 @@ import {
 import { jsonValueSchema, type JsonValue } from "./json";
 import { protobufRpcError } from "./protobufRpc";
 import { requireProjectAttachment } from "./chatAttachment";
+import { handleDescriptorSubscriptionFailure, InvalidTranscriptEventError } from "./subscriptionErrors";
 import type {
   DescriptorSubscriptionInput,
   ProjectAttachment,
@@ -158,8 +159,16 @@ export async function runSocketDescriptorSubscription<
   return new Promise((resolve, reject) => {
     let acknowledged = false;
     let terminal = false;
+    let completionFailure: Error | undefined;
     let settled = false;
+    const timeout =
+      input.establishmentTimeoutMs == null
+        ? null
+        : setTimeout(() => {
+            finish(new TransportError(`${operation} subscription establishment timed out.`));
+          }, input.establishmentTimeoutMs);
     const cleanup = () => {
+      if (timeout !== null) clearTimeout(timeout);
       socket.removeEventListener("message", message);
       socket.removeEventListener("close", close);
       socket.removeEventListener("error", error);
@@ -174,11 +183,14 @@ export async function runSocketDescriptorSubscription<
     };
     const handleResponse = (frame: Uint8Array) => {
       const response = decodeDescriptorResponse(frame);
+      if (input.transcriptRejection !== undefined && (acknowledged || response.correlation !== correlation))
+        throw new ContractError("Transcript subscription received an unexpected result.");
       if (response.correlation !== correlation) return;
       onStart(completeDescriptorResponse(method, correlation, response));
       acknowledged = true;
+      if (timeout !== null) clearTimeout(timeout);
       if (!terminal) handler.onOpen?.();
-      else finish();
+      else finish(completionFailure);
     };
     const handleNotification = (
       notification: Readonly<{ operation: string; payload?: Uint8Array | undefined }>,
@@ -187,14 +199,24 @@ export async function runSocketDescriptorSubscription<
         throw new TransportError(`${notification.operation} notification payload is required.`);
       }
       if (notification.operation === operationName(associations.event)) {
-        handler.onEvent(decode(eventDescriptor, notification.payload));
+        let decoded: MessageShape<EventDescriptor>;
+        try {
+          decoded = decode(eventDescriptor, notification.payload);
+        } catch (cause) {
+          if (input.transcriptRejection === undefined) throw cause;
+          throw new InvalidTranscriptEventError(new ContractError("Transcript event is invalid."));
+        }
+        handler.onEvent(decoded);
         return;
       }
       if (notification.operation === operationName(associations.completion)) {
+        const completion = decode(completionDescriptor, notification.payload);
+        completionFailure = handler.onComplete(completion) ?? undefined;
         terminal = true;
-        handler.onComplete(decode(completionDescriptor, notification.payload));
-        socket.close();
-        if (acknowledged) finish();
+        if (acknowledged) {
+          finish(completionFailure);
+          socket.close();
+        }
         return;
       }
       throw new TransportError(`${operation} received unexpected notification ${notification.operation}.`);
@@ -219,13 +241,24 @@ export async function runSocketDescriptorSubscription<
             throw new TransportError(`${operation} subscription received an unexpected envelope.`);
         }
       } catch (cause) {
+        const failure = handleDescriptorSubscriptionFailure(
+          cause,
+          operation,
+          (error) => {
+            handler.onError(error);
+          },
+          input.transcriptRejection === undefined
+            ? undefined
+            : (error) => input.transcriptRejection?.onInvalidEvent(error),
+        );
+        if (failure === undefined) return;
+        finish(failure);
         socket.close();
-        finish(cause instanceof Error ? cause : new TransportError(`${operation} subscription failed.`));
       }
     };
     const close = () => {
       if (signal.aborted) finish();
-      else if (terminal && acknowledged) finish();
+      else if (terminal && acknowledged) finish(completionFailure);
       else finish(new TransportError("Subscription socket closed."));
     };
     const error = () => {
@@ -576,7 +609,7 @@ export async function delay(milliseconds: number, signal: AbortSignal): Promise<
 }
 
 export type SubscriptionMessageResult = Readonly<
-  { kind: "active" } | { kind: "complete"; code: number; message: string; reason: string | null }
+  { kind: "active" } | { kind: "complete"; code: number; message: string }
 >;
 
 export function subscriptionCompleteMethod(subscriptionMethod: string): string | null {
@@ -587,8 +620,6 @@ export function subscriptionCompleteMethod(subscriptionMethod: string): string |
       return "workflow.project.complete";
     case "attention.notification.subscribe":
       return "attention.notification.complete";
-    case "session.subscribeTranscript":
-      return "session.transcript.complete";
     default:
       return null;
   }
@@ -613,35 +644,19 @@ export function handleSubscriptionMessage(
       .object({
         code: z.number().int().default(0),
         message: z.string().default(""),
-        transcript_close_reason: z
-          .enum(["subscriber_overflow", "contract_violation"])
-          .nullable()
-          .default(null),
       })
       .strict();
     const complete = completeSchema.safeParse(notification.data.params);
     if (!complete.success) {
       throw new ContractError("Subscription completion notification is invalid.");
     }
-    handler.onComplete(complete.data.code, complete.data.message, complete.data.transcript_close_reason);
+    handler.onComplete(complete.data.code, complete.data.message);
     return {
       kind: "complete",
       code: complete.data.code,
       message: complete.data.message,
-      reason: complete.data.transcript_close_reason,
     };
   }
-  try {
-    handler.onEvent(notification.data.method, notification.data.params);
-  } catch (error) {
-    if (
-      handler.onEventFailure?.(
-        error instanceof Error ? error : new TransportError("Subscription event failed."),
-      )
-    ) {
-      return { kind: "active" };
-    }
-    throw error;
-  }
+  handler.onEvent(notification.data.method, notification.data.params);
   return { kind: "active" };
 }

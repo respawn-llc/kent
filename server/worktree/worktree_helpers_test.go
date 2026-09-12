@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"core/server/metadata"
-	"core/shared/clientui"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 )
 
 func TestGitMetadataRoundTripPreservesBranchIdentity(t *testing.T) {
@@ -82,11 +82,11 @@ func TestWorktreeReminderTransitionRejectsPresentPreviousTargetWithEmptyWorktree
 		record: metadata.WorktreeRecord{CanonicalRoot: "/repo"},
 		git:    GitWorktree{IsMainWorktree: true},
 	}
-	previousTarget := clientui.SessionExecutionTarget{
+	previousTarget := &worktreepb.SessionExecutionTarget{
 		WorkspaceRoot: "/repo",
-		Worktree:      &clientui.SessionExecutionWorktreeTarget{},
+		Worktree:      &worktreepb.SessionExecutionWorktreeTarget{},
 	}
-	nextTarget := clientui.SessionExecutionTarget{
+	nextTarget := &worktreepb.SessionExecutionTarget{
 		WorkspaceRoot:    "/repo",
 		EffectiveWorkdir: "/repo",
 	}

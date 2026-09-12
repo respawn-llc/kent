@@ -5,18 +5,41 @@ import (
 	"testing"
 
 	"core/internal/testharness/pty"
-	"core/shared/clientui"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDetailPatchHyperlinkClosesBeforeUnselectedAndSelectedPadding(t *testing.T) {
-	presentation := patchformat.Render("*** Begin Patch\n*** Update File: dir/file.go\n-old\n+new\n*** End Patch\n", "/worktree")
-	row := clientui.TranscriptCommittedRow{Visibility: transcript.EntryVisibilityDetail, Integrity: transcript.RowIntegrityValid, Kind: clientui.TranscriptRowTool, Tool: &clientui.TranscriptToolRow{ToolName: "patch", Presentation: &transcript.ToolCallMeta{ToolName: "patch", PatchPresentation: &presentation}}}
+	removed := int32(0)
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			ToolName: proto.String(string("patch")),
+			Presentation: &transcriptpb.ToolPresentation{
+				Presentation:   transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+				RenderBehavior: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+				PatchPresentation: &transcriptpb.PatchPresentation{
+					Presentation: &transcriptpb.PatchPresentation_Changes{Changes: &transcriptpb.PatchChanges{
+						Files: []*transcriptpb.PatchFileChange{{
+							Path: &transcriptpb.PatchPath{
+								Absolute: "/worktree/dir/file.go",
+								Relative: "dir/file.go",
+							},
+							Removed: &removed,
+							Operations: []*transcriptpb.PatchFileOperation{{
+								Operation: &transcriptpb.PatchFileOperation_Update{Update: &transcriptpb.PatchUpdateOperation{}},
+							}},
+						}},
+					}},
+				},
+			},
+		}},
+	}
 	for _, selected := range []bool{false, true} {
 		model := NewModel()
 		model.expanded = map[int]struct{}{0: {}}
-		model.detailProjection.replaceSnapshot([]clientui.TranscriptCommittedRow{row}, model.detailContentWidth(), model.theme, model.expanded)
+		model.detailProjection.replaceSnapshot([]*transcriptpb.CommittedRow{row}, model.detailContentWidth(), model.theme, model.expanded)
 		if selected {
 			model.setSelectedDetailIndex(0)
 		}

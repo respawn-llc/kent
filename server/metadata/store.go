@@ -18,6 +18,10 @@ import (
 	"core/server/session"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -135,20 +139,20 @@ type SessionExecutionTargetUpdateWorktree struct {
 	ID string
 }
 
-func SessionExecutionTargetUpdateFromReadModel(sessionID string, target clientui.SessionExecutionTarget) SessionExecutionTargetUpdate {
+func SessionExecutionTargetUpdateFromReadModel(sessionID string, target *worktreepb.SessionExecutionTarget) SessionExecutionTargetUpdate {
 	var workspace *SessionExecutionTargetUpdateWorkspace
-	if strings.TrimSpace(target.WorkspaceID) != "" {
-		workspace = &SessionExecutionTargetUpdateWorkspace{ID: target.WorkspaceID}
+	if target.GetWorkspaceId() != "" {
+		workspace = &SessionExecutionTargetUpdateWorkspace{ID: target.GetWorkspaceId()}
 	}
 	var worktree *SessionExecutionTargetUpdateWorktree
-	if target.Worktree != nil {
-		worktree = &SessionExecutionTargetUpdateWorktree{ID: target.Worktree.ID}
+	if target.GetWorktree() != nil {
+		worktree = &SessionExecutionTargetUpdateWorktree{ID: target.Worktree.Id}
 	}
 	return SessionExecutionTargetUpdate{
 		SessionID:  sessionID,
 		Workspace:  workspace,
 		Worktree:   worktree,
-		CwdRelpath: target.CwdRelpath,
+		CwdRelpath: target.GetCwdRelpath(),
 	}
 }
 
@@ -2005,15 +2009,15 @@ func (s *Store) ListSessionPage(
 	return out, nil
 }
 
-func (s *Store) ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error) {
+func (s *Store) ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, err
+		return &worktreepb.SessionExecutionTarget{}, err
 	}
-	return sessionExecutionTargetFromRow(row), nil
+	return sessionExecutionTargetFromRow(row)
 }
 
-func (s *Store) ResolveOptionalSessionExecutionTarget(ctx context.Context, sessionID string) (*clientui.SessionExecutionTarget, error) {
+func (s *Store) ResolveOptionalSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -2021,21 +2025,20 @@ func (s *Store) ResolveOptionalSessionExecutionTarget(ctx context.Context, sessi
 	if !row.ExecutionTargetWorkspaceBinding.Valid && !row.WorktreeID.Valid {
 		return nil, nil
 	}
-	target := sessionExecutionTargetFromRow(row)
-	return &target, nil
+	return sessionExecutionTargetFromRow(row)
 }
 
-func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (serverapi.SessionNavigationBinding, error) {
+func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error) {
 	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
 	if err != nil {
-		return serverapi.SessionNavigationBinding{}, err
+		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
-	binding := serverapi.SessionNavigationBinding{
-		ProjectID:   strings.TrimSpace(row.ProjectID),
-		WorkspaceID: strings.TrimSpace(row.WorkspaceID),
+	binding := &sessionlaunchpb.SessionNavigationBinding{
+		ProjectId:   strings.TrimSpace(row.ProjectID),
+		WorkspaceId: strings.TrimSpace(row.WorkspaceID),
 	}
-	if err := binding.Validate(); err != nil {
-		return serverapi.SessionNavigationBinding{}, err
+	if err := protoapi.Validate(binding); err != nil {
+		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
 	return binding, nil
 }
@@ -2156,7 +2159,7 @@ func (s *Store) WorkflowTaskIDForSession(ctx context.Context, sessionID string) 
 func (s *Store) SessionWorkflowStatus(
 	ctx context.Context,
 	sessionID string,
-) (*clientui.WorkflowSessionStatus, error) {
+) (*runtimepb.WorkflowSessionStatus, error) {
 	taskID, err := s.WorkflowTaskIDForSession(ctx, sessionID)
 	if err != nil || taskID == nil {
 		return nil, err
@@ -2168,9 +2171,9 @@ func (s *Store) SessionWorkflowStatus(
 	if task.WorkflowID.IsZero() {
 		return nil, fmt.Errorf("Session workflow Task %q has no Workflow ID", *taskID)
 	}
-	return &clientui.WorkflowSessionStatus{
-		TaskID:     *taskID,
-		WorkflowID: task.WorkflowID,
+	return &runtimepb.WorkflowSessionStatus{
+		TaskId:     *taskID,
+		WorkflowId: task.WorkflowID.String(),
 	}, nil
 }
 
@@ -2802,23 +2805,27 @@ func projectHomeSummaryFromRow(row sqlitegen.ListProjectHomeSummariesRow) server
 	}
 }
 
-func sessionExecutionTargetFromRow(row sqlitegen.GetSessionExecutionTargetByIDRow) clientui.SessionExecutionTarget {
+func sessionExecutionTargetFromRow(row sqlitegen.GetSessionExecutionTargetByIDRow) (*worktreepb.SessionExecutionTarget, error) {
 	workspaceName := displayNameForPath(row.WorkspaceRoot)
 	if strings.TrimSpace(row.WorkspaceID) == "" && strings.TrimSpace(row.WorkspaceSnapshotName) != "" {
 		workspaceName = strings.TrimSpace(row.WorkspaceSnapshotName)
 	}
 	baseRoot := strings.TrimSpace(row.WorkspaceRoot)
-	var worktree *clientui.SessionExecutionWorktreeTarget
+	var worktree *worktreepb.SessionExecutionWorktreeTarget
 	if row.WorktreeID.Valid {
 		worktreeRoot := ""
 		if row.WorktreeRoot.Valid {
 			worktreeRoot = row.WorktreeRoot.String
 		}
-		worktree = &clientui.SessionExecutionWorktreeTarget{
-			ID:           row.WorktreeID.String,
+		availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(availabilityForOptionalPath(worktreeRoot)))
+		if err != nil {
+			return nil, err
+		}
+		worktree = &worktreepb.SessionExecutionWorktreeTarget{
+			Id:           row.WorktreeID.String,
 			Name:         displayNameForPath(worktreeRoot),
 			Root:         worktreeRoot,
-			Availability: availabilityForOptionalPath(worktreeRoot),
+			Availability: availability,
 		}
 		if strings.TrimSpace(worktreeRoot) != "" {
 			baseRoot = strings.TrimSpace(worktreeRoot)
@@ -2826,15 +2833,19 @@ func sessionExecutionTargetFromRow(row sqlitegen.GetSessionExecutionTargetByIDRo
 	}
 	cwdRelpath := normalizeSessionCwdRelpath(row.CwdRelpath)
 	effectiveWorkdir := effectiveWorkdirWithinRoot(baseRoot, cwdRelpath)
-	return clientui.SessionExecutionTarget{
-		WorkspaceID:           row.WorkspaceID,
+	availability, err := protoapi.ProjectAvailabilityToProto(clientui.ProjectAvailability(availabilityForOptionalPath(row.WorkspaceRoot)))
+	if err != nil {
+		return nil, err
+	}
+	return &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           textutil.OptionalExactString(row.WorkspaceID),
 		WorkspaceName:         workspaceName,
 		WorkspaceRoot:         row.WorkspaceRoot,
-		WorkspaceAvailability: clientui.ProjectAvailability(availabilityForOptionalPath(row.WorkspaceRoot)),
+		WorkspaceAvailability: availability,
 		Worktree:              worktree,
 		CwdRelpath:            cwdRelpath,
 		EffectiveWorkdir:      effectiveWorkdir,
-	}
+	}, nil
 }
 
 func worktreeRecordFromParts(id string, workspaceID string, canonicalRoot string, managed bool, createdBranch bool, originSessionID string, gitMetadataJSON string, creationBaseCommitOID sql.NullString, createdAtUnixMs int64, updatedAtUnixMs int64) WorktreeRecord {

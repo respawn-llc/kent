@@ -17,6 +17,8 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -34,10 +36,10 @@ const (
 )
 
 type questionCommandRemote interface {
-	ListPendingAsksBySession(context.Context, serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error)
-	ListPendingApprovalsBySession(context.Context, serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error)
-	AnswerPromptBatch(context.Context, serverapi.PromptAnswerBatchRequest) (serverapi.PromptAnswerBatchResponse, error)
-	SubscribeFollowUp(context.Context, serverapi.PromptFollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error)
+	ListPendingAsksBySession(context.Context, *promptpb.ListPendingRequest) (*promptpb.ListQuestionsSuccess, error)
+	ListPendingApprovalsBySession(context.Context, *promptpb.ListPendingRequest) (*promptpb.ListApprovalsSuccess, error)
+	AnswerPromptBatch(context.Context, *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error)
+	SubscribeFollowUp(context.Context, *promptpb.FollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error)
 	Close() error
 }
 
@@ -347,7 +349,7 @@ func answerQuestionThroughBatch(
 	stdout io.Writer,
 	stderr io.Writer,
 ) int {
-	answer, err := questionBatchAnswer(question, option, commentary)
+	entry, err := questionBatchAnswer(question, option, commentary)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		if isQuestionAnswerUsageError(err) {
@@ -355,34 +357,29 @@ func answerQuestionThroughBatch(
 		}
 		return 1
 	}
-	entry, err := serverapi.PromptAnswerBatchEntryFrom(question.ToolCallID, answer)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	answerCtx, stopAnswer := questionAnswerContext()
 	defer stopAnswer()
-	watch, err := remote.SubscribeFollowUp(answerCtx, serverapi.PromptFollowUpWatchRequest{
-		SessionID:  question.SessionID,
-		StepID:     question.StepID,
-		ToolCallID: question.ToolCallID,
+	watch, err := remote.SubscribeFollowUp(answerCtx, &promptpb.FollowUpWatchRequest{
+		SessionId:  question.SessionID.String(),
+		StepId:     question.StepID.String(),
+		ToolCallId: string(question.ToolCallID),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	defer func() { _ = watch.Close() }()
-	request := serverapi.PromptAnswerBatchRequest{
-		SessionID: question.SessionID,
-		StepID:    question.StepID,
-		Entries:   []serverapi.PromptAnswerBatchEntry{entry},
+	request := &promptpb.AnswerBatchRequest{
+		SessionId: question.SessionID.String(),
+		StepId:    question.StepID.String(),
+		Entries:   []*promptpb.AnswerBatchEntry{entry},
 	}
 	response, err := remote.AnswerPromptBatch(answerCtx, request)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if err := serverapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
+	if err := protoapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -407,29 +404,44 @@ func questionBatchAnswer(
 	question questionCommandPendingQuestion,
 	option *int,
 	commentary *string,
-) (serverapi.PromptAnswer, error) {
+) (*promptpb.AnswerBatchEntry, error) {
+	entry := &promptpb.AnswerBatchEntry{ToolCallId: string(question.ToolCallID)}
 	if question.Kind == serverapi.WorkflowAttentionQuestionKindApproval {
 		if question.Approval == nil {
-			return serverapi.PromptAnswer{}, errors.New("pending Approval has no authoritative options")
+			return nil, errors.New("pending Approval has no authoritative options")
 		}
 		if option == nil {
-			return serverapi.PromptAnswer{}, &questionAnswerUsageError{message: "question answer requires --option for an access request"}
+			return nil, &questionAnswerUsageError{message: "question answer requires --option for an access request"}
 		}
 		if *option < 1 || *option > len(question.Approval.Options) {
-			return serverapi.PromptAnswer{}, &questionAnswerUsageError{message: "question answer option is out of range"}
+			return nil, &questionAnswerUsageError{message: "question answer option is out of range"}
 		}
-		return serverapi.ApprovalPromptAnswer(serverapi.PromptApprovalAnswer{
-			Decision:   question.Approval.Options[*option-1].Decision,
+		decision, err := protoapi.ApprovalDecisionToProto(question.Approval.Options[*option-1].Decision)
+		if err != nil {
+			return nil, err
+		}
+		entry.Answer = &promptpb.AnswerBatchEntry_ApprovalAnswer{ApprovalAnswer: &promptpb.ApprovalAnswer{
+			Decision:   decision,
 			Commentary: optionalQuestionCommentary(commentary),
-		}), nil
+		}}
+		return entry, nil
 	}
 	if option != nil && (*option < 1 || *option > len(question.Suggestions)) {
-		return serverapi.PromptAnswer{}, &questionAnswerUsageError{message: "question answer option is out of range"}
+		return nil, &questionAnswerUsageError{message: "question answer option is out of range"}
 	}
-	return serverapi.QuestionPromptAnswer(serverapi.PromptQuestionAnswer{
-		SelectedOptionNumber: option,
+	var selected *int32
+	if option != nil {
+		value, err := protoapi.Int32(*option, "selected option number")
+		if err != nil {
+			return nil, err
+		}
+		selected = &value
+	}
+	entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{
+		SelectedOptionNumber: selected,
 		Freeform:             optionalQuestionCommentary(commentary),
-	}), nil
+	}}
+	return entry, nil
 }
 
 func readTaskQuestionFollowUp(
@@ -455,12 +467,42 @@ func listPendingSessionQuestions(
 	ctx context.Context,
 	remote questionCommandRemote,
 	sessionID runtimeids.SessionID,
-) (serverapi.AskListPendingBySessionResponse, error) {
+) ([]clientui.PendingAsk, error) {
 	ctx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
-	return remote.ListPendingAsksBySession(ctx, serverapi.AskListPendingBySessionRequest{
-		SessionID: sessionID.String(),
+	response, err := remote.ListPendingAsksBySession(ctx, &promptpb.ListPendingRequest{
+		SessionId: sessionID.String(),
 	})
+	if err != nil {
+		return nil, err
+	}
+	asks := make([]clientui.PendingAsk, 0, len(response.Questions))
+	for _, question := range response.Questions {
+		ask, err := protoapi.PendingAskFromQuestion(question)
+		if err != nil {
+			return nil, err
+		}
+		asks = append(asks, ask)
+	}
+	return asks, nil
+}
+
+func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemote, sessionID runtimeids.SessionID) ([]clientui.PendingApproval, error) {
+	ctx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
+	defer cancel()
+	response, err := remote.ListPendingApprovalsBySession(ctx, &promptpb.ListPendingRequest{SessionId: sessionID.String()})
+	if err != nil {
+		return nil, err
+	}
+	approvals := make([]clientui.PendingApproval, 0, len(response.Approvals))
+	for _, value := range response.Approvals {
+		approval, err := protoapi.PendingApprovalFromApproval(value)
+		if err != nil {
+			return nil, err
+		}
+		approvals = append(approvals, approval)
+	}
+	return approvals, nil
 }
 
 func listPendingSessionPrompt(
@@ -472,14 +514,11 @@ func listPendingSessionPrompt(
 	if err != nil {
 		return questionCommandPendingQuestion{}, false, err
 	}
-	var approvals serverapi.ApprovalListPendingBySessionResponse
-	rpcCtx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
-	approvals, err = remote.ListPendingApprovalsBySession(rpcCtx, serverapi.ApprovalListPendingBySessionRequest{SessionID: sessionID.String()})
-	cancel()
+	approvals, err := listPendingSessionApprovals(ctx, remote, sessionID)
 	if err != nil {
 		return questionCommandPendingQuestion{}, false, err
 	}
-	prompt, ok := serverapi.FirstPendingPromptObservation(asks.Asks, approvals.Approvals)
+	prompt, ok := serverapi.FirstPendingPromptObservation(asks, approvals)
 	if !ok {
 		return questionCommandPendingQuestion{}, false, nil
 	}
@@ -495,17 +534,12 @@ func readPendingSessionPromptByKey(
 	if err != nil {
 		return questionCommandPendingQuestion{}, false, err
 	}
-	rpcCtx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
-	approvals, err := remote.ListPendingApprovalsBySession(
-		rpcCtx,
-		serverapi.ApprovalListPendingBySessionRequest{SessionID: expected.SessionID.String()},
-	)
-	cancel()
+	approvals, err := listPendingSessionApprovals(ctx, remote, expected.SessionID)
 	if err != nil {
 		return questionCommandPendingQuestion{}, false, err
 	}
 	if expected.Kind == serverapi.WorkflowAttentionQuestionKindOrdinary {
-		for _, ask := range asks.Asks {
+		for _, ask := range asks {
 			if ask.SessionID == expected.SessionID &&
 				ask.StepID == expected.StepID &&
 				ask.ToolCallID == expected.ToolCallID {
@@ -515,7 +549,7 @@ func readPendingSessionPromptByKey(
 		}
 		return questionCommandPendingQuestion{}, false, nil
 	}
-	for _, approval := range approvals.Approvals {
+	for _, approval := range approvals {
 		if approval.SessionID == expected.SessionID &&
 			approval.StepID == expected.StepID &&
 			approval.ToolCallID == expected.ToolCallID {

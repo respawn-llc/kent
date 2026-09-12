@@ -61,7 +61,7 @@ func TestAskEventDefersWhileDetailModeActive(t *testing.T) {
 	m = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.SelectedOptionNumber == nil || *entry.QuestionAnswer.SelectedOptionNumber != 1 {
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
 		t.Fatalf("expected first option selected by default, got %+v", request)
 	}
 }
@@ -114,7 +114,7 @@ func TestAskEventDefersWhileProcessListOverlayIsOpen(t *testing.T) {
 	m = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.SelectedOptionNumber == nil || *entry.QuestionAnswer.SelectedOptionNumber != 1 {
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
 		t.Fatalf("expected first option selected by default, got %+v", request)
 	}
 }

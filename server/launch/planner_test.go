@@ -8,6 +8,7 @@ import (
 	"core/server/session/sessiontest"
 	"core/shared/clientui"
 	"core/shared/config"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -27,7 +28,7 @@ type failingUpdateMetadataExecutionTargetStore struct {
 	updatedSessionID string
 }
 
-func (s *failingUpdateMetadataExecutionTargetStore) ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error) {
+func (s *failingUpdateMetadataExecutionTargetStore) ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	return s.base.ResolveSessionExecutionTarget(ctx, sessionID)
 }
 
@@ -652,7 +653,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget child: %v", err)
 	}
-	if target.Worktree == nil || target.Worktree.ID != "worktree-review" {
+	if target.Worktree == nil || target.Worktree.Id != "worktree-review" {
 		t.Fatalf("child worktree = %+v, want worktree-review", target.Worktree)
 	}
 	if target.CwdRelpath != "pkg" {

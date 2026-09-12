@@ -34,6 +34,8 @@ import { ApiClient } from "./client";
 import { ContractError } from "./errors";
 import { requireWorktreeSuccess, WorktreeError } from "./clientWorktree";
 import { newSetupOperationID } from "./index";
+import { RpcError } from "./errors";
+import { rpcErrorCodes } from "./rpcErrorCodes";
 
 const ids = ["123e4567-e89b-42d3-a456-426614174000", "223e4567-e89b-42d3-a456-426614174000"] as const;
 
@@ -110,6 +112,25 @@ const entry = create(ListEntrySchema, {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Desktop Worktree client", () => {
+  it("preserves the typed missing Workspace failure for a retained Session", async () => {
+    const result = create(ListResultSchema, {
+      outcome: {
+        case: "error",
+        value: {
+          code: "workspace_not_registered",
+          detail: { case: "workspaceNotRegistered", value: { projectId: "project-1" } },
+        },
+      },
+    });
+    expect(() => {
+      validate(ListResultSchema, result);
+    }).not.toThrow();
+    const client = new ApiClient(new FakeRpcTransport([{ descriptor: ListService.method.list, result }]));
+    await expect(client.listWorktrees("retained-session")).rejects.toSatisfy(
+      (error: unknown) => error instanceof RpcError && error.code === rpcErrorCodes.workspaceNotRegistered,
+    );
+  });
+
   it("decodes exact Session reads and every topology/status fact", async () => {
     const topologies = [
       mainWorkspaceTopology,

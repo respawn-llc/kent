@@ -7,21 +7,25 @@ import (
 	"core/server/goalview"
 	"core/server/llm"
 	"core/server/runtime"
+	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcript"
 
-	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TranscriptHydrationFromSnapshot(
 	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
-	tailSegment clientui.TranscriptTailSegment,
-) clientui.TranscriptHydration {
+	tailSegment *transcriptpb.TailSegment,
+) *transcriptpb.Hydration {
 	hydration, err := TranscriptHydrationFromSnapshotChecked(runtimeSnapshot, tailSegment)
 	if err != nil {
 		panic(err)
@@ -31,137 +35,174 @@ func TranscriptHydrationFromSnapshot(
 
 func TranscriptHydrationFromSnapshotChecked(
 	runtimeSnapshot runtime.TranscriptHydrationSnapshot,
-	tailSegment clientui.TranscriptTailSegment,
-) (clientui.TranscriptHydration, error) {
-	if err := tailSegment.Validate(); err != nil {
-		return clientui.TranscriptHydration{}, fmt.Errorf("validate transcript hydration tail segment: %w", err)
+	tailSegment *transcriptpb.TailSegment,
+) (*transcriptpb.Hydration, error) {
+	if tailSegment == nil {
+		return nil, fmt.Errorf("transcript hydration tail segment is required")
 	}
-	hydration := clientui.TranscriptHydration{
-		TailSegment:     tailSegment,
-		ActiveAssistant: transcriptAssistantStream(runtimeSnapshot),
+	if err := protoapi.Validate(tailSegment); err != nil {
+		return nil, fmt.Errorf("validate transcript hydration tail segment: %w", err)
 	}
+	assistant, err := transcriptAssistantStream(runtimeSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	hydration := &transcriptpb.Hydration{TailSegment: tailSegment, ActiveAssistant: assistant}
 	hydration.ActiveThinkingStatus = transcriptThinkingStatusFromRuntime(runtimeSnapshot.ActiveThinkingStatus)
-	hydration.ActiveReasoningTraces = transcriptReasoningTracesFromRuntime(runtimeSnapshot.ActiveReasoningTraces)
-	hydration.InFlightTools = transcriptToolStartsFromRuntime(runtimeSnapshot.InFlightTools)
-	for index := range hydration.InFlightTools {
-		if err := hydration.InFlightTools[index].Validate(); err != nil {
-			return clientui.TranscriptHydration{}, fmt.Errorf(
-				"runtime hydrated in-flight tool %d violates transcript contract: %w",
-				index,
-				err,
-			)
+	hydration.ActiveReasoningTraces, err = transcriptReasoningTracesFromRuntime(runtimeSnapshot.ActiveReasoningTraces)
+	if err != nil {
+		return nil, err
+	}
+	hydration.InFlightTools, err = transcriptToolStartsFromRuntime(runtimeSnapshot.InFlightTools)
+	if err != nil {
+		return nil, err
+	}
+	hydration.ActiveCompaction, err = transcriptCompactionStateFromRuntime(runtimeSnapshot.ActiveCompaction)
+	if err != nil {
+		return nil, err
+	}
+	hydration.ContextUsage, err = transcriptContextUsageFromRuntime(runtimeSnapshot.ContextUsage)
+	if err != nil {
+		return nil, err
+	}
+	hydration.GoalStatus, err = transcriptGoalStatusFromRuntime(runtimeSnapshot.Goal, runtimeSnapshot.GoalSuspended)
+	if err != nil {
+		return nil, err
+	}
+	// The registry supplies Session identity/status and the canonical read model
+	// before validating the complete hydration and its ownership constraints.
+	if hydration.ActiveThinkingStatus != nil {
+		if err := protoapi.Validate(hydration.ActiveThinkingStatus); err != nil {
+			return nil, err
 		}
 	}
-	hydration.ActiveCompaction = transcriptCompactionStateFromRuntime(runtimeSnapshot.ActiveCompaction)
-	hydration.ContextUsage = transcriptContextUsageFromRuntime(runtimeSnapshot.ContextUsage)
-	hydration.GoalStatus = transcriptGoalStatusFromRuntime(runtimeSnapshot.Goal, runtimeSnapshot.GoalSuspended)
 	return hydration, nil
 }
 
-func transcriptThinkingStatusFromRuntime(state *runtime.TranscriptThinkingStatusState) *clientui.TranscriptThinkingStatusUpdate {
+func transcriptThinkingStatusFromRuntime(state *runtime.TranscriptThinkingStatusState) *transcriptpb.ThinkingStatusUpdate {
 	if state == nil {
 		return nil
 	}
-	return &clientui.TranscriptThinkingStatusUpdate{
-		StepID: mustTranscriptStepID(state.StepID, "hydrated thinking status"),
+	return &transcriptpb.ThinkingStatusUpdate{
+		StepId: strings.TrimSpace(state.StepID),
 		Text:   state.Text,
 	}
 }
 
-func transcriptReasoningTracesFromRuntime(states []runtime.TranscriptReasoningTraceState) []clientui.TranscriptReasoningTraceUpdate {
+func transcriptReasoningTracesFromRuntime(states []runtime.TranscriptReasoningTraceState) ([]*transcriptpb.ReasoningTraceUpdate, error) {
 	if len(states) == 0 {
-		return nil
+		return nil, nil
 	}
-	out := make([]clientui.TranscriptReasoningTraceUpdate, 0, len(states))
+	out := make([]*transcriptpb.ReasoningTraceUpdate, 0, len(states))
 	for index, state := range states {
 		presentation := runtime.ProjectReasoningTrace(state.Text)
-		identity := transcriptReasoningTraceIdentityProjection(&state.Identity, fmt.Sprintf("hydrated reasoning trace %d", index))
-		out = append(out, clientui.TranscriptReasoningTraceUpdate{
-			StepID:      mustTranscriptStepID(state.StepID, fmt.Sprintf("hydrated reasoning trace %d", index)),
+		identity, err := transcriptReasoningTraceIdentityProjection(&state.Identity, fmt.Sprintf("hydrated reasoning trace %d", index))
+		if err != nil {
+			return nil, fmt.Errorf("hydrated reasoning trace %d: %w", index, err)
+		}
+		trace := &transcriptpb.ReasoningTraceUpdate{
+			StepId:      strings.TrimSpace(state.StepID),
 			Identity:    identity,
 			CompactText: presentation.CompactText,
 			Text:        presentation.Text,
-		})
+		}
+		if err := protoapi.Validate(trace); err != nil {
+			return nil, err
+		}
+		out = append(out, trace)
 	}
-	return out
+	return out, nil
 }
 
-func transcriptCompactionStateFromRuntime(state *runtime.TranscriptCompactionState) *clientui.TranscriptCompactionStatus {
+func transcriptCompactionStateFromRuntime(state *runtime.TranscriptCompactionState) (*transcriptpb.CompactionStatus, error) {
 	if state == nil {
-		return nil
+		return nil, nil
 	}
-	return &clientui.TranscriptCompactionStatus{
-		StepID:    mustTranscriptStepID(state.StepID, "hydrated compaction"),
-		RequestID: state.RequestID,
-		State:     clientui.CompactionStarted,
-		Mode:      clientui.CompactionMode(strings.TrimSpace(state.Mode)),
-		Count:     state.Count,
-	}
+	return transcriptCompactionProjection(&state.StepID, state.RequestID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
 }
 
-func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) *clientui.TranscriptContextUsage {
+func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.ContextUsage, error) {
 	if usage == nil {
-		return nil
+		return nil, nil
 	}
-	projected := &clientui.TranscriptContextUsage{
-		UsedTokens:   usage.UsedTokens,
-		WindowTokens: usage.WindowTokens,
+	used, err := protoapi.Int32(usage.UsedTokens, "used tokens")
+	if err != nil {
+		return nil, err
+	}
+	window, err := protoapi.Int32(usage.WindowTokens, "context window tokens")
+	if err != nil {
+		return nil, err
+	}
+	projected := &runtimepb.ContextUsage{
+		UsedTokens:   used,
+		WindowTokens: window,
 	}
 	if usage.HasCacheHitPercentage {
-		cacheHitPercent := usage.CacheHitPercent
+		cacheHitPercent, err := protoapi.Int32(usage.CacheHitPercent, "cache hit percent")
+		if err != nil {
+			return nil, err
+		}
 		projected.CacheHitPercent = &cacheHitPercent
 	}
-	return projected
+	return projected, protoapi.Validate(projected)
 }
 
-func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) *clientui.TranscriptGoalStatus {
+func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*runtimepb.GoalView, error) {
 	if goal == nil {
-		return nil
+		return nil, nil
 	}
-	return &clientui.TranscriptGoalStatus{Goal: &clientui.TranscriptGoal{
-		Goal:      goalview.CoreFromSessionState(goal),
-		Suspended: suspended,
-	}}
+	core, err := goalview.CoreFromSessionState(goal)
+	if err != nil {
+		return nil, err
+	}
+	projected := &runtimepb.GoalView{Goal: core, Suspended: suspended}
+	return projected, protoapi.Validate(projected)
 }
 
-func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) []clientui.TranscriptToolStart {
+func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.ToolStart, error) {
 	if len(starts) == 0 {
-		return nil
+		return nil, nil
 	}
-	out := make([]clientui.TranscriptToolStart, 0, len(starts))
+	out := make([]*transcriptpb.ToolStart, 0, len(starts))
 	for index, start := range starts {
-		out = append(out, clientui.TranscriptToolStart{
-			StepID:       mustTranscriptStepID(start.StepID, fmt.Sprintf("in-flight tool %d", index)),
-			ToolCallID:   clientui.ToolCallID(strings.TrimSpace(start.ToolCallID)),
+		presentation, err := transcriptToolPresentation(start.ToolName, start.Presentation)
+		if err != nil {
+			return nil, fmt.Errorf("in-flight tool %d: %w", index, err)
+		}
+		projected := &transcriptpb.ToolStart{
+			StepId:       strings.TrimSpace(start.StepID),
+			ToolCallId:   strings.TrimSpace(start.ToolCallID),
 			ToolName:     strings.TrimSpace(start.ToolName),
-			Presentation: cloneToolCallMeta(start.Presentation),
-		})
+			Presentation: presentation,
+		}
+		if err := protoapi.Validate(projected); err != nil {
+			return nil, fmt.Errorf("in-flight tool %d: %w", index, err)
+		}
+		out = append(out, projected)
 	}
-	return out
+	return out, nil
 }
 
-func TranscriptMessagesFromRuntimeEvent(evt runtime.Event) []clientui.TranscriptEvent {
-	return transcriptMessagesFromRuntimeEvent(evt)
+func TranscriptMessagesFromRuntimeEvent(evt runtime.Event) []*transcriptpb.Event {
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(evt)
+	if err != nil {
+		panic(err)
+	}
+	return messages
 }
 
-func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]clientui.TranscriptEvent, error) {
+func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	for index, fact := range runtime.TranscriptCommittedRowFactsFromEvent(evt) {
 		if err := fact.Locator.Validate(); err != nil {
 			return nil, fmt.Errorf("runtime committed row fact %d from event %q lacks valid provenance: %w", index, evt.Kind, err)
 		}
 	}
-	var messages []clientui.TranscriptEvent
-	if evt.Kind == runtime.EventToolCallStarted {
-		starts, err := runtime.TranscriptToolStartFactsFromEventChecked(evt)
-		if err != nil {
-			return nil, fmt.Errorf("runtime tool start violates transcript contract: %w", err)
-		}
-		messages = transcriptToolStartMessages(starts)
-	} else {
-		messages = transcriptMessagesFromRuntimeEvent(evt)
+	messages, err := transcriptMessagesFromRuntimeEvent(evt)
+	if err != nil {
+		return nil, fmt.Errorf("runtime transcript event %q: %w", evt.Kind, err)
 	}
 	for index := range messages {
-		if err := validateProjectedToolContract(messages[index]); err != nil {
+		if err := protoapi.Validate(messages[index]); err != nil {
 			return nil, fmt.Errorf(
 				"runtime transcript event %q projection %d violates contract: %w",
 				evt.Kind,
@@ -173,83 +214,99 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]clientui.Tr
 	return messages, nil
 }
 
-func transcriptMessagesFromRuntimeEvent(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	switch evt.Kind {
 	case runtime.EventAssistantDelta:
 		if evt.AssistantDelta == "" {
-			return nil
+			return nil, nil
 		}
-		delta := clientui.TranscriptAssistantDelta{
-			StepID:   mustRuntimeTranscriptStepID(evt.StepID, "assistant delta"),
-			StreamID: mustTranscriptAssistantStreamID(evt.AssistantTranscriptStreamID, "assistant delta"),
+		stepID, streamID, phase, err := transcriptAssistantIdentity(evt.StepID, evt.AssistantTranscriptStreamID, evt.AssistantDeltaPhase)
+		if err != nil {
+			return nil, err
+		}
+		delta := &transcriptpb.AssistantDelta{
+			StepId:   stepID,
+			StreamId: streamID,
 			Delta:    evt.AssistantDelta,
-			Phase:    transcript.ClassifyAssistantPhase(string(evt.AssistantDeltaPhase)),
+			Phase:    phase,
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(delta)}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: delta}}}, nil
 	case runtime.EventAssistantDeltaReset:
 		reason := strings.TrimSpace(evt.AssistantStreamAbortReason)
 		if reason == "" || evt.AssistantTranscriptStreamID == nil {
-			return nil
+			return nil, nil
 		}
-		abort := clientui.TranscriptAssistantStreamAbort{
-			StepID:   mustRuntimeTranscriptStepID(evt.StepID, "assistant stream abort"),
-			StreamID: mustTranscriptAssistantStreamID(evt.AssistantTranscriptStreamID, "assistant stream abort"),
-			Reason:   transcriptAssistantAbortReason(reason),
+		stepID, err := transcriptRequiredStepID(evt.StepID)
+		if err != nil {
+			return nil, err
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(abort)}
+		abortReason, err := transcriptAssistantAbortReason(reason)
+		if err != nil {
+			return nil, err
+		}
+		abort := &transcriptpb.AssistantStreamAbort{
+			StepId: stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
+		}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantStreamAbort{AssistantStreamAbort: abort}}}, nil
 	case runtime.EventReasoningDelta:
 		if evt.ReasoningDelta == nil {
-			return nil
+			return nil, nil
+		}
+		if evt.ReasoningTraceIdentity == nil && strings.TrimSpace(evt.ReasoningDelta.Text) == "" && evt.ReasoningDelta.CurrentStatus == nil {
+			return nil, nil
 		}
 		presentation := runtime.ProjectReasoningTrace(evt.ReasoningDelta.Text)
-		if evt.ReasoningTraceIdentity == nil && strings.TrimSpace(evt.ReasoningDelta.Text) == "" {
-			if evt.ReasoningDelta.CurrentStatus != nil {
-				status := clientui.TranscriptThinkingStatusUpdate{
-					StepID: mustRuntimeTranscriptStepID(evt.StepID, "thinking status update"),
-					Text:   evt.ReasoningDelta.CurrentStatus.Text,
-				}
-				return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(status)}
-			}
-			return nil
+		stepID, err := transcriptRequiredStepID(evt.StepID)
+		if err != nil {
+			return nil, err
 		}
-		traceIdentity := transcriptReasoningTraceIdentityProjection(evt.ReasoningTraceIdentity, "reasoning delta")
-		update := clientui.TranscriptReasoningTraceUpdate{
-			StepID:      mustRuntimeTranscriptStepID(evt.StepID, "reasoning trace update"),
+		var messages []*transcriptpb.Event
+		if evt.ReasoningDelta.CurrentStatus != nil {
+			status := &transcriptpb.ThinkingStatusUpdate{StepId: stepID, Text: evt.ReasoningDelta.CurrentStatus.Text}
+			messages = append(messages, &transcriptpb.Event{Payload: &transcriptpb.Event_ThinkingStatusUpdate{ThinkingStatusUpdate: status}})
+		}
+		if evt.ReasoningTraceIdentity == nil && strings.TrimSpace(evt.ReasoningDelta.Text) == "" {
+			return messages, nil
+		}
+		traceIdentity, err := transcriptReasoningTraceIdentityProjection(evt.ReasoningTraceIdentity, "reasoning delta")
+		if err != nil {
+			return nil, err
+		}
+		update := &transcriptpb.ReasoningTraceUpdate{
+			StepId:      stepID,
 			Identity:    traceIdentity,
 			CompactText: presentation.CompactText,
 			Text:        presentation.Text,
 		}
-		if evt.ReasoningDelta.CurrentStatus != nil {
-			status := clientui.TranscriptThinkingStatusUpdate{
-				StepID: mustRuntimeTranscriptStepID(evt.StepID, "thinking status update"),
-				Text:   evt.ReasoningDelta.CurrentStatus.Text,
-			}
-			return []clientui.TranscriptEvent{
-				clientui.NewTranscriptEvent(status),
-				clientui.NewTranscriptEvent(update),
-			}
-		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(update)}
+		return append(messages, &transcriptpb.Event{Payload: &transcriptpb.Event_ReasoningTraceUpdate{ReasoningTraceUpdate: update}}), nil
 	case runtime.EventReasoningDeltaReset:
-		reset := clientui.TranscriptReasoningTraceReset{StepID: mustRuntimeTranscriptStepID(evt.StepID, "reasoning trace reset")}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(reset)}
+		stepID, err := transcriptRequiredStepID(evt.StepID)
+		if err != nil {
+			return nil, err
+		}
+		reset := &transcriptpb.ReasoningTraceReset{StepId: stepID}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ReasoningTraceReset{ReasoningTraceReset: reset}}}, nil
 	case runtime.EventToolCallStarted:
-		return transcriptToolStartMessages(runtime.TranscriptToolStartFactsFromEvent(evt))
+		starts, err := runtime.TranscriptToolStartFactsFromEventChecked(evt)
+		if err != nil {
+			return nil, err
+		}
+		return transcriptToolStartMessages(starts)
 	case runtime.EventToolCallAborted:
 		return transcriptToolAbortMessages(evt)
 	case runtime.EventQueuedUserMessageStatus:
 		return transcriptQueuedMessageStateMessages(evt)
 	case runtime.EventPendingWorkChanged:
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(clientui.TranscriptPendingWorkChanged{})}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_PendingWorkChanged{PendingWorkChanged: &transcriptpb.PendingWorkChanged{}}}}, nil
 	case runtime.EventPendingWorkRestored:
 		if evt.PendingWorkRestoration == nil {
-			return nil
+			return nil, nil
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(
-			clientui.TranscriptPendingWorkRestored{
-				Restoration: *evt.PendingWorkRestoration,
-			},
-		)}
+		restoration, err := transcriptPendingWorkRestoration(evt.PendingWorkRestoration)
+		if err != nil {
+			return nil, err
+		}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_PendingWorkRestored{PendingWorkRestored: &transcriptpb.PendingWorkRestored{Restoration: restoration}}}}, nil
 	case runtime.EventHumanInputInterrupted:
 		return transcriptHumanInputInterruptedMessages(evt)
 	case runtime.EventRunStateChanged:
@@ -262,111 +319,135 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) []clientui.Transcript
 		runtime.EventInFlightClearFailed:
 		return transcriptOperationalDiagnosticMessages(evt)
 	case runtime.EventUserMessageFlushed:
-		messages := transcriptFeedStateMessages(evt)
-		messages = append(messages, transcriptUserMessageFlushedMessages(evt)...)
-		messages = append(messages, transcriptCommittedRowMessages(evt)...)
-		return messages
+		messages, err := transcriptFeedStateMessages(evt)
+		if err != nil {
+			return nil, err
+		}
+		flushed, err := transcriptUserMessageFlushedMessages(evt)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := transcriptCommittedRowMessages(evt)
+		return append(append(messages, flushed...), rows...), err
 	default:
-		messages := transcriptFeedStateMessages(evt)
-		messages = append(messages, transcriptCommittedRowMessages(evt)...)
-		return messages
+		messages, err := transcriptFeedStateMessages(evt)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := transcriptCommittedRowMessages(evt)
+		return append(messages, rows...), err
 	}
 }
 
-func transcriptLiveRunFinishedMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptLiveRunFinishedMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if evt.LiveRunResult == nil {
-		return nil
+		return nil, nil
 	}
 	result := evt.LiveRunResult
-	projected := clientui.TranscriptLiveRunResult{
-		Status:        clientui.LiveRunStatus(result.Status),
-		ResultKind:    clientui.LiveRunResultKind(result.ResultKind),
-		NoFinalReason: clientui.LiveRunNoFinalReason(result.NoFinalReason),
+	projected := &transcriptpb.LiveRunFinished{
+		NoFinalReason: string(result.NoFinalReason),
 		WorkPerformed: result.WorkPerformed,
-		StartedAt:     result.StartedAt,
-		FinishedAt:    result.FinishedAt,
+		StartedAt:     timestamppb.New(result.StartedAt),
+		FinishedAt:    timestamppb.New(result.FinishedAt),
+	}
+	switch result.Status {
+	case runtime.RunStatusCompleted:
+		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED
+	case runtime.RunStatusInterrupted:
+		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_INTERRUPTED
+	case runtime.RunStatusFailed:
+		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_FAILED
+	default:
+		return nil, fmt.Errorf("unknown live run status %q", result.Status)
+	}
+	switch result.ResultKind {
+	case runtime.LiveRunResultAssistantFinalAnswer:
+		projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_ASSISTANT_FINAL_ANSWER
+	case runtime.LiveRunResultNoFinalAnswer:
+		projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER
+	default:
+		return nil, fmt.Errorf("unknown live run result kind %q", result.ResultKind)
 	}
 	if result.ResultKind == runtime.LiveRunResultAssistantFinalAnswer {
 		if result.AssistantMessage.Content != nil {
 			projected.FinalAnswer = textutil.Pointer(result.AssistantMessage.Content)
 		} else {
-			projected.ResultKind = clientui.LiveRunResultNoFinalAnswer
+			projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER
 		}
 	}
 	if result.Status == runtime.RunStatusFailed && result.Error != nil {
 		failure := result.Error.Error()
 		projected.Failure = &failure
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(projected)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_LiveRunFinished{LiveRunFinished: projected}}}, nil
 }
 
-func transcriptFeedStateMessages(evt runtime.Event) []clientui.TranscriptEvent {
-	out := make([]clientui.TranscriptEvent, 0, 4)
+func transcriptFeedStateMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
+	out := make([]*transcriptpb.Event, 0, 4)
 	if evt.Compaction != nil {
-		status := transcriptCompactionStatus(evt)
-		out = append(out, clientui.NewTranscriptEvent(status))
+		status, err := transcriptCompactionStatus(evt)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_CompactionStatus{CompactionStatus: status}})
 	}
 	if evt.ContextUsage != nil {
-		usage := clientui.TranscriptContextUsage{
-			UsedTokens:   evt.ContextUsage.UsedTokens,
-			WindowTokens: evt.ContextUsage.WindowTokens,
+		usage, err := transcriptContextUsageFromRuntime(evt.ContextUsage)
+		if err != nil {
+			return nil, err
 		}
-		if evt.ContextUsage.HasCacheHitPercentage {
-			cacheHitPercent := evt.ContextUsage.CacheHitPercent
-			usage.CacheHitPercent = &cacheHitPercent
-		}
-		out = append(out, clientui.NewTranscriptEvent(usage))
+		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_ContextUsage{ContextUsage: usage}})
 	}
 	if evt.GoalStatus != nil {
-		goal := transcriptGoalStatus(*evt.GoalStatus)
-		out = append(out, clientui.NewTranscriptEvent(goal))
+		goal, err := transcriptGoalStatus(*evt.GoalStatus)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_GoalStatus{GoalStatus: goal}})
 	}
 	if evt.Background != nil {
-		background := transcriptBackgroundActivity(*evt.Background)
-		out = append(out, clientui.NewTranscriptEvent(background))
+		background, err := transcriptBackgroundActivity(*evt.Background)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_BackgroundActivity{BackgroundActivity: background}})
 	}
-	return out
+	return out, nil
 }
 
-func transcriptCompactionStatus(evt runtime.Event) clientui.TranscriptCompactionStatus {
-	status := clientui.TranscriptCompactionStatus{
-		StepID:    mustRuntimeTranscriptStepID(evt.StepID, "compaction status"),
-		RequestID: evt.Compaction.RequestID,
-		Mode:      clientui.CompactionMode(strings.TrimSpace(evt.Compaction.Mode)),
-		Count:     evt.Compaction.Count,
-	}
+func transcriptCompactionStatus(evt runtime.Event) (*transcriptpb.CompactionStatus, error) {
+	var state transcriptpb.CompactionState
+	var diagnostic *transcriptpb.Diagnostic
 	switch evt.Kind {
 	case runtime.EventCompactionStarted:
-		status.State = clientui.CompactionStarted
+		state = transcriptpb.CompactionState_COMPACTION_STATE_STARTED
 	case runtime.EventCompactionCompleted:
-		status.State = clientui.CompactionCompleted
+		state = transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED
 	case runtime.EventCompactionFailed:
-		status.State = clientui.CompactionFailed
-		status.Diagnostic = &clientui.TranscriptDiagnostic{
-			Code:   clientui.TranscriptDiagnosticCode("compaction_failed"),
+		state = transcriptpb.CompactionState_COMPACTION_STATE_FAILED
+		diagnostic = &transcriptpb.Diagnostic{
+			Code:   "compaction_failed",
 			Detail: strings.TrimSpace(evt.Compaction.Error),
 		}
 	default:
-		panic(fmt.Sprintf("runtime event %q carries compaction facts outside the compaction lifecycle", evt.Kind))
+		return nil, fmt.Errorf("runtime event %q carries compaction facts outside the compaction lifecycle", evt.Kind)
 	}
-	return status
+	return transcriptCompactionProjection(evt.StepID, evt.Compaction.RequestID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
 }
 
-func transcriptGoalStatus(update runtime.GoalStatusUpdate) clientui.TranscriptGoalStatus {
+func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView, error) {
 	if update.Cleared {
-		return clientui.TranscriptGoalStatus{}
+		return &runtimepb.GoalView{}, nil
 	}
-	return clientui.TranscriptGoalStatus{Goal: &clientui.TranscriptGoal{
-		Goal: goalview.CoreFromSessionState(&update.State),
-	}}
+	return transcriptGoalStatusFromRuntime(&update.State, false)
 }
 
 type transcriptBackgroundActivityFacts struct {
 	activityID        runtimeids.BackgroundActivityID
-	processID         clientui.ProcessID
+	processID         string
 	ownerRunID        runtimeids.RunID
 	ownerStepID       runtimeids.StepID
-	lifecycle         clientui.BackgroundLifecycle
+	lifecycle         transcriptpb.BackgroundLifecycle
 	command           string
 	workdir           string
 	logPath           *string
@@ -376,40 +457,61 @@ type transcriptBackgroundActivityFacts struct {
 	noticeSuppressed  bool
 }
 
-func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFacts) clientui.TranscriptBackgroundActivity {
-	return clientui.TranscriptBackgroundActivity{
-		ActivityID:        facts.activityID,
-		ProcessID:         facts.processID,
-		OwnerRunID:        facts.ownerRunID,
-		OwnerStepID:       facts.ownerStepID,
+func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFacts) (*transcriptpb.BackgroundActivity, error) {
+	var exitCode *int32
+	if facts.exitCode != nil {
+		value, err := protoapi.Int32(*facts.exitCode, "background exit code")
+		if err != nil {
+			return nil, err
+		}
+		exitCode = &value
+	}
+	projected := &transcriptpb.BackgroundActivity{
+		ActivityId:        facts.activityID.String(),
+		ProcessId:         facts.processID,
+		OwnerRunId:        facts.ownerRunID.String(),
+		OwnerStepId:       facts.ownerStepID.String(),
 		Lifecycle:         facts.lifecycle,
 		Command:           facts.command,
 		Workdir:           facts.workdir,
 		LogPath:           facts.logPath,
 		Preview:           facts.preview,
-		ExitCode:          facts.exitCode,
+		ExitCode:          exitCode,
 		UserRequestedKill: facts.userRequestedKill,
 		NoticeSuppressed:  facts.noticeSuppressed,
 	}
+	return projected, protoapi.Validate(projected)
 }
 
-func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) clientui.TranscriptBackgroundActivity {
-	lifecycle := clientui.BackgroundLifecycle("")
+func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcriptpb.BackgroundActivity, error) {
+	var lifecycle transcriptpb.BackgroundLifecycle
 	switch evt.Type {
 	case runtime.BackgroundShellEventBackgrounded:
-		lifecycle = clientui.BackgroundLifecycleBackgrounded
+		lifecycle = transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED
 	case runtime.BackgroundShellEventCompleted:
-		lifecycle = clientui.BackgroundLifecycleCompleted
+		lifecycle = transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_COMPLETED
 	case runtime.BackgroundShellEventKilled:
-		lifecycle = clientui.BackgroundLifecycleKilled
+		lifecycle = transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_KILLED
 	default:
-		panic(fmt.Sprintf("runtime background activity has unknown lifecycle %q: process_id=%q activity_id=%q", evt.Type, evt.ID, evt.ActivityID))
+		return nil, fmt.Errorf("runtime background activity has unknown lifecycle %q: process_id=%q activity_id=%q", evt.Type, evt.ID, evt.ActivityID)
+	}
+	activityID, err := runtimeids.ParseBackgroundActivityID(evt.ActivityID.String())
+	if err != nil {
+		return nil, err
+	}
+	runID, err := runtimeids.ParseRunID(strings.TrimSpace(evt.OwnerRunID))
+	if err != nil {
+		return nil, err
+	}
+	stepID, err := runtimeids.ParseStepID(strings.TrimSpace(evt.OwnerStepID))
+	if err != nil {
+		return nil, err
 	}
 	return transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
-		activityID:        mustTranscriptBackgroundActivityID(evt.ActivityID.String(), "background activity"),
-		processID:         clientui.ProcessID(strings.TrimSpace(evt.ID)),
-		ownerRunID:        mustTranscriptRunID(evt.OwnerRunID, "background activity owner"),
-		ownerStepID:       mustTranscriptStepID(evt.OwnerStepID, "background activity owner"),
+		activityID:        activityID,
+		processID:         strings.TrimSpace(evt.ID),
+		ownerRunID:        runID,
+		ownerStepID:       stepID,
 		lifecycle:         lifecycle,
 		command:           evt.Command,
 		workdir:           evt.Workdir,
@@ -424,9 +526,9 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) clientui.Tra
 func TranscriptBackgroundActivitiesFromProcessSnapshots(
 	sessionID string,
 	snapshots []shelltool.Snapshot,
-) ([]clientui.TranscriptBackgroundActivity, error) {
+) ([]*transcriptpb.BackgroundActivity, error) {
 	sessionID = strings.TrimSpace(sessionID)
-	out := make([]clientui.TranscriptBackgroundActivity, 0, len(snapshots))
+	out := make([]*transcriptpb.BackgroundActivity, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		if !snapshot.Running || !snapshot.Backgrounded || strings.TrimSpace(snapshot.OwnerSessionID) != sessionID {
 			continue
@@ -443,58 +545,69 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		if err != nil {
 			return nil, fmt.Errorf("background process %q owner step id: %w", snapshot.ID, err)
 		}
-		out = append(out, transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
+		projected, err := transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 			activityID:  activityID,
-			processID:   clientui.ProcessID(strings.TrimSpace(snapshot.ID)),
+			processID:   strings.TrimSpace(snapshot.ID),
 			ownerRunID:  runID,
 			ownerStepID: stepID,
-			lifecycle:   clientui.BackgroundLifecycleBackgrounded,
+			lifecycle:   transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 			command:     snapshot.Command,
 			workdir:     snapshot.Workdir,
 			logPath:     textutil.OptionalTrimmedString(snapshot.LogPath),
-		}))
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, projected)
 	}
 	return out, nil
 }
 
 func TranscriptSessionIdentityFromRuntime(
 	engine *runtime.Engine,
-) (clientui.TranscriptSessionIdentity, error) {
+) (*transcriptpb.SessionIdentity, error) {
 	if engine == nil {
-		return clientui.TranscriptSessionIdentity{}, nil
+		return &transcriptpb.SessionIdentity{}, nil
 	}
 	freshness, err := engine.ConversationFreshness()
 	if err != nil {
-		return clientui.TranscriptSessionIdentity{}, err
+		return nil, err
 	}
-	return clientui.TranscriptSessionIdentity{
-		SessionID:             mustTranscriptSessionID(engine.SessionID(), "runtime session identity"),
+	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(engine.SessionID()))
+	if err != nil {
+		return nil, err
+	}
+	return &transcriptpb.SessionIdentity{
+		SessionId:             sessionID.String(),
 		SessionName:           textutil.OptionalTrimmedString(engine.SessionName()),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil
 }
 
-func transcriptCommittedRowMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptCommittedRowMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	rowFacts := runtime.TranscriptCommittedRowFactsFromEvent(evt)
 	if len(rowFacts) == 0 {
-		return nil
+		return nil, nil
 	}
-	out := make([]clientui.TranscriptEvent, 0, len(rowFacts))
+	out := make([]*transcriptpb.Event, 0, len(rowFacts))
 	for _, fact := range rowFacts {
 		if err := fact.Locator.Validate(); err != nil {
-			panic(fmt.Sprintf("runtime committed row lacks valid provenance: event_kind=%q fact=%+v error=%v", evt.Kind, fact, err))
+			return nil, fmt.Errorf("runtime committed row lacks valid provenance: event_kind=%q fact=%+v error=%v", evt.Kind, fact, err)
 		}
-		row := transcriptRowFromFact(fact)
-		out = append(out, clientui.NewTranscriptEvent(row))
+		row, err := transcriptRowFromFact(fact)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: row}})
 	}
-	return out
+	return out, nil
 }
 
-func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) ([]clientui.TranscriptCommittedRow, error) {
+func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) ([]*transcriptpb.CommittedRow, error) {
 	if len(facts) == 0 {
-		return []clientui.TranscriptCommittedRow{}, nil
+		return []*transcriptpb.CommittedRow{}, nil
 	}
-	rows := make([]clientui.TranscriptCommittedRow, 0, len(facts))
+	rows := make([]*transcriptpb.CommittedRow, 0, len(facts))
 	for index, fact := range facts {
 		if err := fact.Locator.Validate(); err != nil {
 			return nil, fmt.Errorf(
@@ -506,9 +619,12 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) 
 				err,
 			)
 		}
-		row := transcriptRowFromFact(fact)
-		if row.Tool != nil {
-			if err := row.Tool.Validate(); err != nil {
+		row, err := transcriptRowFromFact(fact)
+		if err != nil {
+			return nil, err
+		}
+		if row.GetTool() != nil {
+			if err := protoapi.Validate(row.GetTool()); err != nil {
 				return nil, fmt.Errorf(
 					"runtime hydrated committed tool row %d violates transcript contract: %w",
 					index,
@@ -521,18 +637,6 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) 
 	return rows, nil
 }
 
-func validateProjectedToolContract(event clientui.TranscriptEvent) error {
-	switch payload := event.Payload().(type) {
-	case clientui.TranscriptToolStart:
-		return payload.Validate()
-	case clientui.TranscriptCommittedRow:
-		if payload.Tool != nil {
-			return payload.Tool.Validate()
-		}
-	}
-	return nil
-}
-
 func transcriptNoticeFactDiagnostic(notice *runtime.TranscriptNoticeRowFact) any {
 	if notice == nil {
 		return nil
@@ -540,345 +644,480 @@ func transcriptNoticeFactDiagnostic(notice *runtime.TranscriptNoticeRowFact) any
 	return *notice
 }
 
-func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) *clientui.TranscriptAssistantStream {
+func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) (*transcriptpb.AssistantStream, error) {
 	text := snapshot.ActiveAssistantText
 	if text == "" && snapshot.ActiveAssistantMetadata == nil && snapshot.ActiveAssistantStreamID == nil {
-		return nil
+		return nil, nil
 	}
 	if text == "" || snapshot.ActiveAssistantMetadata == nil || snapshot.ActiveAssistantStreamID == nil {
-		panic(fmt.Sprintf(
+		return nil, fmt.Errorf(
 			"runtime transcript hydration has partial assistant stream identity: text_present=%t metadata_present=%t stream_id_present=%t",
 			text != "",
 			snapshot.ActiveAssistantMetadata != nil,
 			snapshot.ActiveAssistantStreamID != nil,
-		))
+		)
 	}
-	return &clientui.TranscriptAssistantStream{
-		StepID:   mustTranscriptStepID(snapshot.ActiveAssistantMetadata.StepID, "hydrated assistant stream"),
-		StreamID: mustTranscriptAssistantStreamID(snapshot.ActiveAssistantStreamID, "hydrated assistant stream"),
+	stepID, streamID, phase, err := transcriptAssistantIdentity(&snapshot.ActiveAssistantMetadata.StepID, snapshot.ActiveAssistantStreamID, snapshot.ActiveAssistantPhase)
+	if err != nil {
+		return nil, err
+	}
+	projected := &transcriptpb.AssistantStream{
+		StepId:   stepID,
+		StreamId: streamID,
 		Text:     text,
-		Phase:    transcript.ClassifyAssistantPhase(string(snapshot.ActiveAssistantPhase)),
+		Phase:    phase,
 	}
+	return projected, protoapi.Validate(projected)
 }
 
-func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) []clientui.TranscriptEvent {
-	projected := transcriptToolStartsFromRuntime(starts)
-	if len(projected) == 0 {
-		return nil
+func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.Event, error) {
+	projected, err := transcriptToolStartsFromRuntime(starts)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]clientui.TranscriptEvent, 0, len(projected))
+	if len(projected) == 0 {
+		return nil, nil
+	}
+	out := make([]*transcriptpb.Event, 0, len(projected))
 	for index := range projected {
 		start := projected[index]
-		out = append(out, clientui.NewTranscriptEvent(start))
+		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_ToolStart{ToolStart: start}})
 	}
-	return out
+	return out, nil
 }
 
-func transcriptToolAbortMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptToolAbortMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if evt.ToolCall == nil {
-		panic("runtime tool abort is missing its tool call identity")
+		return nil, fmt.Errorf("runtime tool abort is missing its tool call identity")
 	}
-	reason := clientui.ToolAbortReason(strings.TrimSpace(evt.ToolAbortReason))
-	if reason == "" || reason == "interrupted" {
-		reason = clientui.ToolAbortCanceled
+	var reason transcriptpb.ToolAbortReason
+	switch strings.TrimSpace(evt.ToolAbortReason) {
+	case "", "interrupted", "canceled":
+		reason = transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_CANCELED
+	case "failed":
+		reason = transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_FAILED
+	default:
+		return nil, fmt.Errorf("unknown tool abort reason %q", evt.ToolAbortReason)
 	}
-	abort := clientui.TranscriptToolAbort{
-		StepID:     mustRuntimeTranscriptStepID(evt.StepID, "tool abort"),
-		ToolCallID: clientui.ToolCallID(strings.TrimSpace(evt.ToolCall.ID)),
+	stepID, err := transcriptRequiredStepID(evt.StepID)
+	if err != nil {
+		return nil, err
+	}
+	abort := &transcriptpb.ToolAbort{
+		StepId:     stepID,
+		ToolCallId: strings.TrimSpace(evt.ToolCall.ID),
 		Reason:     reason,
 	}
-	if reason == clientui.ToolAbortFailed {
-		abort.Diagnostic = &clientui.TranscriptDiagnostic{
-			Code:   clientui.TranscriptDiagnosticCode("tool_failed"),
+	if reason == transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_FAILED {
+		abort.Diagnostic = &transcriptpb.Diagnostic{
+			Code:   "tool_failed",
 			Detail: strings.TrimSpace(evt.Error),
 		}
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(abort)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ToolAbort{ToolAbort: abort}}}, nil
 }
 
-func transcriptQueuedMessageStateMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptQueuedMessageStateMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if evt.QueuedUserMessageStatus == nil {
-		return nil
+		return nil, nil
 	}
 	status := evt.QueuedUserMessageStatus
-	state := clientui.TranscriptQueuedMessageState{
-		QueueItemID: mustTranscriptQueueItemID(status.QueueItemID, "queued-message state"),
-		Status:      clientui.QueuedUserMessageStatus(status.Status),
+	state := &transcriptpb.QueuedMessageState{
+		QueueItemId: strings.TrimSpace(status.QueueItemID),
 	}
 	switch status.Status {
 	case runtime.QueuedUserMessageAccepted:
+		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED
 		state.Text = textutil.OptionalTrimmedString(status.Text)
 	case runtime.QueuedUserMessageFailed:
-		reason := clientui.QueuedUserMessageFailureReason(status.FailureReason)
+		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED
+		reason, err := transcriptQueuedFailureReason(status.FailureReason)
+		if err != nil {
+			return nil, err
+		}
 		state.FailureReason = &reason
 		state.Text = textutil.OptionalTrimmedString(status.Text)
-	case runtime.QueuedUserMessageSubmitted, runtime.QueuedUserMessageDiscarded:
+	case runtime.QueuedUserMessageSubmitted:
+		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED
+	case runtime.QueuedUserMessageDiscarded:
+		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED
 	default:
-		panic(fmt.Sprintf("runtime queued-message event has unknown status %q", status.Status))
+		return nil, fmt.Errorf("runtime queued-message event has unknown status %q", status.Status)
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(state)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_QueuedMessageState{QueuedMessageState: state}}}, nil
 }
 
-func transcriptHumanInputInterruptedMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptHumanInputInterruptedMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if evt.HumanInputInterrupted == nil || len(evt.HumanInputInterrupted.Items) == 0 {
-		return nil
+		return nil, nil
 	}
-	items := make([]clientui.TranscriptInterruptedHumanInputItem, 0, len(evt.HumanInputInterrupted.Items))
-	for index, item := range evt.HumanInputInterrupted.Items {
-		items = append(items, clientui.TranscriptInterruptedHumanInputItem{
-			QueueItemID: mustTranscriptQueueItemID(item.QueueItemID, fmt.Sprintf("interrupted human input %d", index)),
+	items := make([]*transcriptpb.InterruptedHumanInputItem, 0, len(evt.HumanInputInterrupted.Items))
+	for _, item := range evt.HumanInputInterrupted.Items {
+		items = append(items, &transcriptpb.InterruptedHumanInputItem{
+			QueueItemId: strings.TrimSpace(item.QueueItemID),
 			Text:        item.Text,
 		})
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(
-		clientui.TranscriptHumanInputInterrupted{Items: items},
-	)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_HumanInputInterrupted{HumanInputInterrupted: &transcriptpb.HumanInputInterrupted{Items: items}}}}, nil
 }
 
-func transcriptUserMessageFlushedMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptUserMessageFlushedMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if len(evt.UserMessageBatchQueuedItems) == 0 {
-		return nil
+		return nil, nil
 	}
 	for index, item := range evt.UserMessageBatchQueuedItems {
-		mustTranscriptQueueItemID(item.QueueItemID, fmt.Sprintf("flushed queued message %d", index))
+		if _, err := runtimeids.ParseQueueItemID(strings.TrimSpace(item.QueueItemID)); err != nil {
+			return nil, fmt.Errorf("flushed queued message %d: %w", index, err)
+		}
 	}
-	flushed := clientui.TranscriptUserMessageFlushed{
-		StepID: optionalRuntimeTranscriptStepID(evt.StepID, "user-message flush"),
+	flushed := &transcriptpb.UserMessageFlushed{
+		StepId: textutil.Pointer(evt.StepID),
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(flushed)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_UserMessageFlushed{UserMessageFlushed: flushed}}}, nil
 }
 
-func transcriptStepStateMessages(evt runtime.Event) []clientui.TranscriptEvent {
+func transcriptStepStateMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
 	if evt.RunState == nil || evt.RunState.Lifecycle.Phase == runtime.RunLifecycleIdle {
-		return nil
+		return nil, nil
 	}
-	state := clientui.TranscriptStepState{
-		RunID:      mustTranscriptRunID(evt.RunState.RunID, "step state"),
-		StepID:     mustRuntimeTranscriptStepID(evt.StepID, "step state"),
-		ActiveKind: ClientActiveKindFromRuntime(evt.RunState.ActiveKind),
-		Status:     clientui.RunStatus(evt.RunState.Status),
+	stepID, err := transcriptRequiredStepID(evt.StepID)
+	if err != nil {
+		return nil, err
+	}
+	activeKind, err := runtimeactivity.ClientActiveKindFromRuntime(evt.RunState.ActiveKind)
+	if err != nil {
+		return nil, err
+	}
+	state := &transcriptpb.StepState{
+		RunId:      strings.TrimSpace(evt.RunState.RunID),
+		StepId:     stepID,
+		ActiveKind: activeKind,
+	}
+	switch evt.RunState.Status {
+	case runtime.RunStatusRunning:
+		state.Status = transcriptpb.RunStatus_RUN_STATUS_RUNNING
+	case runtime.RunStatusCompleted:
+		state.Status = transcriptpb.RunStatus_RUN_STATUS_COMPLETED
+	case runtime.RunStatusInterrupted:
+		state.Status = transcriptpb.RunStatus_RUN_STATUS_INTERRUPTED
+	case runtime.RunStatusFailed:
+		state.Status = transcriptpb.RunStatus_RUN_STATUS_FAILED
+	default:
+		return nil, fmt.Errorf("unknown run status %q", evt.RunState.Status)
 	}
 	switch evt.RunState.Lifecycle.Phase {
 	case runtime.RunLifecycleRunning:
-		state.Lifecycle = clientui.StepLifecycleStarted
+		state.Lifecycle = transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED
 	case runtime.RunLifecycleFinished:
-		state.Lifecycle = clientui.StepLifecycleFinished
+		state.Lifecycle = transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED
 	default:
-		panic(fmt.Sprintf("runtime run state has unknown lifecycle phase %q", evt.RunState.Lifecycle.Phase))
+		return nil, fmt.Errorf("runtime run state has unknown lifecycle phase %q", evt.RunState.Lifecycle.Phase)
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(state)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_StepState{StepState: state}}}, nil
 }
 
-func transcriptOperationalDiagnosticMessages(evt runtime.Event) []clientui.TranscriptEvent {
-	diagnostic := clientui.TranscriptOperationalDiagnostic{Detail: strings.TrimSpace(evt.Error)}
-	if evt.StepID != nil {
-		stepID := mustRuntimeTranscriptStepID(evt.StepID, "operational diagnostic")
-		diagnostic.StepID = &stepID
-	}
+func transcriptOperationalDiagnosticMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
+	diagnostic := &transcriptpb.OperationalDiagnostic{Detail: strings.TrimSpace(evt.Error), StepId: textutil.Pointer(evt.StepID)}
 	switch evt.Kind {
 	case runtime.EventSleepGuardFailed:
-		diagnostic.Code = clientui.OperationalDiagnosticSleepGuardFailed
+		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_SLEEP_GUARD_FAILED
 	case runtime.EventPromptHistoryPersistFailed:
-		diagnostic.Code = clientui.OperationalDiagnosticPromptHistoryPersistFailed
+		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_PROMPT_HISTORY_PERSIST_FAILED
 	case runtime.EventContextFactsPersistFailed:
-		diagnostic.Code = clientui.OperationalDiagnosticContextFactsPersistFailed
+		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_CONTEXT_FACTS_PERSIST_FAILED
 	case runtime.EventInFlightClearFailed:
-		diagnostic.Code = clientui.OperationalDiagnosticInFlightClearFailed
+		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_IN_FLIGHT_CLEAR_FAILED
 	default:
-		panic(fmt.Sprintf("runtime event %q is not an operational diagnostic", evt.Kind))
+		return nil, fmt.Errorf("runtime event %q is not an operational diagnostic", evt.Kind)
 	}
-	return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(diagnostic)}
+	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: diagnostic}}}, nil
 }
 
-func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) clientui.TranscriptCommittedRow {
-	row := clientui.TranscriptCommittedRow{
-		Visibility: fact.Visibility,
-		Integrity:  fact.Integrity,
-		Locator:    fact.Locator,
+func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcriptpb.CommittedRow, error) {
+	visibility, err := transcriptVisibility(fact.Visibility)
+	if err != nil {
+		return nil, err
+	}
+	integrity, err := transcriptIntegrity(fact.Integrity)
+	if err != nil {
+		return nil, err
+	}
+	ordinal, err := protoapi.Int32(int(fact.Locator.RowOrdinal), "committed row ordinal")
+	if err != nil {
+		return nil, err
+	}
+	row := &transcriptpb.CommittedRow{
+		Visibility: visibility,
+		Integrity:  integrity,
+		Locator:    &transcriptpb.CommittedRowLocator{EventSequence: fact.Locator.EventSequence, RowOrdinal: ordinal},
 	}
 	switch fact.Kind {
 	case runtime.TranscriptCommittedRowFactUser:
 		if fact.User == nil {
-			panic("runtime transcript user row fact is missing its user payload")
+			return nil, fmt.Errorf("runtime transcript user row fact is missing its user payload")
 		}
-		row.Kind = clientui.TranscriptRowUser
-		row.User = &clientui.TranscriptUserRow{
-			StepID:            optionalRuntimeTranscriptStepID(fact.StepID, "committed user row"),
-			Text:              fact.User.Text,
-			CondensedText:     optionalNonBlankString(fact.User.CondensedText),
-			RollbackTargetID:  textutil.Pointer(fact.User.RollbackTargetID),
-			CommittedAtUnixMs: textutil.Pointer(fact.User.CommittedAtUnixMs),
+		committedAt, err := protoapi.CommittedTimeToProto(fact.User.CommittedAtUnixMs)
+		if err != nil {
+			return nil, err
 		}
+		row.Row = &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			StepId:           textutil.Pointer(fact.StepID),
+			Text:             fact.User.Text,
+			CondensedText:    optionalNonBlankString(fact.User.CondensedText),
+			RollbackTargetId: textutil.Pointer(fact.User.RollbackTargetID),
+			CommittedAt:      committedAt,
+		}}
 	case runtime.TranscriptCommittedRowFactAssistant:
-		if fact.Assistant == nil {
-			panic("runtime transcript assistant row fact is missing its assistant payload")
+		if fact.Assistant == nil || fact.StepID == nil {
+			return nil, fmt.Errorf("runtime transcript assistant row fact is missing its payload or Step")
 		}
-		row.Kind = clientui.TranscriptRowAssistant
-		row.Assistant = &clientui.TranscriptAssistantRow{
-			StepID:            mustRuntimeTranscriptStepID(fact.StepID, "committed assistant row"),
-			Text:              fact.Assistant.Text,
-			CondensedText:     optionalNonBlankString(fact.Assistant.CondensedText),
-			Phase:             transcript.ClassifyAssistantPhase(string(fact.Assistant.Phase)),
-			CommittedAtUnixMs: textutil.Pointer(fact.Assistant.CommittedAtUnixMs),
+		committedAt, err := protoapi.CommittedTimeToProto(fact.Assistant.CommittedAtUnixMs)
+		if err != nil {
+			return nil, err
+		}
+		phase, err := transcriptAssistantPhase(transcript.AssistantPhase(fact.Assistant.Phase))
+		if err != nil {
+			return nil, err
+		}
+		assistant := &transcriptpb.AssistantRow{
+			StepId:        *fact.StepID,
+			Text:          fact.Assistant.Text,
+			CondensedText: optionalNonBlankString(fact.Assistant.CondensedText),
+			Phase:         phase,
+			CommittedAt:   committedAt,
 		}
 		if fact.Assistant.StreamID != nil {
-			streamID := mustTranscriptAssistantStreamID(fact.Assistant.StreamID, "committed assistant row")
-			row.Assistant.StreamID = &streamID
+			streamID := fact.Assistant.StreamID.String()
+			assistant.StreamId = &streamID
 		}
+		row.Row = &transcriptpb.CommittedRow_Assistant{Assistant: assistant}
 	case runtime.TranscriptCommittedRowFactTool:
 		if fact.Tool == nil {
-			panic("runtime transcript tool row fact is missing its tool payload")
+			return nil, fmt.Errorf("runtime transcript tool row fact is missing its tool payload")
 		}
-		row.Kind = clientui.TranscriptRowTool
-		row.Tool = &clientui.TranscriptToolRow{
-			StepID:         optionalRuntimeTranscriptStepID(fact.StepID, "committed tool row"),
-			ToolCallID:     clientui.ToolCallID(strings.TrimSpace(fact.Tool.ToolCallID)),
-			ToolName:       strings.TrimSpace(fact.Tool.ToolName),
+		presentation, err := transcriptToolPresentation(fact.Tool.ToolName, fact.Tool.Presentation)
+		if err != nil {
+			return nil, err
+		}
+		answer, err := transcriptQuestionAnswerFromRuntime(fact.Tool.QuestionAnswer)
+		if err != nil {
+			return nil, err
+		}
+		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			StepId:         textutil.Pointer(fact.StepID),
+			ToolCallId:     textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolName:       textutil.OptionalTrimmedString(fact.Tool.ToolName),
 			Text:           fact.Tool.Text,
 			IsError:        fact.Tool.IsError,
 			ResultSummary:  optionalNonBlankString(fact.Tool.ResultSummary),
 			CondensedText:  optionalNonBlankString(fact.Tool.CondensedText),
-			Presentation:   cloneToolCallMeta(fact.Tool.Presentation),
-			QuestionAnswer: transcriptQuestionAnswerFromRuntime(fact.Tool.QuestionAnswer),
-		}
+			Presentation:   presentation,
+			QuestionAnswer: answer,
+		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
-		if fact.ReasoningTrace == nil {
-			panic("runtime transcript reasoning trace row fact is missing its reasoning trace payload")
+		if fact.ReasoningTrace == nil || fact.StepID == nil {
+			return nil, fmt.Errorf("runtime transcript reasoning row fact is missing its payload or Step")
 		}
-		row.Kind = clientui.TranscriptRowReasoningTrace
-		row.ReasoningTrace = &clientui.TranscriptReasoningTraceRow{
-			StepID:              mustRuntimeTranscriptStepID(fact.StepID, "committed reasoning trace row"),
+		identity, err := transcriptReasoningTraceIdentityFromRuntime(fact.ReasoningTrace.ProvisionalIdentity)
+		if err != nil {
+			return nil, err
+		}
+		trace := &transcriptpb.ReasoningTraceRow{
+			StepId:              *fact.StepID,
 			CompactText:         fact.ReasoningTrace.CompactText,
 			Text:                fact.ReasoningTrace.Text,
-			DurationMs:          textutil.Pointer(fact.ReasoningTrace.DurationMs),
-			ProvisionalIdentity: transcriptReasoningTraceIdentityFromRuntime(fact.ReasoningTrace.ProvisionalIdentity),
+			ProvisionalIdentity: identity,
 		}
+		if fact.ReasoningTrace.DurationMs != nil {
+			trace.Duration, err = protoapi.MillisecondsToProto(*fact.ReasoningTrace.DurationMs)
+			if err != nil {
+				return nil, err
+			}
+		}
+		row.Row = &transcriptpb.CommittedRow_ReasoningTrace{ReasoningTrace: trace}
 	case runtime.TranscriptCommittedRowFactNotice:
-		row.Kind = clientui.TranscriptRowNotice
-		row.Notice = transcriptNoticeFromFact(fact.StepID, fact.Notice)
+		notice, err := transcriptNoticeFromFact(fact.StepID, fact.Notice)
+		if err != nil {
+			return nil, err
+		}
+		row.Row = &transcriptpb.CommittedRow_Notice{Notice: notice}
 	case runtime.TranscriptCommittedRowFactReviewerFeedback:
-		if fact.ReviewerFeedback == nil {
-			panic("runtime transcript Reviewer feedback row fact is missing its payload")
+		if fact.ReviewerFeedback == nil || fact.StepID == nil {
+			return nil, fmt.Errorf("runtime transcript Reviewer feedback row fact is missing its payload or Step")
 		}
-		row.Kind = clientui.TranscriptRowReviewerFeedback
-		row.ReviewerFeedback = &clientui.TranscriptReviewerFeedbackRow{
-			ID:              fact.ReviewerFeedback.ID,
-			StepID:          mustRuntimeTranscriptStepID(fact.StepID, "committed Reviewer feedback row"),
+		count, err := protoapi.Int32(fact.ReviewerFeedback.SuggestionCount, "reviewer suggestion count")
+		if err != nil {
+			return nil, err
+		}
+		row.Row = &transcriptpb.CommittedRow_ReviewerFeedback{ReviewerFeedback: &transcriptpb.ReviewerFeedbackRow{
+			Id:              fact.ReviewerFeedback.ID.String(),
+			StepId:          *fact.StepID,
 			Suggestions:     append([]string(nil), fact.ReviewerFeedback.Suggestions...),
-			SuggestionCount: fact.ReviewerFeedback.SuggestionCount,
-		}
+			SuggestionCount: count,
+		}}
 	case runtime.TranscriptCommittedRowFactReviewerError:
-		if fact.ReviewerError == nil {
-			panic("runtime transcript Reviewer error row fact is missing its payload")
+		if fact.ReviewerError == nil || fact.StepID == nil {
+			return nil, fmt.Errorf("runtime transcript Reviewer error row fact is missing its payload or Step")
 		}
-		row.Kind = clientui.TranscriptRowReviewerError
-		row.ReviewerError = &clientui.TranscriptReviewerErrorRow{
-			ID:     fact.ReviewerError.ID,
-			StepID: mustRuntimeTranscriptStepID(fact.StepID, "committed Reviewer error row"),
+		row.Row = &transcriptpb.CommittedRow_ReviewerError{ReviewerError: &transcriptpb.ReviewerErrorRow{
+			Id:     fact.ReviewerError.ID.String(),
+			StepId: *fact.StepID,
 			Detail: fact.ReviewerError.Detail,
-		}
+		}}
 	default:
-		panic(fmt.Sprintf("runtime transcript row fact has unknown kind %q", fact.Kind))
+		return nil, fmt.Errorf("runtime transcript row fact has unknown kind %q", fact.Kind)
 	}
-	return row
+	return row, nil
 }
 
-func transcriptQuestionAnswerFromRuntime(answer *tools.AskQuestionAnswer) *clientui.TranscriptQuestionAnswer {
+func transcriptQuestionAnswerFromRuntime(answer *tools.AskQuestionAnswer) (*promptpb.QuestionAnswer, error) {
 	if answer == nil {
-		return nil
+		return nil, nil
 	}
-	return &clientui.TranscriptQuestionAnswer{
-		SelectedOptionNumber: textutil.Pointer(answer.SelectedOptionNumber),
-		Freeform:             textutil.Pointer(answer.Freeform),
+	result := &promptpb.QuestionAnswer{
+		Freeform: textutil.Pointer(answer.Freeform),
 	}
+	if answer.SelectedOptionNumber != nil {
+		number, err := protoapi.Int32(*answer.SelectedOptionNumber, "selected option number")
+		if err != nil {
+			return nil, err
+		}
+		result.SelectedOptionNumber = &number
+	}
+	return result, nil
 }
 
-func transcriptReasoningTraceIdentityFromRuntime(identity *runtime.TranscriptReasoningTraceIdentity) *clientui.TranscriptReasoningTraceIdentity {
+func transcriptReasoningTraceIdentityFromRuntime(identity *runtime.TranscriptReasoningTraceIdentity) (*transcriptpb.ReasoningTraceIdentity, error) {
 	if identity == nil {
-		return nil
+		return nil, nil
 	}
-	projected := transcriptReasoningTraceIdentityProjection(identity, "runtime reasoning trace identity")
-	return &projected
+	return transcriptReasoningTraceIdentityProjection(identity, "runtime reasoning trace identity")
 }
 
-func transcriptReasoningTraceIdentityProjection(identity *runtime.TranscriptReasoningTraceIdentity, context string) clientui.TranscriptReasoningTraceIdentity {
-	if identity == nil {
-		panic(fmt.Sprintf("%s has no public identity", context))
+func transcriptReasoningTraceIdentityProjection(identity *runtime.TranscriptReasoningTraceIdentity, context string) (*transcriptpb.ReasoningTraceIdentity, error) {
+	if identity == nil || (identity.Provider == nil) == (identity.Kent == nil) {
+		return nil, fmt.Errorf("%s requires exactly one public identity", context)
 	}
-	projected := clientui.TranscriptReasoningTraceIdentity{}
+	projected := &transcriptpb.ReasoningTraceIdentity{}
 	switch {
 	case identity.Provider != nil:
-		projected.Provider = &clientui.TranscriptProviderReasoningTraceIdentity{
-			ItemID:       identity.Provider.ItemID,
+		projected.Identity = &transcriptpb.ReasoningTraceIdentity_Provider{Provider: &transcriptpb.ProviderReasoningTraceIdentity{
+			ItemId:       identity.Provider.ItemID,
 			SummaryIndex: textutil.Pointer(identity.Provider.PartIndex),
-		}
+		}}
 	case identity.Kent != nil:
-		projected.Kent = identity.Kent
-	default:
-		panic(fmt.Sprintf("%s has no public identity", context))
+		projected.Identity = &transcriptpb.ReasoningTraceIdentity_KentTraceId{KentTraceId: identity.Kent.String()}
 	}
-	return projected
+	return projected, protoapi.Validate(projected)
 }
 
-func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowFact) *clientui.TranscriptNoticeRow {
+func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowFact) (*transcriptpb.NoticeRow, error) {
 	if fact == nil {
-		panic("runtime transcript notice row fact is missing its notice payload")
+		return nil, fmt.Errorf("runtime transcript notice row fact is missing its notice payload")
 	}
-	notice := &clientui.TranscriptNoticeRow{
-		Reason:         clientui.TranscriptNoticeReason(strings.TrimSpace(fact.Reason)),
-		Severity:       clientui.TranscriptNoticeSeverity(strings.TrimSpace(fact.Severity)),
+	reasons := map[string]transcriptpb.NoticeReason{
+		transcript.NoticeReasonCacheWarning:          transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
+		transcript.NoticeReasonCompaction:            transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
+		transcript.NoticeReasonLegacyUntypedNotice:   transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		transcript.NoticeReasonRuntimeDiagnostic:     transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
+		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
+		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+	}
+	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
+	if !ok {
+		return nil, fmt.Errorf("invalid notice reason %q", fact.Reason)
+	}
+	severities := map[string]transcriptpb.NoticeSeverity{
+		transcript.NoticeSeverityInfo:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
+		transcript.NoticeSeverityWarning: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING,
+		transcript.NoticeSeverityError:   transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
+	}
+	severity, ok := severities[strings.TrimSpace(fact.Severity)]
+	if !ok {
+		return nil, fmt.Errorf("invalid notice severity %q", fact.Severity)
+	}
+	worktree, err := transcriptWorktreeContext(fact.MessageType, fact.WorktreeContext)
+	if err != nil {
+		return nil, err
+	}
+	notice := &transcriptpb.NoticeRow{
+		Reason:         reason,
+		Severity:       severity,
+		StepId:         textutil.Pointer(stepID),
 		LegacyText:     optionalStringPointer(fact.LegacyText),
 		SourcePath:     textutil.OptionalTrimmedString(fact.SourcePath),
-		Worktree:       transcriptWorktreeContext(fact.MessageType, fact.WorktreeContext),
+		Worktree:       worktree,
 		CondensedText:  optionalNonBlankString(fact.CondensedText),
 		CompactLabel:   optionalNonBlankString(fact.CompactLabel),
 		ThinkingEffort: textutil.Pointer(fact.ThinkingEffort),
 	}
-	if stepID != nil {
-		parsed := mustRuntimeTranscriptStepID(stepID, "committed notice row")
-		notice.StepID = &parsed
-	}
 	if messageType := strings.TrimSpace(string(fact.MessageType)); messageType != "" {
-		typed := clientui.TranscriptMessageType(messageType)
+		typed, err := transcriptNoticeMessageType(llm.MessageType(messageType))
+		if err != nil {
+			return nil, err
+		}
 		notice.MessageType = &typed
 	}
 	if fact.NoticeID != nil {
-		value := clientui.NoticeID(strings.TrimSpace(*fact.NoticeID))
-		notice.NoticeID = &value
+		value := strings.TrimSpace(*fact.NoticeID)
+		notice.NoticeId = &value
 	}
 	if fact.CacheWarning != nil {
-		notice.CacheWarning = &clientui.TranscriptCacheWarning{
-			Scope:           strings.TrimSpace(fact.CacheWarning.Scope),
-			Reason:          strings.TrimSpace(fact.CacheWarning.Reason),
-			LostInputTokens: textutil.Pointer(fact.CacheWarning.LostInputTokens),
-			Visibility:      fact.CacheWarning.Visibility,
+		visibility, err := transcriptVisibility(fact.CacheWarning.Visibility)
+		if err != nil {
+			return nil, err
+		}
+		notice.CacheWarning = &transcriptpb.CacheWarning{
+			Scope:      strings.TrimSpace(fact.CacheWarning.Scope),
+			Reason:     strings.TrimSpace(fact.CacheWarning.Reason),
+			Visibility: visibility,
+		}
+		if fact.CacheWarning.LostInputTokens != nil {
+			count, err := protoapi.Int32(*fact.CacheWarning.LostInputTokens, "lost input tokens")
+			if err != nil {
+				return nil, err
+			}
+			notice.CacheWarning.LostInputTokens = &count
 		}
 	}
 	if fact.Compaction != nil {
-		notice.Compaction = &clientui.TranscriptCompactionNotice{
-			Count:  textutil.Pointer(fact.Compaction.Count),
+		notice.Compaction = &transcriptpb.CompactionNotice{
 			Detail: optionalStringPointer(fact.Compaction.Detail),
+		}
+		if fact.Compaction.Count != nil {
+			count, err := protoapi.Int32(*fact.Compaction.Count, "compaction count")
+			if err != nil {
+				return nil, err
+			}
+			notice.Compaction.Count = &count
 		}
 	}
 	if fact.ToolOutputRepair != nil {
-		notice.ToolOutputRepair = textutil.Pointer(fact.ToolOutputRepair)
+		count, err := protoapi.Int32(fact.ToolOutputRepair.Count, "repaired output count")
+		if err != nil {
+			return nil, err
+		}
+		notice.ToolOutputRepair = &transcriptpb.ToolOutputRepair{Kind: string(fact.ToolOutputRepair.Kind), Count: count}
 	}
 	if fact.ProviderModelMismatch != nil {
-		notice.ProviderModelMismatch = textutil.Pointer(fact.ProviderModelMismatch)
+		notice.ProviderModelMismatch = &transcriptpb.ProviderModelMismatch{
+			RequestedModel: fact.ProviderModelMismatch.RequestedModel, ServedModel: fact.ProviderModelMismatch.ServedModel,
+		}
 	}
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail
 	if diagnosticCode != "" || strings.TrimSpace(diagnosticDetail) != "" {
 		if diagnosticCode == "" || strings.TrimSpace(diagnosticDetail) == "" {
-			panic(fmt.Sprintf(
+			return nil, fmt.Errorf(
 				"runtime transcript notice has partial diagnostic facts: code=%q detail_present=%t reason=%q",
 				diagnosticCode,
 				diagnosticDetail != "",
 				fact.Reason,
-			))
+			)
 		}
-		notice.Diagnostic = &clientui.TranscriptDiagnostic{
-			Code:   clientui.TranscriptDiagnosticCode(diagnosticCode),
+		notice.Diagnostic = &transcriptpb.Diagnostic{
+			Code:   diagnosticCode,
 			Detail: diagnosticDetail,
 		}
 	}
@@ -886,59 +1125,65 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 	processID := strings.TrimSpace(fact.BackgroundProcessID)
 	if activityID != "" || processID != "" {
 		if activityID == "" || processID == "" {
-			panic(fmt.Sprintf(
+			return nil, fmt.Errorf(
 				"runtime transcript background notice has partial identity: activity_id=%q process_id=%q",
 				activityID,
 				processID,
-			))
+			)
 		}
-		notice.Background = &clientui.TranscriptBackgroundNoticeIdentity{
-			ActivityID: mustTranscriptBackgroundActivityID(activityID, "committed background notice"),
-			ProcessID:  clientui.ProcessID(processID),
-			ExitCode:   textutil.Pointer(fact.BackgroundExitCode),
+		notice.Background = &transcriptpb.BackgroundNoticeIdentity{
+			ActivityId: activityID,
+			ProcessId:  processID,
+		}
+		if fact.BackgroundExitCode != nil {
+			exitCode, err := protoapi.Int32(*fact.BackgroundExitCode, "background exit code")
+			if err != nil {
+				return nil, err
+			}
+			notice.Background.ExitCode = &exitCode
 		}
 	}
-	return notice
+	return notice, nil
 }
 
-func transcriptWorktreeContext(messageType llm.MessageType, context *session.WorktreeContext) *clientui.TranscriptWorktreeContext {
+func transcriptWorktreeContext(messageType llm.MessageType, context *session.WorktreeContext) (*transcriptpb.WorktreeContext, error) {
 	if context == nil {
-		return nil
+		return nil, nil
 	}
-	mode := session.WorktreeReminderMode("")
+	var mode session.WorktreeReminderMode
 	switch messageType {
 	case llm.MessageTypeWorktreeMode:
 		mode = session.WorktreeReminderModeEnter
 	case llm.MessageTypeWorktreeModeExit:
 		mode = session.WorktreeReminderModeExit
 	default:
-		panic(fmt.Sprintf("worktree transcript context has non-worktree message type %q", messageType))
+		return nil, fmt.Errorf("worktree transcript context has non-worktree message type %q", messageType)
 	}
 	state, err := session.NormalizeWorktreeReminderState(session.WorktreeReminderState{
 		Mode:            mode,
 		WorktreeContext: *session.CloneWorktreeContext(context),
 	})
 	if err != nil {
-		panic(fmt.Sprintf("project worktree transcript context: message_type=%q context=%+v: %v", messageType, context, err))
+		return nil, fmt.Errorf("project worktree transcript context: message_type=%q context=%+v: %w", messageType, context, err)
 	}
-	return &clientui.TranscriptWorktreeContext{
+	return &transcriptpb.WorktreeContext{
 		Branch:        textutil.Pointer(state.Branch),
 		WorktreePath:  strings.TrimSpace(state.WorktreePath),
 		WorkspaceRoot: strings.TrimSpace(state.WorkspaceRoot),
 		EffectiveCwd:  strings.TrimSpace(state.EffectiveCwd),
-	}
+	}, nil
 }
 
-func transcriptAssistantAbortReason(reason string) clientui.AssistantStreamAbortReason {
+func transcriptAssistantAbortReason(reason string) (transcriptpb.AssistantAbortReason, error) {
 	switch strings.TrimSpace(reason) {
 	case string(runtime.AssistantStreamAbortSuperseded):
-		return clientui.AssistantStreamAbortSuperseded
+		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_SUPERSEDED, nil
 	case "interrupted", "canceled":
-		return clientui.AssistantStreamAbortInterrupted
+		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED, nil
 	case "failed":
-		return clientui.AssistantStreamAbortFailed
+		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_FAILED, nil
 	default:
-		panic(fmt.Sprintf("runtime assistant stream abort has unknown reason %q", reason))
+		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_UNSPECIFIED, fmt.Errorf("runtime assistant stream abort has unknown reason %q", reason)
 	}
 }
 
@@ -954,70 +1199,4 @@ func optionalStringPointer(value *string) *string {
 		return nil
 	}
 	return optionalNonBlankString(*value)
-}
-
-func mustTranscriptSessionID(raw string, owner string) runtimeids.SessionID {
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(raw))
-	if err != nil {
-		panic(fmt.Sprintf("%s has invalid session id %q: %v", owner, raw, err))
-	}
-	return id
-}
-
-func mustTranscriptRunID(raw string, owner string) runtimeids.RunID {
-	id, err := runtimeids.ParseRunID(strings.TrimSpace(raw))
-	if err != nil {
-		panic(fmt.Sprintf("%s has invalid run id %q: %v", owner, raw, err))
-	}
-	return id
-}
-
-func mustTranscriptStepID(raw string, owner string) runtimeids.StepID {
-	id, err := runtimeids.ParseStepID(strings.TrimSpace(raw))
-	if err != nil {
-		panic(fmt.Sprintf("%s has invalid step id %q: %v", owner, raw, err))
-	}
-	return id
-}
-
-func mustRuntimeTranscriptStepID(raw *string, owner string) runtimeids.StepID {
-	if raw == nil {
-		panic(fmt.Sprintf("%s is missing its step id", owner))
-	}
-	return mustTranscriptStepID(*raw, owner)
-}
-
-func optionalRuntimeTranscriptStepID(raw *string, owner string) *runtimeids.StepID {
-	if raw == nil {
-		return nil
-	}
-	stepID := mustTranscriptStepID(*raw, owner)
-	return &stepID
-}
-
-func mustTranscriptAssistantStreamID(raw *uuid.UUID, owner string) runtimeids.AssistantStreamID {
-	if raw == nil {
-		panic(fmt.Sprintf("%s is missing its assistant stream id", owner))
-	}
-	id, err := runtimeids.ParseAssistantStreamID(raw.String())
-	if err != nil {
-		panic(fmt.Sprintf("%s has invalid assistant stream id %q: %v", owner, raw.String(), err))
-	}
-	return id
-}
-
-func mustTranscriptQueueItemID(raw string, owner string) runtimeids.QueueItemID {
-	id, err := runtimeids.ParseQueueItemID(strings.TrimSpace(raw))
-	if err != nil {
-		panic(fmt.Sprintf("%s has invalid queue item id %q: %v", owner, raw, err))
-	}
-	return id
-}
-
-func mustTranscriptBackgroundActivityID(raw string, owner string) runtimeids.BackgroundActivityID {
-	id, err := runtimeids.ParseBackgroundActivityID(strings.TrimSpace(raw))
-	if err != nil {
-		panic(fmt.Sprintf("%s has invalid background activity id %q: %v", owner, raw, err))
-	}
-	return id
 }

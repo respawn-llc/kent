@@ -4,7 +4,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
 // ResolvePolicy is the sole authority for the effective Context window,
@@ -39,9 +39,9 @@ func ApplyPolicy(settings config.Settings, policy Policy) config.Settings {
 	settings.ModelContextWindow = int(policy.ContextWindowTokens)
 	settings.ContextCompactionThresholdTokens = int(policy.AutomaticThresholdTokens)
 	switch policy.CompactionMode {
-	case serverapi.ChatContextCompactionModeDisabled:
+	case contextpb.CompactionMode_COMPACTION_MODE_DISABLED:
 		settings.CompactionMode = config.CompactionModeNone
-	case serverapi.ChatContextCompactionModeProviderNative:
+	case contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE:
 		settings.CompactionMode = config.CompactionModeNative
 	default:
 		settings.CompactionMode = config.CompactionModeLocal
@@ -52,21 +52,21 @@ func ApplyPolicy(settings config.Settings, policy Policy) config.Settings {
 func effectiveCompactionMode(
 	configured config.CompactionMode,
 	capabilities llm.ProviderCapabilities,
-) serverapi.ChatContextCompactionMode {
+) contextpb.CompactionMode {
 	switch configured {
 	case config.CompactionModeNone:
-		return serverapi.ChatContextCompactionModeDisabled
+		return contextpb.CompactionMode_COMPACTION_MODE_DISABLED
 	case config.CompactionModeLocal:
-		return serverapi.ChatContextCompactionModeLocal
+		return contextpb.CompactionMode_COMPACTION_MODE_LOCAL
 	case config.CompactionModeNative:
 		if capabilities.SupportsResponsesCompact {
-			return serverapi.ChatContextCompactionModeProviderNative
+			return contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE
 		}
-		return serverapi.ChatContextCompactionModeLocal
+		return contextpb.CompactionMode_COMPACTION_MODE_LOCAL
 	default:
 		if capabilities.SupportsResponsesCompact {
-			return serverapi.ChatContextCompactionModeProviderNative
+			return contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE
 		}
-		return serverapi.ChatContextCompactionModeLocal
+		return contextpb.CompactionMode_COMPACTION_MODE_LOCAL
 	}
 }

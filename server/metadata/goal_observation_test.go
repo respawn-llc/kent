@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"core/server/session"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/toolspec"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *testing.T) {
@@ -33,8 +34,8 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), serverapi.GoalObserveRequest{
-		SessionID: sessionStore.Meta().SessionID,
+	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
+		SessionId: sessionStore.Meta().SessionID,
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)
@@ -44,7 +45,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 		t.Fatalf("read hydration: %v", err)
 	}
 	if hydration.Sequence != 1 ||
-		hydration.Kind != clientui.GoalObservationHydration ||
+		hydration.Kind != runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_HYDRATION ||
 		hydration.Status.Goal != nil ||
 		hydration.Status.Availability == nil {
 		t.Fatalf("hydration = %+v", hydration)
@@ -59,9 +60,9 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 		t.Fatalf("read update: %v", err)
 	}
 	if update.Sequence != 2 ||
-		update.Kind != clientui.GoalObservationUpdate ||
+		update.Kind != runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_UPDATE ||
 		update.Status.Goal == nil ||
-		update.Status.Goal.ID != goal.ID {
+		update.Status.Goal.Id != goal.ID {
 		t.Fatalf("update = %+v, want Goal %q", update, goal.ID)
 	}
 	if err := sessionStore.SetName("unrelated metadata"); err != nil {
@@ -105,8 +106,8 @@ func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), serverapi.GoalObserveRequest{
-		SessionID: sessionStore.Meta().SessionID,
+	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
+		SessionId: sessionStore.Meta().SessionID,
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)
@@ -127,22 +128,22 @@ func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 	}
 	if update.Status.Goal != nil ||
 		update.Status.Availability == nil ||
-		*update.Status.Availability != clientui.GoalAvailabilityAgentCapabilityMissing {
+		*update.Status.Availability != runtimepb.GoalAvailability_GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING {
 		t.Fatalf("availability-only update = %+v", update)
 	}
 }
 
 func TestGoalObservationAllowsACommitBetweenHydrationReadAndRegistrationToBeMissed(t *testing.T) {
 	broker := newGoalObservationBroker()
-	availability := clientui.GoalAvailabilityAvailable
-	stale := clientui.GoalProjection{Availability: &availability}
-	current := clientui.GoalProjection{
-		Goal: &clientui.Goal{
-			ID:        "goal-1",
+	availability := runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE
+	stale := &runtimepb.GoalProjection{Availability: &availability}
+	current := &runtimepb.GoalProjection{
+		Goal: &runtimepb.Goal{
+			Id:        "goal-1",
 			Objective: "newer commit",
-			Status:    clientui.RuntimeGoalStatusActive,
-			CreatedAt: testGoalObservationTime,
-			UpdatedAt: testGoalObservationTime,
+			Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+			CreatedAt: timestamppb.New(testGoalObservationTime),
+			UpdatedAt: timestamppb.New(testGoalObservationTime),
 		},
 		Availability: &availability,
 	}

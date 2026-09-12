@@ -9,6 +9,7 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -28,15 +29,15 @@ type RuntimeOpeningService interface {
 type RuntimeAdmissionService interface {
 	AdmitChatUserTurn(
 		context.Context,
-		serverapi.RuntimeSubmitUserTurnRequest,
+		*runtimepb.SubmitUserTurnRequest,
 	) (serverapi.ChatInputAdmissionResult, error)
 	AdmitChatQueuedUserInput(
 		context.Context,
-		serverapi.RuntimeSubmitUserTurnRequest,
+		*runtimepb.SubmitUserTurnRequest,
 	) (serverapi.ChatInputAdmissionResult, error)
 	AdmitManualCompaction(
 		context.Context,
-		serverapi.RuntimeCompactContextRequest,
+		*runtimepb.CompactContextRequest,
 	) (bool, error)
 }
 
@@ -135,10 +136,10 @@ func (s *Service) compact(
 		), nil
 	}
 	requestID := runtimeids.NewCompactionRequestID()
-	accepted, admissionErr := s.admissions.AdmitManualCompaction(ctx, serverapi.RuntimeCompactContextRequest{
-		SessionID: target.SessionID.String(),
-		RequestID: requestID,
-		Admission: admission,
+	accepted, admissionErr := s.admissions.AdmitManualCompaction(ctx, &runtimepb.CompactContextRequest{
+		SessionId: target.SessionID.String(),
+		RequestId: requestID.String(),
+		Admission: protoapi.ManualCompactionAdmissionToProto(admission),
 	})
 	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
 	if accepted {
@@ -193,6 +194,10 @@ func (s *Service) mutateInput(
 	if err != nil {
 		return nil, err
 	}
+	generatedInput, err := protoapi.UserTurnInputToProto(input)
+	if err != nil {
+		return nil, err
+	}
 	target, attachment, err := s.prepareRuntime(scope, targetRequest, draft)
 	if err != nil {
 		if target.SessionID.IsZero() {
@@ -210,9 +215,9 @@ func (s *Service) mutateInput(
 			errors.Join(errors.New("user-turn admission service is required"), releaseErr),
 		), nil
 	}
-	admissionResult, admissionErr := s.admitInput(ctx, operation, serverapi.RuntimeSubmitUserTurnRequest{
-		SessionID: target.SessionID.String(),
-		Input:     input,
+	admissionResult, admissionErr := s.admitInput(ctx, operation, &runtimepb.SubmitUserTurnRequest{
+		SessionId: target.SessionID.String(),
+		Input:     generatedInput,
 	})
 	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
 	if admissionResult.Accepted {
@@ -331,7 +336,7 @@ func (s *Service) prepareRuntime(
 func (s *Service) admitInput(
 	ctx context.Context,
 	operation inputMutationOperation,
-	request serverapi.RuntimeSubmitUserTurnRequest,
+	request *runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	switch operation {
 	case inputMutationSteer:

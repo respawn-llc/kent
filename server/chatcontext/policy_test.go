@@ -6,7 +6,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
 func TestResolvePolicyUsesUnlockedFinalSettings(t *testing.T) {
@@ -21,7 +21,7 @@ func TestResolvePolicyUsesUnlockedFinalSettings(t *testing.T) {
 	want := Policy{
 		ContextWindowTokens:      200_000,
 		AutomaticThresholdTokens: 180_000,
-		CompactionMode:           serverapi.ChatContextCompactionModeProviderNative,
+		CompactionMode:           contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE,
 	}
 	if got != want {
 		t.Fatalf("ResolvePolicy() = %+v, want %+v", got, want)
@@ -48,7 +48,7 @@ func TestResolvePolicyUsesCurrentBudgetAndPreservesProviderCapabilities(t *testi
 
 	if got.ContextWindowTokens != 300_000 ||
 		got.AutomaticThresholdTokens != 250_000 ||
-		got.CompactionMode != serverapi.ChatContextCompactionModeLocal {
+		got.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_LOCAL {
 		t.Fatalf("ResolvePolicy() = %+v, want current budget and preserved provider capabilities", got)
 	}
 }
@@ -59,12 +59,12 @@ func TestResolvePolicyCompactionModes(t *testing.T) {
 		name     string
 		mode     config.CompactionMode
 		supports bool
-		want     serverapi.ChatContextCompactionMode
+		want     contextpb.CompactionMode
 	}{
-		{name: "disabled", mode: config.CompactionModeNone, supports: true, want: serverapi.ChatContextCompactionModeDisabled},
-		{name: "local", mode: config.CompactionModeLocal, supports: true, want: serverapi.ChatContextCompactionModeLocal},
-		{name: "provider native", mode: config.CompactionModeNative, supports: true, want: serverapi.ChatContextCompactionModeProviderNative},
-		{name: "unsupported native falls back locally", mode: config.CompactionModeNative, supports: false, want: serverapi.ChatContextCompactionModeLocal},
+		{name: "disabled", mode: config.CompactionModeNone, supports: true, want: contextpb.CompactionMode_COMPACTION_MODE_DISABLED},
+		{name: "local", mode: config.CompactionModeLocal, supports: true, want: contextpb.CompactionMode_COMPACTION_MODE_LOCAL},
+		{name: "provider native", mode: config.CompactionModeNative, supports: true, want: contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE},
+		{name: "unsupported native falls back locally", mode: config.CompactionModeNative, supports: false, want: contextpb.CompactionMode_COMPACTION_MODE_LOCAL},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

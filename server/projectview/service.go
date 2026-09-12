@@ -153,7 +153,7 @@ func (s *Service) ResolveProjectPath(ctx context.Context, req *projectpb.Resolve
 	}
 	resp := &projectpb.ResolvePathSuccess{CanonicalRoot: canonicalRoot, PathAvailability: availability}
 	if binding != nil {
-		resp.Binding, err = projectBindingToGenerated(*binding)
+		resp.Binding, err = BindingToProto(*binding)
 		if err != nil {
 			return nil, err
 		}

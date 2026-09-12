@@ -32,7 +32,7 @@ func registerWorktreeGatewayBinaryBindings(bindings map[string]gatewayBinaryBind
 		registerWorktreeUnary(bindings, list, "List", func() *worktreepb.ListRequest { return &worktreepb.ListRequest{} },
 			worktreeSessionScope[*worktreepb.ListRequest], apicontract.WorktreeService.ListWorktrees, worktreePlatformFailure[*worktreepb.ListRequest]),
 		registerWorktreeUnary(bindings, list, "ListWorkspace", func() *worktreepb.WorkspaceListRequest { return &worktreepb.WorkspaceListRequest{} },
-			worktreeWorkspaceScope, apicontract.WorktreeService.ListWorkspaceWorktrees, worktreeWorkspaceListFailure),
+			worktreeWorkspaceScope, apicontract.WorktreeService.ListWorkspaceWorktrees, worktreePlatformFailure[*worktreepb.WorkspaceListRequest]),
 		registerWorktreeUnary(bindings, selector, "Resolve", func() *worktreepb.SelectorResolveRequest { return &worktreepb.SelectorResolveRequest{} },
 			worktreeSessionScope[*worktreepb.SelectorResolveRequest], apicontract.WorktreeService.ResolveWorktreeSelector, worktreeSelectorFailure[*worktreepb.SelectorResolveRequest]),
 		registerWorktreeUnary(bindings, deletePreview, "Get", func() *worktreepb.DeletePreviewRequest { return &worktreepb.DeletePreviewRequest{} },
@@ -143,7 +143,18 @@ func registerWorktreeUnary[
 			}
 			return invoke(client, ctx, request)
 		},
-		func(_ *Gateway, _ *connectionState, request Request, err error) proto.Message {
+		func(g *Gateway, state *connectionState, request Request, err error) proto.Message {
+			if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+				if details := worktreeManagementSelectionFailure(request, err); details != nil {
+					return details
+				}
+				details := binaryWorkspaceNotRegisteredDetails(g, state, err)
+				if workspaceRequest, ok := proto.Message(request).(*worktreepb.WorkspaceListRequest); ok {
+					details.ProjectId = proto.String(workspaceRequest.ProjectId)
+					details.WorkspaceId = proto.String(workspaceRequest.WorkspaceId)
+				}
+				return details
+			}
 			return failure(request, err)
 		},
 		validationFailure...,
@@ -198,16 +209,6 @@ func worktreeManagementSelectionFailure(request proto.Message, err error) proto.
 		return &projectpb.WorkspaceNotRegisteredDetails{ProjectId: proto.String(target.ProjectId), WorkspaceId: proto.String(target.WorkspaceId)}
 	}
 	return nil
-}
-
-func worktreeWorkspaceListFailure(request *worktreepb.WorkspaceListRequest, err error) proto.Message {
-	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) && request != nil {
-		return &projectpb.WorkspaceNotRegisteredDetails{
-			ProjectId:   proto.String(request.ProjectId),
-			WorkspaceId: proto.String(request.WorkspaceId),
-		}
-	}
-	return worktreePlatformFailure(request, err)
 }
 
 func worktreeSelectorFailure[Request proto.Message](request Request, err error) proto.Message {

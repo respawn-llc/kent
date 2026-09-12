@@ -233,7 +233,7 @@ message SessionExecutionWorktreeTarget {
 }
 
 message SessionExecutionTarget {
-  string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_root = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   kent.api.project.ProjectAvailability workspace_availability = 4 [(buf.validate.field).enum = {
@@ -414,6 +414,10 @@ message StatusError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -468,6 +472,10 @@ message ListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -572,6 +580,10 @@ message SelectorResolveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -887,6 +899,10 @@ message EnterError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     SelectorErrorDetails selector_error = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "selector_error"
@@ -924,6 +940,10 @@ message LeaveError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.project.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"

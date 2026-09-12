@@ -38,7 +38,6 @@ import type {
   DescriptorSubscriptionInput,
   AttachedProjectDescriptorCall,
   AttachedProjectCall,
-  ChatSubscriptionInput,
   RpcDedicatedCallOptions,
   RpcEventHandler,
   RpcSubscription,
@@ -168,19 +167,19 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     );
   }
 
-  async callAttachedSession(
+  async callDescriptorAttachedSession<Method extends DescMethod>(
     sessionID: string,
-    method: string,
-    params: JsonValue,
+    method: Method,
+    request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<unknown> {
+  ): Promise<MessageShape<Method["output"]>> {
     const attachedSessionID = sessionID.trim();
     if (attachedSessionID.length === 0) {
       throw new TransportError("Session attachment requires a Session ID.");
     }
     return this.#withDedicatedSocket(
       options,
-      async (socket, requestOptions) => sendSocketRequest(socket, method, params, requestOptions),
+      async (socket, requestOptions) => sendSocketDescriptorRequest(socket, method, request, requestOptions),
       { sessionID: attachedSessionID },
     );
   }
@@ -260,33 +259,10 @@ class JsonRpcWebSocketTransport implements RpcTransport {
         }),
       handler.onError,
       controller.signal,
+      input.attachment,
     );
     return {
       close: () => {
-        controller.abort();
-      },
-    };
-  }
-
-  subscribeChatSession(input: ChatSubscriptionInput): RpcSubscription {
-    const { projectID, sessionID, method, params, handler, establishmentTimeoutMs } = input;
-    const controller = new AbortController();
-    void this.#openSubscription(
-      async (socket) =>
-        runJsonSubscription({
-          socket,
-          method,
-          params,
-          handler,
-          signal: controller.signal,
-          ...(establishmentTimeoutMs === undefined ? {} : { establishmentTimeoutMs }),
-        }),
-      handler.onError,
-      controller.signal,
-      { projectID, sessionID },
-    );
-    return {
-      close() {
         controller.abort();
       },
     };

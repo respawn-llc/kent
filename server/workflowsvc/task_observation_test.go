@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"core/server/registry"
+	"core/server/tools"
 	"core/server/workflow"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
@@ -23,8 +25,8 @@ func TestNormalizeTaskObservationErrorClassifiesClosedEventStream(t *testing.T) 
 	}
 }
 
-type observationApprovalViewStub struct {
-	approvals []clientui.PendingApproval
+type observationPendingPromptSourceStub struct {
+	items []registry.PendingPromptSnapshot
 }
 
 type observationTaskDetailStub struct {
@@ -64,8 +66,8 @@ func (observationAttentionStub) ListTask(context.Context, serverapi.WorkflowTask
 	return serverapi.WorkflowTaskAttentionListResponse{}, nil
 }
 
-func (s observationApprovalViewStub) ListPendingApprovalsBySession(context.Context, serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-	return serverapi.ApprovalListPendingBySessionResponse{Approvals: s.approvals}, nil
+func (s observationPendingPromptSourceStub) ListPendingPrompts(string) []registry.PendingPromptSnapshot {
+	return append([]registry.PendingPromptSnapshot(nil), s.items...)
 }
 
 func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
@@ -144,7 +146,7 @@ func TestTaskCurrentNodeFailureUsesDefinitionIdentityAndDiagnostic(t *testing.T)
 	}
 }
 
-func TestTaskQuestionResolvesLiveAccessThroughAuthoritativeApprovalView(t *testing.T) {
+func TestTaskQuestionResolvesLiveAccessThroughAuthoritativePendingPromptSource(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
 	stepID, err := runtimeids.ParseStepID("55555555-5555-4555-8555-555555555555")
 	if err != nil {
@@ -154,13 +156,12 @@ func TestTaskQuestionResolvesLiveAccessThroughAuthoritativeApprovalView(t *testi
 	message := "Allow access?"
 	createdAt := time.UnixMilli(42).UTC()
 	service := &Service{readModels: ReadModels{
-		Approvals: observationApprovalViewStub{approvals: []clientui.PendingApproval{{
-			ToolCallID: clientui.ToolCallID(questionID),
-			SessionID:  sessionID,
-			StepID:     stepID,
-			Question:   message,
-			Options:    []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}},
-			CreatedAt:  createdAt,
+		PendingPrompts: observationPendingPromptSourceStub{items: []registry.PendingPromptSnapshot{{
+			Request: tools.AskQuestionRequest{
+				ToolCallID: questionID, StepID: stepID.String(), Question: message, Approval: true,
+				ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}},
+			},
+			CreatedAt: createdAt,
 		}}},
 	}}
 	item := serverapi.WorkflowAttentionItem{

@@ -11,8 +11,9 @@ import (
 	"core/server/promptcontrol"
 	"core/server/runtime"
 	"core/server/session"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -77,10 +78,10 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		if _, err := engine.SetGoalStatus(t.Context(), session.GoalStatusPaused, session.GoalActorUser); err != nil {
 			t.Fatal(err)
 		}
-		_, err = service.ResumeGoal(t.Context(), serverapi.RuntimeGoalStatusRequest{SessionID: sessionID.String(), Actor: "user"})
+		_, err = service.ResumeGoal(t.Context(), &runtimepb.GoalMutationRequest{SessionId: sessionID.String(), Actor: "user"})
 	} else {
-		_, err = service.SetGoal(t.Context(), serverapi.RuntimeGoalSetRequest{
-			SessionID: sessionID.String(), Objective: "ask before proceeding", Actor: "user",
+		_, err = service.SetGoal(t.Context(), &runtimepb.GoalSetRequest{
+			SessionId: sessionID.String(), Objective: "ask before proceeding", Actor: "user",
 		})
 	}
 	if err != nil {
@@ -98,7 +99,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 	select {
 	case <-prompts.pending:
 	case <-time.After(time.Second):
-		stopped, err := service.LiveStop(t.Context(), serverapi.RuntimeLiveStopRequest{SessionID: store.Meta().SessionID})
+		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: store.Meta().SessionID})
 		t.Fatalf("model asked a Question but it never reached the Session prompt owner; stop=%+v error=%v", stopped, err)
 	}
 	execution, ok := service.authority.SessionExecution(sessionID)
@@ -115,40 +116,36 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		answer := serverapi.DeclinedPromptAnswer()
+		entry := &promptpb.AnswerBatchEntry{ToolCallId: "goal-question", Answer: &promptpb.AnswerBatchEntry_Declined{Declined: &promptpb.Declined{}}}
 		if action == goalQuestionAnswer {
-			answer = serverapi.QuestionPromptAnswer(serverapi.PromptQuestionAnswer{Freeform: textutil.Value("proceed")})
+			entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{Freeform: textutil.Value("proceed")}}
 		}
-		entry, err := serverapi.PromptAnswerBatchEntryFrom("goal-question", answer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := promptcontrol.NewPromptControlService(service.authority).AnswerPromptBatch(t.Context(), serverapi.PromptAnswerBatchRequest{
-			SessionID: sessionID, StepID: stepID, Entries: []serverapi.PromptAnswerBatchEntry{entry},
+		response, err := promptcontrol.NewPromptControlService(service.authority).AnswerPromptBatch(t.Context(), &promptpb.AnswerBatchRequest{
+			SessionId: sessionID.String(), StepId: stepID.String(), Entries: []*promptpb.AnswerBatchEntry{entry},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(response.Results) != 1 || response.Results[0].Outcome != serverapi.PromptAnswerBatchOutcomeResolved {
+		if len(response.Results) != 1 || response.Results[0].Outcome != promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED {
 			t.Fatalf("resolve Goal Question = %+v", response)
 		}
 		// The model must actually continue, not merely acknowledge delivery.
 		nextSteeringExchange(t, client)
 	case goalQuestionInterrupt:
-		if _, err := service.Interrupt(t.Context(), serverapi.RuntimeInterruptRequest{SessionID: sessionID.String()}); err != nil {
+		if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: sessionID.String()}); err != nil {
 			t.Fatal(err)
 		}
 	case goalQuestionStop:
-		stopped, err := service.LiveStop(t.Context(), serverapi.RuntimeLiveStopRequest{SessionID: sessionID.String()})
+		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if stopped.Status != serverapi.RuntimeLiveStopStatusStopped {
+		if stopped.Status != runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED {
 			t.Fatalf("stop waiting Question = %+v", stopped)
 		}
 	}
 	if action == goalQuestionAnswer || action == goalQuestionDecline {
-		if _, err := service.LiveStop(t.Context(), serverapi.RuntimeLiveStopRequest{SessionID: sessionID.String()}); err != nil {
+		if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -165,7 +162,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		t.Fatal(err)
 	}
 	nextSteeringExchange(t, client)
-	if _, err := service.LiveStop(t.Context(), serverapi.RuntimeLiveStopRequest{SessionID: sessionID.String()}); err != nil {
+	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()}); err != nil {
 		t.Fatal(err)
 	}
 }

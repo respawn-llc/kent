@@ -1,5 +1,7 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 import (
 	"context"
 	"errors"
@@ -11,7 +13,7 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	"core/shared/serverapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -104,7 +106,7 @@ type workspaceChangePromptModel struct {
 	result       workspaceChangePromptResult
 }
 
-func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget clientui.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
+func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("session server is required")
 	}
@@ -112,7 +114,7 @@ func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server session
 		return sessionWorkspaceChangeProceed, errors.New("session id is required")
 	}
 	executionTarget = clientui.NormalizeSessionExecutionTarget(executionTarget)
-	if executionTarget.WorkspaceAvailability != clientui.ProjectAvailabilityAvailable {
+	if executionTarget.GetWorkspaceAvailability() != projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE {
 		return sessionWorkspaceChangeProceed, nil
 	}
 	contextProvider, ok := server.(sessionWorkspaceRetargetContextProvider)
@@ -159,7 +161,7 @@ func retargetInteractiveSessionWorkspace(ctx context.Context, server sessionLife
 	if trimmedWorkspaceRoot == "" {
 		return errors.New("workspace root is required")
 	}
-	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, serverapi.SessionRetargetWorkspaceRequest{SessionID: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
+	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
 	return err
 }
 

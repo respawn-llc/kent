@@ -1,12 +1,12 @@
 package app
 
 import (
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	"reflect"
 	"testing"
 	"time"
-
-	"core/shared/clientui"
-	"core/shared/runtimeids"
-	"core/shared/transcript"
 )
 
 func TestFrameAnimationClockUsesElapsedFrameBoundaries(t *testing.T) {
@@ -76,18 +76,14 @@ func TestTranscriptRuntimeProgressStartsAndRearmsSpinner(t *testing.T) {
 	})
 
 	m := newAnimationTranscriptModel(t)
-	running := ongoingTranscriptMessage(2, clientui.TranscriptMessageRuntimeReadModelUpdate)
-	runningPayload := running.Payload().(clientui.RuntimeReadModelUpdate)
-	runningPayload.Activity = clientui.RuntimeActivity{
-		State:    clientui.RuntimeActivityRunning,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			RunID:      ongoingTestRunID(),
-			StepID:     ongoingTestStepID(),
-			ActiveKind: clientui.RuntimeActivityActiveKindUserTurn,
-		},
-	}
-	running = clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(runningPayload))
+	running := ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_RuntimeReadModelUpdate]())
+	runningPayload := running.GetEvent().GetRuntimeReadModelUpdate()
+	runningPayload.Activity = &runtimepb.Activity{
+		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{RunId: ongoingTestRunID().String(), StepId: ongoingTestStepID().String(),
+			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN}}
+	running = transcriptTestMessage(2, runningPayload)
 	next, cmd := m.Update(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: running})
 	updated := next.(*uiModel)
 	if !updated.isBusy() || updated.spinnerTickToken == 0 || updated.spinnerTickDue.IsZero() || cmd == nil {
@@ -120,7 +116,10 @@ func newAnimationTranscriptModel(t *testing.T) *uiModel {
 	t.Helper()
 	surface := &ongoingSurfaceSpy{}
 	m := newProjectedStaticUIModel()
-	runtimeClient := &sessionRuntimeClient{sessionID: ongoingTestSessionID().String()}
+	runtimeClient := newUIRuntimeClientWithReads(
+		ongoingTestSessionID().String(), &countingSessionViewClient{},
+		newUnavailableRuntimeControlService(), nil,
+	).(*sessionRuntimeClient)
 	m.ongoingTranscript = newOngoingTranscriptController(
 		surface,
 		m.ongoingFrameInput,
@@ -134,13 +133,9 @@ func newAnimationTranscriptModel(t *testing.T) *uiModel {
 	return next.(*uiModel)
 }
 
-func animationAssistantDeltaMessage(sequence uint64) clientui.TranscriptMessage {
+func animationAssistantDeltaMessage(sequence uint64) *transcriptpb.Message {
 	streamID := runtimeids.NewAssistantStreamID()
-	return clientui.NewTranscriptMessage(sequence, clientui.NewTranscriptEvent(clientui.TranscriptAssistantDelta{
-		StepID:   ongoingTestStepID(),
-		StreamID: streamID,
-		Delta:    "working",
-		Phase:    transcript.AssistantPhaseCommentary,
-	}))
-
+	return transcriptTestMessage(sequence, &transcriptpb.AssistantDelta{StepId: ongoingTestStepID().String(), StreamId: streamID.String(),
+		Delta: "working",
+		Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY})
 }

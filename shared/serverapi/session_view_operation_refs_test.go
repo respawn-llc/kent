@@ -1,43 +1,34 @@
-package serverapi
+package serverapi_test
 
 import (
-	"errors"
 	"testing"
+
+	"core/shared/protoapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
-func TestSessionMainViewRequestUsesSessionIdentityOnly(t *testing.T) {
-	req := SessionMainViewRequest{SessionID: "session-1"}
-	if err := req.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-}
-
-func TestSessionTranscriptPageRequestRejectsAmbiguousDirection(t *testing.T) {
-	cursor := int64(10)
-	newerCursor := int64(20)
-	req := SessionTranscriptPageRequest{
-		SessionID:   "session-1",
-		Cursor:      &cursor,
-		NewerCursor: &newerCursor,
-	}
-	if err := req.Validate(); !errors.Is(err, ErrTranscriptCursorDirectionAmbiguous) {
-		t.Fatalf("Validate error = %v, want ambiguous cursor direction", err)
-	}
-}
-
 func TestSessionTranscriptPageRequestRejectsZeroCursor(t *testing.T) {
-	cursor := int64(0)
-	req := SessionTranscriptPageRequest{SessionID: "session-1", Cursor: &cursor}
-	if err := req.Validate(); !errors.Is(err, ErrTranscriptCursorInvalid) {
-		t.Fatalf("Validate error = %v, want invalid cursor", err)
+	req := &transcriptpb.PageRequest{
+		SessionId: "session-1",
+		Direction: &transcriptpb.PageRequest_Cursor{Cursor: 0},
+	}
+	if err := protoapi.Validate(req); err == nil {
+		t.Fatal("accepted zero page cursor")
 	}
 }
 
-func TestSessionLatestCommittedAssistantFinalAnswerRequestRequiresSessionID(t *testing.T) {
-	if err := (SessionLatestCommittedAssistantFinalAnswerRequest{}).Validate(); !errors.Is(err, ErrSessionIDRequired) {
-		t.Fatalf("Validate error = %v, want ErrSessionIDRequired", err)
+func TestSessionReadRequestsRequireSessionIdentity(t *testing.T) {
+	if err := protoapi.Validate(&sessionpb.MainViewRequest{}); err == nil {
+		t.Fatal("accepted main view request without Session")
 	}
-	if err := (SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: "session-1"}).Validate(); err != nil {
-		t.Fatalf("Validate valid request: %v", err)
+	if err := protoapi.Validate(&sessionpb.ExecutionEnvironmentRequest{}); err == nil {
+		t.Fatal("accepted environment request without Session")
+	}
+	if err := protoapi.Validate(&transcriptpb.LatestFinalAnswerRequest{}); err == nil {
+		t.Fatal("accepted latest answer request without Session")
+	}
+	if err := protoapi.Validate(&transcriptpb.LatestFinalAnswerRequest{SessionId: "session-1"}); err != nil {
+		t.Fatal(err)
 	}
 }

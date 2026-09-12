@@ -12,11 +12,10 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/tools"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
-	"core/shared/transcript"
 )
 
 func TestSessionTranscriptSubscriptionContinuesAfterConcurrentLocalToolsWithoutStreamCollision(t *testing.T) {
@@ -98,7 +97,7 @@ func newStreamSubscriptionFixture(t *testing.T, client llm.Client, toolRegistry 
 	sub := subscribeTranscriptForTest(t, registry, engine.SessionID())
 	t.Cleanup(func() { _ = sub.Close() })
 	hydration := nextTranscriptMessage(t, sub)
-	if hydration.Sequence != 1 || hydration.Kind() != clientui.TranscriptMessageHydration {
+	if hydration.Sequence != 1 || hydration.Event.GetHydration() == nil {
 		t.Fatalf("initial message = %+v, want seq=1 hydration", hydration)
 	}
 	return &streamSubscriptionFixture{
@@ -155,21 +154,21 @@ func (f *streamSubscriptionFixture) assertSubscriptionOpen() {
 	}
 }
 
-func (f *streamSubscriptionFixture) freshCleanHydration() *clientui.TranscriptHydration {
+func (f *streamSubscriptionFixture) freshCleanHydration() *transcriptpb.Hydration {
 	f.t.Helper()
 	fresh := subscribeTranscriptForTest(f.t, f.registry, f.engine.SessionID())
 	defer func() { _ = fresh.Close() }()
 	message := nextTranscriptMessage(f.t, fresh)
-	hydration := message.Payload().(clientui.TranscriptHydration)
+	hydration := message.Event.GetHydration()
 	if hydration.ActiveAssistant != nil {
 		f.t.Fatalf("fresh hydration active stream = %+v, want none", hydration)
 	}
-	return &hydration
+	return hydration
 }
 
 type streamObservation struct {
 	position int
-	streamID runtimeids.AssistantStreamID
+	streamID string
 }
 
 type eventPosition struct {
@@ -188,7 +187,7 @@ type streamLifecycleRecorder struct {
 	toolCompletions map[string]*eventPosition
 }
 
-func (r *streamLifecycleRecorder) record(t *testing.T, message clientui.TranscriptMessage) {
+func (r *streamLifecycleRecorder) record(t *testing.T, message *transcriptpb.Message) {
 	t.Helper()
 	if message.Sequence <= r.lastSequence {
 		t.Fatalf("non-monotonic transcript sequence: previous=%d current=%d message=%+v", r.lastSequence, message.Sequence, message)
@@ -196,40 +195,40 @@ func (r *streamLifecycleRecorder) record(t *testing.T, message clientui.Transcri
 	r.lastSequence = message.Sequence
 	position := r.nextPosition
 	r.nextPosition++
-	switch message.Kind() {
-	case clientui.TranscriptMessageAssistantDelta:
-		payload := message.Payload().(clientui.TranscriptAssistantDelta)
-		observation := &streamObservation{position: position, streamID: payload.StreamID}
+	switch message.Event.Payload.(type) {
+	case *transcriptpb.Event_AssistantDelta:
+		payload := message.Event.GetAssistantDelta()
+		observation := &streamObservation{position: position, streamID: payload.StreamId}
 		switch payload.Phase {
-		case transcript.AssistantPhaseCommentary:
+		case transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY:
 			if r.initialDelta == nil {
 				r.initialDelta = observation
 			}
-		case transcript.AssistantPhaseFinal:
+		case transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL:
 			if r.resumedDelta == nil {
 				r.resumedDelta = observation
 			}
 		}
-	case clientui.TranscriptMessageAssistantStreamAbort:
-		payload := message.Payload().(clientui.TranscriptAssistantStreamAbort)
-		if payload.Reason == clientui.AssistantStreamAbortSuperseded {
-			r.abort = &streamObservation{position: position, streamID: payload.StreamID}
+	case *transcriptpb.Event_AssistantStreamAbort:
+		payload := message.Event.GetAssistantStreamAbort()
+		if payload.Reason == transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_SUPERSEDED {
+			r.abort = &streamObservation{position: position, streamID: payload.StreamId}
 		}
-	case clientui.TranscriptMessagePrompt:
-		payload := message.Payload().(clientui.TranscriptPrompt)
-		if payload.Status == clientui.TranscriptPromptStatusResolved {
+	case *transcriptpb.Event_Prompt:
+		payload := message.Event.GetPrompt()
+		if payload.Status == transcriptpb.PromptStatus_PROMPT_STATUS_RESOLVED {
 			r.promptResolved = &eventPosition{position: position}
 		}
-	case clientui.TranscriptMessageToolStart:
-		payload := message.Payload().(clientui.TranscriptToolStart)
-		r.toolStarts[string(payload.ToolCallID)] = &eventPosition{position: position}
-	case clientui.TranscriptMessageCommittedRow:
-		payload := message.Payload().(clientui.TranscriptCommittedRow)
-		if payload.Tool != nil {
-			r.toolCompletions[string(payload.Tool.ToolCallID)] = &eventPosition{position: position}
+	case *transcriptpb.Event_ToolStart:
+		payload := message.Event.GetToolStart()
+		r.toolStarts[payload.ToolCallId] = &eventPosition{position: position}
+	case *transcriptpb.Event_CommittedRow:
+		payload := message.Event.GetCommittedRow()
+		if tool := payload.GetTool(); tool != nil {
+			r.toolCompletions[tool.GetToolCallId()] = &eventPosition{position: position}
 		}
-		if payload.Assistant != nil && payload.Assistant.StreamID != nil {
-			r.finalAssistant = &streamObservation{position: position, streamID: *payload.Assistant.StreamID}
+		if assistant := payload.GetAssistant(); assistant != nil && assistant.StreamId != nil {
+			r.finalAssistant = &streamObservation{position: position, streamID: *assistant.StreamId}
 		}
 	}
 }
@@ -239,10 +238,10 @@ func (r streamLifecycleRecorder) assertCompleted(t *testing.T) {
 	if r.initialDelta == nil || r.abort == nil || r.resumedDelta == nil || r.finalAssistant == nil {
 		t.Fatalf("incomplete assistant lifecycle: %+v", r)
 	}
-	if r.initialDelta.streamID.IsZero() ||
-		r.resumedDelta.streamID.IsZero() ||
-		r.finalAssistant.streamID.IsZero() {
-		t.Fatalf("assistant stream identities are not UUID v4 values: initial:%s resumed:%s final:%s", r.initialDelta.streamID, r.resumedDelta.streamID, r.finalAssistant.streamID)
+	for _, id := range []string{r.initialDelta.streamID, r.resumedDelta.streamID, r.finalAssistant.streamID} {
+		if _, err := runtimeids.ParseAssistantStreamID(id); err != nil {
+			t.Fatalf("assistant stream identity %q is not UUID v4: %v", id, err)
+		}
 	}
 	if r.initialDelta.streamID != r.abort.streamID {
 		t.Fatalf("abort stream id = %s, want initial delta stream id %s", r.abort.streamID, r.initialDelta.streamID)
@@ -257,9 +256,9 @@ func (r streamLifecycleRecorder) assertCompleted(t *testing.T) {
 	}
 }
 
-func hydrationContainsAssistantStream(hydration *clientui.TranscriptHydration, streamID runtimeids.AssistantStreamID) bool {
+func hydrationContainsAssistantStream(hydration *transcriptpb.Hydration, streamID string) bool {
 	for _, row := range hydration.TailSegment.Entries {
-		if row.Assistant != nil && row.Assistant.StreamID != nil && *row.Assistant.StreamID == streamID {
+		if assistant := row.GetAssistant(); assistant != nil && assistant.StreamId != nil && *assistant.StreamId == streamID {
 			return true
 		}
 	}

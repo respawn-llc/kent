@@ -14,9 +14,10 @@ import (
 	"core/server/metadata"
 	"core/shared/config"
 	"core/shared/protoapi"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
-	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 )
 
@@ -24,13 +25,13 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 	t.Run("live steer", func(t *testing.T) {
 		runSecondClientLiveControlsActiveRun(t, "steered final answer", func(t *testing.T, appCore *Core, sessionID string) func() {
 			type result struct {
-				response serverapi.RuntimeLiveSteerResponse
+				response *runtimepb.LiveSteerSuccess
 				err      error
 			}
 			done := make(chan result, 1)
 			go func() {
-				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), serverapi.RuntimeLiveSteerRequest{
-					SessionID: sessionID,
+				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
+					SessionId: sessionID,
 					Text:      "steer me",
 				})
 				done <- result{response: response, err: err}
@@ -41,7 +42,7 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 					if result.err != nil {
 						t.Fatalf("LiveSteer during active run: %v", result.err)
 					}
-					if result.response.QueueItemID == "" {
+					if result.response.QueueItemId == "" {
 						t.Fatal("LiveSteer during active run returned no queue item id")
 					}
 				case <-time.After(5 * time.Second):
@@ -53,14 +54,14 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 	t.Run("runtime control submit user turn", func(t *testing.T) {
 		runSecondClientLiveControlsActiveRun(t, "steered final answer", func(t *testing.T, appCore *Core, sessionID string) func() {
 			type result struct {
-				response serverapi.RuntimeSubmitUserTurnResponse
+				response *runtimepb.SubmitUserTurnSuccess
 				err      error
 			}
 			done := make(chan result, 1)
 			go func() {
-				response, err := appCore.RuntimeControlClient().SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
-					SessionID: sessionID,
-					Input:     runtimeinput.Text("steer me"),
+				response, err := appCore.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+					SessionId: sessionID,
+					Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "steer me"}},
 				})
 				done <- result{response: response, err: err}
 			}()
@@ -70,7 +71,7 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 					if result.err != nil {
 						t.Fatalf("SubmitUserTurn during active run: %v", result.err)
 					}
-					if !result.response.Steered || result.response.QueueItemID == "" {
+					if queued := result.response.GetQueued(); queued == nil || !queued.Steered || queued.QueueItemId == "" {
 						t.Fatalf("SubmitUserTurn response = %+v, want steered queue item", result.response)
 					}
 				case <-time.After(5 * time.Second):
@@ -188,7 +189,7 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatalf("RunPromptClientForProjectWorkspace: %v", err)
 	}
 	runDone := make(chan error, 1)
-	runResult := make(chan serverapi.RunPromptResponse, 1)
+	runResult := make(chan *runpromptpb.Success, 1)
 	go func() {
 		resp, runErr := runClient.RunPrompt(context.Background(), serverapi.RunPromptRequest{
 			Intent: serverapi.OpenExistingSessionLaunchIntent(typedSessionID),
@@ -207,9 +208,9 @@ func runSecondClientLiveControlsActiveRun(
 	finishSteer := steer(t, appCore, sessionID)
 
 	waitDone := make(chan error, 1)
-	waitResult := make(chan serverapi.RuntimeLiveWaitResponse, 1)
+	waitResult := make(chan *runtimepb.LiveWaitSuccess, 1)
 	go func() {
-		resp, waitErr := appCore.RuntimeLiveControlClient().LiveWait(context.Background(), serverapi.RuntimeLiveWaitRequest{SessionID: sessionID})
+		resp, waitErr := appCore.RuntimeLiveControlClient().LiveWait(context.Background(), &runtimepb.LiveWaitRequest{SessionId: sessionID})
 		waitResult <- resp
 		waitDone <- waitErr
 	}()
@@ -242,7 +243,7 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatal("timed out waiting for LiveWait to finish")
 	}
 	waitResp := <-waitResult
-	if waitResp.Result == nil || *waitResp.Result != wantCurrentResult {
+	if waitResp.GetAssistantFinalAnswer() == nil || waitResp.GetAssistantFinalAnswer().Result != wantCurrentResult {
 		t.Fatalf("LiveWait result = %v, want %q", waitResp.Result, wantCurrentResult)
 	}
 	select {

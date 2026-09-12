@@ -21,12 +21,14 @@ import (
 	"core/server/session"
 	shelltool "core/server/tools/shell"
 	remoteclient "core/shared/client"
-	"core/shared/clientui"
 	"core/shared/config"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	processpb "core/shared/protoapi/gen/kent/api/process"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/runtimeinput"
-	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
@@ -165,8 +167,8 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		t.Fatalf("DialRemoteURLForProject: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	transcript, err := remote.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{
-		SessionID: movedSession.Meta().SessionID,
+	transcript, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
+		SessionId: movedSession.Meta().SessionID,
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -176,13 +178,13 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	if err != nil {
 		t.Fatalf("receive transcript hydration: %v", err)
 	}
-	if hydration.Kind() != clientui.TranscriptMessageHydration {
-		t.Fatalf("first transcript message kind = %q, want hydration", hydration.Kind())
+	if hydration.GetEvent().GetHydration() == nil {
+		t.Fatalf("first transcript message = %v, want hydration", hydration)
 	}
 
 	modelClient.setRun(func() error {
-		activeView, err := remote.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{
-			SessionID: movedSession.Meta().SessionID,
+		activeView, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
+			SessionId: movedSession.Meta().SessionID,
 		})
 		if err != nil {
 			return err
@@ -191,13 +193,13 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		if active == nil {
 			return errors.New("originating Agent Step is required")
 		}
-		response, err := remote.RetargetSessionWorkspace(context.Background(), serverapi.SessionRetargetWorkspaceRequest{
-			SessionID:     movedSession.Meta().SessionID,
+		response, err := remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+			SessionId:     movedSession.Meta().SessionID,
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
-			ProjectID:     &targetBinding.ProjectID,
-			Origin: &serverapi.RuntimeStepOrigin{
-				RunID:  active.RunID.String(),
-				StepID: active.StepID.String(),
+			ProjectId:     &targetBinding.ProjectID,
+			Origin: &sessionlaunchpb.RuntimeStepOrigin{
+				RunId:  active.RunId,
+				StepId: active.StepId,
 			},
 		})
 		if err != nil {
@@ -206,26 +208,26 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		if response.Scheduled == nil {
 			return errors.New("active-step Session rebind completed synchronously")
 		}
-		acknowledgedView, err := remote.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{
-			SessionID: movedSession.Meta().SessionID,
+		acknowledgedView, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
+			SessionId: movedSession.Meta().SessionID,
 		})
 		if err != nil {
 			return err
 		}
-		if got := acknowledgedView.MainView.Session.ExecutionTarget.WorkspaceID; got != sourceBinding.WorkspaceID {
+		if got := acknowledgedView.MainView.Session.ExecutionTarget.GetWorkspaceId(); got != sourceBinding.WorkspaceID {
 			return fmt.Errorf("acknowledged Session Workspace = %q, want source %q before Step boundary", got, sourceBinding.WorkspaceID)
 		}
 		return nil
 	})
-	submission, err := remote.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
-		SessionID: movedSession.Meta().SessionID,
-		Input:     runtimeinput.Text("move this Session"),
+	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+		SessionId: movedSession.Meta().SessionID,
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn with self-rebind: %v", err)
 	}
-	if submission.ResultKind != clientui.UserTurnResultKindQueued {
-		t.Fatalf("self-rebind submission result = %q, want queued", submission.ResultKind)
+	if submission.GetQueued() == nil {
+		t.Fatalf("self-rebind submission result = %v, want queued", submission)
 	}
 	identityContext, cancelIdentity := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelIdentity()
@@ -234,25 +236,25 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		if err != nil {
 			t.Fatalf("receive moved Session identity: %v", err)
 		}
-		if identityMessage.Kind() != clientui.TranscriptMessageSessionIdentity {
+		identity := identityMessage.GetEvent().GetSessionIdentity()
+		if identity == nil {
 			continue
 		}
-		identity, ok := identityMessage.Payload().(clientui.TranscriptSessionIdentity)
-		if !ok || identity.ExecutionTarget == nil || identity.ExecutionTarget.WorkspaceID != targetBinding.WorkspaceID {
-			t.Fatalf("moved Session identity = %#v, want target Workspace %q", identityMessage.Payload(), targetBinding.WorkspaceID)
+		if identity.ExecutionTarget == nil || identity.ExecutionTarget.GetWorkspaceId() != targetBinding.WorkspaceID {
+			t.Fatalf("moved Session identity = %#v, want target Workspace %q", identity, targetBinding.WorkspaceID)
 		}
 		break
 	}
 
 	const draft = "survives the handoff"
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: movedSession.Meta().SessionID,
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: movedSession.Meta().SessionID,
 		Input:     draft,
 	}); err != nil {
 		t.Fatalf("PersistInputDraft after cross-Project move: %v", err)
 	}
-	if _, err := remote.PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{
-		SessionID: foreignSession.Meta().SessionID,
+	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: foreignSession.Meta().SessionID,
 		Input:     "must remain inaccessible",
 	}); err == nil {
 		t.Fatal("unrelated target-Project Session draft mutation unexpectedly allowed")
@@ -278,8 +280,9 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		binding.WorkspaceID != targetBinding.WorkspaceID {
 		t.Fatalf("reattached Session binding = %+v present=%t, want target binding", binding, present)
 	}
-	initialInput, err := destination.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{
-		SessionID: movedSession.Meta().SessionID,
+	movedSessionID := movedSession.Meta().SessionID
+	initialInput, err := destination.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
+		SessionId: &movedSessionID,
 	})
 	if err != nil {
 		t.Fatalf("GetInitialInput after reattach: %v", err)
@@ -288,10 +291,10 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		t.Fatalf("reattached draft = %q, want %q", initialInput.Input, draft)
 	}
 	waitForGatewayCondition(t, "retained Runtime to finish its originating execution", func() bool {
-		view, viewErr := destination.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{
-			SessionID: movedSession.Meta().SessionID,
+		view, viewErr := destination.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
+			SessionId: movedSession.Meta().SessionID,
 		})
-		return viewErr == nil && view.MainView.Activity.State == clientui.RuntimeActivityRegisteredIdle
+		return viewErr == nil && view.MainView.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
 	})
 	if got := modelClient.requestCount(); got != 1 {
 		t.Fatalf("provider requests after self-rebind = %d, want 1", got)
@@ -328,11 +331,10 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 	capability := firstAttachment.GetSession().GetReattachCapability()
 
 	if _, err := appCore.SessionLifecycleClient().RetargetSessionWorkspace(
-		t.Context(),
-		serverapi.SessionRetargetWorkspaceRequest{
-			SessionID:     movedSession.Meta().SessionID,
+		t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+			SessionId:     movedSession.Meta().SessionID,
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
-			ProjectID:     &targetBinding.ProjectID,
+			ProjectId:     &targetBinding.ProjectID,
 		},
 	); err != nil {
 		t.Fatalf("move Session: %v", err)
@@ -524,25 +526,25 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	listed, err := remote.ListProcesses(context.Background(), serverapi.ProcessListRequest{
-		ProjectID: bindingA.ProjectID,
+	listed, err := remote.ListProcesses(context.Background(), &processpb.ListRequest{
+		ProjectId: bindingA.ProjectID,
 	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(listed.Processes) != 1 || listed.Processes[0].ID != ownResult.SessionID {
+	if len(listed.Processes) != 1 || listed.Processes[0].Id != ownResult.SessionID {
 		t.Fatalf("expected only own project process, got %+v", listed.Processes)
 	}
-	if _, err := remote.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: foreignResult.SessionID}); err == nil {
+	if _, err := remote.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: foreignResult.SessionID}); err == nil {
 		t.Fatal("expected foreign process get to be rejected")
 	}
-	if _, err := remote.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: foreignResult.SessionID, MaxChars: 128}); err == nil {
+	if _, err := remote.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: foreignResult.SessionID, MaxChars: 128}); err == nil {
 		t.Fatal("expected foreign process inline output to be rejected")
 	}
-	if _, err := remote.KillProcess(context.Background(), serverapi.ProcessKillRequest{ProcessID: foreignResult.SessionID}); err != nil {
+	if _, err := remote.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: foreignResult.SessionID}); err != nil {
 		t.Fatalf("expected globally identified foreign process kill to succeed, got %v", err)
 	}
-	if _, err := remote.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: ownResult.SessionID}); err != nil {
+	if _, err := remote.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: ownResult.SessionID}); err != nil {
 		t.Fatalf("expected own process get to succeed, got %v", err)
 	}
 	if bindingA.ProjectID == bindingB.ProjectID {

@@ -100,7 +100,7 @@ function StaticToolRow({
   icon,
   iconTone,
 }: Readonly<{
-  compact: string;
+  compact: string | null;
   icon: ReactNode;
   iconTone: TranscriptDisclosureIconTone;
 }>) {
@@ -272,7 +272,7 @@ function ShellCommandDetails({
   output,
   outputLanguage,
 }: Readonly<{
-  command: string;
+  command: string | null;
   commandLanguage?: string | undefined;
   exitCode?: number | undefined;
   output?: string | undefined;
@@ -281,7 +281,7 @@ function ShellCommandDetails({
   const { t } = useTranslation();
   return (
     <div className="transcript-tool-sections">
-      <SyntaxHighlightedCode code={command} languageHint={commandLanguage} />
+      {command === null ? null : <SyntaxHighlightedCode code={command} languageHint={commandLanguage} />}
       {output === undefined ? null : outputLanguage === undefined ? (
         <pre className="transcript-tool-plain-text">{output}</pre>
       ) : (

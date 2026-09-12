@@ -7,8 +7,11 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/clientui"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	processpb "core/shared/protoapi/gen/kent/api/process"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )
@@ -75,7 +78,7 @@ type goalRuntimeDoneMsg struct {
 	mutationSerial uint64
 	operation      goalRuntimeOperation
 	objective      string
-	goal           *clientui.RuntimeGoal
+	goal           *runtimepb.GoalView
 	mutation       clientui.GoalMutationResult
 	err            error
 }
@@ -97,8 +100,8 @@ type runtimeControlDoneMsg struct {
 }
 
 type chatSettingsDoneMsg struct {
-	operation serverapi.ChatSettingsMutationOperationKind
-	response  serverapi.ChatSettingsMutationResponse
+	operation *chatsettingspb.MutationOperation
+	response  *chatsettingspb.MutationSuccess
 	err       error
 }
 
@@ -153,7 +156,7 @@ type processListRefreshTickMsg struct{}
 
 type processListRefreshDoneMsg struct {
 	token   uint64
-	entries []clientui.BackgroundProcess
+	entries []*processpb.BackgroundProcess
 	err     error
 }
 
@@ -194,7 +197,7 @@ type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
 	req                      runtimeMainViewRefreshRequest
 	metadataBaselineRevision *uint64
-	view                     clientui.RuntimeMainView
+	view                     *runtimepb.MainView
 	err                      error
 }
 
@@ -207,7 +210,7 @@ const (
 
 type detailTranscriptLoadMsg struct {
 	requestID uuid.UUID
-	page      clientui.TranscriptPage
+	page      *transcriptpb.Page
 	err       error
 }
 
@@ -233,7 +236,7 @@ type clipboardTextCopyDoneMsg struct {
 }
 
 type askEvent struct {
-	prompt             clientui.TranscriptPrompt
+	prompt             *transcriptpb.Prompt
 	resolvedToolCallID clientui.ToolCallID
 }
 
@@ -241,7 +244,7 @@ func (e askEvent) toolCallID() string {
 	if strings.TrimSpace(string(e.resolvedToolCallID)) != "" {
 		return strings.TrimSpace(string(e.resolvedToolCallID))
 	}
-	return strings.TrimSpace(string(e.prompt.ToolCallID))
+	return strings.TrimSpace(string(transcriptPromptToolCallID(e.prompt)))
 }
 
 func (e askEvent) isResolution() bool {

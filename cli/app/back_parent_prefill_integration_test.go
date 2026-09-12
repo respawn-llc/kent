@@ -2,21 +2,24 @@ package app
 
 import (
 	"context"
+	"core/server/session"
+	serverstartup "core/server/startup"
+	"core/shared/apicontract"
+	"core/shared/config"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/serverapi"
+	"core/shared/sessioncontract"
+	textutil "core/shared/textutil"
+	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"core/server/session"
-	serverstartup "core/server/startup"
-	"core/shared/apicontract"
-	"core/shared/clientui"
-	"core/shared/config"
-	"core/shared/serverapi"
-	"core/shared/sessioncontract"
-	"core/shared/textutil"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 type backParentPrefillScenarioServer interface {
@@ -139,26 +142,22 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	targetProjectID := bindingB.ProjectID
 	if _, err := sourceServer.SessionLifecycleClient().RetargetSessionWorkspace(
-		context.Background(),
-		serverapi.SessionRetargetWorkspaceRequest{
-			SessionID:     parent.Meta().SessionID,
+		context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
+			SessionId:     parent.Meta().SessionID,
 			WorkspaceRoot: workspaceB,
-			ProjectID:     &targetProjectID,
+			ProjectId:     &targetProjectID,
 		},
 	); err != nil {
 		t.Fatalf("move parent to target project: %v", err)
 	}
 
 	childView, err := sourceServer.SessionViewClient().GetSessionMainView(
-		context.Background(),
-		serverapi.SessionMainViewRequest{SessionID: child.Meta().SessionID},
-	)
+		context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("load child main view: %v", err)
 	}
 	childModel := newProjectedClosedUIModel(&runtimeControlFakeClient{
-		mainView: clientui.RuntimeMainView{Status: childView.MainView.Status, Session: childView.MainView.Session},
-	}, WithUISessionID(child.Meta().SessionID))
+		mainView: &runtimepb.MainView{Status: childView.MainView.Status, Session: childView.MainView.Session}}, WithUISessionID(child.Meta().SessionID))
 	childModel.statusConfig.SessionViews = sourceServer.SessionViewClient()
 	next, lookupCmd := childModel.inputController().handleBackCommand()
 	childModel = next.(*uiModel)
@@ -171,10 +170,10 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("resolve /back transition: %v", err)
 	}
 	intent, _ := requireAppLifecycleLaunch(t, handoff)
-	preparation, _ := handoff.LaunchPreparation()
-	navigationBinding, present := preparation.NavigationBinding()
-	if !present || navigationBinding.ProjectID != bindingB.ProjectID || navigationBinding.WorkspaceID != bindingB.WorkspaceID {
-		t.Fatalf("remote /back navigation binding = %+v/%t, want project=%q workspace=%q", navigationBinding, present, bindingB.ProjectID, bindingB.WorkspaceID)
+	preparation := handoff.GetLaunch().GetPreparation()
+	navigationBinding := preparation.NavigationBinding
+	if navigationBinding == nil || navigationBinding.ProjectId != bindingB.ProjectID || navigationBinding.WorkspaceId != bindingB.WorkspaceID {
+		t.Fatalf("remote /back navigation binding = %+v, want project=%q workspace=%q", navigationBinding, bindingB.ProjectID, bindingB.WorkspaceID)
 	}
 
 	targetServer, rebound, err := bindNavigationSessionContext(context.Background(), sourceServer, preparation)
@@ -203,12 +202,9 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	workspaceChangeAction, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		targetServer,
-		parent.Meta().SessionID,
-		clientui.SessionExecutionTarget{
+		parent.Meta().SessionID, &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         workspaceB,
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err != nil {
 		t.Fatalf("handle target picker selection after /back: %v", err)
 	}
@@ -301,8 +297,8 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 
 			_, err = server.SessionLifecycleClient().PersistInputDraft(
 				context.Background(),
-				serverapi.SessionPersistInputDraftRequest{
-					SessionID: parent.Meta().SessionID,
+				&sessionlaunchpb.SessionPersistInputDraftRequest{
+					SessionId: parent.Meta().SessionID,
 					Input:     "conflicting parent draft",
 				},
 			)
@@ -311,18 +307,14 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 
 			childView, err := server.SessionViewClient().GetSessionMainView(
-				context.Background(),
-				serverapi.SessionMainViewRequest{SessionID: child.Meta().SessionID},
-			)
+				context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
 			if err != nil {
 				t.Fatalf("load child main view: %v", err)
 			}
 			childRuntime := &runtimeControlFakeClient{
-				mainView: clientui.RuntimeMainView{
+				mainView: &runtimepb.MainView{
 					Status:  childView.MainView.Status,
-					Session: childView.MainView.Session,
-				},
-			}
+					Session: childView.MainView.Session}}
 			childModel := newProjectedClosedUIModel(childRuntime, WithUISessionID(child.Meta().SessionID))
 			childModel.statusConfig.SessionViews = server.SessionViewClient()
 
@@ -438,7 +430,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			if err != nil {
 				t.Fatalf("refresh parent runtime after edit: %v", err)
 			}
-			if afterEdit.Activity != beforeEdit.Activity || afterEdit.Activity.State != clientui.RuntimeActivityRegisteredIdle {
+			if !proto.Equal(afterEdit.Activity, beforeEdit.Activity) || afterEdit.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
 				t.Fatalf("normal edit changed parent runtime activity: before=%+v after=%+v", beforeEdit.Activity, afterEdit.Activity)
 			}
 		})

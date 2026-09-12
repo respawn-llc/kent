@@ -1,5 +1,7 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"context"
 	"errors"
@@ -77,7 +79,7 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 		m.logf("step.start user_chars=%d", len(text))
 	}
 	if !m.hasRuntimeClient() && !isUserShell {
-		m.conversationFreshness = clientui.ConversationFreshnessEstablished
+		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	}
 	m.layout().syncViewport()
 	if isUserShell {
@@ -291,9 +293,9 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	m.clearUnownedQueuedTerminalStatesWithoutPendingOwnership()
 	c.finishRuntimeOperationAffordance()
 	if msg.token == 0 || !m.hasRuntimeClient() {
-		_ = m.applyRuntimeActivityProjection(clientui.RuntimeActivity{
-			State:    clientui.RuntimeActivityRegisteredIdle,
-			Reviewer: clientui.ReviewerActivityInactive,
+		_ = m.applyRuntimeActivityProjection(&runtimepb.Activity{
+			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		})
 	}
 	m.discardQueuedInput(activeQueuedID)
@@ -346,7 +348,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		m.turnQueueHook != nil {
 		m.turnQueueHook.OnTurnQueueAborted()
 	}
-	m.conversationFreshness = clientui.ConversationFreshnessEstablished
+	m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	m.localConversationTurn = true
 	m.logf("step.done assistant_chars=%d", len(msg.message))
 	m.clearActiveAssistantStreamSource()

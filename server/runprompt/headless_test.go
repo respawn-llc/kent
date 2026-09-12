@@ -31,14 +31,18 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/sessionenv"
 	"core/shared/textutil"
+
 	"core/shared/toolspec"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type recordingPromptHistoryStore struct {
@@ -58,10 +62,10 @@ func (s *blockingPromptHistoryStore) RecordPromptHistoryEntry(ctx context.Contex
 }
 
 type fixedSessionExecutionTargetResolver struct {
-	target clientui.SessionExecutionTarget
+	target *worktreepb.SessionExecutionTarget
 }
 
-func (r fixedSessionExecutionTargetResolver) ResolveSessionExecutionTarget(context.Context, string) (clientui.SessionExecutionTarget, error) {
+func (r fixedSessionExecutionTargetResolver) ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error) {
 	return r.target, nil
 }
 
@@ -126,11 +130,9 @@ func snapshotArtifactPaths(t *testing.T, root string) []string {
 
 func TestRunPromptProgressFromRuntimeEventPublishesUserVisibleEvents(t *testing.T) {
 	tests := []struct {
-		name      string
-		event     runtime.Event
-		wantKind  serverapi.RunPromptProgressKind
-		wantText  string
-		wantPhase clientui.MessagePhase
+		name  string
+		event runtime.Event
+		want  *runpromptpb.ProgressEvent
 	}{
 		{
 			name: "assistant commentary",
@@ -142,14 +144,16 @@ func TestRunPromptProgressFromRuntimeEventPublishesUserVisibleEvents(t *testing.
 					Content: textutil.Value("I am checking the runtime."),
 				},
 			},
-			wantKind:  serverapi.RunPromptProgressKindAssistantMessage,
-			wantText:  "I am checking the runtime.",
-			wantPhase: clientui.MessagePhaseCommentary,
+			want: &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_AssistantMessage{
+				AssistantMessage: &runpromptpb.AssistantMessage{
+					Phase: runpromptpb.MessagePhase_MESSAGE_PHASE_COMMENTARY, Content: "I am checking the runtime.",
+				},
+			}},
 		},
 		{
-			name:     "compaction started",
-			event:    runtime.Event{Kind: runtime.EventCompactionStarted},
-			wantKind: serverapi.RunPromptProgressKindCompactionStarted,
+			name:  "compaction started",
+			event: runtime.Event{Kind: runtime.EventCompactionStarted},
+			want:  &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_CompactionStarted{CompactionStarted: &emptypb.Empty{}}},
 		},
 		{
 			name: "compaction failed",
@@ -157,8 +161,9 @@ func TestRunPromptProgressFromRuntimeEventPublishesUserVisibleEvents(t *testing.
 				Kind:       runtime.EventCompactionFailed,
 				Compaction: &runtime.CompactionStatus{Error: "provider rejected compaction"},
 			},
-			wantKind: serverapi.RunPromptProgressKindCompactionFailed,
-			wantText: "provider rejected compaction",
+			want: &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_CompactionFailed{
+				CompactionFailed: &runpromptpb.ProgressFailure{Error: textutil.Value("provider rejected compaction")},
+			}},
 		},
 		{
 			name: "steering accepted",
@@ -169,8 +174,9 @@ func TestRunPromptProgressFromRuntimeEventPublishesUserVisibleEvents(t *testing.
 					Text:   "use the safer migration",
 				},
 			},
-			wantKind: serverapi.RunPromptProgressKindSteeredMessage,
-			wantText: "use the safer migration",
+			want: &runpromptpb.ProgressEvent{Payload: &runpromptpb.ProgressEvent_SteeredMessage{
+				SteeredMessage: &runpromptpb.SteeredMessage{Content: "use the safer migration"},
+			}},
 		},
 	}
 
@@ -180,25 +186,8 @@ func TestRunPromptProgressFromRuntimeEventPublishesUserVisibleEvents(t *testing.
 			if !ok {
 				t.Fatal("expected user-visible progress event")
 			}
-			if got.Kind != test.wantKind {
-				t.Fatalf("kind = %q, want %q", got.Kind, test.wantKind)
-			}
-			switch test.wantKind {
-			case serverapi.RunPromptProgressKindAssistantMessage:
-				if got.AssistantMessage == nil {
-					t.Fatal("assistant message payload is absent")
-				}
-				if got.AssistantMessage.Content != test.wantText || got.AssistantMessage.Phase != test.wantPhase {
-					t.Fatalf("assistant message = %+v", got.AssistantMessage)
-				}
-			case serverapi.RunPromptProgressKindCompactionFailed:
-				if got.Failure == nil || got.Failure.Error == nil || *got.Failure.Error != test.wantText {
-					t.Fatalf("failure = %+v", got.Failure)
-				}
-			case serverapi.RunPromptProgressKindSteeredMessage:
-				if got.SteeredMessage == nil || got.SteeredMessage.Content != test.wantText {
-					t.Fatalf("steered message = %+v", got.SteeredMessage)
-				}
+			if !proto.Equal(got, test.want) {
+				t.Fatalf("progress = %+v, want %+v", got, test.want)
 			}
 		})
 	}
@@ -264,7 +253,7 @@ func newTestHeadlessSessionLaunch(
 		StoreOptions:             persistence.Options(),
 		PersistedSessions:        persistence,
 		ProjectWorkspaceBoundary: fixedProjectWorkspaceBoundaryResolver{root: cfg.WorkspaceRoot},
-		ExecutionTargets: fixedSessionExecutionTargetResolver{target: clientui.SessionExecutionTarget{
+		ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:    cfg.WorkspaceRoot,
 			CwdRelpath:       ".",
 			EffectiveWorkdir: cfg.WorkspaceRoot,
@@ -344,10 +333,10 @@ func TestHeadlessRuntimeUsesServerManagedWorktreeNamespace(t *testing.T) {
 		BaseSettings: config.Settings{
 			Worktrees: config.WorktreeSettings{BaseDir: projectManagedBase},
 		},
-		ExecutionTarget: clientui.SessionExecutionTarget{
+		ExecutionTarget: &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:    workspace,
 			EffectiveWorkdir: workdir,
-			Worktree: &clientui.SessionExecutionWorktreeTarget{
+			Worktree: &worktreepb.SessionExecutionWorktreeTarget{
 				Root: currentWorktree,
 			},
 		},
@@ -677,18 +666,18 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 		t.Fatalf("patch target data = %q, error = %v", data, err)
 	}
 
-	child, err := session.OpenByID(root, response.SessionID, meta.AuthoritativeSessionStoreOptions()...)
+	child, err := session.OpenByID(root, response.SessionId, meta.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("OpenByID child: %v", err)
 	}
 	if child.Meta().WorktreeReminder != nil {
 		t.Fatalf("child worktree reminder = %+v, want no reminder", child.Meta().WorktreeReminder)
 	}
-	target, err := meta.ResolveSessionExecutionTarget(ctx, response.SessionID)
+	target, err := meta.ResolveSessionExecutionTarget(ctx, response.SessionId)
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget child: %v", err)
 	}
-	if target.Worktree == nil || target.Worktree.ID != "worktree-task" || target.EffectiveWorkdir != canonicalWorktreeSubdir {
+	if target.Worktree == nil || target.Worktree.Id != "worktree-task" || target.EffectiveWorkdir != canonicalWorktreeSubdir {
 		t.Fatalf("child execution target = %+v, want worktree-task at %q", target, canonicalWorktreeSubdir)
 	}
 	records, err := sessiontest.CollectRecords(child)
@@ -1003,16 +992,16 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 		CallerSessionID: &parentID,
 		Prompt:          "delegate this",
 		Overrides:       serverapi.RunPromptOverrides{AgentRole: &worker},
-	}, serverapi.RunPromptProgressFunc(func(progress serverapi.RunPromptProgress) {
-		if progress.Kind != serverapi.RunPromptProgressKindSessionStarted {
+	}, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
+		if _, ok := progress.Payload.(*runpromptpb.ProgressEvent_SessionStarted); !ok {
 			return
 		}
 		sessionStarted++
-		if progress.SessionStarted == nil {
+		if progress.GetSessionStarted() == nil {
 			t.Errorf("session_started published before the new runtime became active: %+v", progress)
 			return
 		}
-		sessionID, parseErr := runtimeids.ParseSessionID(progress.SessionStarted.SessionID.String())
+		sessionID, parseErr := runtimeids.ParseSessionID(progress.GetSessionStarted().SessionId)
 		if parseErr != nil {
 			t.Errorf("session_started session id: %v", parseErr)
 			return
@@ -1030,7 +1019,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	if sessionStarted != 1 {
 		t.Fatalf("session_started events = %d, want 1", sessionStarted)
 	}
-	child, err := session.OpenByID(root, response.SessionID, meta.AuthoritativeSessionStoreOptions()...)
+	child, err := session.OpenByID(root, response.SessionId, meta.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("OpenByID child: %v", err)
 	}
@@ -1042,12 +1031,12 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 	if got := childMeta.Continuation; got == nil || got.AgentRole == nil || *got.AgentRole != worker {
 		t.Fatalf("continuation = %+v, want worker role", got)
 	}
-	responseID, err := runtimeids.ParseSessionID(response.SessionID)
+	responseID, err := runtimeids.ParseSessionID(response.SessionId)
 	if err != nil {
 		t.Fatalf("parse response session id: %v", err)
 	}
 	if _, active := authority.SessionExecution(responseID); active {
-		t.Fatalf("completed headless launch left runtime active for %q", response.SessionID)
+		t.Fatalf("completed headless launch left runtime active for %q", response.SessionId)
 	}
 
 	fast := config.BuiltInSubagentRoleFast
@@ -1072,7 +1061,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			if response.Result != "workflow response" {
 				t.Fatalf("result = %q, want provider response", response.Result)
 			}
-			child, err := session.OpenByID(root, response.SessionID, meta.AuthoritativeSessionStoreOptions()...)
+			child, err := session.OpenByID(root, response.SessionId, meta.AuthoritativeSessionStoreOptions()...)
 			if err != nil {
 				t.Fatalf("OpenByID child: %v", err)
 			}
@@ -1084,12 +1073,12 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			if childMeta.Continuation == nil || childMeta.Continuation.AgentRole == nil || *childMeta.Continuation.AgentRole != test.role {
 				t.Fatalf("continuation = %+v, want role %q", childMeta.Continuation, test.role)
 			}
-			responseID, err := runtimeids.ParseSessionID(response.SessionID)
+			responseID, err := runtimeids.ParseSessionID(response.SessionId)
 			if err != nil {
 				t.Fatalf("parse response session id: %v", err)
 			}
 			if _, active := authority.SessionExecution(responseID); active {
-				t.Fatalf("completed headless launch left runtime active for %q", response.SessionID)
+				t.Fatalf("completed headless launch left runtime active for %q", response.SessionId)
 			}
 		})
 	}
@@ -1150,25 +1139,25 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 		PromptHistory:    history,
 	})
 
-	var progresses []serverapi.RunPromptProgress
+	var progresses []*runpromptpb.ProgressEvent
 	request := serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 		Prompt: "  hello  ",
 	}
-	response, err := client.RunPrompt(context.Background(), request, serverapi.RunPromptProgressFunc(func(progress serverapi.RunPromptProgress) {
+	response, err := client.RunPrompt(context.Background(), request, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if response.SessionID != store.Meta().SessionID {
-		t.Fatalf("session id = %q, want %q", response.SessionID, store.Meta().SessionID)
+	if response.SessionId != store.Meta().SessionID {
+		t.Fatalf("session id = %q, want %q", response.SessionId, store.Meta().SessionID)
 	}
 	if response.Result != "from persisted continuation" {
 		t.Fatalf("result = %q, want from persisted continuation", response.Result)
 	}
 	for _, progress := range progresses {
-		if progress.Kind == serverapi.RunPromptProgressKindSessionStarted {
+		if progress.GetSessionStarted() != nil {
 			t.Fatalf("continued run announced a new session: %+v", progress)
 		}
 	}
@@ -1179,7 +1168,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionContinuationContext(t *testi
 	if err != nil {
 		t.Fatalf("replayed RunPrompt: %v", err)
 	}
-	if replayed.SessionID != response.SessionID || replayed.Result != response.Result || providerCalls.Load() != 2 {
+	if replayed.SessionId != response.SessionId || replayed.Result != response.Result || providerCalls.Load() != 2 {
 		t.Fatalf("repeated response=%+v provider calls=%d, want a second direct operation", replayed, providerCalls.Load())
 	}
 	if len(history.entries) != 2 {
@@ -1235,7 +1224,7 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 
 		fixture := newSelectedRunPromptFixture(t, server.URL, nil)
 		type result struct {
-			response serverapi.RunPromptResponse
+			response *runpromptpb.Success
 			err      error
 		}
 		done := make(chan result, 1)
@@ -1258,8 +1247,8 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			if !errors.Is(got.err, context.DeadlineExceeded) {
 				t.Fatalf("RunPrompt error = %v, want deadline exceeded", got.err)
 			}
-			if got.response.SessionID != fixture.store.Meta().SessionID {
-				t.Fatalf("partial response session = %q, want %q", got.response.SessionID, fixture.store.Meta().SessionID)
+			if got.response.SessionId != fixture.store.Meta().SessionID {
+				t.Fatalf("partial response session = %q, want %q", got.response.SessionId, fixture.store.Meta().SessionID)
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("RunPrompt did not finish after timeout")
@@ -1307,24 +1296,24 @@ func TestInProcessRunPromptPublishesCommentaryBeforeHeadlessAskFollowupFails(t *
 	defer server.Close()
 
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil)
-	var progresses []serverapi.RunPromptProgress
+	var progresses []*runpromptpb.ProgressEvent
 	response, err := fixture.client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
 		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, fixture.store.Meta().SessionID)),
 		Prompt: "ask before failing",
-	}, serverapi.RunPromptProgressFunc(func(progress serverapi.RunPromptProgress) {
+	}, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
 	if err == nil || !llm.IsNonRetriableModelError(err) {
 		t.Fatalf("RunPrompt error = %v, want non-retriable provider failure", err)
 	}
-	if response.SessionID != fixture.store.Meta().SessionID || calls.Load() != 2 || !sawAskResult.Load() {
+	if response.SessionId != fixture.store.Meta().SessionID || calls.Load() != 2 || !sawAskResult.Load() {
 		t.Fatalf("response=%+v calls=%d saw ask result=%t", response, calls.Load(), sawAskResult.Load())
 	}
 	foundCommentary := false
 	for _, progress := range progresses {
-		if progress.AssistantMessage != nil &&
-			progress.AssistantMessage.Phase == clientui.MessagePhaseCommentary &&
-			progress.AssistantMessage.Content == "partial progress" {
+		if progress.GetAssistantMessage() != nil &&
+			progress.GetAssistantMessage().Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_COMMENTARY &&
+			progress.GetAssistantMessage().Content == "partial progress" {
 			foundCommentary = true
 		}
 	}

@@ -16,10 +16,17 @@ export function TranscriptAskQuestionRow({ row }: Readonly<{ row: ChatTranscript
   if (!isAskQuestionToolRow(row) || row.Visibility === "hidden") return null;
   const tool = row.Tool;
   const presentation = tool.Presentation;
+  const copyText = askQuestionCopyText(row);
   return (
     <TranscriptFlatRow
-      body={<AskQuestionBody presentation={presentation} tool={tool} />}
-      copyText={askQuestionCopyText(row)}
+      body={
+        !tool.IsError && tool.QuestionAnswer == null ? (
+          <p className="chat-transcript-row-body">{copyText}</p>
+        ) : (
+          <AskQuestionBody presentation={presentation} tool={tool} />
+        )
+      }
+      copyText={copyText}
       defaultExpanded={!tool.IsError}
       icon={<AskQuestionIcon isError={tool.IsError} />}
       iconTone={tool.IsError ? "error" : "success"}
@@ -41,9 +48,6 @@ function AskQuestionBody({
   presentation: TranscriptToolPresentation;
 }>) {
   const answer = tool.QuestionAnswer;
-  if (!tool.IsError && (answer === undefined || answer === null)) {
-    throw new Error("Answered Ask Question row is missing its typed answer.");
-  }
   const selectedOptionNumber = tool.IsError ? null : (answer?.SelectedOptionNumber ?? null);
   return (
     <div className="chat-transcript-question-body">

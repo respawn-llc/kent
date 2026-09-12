@@ -4,6 +4,8 @@ package kent.api.session_launch;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/project/project.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -31,6 +33,10 @@ message SessionInitialInputError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -62,6 +68,14 @@ message SessionPersistInputDraftError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -118,6 +132,11 @@ message SessionRetargetWorkspaceSuccess {
   kent.api.project.ProjectBinding binding = 1;
   bool workspace_binding_created = 2;
   kent.api.worktree.ScheduledAcknowledgement scheduled = 3;
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.retarget_outcome"
+    message: "retarget requires either a completed binding or a scheduled acknowledgement"
+    expression: "has(this.binding) != has(this.scheduled) && (!has(this.scheduled) || !this.workspace_binding_created)"
+  };
 }
 
 message ProjectReference {
@@ -171,6 +190,14 @@ message SessionRetargetWorkspaceError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     SessionRetargetTargetProjectRequiredDetails target_project_required = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -239,21 +266,21 @@ message SessionTransition {
   string initial_prompt = 2;
   bool initial_prompt_history_recorded = 3;
   optional string initial_input = 4;
-  string target_session_id = 5;
-  string fork_rollback_target_id = 6;
+  optional string target_session_id = 5 [(buf.validate.field).string.min_len = 1];
+  optional string fork_rollback_target_id = 6 [(buf.validate.field).string.min_len = 1];
   optional string previous_session_id = 7 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
     id: "kent.session_launch.transition_targets"
     message: "open-session and rollback-fork transitions require their target IDs"
     expression:
-      "(this.action != 6 || this.target_session_id.trim() != '') && "
-      "(this.action != 5 || this.fork_rollback_target_id.trim() != '')"
+      "(this.action != 6 || (has(this.target_session_id) && this.target_session_id.trim() != '')) && "
+      "(this.action != 5 || (has(this.fork_rollback_target_id) && this.fork_rollback_target_id.trim() != ''))"
   };
 }
 
 message SessionResolveTransitionRequest {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
   SessionTransition transition = 2 [(buf.validate.field).required = true];
 }
 
@@ -283,7 +310,7 @@ message SessionNavigationBinding {
 }
 
 message SessionInitialPromptMetadata {
-  string text = 1 [(buf.validate.field).string.min_len = 1];
+  string text = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   bool history_recorded = 2;
 }
 
@@ -338,6 +365,14 @@ message SessionResolveTransitionError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -358,7 +393,6 @@ message SessionResolveTransitionResult {
 
 message SessionRuntimeActivateRequest {
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string owner_id = 2 [(buf.validate.field).string.min_len = 1];
   Settings active_settings = 3 [(buf.validate.field).required = true];
   repeated ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
     defined_only: true
@@ -368,6 +402,7 @@ message SessionRuntimeActivateRequest {
   optional bool auto_compaction_enabled = 6 [(buf.validate.field).required = true];
   bool thinking_override_explicit = 7;
   SourceReport source = 8 [(buf.validate.field).required = true];
+  optional SessionRuntimeAgentSelection agent_selection = 9;
 }
 
 message SessionRuntimeAttachment {
@@ -393,6 +428,14 @@ message SessionRuntimeActivateError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     SessionRuntimeUnavailableDetails runtime_unavailable = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -434,7 +477,6 @@ message SessionRuntimeReleaseRequest {
     defined_only: true
     not_in: [0]
   }];
-  string owner_id = 4 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
     id: "kent.session_launch.detach_only_drops_owner"
@@ -455,6 +497,14 @@ message SessionRuntimeReleaseError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
     SessionRuntimeUnavailableDetails runtime_unavailable = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -626,7 +676,6 @@ service SessionLifecycleService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT_IF_SET
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.getInitialInput"
     };
   }
 
@@ -637,7 +686,6 @@ service SessionLifecycleService {
       scope_policy: SCOPE_POLICY_SESSION_DRAFT_HANDOFF_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.persistInputDraft"
     };
   }
 
@@ -648,7 +696,6 @@ service SessionLifecycleService {
       scope_policy: SCOPE_POLICY_SESSION_ATTACHED_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.retargetWorkspace"
     };
   }
 
@@ -659,7 +706,6 @@ service SessionLifecycleService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT_IF_SET
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.resolveTransition"
     };
   }
 
@@ -692,7 +738,6 @@ service SessionRuntimeService {
       scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.runtime.activate"
     };
   }
 
@@ -703,7 +748,6 @@ service SessionRuntimeService {
       scope_policy: SCOPE_POLICY_NONE
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "session.runtime.release"
     };
   }
 }

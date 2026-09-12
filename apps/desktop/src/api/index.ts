@@ -16,15 +16,8 @@ export type {
   ChatSettingsThinking,
   NewChatSettingsCatalog,
 } from "./chatSettingsTypes";
-export { committedRowSchema as chatTranscriptCommittedRowSchema } from "./chatSchemas";
 export { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
-export {
-  goalFactFromMainView,
-  goalFactFromTranscript,
-  parseGoalEnvelope,
-  parseGoalMutationResult,
-  parseGoalObservation,
-} from "./chatGoal";
+export { goalFactFromTranscript } from "./chatGoal";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,

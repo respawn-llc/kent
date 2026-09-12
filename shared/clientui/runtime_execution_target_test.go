@@ -1,45 +1,18 @@
 package clientui
 
 import (
-	"bytes"
-	"encoding/json"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"google.golang.org/protobuf/proto"
 	"testing"
 )
 
-func TestSessionExecutionTargetWorkspaceRootSerializesNilWorktree(t *testing.T) {
-	target := SessionExecutionTarget{
-		WorkspaceID:           "workspace-1",
-		WorkspaceName:         "Workspace",
-		WorkspaceRoot:         "/repo",
-		WorkspaceAvailability: "available",
-		Worktree:              nil,
-		CwdRelpath:            ".",
-		EffectiveWorkdir:      "/repo",
-	}
-
-	encoded, err := json.Marshal(target)
-	if err != nil {
-		t.Fatalf("marshal execution target: %v", err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &fields); err != nil {
-		t.Fatalf("unmarshal encoded execution target: %v", err)
-	}
-	worktree, ok := fields["Worktree"]
-	if !ok {
-		t.Fatalf("encoded execution target = %s, want explicit worktree field", encoded)
-	}
-	if !bytes.Equal(worktree, []byte("null")) {
-		t.Fatalf("encoded worktree JSON = %s, want null", worktree)
-	}
-}
-
 func TestNormalizeSessionExecutionTargetPreservesNilWorktreeAbsence(t *testing.T) {
-	target := NormalizeSessionExecutionTarget(SessionExecutionTarget{
-		WorkspaceID:           " workspace-1 ",
+	target := NormalizeSessionExecutionTarget(&worktreepb.SessionExecutionTarget{
+		WorkspaceId:           proto.String(" workspace-1 "),
 		WorkspaceName:         " Workspace ",
 		WorkspaceRoot:         " /repo ",
-		WorkspaceAvailability: " available ",
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		Worktree:              nil,
 		CwdRelpath:            " . ",
 		EffectiveWorkdir:      " /repo ",
@@ -48,36 +21,36 @@ func TestNormalizeSessionExecutionTargetPreservesNilWorktreeAbsence(t *testing.T
 	if target.Worktree != nil {
 		t.Fatalf("normalized workspace-root target worktree = %+v, want nil", target.Worktree)
 	}
-	if target.WorkspaceID != "workspace-1" || target.CwdRelpath != "." || target.EffectiveWorkdir != "/repo" {
+	if target.GetWorkspaceId() != "workspace-1" || target.CwdRelpath != "." || target.EffectiveWorkdir != "/repo" {
 		t.Fatalf("normalized target = %+v, want trimmed workspace-root fields", target)
 	}
 }
 
 func TestSessionExecutionTargetsEqualNormalizesPresentWorktree(t *testing.T) {
-	left := SessionExecutionTarget{
-		WorkspaceID:           "workspace-1",
+	left := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           proto.String("workspace-1"),
 		WorkspaceName:         "Workspace",
 		WorkspaceRoot:         "/repo",
-		WorkspaceAvailability: "available",
-		Worktree: &SessionExecutionWorktreeTarget{
-			ID:           " worktree-1 ",
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		Worktree: &worktreepb.SessionExecutionWorktreeTarget{
+			Id:           " worktree-1 ",
 			Name:         " Task worktree ",
 			Root:         " /repo/.kent-worktree ",
-			Availability: " missing ",
+			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING,
 		},
 		CwdRelpath:       " subdir ",
 		EffectiveWorkdir: " /repo/.kent-worktree/subdir ",
 	}
-	right := SessionExecutionTarget{
-		WorkspaceID:           "workspace-1",
+	right := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           proto.String("workspace-1"),
 		WorkspaceName:         "Workspace",
 		WorkspaceRoot:         "/repo",
-		WorkspaceAvailability: "available",
-		Worktree: &SessionExecutionWorktreeTarget{
-			ID:           "worktree-1",
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		Worktree: &worktreepb.SessionExecutionWorktreeTarget{
+			Id:           "worktree-1",
 			Name:         "Task worktree",
 			Root:         "/repo/.kent-worktree",
-			Availability: "missing",
+			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING,
 		},
 		CwdRelpath:       "subdir",
 		EffectiveWorkdir: "/repo/.kent-worktree/subdir",

@@ -1,9 +1,7 @@
-import { type z } from "zod";
-
-import type { executionTargetSchema, runtimeActivitySchema } from "./chatSchemas";
+import type { ChatExecutionFacts, ChatActivityFacts } from "./chatTranscriptTypes";
 import type { ChatExecutionTarget, ChatRuntimeActivity } from "./chatTypes";
 
-export function chatExecutionTarget(input: z.output<typeof executionTargetSchema>): ChatExecutionTarget {
+export function chatExecutionTarget(input: ChatExecutionFacts): ChatExecutionTarget {
   return {
     workspaceID: input.WorkspaceID,
     workspaceName: input.WorkspaceName,
@@ -15,7 +13,7 @@ export function chatExecutionTarget(input: z.output<typeof executionTargetSchema
   };
 }
 
-export function chatRuntimeActivity(input: z.output<typeof runtimeActivitySchema>): ChatRuntimeActivity {
+export function chatRuntimeActivity(input: ChatActivityFacts): ChatRuntimeActivity {
   return {
     state: input.State,
     activeStep:

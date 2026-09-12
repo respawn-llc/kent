@@ -18,7 +18,9 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 )
@@ -37,8 +39,8 @@ func (unregisteredSessionLaunchClient) PlanSession(context.Context, *sessionlaun
 
 type unregisteredRunPromptClient struct{}
 
-func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
-	return serverapi.RunPromptResponse{}, serverapi.ErrWorkspaceNotRegistered
+func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	return nil, serverapi.ErrWorkspaceNotRegistered
 }
 
 type unavailableAttentionNotificationClient struct{}
@@ -47,7 +49,7 @@ func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(co
 	return nil, serverapi.ErrStreamUnavailable
 }
 
-func (unavailableAttentionNotificationClient) SubscribeSessionAttentionNotifications(context.Context, serverapi.AttentionSessionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
+func (unavailableAttentionNotificationClient) SubscribeSessionAttentionNotifications(context.Context, *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
 	return nil, serverapi.ErrStreamUnavailable
 }
 

@@ -18,6 +18,7 @@ import (
 	"core/server/workflow"
 	"core/shared/clientui"
 	"core/shared/config"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -35,7 +36,7 @@ const (
 )
 
 type SessionExecutionTargetResolver interface {
-	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error)
+	ResolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error)
 }
 
 type SessionProjectWorkspaceBoundaryResolver interface {
@@ -93,7 +94,7 @@ type SessionPlan struct {
 	ModelContractLocked                 bool
 	SkipContinuationAgentRoleValidation bool
 	WorkspaceRoot                       string
-	ExecutionTarget                     clientui.SessionExecutionTarget
+	ExecutionTarget                     *worktreepb.SessionExecutionTarget
 	ProjectWorkspaceBoundary            metadata.ProjectWorkspaceBoundary
 	ManagedWorktreeRoots                []string
 	Source                              config.SourceReport
@@ -551,21 +552,21 @@ func (p Planner) planSession(ctx context.Context, req SessionRequest, meta sessi
 	}, meta, p.ContainerDir), nil
 }
 
-func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID string) (clientui.SessionExecutionTarget, error) {
+func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	resolver := p.ExecutionTargets
 	if resolver == nil {
 		resolver, _ = p.PersistedSessions.(SessionExecutionTargetResolver)
 	}
 	if resolver == nil {
-		return clientui.SessionExecutionTarget{}, nil
+		return &worktreepb.SessionExecutionTarget{}, nil
 	}
 	target, err := resolver.ResolveSessionExecutionTarget(ctx, sessionID)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, err
+		return &worktreepb.SessionExecutionTarget{}, err
 	}
 	target = clientui.NormalizeSessionExecutionTarget(target)
 	if clientui.SessionExecutionTargetIsZero(target) {
-		return clientui.SessionExecutionTarget{}, fmt.Errorf("session %q execution target is empty", sessionID)
+		return &worktreepb.SessionExecutionTarget{}, fmt.Errorf("session %q execution target is empty", sessionID)
 	}
 	return target, nil
 }
@@ -1398,26 +1399,26 @@ func (p Planner) openMetadataStore() (MetadataExecutionTargetStore, error) {
 	return metadata.Open(p.Config.PersistenceRoot)
 }
 
-func (p Planner) resolveParentExecutionTarget(ctx context.Context, parentSessionID string) (clientui.SessionExecutionTarget, bool, error) {
+func (p Planner) resolveParentExecutionTarget(ctx context.Context, parentSessionID string) (*worktreepb.SessionExecutionTarget, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return clientui.SessionExecutionTarget{}, false, err
+		return &worktreepb.SessionExecutionTarget{}, false, err
 	}
 	store, err := p.openMetadataStore()
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, false, err
+		return &worktreepb.SessionExecutionTarget{}, false, err
 	}
 	defer func() { _ = store.Close() }()
 	target, err := store.ResolveSessionExecutionTarget(ctx, parentSessionID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, session.ErrSessionNotFound) {
-			return clientui.SessionExecutionTarget{}, false, nil
+			return &worktreepb.SessionExecutionTarget{}, false, nil
 		}
-		return clientui.SessionExecutionTarget{}, false, err
+		return &worktreepb.SessionExecutionTarget{}, false, err
 	}
 	return target, true, nil
 }
 
-func (p Planner) updateChildExecutionTarget(ctx context.Context, childSessionID string, target clientui.SessionExecutionTarget) error {
+func (p Planner) updateChildExecutionTarget(ctx context.Context, childSessionID string, target *worktreepb.SessionExecutionTarget) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

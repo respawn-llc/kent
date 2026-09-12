@@ -1,5 +1,11 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"time"
 
@@ -41,9 +47,9 @@ type uiRuntimeFeatureState struct {
 	pathReferenceEvents        <-chan uiPathReferenceSearchEvent
 	runtimeConnectionEvents    chan runtimeConnectionStateChangedMsg
 	runtimeReconnectWarning    <-chan runtimeReconnectWarningMsg
-	runtimeContextUsage        clientui.RuntimeContextUsage
+	runtimeContextUsage        *runtimepb.ContextUsage
 	runtimeContextUsageSession string
-	runtimeActivityProjection  clientui.RuntimeActivity
+	runtimeActivityProjection  *runtimepb.Activity
 	missingPromptRecovery      *missingPromptRecoveryScope
 	logger                     uiLogger
 }
@@ -66,7 +72,7 @@ type uiInputFeatureState struct {
 	reviewerMode           string
 	autoCompactionEnabled  bool
 	questionsEnabled       bool
-	conversationFreshness  clientui.ConversationFreshness
+	conversationFreshness  runtimepb.ConversationFreshness
 	localConversationTurn  bool
 	runtimeControlToken    uint64
 	runtimeControlTokens   map[runtimeControlOperation]uint64
@@ -82,7 +88,7 @@ type uiInputFeatureState struct {
 
 	injectedQueue               []injectedRuntimeQueueItem
 	injectedQueueToken          uint64
-	unownedQueuedTerminalStates map[string]clientui.TranscriptQueuedMessageState
+	unownedQueuedTerminalStates map[string]*transcriptpb.QueuedMessageState
 	pendingInputSubmissionOrder uint64
 	interruptLifecycle          uiInterruptLifecycle
 	currentRunID                string
@@ -167,7 +173,7 @@ type uiSessionTransitionFeatureState struct {
 	nextSessionID                           string
 	nextForkRollbackTargetID                string
 	nextPreviousSessionID                   *runtimeids.SessionID
-	sessionExecutionTarget                  *clientui.SessionExecutionTarget
+	sessionExecutionTarget                  *worktreepb.SessionExecutionTarget
 	sessionRetargeted                       bool
 	sessionName                             string
 	sessionID                               string

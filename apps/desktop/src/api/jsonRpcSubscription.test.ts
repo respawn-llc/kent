@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TransportError } from "./errors";
 import { runJsonSubscription } from "./jsonRpcSubscription";
+import { runSocketDescriptorSubscription } from "./jsonRpcSocket";
+import { create, decodeEnvelope, encode, encodeEnvelope, operationName } from "@app/server-api-contract";
+import { MessageSchema, StreamService } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
+import { requireUnarySuccess } from "./protobufRpc";
 
 const sockets: SubscriptionSocket[] = [];
 
@@ -10,7 +15,7 @@ class SubscriptionSocket extends EventTarget {
   static readonly OPEN = 1;
   static readonly CLOSED = 3;
 
-  readonly sent: string[] = [];
+  readonly sent: (string | Uint8Array)[] = [];
   readyState = SubscriptionSocket.OPEN;
 
   constructor() {
@@ -20,8 +25,9 @@ class SubscriptionSocket extends EventTarget {
 
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
     const text = z.string().safeParse(data);
-    if (!text.success) throw new Error("Expected JSON subscription request.");
-    this.sent.push(text.data);
+    if (text.success) this.sent.push(text.data);
+    else if (data instanceof ArrayBuffer) this.sent.push(new Uint8Array(data));
+    else throw new Error("Unsupported subscription frame.");
   }
 
   close(): void {
@@ -31,16 +37,26 @@ class SubscriptionSocket extends EventTarget {
   }
 
   acknowledge(): void {
-    const request = z.looseObject({ id: z.string() }).parse(JSON.parse(this.sent[0] ?? "{}"));
-    this.dispatchEvent(
-      new MessageEvent("message", {
-        data: JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }),
-      }),
-    );
+    const bytes = this.sent[0];
+    if (!(bytes instanceof Uint8Array)) throw new Error("Expected binary subscription call.");
+    const frame = decodeEnvelope(bytes).frame;
+    if (frame.case !== "call") throw new Error("Expected subscription call.");
+    const method = StreamService.method.subscribe;
+    const response = encodeEnvelope({
+      frame: {
+        case: "result",
+        value: {
+          operation: operationName(method),
+          correlation: frame.value.correlation,
+          payload: encode(method.output, create(method.output, { outcome: { case: "success", value: {} } })),
+        },
+      },
+    });
+    this.dispatchEvent(new MessageEvent("message", { data: response }));
   }
 }
 
-describe("JSON subscription establishment", () => {
+describe("subscription establishment", () => {
   beforeEach(() => {
     sockets.length = 0;
     vi.stubGlobal("WebSocket", SubscriptionSocket);
@@ -78,10 +94,17 @@ describe("JSON subscription establishment", () => {
     const controlled = requiredSocket();
     const controller = new AbortController();
     const opened = vi.fn();
-    const pending = runJsonSubscription({
+    const pending = runSocketDescriptorSubscription({
       socket,
-      method: "session.subscribeTranscript",
-      params: {},
+      method: StreamService.method.subscribe,
+      request: create(StreamService.method.subscribe.input, {
+        sessionId: "123e4567-e89b-42d3-a456-426614174000",
+      }),
+      eventDescriptor: MessageSchema,
+      completionDescriptor: StreamCompletionSchema,
+      onStart: (result) => {
+        requireUnarySuccess(StreamService.method.subscribe, result);
+      },
       handler: {
         onOpen: opened,
         onEvent: () => undefined,
@@ -105,10 +128,17 @@ describe("JSON subscription establishment", () => {
     const socket = new WebSocket("ws://subscription.test");
     const controller = new AbortController();
     const opened = vi.fn();
-    const pending = runJsonSubscription({
+    const pending = runSocketDescriptorSubscription({
       socket,
-      method: "session.subscribeTranscript",
-      params: {},
+      method: StreamService.method.subscribe,
+      request: create(StreamService.method.subscribe.input, {
+        sessionId: "123e4567-e89b-42d3-a456-426614174000",
+      }),
+      eventDescriptor: MessageSchema,
+      completionDescriptor: StreamCompletionSchema,
+      onStart: (result) => {
+        requireUnarySuccess(StreamService.method.subscribe, result);
+      },
       handler: {
         onOpen: opened,
         onEvent: () => undefined,

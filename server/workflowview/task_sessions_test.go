@@ -10,7 +10,8 @@ import (
 	"core/server/runtimeactivity"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -55,10 +56,10 @@ func TestTaskSessionsProjectsActiveParallelOrdinaryAndIdleMetadata(t *testing.T)
 
 	readModel := newTaskSessionsForTest(t, fixture, taskSessionActivitySource{
 		snapshots: []runtimeactivity.ActiveSessionSnapshot{
-			taskSessionSnapshot(t, questionID, clientui.RuntimeActivityAwaitingPrompt),
-			taskSessionSnapshot(t, registeredIdleID, clientui.RuntimeActivityRegisteredIdle),
-			taskSessionSnapshot(t, runningID, clientui.RuntimeActivityRunning),
-			taskSessionSnapshot(t, ordinaryID, clientui.RuntimeActivityRunning),
+			taskSessionSnapshot(t, questionID, runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT),
+			taskSessionSnapshot(t, registeredIdleID, runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE),
+			taskSessionSnapshot(t, runningID, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING),
+			taskSessionSnapshot(t, ordinaryID, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING),
 		},
 	})
 	response := listTaskSessionsForTest(t, readModel, string(started.task.ID), 0, 10)
@@ -106,8 +107,8 @@ func TestTaskSessionsPaginatesActiveThenLargeIdleHistoryBoundedly(t *testing.T) 
 	readModel := newTaskSessionsForTest(t, fixture, taskSessionActivitySource{
 		calls: &activityCalls,
 		snapshots: []runtimeactivity.ActiveSessionSnapshot{
-			taskSessionSnapshot(t, questionID, clientui.RuntimeActivityAwaitingPrompt),
-			taskSessionSnapshot(t, runningID, clientui.RuntimeActivityRunning),
+			taskSessionSnapshot(t, questionID, runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT),
+			taskSessionSnapshot(t, runningID, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING),
 		},
 	})
 
@@ -241,7 +242,7 @@ func associateHistoricalTaskSessionForViewTest(t *testing.T, fixture currentNode
 func taskSessionSnapshot(
 	t *testing.T,
 	sessionID runtimeids.SessionID,
-	state clientui.RuntimeActivityState,
+	state runtimepb.ActivityState,
 ) runtimeactivity.ActiveSessionSnapshot {
 	t.Helper()
 	return runtimeactivity.ActiveSessionSnapshot{
@@ -250,13 +251,13 @@ func taskSessionSnapshot(
 	}
 }
 
-func taskSessionRuntimeActivity(t *testing.T, state clientui.RuntimeActivityState) clientui.RuntimeActivity {
+func taskSessionRuntimeActivity(t *testing.T, state runtimepb.ActivityState) *runtimepb.Activity {
 	t.Helper()
-	if !(clientui.RuntimeActivity{State: state}).ActiveForControl() {
-		return clientui.RuntimeActivity{
+	if !protoapi.RuntimeActivityActiveForControl(&runtimepb.Activity{State: state}) {
+		return &runtimepb.Activity{
 			State:          state,
-			Reviewer:       clientui.ReviewerActivityInactive,
-			QueueAccepting: state == clientui.RuntimeActivityRegisteredIdle,
+			Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+			QueueAccepting: state == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 		}
 	}
 	runID, err := runtimeids.ParseRunID("11111111-1111-4111-8111-111111111111")
@@ -267,11 +268,11 @@ func taskSessionRuntimeActivity(t *testing.T, state clientui.RuntimeActivityStat
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
 	}
-	return clientui.RuntimeActivity{
+	return &runtimepb.Activity{
 		State:    state,
-		Reviewer: clientui.ReviewerActivityInactive,
-		ActiveStep: &clientui.RuntimeActiveStep{
-			RunID: runID, StepID: stepID, ActiveKind: clientui.RuntimeActivityActiveKindWorkflowTurn,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
+		ActiveStep: &runtimepb.ActiveStep{
+			RunId: runID.String(), StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN,
 		},
 		QueueAccepting: true,
 	}

@@ -12,6 +12,7 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/shared/config"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
@@ -24,7 +25,7 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
-	Choice           serverapi.ChatSettingsAgentChoice
+	Choice           *chatsettingspb.AgentChoice
 	Settings         PreparedChatSettings
 	ResolvedSettings config.Settings
 	comparison       preparedChatAgentComparison
@@ -71,8 +72,8 @@ func PrepareChatAgentCatalog(
 	return PreparedChatAgentCatalog{entries: entries}, nil
 }
 
-func (c PreparedChatAgentCatalog) Choices() []serverapi.ChatSettingsAgentChoice {
-	choices := make([]serverapi.ChatSettingsAgentChoice, 0, len(c.entries))
+func (c PreparedChatAgentCatalog) Choices() []*chatsettingspb.AgentChoice {
+	choices := make([]*chatsettingspb.AgentChoice, 0, len(c.entries))
 	for _, entry := range c.entries {
 		choices = append(choices, entry.Choice)
 	}
@@ -128,7 +129,7 @@ func prepareChatAgentCatalogEntry(
 	}
 	tools := append([]toolspec.ID(nil), target.EnabledTools...)
 	entry := PreparedChatAgentCatalogEntry{
-		Choice: serverapi.ChatSettingsAgentChoice{
+		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
 			Model:              strings.TrimSpace(target.Settings.Model),
 			Thinking:           settings.Baseline.Thinking,

@@ -29,7 +29,7 @@ export type ToolPresentation =
   | Readonly<{
       kind: "generic";
       body: readonly ToolTextSection[];
-      compact: string;
+      compact: string | null;
       copyPayload?: string | undefined;
       icon: "wrench";
       iconTone: TranscriptDisclosureIconTone;
@@ -38,9 +38,9 @@ export type ToolPresentation =
     }>
   | Readonly<{
       kind: "shell-command";
-      command: string;
+      command: string | null;
       commandLanguage?: string | undefined;
-      compact: string;
+      compact: string | null;
       copyPayload?: string | undefined;
       exitCode?: number | undefined;
       icon: "terminal";
@@ -53,7 +53,7 @@ export type ToolPresentation =
   | Readonly<{
       kind: "shell-input";
       body: readonly ToolTextSection[];
-      compact: string;
+      compact: string | null;
       copyPayload?: string | undefined;
       icon: "terminal";
       iconTone: TranscriptDisclosureIconTone;
@@ -72,7 +72,7 @@ export type ToolPresentation =
     }>
   | Readonly<{
       kind: "web-search";
-      compact: string;
+      compact: string | null;
       icon: "globe";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
@@ -197,8 +197,8 @@ function aliases(
   return names.map((name) => [name, { kind }] as const);
 }
 
-function resolveChatToolIdentity(name: string): ChatToolIdentity | undefined {
-  return chatToolIdentities.get(name);
+function resolveChatToolIdentity(name: string | null): ChatToolIdentity | undefined {
+  return name === null ? undefined : chatToolIdentities.get(name);
 }
 
 export function resolveToolPresentation(
@@ -363,7 +363,7 @@ function resolveShellCommand(
     kind: "shell-command",
     command,
     commandLanguage: shellCommandLanguage(context.meta),
-    compact: firstAuthoredLine(command),
+    compact: command === null ? null : firstAuthoredLine(command),
     copyPayload: buildToolCopyPayload("input-output", shellCommand, context.committed?.Text),
     exitCode: shellFailed ? shellExitCode : undefined,
     icon: "terminal",
@@ -371,7 +371,7 @@ function resolveShellCommand(
     output: context.output,
     outputLanguage: sourceResultLanguage(context.meta),
     running: context.item.kind === "live",
-    status: shellStatus(command, context.meta, strings),
+    status: shellStatus(command ?? undefined, context.meta, strings),
   };
 }
 

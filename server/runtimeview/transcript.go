@@ -2,31 +2,34 @@ package runtimeview
 
 import (
 	"core/server/runtime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 )
 
 const RecentTailEntryLimit = 500
 
-func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
+func TranscriptPageFromRuntime(engine *runtime.Engine, req *transcriptpb.PageRequest) (*transcriptpb.Page, error) {
 	if engine == nil {
-		return clientui.TranscriptPage{}, nil
+		return nil, nil
 	}
 	var segment runtime.TranscriptSegmentPage
 	var err error
-	if req.NewerCursor != nil {
-		segment, err = engine.TranscriptSegmentPageForward(*req.NewerCursor)
-	} else if req.Cursor != nil {
-		segment, err = engine.TranscriptSegmentPage(*req.Cursor)
-	} else {
+	switch direction := req.Direction.(type) {
+	case *transcriptpb.PageRequest_NewerCursor:
+		segment, err = engine.TranscriptSegmentPageForward(direction.NewerCursor)
+	case *transcriptpb.PageRequest_Cursor:
+		segment, err = engine.TranscriptSegmentPage(direction.Cursor)
+	default:
 		segment, err = engine.TranscriptNewestSegmentPage()
 	}
 	if err != nil {
-		return clientui.TranscriptPage{}, err
+		return nil, err
 	}
 	freshness, err := engine.ConversationFreshness()
 	if err != nil {
-		return clientui.TranscriptPage{}, err
+		return nil, err
 	}
 	return TranscriptPageFromSegment(
 		engine.SessionID(),
@@ -36,25 +39,32 @@ func TranscriptPageFromRuntime(engine *runtime.Engine, req clientui.TranscriptPa
 	)
 }
 
-func TranscriptPageFromSegment(sessionID, sessionName string, freshness clientui.ConversationFreshness, page runtime.TranscriptSegmentPage) (clientui.TranscriptPage, error) {
+func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
 	segment, err := TranscriptTailSegmentFromSegment(page)
 	if err != nil {
-		return clientui.TranscriptPage{}, err
+		return nil, err
 	}
-	return clientui.TranscriptPage{
-		SessionID:               sessionID,
-		SessionName:             sessionName,
+	var candidate *transcriptpb.RollbackCandidate
+	if page.LatestRollbackCandidate != nil {
+		candidate = &transcriptpb.RollbackCandidate{
+			UserMessageSeq:       page.LatestRollbackCandidate.UserMessageSeq,
+			CandidatePageEndByte: page.LatestRollbackCandidate.CandidatePageEndByte,
+		}
+	}
+	return &transcriptpb.Page{
+		SessionId:               sessionID,
+		SessionName:             textutil.OptionalExactString(sessionName),
 		ConversationFreshness:   freshness,
 		OlderCursor:             segment.OlderCursor,
 		HasMoreAbove:            segment.HasMoreAbove,
 		NewerCursor:             transcriptCursor(page.HasMoreBelow, page.NewerCursor),
 		HasMoreBelow:            page.HasMoreBelow,
-		LatestRollbackCandidate: textutil.Pointer(page.LatestRollbackCandidate),
+		LatestRollbackCandidate: candidate,
 		Entries:                 segment.Entries,
 	}, nil
 }
 
-func TranscriptTailSegmentFromSegment(page runtime.TranscriptSegmentPage) (clientui.TranscriptTailSegment, error) {
+func TranscriptTailSegmentFromSegment(page runtime.TranscriptSegmentPage) (*transcriptpb.TailSegment, error) {
 	return transcriptTailSegmentFromFactsChecked(
 		runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot),
 		transcriptCursor(page.HasMoreAbove, page.OlderCursor),
@@ -66,18 +76,18 @@ func transcriptTailSegmentFromFactsChecked(
 	facts []runtime.TranscriptCommittedRowFact,
 	olderCursor *int64,
 	hasMoreAbove bool,
-) (clientui.TranscriptTailSegment, error) {
+) (*transcriptpb.TailSegment, error) {
 	entries, err := transcriptRowsFromFactsChecked(facts)
 	if err != nil {
-		return clientui.TranscriptTailSegment{}, err
+		return nil, err
 	}
-	segment := clientui.TranscriptTailSegment{
+	segment := &transcriptpb.TailSegment{
 		OlderCursor:  olderCursor,
 		HasMoreAbove: hasMoreAbove,
 		Entries:      entries,
 	}
-	if err := segment.Validate(); err != nil {
-		return clientui.TranscriptTailSegment{}, err
+	if err := protoapi.Validate(segment); err != nil {
+		return nil, err
 	}
 	return segment, nil
 }

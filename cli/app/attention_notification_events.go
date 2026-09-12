@@ -2,6 +2,7 @@ package app
 
 import (
 	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 )
 
@@ -26,31 +27,31 @@ func tuiSupportsAttentionNotification(notification clientui.AttentionNotificatio
 	}
 }
 
-func notifyTranscriptPromptActivation(hook promptAttentionSink, prompt clientui.TranscriptPrompt, projectedPreview string) {
-	if hook == nil || prompt.Status != clientui.TranscriptPromptStatusPending {
+func notifyTranscriptPromptActivation(hook promptAttentionSink, prompt *transcriptpb.Prompt, projectedPreview string) {
+	if hook == nil || prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 		return
 	}
 	kind := clientui.AttentionNotificationKindQuestion
-	if prompt.Kind == clientui.TranscriptPromptKindApproval {
+	if transcriptPromptIsApproval(prompt) {
 		kind = clientui.AttentionNotificationKindApproval
 	}
 	notification := clientui.AttentionNotification{
 		ID: clientui.AttentionNotificationID{
 			Kind: kind,
-			UUID: string(prompt.ToolCallID),
+			UUID: transcriptPromptToolCallID(prompt),
 		},
 		Kind:       kind,
-		OccurredAt: prompt.CreatedAt,
+		OccurredAt: transcriptPromptCreatedAt(prompt),
 		Revision:   1,
 		Target: clientui.AttentionNotificationTarget{
 			Kind:      clientui.AttentionNotificationTargetSessionPrompt,
-			SessionID: prompt.SessionID.String(),
+			SessionID: transcriptPromptSessionID(prompt),
 		},
 	}
-	if prompt.Kind == clientui.TranscriptPromptKindApproval {
+	if transcriptPromptIsApproval(prompt) {
 		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: textutil.Value(projectedPreview)}
 	} else {
-		toolCallID := string(prompt.ToolCallID)
+		toolCallID := transcriptPromptToolCallID(prompt)
 		notification.Question = &clientui.AttentionNotificationQuestionState{
 			PreparedAskIDs:          []string{toolCallID},
 			MaterializedAskIDs:      []string{toolCallID},

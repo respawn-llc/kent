@@ -6,11 +6,14 @@ import (
 	"core/cli/tui"
 	tuiinput "core/cli/tui/input"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 	"errors"
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -54,8 +57,8 @@ func (c uiAskController) acceptEvent(evt askEvent) tea.Cmd {
 	if evt.isResolution() {
 		return c.resolvePrompt(evt.toolCallID())
 	}
-	incomingToolCallID := strings.TrimSpace(string(evt.prompt.ToolCallID))
-	if incomingToolCallID != "" && m.ask.hasCurrent() && strings.TrimSpace(string(m.ask.current.prompt.ToolCallID)) == incomingToolCallID {
+	incomingToolCallID := strings.TrimSpace(transcriptPromptToolCallID(evt.prompt))
+	if incomingToolCallID != "" && m.ask.hasCurrent() && strings.TrimSpace(transcriptPromptToolCallID(m.ask.current.prompt)) == incomingToolCallID {
 		m.ask.current.prompt = evt.prompt
 		return m.scheduleCurrentQuestionProjection()
 	}
@@ -79,13 +82,13 @@ func (c uiAskController) resolvePrompt(toolCallID string) tea.Cmd {
 	}
 	filteredQueue := m.ask.queue[:0]
 	for _, queued := range m.ask.queue {
-		if strings.TrimSpace(string(queued.prompt.ToolCallID)) == targetID {
+		if strings.TrimSpace(transcriptPromptToolCallID(queued.prompt)) == targetID {
 			continue
 		}
 		filteredQueue = append(filteredQueue, queued)
 	}
 	m.ask.queue = filteredQueue
-	if !m.ask.hasCurrent() || strings.TrimSpace(string(m.ask.current.prompt.ToolCallID)) != targetID {
+	if !m.ask.hasCurrent() || strings.TrimSpace(transcriptPromptToolCallID(m.ask.current.prompt)) != targetID {
 		return nil
 	}
 	c.cancelActiveDelivery()
@@ -185,7 +188,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 					resp = clientui.PromptAnswer{
-						ToolCallID: req.ToolCallID,
+						ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(req)),
 						Approval:   &clientui.ApprovalPromptAnswer{Decision: decision, Commentary: commentary},
 					}
 					_, hasNext, answerCmd := c.answer(resp, nil)
@@ -234,8 +237,8 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if commentary := strings.TrimSpace(m.ask.editor.Text()); askSupportsDraftRoundTrip(req) && commentary != "" {
 			resp.FreeformAnswer = commentary
 		}
-		if transcriptPromptIsApproval(req) && m.ask.cursor < len(req.ApprovalOptions) {
-			resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: req.ApprovalOptions[m.ask.cursor]}}
+		if transcriptPromptIsApproval(req) && m.ask.cursor < len(transcriptPromptApprovalOptions(req)) {
+			resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: transcriptPromptApprovalOptions(req)[m.ask.cursor]}}
 		}
 		_, hasNext, answerCmd := c.answer(resp, nil)
 		if hasNext {
@@ -385,7 +388,7 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 	if !m.ask.hasCurrent() {
 		return false, false, nil
 	}
-	currentToolCallID := strings.TrimSpace(string(m.ask.current.prompt.ToolCallID))
+	currentToolCallID := strings.TrimSpace(transcriptPromptToolCallID(m.ask.current.prompt))
 	answerToolCallID := strings.TrimSpace(string(resp.ToolCallID))
 	if answerToolCallID != "" && answerToolCallID != currentToolCallID {
 		return false, false, nil
@@ -395,7 +398,7 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 	} else {
 		resp.ToolCallID = clientui.ToolCallID(answerToolCallID)
 	}
-	if m.promptAnswers == nil || m.ask.current.prompt.SessionID.IsZero() || currentToolCallID == "" {
+	if m.promptAnswers == nil || transcriptPromptSessionID(m.ask.current.prompt) == "" || currentToolCallID == "" {
 		return true, c.finishDeliveredPrompt(), nil
 	}
 	active, cmd, deliveryErr := m.promptAnswers.delivery(m.ask.current.prompt, resp, err)
@@ -475,32 +478,32 @@ func (c uiAskController) applyDeliveryResult(result promptAnswerDeliveryResultMs
 	return m.sendTransientStatusWithNoticeID(result.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 }
 
-func askVisibleOptions(req clientui.TranscriptPrompt) []string {
-	if transcriptPromptIsApproval(req) && len(req.ApprovalOptions) > 0 {
-		out := make([]string, 0, len(req.ApprovalOptions))
-		for _, decision := range req.ApprovalOptions {
-			out = append(out, approvalDecisionLabel(decision))
+func askVisibleOptions(req *transcriptpb.Prompt) []string {
+	if approval := req.GetApproval(); approval != nil {
+		out := make([]string, len(approval.Options))
+		for index, option := range approval.Options {
+			out[index] = option.Label
 		}
 		return out
 	}
-	return req.Suggestions
+	return req.GetQuestion().GetSuggestions()
 }
 
-func approvalSupportsCommentary(req clientui.TranscriptPrompt) bool {
+func approvalSupportsCommentary(req *transcriptpb.Prompt) bool {
 	if !transcriptPromptIsApproval(req) {
 		return false
 	}
 	return len(askVisibleOptions(req)) > 0
 }
 
-func askHasFreeformSelectionOption(req clientui.TranscriptPrompt) bool {
+func askHasFreeformSelectionOption(req *transcriptpb.Prompt) bool {
 	if transcriptPromptIsApproval(req) {
 		return false
 	}
 	return len(askVisibleOptions(req)) > 0
 }
 
-func askOptionCount(req clientui.TranscriptPrompt) int {
+func askOptionCount(req *transcriptpb.Prompt) int {
 	count := len(askVisibleOptions(req))
 	if askHasFreeformSelectionOption(req) {
 		count++
@@ -508,28 +511,29 @@ func askOptionCount(req clientui.TranscriptPrompt) int {
 	return count
 }
 
-func isApprovalCommentaryPrompt(req clientui.TranscriptPrompt, freeform bool, mode askFreeformMode) bool {
+func isApprovalCommentaryPrompt(req *transcriptpb.Prompt, freeform bool, mode askFreeformMode) bool {
 	if !freeform || mode != askFreeformModeApprovalCommentary {
 		return false
 	}
 	return transcriptPromptIsApproval(req)
 }
 
-func selectedApprovalDecision(req clientui.TranscriptPrompt, cursor int) (clientui.ApprovalDecision, bool) {
-	if !transcriptPromptIsApproval(req) || cursor < 0 || cursor >= len(req.ApprovalOptions) {
+func selectedApprovalDecision(req *transcriptpb.Prompt, cursor int) (clientui.ApprovalDecision, bool) {
+	if !transcriptPromptIsApproval(req) || cursor < 0 || cursor >= len(transcriptPromptApprovalOptions(req)) {
 		return "", false
 	}
-	return req.ApprovalOptions[cursor], true
+	return transcriptPromptApprovalOptions(req)[cursor], true
 }
 
-func approvalCommentaryLabel(req clientui.TranscriptPrompt, cursor int) string {
-	if !transcriptPromptIsApproval(req) || cursor < 0 || cursor >= len(req.ApprovalOptions) {
+func approvalCommentaryLabel(req *transcriptpb.Prompt, cursor int) string {
+	options := req.GetApproval().GetOptions()
+	if cursor < 0 || cursor >= len(options) {
 		return "Commentary:"
 	}
-	return fmt.Sprintf("Commentary for %s:", approvalDecisionLabel(req.ApprovalOptions[cursor]))
+	return fmt.Sprintf("Commentary for %s:", options[cursor].Label)
 }
 
-func selectedAskOptionNumber(req clientui.TranscriptPrompt, cursor int) (int, bool) {
+func selectedAskOptionNumber(req *transcriptpb.Prompt, cursor int) (int, bool) {
 	if transcriptPromptIsApproval(req) {
 		return 0, false
 	}
@@ -540,16 +544,16 @@ func selectedAskOptionNumber(req clientui.TranscriptPrompt, cursor int) (int, bo
 	return cursor + 1, true
 }
 
-func askOptionIsRecommended(req clientui.TranscriptPrompt, index int) bool {
+func askOptionIsRecommended(req *transcriptpb.Prompt, index int) bool {
 	if transcriptPromptIsApproval(req) {
 		return false
 	}
-	return req.RecommendedOptionIndex != nil && *req.RecommendedOptionIndex == index+1
+	return req.GetQuestion().GetRecommendedOptionIndex() == int32(index+1)
 }
 
-func initialAskCursor(req clientui.TranscriptPrompt) int {
+func initialAskCursor(req *transcriptpb.Prompt) int {
 	if transcriptPromptIsApproval(req) {
-		for index, decision := range req.ApprovalOptions {
+		for index, decision := range transcriptPromptApprovalOptions(req) {
 			if decision == clientui.ApprovalDecisionAllowOnce {
 				return index
 			}
@@ -564,7 +568,7 @@ func initialAskCursor(req clientui.TranscriptPrompt) int {
 	return 0
 }
 
-func askRequiresFreeformSelectionCommentary(req clientui.TranscriptPrompt, cursor int) bool {
+func askRequiresFreeformSelectionCommentary(req *transcriptpb.Prompt, cursor int) bool {
 	if !askHasFreeformSelectionOption(req) {
 		return false
 	}
@@ -575,23 +579,58 @@ func askHasPendingFreeformDraft(input string) bool {
 	return strings.TrimSpace(input) != ""
 }
 
-func askSupportsDraftRoundTrip(req clientui.TranscriptPrompt) bool {
+func askSupportsDraftRoundTrip(req *transcriptpb.Prompt) bool {
 	return !transcriptPromptIsApproval(req) && len(askVisibleOptions(req)) > 0
 }
 
-func transcriptPromptIsApproval(prompt clientui.TranscriptPrompt) bool {
-	return prompt.Kind == clientui.TranscriptPromptKindApproval
+func transcriptPromptIsApproval(prompt *transcriptpb.Prompt) bool {
+	return prompt.GetApproval() != nil
 }
 
-func approvalDecisionLabel(decision clientui.ApprovalDecision) string {
-	switch decision {
-	case clientui.ApprovalDecisionAllowOnce:
-		return "Allow once"
-	case clientui.ApprovalDecisionAllowSession:
-		return "Allow for this session"
-	case clientui.ApprovalDecisionDeny:
-		return "Deny"
-	default:
-		panic(fmt.Sprintf("unsupported approval decision %q", decision))
+func transcriptPromptToolCallID(prompt *transcriptpb.Prompt) string {
+	if approval := prompt.GetApproval(); approval != nil {
+		return approval.ToolCallId
 	}
+	return prompt.GetQuestion().GetToolCallId()
+}
+
+func transcriptPromptSessionID(prompt *transcriptpb.Prompt) string {
+	if approval := prompt.GetApproval(); approval != nil {
+		return approval.SessionId
+	}
+	return prompt.GetQuestion().GetSessionId()
+}
+
+func transcriptPromptStepID(prompt *transcriptpb.Prompt) string {
+	if approval := prompt.GetApproval(); approval != nil {
+		return approval.StepId
+	}
+	return prompt.GetQuestion().GetStepId()
+}
+
+func transcriptPromptQuestion(prompt *transcriptpb.Prompt) string {
+	if approval := prompt.GetApproval(); approval != nil {
+		return approval.GetQuestion()
+	}
+	return prompt.GetQuestion().GetQuestion()
+}
+
+func transcriptPromptCreatedAt(prompt *transcriptpb.Prompt) time.Time {
+	if approval := prompt.GetApproval(); approval != nil {
+		return approval.CreatedAt.AsTime()
+	}
+	return prompt.GetQuestion().GetCreatedAt().AsTime()
+}
+
+func transcriptPromptApprovalOptions(prompt *transcriptpb.Prompt) []clientui.ApprovalDecision {
+	options := prompt.GetApproval().GetOptions()
+	decisions := make([]clientui.ApprovalDecision, len(options))
+	for index, option := range options {
+		decision, err := protoapi.ApprovalDecisionFromProto(option.Decision)
+		if err != nil {
+			panic(err)
+		}
+		decisions[index] = decision
+	}
+	return decisions
 }

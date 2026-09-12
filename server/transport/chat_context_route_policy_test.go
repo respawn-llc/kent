@@ -4,41 +4,34 @@ import (
 	"context"
 	"testing"
 
-	"core/shared/protocol"
-	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
 func TestChatContextRouteScopeUsesSessionTarget(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
 	executor := newRoutePolicyExecutor(fixture.gateway)
-	route := routeForTest(t, protocol.MethodChatContextGet)
+	operation, err := protoapi.OperationFromDescriptor(contextpb.File_kent_api_chat_context_chat_context_proto.Services().ByName("ChatContextService").Methods().ByName("Get"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	sessionRequest := serverapi.NewSessionChatContextRequest(mustChatContextSessionID(t, fixture.ownSessionID))
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		route,
-		sessionRequest,
+		routeScopePolicy(operation.Options.ScopePolicy),
+		operation.Name,
+		routeScopeParams{sessionID: fixture.ownSessionID},
 	); err != nil {
 		t.Fatalf("Session target scope: %v", err)
 	}
-	foreignRequest := serverapi.NewSessionChatContextRequest(mustChatContextSessionID(t, fixture.foreignSessionID))
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		route,
-		foreignRequest,
+		routeScopePolicy(operation.Options.ScopePolicy),
+		operation.Name,
+		routeScopeParams{sessionID: fixture.foreignSessionID},
 	); err == nil {
 		t.Fatal("foreign Session target unexpectedly passed active-project scope")
 	}
-}
-
-func mustChatContextSessionID(t *testing.T, raw string) runtimeids.SessionID {
-	t.Helper()
-	sessionID, err := runtimeids.ParseSessionID(raw)
-	if err != nil {
-		t.Fatalf("parse Session id: %v", err)
-	}
-	return sessionID
 }

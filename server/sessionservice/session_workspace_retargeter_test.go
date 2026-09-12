@@ -19,6 +19,7 @@ import (
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -466,7 +467,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		_, err := retargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
 			requestCtx,
 			request.SessionID,
-			&serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID},
+			&sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID},
 			worktreecontract.NewOperationID(),
 			func(resolveCtx context.Context) (metadata.SessionWorkspaceRetargetRequest, error) {
 				select {
@@ -543,7 +544,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
 	if target.Worktree == nil ||
-		target.Worktree.ID != targetWorktreeID ||
+		target.Worktree.Id != targetWorktreeID ||
 		canonicalRetargetTestPath(t, target.EffectiveWorkdir) != canonicalRetargetTestPath(t, targetWorktreeRoot) {
 		t.Fatalf("scheduled execution target = %+v, want Worktree %q at %q", target, targetWorktreeID, targetWorktreeRoot)
 	}
@@ -590,9 +591,7 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 				}
 				_, err := retargeter.ScheduleWorkspaceRetarget(
 					t.Context(),
-					request,
-					serverapi.RuntimeStepOrigin{RunID: active.RunID, StepID: active.StepID},
-					worktreecontract.NewOperationID(),
+					request, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID(),
 				)
 				return err
 			}
@@ -707,8 +706,8 @@ func TestSessionWorkspaceRetargeterMovesRealArtifactAndMetadataAcrossProjects(t 
 	if !result.WorkspaceBindingCreated {
 		t.Fatal("WorkspaceBindingCreated = false, want true")
 	}
-	if result.Binding.ProjectID != targetProjectID {
-		t.Fatalf("target project = %q, want %q", result.Binding.ProjectID, targetProjectID)
+	if result.Binding.ProjectId != targetProjectID {
+		t.Fatalf("target project = %q, want %q", result.Binding.ProjectId, targetProjectID)
 	}
 	if _, err := os.Stat(plan.SourceSessionDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("source artifact still exists: %v", err)
@@ -787,8 +786,8 @@ func TestSessionWorkspaceRetargeterTreatsCommittedIdentityPublicationFailureAsNo
 	if err != nil {
 		t.Fatalf("committed RetargetWorkspace reported notification failure: %v", err)
 	}
-	if result.Binding.ProjectID != targetProjectID {
-		t.Fatalf("target project = %q, want %q", result.Binding.ProjectID, targetProjectID)
+	if result.Binding.ProjectId != targetProjectID {
+		t.Fatalf("target project = %q, want %q", result.Binding.ProjectId, targetProjectID)
 	}
 }
 
@@ -856,8 +855,8 @@ func TestSessionWorkspaceRetargeterSharedRootRemainsPersistable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RetargetWorkspace: %v", err)
 			}
-			if result.Binding.ProjectID != wantProjectID {
-				t.Fatalf("binding project = %q, want %q", result.Binding.ProjectID, wantProjectID)
+			if result.Binding.ProjectId != wantProjectID {
+				t.Fatalf("binding project = %q, want %q", result.Binding.ProjectId, wantProjectID)
 			}
 			descriptor, err := session.NewOpenSessionDescriptor(fixture.childID)
 			if err != nil {
@@ -929,8 +928,8 @@ func TestSessionWorkspaceRetargeterMovesDormantSessionWithoutRuntimeRebind(t *te
 	if _, active := fixture.authority.SessionExecution(fixture.childID); active {
 		t.Fatal("dormant retarget unexpectedly opened a runtime")
 	}
-	if result.Binding.ProjectID != targetProjectID {
-		t.Fatalf("target project = %q, want %q", result.Binding.ProjectID, targetProjectID)
+	if result.Binding.ProjectId != targetProjectID {
+		t.Fatalf("target project = %q, want %q", result.Binding.ProjectId, targetProjectID)
 	}
 }
 
@@ -970,7 +969,7 @@ func TestSessionWorkspaceRetargeterStaleObserverCannotRestorePreviousTarget(t *t
 		WorkspaceRoot: fixture.targetWorkspaceRoot,
 	}
 	type retargetOutcome struct {
-		result serverapi.SessionRetargetWorkspaceResponse
+		result *sessionlaunchpb.SessionRetargetWorkspaceSuccess
 		err    error
 	}
 	retargetDone := make(chan retargetOutcome, 1)
@@ -1008,8 +1007,8 @@ func TestSessionWorkspaceRetargeterStaleObserverCannotRestorePreviousTarget(t *t
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != retargeted.result.Binding.WorkspaceID {
-		t.Fatalf("workspace id = %q, want rebound workspace %q", target.WorkspaceID, retargeted.result.Binding.WorkspaceID)
+	if target.GetWorkspaceId() != retargeted.result.Binding.WorkspaceId {
+		t.Fatalf("workspace id = %q, want rebound workspace %q", target.GetWorkspaceId(), retargeted.result.Binding.WorkspaceId)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/config"
 	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDeleteTaskWorktreeBlocksGitMainBeforeCleanupSideEffects(t *testing.T) {
@@ -107,7 +107,7 @@ func TestDeleteTaskWorktreeBlocksGitMainBeforeCleanupSideEffects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget after delete: %v", err)
 	}
-	if !reflect.DeepEqual(afterTarget, beforeTarget) {
+	if !proto.Equal(afterTarget, beforeTarget) {
 		t.Fatalf("Session target changed: before=%+v after=%+v", beforeTarget, afterTarget)
 	}
 	afterReminder := env.session.Meta().WorktreeReminder

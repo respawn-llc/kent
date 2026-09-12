@@ -5,7 +5,9 @@ package kent.api.attention;
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -160,6 +162,16 @@ message StartError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
     }];
+
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
   }
 }
 
@@ -178,9 +190,16 @@ service SessionService {
       authentication_stage: AUTHENTICATION_STAGE_SERVER
       scope_policy: SCOPE_POLICY_ATTACHED_SESSION
       direction: DIRECTION_CLIENT_TO_SERVER
-      event: {package: "kent.api.attention" service: "SessionService" method: "Event"}
-      completion: {package: "kent.api.attention" service: "SessionService" method: "Complete"}
-      legacy_wire_name: "attention.sessionNotification.subscribe"
+      event: {
+        package: "kent.api.attention"
+        service: "SessionService"
+        method: "Event"
+      }
+      completion: {
+        package: "kent.api.attention"
+        service: "SessionService"
+        method: "Complete"
+      }
     };
   }
   rpc Event(NotificationEvent) returns (google.protobuf.Empty) {
@@ -189,7 +208,6 @@ service SessionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.sessionNotification"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -198,7 +216,6 @@ service SessionService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.sessionNotification.complete"
     };
   }
 }

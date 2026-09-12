@@ -5,35 +5,36 @@ import (
 	"core/server/runtime"
 	"core/server/runtimeactivity"
 	"core/server/session"
-	"core/shared/clientui"
-	"core/shared/transcript"
-	"core/shared/transcript/patchformat"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/textutil"
 )
 
 func MainViewFromRuntimeActivity(
 	engine *runtime.Engine,
-	version clientui.ReadModelVersion,
-	activity clientui.RuntimeActivity,
-) (clientui.RuntimeMainView, error) {
+	version *runtimepb.ReadModelVersion,
+	activity *runtimepb.Activity,
+) (*runtimepb.MainView, error) {
 	if engine == nil {
-		return clientui.RuntimeMainView{}, nil
+		return &runtimepb.MainView{}, nil
 	}
 	sessionView, err := SessionViewFromRuntime(engine)
 	if err != nil {
-		return clientui.RuntimeMainView{}, err
+		return &runtimepb.MainView{}, err
 	}
 	status, err := StatusFromRuntime(engine)
 	if err != nil {
-		return clientui.RuntimeMainView{}, err
+		return &runtimepb.MainView{}, err
 	}
-	if err := activity.Validate(); err != nil {
-		activity = clientui.RuntimeActivity{
-			State:              clientui.RuntimeActivityUnavailable,
-			Reviewer:           clientui.ReviewerActivityInactive,
+	if err := protoapi.Validate(activity); err != nil {
+		activity = &runtimepb.Activity{
+			State:              runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
+			Reviewer:           runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 			DiagnosticRecovery: true,
 		}
 	}
-	return clientui.RuntimeMainView{
+	return &runtimepb.MainView{
 		Version:  version,
 		Status:   status,
 		Session:  sessionView,
@@ -41,21 +42,37 @@ func MainViewFromRuntimeActivity(
 	}, nil
 }
 
-func StatusFromRuntime(engine *runtime.Engine) (clientui.RuntimeStatus, error) {
+func StatusFromRuntime(engine *runtime.Engine) (*runtimepb.Status, error) {
 	if engine == nil {
-		return clientui.RuntimeStatus{}, nil
+		return &runtimepb.Status{}, nil
 	}
 	goalAvailability, err := engine.GoalAvailability()
 	if err != nil {
-		return clientui.RuntimeStatus{}, err
+		return &runtimepb.Status{}, err
 	}
 	freshness, err := engine.ConversationFreshness()
 	if err != nil {
-		return clientui.RuntimeStatus{}, err
+		return &runtimepb.Status{}, err
 	}
 	usage := engine.ContextUsage()
+	usedTokens, err := protoapi.Int32(usage.UsedTokens, "used tokens")
+	if err != nil {
+		return nil, err
+	}
+	windowTokens, err := protoapi.Int32(usage.WindowTokens, "context window tokens")
+	if err != nil {
+		return nil, err
+	}
+	compactionCount, err := protoapi.Int32(engine.CompactionCount(), "compaction count")
+	if err != nil {
+		return nil, err
+	}
 	fastModeAvailable := engine.FastModeAvailable()
-	status := clientui.RuntimeStatus{
+	goal, err := goalview.FromSessionState(engine.Goal(), goalAvailability, engine.GoalLoopSuspended())
+	if err != nil {
+		return nil, err
+	}
+	status := &runtimepb.Status{
 		ReviewerFrequency:                 engine.ReviewerFrequency(),
 		ReviewerEnabled:                   engine.ReviewerEnabled(),
 		AutoCompactionEnabled:             engine.AutoCompactionEnabled(),
@@ -63,38 +80,47 @@ func StatusFromRuntime(engine *runtime.Engine) (clientui.RuntimeStatus, error) {
 		FastModeAvailable:                 fastModeAvailable,
 		FastModeEnabled:                   engine.FastModeEnabled(),
 		ConversationFreshness:             ConversationFreshnessFromSession(freshness),
-		PreviousSessionID:                 engine.PreviousSessionID(),
-		ParentAgentSessionID:              engine.ParentAgentSessionID(),
-		NavigationTargetSessionID:         engine.NavigationTargetSessionID(),
+		PreviousSessionId:                 protoapi.OptionalSessionIDToProto(engine.PreviousSessionID()),
+		ParentAgentSessionId:              protoapi.OptionalSessionIDToProto(engine.ParentAgentSessionID()),
+		NavigationTargetSessionId:         protoapi.OptionalSessionIDToProto(engine.NavigationTargetSessionID()),
 		LastCommittedAssistantFinalAnswer: engine.LastCommittedAssistantFinalAnswer(),
 		ThinkingLevel:                     engine.ThinkingLevel(),
 		CompactionMode:                    engine.CompactionMode(),
-		ContextUsage: clientui.RuntimeContextUsage{
-			UsedTokens:            usage.UsedTokens,
-			WindowTokens:          usage.WindowTokens,
-			CacheHitPercent:       usage.CacheHitPercent,
-			HasCacheHitPercentage: usage.HasCacheHitPercentage,
+		ContextUsage: &runtimepb.ContextUsage{
+			UsedTokens:   usedTokens,
+			WindowTokens: windowTokens,
 		},
-		CompactionCount: engine.CompactionCount(),
-		Goal:            goalview.FromSessionState(engine.Goal(), goalAvailability, engine.GoalLoopSuspended()),
+		CompactionCount: compactionCount,
+		Goal:            goal,
+	}
+	if usage.HasCacheHitPercentage {
+		percentage, err := protoapi.Int32(usage.CacheHitPercent, "cache hit percentage")
+		if err != nil {
+			return nil, err
+		}
+		status.ContextUsage.CacheHitPercent = &percentage
 	}
 	if workflowState, err := engine.WorkflowSessionState(); err != nil {
-		return clientui.RuntimeStatus{}, err
+		return &runtimepb.Status{}, err
 	} else if workflowState != nil && !engine.WorkflowTerminalState().Completed {
-		status.WorkflowSession = &clientui.WorkflowSessionStatus{
-			TaskID:     string(workflowState.TaskID),
-			WorkflowID: workflowState.WorkflowID,
+		status.WorkflowSession = &runtimepb.WorkflowSessionStatus{
+			TaskId:     string(workflowState.TaskID),
+			WorkflowId: workflowState.WorkflowID.String(),
 		}
 	}
 	return status, nil
 }
 
-func TranscriptSessionStatusFromRuntime(engine *runtime.Engine) (clientui.TranscriptSessionStatus, error) {
+func TranscriptSessionStatusFromRuntime(engine *runtime.Engine) (*transcriptpb.SessionStatus, error) {
 	if engine == nil {
-		return clientui.TranscriptSessionStatus{}, nil
+		return &transcriptpb.SessionStatus{}, nil
+	}
+	compactionCount, err := protoapi.Int32(engine.CompactionCount(), "compaction count")
+	if err != nil {
+		return nil, err
 	}
 	fastModeAvailable := engine.FastModeAvailable()
-	status := clientui.TranscriptSessionStatus{
+	status := &transcriptpb.SessionStatus{
 		ReviewerFrequency:         engine.ReviewerFrequency(),
 		ReviewerEnabled:           engine.ReviewerEnabled(),
 		AutoCompactionEnabled:     engine.AutoCompactionEnabled(),
@@ -103,48 +129,48 @@ func TranscriptSessionStatusFromRuntime(engine *runtime.Engine) (clientui.Transc
 		FastModeEnabled:           engine.FastModeEnabled(),
 		ThinkingLevel:             engine.ThinkingLevel(),
 		CompactionMode:            engine.CompactionMode(),
-		CompactionCount:           engine.CompactionCount(),
-		PreviousSessionID:         engine.PreviousSessionID(),
-		ParentAgentSessionID:      engine.ParentAgentSessionID(),
-		NavigationTargetSessionID: engine.NavigationTargetSessionID(),
+		CompactionCount:           compactionCount,
+		PreviousSessionId:         protoapi.OptionalSessionIDToProto(engine.PreviousSessionID()),
+		ParentAgentSessionId:      protoapi.OptionalSessionIDToProto(engine.ParentAgentSessionID()),
+		NavigationTargetSessionId: protoapi.OptionalSessionIDToProto(engine.NavigationTargetSessionID()),
 	}
 	workflowState, err := engine.WorkflowSessionState()
 	if err != nil {
-		return clientui.TranscriptSessionStatus{}, err
+		return &transcriptpb.SessionStatus{}, err
 	}
 	if workflowState != nil && !engine.WorkflowTerminalState().Completed {
-		status.Workflow = &clientui.TranscriptWorkflowSession{
-			TaskID:     string(workflowState.TaskID),
-			WorkflowID: workflowState.WorkflowID,
+		status.Workflow = &runtimepb.WorkflowSessionStatus{
+			TaskId:     string(workflowState.TaskID),
+			WorkflowId: workflowState.WorkflowID.String(),
 		}
 	}
 	return status, nil
 }
 
-func SessionViewFromRuntime(engine *runtime.Engine) (clientui.RuntimeSessionView, error) {
+func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, error) {
 	if engine == nil {
-		return clientui.RuntimeSessionView{}, nil
+		return &runtimepb.SessionView{}, nil
 	}
 	freshness, err := engine.ConversationFreshness()
 	if err != nil {
-		return clientui.RuntimeSessionView{}, err
+		return &runtimepb.SessionView{}, err
 	}
-	return clientui.RuntimeSessionView{
-		SessionID:             engine.SessionID(),
-		SessionName:           engine.SessionName(),
+	return &runtimepb.SessionView{
+		SessionId:             engine.SessionID(),
+		SessionName:           textutil.OptionalExactString(engine.SessionName()),
 		AgentRole:             engine.ContinuationAgentRole(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil
 }
 
-func ConversationFreshnessFromSession(freshness session.ConversationFreshness) clientui.ConversationFreshness {
+func ConversationFreshnessFromSession(freshness session.ConversationFreshness) runtimepb.ConversationFreshness {
 	if freshness.IsFresh() {
-		return clientui.ConversationFreshnessFresh
+		return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH
 	}
-	return clientui.ConversationFreshnessEstablished
+	return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 }
 
-func ActivityFromRuntimeSnapshot(snapshot *runtime.RunSnapshot, queueAccepting bool) clientui.RuntimeActivity {
+func ActivityFromRuntimeSnapshot(snapshot *runtime.RunSnapshot, queueAccepting bool) *runtimepb.Activity {
 	var active *runtimeactivity.ActiveStepSnapshot
 	if snapshot != nil {
 		active = runtimeactivity.ActiveStepFromRuntimeSnapshot(snapshot)
@@ -159,20 +185,6 @@ func ActivityFromRuntimeSnapshot(snapshot *runtime.RunSnapshot, queueAccepting b
 	return activity
 }
 
-func ClientActiveKindFromRuntime(kind runtime.ActiveKind) clientui.RuntimeActivityActiveKind {
+func ClientActiveKindFromRuntime(kind runtime.ActiveKind) runtimepb.ActivityActiveKind {
 	return runtimeactivity.MustClientActiveKindFromRuntime(kind)
-}
-
-func cloneToolCallMeta(meta *transcript.ToolCallMeta) *transcript.ToolCallMeta {
-	if meta == nil {
-		return nil
-	}
-	copyMeta := *meta
-	copyMeta.Suggestions = append([]string(nil), meta.Suggestions...)
-	if meta.RenderHint != nil {
-		renderHint := *meta.RenderHint
-		copyMeta.RenderHint = &renderHint
-	}
-	copyMeta.PatchPresentation = patchformat.ClonePresentation(meta.PatchPresentation)
-	return &copyMeta
 }

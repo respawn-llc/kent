@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"core/server/llm"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -106,7 +107,7 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 		mutate func(*Engine)
 	}{
 		{"disabled policy", func(engine *Engine) {
-			engine.contextPolicy.CompactionMode = serverapi.ChatContextCompactionModeDisabled
+			engine.contextPolicy.CompactionMode = contextpb.CompactionMode_COMPACTION_MODE_DISABLED
 		}},
 		{
 			"active compaction",

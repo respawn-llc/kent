@@ -5,6 +5,8 @@ package kent.api.run_prompt;
 import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -37,6 +39,7 @@ message Success {
   string session_name = 2;
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
   repeated string warnings = 4;
+  string result = 5;
 }
 
 message Error {
@@ -48,6 +51,14 @@ message Error {
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
     }];
   }
 }
@@ -72,6 +83,7 @@ message AssistantMessage {
     defined_only: true
     not_in: [0]
   }];
+  string content = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message SteeredMessage {
@@ -117,7 +129,6 @@ service RunService {
       scope_policy: SCOPE_POLICY_PROJECT_WORKSPACE
       direction: DIRECTION_CLIENT_TO_SERVER
       event: {package: "kent.api.run_prompt" service: "RunService" method: "Progress"}
-      legacy_wire_name: "run.prompt"
     };
   }
   rpc Progress(ProgressEvent) returns (google.protobuf.Empty) {
@@ -126,7 +137,6 @@ service RunService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "run.prompt.progress"
     };
   }
 }

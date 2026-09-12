@@ -184,7 +184,10 @@ func TestWorktreeCommandListSelection(t *testing.T) {
 				if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
 					t.Fatal(err)
 				}
-				workspace, entries = response.Target.WorkspaceId, response.Worktrees
+				if response.Target.WorkspaceId == nil {
+					t.Fatal("Session Worktree target omitted its Workspace")
+				}
+				workspace, entries = *response.Target.WorkspaceId, response.Worktrees
 			} else {
 				var response worktreepb.WorkspaceListSuccess
 				if err := protojson.Unmarshal(out.Bytes(), &response); err != nil {
@@ -377,7 +380,7 @@ func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if target.WorkspaceID != f.a.WorkspaceID || target.Worktree != nil {
+			if target.WorkspaceId == nil || *target.WorkspaceId != f.a.WorkspaceID || target.Worktree != nil {
 				t.Fatalf("create performed navigation: %+v", target)
 			}
 		})
@@ -608,7 +611,7 @@ func TestWorktreeCommandLeaveWithSession(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				return target.WorkspaceID == f.a.WorkspaceID && target.Worktree == nil
+				return target.WorkspaceId != nil && *target.WorkspaceId == f.a.WorkspaceID && target.Worktree == nil
 			}, "leave did not return the Session to its main Workspace")
 		})
 	}

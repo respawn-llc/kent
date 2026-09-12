@@ -36,7 +36,7 @@ export function committedCorrelation(row: CommittedRow): string | null {
     case "assistant":
       return item.value.StreamID != null ? assistantKey(item.value.StreamID) : null;
     case "tool":
-      return toolKey(item.value.ToolCallID);
+      return item.value.ToolCallID === null ? null : toolKey(item.value.ToolCallID);
     case "reasoning_trace":
       return item.value.ProvisionalIdentity != null
         ? reasoningKey(item.value.StepID, item.value.ProvisionalIdentity)

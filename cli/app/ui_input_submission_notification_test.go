@@ -1,10 +1,10 @@
 package app
 
 import (
-	"testing"
-
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	textutil "core/shared/textutil"
+	"testing"
 )
 
 func TestSubmitDoneDispatchesQueuedTurnWithoutNotificationTranscriptFacts(t *testing.T) {
@@ -49,33 +49,19 @@ func TestManualCompactionNotificationWaitsForTerminalTranscriptOutcome(t *testin
 		t.Fatalf("compaction scheduling emitted %d notification events before terminal outcome", ringer.total())
 	}
 
-	for sequence, status := range []clientui.TranscriptCompactionStatus{
-		{
-			StepID:    ongoingTestStepID(),
-			State:     clientui.CompactionStarted,
-			Mode:      clientui.CompactionModeManual,
-			Count:     1,
-			RequestID: &requestID,
-		},
-		{
-			StepID: ongoingTestStepID(),
-			State:  clientui.CompactionCompleted,
-			Mode:   clientui.CompactionModeAuto,
-			Count:  1,
-		},
-		{
-			StepID:    ongoingTestStepID(),
-			State:     clientui.CompactionFailed,
-			Mode:      clientui.CompactionModeManual,
-			Count:     1,
-			RequestID: &otherRequestID,
-			Diagnostic: &clientui.TranscriptDiagnostic{
+	for sequence, status := range []*transcriptpb.CompactionStatus{
+		{StepId: ongoingTestStepID().String(),
+			State: transcriptpb.CompactionState_COMPACTION_STATE_STARTED,
+			Mode:  transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL,
+			Count: 1, RequestId: textutil.Value((&requestID).String())},
+		{StepId: ongoingTestStepID().String(),
+			State: transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED,
+			Mode:  transcriptpb.CompactionMode_COMPACTION_MODE_AUTO, Count: 1}, {StepId: ongoingTestStepID().String(), State: transcriptpb.CompactionState_COMPACTION_STATE_FAILED, Mode: transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL,
+			Count: 1, RequestId: textutil.Value((&otherRequestID).String()),
+			Diagnostic: &transcriptpb.Diagnostic{
 				Code:   "compaction_failed",
-				Detail: "provider failed",
-			},
-		},
-	} {
-		model.applyAdmittedTranscriptMessageState(clientui.NewTranscriptMessage(uint64(sequence+2), clientui.NewTranscriptEvent(status)), runtimeTupleMergeResult{})
+				Detail: "provider failed"}}} {
+		model.applyAdmittedTranscriptMessageState(transcriptTestMessage(uint64(sequence+2), status), runtimeTupleMergeResult{})
 	}
 	if ringer.total() != 0 {
 		t.Fatalf("non-success manual outcomes emitted %d notification events", ringer.total())
@@ -84,13 +70,10 @@ func TestManualCompactionNotificationWaitsForTerminalTranscriptOutcome(t *testin
 		t.Fatal("unrelated terminal compaction cleared the initiating TUI request")
 	}
 
-	model.applyAdmittedTranscriptMessageState(clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptCompactionStatus{
-		StepID:    ongoingTestStepID(),
-		State:     clientui.CompactionCompleted,
-		Mode:      clientui.CompactionModeManual,
-		Count:     1,
-		RequestID: &requestID,
-	})), runtimeTupleMergeResult{})
+	model.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, &transcriptpb.CompactionStatus{StepId: ongoingTestStepID().String(),
+		State: transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED,
+		Mode:  transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL,
+		Count: 1, RequestId: textutil.Value((&requestID).String())}), runtimeTupleMergeResult{})
 	if ringer.notifications != 1 {
 		t.Fatalf("terminal manual compaction emitted %d notifications, want 1", ringer.notifications)
 	}
@@ -107,13 +90,10 @@ func TestManualCompactionTerminalEventDoesNotNotifyOtherAttachedTUI(t *testing.T
 	observer := newProjectedStaticUIModel(WithUITurnQueueHook(newUnfocusedBellHooks(observerRinger)))
 	initiator.registerPendingCompactionRequest(requestID)
 
-	event := clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(clientui.TranscriptCompactionStatus{
-		StepID:    ongoingTestStepID(),
-		State:     clientui.CompactionCompleted,
-		Mode:      clientui.CompactionModeManual,
-		Count:     1,
-		RequestID: &requestID,
-	}))
+	event := transcriptTestMessage(1, &transcriptpb.CompactionStatus{StepId: ongoingTestStepID().String(),
+		State: transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED,
+		Mode:  transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL,
+		Count: 1, RequestId: textutil.Value((&requestID).String())})
 	initiator.applyAdmittedTranscriptMessageState(event, runtimeTupleMergeResult{})
 	observer.applyAdmittedTranscriptMessageState(event, runtimeTupleMergeResult{})
 
@@ -133,11 +113,10 @@ func TestTranscriptHydrationClearsNotificationStateWithoutReplayingRows(t *testi
 	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks))
 	hydration := ongoingHydrationMessage(1)
 	hydratedFinal := bellAssistantFinalMessageWithText(2, "hydrated historical answer")
-	hydrationPayload := hydration.Payload().(clientui.TranscriptHydration)
-	hydrationPayload.TailSegment.Entries = []clientui.TranscriptCommittedRow{
-		hydratedFinal.Payload().(clientui.TranscriptCommittedRow),
-	}
-	hydration = clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(hydrationPayload))
+	hydrationPayload := hydration.Event.GetHydration()
+	hydrationPayload.TailSegment.Entries = []*transcriptpb.CommittedRow{
+		hydratedFinal.Event.GetCommittedRow()}
+	hydration = transcriptTestMessage(1, hydrationPayload)
 	model.applyAdmittedTranscriptMessageState(hydration, runtimeTupleMergeResult{})
 	hooks.OnTurnQueueDrained()
 

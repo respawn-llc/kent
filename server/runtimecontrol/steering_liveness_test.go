@@ -12,7 +12,7 @@ import (
 	"core/server/runtime"
 	"core/server/tools"
 	"core/shared/config"
-	"core/shared/serverapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -90,8 +90,8 @@ func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
 				t.Fatalf("round %d steering wedged: %v", round, err)
 			}
 		}
-		pending, err := service.ListPendingWork(t.Context(), serverapi.RuntimeListPendingWorkRequest{
-			SessionID: store.Meta().SessionID,
+		pending, err := service.ListPendingWork(t.Context(), &runtimepb.ListPendingWorkRequest{
+			SessionId: store.Meta().SessionID,
 		})
 		if err != nil {
 			t.Fatal(err)

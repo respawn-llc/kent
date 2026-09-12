@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"core/server/registry"
 	"core/server/workflow"
 	"core/shared/clientui"
 	"core/shared/serverapi"
@@ -161,11 +162,16 @@ func (s *Service) taskQuestion(
 	case serverapi.WorkflowAttentionQuestionKindApproval:
 		approvals, ok := cache[sessionID]
 		if !ok {
-			list, err := s.readModels.Approvals.ListPendingApprovalsBySession(ctx, serverapi.ApprovalListPendingBySessionRequest{SessionID: sessionID})
-			if err != nil {
-				return serverapi.WorkflowTaskObservationOutcome{}, false, err
+			for _, snapshot := range s.readModels.PendingPrompts.ListPendingPrompts(sessionID) {
+				if !snapshot.Request.Approval {
+					continue
+				}
+				approval, err := registry.PendingApprovalFromSnapshot(item.Question.SessionID, snapshot)
+				if err != nil {
+					return serverapi.WorkflowTaskObservationOutcome{}, false, err
+				}
+				approvals = append(approvals, approval)
 			}
-			approvals = append([]clientui.PendingApproval(nil), list.Approvals...)
 			cache[sessionID] = approvals
 		}
 		var approval *clientui.PendingApproval

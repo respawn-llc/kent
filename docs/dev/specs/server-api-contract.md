@@ -50,7 +50,7 @@
 - Kent-owned variant payloads must use typed Protobuf messages or explicit `oneof` branches.
 - Transcript events, handshake outcomes, workspace selections, API error details, and Attention variants must not use generic dynamic payloads.
 - Session and Prompt Attention and Workflow-owned Attention must each have one typed representation under their owning domain.
-- Externally authored provider, model, and tool content remains server-only in its provider-native representation.
+- Chat must keep showing assistant answers, streamed text, tool output, and reasoning. The server must send this content in defined API fields. It must not send clients the whole request or response exchanged with a model provider.
 - Client-facing operation messages must not wrap provider-owned JSON.
 - Operation messages must not contain unclassified `bytes`, `Any`, generic maps, or raw JSON.
 - A transport envelope may contain serialized Protobuf bytes only when its operation descriptor declares the exact payload type.
@@ -59,6 +59,7 @@
 - Missing repeated and map fields represent empty collections.
 - Optional wrapper messages are reserved for semantics where absence differs from present-empty.
 - Operations with no request content or no success data must use `google.protobuf.Empty`.
+- Successful Runtime activation returns the Session ID and Runtime generation used by Runtime Release. Clients observe Runtime state through server-owned reads and subscriptions.
 - API instants must use `google.protobuf.Timestamp`.
 - API elapsed amounts must use `google.protobuf.Duration`.
 - Raw numeric time representations are permitted only when an external system owns that representation.
@@ -91,9 +92,10 @@
 - Platforms must centralize generated validation at their transport boundary.
 - Generated clients must preserve unknown Protobuf fields.
 - Generated clients must reject unknown enum values.
-- Malformed Protobuf bytes, unknown operations, wrong frame direction, invalid envelopes, and known-operation validation failures must reject only the affected frame after a connection is established.
+- Except for the Desktop transcript subscription rule below, malformed Protobuf bytes, unknown operations, wrong frame direction, invalid envelopes, and known-operation validation failures must reject only the affected frame after a connection is established.
 - Kent must keep the established connection available for unrelated valid traffic after a rejected frame.
 - Kent must return or publish a typed protocol or validation failure when the frame can be correlated safely.
+- A Desktop transcript subscription must report the error and close its connection without automatic reconnect when it receives a malformed envelope, an unexpected operation or frame kind, or an invalid completion message. If an expected transcript event is invalid or belongs to a different Session, Desktop must report the error and discard that event without closing the connection. This exception must not change how valid stream completion, network failure, or client callback failures are handled.
 - Protocol-version mismatch and invalid handshake or authentication establishment must reject setup and close the connection.
 - Kent must not add strike counters, rate limits, or repeated-invalid-frame disconnect state solely for contract validation.
 - Debug builds fail fast when Kent attempts to emit a generated message that violates its declared contract.

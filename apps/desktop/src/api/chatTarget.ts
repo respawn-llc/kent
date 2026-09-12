@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { nonBlank } from "./chatSchemas";
-import type { ChatContextTarget, ChatProjectTarget, ChatSessionTarget } from "./chatTypes";
+import type { ChatProjectTarget, ChatSessionTarget } from "./chatTypes";
 
 export function requireChatProjectTarget(target: ChatProjectTarget): void {
   if (!nonBlank.safeParse(target.projectID).success) throw new TypeError("Project ID is required.");
@@ -17,14 +17,6 @@ const exactSessionID = z
 
 export function isValidChatSessionID(value: string): boolean {
   return exactSessionID.safeParse(value).success;
-}
-
-export function chatContextSessionID(target: ChatContextTarget): string | undefined {
-  requireChatProjectTarget(target);
-  if (target.sessionID !== undefined && !isValidChatSessionID(target.sessionID)) {
-    throw new TypeError("Session ID is required.");
-  }
-  return target.sessionID;
 }
 
 export function requireChatSessionID(target: ChatSessionTarget): string {

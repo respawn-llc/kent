@@ -1,5 +1,7 @@
 package app
 
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
 import (
 	"context"
 	"sort"
@@ -9,6 +11,7 @@ import (
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 	"core/shared/runtimeinput"
+	"google.golang.org/protobuf/proto"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -120,23 +123,19 @@ func (m *uiModel) hasUnresolvedQueueOwnership() bool {
 	return false
 }
 
-func (m *uiModel) retainUnownedQueuedTerminalState(state clientui.TranscriptQueuedMessageState) {
+func (m *uiModel) retainUnownedQueuedTerminalState(state *transcriptpb.QueuedMessageState) {
 	if m == nil || !m.hasUnresolvedQueueOwnership() ||
-		state.Status == clientui.QueuedUserMessageAccepted {
+		state.Status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED {
 		return
 	}
-	serverID := strings.TrimSpace(state.QueueItemID.String())
+	serverID := strings.TrimSpace(state.QueueItemId)
 	if serverID == "" {
 		return
 	}
 	if m.unownedQueuedTerminalStates == nil {
-		m.unownedQueuedTerminalStates = make(map[string]clientui.TranscriptQueuedMessageState)
+		m.unownedQueuedTerminalStates = make(map[string]*transcriptpb.QueuedMessageState)
 	}
-	if state.Text != nil {
-		text := *state.Text
-		state.Text = &text
-	}
-	m.unownedQueuedTerminalStates[serverID] = state
+	m.unownedQueuedTerminalStates[serverID] = proto.Clone(state).(*transcriptpb.QueuedMessageState)
 }
 
 func (m *uiModel) applyUnownedQueuedTerminalState(serverID string) (tea.Cmd, bool) {

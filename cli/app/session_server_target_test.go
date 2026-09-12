@@ -2,15 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
-
 	"core/cli/app/internal/startupconfig"
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
@@ -23,11 +14,19 @@ import (
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/protocol"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
-
+	"encoding/json"
+	"fmt"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
 )
 
 type configuredDaemonFixture struct {
@@ -471,38 +470,37 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, fixture.runtimePlanA.Wiring.runtimeClient, "start prompt flow")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	askPrompt := waitForRemoteTranscriptPrompt(t, fixture.runtimePlanA.Wiring.eventDispatcher.transcriptEvents, "ask-race-1", submissionFailed)
-	if askPrompt.Kind != clientui.TranscriptPromptKindQuestion || askPrompt.Question != "Who answers first?" {
+	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Who answers first?" {
 		t.Fatalf("unexpected ask prompt: %+v", askPrompt)
 	}
 	runtimeClientsB := fixture.serverB.RuntimeAttachmentClients()
 
 	askAnswer := "answer from client B"
-	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), serverapi.PromptAnswerBatchRequest{
-		SessionID: askPrompt.SessionID,
-		StepID:    askPrompt.StepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{{
-			ToolCallID:     askPrompt.ToolCallID,
-			QuestionAnswer: &serverapi.PromptQuestionAnswer{Freeform: &askAnswer},
+	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{
+		SessionId: transcriptPromptSessionID(askPrompt),
+		StepId:    transcriptPromptStepID(askPrompt),
+		Entries: []*promptpb.AnswerBatchEntry{{
+			ToolCallId: transcriptPromptToolCallID(askPrompt),
+			Answer:     &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{Freeform: &askAnswer}},
 		}},
 	}); err != nil {
 		t.Fatalf("AnswerPromptBatch Question from attached client B: %v", err)
 	}
 
 	approvalPrompt := waitForRemoteTranscriptPrompt(t, fixture.runtimePlanA.Wiring.eventDispatcher.transcriptEvents, "", submissionFailed)
-	if approvalPrompt.Kind != clientui.TranscriptPromptKindApproval {
+	if approvalPrompt.GetApproval() == nil {
 		t.Fatalf("unexpected approval prompt: %+v", approvalPrompt)
 	}
 
 	commentary := "approved by client B"
-	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), serverapi.PromptAnswerBatchRequest{
-		SessionID: approvalPrompt.SessionID,
-		StepID:    approvalPrompt.StepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{{
-			ToolCallID: approvalPrompt.ToolCallID,
-			ApprovalAnswer: &serverapi.PromptApprovalAnswer{
-				Decision:   clientui.ApprovalDecisionAllowOnce,
-				Commentary: &commentary,
-			},
+	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{
+		SessionId: transcriptPromptSessionID(approvalPrompt),
+		StepId:    transcriptPromptStepID(approvalPrompt),
+		Entries: []*promptpb.AnswerBatchEntry{{
+			ToolCallId: transcriptPromptToolCallID(approvalPrompt),
+			Answer: &promptpb.AnswerBatchEntry_ApprovalAnswer{ApprovalAnswer: &promptpb.ApprovalAnswer{
+				Decision:   promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
+				Commentary: &commentary}},
 		}},
 	}); err != nil {
 		t.Fatalf("AnswerPromptBatch Approval from attached client B: %v", err)

@@ -27,10 +27,9 @@ export function askQuestionSummary(row: TranscriptAskQuestionToolRow): string {
 export function askQuestionCopyText(row: TranscriptAskQuestionToolRow): string {
   const tool = row.Tool;
   const presentation = tool.Presentation;
-  if (tool.IsError) return [presentation.Question, tool.Text].join("\n\n");
   const answer = tool.QuestionAnswer;
-  if (answer === undefined || answer === null) {
-    throw new Error("Answered Ask Question content is missing its typed answer.");
+  if (tool.IsError || answer === undefined || answer === null) {
+    return [presentation.Question, tool.Text].join("\n\n");
   }
   const sections = [presentation.Question];
   if (answer.SelectedOptionNumber !== undefined && answer.SelectedOptionNumber !== null) {

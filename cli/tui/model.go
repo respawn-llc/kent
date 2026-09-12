@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,10 +38,10 @@ type SetViewportSizeMsg struct {
 }
 
 type SetDetailTranscriptPageMsg struct {
-	Page                  clientui.TranscriptPage
+	Page                  *transcriptpb.Page
 	Anchor                DetailTranscriptPageAnchor
 	PrependedEntriesCount int
-	TrimmedFrontEntries   []clientui.TranscriptCommittedRow
+	TrimmedFrontEntries   []*transcriptpb.CommittedRow
 }
 
 type ResetDetailTranscriptMsg struct{}
@@ -259,14 +259,14 @@ func (m Model) DetailSelectionAction() DetailSelectionAction {
 	return DetailSelectionActionExpand
 }
 
-func (m *Model) applyDetailTranscriptPage(page clientui.TranscriptPage, anchor DetailTranscriptPageAnchor, prependedEntries int, trimmedFrontEntries []clientui.TranscriptCommittedRow) {
+func (m *Model) applyDetailTranscriptPage(page *transcriptpb.Page, anchor DetailTranscriptPageAnchor, prependedEntries int, trimmedFrontEntries []*transcriptpb.CommittedRow) {
 	if !anchor.valid() {
 		panic(fmt.Sprintf("invalid detail transcript page anchor: %d", anchor))
 	}
 	previousScroll := m.detailScroll
 	previousSelected, previousSelectedOK := m.selectedDetailIndex()
 	previousExpanded := m.expanded
-	var previousSelectedRow clientui.TranscriptCommittedRow
+	var previousSelectedRow *transcriptpb.CommittedRow
 	previousSelectedFirstLine := 0
 	if previousSelectedOK && previousSelected >= 0 && previousSelected < len(m.detailProjection.entries) {
 		previousSelectedRow = m.detailProjection.entries[previousSelected].row()
@@ -341,7 +341,7 @@ func (m *Model) resetDetailTranscript() {
 	m.clearSelectedDetailIndex()
 }
 
-func visibleDetailEntryCount(entries []clientui.TranscriptCommittedRow, limit int) int {
+func visibleDetailEntryCount(entries []*transcriptpb.CommittedRow, limit int) int {
 	count := 0
 	for _, row := range entries[:minInt(maxInt(0, limit), len(entries))] {
 		if detailCommittedRowVisible(row) {

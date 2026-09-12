@@ -1,16 +1,14 @@
 package app
 
 import (
-	"errors"
-	"slices"
-	"testing"
-
 	tuitest "core/internal/testharness/pty"
-	"core/shared/clientui"
-
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
+	"slices"
+	"testing"
 )
 
 func TestAskProjectionUpdateIgnoresLateOrMismatchedCompletion(t *testing.T) {
@@ -102,7 +100,7 @@ func TestAskProjectionUpdateQueuedPromotionRejectsOldCompletion(t *testing.T) {
 		t.Fatal("queued prompt projected before promotion")
 	}
 	model, command := updateQuestionProjection(model, askEventMsg{event: askEvent{resolvedToolCallID: "ask-a"}})
-	if command != nil || model.ask.current.prompt.ToolCallID != "ask-b" {
+	if command != nil || transcriptPromptToolCallID(model.ask.current.prompt) != "ask-b" {
 		t.Fatal("resolving A did not promote B without overlapping projection")
 	}
 	close(gate.release)
@@ -118,7 +116,7 @@ func TestAskProjectionUpdateQueuedPromotionRejectsOldCompletion(t *testing.T) {
 		t.Fatal("B did not install after A's stale completion")
 	}
 	model, command = updateQuestionProjection(model, askEventMsg{event: askEvent{resolvedToolCallID: "ask-b"}})
-	if command == nil || model.ask.current.prompt.ToolCallID != "ask-c" {
+	if command == nil || transcriptPromptToolCallID(model.ask.current.prompt) != "ask-c" {
 		t.Fatal("resolving B did not preserve C as the next FIFO prompt")
 	}
 }
@@ -143,7 +141,7 @@ func TestAskProjectionUpdateHydrationReplacementRejectsOldCompletion(t *testing.
 	model, hydrationCommand := updateQuestionProjection(model, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage, Message: hydration,
 	})
-	if model.ask.current.prompt.ToolCallID != "ask-b" {
+	if transcriptPromptToolCallID(model.ask.current.prompt) != "ask-b" {
 		t.Fatal("hydration did not replace A with B")
 	}
 	close(gate.release)
@@ -164,9 +162,9 @@ func TestAskProjectionUpdateHydrationReplacementRejectsOldCompletion(t *testing.
 
 	model.ongoingTranscript.ResetForScratchHydration()
 	refreshed := promptB
-	refreshed.Suggestions = []string{"new b", "other"}
-	recommended := 1
-	refreshed.RecommendedOptionIndex = &recommended
+	refreshed.GetQuestion().Suggestions = []string{"new b", "other"}
+	recommended := int32(1)
+	refreshed.GetQuestion().RecommendedOptionIndex = &recommended
 	hydration = questionHydrationMessage(refreshed)
 	model, command = updateQuestionProjection(model, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage, Message: hydration,
@@ -177,9 +175,9 @@ func TestAskProjectionUpdateHydrationReplacementRejectsOldCompletion(t *testing.
 		t.Fatalf("same-question hydration refresh reprojected: %+v", request)
 	default:
 	}
-	if !slices.Equal(model.ask.current.prompt.Suggestions, refreshed.Suggestions) ||
-		model.ask.current.prompt.RecommendedOptionIndex == nil ||
-		*model.ask.current.prompt.RecommendedOptionIndex != recommended {
+	if !slices.Equal(model.ask.current.prompt.GetQuestion().Suggestions, refreshed.GetQuestion().Suggestions) ||
+		model.ask.current.prompt.GetQuestion().RecommendedOptionIndex == nil ||
+		*model.ask.current.prompt.GetQuestion().RecommendedOptionIndex != recommended {
 		t.Fatal("hydration refresh did not retain the latest controls")
 	}
 }
@@ -194,8 +192,8 @@ func TestAskProjectionUpdateSameIdentityRefreshUsesLatestControls(t *testing.T) 
 	<-gate.started
 
 	replacement := testQuestionAskEvent("ask-1", "Same question", "new one", "new two")
-	recommended := 1
-	replacement.prompt.RecommendedOptionIndex = &recommended
+	recommended := int32(1)
+	replacement.prompt.GetQuestion().RecommendedOptionIndex = &recommended
 	model, command := updateQuestionProjection(model, askEventMsg{event: replacement})
 	if command != nil {
 		t.Fatal("same-identity refresh started a second projection")
@@ -204,9 +202,9 @@ func TestAskProjectionUpdateSameIdentityRefreshUsesLatestControls(t *testing.T) 
 
 	model, command = updateQuestionProjection(model, <-firstResult)
 	if command != nil ||
-		!slices.Equal(model.ask.current.prompt.Suggestions, replacement.prompt.Suggestions) ||
-		model.ask.current.prompt.RecommendedOptionIndex == nil ||
-		*model.ask.current.prompt.RecommendedOptionIndex != recommended {
+		!slices.Equal(model.ask.current.prompt.GetQuestion().Suggestions, replacement.prompt.GetQuestion().Suggestions) ||
+		model.ask.current.prompt.GetQuestion().RecommendedOptionIndex == nil ||
+		*model.ask.current.prompt.GetQuestion().RecommendedOptionIndex != recommended {
 		t.Fatal("same-identity completion did not use the latest controls")
 	}
 }
@@ -222,8 +220,8 @@ func TestAskProjectionUpdateSameIDActiveReplacementPreservesPromptLocalState(t *
 	activeProjection := model.ask.activeProjection
 
 	replacement := testQuestionAskEvent("ask-1", "Same question", "new one", "new two", "new three")
-	recommended := 3
-	replacement.prompt.RecommendedOptionIndex = &recommended
+	recommended := int32(3)
+	replacement.prompt.GetQuestion().RecommendedOptionIndex = &recommended
 	model, command := updateQuestionProjection(model, askEventMsg{event: replacement})
 
 	if command != nil {
@@ -232,9 +230,9 @@ func TestAskProjectionUpdateSameIDActiveReplacementPreservesPromptLocalState(t *
 	if model.ask.currentToken != currentToken || model.ask.activeProjection != activeProjection {
 		t.Fatal("same-ID replacement changed current or projection ownership")
 	}
-	if !slices.Equal(model.ask.current.prompt.Suggestions, replacement.prompt.Suggestions) ||
-		model.ask.current.prompt.RecommendedOptionIndex == nil ||
-		*model.ask.current.prompt.RecommendedOptionIndex != recommended {
+	if !slices.Equal(model.ask.current.prompt.GetQuestion().Suggestions, replacement.prompt.GetQuestion().Suggestions) ||
+		model.ask.current.prompt.GetQuestion().RecommendedOptionIndex == nil ||
+		*model.ask.current.prompt.GetQuestion().RecommendedOptionIndex != recommended {
 		t.Fatalf("same-ID replacement did not install the latest payload immediately: %+v", model.ask.current.prompt)
 	}
 	if model.ask.cursor != 1 || !model.ask.freeform ||
@@ -290,7 +288,7 @@ func TestAskProjectionUpdateLiveTranscriptAdmissionReturnsProjectionCommand(t *t
 		return questionRenderResultMsg{request: request, rows: []string{"rendered"}}
 	}
 	prompt := testQuestionPrompt("ask-1", "Live question", "yes")
-	message := clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(prompt))
+	message := transcriptTestMessage(0, prompt)
 
 	command := model.applyAdmittedTranscriptMessageState(message, runtimeTupleMergeResult{})
 	if command == nil {
@@ -466,10 +464,10 @@ func requireQuestionRenderResult(t *testing.T, command tea.Cmd) questionRenderRe
 	return command().(questionRenderResultMsg)
 }
 
-func questionHydrationMessage(prompt clientui.TranscriptPrompt) clientui.TranscriptMessage {
+func questionHydrationMessage(prompt *transcriptpb.Prompt) *transcriptpb.Message {
 	message := ongoingHydrationMessage(1)
-	hydration := message.Payload().(clientui.TranscriptHydration)
+	hydration := message.Event.GetHydration()
 	hydration.RuntimeReadModelUpdate.Activity = runtimeTupleTestRunningActivity()
-	hydration.PendingPrompts = []clientui.TranscriptPrompt{prompt}
-	return clientui.NewTranscriptMessage(message.Sequence, clientui.NewTranscriptEvent(hydration))
+	hydration.PendingPrompts = []*transcriptpb.Prompt{prompt}
+	return transcriptTestMessage(message.Sequence, hydration)
 }

@@ -7,7 +7,7 @@ import (
 
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 )
 
 func TestReadOnlyModelUsesLockedModelWithoutBackfill(t *testing.T) {
@@ -140,7 +140,7 @@ func TestReadOnlyModelReportsMissingCurrentModelAsUnavailable(t *testing.T) {
 	if !errors.As(err, &unavailable) {
 		t.Fatalf("missing current model error = %T, want typed unavailable error", err)
 	}
-	if unavailable.Reason != serverapi.SessionExecutionModelUnavailableNotConfigured {
+	if unavailable.Reason != sessionpb.ExecutionModelUnavailableReason_EXECUTION_MODEL_UNAVAILABLE_REASON_NOT_CONFIGURED {
 		t.Fatalf("unavailable reason = %q", unavailable.Reason)
 	}
 }

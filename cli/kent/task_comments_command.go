@@ -12,6 +12,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 )
@@ -95,9 +96,9 @@ func sessionAgentAuthorID(ctx context.Context, remote apicontract.WorkflowServic
 	if getter, ok := remote.(apicontract.SessionViewService); ok {
 		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 		defer cancel()
-		resp, err := getter.GetSessionMainView(rpcCtx, serverapi.SessionMainViewRequest{SessionID: trimmedSessionID})
+		resp, err := getter.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: trimmedSessionID})
 		if err == nil {
-			if sessionName := strings.TrimSpace(resp.MainView.Session.SessionName); sessionName != "" {
+			if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
 				return fmt.Sprintf("Session %s agent", sessionName)
 			}
 		}

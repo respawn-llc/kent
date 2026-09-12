@@ -152,7 +152,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	}
 	sessionID := ""
 	if runtimeClient != nil {
-		sessionID = runtimeClient.MainView().Session.SessionID
+		sessionID = runtimeClient.MainView().Session.SessionId
 	}
 
 	uiOptions := []UIOption{

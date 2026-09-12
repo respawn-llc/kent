@@ -9,8 +9,11 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
 )
 
 type goalRuntimeControlClient struct {
@@ -31,28 +34,28 @@ func (c *goalRuntimeControlClient) respond(ctx context.Context) error {
 	return c.cause
 }
 
-func (c *goalRuntimeControlClient) ShowGoal(ctx context.Context, _ serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return serverapi.RuntimeGoalShowResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) ShowGoal(ctx context.Context, _ *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error) {
+	return &runtimepb.GoalShowSuccess{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) PauseGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) PauseGoal(ctx context.Context, _ *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) ResumeGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) ResumeGoal(ctx context.Context, _ *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) CompleteGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) CompleteGoal(ctx context.Context, _ *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) ClearGoal(ctx context.Context, _ serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) ClearGoal(ctx context.Context, _ *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error) {
+	return &runtimepb.GoalMutationSuccess{}, c.respond(ctx)
 }
 
 func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {
@@ -84,7 +87,7 @@ func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {
 }
 
 func TestRuntimeGoalReadRecoversUnavailableConnection(t *testing.T) {
-	goal := &clientui.Goal{ID: "goal-1", Objective: "finish the task", Status: clientui.RuntimeGoalStatusActive}
+	goal := &runtimepb.Goal{Id: "goal-1", Objective: "finish the task", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE}
 	controls := &reconnectRetryRuntimeControlClient{
 		showGoalErr:  serverapi.ErrRuntimeUnavailable,
 		showGoalResp: runtimeClientTestShowResponse(goal),
@@ -101,7 +104,7 @@ func TestRuntimeGoalReadRecoversUnavailableConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("show goal after connection recovery: %v", err)
 	}
-	if !recovered || result == nil || result.Goal == nil || *result.Goal != *goal {
+	if !recovered || result == nil || result.Goal == nil || !proto.Equal(result.Goal, goal) {
 		t.Fatalf("goal was not restored after connection recovery: %+v", result)
 	}
 }
@@ -117,5 +120,59 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	}
 	if controls.submitCalls != 1 {
 		t.Fatalf("submit calls = %d, want 1", controls.submitCalls)
+	}
+}
+
+func TestRuntimeClientProjectsUserTurnOutcomes(t *testing.T) {
+	tests := []struct {
+		name     string
+		response *runtimepb.SubmitUserTurnSuccess
+		kind     clientui.UserTurnResultKind
+		message  *string
+		queued   clientui.QueuedUserMessage
+	}{
+		{
+			name:     "steered queue",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{Queued: &runtimepb.SubmitUserTurnQueued{QueueItemId: "queue-1", Steered: true}}},
+			kind:     clientui.UserTurnResultKindQueued,
+			queued:   clientui.QueuedUserMessage{ID: "queue-1", Text: "input"},
+		},
+		{
+			name:     "admitted queue",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{Queued: &runtimepb.SubmitUserTurnQueued{QueueItemId: "queue-1"}}},
+			kind:     clientui.UserTurnResultKindQueued,
+		},
+		{
+			name:     "no final",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_NoFinal{NoFinal: &runtimepb.SubmitUserTurnNoFinal{}}},
+			kind:     clientui.UserTurnResultKindNoFinal,
+		},
+		{
+			name:     "assistant final",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "answer"}}},
+			kind:     clientui.UserTurnResultKindAssistantFinal,
+			message:  proto.String("answer"),
+		},
+		{
+			name:     "silent final",
+			response: &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{Message: "answer"}}},
+			kind:     clientui.UserTurnResultKindSilentFinal,
+			message:  proto.String("answer"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := userTurnSubmissionFromResponse(test.response, "input")
+			if got.ResultKind != test.kind || got.Queued != test.queued {
+				t.Fatalf("submission = %+v", got)
+			}
+			if test.message == nil {
+				if got.Message != nil {
+					t.Fatalf("unexpected final message: %q", *got.Message)
+				}
+			} else if got.Message == nil || *got.Message != *test.message {
+				t.Fatalf("final message = %v, want %q", got.Message, *test.message)
+			}
+		})
 	}
 }

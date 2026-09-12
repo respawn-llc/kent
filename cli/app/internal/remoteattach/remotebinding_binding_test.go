@@ -15,9 +15,9 @@ import (
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -169,8 +169,8 @@ func TestBindSessionPromotesPreparedHandoffWithoutDialing(t *testing.T) {
 		t.Fatalf("dial Project remote: %v", err)
 	}
 	t.Cleanup(func() { _ = current.Close() })
-	subscription, err := current.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{
-		SessionID: "session-1",
+	subscription, err := current.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
+		SessionId: "session-1",
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -225,28 +225,14 @@ func newRemoteBindingServer(t *testing.T, options remoteBindingServerOptions) *r
 			if event.Err != nil {
 				return
 			}
-			if event.Frame.Kind == rpcwire.FrameBinary {
-				handshakeCompleted, err := serveRemoteBindingBinary(ctx, conn, event.Frame, handshaken, options)
-				if err != nil {
-					return
-				}
-				handshaken = handshaken || handshakeCompleted
-				continue
+			if event.Frame.Kind != rpcwire.FrameBinary {
+				return
 			}
-			request, err := event.Frame.DecodeRequest()
+			handshakeCompleted, err := serveRemoteBindingBinary(ctx, conn, event.Frame, handshaken, options)
 			if err != nil {
 				return
 			}
-			var response protocol.Response
-			switch request.Method {
-			case protocol.MethodSessionSubscribeTranscript:
-				response = protocol.NewSuccessResponse(request.ID, protocol.SubscribeResponse{})
-			default:
-				response = protocol.NewErrorResponse(request.ID, protocol.ErrCodeMethodNotFound, "unexpected test method")
-			}
-			if err := conn.Send(ctx, rpcwire.FrameFromResponse(response)); err != nil {
-				return
-			}
+			handshaken = handshaken || handshakeCompleted
 		}
 	}))
 	t.Cleanup(server.Server.Close)
@@ -299,6 +285,22 @@ func serveRemoteBindingBinary(
 	}
 	if !handshaken {
 		return false, errors.New("Handshake must be the first binary operation")
+	}
+
+	subscribeMethod := transcriptpb.File_kent_api_transcript_transcript_proto.Services().
+		ByName("StreamService").Methods().ByName("Subscribe")
+	subscribeOperation, err := protoapi.OperationFromDescriptor(subscribeMethod)
+	if err != nil {
+		return false, err
+	}
+	if call.Operation == subscribeOperation.Name {
+		var request transcriptpb.SubscribeRequest
+		if err := protoapi.Decode(call.Payload, &request); err != nil {
+			return false, err
+		}
+		return false, sendRemoteBindingBinaryResult(ctx, conn, call, &transcriptpb.SubscribeResult{
+			Outcome: &transcriptpb.SubscribeResult_Success{Success: &emptypb.Empty{}},
+		})
 	}
 
 	attachProjectMethod := connectionpb.File_kent_api_connection_connection_proto.Services().

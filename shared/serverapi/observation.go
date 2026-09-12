@@ -10,24 +10,6 @@ import (
 	"core/shared/runtimeids"
 )
 
-type RuntimeLiveWatchOutcomeKind string
-
-const (
-	RuntimeLiveWatchQuestion       RuntimeLiveWatchOutcomeKind = "question"
-	RuntimeLiveWatchFinalAnswer    RuntimeLiveWatchOutcomeKind = "final_answer"
-	RuntimeLiveWatchExecutionError RuntimeLiveWatchOutcomeKind = "execution_error"
-	RuntimeLiveWatchNoFinalResult  RuntimeLiveWatchOutcomeKind = "no_final_result"
-	RuntimeLiveWatchInterrupted    RuntimeLiveWatchOutcomeKind = "interrupted"
-)
-
-type RuntimeLiveWatchRequest struct {
-	SessionID string `json:"session_id"`
-}
-
-func (r RuntimeLiveWatchRequest) Validate() error {
-	return validateRequiredSessionID(r.SessionID)
-}
-
 type ObservationQuestion struct {
 	Ask      *clientui.PendingAsk      `json:"ask,omitempty"`
 	Approval *clientui.PendingApproval `json:"approval,omitempty"`
@@ -131,71 +113,6 @@ type RuntimeLiveWatchFailure struct {
 func (f RuntimeLiveWatchFailure) Validate() error {
 	if strings.TrimSpace(f.Reason) == "" {
 		return errors.New("failure reason is required")
-	}
-	return nil
-}
-
-type RuntimeLiveWatchFinal struct {
-	Result         *string `json:"result,omitempty"`
-	SessionName    string  `json:"session_name"`
-	DurationMillis int64   `json:"duration_ms"`
-}
-
-type RuntimeLiveWatchOutcome struct {
-	Kind        RuntimeLiveWatchOutcomeKind `json:"kind"`
-	Question    *ObservationQuestion        `json:"question,omitempty"`
-	FinalAnswer *RuntimeLiveWatchFinal      `json:"final_answer,omitempty"`
-	Failure     *RuntimeLiveWatchFailure    `json:"failure,omitempty"`
-}
-
-type RuntimeLiveWatchResponse struct {
-	SessionID string                  `json:"session_id"`
-	Outcome   RuntimeLiveWatchOutcome `json:"outcome"`
-}
-
-func (r RuntimeLiveWatchResponse) Validate() error {
-	if err := validateRequiredSessionID(r.SessionID); err != nil {
-		return err
-	}
-	payloads := 0
-	if r.Outcome.Question != nil {
-		payloads++
-	}
-	if r.Outcome.FinalAnswer != nil {
-		payloads++
-	}
-	if r.Outcome.Failure != nil {
-		payloads++
-	}
-	if payloads != 1 {
-		return errors.New("live watch outcome must contain one payload")
-	}
-	switch r.Outcome.Kind {
-	case RuntimeLiveWatchQuestion:
-		if r.Outcome.Question == nil {
-			return errors.New("question outcome requires question")
-		}
-		if err := r.Outcome.Question.Validate(); err != nil {
-			return err
-		}
-		if r.Outcome.Question.Ask != nil && r.Outcome.Question.Ask.SessionID.String() != r.SessionID {
-			return errors.New("question ask session does not match live watch session")
-		}
-		if r.Outcome.Question.Approval != nil && r.Outcome.Question.Approval.SessionID.String() != r.SessionID {
-			return errors.New("question approval session does not match live watch session")
-		}
-		return nil
-	case RuntimeLiveWatchFinalAnswer:
-		if r.Outcome.FinalAnswer == nil {
-			return errors.New("final answer outcome requires final answer")
-		}
-	case RuntimeLiveWatchExecutionError, RuntimeLiveWatchNoFinalResult, RuntimeLiveWatchInterrupted:
-		if r.Outcome.Failure == nil {
-			return errors.New("failure outcome requires failure")
-		}
-		return r.Outcome.Failure.Validate()
-	default:
-		return errors.New("live watch outcome kind is invalid")
 	}
 	return nil
 }

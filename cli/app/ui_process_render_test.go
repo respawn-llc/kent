@@ -1,23 +1,20 @@
 package app
 
+import processpb "core/shared/protoapi/gen/kent/api/process"
 import (
 	"strings"
 	"testing"
-
-	"core/shared/clientui"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 func TestProcessListEntryRenderTruncatesToWidth(t *testing.T) {
 	width := 32
-	lines := renderProcessListEntry(clientui.BackgroundProcess{
-		ID:           "proc-long",
+	lines := renderProcessListEntry(&processpb.BackgroundProcess{Id: "proc-long",
 		State:        "running",
 		Running:      true,
 		Command:      strings.Repeat("very-long-command ", 8),
-		RecentOutput: strings.Repeat("very-long-output ", 8),
-	}, true, width, "dark", 0, uiStyles{})
+		RecentOutput: strings.Repeat("very-long-output ", 8)}, true, width, "dark", 0, uiStyles{})
 
 	if len(lines) != processListEntryLines {
 		t.Fatalf("rendered line count = %d, want %d", len(lines), processListEntryLines)
@@ -30,11 +27,9 @@ func TestProcessListEntryRenderTruncatesToWidth(t *testing.T) {
 }
 
 func TestProcessListEntryRenderEmptyOutputFallback(t *testing.T) {
-	lines := renderProcessListEntry(clientui.BackgroundProcess{
-		ID:      "proc-empty",
+	lines := renderProcessListEntry(&processpb.BackgroundProcess{Id: "proc-empty",
 		State:   "completed",
-		Command: "echo ok",
-	}, false, 80, "dark", 0, uiStyles{})
+		Command: "echo ok"}, false, 80, "dark", 0, uiStyles{})
 
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "<no output yet>") {
@@ -74,8 +69,7 @@ func TestProcessListStartRowEdges(t *testing.T) {
 		{name: "empty entries", selection: 0, entryCount: 0, contentHeight: 8, want: 0},
 		{name: "zero height", selection: 2, entryCount: 5, contentHeight: 0, want: 0},
 		{name: "keeps selected visible", selection: 3, entryCount: 5, contentHeight: processListEntryLines * 2, want: processListEntryLines * 2},
-		{name: "clamps past end", selection: 9, entryCount: 5, contentHeight: processListEntryLines, want: processListEntryLines * 4},
-	}
+		{name: "clamps past end", selection: 9, entryCount: 5, contentHeight: processListEntryLines, want: processListEntryLines * 4}}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

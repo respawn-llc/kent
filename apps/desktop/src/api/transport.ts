@@ -5,8 +5,7 @@ import type { DescMessage, DescMethod, MessageShape } from "@app/server-api-cont
 export type RpcEventHandler = Readonly<{
   onOpen?(): void;
   onEvent(method: string, params: unknown): void;
-  onComplete(code: number, message: string, reason?: string | null): void;
-  onEventFailure?(error: Error): boolean;
+  onComplete(code: number, message: string): void;
   onError(error: Error): void;
 }>;
 
@@ -17,7 +16,7 @@ export type RpcSubscription = Readonly<{
 export type DescriptorSubscriptionHandler<Event, Completion> = Readonly<{
   onOpen?(): void;
   onEvent(event: Event): void;
-  onComplete(completion: Completion): void;
+  onComplete(completion: Completion): undefined | Error;
   onError(error: Error): void;
 }>;
 
@@ -32,6 +31,9 @@ export type DescriptorSubscriptionInput<
   completionDescriptor: CompletionDescriptor;
   onStart(result: MessageShape<Method["output"]>): void;
   handler: DescriptorSubscriptionHandler<MessageShape<EventDescriptor>, MessageShape<CompletionDescriptor>>;
+  attachment?: Readonly<{ projectID: string; sessionID: string }>;
+  establishmentTimeoutMs?: number | null;
+  transcriptRejection?: Readonly<{ onInvalidEvent(error: Error): void }>;
 }>;
 
 export type RpcCallOptions = Readonly<{
@@ -77,15 +79,6 @@ export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<
   createRequest(attachment: ProjectAttachment): MessageShape<Method["input"]>;
 }>;
 
-export type ChatSubscriptionInput = Readonly<{
-  projectID: string;
-  sessionID: string;
-  method: string;
-  params: JsonValue;
-  handler: RpcEventHandler;
-  establishmentTimeoutMs?: number | null;
-}>;
-
 export type RuntimeOwnerContext = Readonly<{
   attachment: SessionAttachment;
   call(method: string, params: JsonValue): Promise<unknown>;
@@ -109,23 +102,22 @@ export type RpcTransport = Readonly<{
     input: AttachedProjectCall,
     options?: RpcDedicatedCallOptions,
   ): Promise<Readonly<{ result: unknown; attachment: ProjectAttachment }>>;
-  callAttachedSession(
-    sessionID: string,
-    method: string,
-    params: JsonValue,
-    options?: RpcDedicatedCallOptions,
-  ): Promise<unknown>;
   runRuntimeOwner<Result>(
     sessionID: string,
     options: RuntimeOwnerOptions,
     run: (context: RuntimeOwnerContext) => Promise<Result>,
   ): Promise<Result>;
   subscribe(method: string, params: JsonValue, handler: RpcEventHandler): RpcSubscription;
-  subscribeChatSession(input: ChatSubscriptionInput): RpcSubscription;
 }>;
 
 export type DescriptorRpcTransport = RpcTransport &
   Readonly<{
+    callDescriptorAttachedSession<Method extends DescMethod>(
+      sessionID: string,
+      method: Method,
+      request: MessageShape<Method["input"]>,
+      options?: RpcDedicatedCallOptions,
+    ): Promise<MessageShape<Method["output"]>>;
     callDescriptor<Method extends DescMethod>(
       method: Method,
       request: MessageShape<Method["input"]>,
