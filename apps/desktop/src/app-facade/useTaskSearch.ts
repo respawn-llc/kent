@@ -1,5 +1,5 @@
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { TaskSearchError, type TaskSearchGroup, type TaskSearchResponse } from "@/api";
 import { queryKeys } from "./queryKeys";
@@ -22,19 +22,6 @@ export type TaskSearchResult = Readonly<{
   key: string;
   group: TaskSearchGroup;
 }>;
-
-export function useDebouncedText(value: string, delayMs: number): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebounced(value);
-    }, delayMs);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [delayMs, value]);
-  return debounced;
-}
 
 export function useTaskSearch(projectID: string | null, open: boolean, debouncedQuery: string) {
   const { api } = useAppServices();

@@ -10,6 +10,12 @@ import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript } from
 
 export type ChatAuthorityTuple = ChatMainView["version"];
 export type ChatProjectionHostEffect =
+  | Readonly<{ kind: "pending-work-hydrated"; sessionID: string }>
+  | Readonly<{ kind: "pending-work-changed" }>
+  | Readonly<{
+      kind: "pending-work-restored";
+      restoration: ChatTranscriptPayloadByKind["pending_work_restored"];
+    }>
   | Readonly<{
       kind: "human-input-interrupted";
       items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"];
@@ -100,11 +106,15 @@ function admitHydration(
   return {
     state: admitMetadata(state, metadata),
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
-    effects: [],
+    effects: [{ kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID }],
   };
 }
 
 function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): ChatProjectionResult {
+  if (event.kind === "pending_work_changed")
+    return result(state, { effects: [{ kind: "pending-work-changed" }] });
+  if (event.kind === "pending_work_restored")
+    return result(state, { effects: [{ kind: "pending-work-restored", restoration: event.payload }] });
   if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
   if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
   if (event.kind === "session_status") return metadataResult(state, { sessionStatus: event.payload });

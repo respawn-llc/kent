@@ -1,7 +1,9 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
+import { chatComposerEnglish } from "./chatComposerEn";
 
 export const englishResources = {
   translation: {
+    chatComposer: chatComposerEnglish,
     chatSettings: {
       toParentChat: "To parent chat",
       copied: "Copied to clipboard",

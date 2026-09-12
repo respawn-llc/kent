@@ -193,6 +193,8 @@ export type ChatGoalObservationHandler = Readonly<{
 export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
 export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }>;
 export type ChatApi = Readonly<{
+  getDraft(target: ChatSessionTarget): Promise<string>;
+  persistDraft(target: ChatSessionTarget, input: string): Promise<void>;
   steer(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
   queue(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
   compact(target: ChatMutationTarget, invocation: ChatCompactionInvocation): Promise<ChatCompactionResult>;

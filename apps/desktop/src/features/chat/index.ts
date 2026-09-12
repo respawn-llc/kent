@@ -19,3 +19,10 @@ export type { ChatShellProps, ChatShellState, SelectedSession } from "./ChatShel
 export { useChatSettings } from "./useChatSettings";
 export { TranscriptReasoningSlot, TranscriptThinkingStatus } from "./transcriptRows";
 export type { ChatSettingsFeature, ChatSettingsOptions } from "./useChatSettings";
+export { useChatComposer } from "./useChatComposer";
+export type { ChatComposerOptions, ComposerSubmission } from "./useChatComposer";
+export { ChatComposer } from "./ChatComposer";
+export { ChatComposerSurface } from "./ChatComposerSurface";
+export type { ChatComposerProps } from "./ChatComposer";
+export type { ChatComposerLayout } from "./ChatShell";
+export type { ComposerCommand, ComposerCommandInvocation, ComposerCommandResult } from "./composerCommands";
