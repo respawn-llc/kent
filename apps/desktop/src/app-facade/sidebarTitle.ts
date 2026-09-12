@@ -6,6 +6,7 @@ export function sidebarTitle(
   destination: SidebarDestination,
   t: ReturnType<typeof useTranslation>["t"],
 ): string {
+  if (destination.kind === "worktree") return t("chat.worktree.title");
   if (destination.kind === "newTask") {
     return t("task.newTitle");
   }

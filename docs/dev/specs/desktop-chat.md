@@ -371,10 +371,12 @@
 - The under-composer control row contains one Worktree affordance that identifies the Session's current concise execution target.
 - For a branch-backed worktree, the affordance shows the branch name. For a detached or otherwise non-branch worktree, it shows the Kent worktree display name. For the main workspace, it shows the workspace name.
 - When the current target is missing or inaccessible, the affordance preserves that recorded target name and adds warning iconography and semantic warning treatment. It does not replace the identity with generic warning copy.
+- For a missing or inaccessible Worktree, the affordance must show the recorded Kent display name, including when the Worktree was branch-backed.
 - The affordance end-truncates a long target name. The Worktree sidebar owns the complete target facts.
 - Activating the Worktree affordance opens the shared adaptive contextual-sidebar host.
 - Desktop does not place Worktree management in the Settings popover or a separate full-page destination.
 - Opening the Worktree list moves keyboard focus to its first enabled list action. If no row has an enabled action, focus moves to the header `+` action.
+- The Worktree list must use Tab and Shift+Tab to navigate enabled actions and Enter or Space to activate the focused action. Row text must not be a separate interactive focus stop.
 - Opening Worktree creation moves focus to `Branch or ref`.
 - Escape closes the delete popup back to the list, returns creation to the list, and closes the list-level sidebar.
 - Closing Worktree restores focus to the under-composer Worktree control when that control opened it, or to the composer when a slash command opened it.
@@ -382,6 +384,7 @@
 - The sidebar header has a primary icon-only `+` action for creating a worktree.
 - The sidebar header has a secondary icon-only Refresh action beside `+`.
 - Opening the Worktree sidebar performs one server-owned list read. The response may race with Worktree mutations or out-of-band Git changes. Initial loading uses the standard compact Loading state, and failure uses the matching compact Error state with Retry.
+- During manual or automatic list refresh, Desktop must retain the previous rows and show pending feedback on Refresh. If the read fails, Desktop must retain those rows and show compact Error with Retry. A successful read must replace the list in server order.
 - Successful Worktree creation, switching, and deletion refresh the list. Manual Refresh discovers out-of-band Git topology changes.
 - Desktop adds no Worktree-list polling loop or timer-based refresh.
 - After reconnection, Desktop reissues the current-target and open Worktree-list reads.
