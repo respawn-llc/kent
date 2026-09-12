@@ -154,6 +154,7 @@ func (c MaterializedEventLog) AppendCompactionHistoryReplacement(
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
 		meta.UsageState = nil
+		meta.OriginalThinkingEffort = nil
 		return true, nil
 	})
 	if len(outcome.records) != 1 {

@@ -99,8 +99,8 @@ func TestWorkflowThinkingTranscriptAfterCompaction(t *testing.T) {
 				t.Fatalf("expected one high update, with no intermediate medium update: %+v", delivered)
 			}
 			request := client.calls[len(client.calls)-1]
-			if request.ReasoningEffort != "medium" {
-				t.Fatal("target request changed its original provider baseline")
+			if request.ReasoningEffort != "high" {
+				t.Fatal("target request did not establish high as its post-compaction baseline")
 			}
 			updates := 0
 			for i, item := range request.Items {
