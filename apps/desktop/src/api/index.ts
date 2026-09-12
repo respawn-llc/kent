@@ -51,7 +51,6 @@ export type {
   ChatTranscriptCommittedRow,
   ChatTranscriptHandler,
   ChatGoalObservationHandler,
-  ChatGoalError,
   ChatGoal,
   ChatGoalSetResult,
   ChatGoalSetTarget,

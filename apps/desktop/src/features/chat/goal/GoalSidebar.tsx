@@ -11,13 +11,13 @@ import { useTranslation } from "react-i18next";
 
 import type {
   ChatApi,
-  ChatGoalError,
+  ChatError,
   ChatGoalFact,
   ChatGoalMutationResult,
   ChatGoalStatus,
   ChatSessionTarget,
 } from "@/api";
-import { ContractError, errorMessage } from "@/api";
+import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import {
   ChatGoalDestinationController,
   recoverOrThrowDebugFailure,
@@ -78,15 +78,12 @@ function NewChatGoalSidebar({
       .setGoal(draft)
       .then((result) => {
         if (result.outcome.kind === "rejected") {
-          const message = goalErrorMessage(result.outcome.error, t);
+          const message = goalErrorMessage(result.outcome.error.detail, t);
           push({ id: "goal-set-rejected", title: t("chat.goal.setFailed"), body: message, tone: "danger" });
-          if (result.sessionID === null && mounted.current) {
-            setError(new Error(message));
-            setEditing(true);
-          }
+          return;
         }
-        if (result.diagnostic !== null) {
-          reportGoalSetDiagnostic(push, t, result.diagnostic, diagnosticID);
+        if (result.outcome.diagnostic !== null) {
+          reportGoalSetDiagnostic(push, t, result.outcome.diagnostic, diagnosticID);
         }
       })
       .catch((cause: unknown) => {
@@ -231,7 +228,7 @@ type GoalMutationRunnerInput = Readonly<{
 }>;
 type GoalMutationOperationResult = Readonly<{
   mutation: ChatGoalMutationResult;
-  diagnostic: ChatGoalError | null;
+  diagnostic: ChatOperationError | null;
 }>;
 
 function useGoalMutationRunner(input: GoalMutationRunnerInput) {
@@ -299,7 +296,7 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
 }
 
 function goalMutationFailure(cause: unknown, t: ReturnType<typeof useTranslation>["t"]): Error {
-  if (cause instanceof GoalDomainError) return new Error(goalErrorMessage(cause.error, t));
+  if (cause instanceof ChatOperationError) return new Error(goalErrorMessage(cause.detail, t));
   if (cause instanceof Error) return cause;
   return new Error(errorMessage(cause));
 }
@@ -466,9 +463,9 @@ function useExactGoalSidebarModel(
     void runMutation(intent, "set", async () => {
       const result = await api.setGoal({ kind: "session", sessionID: target.sessionID }, draftState.draft);
       if (result.outcome.kind === "rejected") {
-        throw new GoalDomainError(result.outcome.error);
+        throw result.outcome.error;
       }
-      return { mutation: result.outcome.mutation, diagnostic: result.diagnostic };
+      return { mutation: result.outcome.mutation, diagnostic: result.outcome.diagnostic };
     });
   };
 
@@ -629,7 +626,7 @@ function useControllerSnapshot(controller: ChatGoalDestinationController, onSnap
   return snapshot;
 }
 
-function goalErrorMessage(error: ChatGoalError, t: ReturnType<typeof useTranslation>["t"]): string {
+function goalErrorMessage(error: ChatError, t: ReturnType<typeof useTranslation>["t"]): string {
   switch (error.kind) {
     case "runtime_unavailable":
       return t("chatSettings.errors.runtimeUnavailable");
@@ -638,7 +635,7 @@ function goalErrorMessage(error: ChatGoalError, t: ReturnType<typeof useTranslat
     case "unknown":
       return t("chatSettings.errors.unknown", { code: error.code });
     default:
-      throw new Error("Unknown Goal error kind.");
+      throw new Error("Unexpected Goal Set error detail.");
   }
 }
 
@@ -651,19 +648,13 @@ function goalSetDiagnosticNotificationID(): string {
 function reportGoalSetDiagnostic(
   push: StatusPush,
   t: ReturnType<typeof useTranslation>["t"],
-  diagnostic: ChatGoalError,
+  diagnostic: ChatOperationError,
   id: string,
 ): void {
   push({
     id,
     title: t("chat.goal.savedWithWarning"),
-    body: goalErrorMessage(diagnostic, t),
+    body: goalErrorMessage(diagnostic.detail, t),
     tone: "warning",
   });
-}
-
-class GoalDomainError extends Error {
-  constructor(readonly error: ChatGoalError) {
-    super(error.kind);
-  }
 }

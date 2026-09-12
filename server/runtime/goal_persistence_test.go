@@ -68,3 +68,21 @@ func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrBlockQueue(t *testing.T) {
 		t.Fatalf("goal notices = %d, want one committed notice without replay", count)
 	}
 }
+
+func TestGoalSetContinuesNoticeAfterCommittedMetadataIssue(t *testing.T) {
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	gate.FailNext(errors.New("goal metadata observer failed"))
+
+	result, err := engine.SetGoal(t.Context(), "continue after metadata issue", session.GoalActorUser)
+	if err == nil {
+		t.Fatal("SetGoal succeeded without reporting metadata observer failure")
+	}
+	if !result.MetadataReceipt.Committed {
+		t.Fatalf("metadata receipt = %+v, want committed", result.MetadataReceipt)
+	}
+	if !result.NoticeReceipt.Committed {
+		t.Fatalf("notice receipt = %+v, want committed notice after metadata issue", result.NoticeReceipt)
+	}
+}

@@ -7,8 +7,9 @@ import type {
   ChatGoalMutationResult,
   ChatGoalObservationHandler,
   ChatGoalSetResult,
+  ChatError,
 } from "@/api";
-import { TransportError } from "@/api";
+import { ChatOperationError, RpcError, TransportError } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import * as ui from "@/ui";
 import { NewChatGoalBinding } from "./goalBinding";
@@ -27,6 +28,13 @@ const activeGoal = {
   created_at: "2026-09-11T10:00:00Z",
   updated_at: "2026-09-11T10:00:00Z",
 };
+
+function goalSetError(detail: ChatError): ChatOperationError {
+  return new ChatOperationError(
+    new RpcError({ code: 500, message: "Goal Set failed", method: "runtime.goal.set" }),
+    detail,
+  );
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -125,8 +133,10 @@ describe("Goal sidebar", () => {
     const testServices = createTestServices([]);
     const result: ChatGoalSetResult = {
       sessionID,
-      outcome: { kind: "rejected", error: { kind: "runtime_unavailable" } },
-      diagnostic: null,
+      outcome: {
+        kind: "rejected",
+        error: goalSetError({ kind: "runtime_unavailable", sessionID }),
+      },
     };
     const binding = new NewChatGoalBinding({
       api: { setGoal: vi.fn(async () => result) },
@@ -245,8 +255,12 @@ describe("Goal sidebar", () => {
               availability: "available",
             },
           },
+          diagnostic: goalSetError({
+            kind: "internal_failure",
+            operation: "runtime.detach",
+            cause: "release failed",
+          }),
         },
-        diagnostic: { kind: "internal_failure", operation: "runtime.detach", cause: "release failed" },
       });
       await pending.promise;
     });
@@ -288,8 +302,8 @@ describe("Goal sidebar", () => {
             availability: "available",
           },
         },
+        diagnostic: null,
       },
-      diagnostic: null,
     });
     expect(await screen.findByText(/Set at/)).toBeInTheDocument();
   });
@@ -320,11 +334,11 @@ describe("Goal sidebar", () => {
               availability: "available" as const,
             },
           },
-        },
-        diagnostic: {
-          kind: "internal_failure" as const,
-          operation: "runtime.detach",
-          cause: "release failed",
+          diagnostic: goalSetError({
+            kind: "internal_failure",
+            operation: "runtime.detach",
+            cause: "release failed",
+          }),
         },
       })),
     });
@@ -406,8 +420,8 @@ describe("Goal sidebar", () => {
               availability: "available",
             },
           },
+          diagnostic: null,
         },
-        diagnostic: null,
       };
       const pending = deferred<ChatGoalSetResult>();
       const setGoal = vi.fn(async () => (completion === "fast" ? Promise.resolve(result) : pending.promise));

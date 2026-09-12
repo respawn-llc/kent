@@ -4,15 +4,16 @@ import { validate } from "@app/server-api-contract";
 import {
   GoalAvailability,
   GoalMutationResultKind,
+  GoalService,
   GoalSetResultSchema,
   GoalStatus,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
   GoalMutationSuccess,
-  GoalSetError,
   GoalSetResult,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { ContractError } from "./errors";
+import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { parseRpcResponse } from "./clientParse";
 import { timestampMillis } from "./clientTime";
 import { goalSchema, type runtimeStatusSchema } from "./chatSchemas";
@@ -37,17 +38,6 @@ export type ChatGoalProjection =
 export type ChatGoalMutationResult =
   | Readonly<{ kind: "authoritative_goal"; fact: ChatGoalFact & Readonly<{ goal: ChatGoal }> }>
   | Readonly<{ kind: "authoritative_clear"; fact: ChatGoalFact & Readonly<{ goal: null }> }>;
-export type ChatGoalError =
-  | Readonly<{ kind: "runtime_unavailable" }>
-  | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
-  | Readonly<{
-      kind: "unknown";
-      code: string;
-      runtimeUnavailableSessionID?: string;
-      internalFailureOperation?: string | null;
-      internalFailureCause?: string | null;
-      unknownFields: readonly NonNullable<GoalSetError["$unknown"]>[number][];
-    }>;
 export type ChatGoalSetTarget =
   | Readonly<{
       kind: "session";
@@ -63,11 +53,14 @@ export type ChatGoalSetTarget =
       initialInputDraft?: string;
     }>;
 export type ChatGoalSetResult = Readonly<{
-  sessionID: string | null;
+  sessionID: string;
   outcome:
-    | Readonly<{ kind: "mutation"; mutation: ChatGoalMutationResult }>
-    | Readonly<{ kind: "rejected"; error: ChatGoalError }>;
-  diagnostic: ChatGoalError | null;
+    | Readonly<{
+        kind: "mutation";
+        mutation: ChatGoalMutationResult;
+        diagnostic: ChatOperationError | null;
+      }>
+    | Readonly<{ kind: "rejected"; error: ChatOperationError }>;
 }>;
 export type ChatGoalObservation = Readonly<{
   sequence: number;
@@ -239,59 +232,13 @@ function goalAvailabilityFromGenerated(availability: GoalAvailability): ChatGoal
   }
 }
 
-export function goalErrorFromGenerated(error: GoalSetError): ChatGoalError {
-  switch (error.code) {
-    case "runtime_unavailable":
-      if (error.detail.case !== "runtimeUnavailable")
-        throw new ContractError("Runtime-unavailable Goal error detail is missing.");
-      return { kind: "runtime_unavailable" };
-    case "internal_failure":
-      if (error.detail.case !== "internalFailure")
-        throw new ContractError("Internal Goal error detail is missing.");
-      return {
-        kind: "internal_failure",
-        operation: error.detail.value.operation ?? null,
-        cause: error.detail.value.cause ?? null,
-      };
-    default:
-      return {
-        kind: "unknown",
-        code: error.code,
-        ...unknownGoalErrorDetail(error),
-        unknownFields: (error.$unknown ?? []).map((field) => ({
-          no: field.no,
-          wireType: field.wireType,
-          data: field.data.slice(),
-        })),
-      };
-  }
-}
-
-function unknownGoalErrorDetail(error: GoalSetError): Readonly<{
-  runtimeUnavailableSessionID?: string;
-  internalFailureOperation?: string | null;
-  internalFailureCause?: string | null;
-}> {
-  switch (error.detail.case) {
-    case "runtimeUnavailable":
-      return { runtimeUnavailableSessionID: error.detail.value.sessionId };
-    case "internalFailure":
-      return {
-        internalFailureOperation: error.detail.value.operation ?? null,
-        internalFailureCause: error.detail.value.cause ?? null,
-      };
-    case undefined:
-      return {};
-  }
-}
-
 export function chatGoalSetResultFromGenerated(
   result: GoalSetResult,
   requestedSessionID?: string,
 ): ChatGoalSetResult {
   validateGoalSetResult(result);
   if (result.outcome.case === "error") {
-    return topLevelGoalSetFailure(result.outcome.value);
+    throw chatOperationError(GoalService.method.set, result.outcome.value);
   }
   if (result.outcome.case !== "success") {
     throw new ContractError("Goal Set result outcome is required.");
@@ -301,7 +248,6 @@ export function chatGoalSetResultFromGenerated(
   return {
     sessionID,
     outcome: goalSetOutcome(success),
-    diagnostic: success.diagnostic === undefined ? null : goalErrorFromGenerated(success.diagnostic),
   };
 }
 
@@ -313,14 +259,6 @@ function validateGoalSetResult(result: GoalSetResult): void {
       { code: "invalid_value", path: ["GoalSetResult"] },
     ]);
   }
-}
-
-function topLevelGoalSetFailure(error: GoalSetError): ChatGoalSetResult {
-  return {
-    sessionID: null,
-    outcome: { kind: "rejected", error: goalErrorFromGenerated(error) },
-    diagnostic: null,
-  };
 }
 
 function goalSetSessionID(sessionID: string | undefined, requestedSessionID?: string): string {
@@ -342,10 +280,23 @@ function goalSetOutcome(
       if (mutation.kind !== "authoritative_goal") {
         throw new ContractError("Goal Set response returned an illegal mutation result.");
       }
-      return { kind: "mutation", mutation };
+      return {
+        kind: "mutation",
+        mutation,
+        diagnostic:
+          success.diagnostic === undefined
+            ? null
+            : chatOperationError(GoalService.method.set, success.diagnostic),
+      };
     }
     case "rejected":
-      return { kind: "rejected", error: goalErrorFromGenerated(success.outcome.value) };
+      if (success.diagnostic !== undefined) {
+        throw new ContractError("Goal Set rejection cannot include a diagnostic.");
+      }
+      return {
+        kind: "rejected",
+        error: chatOperationError(GoalService.method.set, success.outcome.value),
+      };
     case undefined:
       throw new ContractError("Goal Set success outcome is required.");
   }
