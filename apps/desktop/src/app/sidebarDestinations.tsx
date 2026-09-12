@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { ProjectDeleteButton, ProjectEditRoute } from "@/features/project-edit";
+import { ProjectEditRoute } from "@/features/project-edit";
 import { ProcessesSidebar } from "@/features/processes";
 import { SidebarInboxNav } from "@/features/home";
 import { TaskDetailSurface, type TaskDetailSessionChatEntry } from "@/features/task-detail";
@@ -197,13 +197,7 @@ function ProjectEditDestination({
   destination: Extract<SidebarDestination, { kind: "projectEdit" }>;
   navigator: SidebarPageNavigator;
 }>): ReactElement {
-  return (
-    <ProjectEditRoute
-      headerAccessory={<ProjectDeleteButton navigator={navigator} projectID={destination.projectID} />}
-      navigator={navigator}
-      projectId={destination.projectID}
-    />
-  );
+  return <ProjectEditRoute navigator={navigator} projectId={destination.projectID} />;
 }
 
 function LinkWorkflowDestinationView({

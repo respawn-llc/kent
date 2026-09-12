@@ -443,24 +443,29 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 	}{
 		{
 			name:       "unknown GPT model",
-			model:      "gpt-6-astra",
+			model:      "gpt-unknown-future",
 			wantVision: true,
 		},
 		{
 			name:       "unknown GPT model on custom provider",
-			model:      "gpt-6-astra",
+			model:      "gpt-unknown-future",
 			provider:   llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true},
 			wantVision: false,
 		},
 		{
 			name:         "unknown GPT model with explicit vision disabled",
-			model:        "gpt-6-astra",
+			model:        "gpt-unknown-future",
 			capabilities: &session.LockedModelCapabilities{SupportsReasoningEffort: true},
 			wantVision:   false,
 		},
 		{
 			name:       "vision catalog model",
 			model:      "gpt-5.3-codex",
+			wantVision: true,
+		},
+		{
+			name:       "Astra vision catalog model",
+			model:      "gpt-6-astra",
 			wantVision: true,
 		},
 		{

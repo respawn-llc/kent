@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -43,7 +44,7 @@ func TestPendingBudgetRebuildSelectsNewSteerAndExcludesQueue(t *testing.T) {
 	if err := seed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MarkLockedPromptFacingSnapshotsStale(); err != nil {
+	if _, err := store.RefreshLockedMainPromptSnapshot(session.LockedMainPromptSnapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}

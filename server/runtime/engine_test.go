@@ -989,7 +989,7 @@ func TestSystemPromptSnapshotRefreshesAfterCompaction(t *testing.T) {
 	}
 }
 
-func TestSystemPromptRefreshFailureKeepsStaleLockAndRetries(t *testing.T) {
+func TestSystemPromptRefreshFailureKeepsContractAbsentAndRetries(t *testing.T) {
 	t.Parallel()
 	workspace := t.TempDir()
 	systemPath := filepath.Join(workspace, "system.md")
@@ -1017,8 +1017,8 @@ func TestSystemPromptRefreshFailureKeepsStaleLockAndRetries(t *testing.T) {
 	if _, err := eng.SubmitUserMessage(context.Background(), "fails"); err == nil {
 		t.Fatal("expected invalid prompt refresh to fail")
 	}
-	if locked := store.Meta().Locked; locked == nil || locked.HasSystemPrompt || strings.TrimSpace(locked.SystemPrompt) != "" {
-		t.Fatalf("locked prompt after failed refresh = %+v, want stale cleared lock", locked)
+	if locked := store.Meta().Locked; locked != nil {
+		t.Fatalf("contract after failed refresh = %+v, want absent", locked)
 	}
 	writeTestFile(t, systemPath, "prompt B")
 	if _, err := eng.SubmitUserMessage(context.Background(), "second"); err != nil {
@@ -1056,8 +1056,8 @@ func TestPendingSystemPromptRefreshRunsAfterReopen(t *testing.T) {
 	}
 	writeTestFile(t, systemPath, "prompt B")
 	scheduleManualCompactionAndWait(t, eng)
-	if locked := store.Meta().Locked; locked == nil || locked.HasSystemPrompt || locked.SystemPrompt != "" {
-		t.Fatalf("locked prompt after compaction = %+v, want stale", locked)
+	if locked := store.Meta().Locked; locked != nil {
+		t.Fatalf("contract after compaction = %+v, want absent", locked)
 	}
 	if err := eng.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)

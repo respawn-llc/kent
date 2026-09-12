@@ -188,6 +188,14 @@ func TestScriptedResponsesRejectsConcurrentSameLineageWithoutCommittingRejectedI
 	if final.Assistant.Content == nil || *final.Assistant.Content != "done" {
 		t.Fatalf("final response = %+v", final)
 	}
+	// Receiving the terminal stream event can precede HTTP handler cleanup.
+	for stub.Snapshot().ActiveRequests != 0 {
+		select {
+		case <-stub.Events():
+		case <-t.Context().Done():
+			t.Fatal(t.Context().Err())
+		}
+	}
 	if err := stub.Verify(); err != nil {
 		t.Fatalf("Verify after rejected concurrent request: %v", err)
 	}

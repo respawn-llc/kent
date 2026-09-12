@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"core/server/llm"
+	"core/server/session"
 	"core/server/tools"
 	"core/shared/runtimeids"
 
@@ -46,7 +47,7 @@ func TestBackgroundCompletionDuringPreparationFinishesWithinSubmission(t *testin
 	if err := seed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MarkLockedPromptFacingSnapshotsStale(); err != nil {
+	if _, err := store.RefreshLockedMainPromptSnapshot(session.LockedMainPromptSnapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}
@@ -118,7 +119,7 @@ func testInputPreparationOutcome(t *testing.T, stop bool) {
 			if err := seed.Close(); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := store.MarkLockedPromptFacingSnapshotsStale(); err != nil {
+			if _, err := store.RefreshLockedMainPromptSnapshot(session.LockedMainPromptSnapshot{}); err != nil {
 				t.Fatal(err)
 			}
 			engine := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, tools.NewRegistry(), Config{

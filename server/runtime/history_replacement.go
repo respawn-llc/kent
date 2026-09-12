@@ -54,6 +54,11 @@ func transcriptEntriesFromHistoryReplacement(items []llm.ResponseItem, compactio
 		}
 	})
 	for _, item := range items {
+		if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+			walker.Flush()
+			entries = append(entries, configurationUpdateChatEntry(item))
+			continue
+		}
 		walker.Apply(item)
 	}
 	walker.Flush()

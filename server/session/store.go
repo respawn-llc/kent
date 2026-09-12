@@ -664,27 +664,10 @@ func (s *Store) mutateLockedContractWithCommitStatus(mutator func(*LockedContrac
 	if mutator == nil {
 		return LockedContractMutationResult{}, nil
 	}
-	return s.mutateMetaAndReplaceLockedContractWithCommitStatus(nil, func(locked *LockedContract) *LockedContract {
-		mutator(locked)
-		return locked
-	}, true)
-}
-
-func (s *Store) mutateMetaAndLockedContractWithCommitStatus(metaMutator func(*Meta), lockedMutator func(*LockedContract), requireLocked bool) (LockedContractMutationResult, error) {
-	if lockedMutator == nil {
-		return s.mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator, nil, requireLocked)
-	}
-	return s.mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator, func(locked *LockedContract) *LockedContract {
-		lockedMutator(locked)
-		return locked
-	}, requireLocked)
-}
-
-func (s *Store) mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator func(*Meta), lockedMutator func(*LockedContract) *LockedContract, requireLocked bool) (LockedContractMutationResult, error) {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
-	if requireLocked && s.meta.Locked == nil {
+	if s.meta.Locked == nil {
 		s.mu.Unlock()
 		return LockedContractMutationResult{}, nil
 	}
@@ -693,12 +676,8 @@ func (s *Store) mutateMetaAndReplaceLockedContractWithCommitStatus(metaMutator f
 		return LockedContractMutationResult{}, err
 	}
 	checkpoint := s.metadataMutationCheckpointLocked()
-	if metaMutator != nil {
-		metaMutator(&s.meta)
-	}
-	if lockedMutator != nil && s.meta.Locked != nil {
-		s.meta.Locked = lockedMutator(cloneLockedContract(s.meta.Locked))
-	}
+	s.meta.Locked = cloneLockedContract(s.meta.Locked)
+	mutator(s.meta.Locked)
 	s.meta.UpdatedAt = time.Now().UTC()
 	committed := cloneLockedContract(s.meta.Locked)
 	receipt, err := s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
@@ -1191,16 +1170,6 @@ func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
 }
 
-func (s *Store) SetContinuationContextAndMarkLockedPromptFacingContractStale(ctx ContinuationContext) (LockedContractMutationResult, error) {
-	normalized, err := NormalizeContinuationContext(ctx)
-	if err != nil {
-		return LockedContractMutationResult{}, err
-	}
-	return s.mutateMetaAndLockedContractWithCommitStatus(func(meta *Meta) {
-		meta.Continuation = normalized
-	}, markLockedPromptFacingContractStale, false)
-}
-
 func (s *Store) MarkGeneratedRecoveredWarningIssued() error {
 	return s.mutateAndPersist(func() error {
 		s.meta.GeneratedRecoveredWarningIssued = true
@@ -1221,14 +1190,6 @@ func (s *Store) MarkModelDispatchLocked(contract LockedContract) error {
 		s.meta.UpdatedAt = time.Now().UTC()
 		return nil
 	})
-}
-
-func (s *Store) ResetLockedContractForCompactionBoundary() error {
-	_, err := s.mutateMetaAndReplaceLockedContractWithCommitStatus(func(*Meta) {
-	}, func(*LockedContract) *LockedContract {
-		return nil
-	}, false)
-	return err
 }
 
 func (s *Store) BackfillLockedProviderContract(contract LockedProviderCapabilities) error {
@@ -1287,24 +1248,6 @@ func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
 	s.meta.Locked.HasReviewerPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
 	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
-}
-
-func (s *Store) MarkLockedPromptFacingSnapshotsStale() (LockedContractMutationResult, error) {
-	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
-		*locked = locked.WithPromptFacingSnapshotsStale()
-	})
-}
-
-func (s *Store) MarkLockedPromptFacingContractStale() (LockedContractMutationResult, error) {
-	return s.mutateLockedContractWithCommitStatus(markLockedPromptFacingContractStale)
-}
-
-func markLockedPromptFacingContractStale(locked *LockedContract) {
-	*locked = locked.WithPromptFacingSnapshotsStale()
-	locked.EnabledTools = nil
-	locked.HasEnabledTools = false
-	locked.WebSearchMode = ""
-	locked.ToolPreambles = nil
 }
 
 func (s *Store) RefreshLockedMainPromptSnapshot(snapshot LockedMainPromptSnapshot) (LockedContractMutationResult, error) {

@@ -11,6 +11,7 @@
         "@app/native-bridge",
         "@app/server-api-contract",
         "@app/ui-kit",
+        "@effect/atom-react",
         "@fontsource-variable/montserrat",
         "@hookform/resolvers",
         "@radix-ui/react-checkbox",
@@ -27,6 +28,7 @@
         "@xyflow/react",
         "clsx",
         "elkjs",
+        "effect",
         "i18next",
         "lucide-react",
         "react",
@@ -38,6 +40,7 @@
         "remark-parse",
         "shiki",
         "shadcn",
+        "scheduler",
         "sonner",
         "streamdown",
         "tailwind-merge",
@@ -46,6 +49,8 @@
         "zod"
       ],
       "devDependencies": [
+        "@effect/tsgo",
+        "@effect/vitest",
         "@eslint/js",
         "@tailwindcss/vite",
         "@tauri-apps/cli",

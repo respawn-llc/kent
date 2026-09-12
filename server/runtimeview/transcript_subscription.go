@@ -825,13 +825,14 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		panic("runtime transcript notice row fact is missing its notice payload")
 	}
 	notice := &clientui.TranscriptNoticeRow{
-		Reason:        clientui.TranscriptNoticeReason(strings.TrimSpace(fact.Reason)),
-		Severity:      clientui.TranscriptNoticeSeverity(strings.TrimSpace(fact.Severity)),
-		LegacyText:    optionalStringPointer(fact.LegacyText),
-		SourcePath:    textutil.OptionalTrimmedString(fact.SourcePath),
-		Worktree:      transcriptWorktreeContext(fact.MessageType, fact.WorktreeContext),
-		CondensedText: optionalNonBlankString(fact.CondensedText),
-		CompactLabel:  optionalNonBlankString(fact.CompactLabel),
+		Reason:         clientui.TranscriptNoticeReason(strings.TrimSpace(fact.Reason)),
+		Severity:       clientui.TranscriptNoticeSeverity(strings.TrimSpace(fact.Severity)),
+		LegacyText:     optionalStringPointer(fact.LegacyText),
+		SourcePath:     textutil.OptionalTrimmedString(fact.SourcePath),
+		Worktree:       transcriptWorktreeContext(fact.MessageType, fact.WorktreeContext),
+		CondensedText:  optionalNonBlankString(fact.CondensedText),
+		CompactLabel:   optionalNonBlankString(fact.CompactLabel),
+		ThinkingEffort: textutil.Pointer(fact.ThinkingEffort),
 	}
 	if stepID != nil {
 		parsed := mustRuntimeTranscriptStepID(stepID, "committed notice row")

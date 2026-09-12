@@ -176,20 +176,21 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
-	supportsVision := modelCapabilities.SupportsVisionInputs
-	if locked := store.Meta().Locked; locked != nil {
-		supportsVision = llm.LockedContractSupportsVisionInputs(locked, active.Model)
-	}
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
-		FilesystemContext:        filesystemContext,
-		OwnerSessionID:           store.Meta().SessionID,
-		Enabled:                  enabledTools,
-		MinimumExecToBgTime:      time.Duration(active.MinimumExecToBgSeconds) * time.Second,
-		ShellOutputMaxChars:      active.ShellOutputMaxChars,
-		ModelContextWindow:       active.ModelContextWindow,
-		AllowNonCwdEdits:         active.AllowNonCwdEdits,
-		SupportsVision:           supportsVision,
+		FilesystemContext:   filesystemContext,
+		OwnerSessionID:      store.Meta().SessionID,
+		Enabled:             enabledTools,
+		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
+		ShellOutputMaxChars: active.ShellOutputMaxChars,
+		ModelContextWindow:  active.ModelContextWindow,
+		AllowNonCwdEdits:    active.AllowNonCwdEdits,
+		SupportsVision: func() bool {
+			if locked := store.Meta().Locked; locked != nil {
+				return llm.LockedContractSupportsVisionInputs(locked, active.Model)
+			}
+			return modelCapabilities.SupportsVisionInputs
+		},
 		Logger:                   logger,
 		Background:               background,
 		ShellPostprocessor:       shellPostprocessor,

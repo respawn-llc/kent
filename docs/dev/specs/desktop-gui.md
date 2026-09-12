@@ -2,13 +2,16 @@
 
 ## Authority, Connection, And Shared Behavior
 
+- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
+- File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops while preserving internal board dragging.
+
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
 - Desktop never starts or bundles the Kent server. It connects using Kent's configured host and port and does not store a separate endpoint. It maps configured listener host `0.0.0.0` to `127.0.0.1` and `::` to `::1`, preserves the configured port, leaves concrete hosts unchanged, and does not edit Kent configuration.
 - A compatible, ready server is required before feature content opens. If protocols are incompatible, show `Update Kent`, the client and server protocol values, instructions to update the service and desktop from the same build, and Retry. Use the same blocker whichever side is newer.
 - If the server is unavailable or authentication is not ready, show a concise failure and next action, including instructions to run the server when unreachable.
 - A safe application shell remains available when startup fails. Home omits endpoint, version, authentication mode, and other runtime identity.
-- On connection loss, disable mutations while retaining cached content where available. Show persistent disconnected status until reconnection; closing that notice does not change connection state.
-- Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Do not queue or replay mutations. After reconnection, reissue server reads and let the operator submit preserved drafts manually; each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes.
+- Except for Project Settings, on connection loss, disable mutations while retaining cached content where available. Show persistent disconnected status until reconnection; closing that notice does not change connection state.
+- Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Do not queue or replay mutations. Each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes. Except for Project Settings, after reconnection, reissue server reads and let the operator submit preserved drafts manually.
 - Local capabilities such as clipboard, directory selection, separate windows, window controls, and notifications are distinct from server readiness. When unavailable, explain the unavailable action; cosmetic shell behavior may be absent in a browser presentation.
 - Text input is plain multiline Markdown. Rich Markdown preserves every source newline as a visible line break. Rich Markdown remains within its available surface width; only a code block may scroll horizontally inside its own block. Task Detail and Workflow Editor content use the shared rich Markdown presentation with sanitized raw-HTML and link behavior. Board previews are flattened text previews: they strip Markdown formatting and raw HTML without rendering rich structure or controls, preserve readable text labels, and remain bounded for dense boards. Completed supported code is syntax-highlighted and selectable in rich content; incomplete code remains selectable plain text.
 - Task Description and Goal objective use one shared large Markdown field. Desktop does not maintain feature-specific copies of its read or edit presentation.
@@ -27,6 +30,12 @@
 - Dialogs, popups, confirmation flows, and dropdowns only collect an operator result. They close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
+
+## Transcript Configuration Notices
+
+- Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.
+- Each Thinking-update entry must use a compact, non-expandable row labeled `Thinking set: <level>` with a settings-cog icon.
+- Workflow Mode entry/exit notices must use a graph icon. Headless Mode entry/exit notices must use an information icon. Worktree Mode entry/exit notices must retain their branch icon, and Session rebind notices must retain their information icon.
 
 ## Home And Navigation
 
@@ -60,6 +69,10 @@
 - A workspace row shows the shared shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its row or gives equivalent feedback.
 - Choosing an already attached path outside the retained pages keeps the current list and scroll position and shows success-style feedback without adding or finding its row.
 - Project Settings loads Project metadata and the Workspace catalog independently.
+- Project Settings must attempt otherwise valid explicit requests without blocking them based on connection status. Project Settings must show request failures without automatic retry or reconnection-triggered recovery.
+- Project Settings must show workspace-observation failures through an ordinary temporary error notification.
+- While a Workspace-change refresh is in progress, Project Settings may combine further change notifications for that Project into one subsequent refresh. Project Settings must not combine mutation requests or confirmation choices.
+- Leaving Project Settings must stop its screen observations without canceling accepted server work. While the window remains open, leaving Project Settings must not suppress a started mutation's failure feedback or ordinary content refresh.
 - Project Settings metadata contains no Workspace rows or Workspace pagination. Project Settings and New Task obtain Workspace rows from the same Project Workspace catalog.
 - A Workspace-catalog first-page failure leaves Project name and Project Key editable and saveable, keeps Attach available, and gives the Workspace area its own Retry state.
 - A recoverable Project-metadata failure gives the metadata area its own Retry state while loaded Workspace attach, default, and unlink actions remain available. A missing Project retains the Back behavior.

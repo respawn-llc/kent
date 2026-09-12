@@ -189,7 +189,8 @@ func TestVisionDefaultsRespectProviderAndCatalog(t *testing.T) {
 				t.Fatalf("unknown provider %q", providerID)
 			}
 			for _, test := range []modelSupportCase{
-				{model: "gpt-6-astra", want: provider.IsOpenAIFirstParty},
+				{model: "gpt-unknown-future", want: provider.IsOpenAIFirstParty},
+				{model: "gpt-6-astra", want: true},
 				{model: " GPT-FUTURE ", want: provider.IsOpenAIFirstParty},
 				{model: "custom-alias", want: false},
 				{model: "claude-future", want: false},

@@ -282,9 +282,11 @@ export const noticeSchema = z
       "runtime_diagnostic",
       "tool_output_repair",
       "provider_model_mismatch",
+      "thinking_update",
     ]),
     Severity: z.enum(["info", "warning", "error"]),
     MessageType: optionalNullable(identifier),
+    ThinkingEffort: optionalNullable(identifier),
     LegacyText: optionalText,
     NoticeID: optionalIdentifier,
     SourcePath: optionalText,
@@ -335,7 +337,25 @@ export const noticeSchema = z
     CondensedText: optionalText,
     CompactLabel: optionalText,
   })
-  .strict();
+  .strict()
+  .refine((notice) => (notice.Reason === "thinking_update") === (notice.ThinkingEffort != null), {
+    path: ["ThinkingEffort"],
+    message: "Thinking effort is required exclusively for Thinking updates.",
+  })
+  .refine(
+    (notice) =>
+      notice.Reason !== "thinking_update" ||
+      (notice.Severity === "info" &&
+        notice.MessageType == null &&
+        notice.LegacyText == null &&
+        notice.CacheWarning == null &&
+        notice.Compaction == null &&
+        notice.ToolOutputRepair == null &&
+        notice.ProviderModelMismatch == null &&
+        notice.Diagnostic == null &&
+        notice.Background == null),
+    { message: "Thinking updates must carry only informational Thinking facts." },
+  );
 const committedRowBaseSchema = z
   .object({
     Visibility: z.enum(["ongoing", "ongoing_collapsed", "detail", "hidden"]),

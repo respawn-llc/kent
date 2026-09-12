@@ -154,7 +154,7 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 	t.Run("fork preserves source evidence", func(t *testing.T) {
 		parent := mustCreateTestSession(t)
 		sourceClient := &fakeClient{responses: []llm.Response{providerUsageTestResponse(19)}}
-		sourceEngine := mustNewTestEngine(t, parent, sourceClient, tools.NewRegistry(), Config{Model: "gpt-5"})
+		sourceEngine := mustNewTestEngine(t, parent, sourceClient, tools.NewRegistry(), Config{Model: "gpt-5", ThinkingLevel: "medium"})
 		if _, err := generateTestActiveStep(context.Background(), sourceEngine, "fork-source", sourceClient, providerUsageTestRequest(parent.Meta().SessionID, false)); err != nil {
 			t.Fatalf("generate source usage: %v", err)
 		}
@@ -165,6 +165,7 @@ func TestProviderUsageHistoryContinuesFromOldSessionAndPreservesForkIdentity(t *
 			mustMaterializeTestEventLog(t, parent),
 			"forked continuation",
 			sessioncontract.SessionCategoryMain,
+			session.ForkThinking{Desired: sourceEngine.ThinkingLevel(), PreserveNativeUpdates: false},
 		)
 		if err != nil {
 			t.Fatalf("fork session: %v", err)

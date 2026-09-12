@@ -30,6 +30,7 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 					responses: []llm.Response{finalOutputItemResponse("seed")},
 				}
 				var flushed atomic.Int32
+				var thinkingRows atomic.Int32
 				var restorationMu sync.Mutex
 				var restored []string
 				engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
@@ -37,6 +38,9 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 					OnEvent: func(event Event) {
 						if event.Kind == EventUserMessageFlushed {
 							flushed.Add(1)
+						}
+						if event.LocalEntry != nil && event.LocalEntry.ThinkingEffort != nil {
+							thinkingRows.Add(1)
 						}
 						if event.PendingWorkRestoration != nil {
 							restorationMu.Lock()
@@ -85,6 +89,9 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 				}
 				if updates != want || next != want || int(flushed.Load()) != 1+want || fakeClientCallCount(client) != 1+want {
 					t.Fatalf("updates=%d input=%d flushed=%d requests=%d", updates, next, flushed.Load(), fakeClientCallCount(client))
+				}
+				if int(thinkingRows.Load()) != want {
+					t.Fatalf("Thinking rows = %d, want %d committed updates", thinkingRows.Load(), want)
 				}
 				if !providerFailure {
 					restorationMu.Lock()

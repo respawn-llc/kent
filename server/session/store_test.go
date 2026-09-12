@@ -254,12 +254,18 @@ func TestLockedContractPersistenceIncludesPromptAndRequestSnapshots(t *testing.T
 	}
 }
 
-func TestResetLockedContractForCompactionBoundaryPersistsFreshContractBoundary(t *testing.T) {
+func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	store := newSessionTestStore(t)
 	markSessionTestLocked(t, store, sessionTestLockedContract())
 
-	if err := store.ResetLockedContractForCompactionBoundary(); err != nil {
-		t.Fatalf("reset locked contract for compaction boundary: %v", err)
+	log, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+		Engine: "local", Mode: CompactionModeManual,
+	}); err != nil || !receipt.Committed {
+		t.Fatalf("commit compaction replacement: receipt=%+v error=%v", receipt, err)
 	}
 	if locked := store.Meta().Locked; locked != nil {
 		t.Fatalf("in-memory locked contract = %+v, want absent", locked)
@@ -270,26 +276,10 @@ func TestResetLockedContractForCompactionBoundaryPersistsFreshContractBoundary(t
 	}
 }
 
-func TestLockedPromptFacingMutationsPreserveLifetimeFields(t *testing.T) {
+func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	store := newSessionTestStore(t)
 	toolPreambles := true
-	markSessionTestLocked(t, store, sessionTestLockedContract())
-	stale, err := store.MarkLockedPromptFacingSnapshotsStale()
-	if err != nil {
-		t.Fatalf("mark stale: %v", err)
-	}
-	if !stale.Committed || stale.Locked == nil {
-		t.Fatalf("stale result = %+v, want committed lock", stale)
-	}
-	if stale.Locked.SystemPrompt != "" || stale.Locked.HasSystemPrompt || stale.Locked.ReviewerPrompt != "" || stale.Locked.HasReviewerPrompt {
-		t.Fatalf("stale locked prompts = %+v, want cleared", stale.Locked)
-	}
-	if stale.Locked.Model != "gpt-5" || stale.Locked.WebSearchMode != "native" || len(stale.Locked.EnabledTools) != 1 || !stale.Locked.HasEnabledTools {
-		t.Fatalf("stale lifetime fields = %+v", stale.Locked)
-	}
-	if stale.Locked.WorkflowCompletionMode == nil || *stale.Locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("stale workflow completion mode = %v, want preserved tool mode", stale.Locked.WorkflowCompletionMode)
-	}
+	markSessionTestLocked(t, store, LockedContract{Model: "gpt-5"})
 	refreshed, err := store.RefreshLockedMainPromptSnapshot(LockedMainPromptSnapshot{
 		SystemPrompt:    "prompt B",
 		HasSystemPrompt: true,
@@ -355,54 +345,6 @@ func TestLockedWorkflowCompletionModeBackfillPersists(t *testing.T) {
 	}
 }
 
-func TestLockedPromptFacingContractStaleClearsRequestShape(t *testing.T) {
-	store := newSessionTestStore(t)
-	markSessionTestLocked(t, store, sessionTestLockedContract())
-
-	result, err := store.MarkLockedPromptFacingContractStale()
-	if err != nil {
-		t.Fatalf("mark contract stale: %v", err)
-	}
-	if !result.Committed || result.Locked == nil {
-		t.Fatalf("stale contract result = %+v, want committed lock", result)
-	}
-	locked := result.Locked
-	if locked.SystemPrompt != "" || locked.HasSystemPrompt || locked.ReviewerPrompt != "" || locked.HasReviewerPrompt {
-		t.Fatalf("stale contract prompts = %+v, want cleared", locked)
-	}
-	if len(locked.EnabledTools) != 0 || locked.HasEnabledTools || locked.WebSearchMode != "" || locked.ToolPreambles != nil {
-		t.Fatalf("stale contract request shape = %+v, want cleared", locked)
-	}
-	if locked.Model != "gpt-5" {
-		t.Fatalf("stale contract model = %q, want preserved", locked.Model)
-	}
-	if locked.WorkflowCompletionMode == nil || *locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("stale contract workflow completion mode = %v, want preserved tool mode", locked.WorkflowCompletionMode)
-	}
-}
-
-func TestSetContinuationContextAndLockedPromptFacingContractStalePersistsTogether(t *testing.T) {
-	store := newSessionTestStore(t)
-	markSessionTestLocked(t, store, sessionTestLockedContract())
-
-	role := "reviewer"
-	result, err := store.SetContinuationContextAndMarkLockedPromptFacingContractStale(ContinuationContext{AgentRole: &role})
-	if err != nil {
-		t.Fatalf("set continuation and stale contract: %v", err)
-	}
-	if !result.Committed || result.Locked == nil {
-		t.Fatalf("mutation result = %+v, want committed lock", result)
-	}
-	opened := mustOpenSessionTestStore(t, store)
-	meta := opened.Meta()
-	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "reviewer" {
-		t.Fatalf("continuation = %+v, want reviewer", meta.Continuation)
-	}
-	if locked := meta.Locked; locked == nil || locked.HasSystemPrompt || locked.HasEnabledTools || len(locked.EnabledTools) != 0 || locked.WebSearchMode != "" {
-		t.Fatalf("locked contract = %+v, want prompt-facing fields cleared", locked)
-	}
-}
-
 func TestLockedContractMutationObserverCommitSemantics(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
 	store, err := Create(t.TempDir(), "ws", t.TempDir(), testSessionCategory, WithPersistenceObserver(observer))
@@ -414,11 +356,11 @@ func TestLockedContractMutationObserverCommitSemantics(t *testing.T) {
 	}
 	before := store.Meta().Locked
 	observer.err = os.ErrPermission
-	result, err := store.MarkLockedPromptFacingSnapshotsStale()
+	result, err := store.RefreshLockedMainPromptSnapshot(LockedMainPromptSnapshot{SystemPrompt: "prompt B", HasSystemPrompt: true})
 	if err == nil || !result.Committed {
 		t.Fatalf("observer result=%+v err=%v, want committed failure", result, err)
 	}
-	if after := store.Meta().Locked; before == nil || after == nil || after.SystemPrompt != "" || after.HasSystemPrompt {
+	if after := store.Meta().Locked; before == nil || after == nil || after.SystemPrompt != "prompt B" || !after.HasSystemPrompt {
 		t.Fatalf("lock after committed mutation = %+v, before %+v", after, before)
 	}
 }

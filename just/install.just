@@ -12,10 +12,23 @@ _desktop:
 _apps-dependencies:
     @bash scripts/quiet-on-success.sh just install _apps-dependencies-implementation
 
+# The repository-wide Effect policy reads embedded sources with the docs parsers.
 [private]
-_apps-dependencies-implementation:
+_apps-dependencies-implementation: _docs-dependencies
     just _node
     pnpm --dir apps install --frozen-lockfile
+    just install _effect-compiler
+
+# Resolve intentional manifest changes under the workspace dependency policy.
+apps-lock: _docs-dependencies
+    just _node
+    node apps/scripts/check-dependency-policy.mjs
+    pnpm --dir apps install --no-frozen-lockfile
+    just install _effect-compiler
+
+[private]
+_effect-compiler:
+    pnpm --dir apps/desktop exec effect-tsgo patch --typescript --typescript-package typescript7
 
 [private]
 _docs-dependencies:
@@ -45,4 +58,4 @@ _dependencies:
 
 [parallel]
 [private]
-_dependencies-implementation: _go-dependencies _apps-dependencies _docs-dependencies _desktop-dependencies
+_dependencies-implementation: _go-dependencies _apps-dependencies _desktop-dependencies
