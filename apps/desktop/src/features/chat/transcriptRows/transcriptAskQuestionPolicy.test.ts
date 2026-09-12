@@ -23,6 +23,17 @@ describe("Chat Ask Question policy", () => {
     expect(askQuestionCopyText(questionRow("ongoing_collapsed", true, null, "failed Question"))).toBe(
       "question\n\nfailed Question",
     );
+    const historical = questionRow("ongoing_collapsed");
+    expect(
+      askQuestionCopyText({
+        ...historical,
+        Tool: {
+          ...historical.Tool,
+          Text: "**stored answer**\nwithout structured facts",
+          QuestionAnswer: null,
+        },
+      }),
+    ).toBe("question\n\n**stored answer**\nwithout structured facts");
   });
 });
 

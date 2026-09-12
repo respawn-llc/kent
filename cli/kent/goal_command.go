@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/tui"
 	"core/prompts"
 	"core/shared/client"
 	"core/shared/config"
@@ -324,26 +325,13 @@ func writeGoalShowText(stdout io.Writer, stderr io.Writer, goal *runtimepb.Goal)
 		fmt.Fprintln(stdout, "No goal")
 		return 0
 	}
-	status, err := goalStatusLabel(goal.Status)
+	status, err := tui.GoalStatusLabel(goal.Status)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "Goal: %s\nStatus: %s\n", goal.Objective, status)
 	return 0
-}
-
-func goalStatusLabel(status runtimepb.GoalStatus) (string, error) {
-	switch status {
-	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE:
-		return "active", nil
-	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED:
-		return "paused", nil
-	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE:
-		return "complete", nil
-	default:
-		return "", fmt.Errorf("invalid Goal status %v", status)
-	}
 }
 
 func writeGoalShowJSON(stdout io.Writer, stderr io.Writer, response *runtimepb.GoalShowSuccess) int {
@@ -368,7 +356,7 @@ func writeGoalShowJSON(stdout io.Writer, stderr io.Writer, response *runtimepb.G
 		output.Availability = "agent_capability_missing"
 	}
 	if goal := response.Goal; goal != nil {
-		status, err := goalStatusLabel(goal.Status)
+		status, err := tui.GoalStatusLabel(goal.Status)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1

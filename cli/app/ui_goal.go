@@ -7,6 +7,7 @@ import (
 
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
+	"core/cli/tui"
 	"core/shared/clientui"
 	sharedtheme "core/shared/theme"
 
@@ -483,8 +484,12 @@ func (l uiViewLayout) goalOverlayContentLines(width int) []string {
 		return builder.lines
 	}
 	goal := m.goal.goal
+	status, err := tui.GoalStatusLabel(goal.Status)
+	if err != nil {
+		panic(err)
+	}
 	builder.appendGap()
-	builder.appendWrapped("Status: "+goalStatusLabel(goal.Status), boldStyle)
+	builder.appendWrapped("Status: "+status, boldStyle)
 	if strings.TrimSpace(goal.Id) != "" {
 		builder.appendWrapped("ID: "+strings.TrimSpace(goal.Id), subtleStyle)
 	}
@@ -544,17 +549,4 @@ func cloneGoalCore(source *runtimepb.Goal) *runtimepb.Goal {
 		return nil
 	}
 	return proto.Clone(source).(*runtimepb.Goal)
-}
-
-func goalStatusLabel(status runtimepb.GoalStatus) string {
-	switch status {
-	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE:
-		return "active"
-	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED:
-		return "paused"
-	case runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE:
-		return "complete"
-	default:
-		panic("invalid Goal status")
-	}
 }

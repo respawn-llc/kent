@@ -7,7 +7,6 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -98,18 +97,12 @@ func transcriptQueuedFailureReason(reason runtime.QueuedUserMessageFailureReason
 }
 
 func transcriptPendingWorkRestoration(restoration *runtimeinput.PendingWorkTechnicalRestoration) (*transcriptpb.PendingWorkTechnicalRestoration, error) {
-	projected := &transcriptpb.PendingWorkTechnicalRestoration{
-		ItemId: restoration.ItemID.String(), CanonicalInput: restoration.CanonicalInput,
+	kind, err := protoapi.PendingWorkKindToProto(restoration.Kind)
+	if err != nil {
+		return nil, err
 	}
-	switch restoration.Kind {
-	case runtimeinput.PendingWorkItemKindMessage:
-		projected.Kind = runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MESSAGE
-	case runtimeinput.PendingWorkItemKindManualCompaction:
-		projected.Kind = runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MANUAL_COMPACTION
-	case runtimeinput.PendingWorkItemKindWorktreeTransition:
-		projected.Kind = runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_WORKTREE_TRANSITION
-	default:
-		return nil, fmt.Errorf("unknown pending work kind %q", restoration.Kind)
+	projected := &transcriptpb.PendingWorkTechnicalRestoration{
+		ItemId: restoration.ItemID.String(), CanonicalInput: restoration.CanonicalInput, Kind: kind,
 	}
 	return projected, nil
 }

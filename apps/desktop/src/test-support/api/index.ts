@@ -488,9 +488,9 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     }
   }
 
-  complete(subscriptionMethod: string, code: number, message: string, reason: string | null = null): void {
+  complete(subscriptionMethod: string, code: number, message: string): void {
     for (const subscriber of this.#subscribersFor(subscriptionMethod)) {
-      subscriber.handler.onComplete(code, message, reason);
+      subscriber.handler.onComplete(code, message);
     }
   }
 

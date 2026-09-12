@@ -31,8 +31,7 @@ export async function runJsonSubscription(
     establishmentTimeoutMs = defaultSubscriptionEstablishmentTimeoutMs,
   } = input;
   let terminal: Readonly<
-    | { kind: "complete"; code: number; message: string; reason: string | null }
-    | { kind: "error"; error: Error }
+    { kind: "complete"; code: number; message: string } | { kind: "error"; error: Error }
   > | null = null;
   let resolveTerminal: (() => void) | null = null;
   const terminalPromise = new Promise<void>((resolve) => {
@@ -97,8 +96,7 @@ export async function runJsonSubscription(
 function throwTerminalResult(
   method: string,
   result: Readonly<
-    | { kind: "complete"; code: number; message: string; reason: string | null }
-    | { kind: "error"; error: Error }
+    { kind: "complete"; code: number; message: string } | { kind: "error"; error: Error }
   > | null,
 ): void {
   if (result === null) return;
@@ -138,10 +136,7 @@ export function isTerminalSubscriptionError(error: unknown): boolean {
   return error instanceof TerminalSubscriptionError;
 }
 
-function throwNonZero(
-  method: string,
-  complete: Readonly<{ code: number; message: string; reason: string | null }>,
-): void {
+function throwNonZero(method: string, complete: Readonly<{ code: number; message: string }>): void {
   if (complete.code === 0) return;
   const suffix = complete.message.length === 0 ? "" : `: ${complete.message}`;
   throw new TransportError(`${method} subscription completed with code ${complete.code.toString()}${suffix}`);

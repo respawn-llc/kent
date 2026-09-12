@@ -5,7 +5,7 @@ import type { DescMessage, DescMethod, MessageShape } from "@app/server-api-cont
 export type RpcEventHandler = Readonly<{
   onOpen?(): void;
   onEvent(method: string, params: unknown): void;
-  onComplete(code: number, message: string, reason?: string | null): void;
+  onComplete(code: number, message: string): void;
   onError(error: Error): void;
 }>;
 

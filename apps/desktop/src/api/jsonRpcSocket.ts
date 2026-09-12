@@ -609,7 +609,7 @@ export async function delay(milliseconds: number, signal: AbortSignal): Promise<
 }
 
 export type SubscriptionMessageResult = Readonly<
-  { kind: "active" } | { kind: "complete"; code: number; message: string; reason: string | null }
+  { kind: "active" } | { kind: "complete"; code: number; message: string }
 >;
 
 export function subscriptionCompleteMethod(subscriptionMethod: string): string | null {
@@ -620,8 +620,6 @@ export function subscriptionCompleteMethod(subscriptionMethod: string): string |
       return "workflow.project.complete";
     case "attention.notification.subscribe":
       return "attention.notification.complete";
-    case "session.subscribeTranscript":
-      return "session.transcript.complete";
     default:
       return null;
   }
@@ -646,22 +644,17 @@ export function handleSubscriptionMessage(
       .object({
         code: z.number().int().default(0),
         message: z.string().default(""),
-        transcript_close_reason: z
-          .enum(["subscriber_overflow", "contract_violation"])
-          .nullable()
-          .default(null),
       })
       .strict();
     const complete = completeSchema.safeParse(notification.data.params);
     if (!complete.success) {
       throw new ContractError("Subscription completion notification is invalid.");
     }
-    handler.onComplete(complete.data.code, complete.data.message, complete.data.transcript_close_reason);
+    handler.onComplete(complete.data.code, complete.data.message);
     return {
       kind: "complete",
       code: complete.data.code,
       message: complete.data.message,
-      reason: complete.data.transcript_close_reason,
     };
   }
   handler.onEvent(notification.data.method, notification.data.params);
