@@ -338,10 +338,24 @@ export const noticeSchema = z
     CompactLabel: optionalText,
   })
   .strict()
-  .refine((notice) => notice.Reason !== "thinking_update" || notice.ThinkingEffort != null, {
+  .refine((notice) => (notice.Reason === "thinking_update") === (notice.ThinkingEffort != null), {
     path: ["ThinkingEffort"],
-    message: "Thinking updates require the selected effort.",
-  });
+    message: "Thinking effort is required exclusively for Thinking updates.",
+  })
+  .refine(
+    (notice) =>
+      notice.Reason !== "thinking_update" ||
+      (notice.Severity === "info" &&
+        notice.MessageType == null &&
+        notice.LegacyText == null &&
+        notice.CacheWarning == null &&
+        notice.Compaction == null &&
+        notice.ToolOutputRepair == null &&
+        notice.ProviderModelMismatch == null &&
+        notice.Diagnostic == null &&
+        notice.Background == null),
+    { message: "Thinking updates must carry only informational Thinking facts." },
+  );
 const committedRowBaseSchema = z
   .object({
     Visibility: z.enum(["ongoing", "ongoing_collapsed", "detail", "hidden"]),

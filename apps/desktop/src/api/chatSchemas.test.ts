@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { committedRowSchema } from "./chatSchemas";
+import { committedRowSchema, noticeSchema } from "./chatSchemas";
 
 describe("committed Thinking notices", () => {
   it("preserves the selected effort on a detail-visible configuration row", () => {
@@ -13,6 +13,26 @@ describe("committed Thinking notices", () => {
     for (const effort of ["", " \t\n", null, undefined]) {
       expect(committedRowSchema.safeParse(thinkingRow(effort)).success).toBe(false);
     }
+  });
+
+  it("rejects Thinking effort on other notice reasons", () => {
+    const notice = { Reason: "legacy_untyped_notice", Severity: "info", LegacyText: "notice" };
+    expect(noticeSchema.safeParse(notice).success).toBe(true);
+    expect(noticeSchema.safeParse({ ...notice, ThinkingEffort: "high" }).success).toBe(false);
+  });
+
+  it.each([
+    { Severity: "warning" },
+    { Severity: "error" },
+    { MessageType: "headless_enter" },
+    { LegacyText: "notice" },
+    { CacheWarning: { Scope: "session", Reason: "cache", Visibility: "detail" } },
+    { Compaction: { Count: 1 } },
+    { ToolOutputRepair: { kind: "fresh_resource", count: 1 } },
+    { ProviderModelMismatch: { requested_model: "requested", served_model: "served" } },
+    { Background: { ActivityID: "activity", ProcessID: "process" } },
+  ])("rejects competing Thinking notice facts: %o", (payload) => {
+    expect(noticeSchema.safeParse({ ...thinkingRow("high").Notice, ...payload }).success).toBe(false);
   });
 });
 
