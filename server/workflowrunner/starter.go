@@ -1027,24 +1027,6 @@ func (s *Starter) planCurrentNodeSession(
 				return launch.SessionPlan{}, disposable, err
 			}
 		}
-		runtimeErr := s.runtimeAuthority.WithCurrentRuntime(
-			ctx,
-			plan.Descriptor.SessionID(),
-			func(_ context.Context, engine *runtime.Engine) error {
-				return engine.ResetLockedContractForWorkflowCompactionBoundary()
-			},
-		)
-		switch {
-		case runtimeErr == nil:
-		case errors.Is(runtimeErr, serverapi.ErrRuntimeUnavailable):
-			if err := s.withSessionStore(ctx, plan.Descriptor, func(_ context.Context, store *session.Store) error {
-				return store.ResetLockedContractForCompactionBoundary()
-			}); err != nil {
-				return launch.SessionPlan{}, disposable, err
-			}
-		default:
-			return launch.SessionPlan{}, disposable, runtimeErr
-		}
 		plan, err = planner.PlanSession(ctx, launch.SessionRequest{
 			Mode:                                launch.ModeHeadless,
 			Intent:                              serverapi.OpenExistingSessionLaunchIntent(plan.Descriptor.SessionID()),

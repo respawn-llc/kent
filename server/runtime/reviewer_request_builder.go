@@ -27,6 +27,9 @@ func reviewerSuggestionsStructuredOutput(contract jsoncontract.Structured) *llm.
 }
 
 func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *observedModelClient) (llm.Request, error) {
+	if _, err := e.ensureLocked(); err != nil {
+		return llm.Request{}, err
+	}
 	reviewerCfg := e.reviewerRequestConfigSnapshot()
 	reviewerItems, err := buildReviewerRequestItemsWithBuilder(e.transcriptRuntimeState().SnapshotItems(), newActiveMetaContextBuilder(e.store.Meta(), e.transcriptWorkingDir(), e.cfg.Model, e.ThinkingLevel(), e.cfg.GlobalConfigDir, e.cfg.SkillPolicy, e.reviewerMetaTimestamp()), e.cfg.HeadlessMode)
 	if err != nil {

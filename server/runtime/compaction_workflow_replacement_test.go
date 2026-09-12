@@ -228,6 +228,9 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 	if fixture.store.Meta().OriginalThinkingEffort != nil {
 		t.Fatal("committed replacement retained the baseline after a finalization diagnostic")
 	}
+	if fixture.store.Meta().Locked != nil {
+		t.Fatal("committed replacement retained the contract after a finalization diagnostic")
+	}
 	if reopened := mustOpenTestSession(t, fixture.store.Dir()); reopened.Meta().OriginalThinkingEffort != nil {
 		t.Fatal("reopen restored the old baseline after a committed replacement")
 	}
@@ -238,7 +241,7 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 
 func TestWorkflowPostCompletionCompactionPreCommitFailureDoesNotCreateBoundary(t *testing.T) {
 	t.Parallel()
-	fixture := newCommittedRemoteCompactionFixture(t, runtimeTestSessionPersistence, nil)
+	fixture := newCommittedRemoteCompactionFixture(t, runtimeTestSessionPersistence, &session.LockedContract{Model: "gpt-5"})
 	if err := fixture.store.AdoptOriginalThinkingEffort("medium"); err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +261,9 @@ func TestWorkflowPostCompletionCompactionPreCommitFailureDoesNotCreateBoundary(t
 	}
 	if effort := fixture.store.Meta().OriginalThinkingEffort; effort == nil || *effort != "medium" {
 		t.Fatal("uncommitted replacement changed the original Thinking baseline")
+	}
+	if fixture.store.Meta().Locked == nil {
+		t.Fatal("uncommitted replacement cleared the contract")
 	}
 }
 

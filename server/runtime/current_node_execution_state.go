@@ -136,20 +136,6 @@ func (e *Engine) finishCurrentNodeExecution() error {
 	return nil
 }
 
-func (e *Engine) ResetLockedContractForWorkflowCompactionBoundary() error {
-	if e == nil || e.store == nil {
-		return errors.New("runtime engine is unavailable")
-	}
-	if e.currentNodeExecution == nil {
-		return errors.New("current node execution state is unavailable")
-	}
-	if err := e.store.ResetLockedContractForCompactionBoundary(); err != nil {
-		return err
-	}
-	e.lockedContractState().Clear()
-	return nil
-}
-
 func (e *Engine) currentNodeExecutionSnapshot() currentNodeExecutionSnapshot {
 	if e == nil || e.currentNodeExecution == nil {
 		return currentNodeExecutionSnapshot{}

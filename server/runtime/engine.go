@@ -1028,10 +1028,6 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		EnabledTools:      toolspec.IDStrings(e.cfg.EnabledTools),
 		WebSearchMode:     strings.TrimSpace(e.cfg.WebSearchMode),
 		ModelCapabilities: e.cfg.ModelCapabilities,
-		ToolPreambles: func() *bool {
-			enabled := !e.cfg.HeadlessMode && e.cfg.ToolPreambles
-			return &enabled
-		}(),
 	}
 	if prompt, configured := e.workflowPrompt(); configured {
 		mode, err := workflowruntime.ParseCompletionMode(string(prompt.CompletionMode))
@@ -1043,12 +1039,11 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	if hasProviderContract {
 		lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
 	}
-	systemPrompt, err := e.buildSystemPromptSnapshotForRoot(lock, e.systemPromptWorkspaceRootLocked())
+	mainPrompt, err := e.prepareMainPromptSnapshot(context.Background(), lock, e.systemPromptWorkspaceRootLocked())
 	if err != nil {
 		return session.LockedContract{}, err
 	}
-	lock.SystemPrompt = systemPrompt
-	lock.HasSystemPrompt = true
+	lock = lock.WithMainPromptSnapshot(mainPrompt)
 	if err := e.store.MarkModelDispatchLocked(lock); err != nil {
 		return session.LockedContract{}, err
 	}

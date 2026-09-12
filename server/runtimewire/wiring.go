@@ -96,14 +96,16 @@ func NewRuntimeWiringWithBackground(
 	workingDirectory := filesystemContext.Access.WorkingDirectory.LexicalPath
 	var eng *runtime.Engine
 	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
-		FilesystemContext:        filesystemContext,
-		OwnerSessionID:           store.Meta().SessionID,
-		Enabled:                  enabledTools,
-		MinimumExecToBgTime:      time.Duration(active.MinimumExecToBgSeconds) * time.Second,
-		ShellOutputMaxChars:      active.ShellOutputMaxChars,
-		ModelContextWindow:       active.ModelContextWindow,
-		AllowNonCwdEdits:         active.AllowNonCwdEdits,
-		SupportsVision:           llm.LockedContractSupportsVisionInputs(store.Meta().Locked, active.Model),
+		FilesystemContext:   filesystemContext,
+		OwnerSessionID:      store.Meta().SessionID,
+		Enabled:             enabledTools,
+		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
+		ShellOutputMaxChars: active.ShellOutputMaxChars,
+		ModelContextWindow:  active.ModelContextWindow,
+		AllowNonCwdEdits:    active.AllowNonCwdEdits,
+		SupportsVision: func() bool {
+			return llm.LockedContractSupportsVisionInputs(store.Meta().Locked, active.Model)
+		},
 		Logger:                   logger,
 		Background:               background,
 		ShellPostprocessor:       shellPostprocessor,

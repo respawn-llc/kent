@@ -39,7 +39,7 @@ type LocalToolRuntimeContext struct {
 	ShellOutputMaxChars             int
 	ModelContextWindow              int
 	AllowNonCwdEdits                bool
-	SupportsVision                  bool
+	SupportsVision                  func() bool
 	AskQuestionBroker               *askquestion.AskQuestionBroker
 	QuestionsEnabledGetter          func() bool
 	BackgroundShellManager          *shelltool.Manager
@@ -238,7 +238,7 @@ type LocalToolRegistryOptions struct {
 	ShellOutputMaxChars      int
 	ModelContextWindow       int
 	AllowNonCwdEdits         bool
-	SupportsVision           bool
+	SupportsVision           func() bool
 	Logger                   Logger
 	Background               *shelltool.Manager
 	ShellPostprocessor       *postprocess.Runner

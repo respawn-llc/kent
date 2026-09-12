@@ -172,7 +172,7 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		nil,
 		nil,
 		nil,
-		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client}),
+		requiredRuntimeWireTestOptions(RuntimeWiringOptions{FilesystemContext: runtimeWireFilesystemContext(t, root), Client: client, GlobalConfigDir: t.TempDir()}),
 	)
 	if err != nil {
 		t.Fatalf("NewRuntimeWiringWithBackground: %v", err)
@@ -185,7 +185,9 @@ func TestRuntimeWiringSnapshotsActiveDebugSettingForToolCompletionMismatch(t *te
 		t.Fatalf("ReplaceHandlers: %v", err)
 	}
 
-	_, _ = wiring.Engine.SubmitUserMessage(context.Background(), "delete target")
+	if _, err := wiring.Engine.SubmitUserMessage(context.Background(), "delete target"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 var runtimeWireTestSessionPersistence = sessiontest.NewPersistence()
@@ -371,7 +373,7 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatalf("NewLocalToolRegistryBinding: %v", err)
@@ -436,7 +438,7 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatalf("NewLocalToolRegistryBinding: %v", err)
@@ -743,7 +745,7 @@ func TestRuntimewireGeneratedPolicyPreservedAcrossWorkspaceRebind(t *testing.T) 
 		Enabled:             []toolspec.ID{toolspec.ToolPatch},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 		GlobalConfigDir:     configRoot,
 	})
 	if err != nil {
@@ -875,7 +877,7 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)
@@ -955,7 +957,7 @@ func TestReplaceFilesystemContextReplacesMutationManagedWorktreePolicyWithoutRes
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
 		AllowNonCwdEdits:    true,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)
@@ -997,7 +999,7 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 		Enabled:             []toolspec.ID{toolspec.ToolPatch, toolspec.ToolViewImage},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)
@@ -1095,7 +1097,7 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 		MinimumExecToBgTime: 50 * time.Millisecond,
 		ShellOutputMaxChars: 16_000,
 		ModelContextWindow:  200_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 		Background:          manager,
 	})
 	if err != nil {
@@ -1382,7 +1384,7 @@ func TestNewLocalToolRegistryBindingRejectsEmptyWorkspaceRoot(t *testing.T) {
 		Enabled:             []toolspec.ID{toolspec.ToolExecCommand},
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if !errors.Is(err, errWorkspaceRootRequired) {
 		t.Fatalf("new local tool registry binding error = %v, want errWorkspaceRootRequired", err)
@@ -1398,7 +1400,7 @@ func TestNewLocalToolRegistryBindingRejectsNonPositiveContextWindowForShellTools
 				ModelContextWindow:  0,
 				MinimumExecToBgTime: 15 * time.Second,
 				ShellOutputMaxChars: 16_000,
-				SupportsVision:      true,
+				SupportsVision:      func() bool { return true },
 			})
 			if err == nil {
 				t.Fatal("accepted non-positive model context window for shell tool")
@@ -1638,7 +1640,7 @@ func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Log
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
 		ModelContextWindow:  200_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 		Logger:              logger,
 	})
 	if err != nil {
@@ -1656,7 +1658,7 @@ func newRuntimeWireToolRegistryWithConfig(t *testing.T, workspace string, config
 		ShellOutputMaxChars: 16_000,
 		ModelContextWindow:  200_000,
 		AllowNonCwdEdits:    allowNonCwdEdits,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 		GlobalConfigDir:     configRoot,
 	})
 	if err != nil {
@@ -1673,7 +1675,7 @@ func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.I
 		MinimumExecToBgTime: 15 * time.Second,
 		ShellOutputMaxChars: 16_000,
 		ModelContextWindow:  200_000,
-		SupportsVision:      true,
+		SupportsVision:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)

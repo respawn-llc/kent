@@ -1202,6 +1202,7 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 	if appendErr != nil && !receipt.Committed {
 		return receipt, appendErr
 	}
+	e.lockedContractState().Clear()
 	e.resetPromptCacheObservationBaselines()
 	provenance, provenanceErr := transcriptProvenanceFromRecord(appended)
 	if provenanceErr != nil {
@@ -1214,7 +1215,6 @@ func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryRep
 		replacement.projectedEntries,
 		&provenance,
 	)
-	e.lockedContractState().MarkPromptFacingSnapshotsStale()
 	// Compaction reinjects canonical generation context, including base meta,
 	// into the same replacement payload. Mirror the restore-time length signal
 	// here rather than scanning individual items.

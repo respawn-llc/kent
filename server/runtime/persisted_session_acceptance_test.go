@@ -624,7 +624,7 @@ func newPersistedEffectFixture(
 		}
 		handler, err := readimagetool.New(
 			filesystemContext,
-			true,
+			func() bool { return true },
 			readimagetool.WithOutsideWorkspaceApprover(approver),
 		)
 		if err != nil {

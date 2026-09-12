@@ -451,6 +451,11 @@ func TestRequestToolsRespectLockedVisionCapability(t *testing.T) {
 			wantVision: true,
 		},
 		{
+			name:       "Astra vision catalog model",
+			model:      "gpt-6-astra",
+			wantVision: true,
+		},
+		{
 			name:       "codex spark catalog model",
 			model:      "gpt-5.3-codex-spark",
 			wantVision: false,

@@ -47,18 +47,6 @@ func (s *lockedContractState) Clear() {
 	s.mu.Unlock()
 }
 
-func (s *lockedContractState) MarkPromptFacingSnapshotsStale() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	if s.locked != nil {
-		stale := s.locked.WithPromptFacingSnapshotsStale()
-		s.locked = &stale
-	}
-	s.mu.Unlock()
-}
-
 func (s *lockedContractState) ApplyMainPromptSnapshot(locked session.LockedContract) {
 	s.mutateFrom(locked, func(current *session.LockedContract) {
 		*current = current.WithMainPromptSnapshot(session.LockedMainPromptSnapshot{

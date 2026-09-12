@@ -17,6 +17,8 @@ Interactive session flows resolve workspace-local config from the session worksp
 
 Each session activation uses its Agent's current context window, auto-compaction threshold, and compaction mode. These settings are not saved in the session contract, and changing them does not invalidate the prompt cache. An active run keeps its budget until the next activation.
 
+Successful compaction clears the session's saved model capabilities, tool selection, generation settings, and prompts. The next model request creates a fresh snapshot. This applies to manual, automatic, handoff, and Workflow compaction; failed compaction leaves the existing snapshot unchanged.
+
 :::tip
 `kent serve` starts without a workspace root, so it doesn't matter where you run the server.
 :::

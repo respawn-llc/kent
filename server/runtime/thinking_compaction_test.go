@@ -65,6 +65,9 @@ func TestProviderCompactionFailurePreservesThinkingBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened := mustOpenTestSession(t, store.Dir())
+	if locked := reopened.Meta().Locked; locked == nil || locked.Model != "gpt-6-astra" {
+		t.Fatal("provider failure cleared the durable contract without a replacement")
+	}
 	if baseline := reopened.Meta().OriginalThinkingEffort; baseline == nil || *baseline != "medium" {
 		t.Fatal("provider failure reset the durable Thinking baseline without a replacement")
 	}

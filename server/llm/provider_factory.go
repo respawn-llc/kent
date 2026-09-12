@@ -177,7 +177,7 @@ func providerContracts() []ProviderContract {
 				},
 			},
 			ModelContracts: []ModelCapabilityContract{
-				{Model: "gpt-6-astra", SupportsReasoningEffort: true, SupportsNativeThinkingUpdates: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}},
+				{Model: "gpt-6-astra", SupportsReasoningEffort: true, SupportsNativeThinkingUpdates: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsVisionInputs: true},
 				{Model: "gpt-5", KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.September, Year: 2024}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: 372_000, KnowledgeCutoff: ModelKnowledgeCutoff{Month: time.February, Year: 2026}, HasKnowledgeCutoff: true, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
