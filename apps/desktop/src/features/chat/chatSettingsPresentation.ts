@@ -54,7 +54,7 @@ export function settingsDisabledReason(
   disconnected: boolean,
   autoCompactionPolicy?: ChatSettingsAutoCompaction["policy"],
 ): string | undefined {
-  if (disconnected) return t("common.readOnly");
+  if (disconnected) return t("app.readOnly");
   if (autoCompactionPolicy === "required") return t("chatSettings.required");
   switch (editability.kind) {
     case "editable":

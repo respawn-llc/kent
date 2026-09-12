@@ -53,7 +53,7 @@ export function ChatUserMessage({
                   disabled={edit.serverMutationAvailability === "disconnected"}
                   label={
                     edit.serverMutationAvailability === "disconnected"
-                      ? t("common.readOnly")
+                      ? t("app.readOnly")
                       : t("chatTranscript.edit")
                   }
                   onClick={() => {
