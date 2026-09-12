@@ -81,6 +81,7 @@ describe("Chat notice policy", () => {
       }
       expect(policy, testCase.name).not.toBeNull();
       if (policy === null) throw new Error(`Expected notice policy for ${testCase.name}.`);
+      if (policy.kind !== "disclosure") throw new Error(`Expected disclosure for ${testCase.name}.`);
       expect(policy.body.kind, testCase.name).toBe(testCase.bodyKind);
       expect(policy.defaultExpanded, testCase.name).toBe(testCase.defaultExpanded);
     }
@@ -98,6 +99,7 @@ describe("Chat notice policy", () => {
     );
     expect(policy).not.toBeNull();
     if (policy === null) throw new Error("Expected compaction policy.");
+    if (policy.kind !== "disclosure") throw new Error("Expected compaction disclosure.");
     expect(policy.body).toEqual({ kind: "markdown", text: detail });
     expect(policy.copyText).toBe(detail);
     expect(policy.defaultExpanded).toBe(false);

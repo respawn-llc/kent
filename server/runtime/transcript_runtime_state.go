@@ -491,11 +491,15 @@ func (s *transcriptRuntimeState) AppendMessage(stepID *string, msg llm.Message, 
 	return s.chatProjection().appendMessage(stepID, msg, provenances...)
 }
 
-func (s *transcriptRuntimeState) AppendConfigurationItem(item llm.ResponseItem) {
+func (s *transcriptRuntimeState) AppendConfigurationItem(stepID *string, item llm.ResponseItem, provenance *TranscriptCommittedRowProvenance) {
 	chat := s.chatProjection()
 	chat.mu.Lock()
 	defer chat.mu.Unlock()
-	chat.messageRecords = append(chat.messageRecords, chatMessageRecord{ProviderItems: llm.CloneResponseItems([]llm.ResponseItem{item})})
+	chat.messageRecords = append(chat.messageRecords, chatMessageRecord{
+		StepID: cloneOptionalStepID(stepID), ProviderItems: llm.CloneResponseItems([]llm.ResponseItem{item}),
+		Provenance: cloneTranscriptCommittedRowProvenance(provenance),
+	})
+	chat.transcriptEntryCount++
 	chat.providerTokenEstimateDirty = true
 }
 

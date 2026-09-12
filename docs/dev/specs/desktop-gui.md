@@ -28,6 +28,12 @@
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
+## Transcript Configuration Notices
+
+- Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.
+- Each Thinking-update entry must use a compact, non-expandable row labeled `Thinking set: <level>` with a settings-cog icon.
+- Workflow Mode entry/exit notices must use a graph icon. Headless Mode entry/exit notices must use an information icon. Worktree Mode entry/exit notices must retain their branch icon, and Session rebind notices must retain their information icon.
+
 ## Home And Navigation
 
 - Home opens on Inbox unless a valid previously open Project or Workflow destination can be restored. Back and forward use available navigation history; otherwise Back returns Home.

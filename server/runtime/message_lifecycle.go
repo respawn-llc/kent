@@ -58,7 +58,11 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 		}
 		switch payload := payload.(type) {
 		case session.ConfigurationUpdateRecord:
-			e.transcriptRuntimeState().AppendConfigurationItem(llmResponseItemFromSessionHistory(payload.Item))
+			provenance, err := transcriptProvenanceFromRecord(record)
+			if err != nil {
+				return err
+			}
+			e.transcriptRuntimeState().AppendConfigurationItem(stepIDPointer, llmResponseItemFromSessionHistory(payload.Item), &provenance)
 		case session.MessageRecord:
 			msg, err := llmMessageFromSessionRecord(payload)
 			if err != nil {

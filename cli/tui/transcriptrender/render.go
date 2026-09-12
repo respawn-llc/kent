@@ -102,8 +102,19 @@ func renderCommittedRow(
 			Lines: renderTextBlock(StyleRoleNoticeForegroundFaint, text, width, mode),
 		}
 	case clientui.TranscriptRowNotice:
+		thinkingUpdate := row.Notice != nil && row.Notice.Reason == clientui.TranscriptNoticeThinkingUpdate
+		if thinkingUpdate {
+			if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
+				return Row{Group: clientui.TranscriptRowNotice}
+			}
+			mode = ModeDetailCollapsed
+		}
 		role, text := noticeRoleAndText(row.Notice, row.Visibility, mode)
 		meta := toolMeta{}
+		if noticeUsesConfigurationSymbol(row.Notice) {
+			symbol := ConfigurationSymbol
+			meta.SymbolText = &symbol
+		}
 		group := clientui.TranscriptRowNotice
 		if row.Notice != nil && row.Notice.MessageType != nil && *row.Notice.MessageType == clientui.TranscriptMessageBackgroundNotice {
 			symbolRole := StyleRoleNoticePrimary
@@ -111,6 +122,9 @@ func renderCommittedRow(
 			group = clientui.TranscriptRowTool
 		}
 		options := textBlockOptions{}
+		if thinkingUpdate {
+			options.forceFull = true
+		}
 		if row.Notice != nil && row.Notice.Severity == clientui.TranscriptNoticeError {
 			options.forceFull = true
 		}
@@ -638,6 +652,9 @@ func roleSymbolText(role StyleRole, meta toolMeta) string {
 	if meta.IsError && role != StyleRoleToolShell {
 		return reviewerErrorGlyph
 	}
+	if meta.SymbolText != nil {
+		return *meta.SymbolText
+	}
 	symbol := "•"
 	switch role {
 	case StyleRoleUser:
@@ -663,12 +680,37 @@ func roleSymbolText(role StyleRole, meta toolMeta) string {
 	return symbol
 }
 
+func noticeUsesConfigurationSymbol(row *clientui.TranscriptNoticeRow) bool {
+	if row == nil || row.Severity != clientui.TranscriptNoticeInfo {
+		return false
+	}
+	if row.Reason == clientui.TranscriptNoticeThinkingUpdate {
+		return true
+	}
+	if row.MessageType != nil {
+		switch *row.MessageType {
+		case clientui.TranscriptMessageHeadlessMode, clientui.TranscriptMessageHeadlessModeExit,
+			clientui.TranscriptMessageWorkflowMode, clientui.TranscriptMessageWorkflowModeExit,
+			clientui.TranscriptMessageWorktreeMode, clientui.TranscriptMessageWorktreeModeExit,
+			clientui.TranscriptMessageSessionRebind:
+			return true
+		}
+	}
+	return false
+}
+
 func noticeRoleAndText(row *clientui.TranscriptNoticeRow, visibility clientui.EntryVisibility, mode Mode) (StyleRole, string) {
 	if row == nil {
 		return StyleRoleNotice, "notice"
 	}
 	isError := row.Severity == clientui.TranscriptNoticeError
 	role := noticeStyleRoleForMode(row, mode)
+	if row.Reason == clientui.TranscriptNoticeThinkingUpdate {
+		if row.ThinkingEffort == nil {
+			panic("Thinking-update notice is missing its effort")
+		}
+		return role, fmt.Sprintf("Thinking set: %s", *row.ThinkingEffort)
+	}
 	if isError {
 		role = StyleRoleError
 	}

@@ -94,6 +94,7 @@ type TranscriptNoticeRowFact struct {
 	Compaction            *TranscriptCompactionNoticeFact
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
+	ThinkingEffort        *string
 }
 
 type TranscriptReviewerFeedbackRowFact struct {
@@ -650,6 +651,12 @@ func transcriptToolEntryHasRecoverableText(entry ChatEntry) bool {
 }
 
 func transcriptNoticeEntryIntegrity(entry ChatEntry) transcript.RowIntegrity {
+	if entry.ThinkingEffort != nil {
+		if strings.TrimSpace(*entry.ThinkingEffort) != "" {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
 	if entry.ProviderModelMismatch != nil {
 		if entry.ProviderModelMismatch.Valid() {
 			return transcript.RowIntegrityValid
@@ -763,6 +770,15 @@ func firstNonBlankTranscriptValue(values ...string) string {
 }
 
 func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
+	if entry.ThinkingEffort != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonThinkingUpdate, Severity: transcript.NoticeSeverityInfo,
+				ThinkingEffort: textutil.Pointer(entry.ThinkingEffort),
+			},
+		}
+	}
 	if entry.ProviderModelMismatch != nil {
 		return TranscriptCommittedRowFact{
 			Kind:       TranscriptCommittedRowFactNotice,

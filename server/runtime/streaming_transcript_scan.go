@@ -75,6 +75,16 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		return err
 	}
 	switch payload := payload.(type) {
+	case session.ConfigurationUpdateRecord:
+		s.closeTurn()
+		provenance, err := transcriptProvenanceFromRecord(record)
+		if err != nil {
+			return err
+		}
+		entry := configurationUpdateChatEntry(llmResponseItemFromSessionHistory(payload.Item))
+		entry.StepID = cloneOptionalStepID(stepID)
+		entry.CommittedProvenance = &provenance
+		s.scan.appendEntry(entry)
 	case session.MessageRecord:
 		msg, err := llmMessageFromSessionRecord(payload)
 		if err != nil {

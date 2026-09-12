@@ -143,6 +143,7 @@ type toolMeta struct {
 	transcript.ToolCallMeta
 	IsError         bool
 	SymbolStyleRole *StyleRole
+	SymbolText      *string
 	syntax          *syntaxProjector
 }
 

@@ -2,6 +2,36 @@ import { describe, expect, it } from "vitest";
 
 import { committedRowSchema } from "./chatSchemas";
 
+describe("committed Thinking notices", () => {
+  it("preserves the selected effort on a detail-visible configuration row", () => {
+    const row = committedRowSchema.parse(thinkingRow("high"));
+    expect(row.Visibility).toBe("detail");
+    expect(row.Notice?.ThinkingEffort).toBe("high");
+  });
+
+  it("rejects Thinking notices without a nonblank selected effort", () => {
+    for (const effort of ["", " \t\n", null, undefined]) {
+      expect(committedRowSchema.safeParse(thinkingRow(effort)).success).toBe(false);
+    }
+  });
+});
+
+function thinkingRow(effort: unknown) {
+  return {
+    Visibility: "detail",
+    Integrity: 0,
+    Kind: "notice",
+    Locator: { event_sequence: 1, row_ordinal: 1 },
+    User: null,
+    Assistant: null,
+    Tool: null,
+    ReasoningTrace: null,
+    Notice: { Reason: "thinking_update", Severity: "info", ThinkingEffort: effort },
+    ReviewerFeedback: null,
+    ReviewerError: null,
+  };
+}
+
 describe("committed Ask Question rows", () => {
   it("accepts typed answers and the zero-based recommendation sentinel", () => {
     for (const recommendedOptionIndex of [0, 1, 2]) {
