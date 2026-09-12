@@ -957,11 +957,7 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		resp, err = workflowValidationForCLI(resp)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		resp = workflowValidationForCLI(resp)
 		if *jsonOut {
 			exit := writeCommandJSON(stdout, stderr, resp)
 			if exit == 0 && !resp.Valid {
@@ -989,12 +985,16 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 }
 
 func writeWorkflowValidationError(stdout io.Writer, err serverapi.WorkflowValidationError) {
+	_, isSessionReference := workflowValidationErrorMessageForCLI(err)
 	location := workflowValidationErrorLocation(err)
 	if location != "" {
 		fmt.Fprintf(stdout, "- [%s] %s (%s)\n", err.Code, err.Message, location)
-		return
+	} else {
+		fmt.Fprintf(stdout, "- [%s] %s\n", err.Code, err.Message)
 	}
-	fmt.Fprintf(stdout, "- [%s] %s\n", err.Code, err.Message)
+	if isSessionReference && err.Details != nil && err.Details.Placeholder != "" {
+		fmt.Fprintf(stdout, "  placeholder: %s\n", err.Details.Placeholder)
+	}
 }
 
 // workflowValidationErrorLocation names the graph element a validation error

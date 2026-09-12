@@ -99,7 +99,8 @@ func validationErrorDetails(err workflow.ValidationError) *serverapi.WorkflowVal
 		Role:           err.AgentRole,
 		RequiredTool:   requiredTool,
 	}
-	if details.FieldName == "" && details.InputName == "" && details.Placeholder == "" && details.ProviderEdgeID == nil && details.Role == nil && details.RequiredTool == nil {
+	if details.FieldName == "" && details.InputName == "" && details.Placeholder == "" &&
+		details.ProviderEdgeID == nil && details.Role == nil && details.RequiredTool == nil {
 		return nil
 	}
 	return &details

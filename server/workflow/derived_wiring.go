@@ -28,9 +28,9 @@ type PriorTransitionParameterRequirement struct {
 	ParameterName string
 }
 
-type priorParameterTransitionResolution struct {
-	matched    int
-	guaranteed []TransitionGroup
+type PriorTransitionReferenceResolution struct {
+	Matched    int
+	Guaranteed []TransitionGroup
 }
 
 type derivedPriorParameterRequirement struct {
@@ -507,6 +507,9 @@ func (w *DerivedWiring) deriveCurrentNodeValueEnvironment(
 			if transitionKey == "" || outputName == "" {
 				continue
 			}
+			if outputName == RuntimePromptParameterSessionID {
+				continue
+			}
 			resolution := resolvePriorParameterTransitionGroups(
 				def.TransitionGroups,
 				transitionKey,
@@ -514,10 +517,10 @@ func (w *DerivedWiring) deriveCurrentNodeValueEnvironment(
 				startNodeID,
 				outgoingByNode,
 			)
-			if len(resolution.guaranteed) != 1 {
+			if len(resolution.Guaranteed) != 1 {
 				continue
 			}
-			provider, providerExists := nodesByID[resolution.guaranteed[0].SourceNodeID]
+			provider, providerExists := nodesByID[resolution.Guaranteed[0].SourceNodeID]
 			if !providerExists {
 				continue
 			}
@@ -533,7 +536,7 @@ func (w *DerivedWiring) deriveCurrentNodeValueEnvironment(
 						TransitionKey: transitionKey,
 						ParameterName: outputName,
 					},
-					providerTransitionGroupID: resolution.guaranteed[0].ID,
+					providerTransitionGroupID: resolution.Guaranteed[0].ID,
 				}},
 			)
 		}
@@ -572,18 +575,40 @@ func resolvePriorParameterTransitionGroups(
 	consumerSourceNodeID NodeID,
 	startNodeID NodeID,
 	outgoingByNode map[NodeID][]Edge,
-) priorParameterTransitionResolution {
-	resolution := priorParameterTransitionResolution{}
+) PriorTransitionReferenceResolution {
+	resolution := PriorTransitionReferenceResolution{}
 	for _, group := range groups {
 		if strings.TrimSpace(string(group.TransitionID)) != strings.TrimSpace(string(transitionKey)) {
 			continue
 		}
-		resolution.matched++
+		resolution.Matched++
 		if transitionGroupDominates(startNodeID, group.ID, consumerSourceNodeID, outgoingByNode) {
-			resolution.guaranteed = append(resolution.guaranteed, group)
+			resolution.Guaranteed = append(resolution.Guaranteed, group)
 		}
 	}
 	return resolution
+}
+
+// ResolvePriorTransitionGroups returns the transition groups identified by a
+// prior-transition prompt reference and the groups guaranteed to precede the
+// prompt's source node.
+func ResolvePriorTransitionGroups(
+	def Definition,
+	transitionKey ModelKey,
+	consumerSourceNodeID NodeID,
+) PriorTransitionReferenceResolution {
+	topology := newFanoutTopology(def)
+	startNodeID, hasSingleStart := singleStartNodeID(def.Nodes)
+	if !hasSingleStart {
+		return PriorTransitionReferenceResolution{}
+	}
+	return resolvePriorParameterTransitionGroups(
+		def.TransitionGroups,
+		transitionKey,
+		consumerSourceNodeID,
+		startNodeID,
+		topology.outgoingByNode,
+	)
 }
 
 func transitionGroupDominates(
