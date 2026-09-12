@@ -29,6 +29,7 @@ export function GoalActions({ model }: Readonly<{ model: GoalActionsModel }>) {
   const lifecycleUnavailable = lifecycle !== "pause" && model.unavailable;
   const lifecycleButton = (
     <Button
+      className="whitespace-nowrap"
       disabled={model.actionsDisabled || lifecycleUnavailable}
       onClick={model.runLifecycle}
       variant={lifecycle === "pause" ? "secondary" : lifecycle === "resume" ? "primary" : "primary-outline"}
@@ -51,7 +52,12 @@ export function GoalActions({ model }: Readonly<{ model: GoalActionsModel }>) {
       >
         {lifecycleButton}
       </DisabledInteractionGuard>
-      <Button disabled={model.actionsDisabled} onClick={model.clear} variant="danger">
+      <Button
+        className="whitespace-nowrap"
+        disabled={model.actionsDisabled}
+        onClick={model.clear}
+        variant="danger"
+      >
         <Trash2 size={15} />
         {model.t("chat.goal.clear")}
       </Button>
@@ -76,7 +82,7 @@ export function GoalMetadata({
   return (
     <IslandSurface
       aria-label={t(`chat.goal.${status}`)}
-      className="grid gap-[var(--space-1)] p-[var(--space-3)]"
+      className="grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-3)]"
       level={1}
     >
       <div
