@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"core/server/llm"
@@ -9,6 +10,65 @@ import (
 	"core/server/tools"
 	"core/shared/textutil"
 )
+
+func TestProviderCompactionFailurePreservesThinkingBaseline(t *testing.T) {
+	providerErr := errors.New("compaction provider unavailable")
+	client := &fakeCompactionClient{
+		caps: llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true,
+			SupportsResponsesCompact: true, SupportsNativeThinkingUpdates: true,
+		},
+		responses:     []llm.Response{finalOutputItemResponse("seed")},
+		compactionErr: providerErr,
+	}
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-astra", ThinkingLevel: "medium", CompactionMode: "native",
+	})
+	if _, err := engine.SubmitUserMessage(t.Context(), "seed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetThinkingLevel(t.Context(), "high"); err != nil {
+		t.Fatal(err)
+	}
+	stepID := runtimeTestStepID("failed-thinking-compaction")
+	err := runTestActiveStep(engine, stepID, func() error {
+		_, _, err := engine.compactNow(t.Context(), stepID, compactionModeManual, compactionInstructionsInput{}, true)
+		return err
+	})
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("compaction error = %v, want provider failure", err)
+	}
+	if len(client.compactionCalls) == 0 {
+		t.Fatal("compaction did not reach the provider")
+	}
+	for _, request := range client.compactionCalls {
+		if request.ReasoningEffort != "medium" {
+			t.Fatalf("failed compaction effort = %q, want outgoing baseline", request.ReasoningEffort)
+		}
+	}
+	updates := collectThinkingForkItems(t, mustMaterializeTestEventLog(t, store))
+	if len(updates) != 1 {
+		t.Fatalf("committed Thinking updates = %d, want one", len(updates))
+	}
+	var dispatchedUpdate *llm.ResponseItem
+	for _, item := range client.compactionCalls[0].Items {
+		if item.Type == llm.ResponseItemTypeConfigurationUpdate {
+			dispatchedUpdate = &item
+		}
+	}
+	if dispatchedUpdate == nil || dispatchedUpdate.ConfigurationEffort == nil ||
+		*dispatchedUpdate.ConfigurationEffort != "high" || !bytes.Equal(dispatchedUpdate.Raw, updates[0].Raw) {
+		t.Fatal("failed compaction did not dispatch the committed desired Thinking update")
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustOpenTestSession(t, store.Dir())
+	if baseline := reopened.Meta().OriginalThinkingEffort; baseline == nil || *baseline != "medium" {
+		t.Fatal("provider failure reset the durable Thinking baseline without a replacement")
+	}
+}
 
 func TestLocalCompactionKeepsCommittedThinkingAcrossToolRetry(t *testing.T) {
 	for _, adjacent := range []bool{false, true} {
