@@ -108,6 +108,7 @@ export const englishResources = {
       reviewerSuggestions_one: "{{count}} suggestion",
       reviewerSuggestions_other: "{{count}} suggestions",
       notice: {
+        thinkingSet: "Thinking set: {{effort}}",
         cacheMiss: "Cache miss: {{reason}}",
         cacheMissWithTokens: "Cache miss: {{reason}}, -{{tokens}} tokens",
         cacheReasonCompaction: "compaction",

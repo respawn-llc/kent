@@ -98,6 +98,7 @@ const (
 	TranscriptNoticeRuntimeDiagnostic     TranscriptNoticeReason = transcript.NoticeReasonRuntimeDiagnostic
 	TranscriptNoticeToolOutputRepair      TranscriptNoticeReason = transcript.NoticeReasonToolOutputRepair
 	TranscriptNoticeProviderModelMismatch TranscriptNoticeReason = transcript.NoticeReasonProviderModelMismatch
+	TranscriptNoticeThinkingUpdate        TranscriptNoticeReason = transcript.NoticeReasonThinkingUpdate
 )
 
 type TranscriptNoticeSeverity string
@@ -153,6 +154,7 @@ type TranscriptNoticeRow struct {
 	Compaction            *TranscriptCompactionNotice
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
+	ThinkingEffort        *string
 	Diagnostic            *TranscriptDiagnostic
 	Background            *TranscriptBackgroundNoticeIdentity
 	CondensedText         *string
@@ -433,7 +435,8 @@ func (r TranscriptNoticeRow) Validate() error {
 		TranscriptNoticeLegacyUntypedNotice,
 		TranscriptNoticeRuntimeDiagnostic,
 		TranscriptNoticeToolOutputRepair,
-		TranscriptNoticeProviderModelMismatch:
+		TranscriptNoticeProviderModelMismatch,
+		TranscriptNoticeThinkingUpdate:
 	default:
 		return fmt.Errorf("unknown transcript notice reason %q", r.Reason)
 	}
@@ -485,6 +488,12 @@ func (r TranscriptNoticeRow) Validate() error {
 	if r.ProviderModelMismatch != nil && !r.ProviderModelMismatch.Valid() {
 		return fmt.Errorf("transcript provider-model mismatch facts are invalid")
 	}
+	if err := validateOptionalNonEmptyString("transcript Thinking effort", r.ThinkingEffort); err != nil {
+		return err
+	}
+	if (r.ThinkingEffort != nil) != (r.Reason == TranscriptNoticeThinkingUpdate) {
+		return fmt.Errorf("Thinking effort requires a Thinking-update notice and vice versa")
+	}
 	if r.Diagnostic != nil {
 		if err := r.Diagnostic.Validate(); err != nil {
 			return err
@@ -496,6 +505,12 @@ func (r TranscriptNoticeRow) Validate() error {
 		}
 	}
 	switch r.Reason {
+	case TranscriptNoticeThinkingUpdate:
+		if r.Severity != TranscriptNoticeInfo || r.MessageType != nil || r.LegacyText != nil ||
+			r.CacheWarning != nil || r.Compaction != nil || r.ToolOutputRepair != nil ||
+			r.ProviderModelMismatch != nil || r.Diagnostic != nil || r.Background != nil {
+			return fmt.Errorf("Thinking-update notice must carry only informational Thinking facts")
+		}
 	case TranscriptNoticeCacheWarning:
 		if r.CacheWarning == nil {
 			return fmt.Errorf("cache-warning notice requires cache-warning facts")

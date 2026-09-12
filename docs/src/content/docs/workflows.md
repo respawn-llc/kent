@@ -216,7 +216,7 @@ For each transition, the source agent must provide the declared parameters befor
 
 Each eligible serial Agent or Script transition into an Agent Node can independently enable **Let the previous node choose** for the target Assignee and **Let the previous node select thinking level** for thinking. A disabled selector uses the target Agent Node's configured fallback Assignee or configured thinking; Fan-Out transitions do not support either selector.
 
-Transition-selected effort follows the Session's [Thinking and cache behavior](/config/#thinking).
+Transition-selected effort follows the Session's [Thinking settings](/config/#thinking).
 
 Transition-selected Assignees must be explicitly agent-callable roles. With no eligible role, Assignee selection is unavailable; with one eligible role, Kent applies it automatically and hides the Assignee Parameter; with several eligible roles, the source must provide the selected role as an ordinary required value. Thinking selection similarly hides its value when the applicable model catalog has zero or one supported level; with several finite levels it requires a value, while an open catalog accepts a nonblank custom value after a custom description is authored.
 

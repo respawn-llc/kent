@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 
 func newReadImageTestTool(t *testing.T, workspace string, supported bool, opts ...Option) *Tool {
 	t.Helper()
-	tool, err := New(runtimewirefixture.FilesystemContext(t, workspace), supported, opts...)
+	tool, err := New(runtimewirefixture.FilesystemContext(t, workspace), func() bool { return supported }, opts...)
 	if err != nil {
 		t.Fatalf("new tool: %v", err)
 	}

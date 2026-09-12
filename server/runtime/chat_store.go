@@ -42,6 +42,7 @@ type ChatEntry struct {
 	CacheWarning          *transcript.CacheWarning
 	ToolOutputRepair      *transcript.ToolOutputRepairNotice
 	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
+	ThinkingEffort        *string
 	ToolCall              *transcript.ToolCallMeta
 	CommittedProvenance   *TranscriptCommittedRowProvenance
 	ReviewerFeedback      *ReviewerFeedbackChatEntry
@@ -1047,6 +1048,14 @@ func (s *chatStore) walkProjectionLocked(
 	for _, record := range s.messageRecords {
 		if record.Message != nil {
 			applyMessage(record)
+		} else {
+			for _, item := range record.ProviderItems {
+				entry := configurationUpdateChatEntry(item)
+				entry.StepID = cloneOptionalStepID(record.StepID)
+				applyLocalEntry(localChatEntry{
+					Entry: entry, Projected: true, Provenance: record.Provenance,
+				})
+			}
 		}
 		messageIndex++
 		appendLocalEntries(messageIndex)

@@ -156,7 +156,7 @@ func TestPlanCurrentNodeSessionPreservesRetainedRoleAcrossContextSources(t *test
 		t.Fatal(err)
 	}
 	step := "completed-source"
-	if _, _, err := log.AppendRecord(&step, session.HistoryReplacementRecord{
+	if _, _, err := log.AppendCompactionHistoryReplacement(&step, session.HistoryReplacementRecord{
 		Engine: "local", Mode: session.CompactionModeWorkflowPostCompletion,
 	}); err != nil {
 		t.Fatal(err)

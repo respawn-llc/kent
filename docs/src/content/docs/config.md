@@ -17,6 +17,8 @@ Interactive session flows resolve workspace-local config from the session worksp
 
 Each session activation uses its Agent's current context window, auto-compaction threshold, and compaction mode. These settings are not saved in the session contract, and changing them does not invalidate the prompt cache. An active run keeps its budget until the next activation.
 
+Successful compaction clears the session's saved model capabilities, tool selection, generation settings, and prompts. The next model request creates a fresh snapshot. This applies to manual, automatic, handoff, and Workflow compaction; failed compaction leaves the existing snapshot unchanged.
+
 :::tip
 `kent serve` starts without a workspace root, so it doesn't matter where you run the server.
 :::
@@ -104,13 +106,9 @@ verbose_output = false # set true to show complete supervisor suggestions in ong
 
 ## Thinking
 
-Thinking selects the model's reasoning effort. The Session's override takes precedence over its Agent configuration, global `thinking_level`, and Kent's default. Clearing a Workflow override returns to that configuration hierarchy. The displayed value is the desired selection.
+Thinking selects the model's reasoning effort. Change it in Chat settings or with [`/thinking <level>`](/slash-commands/). Available levels depend on the model and provider.
 
-For `gpt-6-astra` on official OpenAI and ChatGPT/Codex endpoints, Kent automatically applies Thinking changes through native updates while preserving earlier input and the Session's original request-level effort. Supported levels are `low`, `medium`, `high`, `xhigh`, and `max`. Other models and custom endpoints use ordinary request-level effort settings.
-
-Several selections before a Step coalesce into the final needed change, placed before the new input. If the provider's input rules prevent an update at that position, Kent retains the previous effort until the next legal position; the displayed selection remains unchanged. Compaction re-establishes the desired effort for subsequent generation. Native updates add no Chat message.
-
-Preserving input avoids invalidating the cache solely because Thinking changed; cache reuse depends on the provider. Existing Sessions adopt their current effort once and can incur a cache miss on adoption. Provider rejection surfaces as a request failure.
+A Session's Thinking override takes precedence over its Agent configuration and global `thinking_level`. Use terminal detail mode to inspect recorded Thinking updates on supported models.
 
 ## CLI Overrides
 

@@ -27,14 +27,6 @@ type LockedContract struct {
 	LockedAt               time.Time                               `json:"locked_at"`
 }
 
-func (c LockedContract) WithPromptFacingSnapshotsStale() LockedContract {
-	c.SystemPrompt = ""
-	c.HasSystemPrompt = false
-	c.ReviewerPrompt = ""
-	c.HasReviewerPrompt = false
-	return c
-}
-
 func (c LockedContract) WithMainPromptSnapshot(snapshot LockedMainPromptSnapshot) LockedContract {
 	c.SystemPrompt = snapshot.SystemPrompt
 	c.HasSystemPrompt = snapshot.HasSystemPrompt

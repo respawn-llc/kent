@@ -838,14 +838,6 @@ func (e *Engine) compactNowWithAcceptance(
 	if usageErr != nil {
 		finalizationErr = errors.Join(finalizationErr, usageErr)
 	}
-	staleResult, staleErr := e.store.MarkLockedPromptFacingSnapshotsStale()
-	if staleResult.Committed && staleResult.Locked != nil {
-		e.lockedContractState().Set(*staleResult.Locked)
-	}
-	if staleErr != nil {
-		finalizationErr = errors.Join(finalizationErr, staleErr)
-	}
-
 	if err := persistence.emitStatus(stepID, requestID, EventCompactionCompleted, mode, result.engine, providerID, result.trimmedItemsCount, compactionNumber, ""); err != nil {
 		finalizationErr = errors.Join(finalizationErr, err)
 	}

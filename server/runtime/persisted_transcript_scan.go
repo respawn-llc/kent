@@ -107,6 +107,7 @@ func clonePersistedChatEntry(entry ChatEntry) ChatEntry {
 	copyEntry.StepID = cloneOptionalStepID(entry.StepID)
 	copyEntry.RollbackTargetID = textutil.Pointer(entry.RollbackTargetID)
 	copyEntry.DurationMs = textutil.Pointer(entry.DurationMs)
+	copyEntry.ThinkingEffort = textutil.Pointer(entry.ThinkingEffort)
 	copyEntry.CompactionNumber = textutil.Pointer(entry.CompactionNumber)
 	copyEntry.BackgroundExitCode = textutil.Pointer(entry.BackgroundExitCode)
 	copyEntry.WorktreeContext = session.CloneWorktreeContext(entry.WorktreeContext)

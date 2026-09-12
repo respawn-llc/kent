@@ -635,7 +635,18 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 	}
 	recordIndex := 0
 	if input.thinking.update != nil {
-		e.transcriptRuntimeState().AppendConfigurationItem(*input.thinking.update)
+		provenance, err := transcriptProvenanceFromRecord(appended.Records[recordIndex])
+		if err != nil {
+			return appended.CommitReceipt, errors.Join(appendErr, err)
+		}
+		e.transcriptRuntimeState().AppendConfigurationItem(stepID, *input.thinking.update, &provenance)
+		entry := configurationUpdateChatEntry(*input.thinking.update)
+		entry.StepID = cloneOptionalStepID(stepID)
+		entry.CommittedProvenance = &provenance
+		appendErr = errors.Join(appendErr, e.emitRaw(Event{
+			Kind: EventLocalEntryAdded, LocalEntry: &entry, LocalEntryProjected: true,
+			CommittedTranscriptChanged: true, CommittedProvenance: &provenance,
+		}.withStepID(stepID)))
 		recordIndex++
 	}
 	for i, projection := range projections {
