@@ -35,7 +35,7 @@ func TestGoalPersistenceDoesNotWaitForModelBoundary(t *testing.T) {
 	}
 }
 
-func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrSurfaceDuplicateFeedback(t *testing.T) {
+func TestGoalNoticeFailureDoesNotUndoCommittedGoalAndSurfacesRuntimeFeedback(t *testing.T) {
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
@@ -55,8 +55,8 @@ func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrSurfaceDuplicateFeedback(t *
 	if goal := engine.Goal(); goal == nil || goal.ID != result.ID {
 		t.Fatalf("notice failure changed committed goal: %+v", goal)
 	}
-	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError != "" {
-		t.Fatalf("notice failure surfaced duplicate Runtime feedback: %q", snapshot.StreamingError)
+	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError == "" {
+		t.Fatal("notice failure was not surfaced as Runtime feedback")
 	}
 	count := 0
 	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {
@@ -84,6 +84,9 @@ func TestGoalSetContinuesNoticeAfterCommittedMetadataIssue(t *testing.T) {
 	}
 	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
 		t.Fatalf("drain notice after metadata issue: %v", err)
+	}
+	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError != "" {
+		t.Fatalf("Set diagnostic surfaced duplicate Runtime feedback: %q", snapshot.StreamingError)
 	}
 	count := 0
 	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {

@@ -87,7 +87,13 @@ describe("Desktop Chat Goal Set contract", () => {
       .setGoal({ kind: "session", sessionID }, "ship")
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ChatOperationError);
-    expect(error).toMatchObject({ detail: { kind: "unknown", code: "future_code" } });
+    expect(error).toMatchObject({
+      detail: {
+        kind: "unknown",
+        code: "future_code",
+        knownDetail: { kind: "internal_failure", operation: "goal.set", cause: "fixture failure" },
+      },
+    });
     if (!(error instanceof ChatOperationError)) throw new Error("Expected a ChatOperationError.");
     expect(error.data).toEqual(futureError);
   });
