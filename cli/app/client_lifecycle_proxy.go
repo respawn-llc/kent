@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"core/cli/app/internal/lifecyclehook"
-	"core/shared/clientui"
 	"core/shared/lifecyclecontract"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type lifecycleHookIssue = lifecyclehook.Issue
@@ -61,21 +61,21 @@ func (p *clientLifecycleProxy) AcceptSessionStart(kind lifecyclecontract.Opening
 	p.enqueue(lifecyclecontract.NewSessionStart(time.Now().UTC(), p.isFocused(), p.context(), kind))
 }
 
-func (p *clientLifecycleProxy) acceptLiveRunFailure(result clientui.TranscriptLiveRunResult) {
-	if result.Status != clientui.LiveRunStatusFailed || result.Failure == nil {
+func (p *clientLifecycleProxy) acceptLiveRunFailure(result *transcriptpb.LiveRunFinished) {
+	if result.Status != transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_FAILED || result.Failure == nil {
 		return
 	}
 	p.enqueue(lifecyclecontract.NewTaskError(
-		result.FinishedAt,
+		result.FinishedAt.AsTime(),
 		p.isFocused(),
 		p.context(),
 		*result.Failure,
 	))
 }
 
-func (p *clientLifecycleProxy) enqueueTaskCompletion(result clientui.TranscriptLiveRunResult) {
+func (p *clientLifecycleProxy) enqueueTaskCompletion(result *transcriptpb.LiveRunFinished) {
 	p.enqueue(lifecyclecontract.NewTaskComplete(
-		result.FinishedAt,
+		result.FinishedAt.AsTime(),
 		p.isFocused(),
 		p.context(),
 		*result.FinalAnswer,
@@ -83,7 +83,7 @@ func (p *clientLifecycleProxy) enqueueTaskCompletion(result clientui.TranscriptL
 	))
 }
 
-func (p *clientLifecycleProxy) acceptSessionIdentity(identity clientui.TranscriptSessionIdentity) {
+func (p *clientLifecycleProxy) acceptSessionIdentity(identity *transcriptpb.SessionIdentity) {
 	if err := p.eventContext.AcceptSessionIdentity(identity); err != nil {
 		p.dispatcher.Report(lifecyclehook.NewObservationIssue(
 			lifecyclehook.ObservationFactSessionIdentity,
@@ -93,7 +93,7 @@ func (p *clientLifecycleProxy) acceptSessionIdentity(identity clientui.Transcrip
 	}
 }
 
-func (p *clientLifecycleProxy) acceptSessionStatus(status clientui.TranscriptSessionStatus) {
+func (p *clientLifecycleProxy) acceptSessionStatus(status *transcriptpb.SessionStatus) {
 	if err := p.eventContext.AcceptSessionStatus(status); err != nil {
 		p.dispatcher.Report(lifecyclehook.NewObservationIssue(
 			lifecyclehook.ObservationFactSessionStatus,

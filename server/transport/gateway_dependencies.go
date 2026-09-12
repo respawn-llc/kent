@@ -11,6 +11,7 @@ import (
 	"core/shared/clientui"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -56,7 +57,7 @@ func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, request *
 	}
 }
 
-func (g *Gateway) resolveSessionAttachmentTarget(ctx context.Context, state *connectionState, sessionID string) (clientui.SessionExecutionTarget, metadata.Binding, error) {
+func (g *Gateway) resolveSessionAttachmentTarget(ctx context.Context, state *connectionState, sessionID string) (*worktreepb.SessionExecutionTarget, metadata.Binding, error) {
 	return g.resolveSessionAttachmentTargetWithCapability(ctx, state, sessionID, nil)
 }
 
@@ -65,30 +66,30 @@ func (g *Gateway) resolveSessionAttachmentTargetWithCapability(
 	state *connectionState,
 	sessionID string,
 	reattachCapability *string,
-) (clientui.SessionExecutionTarget, metadata.Binding, error) {
+) (*worktreepb.SessionExecutionTarget, metadata.Binding, error) {
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID == "" {
-		return clientui.SessionExecutionTarget{}, metadata.Binding{}, errors.New("session id is required")
+		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, errors.New("session id is required")
 	}
 	metadataStore := g.deps.MetadataStore()
 	if metadataStore == nil {
-		return clientui.SessionExecutionTarget{}, metadata.Binding{}, errors.New("metadata store is required")
+		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, errors.New("metadata store is required")
 	}
 	target, err := metadataStore.ResolveSessionExecutionTarget(ctx, trimmedSessionID)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, metadata.Binding{}, err
+		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, err
 	}
-	binding, err := metadataStore.LookupWorkspaceBindingByID(ctx, target.WorkspaceID)
+	binding, err := metadataStore.LookupWorkspaceBindingByID(ctx, target.GetWorkspaceId())
 	if err != nil {
 		if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-			return clientui.SessionExecutionTarget{}, metadata.Binding{}, sessionWorkspaceNotRegisteredError{
+			return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, sessionWorkspaceNotRegisteredError{
 				projectID:     connectionAttachmentProjectID(g, state),
-				workspaceID:   target.WorkspaceID,
+				workspaceID:   target.GetWorkspaceId(),
 				workspaceRoot: target.WorkspaceRoot,
 				cause:         err,
 			}
 		}
-		return clientui.SessionExecutionTarget{}, metadata.Binding{}, err
+		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, err
 	}
 	activeProjectID := strings.TrimSpace(g.deps.ProjectID())
 	if state != nil && strings.TrimSpace(state.attachedProject) != "" {
@@ -97,10 +98,10 @@ func (g *Gateway) resolveSessionAttachmentTargetWithCapability(
 	if activeProjectID != "" && strings.TrimSpace(binding.ProjectID) != activeProjectID {
 		authority, authorityErr := g.sessionReattachAuthority()
 		if authorityErr != nil {
-			return clientui.SessionExecutionTarget{}, metadata.Binding{}, authorityErr
+			return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, authorityErr
 		}
 		if !authority.authorizes(trimmedSessionID, reattachCapability) {
-			return clientui.SessionExecutionTarget{}, metadata.Binding{}, sessionOutsideActiveProjectError{sessionID: trimmedSessionID}
+			return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, sessionOutsideActiveProjectError{sessionID: trimmedSessionID}
 		}
 	}
 	return target, binding, nil

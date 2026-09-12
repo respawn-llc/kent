@@ -162,11 +162,14 @@ func TestSessionCategoryResolverRejectsInvalidStoredCategory(t *testing.T) {
 
 func TestSessionExecutionTargetClampsEscapingCwdRelpath(t *testing.T) {
 	t.Parallel()
-	target := sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
+	target, err := sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
 		WorkspaceID:   "workspace-1",
 		WorkspaceRoot: "/tmp/workspace",
 		CwdRelpath:    "../../other-project",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if target.CwdRelpath != "." {
 		t.Fatalf("cwd relpath = %q, want .", target.CwdRelpath)
 	}
@@ -174,13 +177,16 @@ func TestSessionExecutionTargetClampsEscapingCwdRelpath(t *testing.T) {
 		t.Fatalf("effective workdir = %q, want /tmp/workspace", target.EffectiveWorkdir)
 	}
 
-	target = sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
+	target, err = sessionExecutionTargetFromRow(sqlitegen.GetSessionExecutionTargetByIDRow{
 		WorkspaceID:   "workspace-1",
 		WorkspaceRoot: "/tmp/workspace",
 		WorktreeID:    sql.NullString{String: "worktree-a", Valid: true},
 		WorktreeRoot:  sql.NullString{String: "/tmp/workspace/worktree-a", Valid: true},
 		CwdRelpath:    "/tmp/absolute",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if target.CwdRelpath != "." {
 		t.Fatalf("absolute cwd relpath = %q, want .", target.CwdRelpath)
 	}
@@ -203,8 +209,8 @@ func TestResolveSessionExecutionTargetUsesMetadataAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
 	}
-	if target.WorkspaceID != binding.WorkspaceID {
-		t.Fatalf("workspace id = %q, want %q", target.WorkspaceID, binding.WorkspaceID)
+	if target.GetWorkspaceId() != binding.WorkspaceID {
+		t.Fatalf("workspace id = %q, want %q", target.GetWorkspaceId(), binding.WorkspaceID)
 	}
 	if target.WorkspaceRoot != canonicalRoot {
 		t.Fatalf("workspace root = %q, want %q", target.WorkspaceRoot, canonicalRoot)
@@ -424,7 +430,7 @@ func TestObservedSessionMetadataPersistencePreservesExecutionTarget(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.Worktree == nil || target.Worktree.ID != "worktree-a" {
+	if target.Worktree == nil || target.Worktree.Id != "worktree-a" {
 		t.Fatalf("worktree = %+v, want worktree-a", target.Worktree)
 	}
 	if target.Worktree == nil || target.Worktree.Root != canonicalWorktreeRoot {
@@ -479,7 +485,7 @@ func TestUpdateSessionExecutionTargetAllowsNullableWorkspaceTargetFromReadModel(
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != "" || target.Worktree != nil {
+	if target.WorkspaceId != nil || target.Worktree != nil {
 		t.Fatalf("target = %+v, want nullable workspace root snapshot target", target)
 	}
 

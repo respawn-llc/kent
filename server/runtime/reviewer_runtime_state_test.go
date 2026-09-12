@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
 func TestReviewerRuntimeStateReservesBeforeInvocation(t *testing.T) {
@@ -16,7 +16,7 @@ func TestReviewerRuntimeStateReservesBeforeInvocation(t *testing.T) {
 	if !state.Active() {
 		t.Fatal("reserved Reviewer activity is not active")
 	}
-	if got := state.Activity(); got != clientui.ReviewerActivityInactive {
+	if got := state.Activity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatalf("reserved Reviewer activity = %q, want inactive", got)
 	}
 	if state.Reserve(runtimeTestStepID("reviewer-second")) {
@@ -25,13 +25,13 @@ func TestReviewerRuntimeStateReservesBeforeInvocation(t *testing.T) {
 	if !state.Start(stepID) {
 		t.Fatal("Start returned false")
 	}
-	if got := state.Activity(); got != clientui.ReviewerActivityInvoking {
+	if got := state.Activity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING {
 		t.Fatalf("started Reviewer activity = %q, want invoking", got)
 	}
 	if !state.Clear(stepID) {
 		t.Fatal("Clear returned false")
 	}
-	if got := state.Activity(); got != clientui.ReviewerActivityInactive {
+	if got := state.Activity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatalf("completed Reviewer activity = %q, want inactive", got)
 	}
 }

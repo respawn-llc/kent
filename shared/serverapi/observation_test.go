@@ -71,31 +71,6 @@ func TestWorkflowTaskObservationResponseRejectsInvalidOutcomePayloads(t *testing
 	}
 }
 
-func TestRuntimeLiveWatchResponseRejectsQuestionSessionMismatch(t *testing.T) {
-	for _, question := range []ObservationQuestion{
-		{Ask: &clientui.PendingAsk{
-			ToolCallID: "ask-1", SessionID: observationSessionID(t, "session-b"),
-			StepID: observationStepID(t), Question: "Continue?",
-		}},
-		{Approval: &clientui.PendingApproval{
-			ToolCallID: "approval-1", SessionID: observationSessionID(t, "session-b"),
-			StepID: observationStepID(t), Question: "Allow?",
-			Options: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}},
-		}},
-	} {
-		response := RuntimeLiveWatchResponse{
-			SessionID: "session-a",
-			Outcome: RuntimeLiveWatchOutcome{
-				Kind:     RuntimeLiveWatchQuestion,
-				Question: &question,
-			},
-		}
-		if err := response.Validate(); err == nil {
-			t.Fatalf("question session mismatch unexpectedly validated: %+v", response)
-		}
-	}
-}
-
 func observationSessionID(t *testing.T, raw string) runtimeids.SessionID {
 	t.Helper()
 	id, err := runtimeids.ParseSessionID(raw)

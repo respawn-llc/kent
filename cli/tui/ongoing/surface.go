@@ -6,8 +6,7 @@ import (
 	"strings"
 
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/transcript"
 )
 
@@ -123,7 +122,7 @@ func (p TerminalResizePolicy) bottomAnchorsVerticalExpansion() bool {
 type Surface struct {
 	writer             io.Writer
 	retainedBandHeight int
-	groupRegister      *clientui.TranscriptRowKind
+	groupRegister      *transcriptrender.Group
 	activeAssistant    activeAssistantState
 	terminalResize     TerminalResizePolicy
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
@@ -131,9 +130,9 @@ type Surface struct {
 }
 
 type activeAssistantState struct {
-	streamID               *runtimeids.AssistantStreamID
+	streamID               *string
 	source                 string
-	phase                  transcript.AssistantPhase
+	phase                  transcriptpb.AssistantPhase
 	phaseSourceStart       int
 	promotedSourceBoundary int
 	rolePrefixState        assistantRolePrefixState
@@ -181,22 +180,20 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 	}
 }
 
-func (s *Surface) ApplyTerminalMessage(message clientui.TranscriptMessage, frame FrameInput) (Result, error) {
+func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "apply_terminal_message")
-	if message.Kind() == clientui.TranscriptMessageHydration {
-		return s.applyHydration(message, frame)
-	}
-	if message.Kind() == clientui.TranscriptMessageAssistantDelta {
-		payload := message.Payload().(clientui.TranscriptAssistantDelta)
-		return s.applyAssistantDelta(payload.StreamID, payload.Delta, payload.Phase, frame)
-	}
-	if message.Kind() == clientui.TranscriptMessageAssistantStreamAbort {
-		payload := message.Payload().(clientui.TranscriptAssistantStreamAbort)
-		return s.abortAssistantStream(payload.StreamID, frame)
-	}
-	if isAssistantFinalization(message) {
-		row := message.Payload().(clientui.TranscriptCommittedRow)
-		return s.finalizeAssistantStream(*row.Assistant.StreamID, row.Assistant.Text, frame)
+	switch payload := message.GetEvent().GetPayload().(type) {
+	case *transcriptpb.Event_Hydration:
+		return s.applyHydration(payload.Hydration, frame)
+	case *transcriptpb.Event_AssistantDelta:
+		delta := payload.AssistantDelta
+		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, frame)
+	case *transcriptpb.Event_AssistantStreamAbort:
+		return s.abortAssistantStream(payload.AssistantStreamAbort.StreamId, frame)
+	case *transcriptpb.Event_CommittedRow:
+		if assistant := payload.CommittedRow.GetAssistant(); assistant != nil && assistant.StreamId != nil {
+			return s.finalizeAssistantStream(*assistant.StreamId, assistant.Text, frame)
+		}
 	}
 	lines := s.immutableLines(message, frame.Size.Width, frame.Theme)
 	if len(lines) == 0 {
@@ -205,8 +202,7 @@ func (s *Surface) ApplyTerminalMessage(message clientui.TranscriptMessage, frame
 	return s.writeFrameTransaction(frame, lines)
 }
 
-func (s *Surface) applyHydration(message clientui.TranscriptMessage, frame FrameInput) (Result, error) {
-	hydration := message.Payload().(clientui.TranscriptHydration)
+func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameInput) (Result, error) {
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
 	activeStreamHydrated := s.hydrateActiveAssistantStream(hydration.ActiveAssistant)
 	if activeStreamHydrated && !s.activeAssistantPromotionDeferred() {
@@ -233,12 +229,12 @@ func (s *Surface) applyHydration(message clientui.TranscriptMessage, frame Frame
 	return s.writeFrameTransaction(frame, lines)
 }
 
-func (s *Surface) hydrateActiveAssistantStream(stream *clientui.TranscriptAssistantStream) bool {
+func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStream) bool {
 	if stream == nil {
 		s.activeAssistant = activeAssistantState{}
 		return false
 	}
-	streamIDCopy := stream.StreamID
+	streamIDCopy := stream.StreamId
 	s.activeAssistant = activeAssistantState{
 		streamID:         &streamIDCopy,
 		source:           stream.Text,
@@ -248,19 +244,19 @@ func (s *Surface) hydrateActiveAssistantStream(stream *clientui.TranscriptAssist
 	return stream.Text != ""
 }
 
-func (s *Surface) applyAssistantDelta(streamID runtimeids.AssistantStreamID, delta string, phase transcript.AssistantPhase, frame FrameInput) (Result, error) {
+func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID == nil {
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
 	} else if *s.activeAssistant.streamID != streamID {
 		panicOngoingDeveloperError("assistant_delta", "stream id does not match active stream", map[string]any{
-			"active_stream_id":  s.activeAssistant.streamID.String(),
-			"message_stream_id": streamID.String(),
+			"active_stream_id":  *s.activeAssistant.streamID,
+			"message_stream_id": streamID,
 			"width":             frame.Size.Width,
 			"height":            frame.Size.Height,
 		})
 	}
-	if phase != "" && s.activeAssistant.phase != phase {
+	if s.activeAssistant.phase != phase {
 		s.activeAssistant.phase = phase
 		s.activeAssistant.phaseSourceStart = len(s.activeAssistant.source)
 	}
@@ -290,7 +286,7 @@ func (s *Surface) applyAssistantDelta(streamID runtimeids.AssistantStreamID, del
 }
 
 func (s *Surface) activeAssistantPromotionDeferred() bool {
-	if s.activeAssistant.phase != transcript.AssistantPhaseFinal {
+	if s.activeAssistant.phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
 		return false
 	}
 	content := s.activeAssistant.source[s.activeAssistant.phaseSourceStart:]
@@ -301,11 +297,11 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 	})
 }
 
-func (s *Surface) abortAssistantStream(streamID runtimeids.AssistantStreamID, frame FrameInput) (Result, error) {
+func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID != nil && *s.activeAssistant.streamID != streamID {
 		panicOngoingDeveloperError("assistant_abort", "stream id does not match active stream", map[string]any{
-			"active_stream_id":  s.activeAssistant.streamID.String(),
-			"message_stream_id": streamID.String(),
+			"active_stream_id":  *s.activeAssistant.streamID,
+			"message_stream_id": streamID,
 			"width":             frame.Size.Width,
 			"height":            frame.Size.Height,
 		})
@@ -314,14 +310,14 @@ func (s *Surface) abortAssistantStream(streamID runtimeids.AssistantStreamID, fr
 	return s.Render(frame)
 }
 
-func (s *Surface) finalizeAssistantStream(streamID runtimeids.AssistantStreamID, text string, frame FrameInput) (Result, error) {
+func (s *Surface) finalizeAssistantStream(streamID string, text string, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID == nil {
 		return s.appendAssistantFinalWithoutActiveStream(text, frame)
 	}
 	if *s.activeAssistant.streamID != streamID {
 		panicOngoingDeveloperError("assistant_final", "stream id does not match active stream", map[string]any{
-			"active_stream_id":  s.activeAssistant.streamID.String(),
-			"message_stream_id": streamID.String(),
+			"active_stream_id":  *s.activeAssistant.streamID,
+			"message_stream_id": streamID,
 			"width":             frame.Size.Width,
 			"height":            frame.Size.Height,
 		})
@@ -329,7 +325,7 @@ func (s *Surface) finalizeAssistantStream(streamID runtimeids.AssistantStreamID,
 	source := s.activeAssistant.source
 	if !strings.HasPrefix(text, source) {
 		panicOngoingDeveloperError("assistant_final", "final text does not extend active stream source", map[string]any{
-			"stream_id":   streamID.String(),
+			"stream_id":   streamID,
 			"source_len":  len(source),
 			"final_len":   len(text),
 			"promoted_at": s.activeAssistant.promotedSourceBoundary,
@@ -358,19 +354,12 @@ func (s *Surface) appendAssistantFinalWithoutActiveStream(text string, frame Fra
 	}) {
 		return s.writeFrameTransaction(frame, nil)
 	}
-	row := clientui.TranscriptCommittedRow{
-		Kind:      clientui.TranscriptRowAssistant,
-		Assistant: &clientui.TranscriptAssistantRow{Text: text, Phase: transcript.AssistantPhaseFinal},
+	row := &transcriptpb.CommittedRow{
+		Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
+			Text: text, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
+		}},
 	}
 	return s.writeFrameTransaction(frame, s.renderCommittedRow(row, frameWidthOrDefault(frame), frame.Theme))
-}
-
-func isAssistantFinalization(message clientui.TranscriptMessage) bool {
-	if message.Kind() != clientui.TranscriptMessageCommittedRow {
-		return false
-	}
-	row := message.Payload().(clientui.TranscriptCommittedRow)
-	return row.Assistant != nil && row.Assistant.StreamID != nil
 }
 
 func (s *Surface) Render(frame FrameInput) (Result, error) {
@@ -436,12 +425,12 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	return Result{Action: ResultRequestScratchRehydration, Reason: reason}, nil
 }
 
-func (s *Surface) immutableLines(message clientui.TranscriptMessage, width int, themeName string) []string {
-	switch message.Kind() {
-	case clientui.TranscriptMessageHydration:
-		return s.hydrationImmutableLines(message.Payload().(clientui.TranscriptHydration), width, themeName)
-	case clientui.TranscriptMessageCommittedRow:
-		row := message.Payload().(clientui.TranscriptCommittedRow)
+func (s *Surface) immutableLines(message *transcriptpb.Message, width int, themeName string) []string {
+	switch payload := message.GetEvent().GetPayload().(type) {
+	case *transcriptpb.Event_Hydration:
+		return s.hydrationImmutableLines(payload.Hydration, width, themeName)
+	case *transcriptpb.Event_CommittedRow:
+		row := payload.CommittedRow
 		if !committedRowVisibleInOngoing(row) {
 			return nil
 		}
@@ -451,7 +440,7 @@ func (s *Surface) immutableLines(message clientui.TranscriptMessage, width int, 
 	}
 }
 
-func (s *Surface) hydrationImmutableLines(hydration clientui.TranscriptHydration, width int, themeName string) []string {
+func (s *Surface) hydrationImmutableLines(hydration *transcriptpb.Hydration, width int, themeName string) []string {
 	lines := make([]string, 0, len(hydration.TailSegment.Entries))
 	for _, row := range hydration.TailSegment.Entries {
 		if !committedRowVisibleInOngoing(row) {
@@ -462,26 +451,26 @@ func (s *Surface) hydrationImmutableLines(hydration clientui.TranscriptHydration
 	return lines
 }
 
-func committedRowVisibleInOngoing(row clientui.TranscriptCommittedRow) bool {
+func committedRowVisibleInOngoing(row *transcriptpb.CommittedRow) bool {
 	switch row.Visibility {
-	case clientui.EntryVisibilityOngoing, clientui.EntryVisibilityOngoingCollapsed:
+	case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING, transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED:
 		return true
-	case transcript.EntryVisibilityDetail, transcript.EntryVisibilityHidden:
+	case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL, transcriptpb.EntryVisibility_ENTRY_VISIBILITY_HIDDEN:
 		return false
 	default:
 		panic(fmt.Sprintf("ongoing received committed row with unresolved visibility %q", row.Visibility))
 	}
 }
 
-func (s *Surface) renderCommittedRow(row clientui.TranscriptCommittedRow, width int, themeName string) []string {
+func (s *Surface) renderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string) []string {
 	return s.renderCommittedRowWithMode(row, width, themeName, committedRowRenderMode(row))
 }
 
-func (s *Surface) renderHydratedCommittedRow(row clientui.TranscriptCommittedRow, width int, themeName string) []string {
+func (s *Surface) renderHydratedCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string) []string {
 	return s.renderCommittedRowWithMode(row, width, themeName, committedRowRenderMode(row))
 }
 
-func (s *Surface) renderCommittedRowWithMode(row clientui.TranscriptCommittedRow, width int, themeName string, mode transcriptrender.Mode) []string {
+func (s *Surface) renderCommittedRowWithMode(row *transcriptpb.CommittedRow, width int, themeName string, mode transcriptrender.Mode) []string {
 	group, lines := committedRowLines(row, width, themeName, mode, s.markdownLinks)
 	return s.renderGroupedRows(group, lines, false)
 }
@@ -492,47 +481,46 @@ func (s *Surface) renderCommittedRowWithMode(row clientui.TranscriptCommittedRow
 // Verbose supervisor suggestions are an O-row exception: their complete
 // typed suggestion list belongs in native scrollback. Answered questions are
 // the other typed multi-line exception. D and X rows never reach this path.
-func ongoingRenderMode(row clientui.TranscriptCommittedRow) transcriptrender.Mode {
+func ongoingRenderMode(row *transcriptpb.CommittedRow) transcriptrender.Mode {
 	if isFullOngoingRow(row) {
 		return transcriptrender.ModeOngoingFull
 	}
 	switch row.Visibility {
-	case clientui.EntryVisibilityOngoingCollapsed:
+	case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED:
 		return transcriptrender.ModeOngoingCollapsed
-	case clientui.EntryVisibilityOngoing:
+	case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING:
 		return transcriptrender.ModeOngoing
 	default:
 		panic(fmt.Sprintf("ongoing render received non-ongoing visibility %q", row.Visibility))
 	}
 }
 
-func isFullOngoingRow(row clientui.TranscriptCommittedRow) bool {
-	if row.Kind == clientui.TranscriptRowReviewerFeedback &&
-		row.ReviewerFeedback != nil &&
-		row.Visibility == clientui.EntryVisibilityOngoing {
+func isFullOngoingRow(row *transcriptpb.CommittedRow) bool {
+	if row.GetReviewerFeedback() != nil &&
+		row.Visibility == transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING {
 		return true
 	}
-	if row.Kind != clientui.TranscriptRowNotice || row.Notice == nil || row.Notice.Diagnostic == nil {
+	if row.GetNotice() == nil || row.GetNotice().Diagnostic == nil {
 		return false
 	}
-	if row.Notice.MessageType != nil && *row.Notice.MessageType == clientui.TranscriptMessageAgentSteer {
+	if row.GetNotice().MessageType != nil && *row.GetNotice().MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER {
 		return true
 	}
-	return transcript.EntryRole(row.Notice.Diagnostic.Code) == transcript.EntryRoleReviewerSuggestions
+	return transcript.EntryRole(row.GetNotice().Diagnostic.Code) == transcript.EntryRoleReviewerSuggestions
 }
 
-func committedRowRenderMode(row clientui.TranscriptCommittedRow) transcriptrender.Mode {
-	if row.Kind == clientui.TranscriptRowUser && row.User != nil {
+func committedRowRenderMode(row *transcriptpb.CommittedRow) transcriptrender.Mode {
+	if row.GetUser() != nil {
 		return transcriptrender.ModeOngoingStable
 	}
-	if row.Kind != clientui.TranscriptRowAssistant || row.Assistant == nil {
+	if row.GetAssistant() == nil {
 		return ongoingRenderMode(row)
 	}
-	switch row.Assistant.Phase {
-	case transcript.AssistantPhaseCommentary, transcript.AssistantPhaseFinal:
+	switch row.GetAssistant().Phase {
+	case transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL:
 		return transcriptrender.ModeOngoingStable
 	default:
-		panic(fmt.Sprintf("ongoing committed row has unclassified assistant phase %q", row.Assistant.Phase))
+		panic(fmt.Sprintf("ongoing committed row has unclassified assistant phase %q", row.GetAssistant().Phase))
 	}
 }
 
@@ -552,10 +540,10 @@ func (s *Surface) renderAssistantPromotedRows(rows []string, themeName string) [
 		) + rows[0]
 		s.activeAssistant.rolePrefixState = assistantRolePrefixEmitted
 	}
-	return s.renderGroupedRows(clientui.TranscriptRowAssistant, decorated, true)
+	return s.renderGroupedRows(transcriptrender.GroupAssistant, decorated, true)
 }
 
-func (s *Surface) renderGroupedRows(group clientui.TranscriptRowKind, rows []string, separatorWhenRegisterUnset bool) []string {
+func (s *Surface) renderGroupedRows(group transcriptrender.Group, rows []string, separatorWhenRegisterUnset bool) []string {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -570,14 +558,19 @@ func (s *Surface) renderGroupedRows(group clientui.TranscriptRowKind, rows []str
 }
 
 func committedRowLines(
-	row clientui.TranscriptCommittedRow,
+	row *transcriptpb.CommittedRow,
 	width int,
 	themeName string,
 	mode transcriptrender.Mode,
 	linkPresentation transcriptrender.MarkdownLinkPresentation,
-) (clientui.TranscriptRowKind, []string) {
-	switch row.Kind {
-	case clientui.TranscriptRowUser, clientui.TranscriptRowAssistant, clientui.TranscriptRowTool, clientui.TranscriptRowNotice, clientui.TranscriptRowReviewerFeedback, clientui.TranscriptRowReviewerError:
+) (transcriptrender.Group, []string) {
+	switch row.GetRow().(type) {
+	case *transcriptpb.CommittedRow_User,
+		*transcriptpb.CommittedRow_Assistant,
+		*transcriptpb.CommittedRow_Tool,
+		*transcriptpb.CommittedRow_Notice,
+		*transcriptpb.CommittedRow_ReviewerFeedback,
+		*transcriptpb.CommittedRow_ReviewerError:
 		rendered := transcriptrender.RenderCommittedRowWithLinkPresentation(
 			row,
 			width,
@@ -587,7 +580,7 @@ func committedRowLines(
 		)
 		return rendered.Group, encodeTranscriptLines(rendered.Lines, themeName)
 	default:
-		panic(fmt.Sprintf("ongoing render unknown committed row kind %q", row.Kind))
+		panic(fmt.Sprintf("ongoing render unknown committed row payload %T", row.GetRow()))
 	}
 }
 

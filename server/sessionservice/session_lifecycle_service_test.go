@@ -622,7 +622,7 @@ func TestServiceResolveTransitionForkRollbackPreservesExecutionTarget(t *testing
 	if err != nil {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
 	}
-	if target.Worktree == nil || target.Worktree.ID != "wt-1" {
+	if target.Worktree == nil || target.Worktree.Id != "wt-1" {
 		t.Fatalf("fork target worktree = %+v, want wt-1", target.Worktree)
 	}
 	if target.Worktree == nil || target.Worktree.Root != canonicalWorktreeRoot {
@@ -707,7 +707,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
 	if _, err := runtimeService.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: activation.Attachment,
+		Attachment: activation,
 		OwnerID:    "test-owner",
 	}); err != nil {
 		t.Fatalf("ReleaseSessionRuntime: %v", err)

@@ -1,18 +1,15 @@
 package transcriptrender
 
 import (
-	"core/shared/clientui"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"google.golang.org/protobuf/proto"
 	"testing"
 )
 
 func TestPatchHyperlinks(t *testing.T) {
-	patch := "*** Begin Patch\n*** Update File: dir/file.go\n-old\n+new\n*** End Patch\n"
-	rendered := patchformat.Render(patch, "/worktree")
 	status := "ok"
-	statusRow := patchRow(rendered)
-	statusRow.Tool.ResultSummary = &status
+	statusRow := patchRow("/worktree/dir/file.go", "./dir/file.go")
+	statusRow.GetTool().ResultSummary = &status
 	success := RenderCommittedRow(statusRow, 80, "dark", ModeOngoing).Lines[0]
 	for _, span := range success.Spans {
 		if span.Text == status {
@@ -20,27 +17,63 @@ func TestPatchHyperlinks(t *testing.T) {
 		}
 	}
 	status = "failed"
-	statusRow.Tool.IsError = true
+	statusRow.GetTool().IsError = true
 	last := lastSpan(RenderCommittedRow(statusRow, 80, "dark", ModeOngoing).Lines[0])
 	if last.Text != status || last.Hyperlink != nil {
 		t.Fatal("failed patch row omitted failure status")
 	}
-	assertPatchLink(t, RenderCommittedRow(patchRow(rendered), 80, "dark", ModeOngoing).Lines, "./dir/file.go", "file:///worktree/dir/file.go")
-	assertPatchLink(t, RenderCommittedRow(patchRow(rendered), 12, "dark", ModeDetailExpanded).Lines, "/worktree/dir/file.go", "file:///worktree/dir/file.go")
-	moved := patchformat.Render("*** Begin Patch\n*** Update File: old.go\n*** Move to: new.go\n-old\n+new\n*** End Patch\n", "/worktree")
-	assertPatchLink(t, RenderCommittedRow(patchRow(moved), 80, "dark", ModeOngoing).Lines, "./new.go", "file:///worktree/new.go")
-	relative := patchformat.Render(patch, "")
+	assertPatchLink(t, RenderCommittedRow(patchRow("/worktree/dir/file.go", "./dir/file.go"), 80, "dark", ModeOngoing).Lines, "./dir/file.go", "file:///worktree/dir/file.go")
+	assertPatchLink(t, RenderCommittedRow(patchRow("/worktree/dir/file.go", "./dir/file.go"), 12, "dark", ModeDetailExpanded).Lines, "/worktree/dir/file.go", "file:///worktree/dir/file.go")
+	moved := patchRow("/worktree/new.go", "./new.go")
+	file := moved.GetTool().Presentation.PatchPresentation.GetChanges().Files[0]
+	file.Operations[0].Operation = &transcriptpb.PatchFileOperation_Move{
+		Move: &transcriptpb.PatchMoveOperation{
+			Source: &transcriptpb.PatchPath{
+				Absolute: "/worktree/old.go",
+				Relative: "./old.go",
+			},
+			Groups: file.Operations[0].GetUpdate().Groups,
+		},
+	}
+	assertPatchLink(t, RenderCommittedRow(moved, 80, "dark", ModeOngoing).Lines, "./new.go", "file:///worktree/new.go")
+	relative := patchRow("dir/file.go", "dir/file.go")
 	for _, mode := range []Mode{ModeOngoing, ModeDetailExpanded} {
-		if text, _ := patchLink(RenderCommittedRow(patchRow(relative), 80, "dark", mode).Lines); text != "" {
+		if text, _ := patchLink(RenderCommittedRow(relative, 80, "dark", mode).Lines); text != "" {
 			t.Fatalf("relative path linked as %q", text)
 		}
 	}
-	if text, _ := patchLink(RenderCommittedRow(patchRow(relative), 80, "dark", ModeOngoing).Lines); text != "" {
-		t.Fatalf("relative patch path linked as %q", text)
-	}
 }
-func patchRow(presentation patchformat.Presentation) clientui.TranscriptCommittedRow {
-	return clientui.TranscriptCommittedRow{Kind: clientui.TranscriptRowTool, Tool: &clientui.TranscriptToolRow{ToolName: "patch", Presentation: &transcript.ToolCallMeta{ToolName: "patch", PatchPresentation: &presentation}}}
+
+func patchRow(absolute, relative string) *transcriptpb.CommittedRow {
+	removed := int32(1)
+	return &transcriptpb.CommittedRow{
+		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			ToolName: proto.String(string("patch")),
+			Presentation: &transcriptpb.ToolPresentation{
+				Presentation:   transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+				RenderBehavior: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+				PatchPresentation: &transcriptpb.PatchPresentation{
+					Presentation: &transcriptpb.PatchPresentation_Changes{Changes: &transcriptpb.PatchChanges{
+						Files: []*transcriptpb.PatchFileChange{{
+							Path: &transcriptpb.PatchPath{
+								Absolute: absolute,
+								Relative: relative,
+							},
+							Added: 1, Removed: &removed,
+							Operations: []*transcriptpb.PatchFileOperation{{
+								Operation: &transcriptpb.PatchFileOperation_Update{Update: &transcriptpb.PatchUpdateOperation{
+									Groups: []*transcriptpb.PatchChangeGroup{{Lines: []*transcriptpb.PatchChangedLine{
+										{Kind: transcriptpb.PatchChangedLineKind_PATCH_CHANGED_LINE_KIND_REMOVED, Content: "old"},
+										{Kind: transcriptpb.PatchChangedLineKind_PATCH_CHANGED_LINE_KIND_ADDED, Content: "new"},
+									}}},
+								}},
+							}},
+						}},
+					}},
+				},
+			},
+		}},
+	}
 }
 func patchLink(lines []Line) (text, url string) {
 	for _, line := range lines {

@@ -2,20 +2,21 @@ package app
 
 import (
 	"context"
+	"core/cli/app/internal/worktreeui"
+	"core/shared/apicontract"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	textutil "core/shared/textutil"
+
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/serverapi"
 	"errors"
+
+	tea "github.com/charmbracelet/bubbletea"
 	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"core/cli/app/internal/worktreeui"
-	"core/shared/apicontract"
-	"core/shared/clientui"
-	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/serverapi"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 type worktreeCommandTestClient struct {
@@ -137,7 +138,7 @@ func (c *worktreeCommandTestClient) consumeReconnectFailure(kind string) bool {
 }
 
 func newWorktreeTestRuntimeClient(sessionID string) *sessionRuntimeClient {
-	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: sessionID}}}
+	reads := &countingSessionViewClient{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: sessionID}}}
 	return newUIRuntimeClientWithReads(sessionID, reads, &reconnectRetryRuntimeControlClient{}, nil).(*sessionRuntimeClient)
 }
 
@@ -151,7 +152,7 @@ func newWorktreeTestModel(t *testing.T, client *worktreeCommandTestClient, opts 
 	allOpts = append(allOpts, opts...)
 	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient("session-1"), allOpts...)
 	if runtimeClient, ok := model.runtimeClient().(*sessionRuntimeClient); ok && strings.TrimSpace(model.sessionName) != "" {
-		runtimeClient.storeMainView(clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: model.sessionID, SessionName: model.sessionName}})
+		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.sessionID, SessionName: textutil.Value(model.sessionName)}})
 	}
 	return model
 }
@@ -172,7 +173,7 @@ func applyWorktreeCmdMessages(t *testing.T, model *uiModel, cmd tea.Cmd) *uiMode
 func testMainWorktreeListResponse() *worktreepb.ListSuccess {
 	return &worktreepb.ListSuccess{
 		Target: &worktreepb.SessionExecutionTarget{
-			WorkspaceId:      "workspace-1",
+			WorkspaceId:      textutil.Value("workspace-1"),
 			WorkspaceRoot:    "/repo",
 			EffectiveWorkdir: "/repo",
 		},
@@ -185,7 +186,7 @@ func testMainWorktreeListResponse() *worktreepb.ListSuccess {
 func testLinkedWorktreeListResponse() *worktreepb.ListSuccess {
 	return &worktreepb.ListSuccess{
 		Target: &worktreepb.SessionExecutionTarget{
-			WorkspaceId:      "workspace-1",
+			WorkspaceId:      textutil.Value("workspace-1"),
 			WorkspaceRoot:    "/repo",
 			Worktree:         &worktreepb.SessionExecutionWorktreeTarget{Id: "wt-feature", Root: "/wt/feature-a"},
 			EffectiveWorkdir: "/wt/feature-a/pkg",

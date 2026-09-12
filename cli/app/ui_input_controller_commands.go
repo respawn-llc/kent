@@ -1,5 +1,9 @@
 package app
 
+import chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"strconv"
 	"strings"
@@ -8,7 +12,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -43,7 +46,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		if err != nil {
 			return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
-		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != clientui.ConversationFreshnessFresh) {
+		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
 			previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
 			if err != nil {
 				return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
@@ -72,7 +75,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 			return m, disconnectCmd
 		}
 	}
-	if commandResult.SubmitUser && commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != clientui.ConversationFreshnessFresh) {
+	if commandResult.SubmitUser && commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
 		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
 		if err != nil {
 			return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
@@ -174,13 +177,13 @@ func (c uiInputController) handleResumeCommand() (tea.Model, tea.Cmd) {
 func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 	m := c.model
 	status := m.cachedRuntimeStatus()
-	if status.NavigationTargetSessionID == nil {
+	if status.NavigationTargetSessionId == nil {
 		return m, c.model.appendLocalEntryWithNoticeID("system", "No parent session available", "")
 	}
 	if m.finalAnswerOperation != nil {
 		return m, nil
 	}
-	return m, m.startFinalAnswerOperation(uiFinalAnswerOperationBack, status.NavigationTargetSessionID.String())
+	return m, m.startFinalAnswerOperation(uiFinalAnswerOperationBack, *status.NavigationTargetSessionId)
 }
 
 func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
@@ -214,10 +217,8 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected low|medium|high|xhigh|max|ultra)"
 		return m, m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	value := normalized
-	return m, m.chatSettingsMutationCommand(serverapi.ChatSettingsMutationOperation{
-		Kind:  serverapi.ChatSettingsMutationThinking,
-		Value: &value,
+	return m, m.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: normalized},
 	})
 }
 
@@ -249,7 +250,7 @@ func (c uiInputController) handleFastModeCommand(requested string) (tea.Model, t
 		errText := "Usage: /fast [on|off|status]"
 		return m, c.model.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	return m, m.chatSettingsToggleCommand(serverapi.ChatSettingsMutationFast, requested)
+	return m, m.chatSettingsToggleCommand(&chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_FastEnabled{}}, requested)
 }
 
 func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Model, tea.Cmd) {
@@ -262,12 +263,10 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 		return m, m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	if requested == "" || requested == "on" {
-		return m, m.chatSettingsToggleCommand(serverapi.ChatSettingsMutationSupervisor, requested)
+		return m, m.chatSettingsToggleCommand(&chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Supervisor{}}, requested)
 	}
-	value := string(serverapi.ChatSettingsSupervisorOff)
-	return m, m.chatSettingsMutationCommand(serverapi.ChatSettingsMutationOperation{
-		Kind:  serverapi.ChatSettingsMutationSupervisor,
-		Value: &value,
+	return m, m.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_Supervisor{Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF},
 	})
 }
 
@@ -280,7 +279,7 @@ func (c uiInputController) handleQuestionsCommand(requested string) (tea.Model, 
 		errText := "invalid questions mode " + strconv.Quote(requested) + " (expected on|off)"
 		return m, m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	return m, m.chatSettingsToggleCommand(serverapi.ChatSettingsMutationQuestions, requested)
+	return m, m.chatSettingsToggleCommand(&chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{}}, requested)
 }
 
 func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Model, tea.Cmd) {
@@ -292,5 +291,5 @@ func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Mo
 		errText := "invalid autocompaction mode " + strconv.Quote(requested) + " (expected on|off)"
 		return m, m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	return m, m.chatSettingsToggleCommand(serverapi.ChatSettingsMutationAutoCompaction, requested)
+	return m, m.chatSettingsToggleCommand(&chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_AutoCompactionEnabled{}}, requested)
 }

@@ -5,13 +5,15 @@ import (
 	"core/cli/tui/transcriptrender"
 	tuitest "core/internal/testharness/pty"
 	"core/shared/clientui"
-	goruntime "runtime"
-	"strings"
-	"testing"
-
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	goruntime "runtime"
+	"strings"
+	"testing"
 )
 
 func TestTabQueuesAndStartsSubmission(t *testing.T) {
@@ -277,10 +279,10 @@ func TestAskQuestionTabFreeformFlow(t *testing.T) {
 	updated = next.(*uiModel)
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.Freeform == nil || *entry.QuestionAnswer.Freeform != "custom" {
-		t.Fatalf("unexpected freeform answer: %+v", entry.QuestionAnswer)
+	if entry.GetQuestionAnswer().Freeform == nil || *entry.GetQuestionAnswer().Freeform != "custom" {
+		t.Fatalf("unexpected freeform answer: %+v", entry.GetQuestionAnswer())
 	}
-	if entry.QuestionAnswer.SelectedOptionNumber == nil || *entry.QuestionAnswer.SelectedOptionNumber != 1 {
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
 		t.Fatalf("expected selected option 1 preserved when switching to freeform, got %+v", request)
 	}
 	if testActiveAsk(updated) != nil {
@@ -291,8 +293,8 @@ func TestAskQuestionTabFreeformFlow(t *testing.T) {
 func TestAskQuestionRecommendedOptionIsSelectedAndSubmitted(t *testing.T) {
 	m, control := newProjectedPromptTestUIModel(t)
 	event := testQuestionAskEvent("ask-1", "Pick one", "first", "second")
-	recommended := 2
-	event.prompt.RecommendedOptionIndex = &recommended
+	recommended := int32(2)
+	event.prompt.GetQuestion().RecommendedOptionIndex = &recommended
 
 	updated := updateUIModel(t, m, askEventMsg{event: event})
 	selectedRecommended := false
@@ -307,10 +309,10 @@ func TestAskQuestionRecommendedOptionIsSelectedAndSubmitted(t *testing.T) {
 
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if request.SessionID != event.prompt.SessionID || request.StepID != event.prompt.StepID ||
-		entry.ToolCallID != event.prompt.ToolCallID || entry.QuestionAnswer.SelectedOptionNumber == nil ||
-		*entry.QuestionAnswer.SelectedOptionNumber != recommended {
-		t.Fatalf("selected option = %+v, want %d", entry.QuestionAnswer.SelectedOptionNumber, recommended)
+	if request.SessionId != transcriptPromptSessionID(event.prompt) || request.StepId != transcriptPromptStepID(event.prompt) ||
+		entry.ToolCallId != transcriptPromptToolCallID(event.prompt) || entry.GetQuestionAnswer().SelectedOptionNumber == nil ||
+		*entry.GetQuestionAnswer().SelectedOptionNumber != recommended {
+		t.Fatalf("selected option = %+v, want %d", entry.GetQuestionAnswer().SelectedOptionNumber, recommended)
 	}
 	if testActiveAsk(updated) != nil {
 		t.Fatal("successful batch did not immediately remove the ask")
@@ -326,10 +328,10 @@ func TestQueuedAskQuestionReceivesItsRecommendationWhenPromoted(t *testing.T) {
 		"second",
 	)})
 	queued := testQuestionAskEvent("ask-b", "Second question", "first", "second")
-	recommended := 2
-	queued.prompt.RecommendedOptionIndex = &recommended
+	recommended := int32(2)
+	queued.prompt.GetQuestion().RecommendedOptionIndex = &recommended
 	updated = updateUIModel(t, updated, askEventMsg{event: queued})
-	if updated.ask.current == nil || updated.ask.current.prompt.ToolCallID != "ask-a" || updated.ask.cursor != 0 {
+	if updated.ask.current == nil || transcriptPromptToolCallID(updated.ask.current.prompt) != "ask-a" || updated.ask.cursor != 0 {
 		t.Fatalf("queued question changed active selection: current=%+v cursor=%d", updated.ask.current, updated.ask.cursor)
 	}
 
@@ -346,8 +348,8 @@ func TestQueuedAskQuestionReceivesItsRecommendationWhenPromoted(t *testing.T) {
 
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.SelectedOptionNumber == nil || *entry.QuestionAnswer.SelectedOptionNumber != recommended {
-		t.Fatalf("selected option = %+v, want %d", entry.QuestionAnswer.SelectedOptionNumber, recommended)
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != recommended {
+		t.Fatalf("selected option = %+v, want %d", entry.GetQuestionAnswer().SelectedOptionNumber, recommended)
 	}
 	if testActiveAsk(updated) != nil {
 		t.Fatal("successful batch did not immediately remove the ask")
@@ -394,10 +396,10 @@ func TestAskQuestionPickerSubmitPreservesPendingFreeformDraft(t *testing.T) {
 	updated = next.(*uiModel)
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.SelectedOptionNumber == nil || *entry.QuestionAnswer.SelectedOptionNumber != 2 {
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 2 {
 		t.Fatalf("expected selected option number 2, got %+v", request)
 	}
-	if entry.QuestionAnswer.Freeform == nil || *entry.QuestionAnswer.Freeform != "custom" {
+	if entry.GetQuestionAnswer().Freeform == nil || *entry.GetQuestionAnswer().Freeform != "custom" {
 		t.Fatalf("expected pending freeform draft submitted with picker answer, got %+v", request)
 	}
 	if testActiveAsk(updated) != nil {
@@ -441,10 +443,10 @@ func TestAskQuestionTabRoundTripRestoresPendingFreeformDraftAndCursor(t *testing
 	updated = next.(*uiModel)
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.SelectedOptionNumber == nil || *entry.QuestionAnswer.SelectedOptionNumber != 2 {
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 2 {
 		t.Fatalf("expected selected option number 2 after round-trip, got %+v", request)
 	}
-	if entry.QuestionAnswer.Freeform == nil || *entry.QuestionAnswer.Freeform != "custoXm" {
+	if entry.GetQuestionAnswer().Freeform == nil || *entry.GetQuestionAnswer().Freeform != "custoXm" {
 		t.Fatalf("expected restored draft to remain editable, got %+v", request)
 	}
 	if testActiveAsk(updated) != nil {
@@ -526,10 +528,10 @@ func TestAskQuestionFreeformSelectionSubmitsFreeformOnly(t *testing.T) {
 	updated = next.(*uiModel)
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.SelectedOptionNumber != nil {
+	if entry.GetQuestionAnswer().SelectedOptionNumber != nil {
 		t.Fatalf("expected freeform selection to submit without selected option number, got %+v", request)
 	}
-	if entry.QuestionAnswer.Freeform == nil || *entry.QuestionAnswer.Freeform != "custom" {
+	if entry.GetQuestionAnswer().Freeform == nil || *entry.GetQuestionAnswer().Freeform != "custom" {
 		t.Fatalf("unexpected freeform selection response: %+v", request)
 	}
 	if testActiveAsk(updated) != nil {
@@ -564,8 +566,8 @@ func TestAskFreeformUsesMainEditingStack(t *testing.T) {
 	updated = next.(*uiModel)
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if entry.QuestionAnswer.Freeform == nil || *entry.QuestionAnswer.Freeform != ">hello _worl" {
-		t.Fatalf("unexpected inline edit result: %+v", entry.QuestionAnswer)
+	if entry.GetQuestionAnswer().Freeform == nil || *entry.GetQuestionAnswer().Freeform != ">hello _worl" {
+		t.Fatalf("unexpected inline edit result: %+v", entry.GetQuestionAnswer())
 	}
 	if testActiveAsk(updated) != nil {
 		t.Fatal("successful batch did not immediately remove the ask")
@@ -652,9 +654,9 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 	updated = runPromptDeliveryCommand(t, updated, cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireApprovalAnswerEntry(t, request)
-	if entry.ApprovalAnswer.Decision != clientui.ApprovalDecisionDeny ||
-		entry.ApprovalAnswer.Commentary == nil ||
-		*entry.ApprovalAnswer.Commentary != "blocked by policy" {
+	if entry.GetApprovalAnswer().Decision != promptpb.ApprovalDecision_APPROVAL_DECISION_DENY ||
+		entry.GetApprovalAnswer().Commentary == nil ||
+		*entry.GetApprovalAnswer().Commentary != "blocked by policy" {
 		t.Fatalf("unexpected approval request: %+v", request)
 	}
 	if len(updated.injectedQueue) != 0 {
@@ -667,10 +669,13 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 
 func TestOutsideWorkspaceApprovalRendersDistinctSuppliedPathsBeforeOptions(t *testing.T) {
 	event := testApprovalAskEvent("approval-paths", "", clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionDeny)
-	event.prompt.AccessTargets = []clientui.FileAccessTarget{
+	targets := []clientui.FileAccessTarget{
 		{RequestedPath: "/alias/a", ResolvedPath: "/real/file"},
 		{RequestedPath: "/alias/b", ResolvedPath: "/real/file"},
 		{RequestedPath: "/real/other", ResolvedPath: "/real/other"},
+	}
+	for _, target := range targets {
+		event.prompt.GetApproval().AccessTargets = append(event.prompt.GetApproval().AccessTargets, &promptpb.FileAccessTarget{RequestedPath: target.RequestedPath, ResolvedPath: target.ResolvedPath})
 	}
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 100, 24)
 	next, projection := m.Update(askEventMsg{event: event})
@@ -679,7 +684,7 @@ func TestOutsideWorkspaceApprovalRendersDistinctSuppliedPathsBeforeOptions(t *te
 	if !ok {
 		t.Fatal("outside-workspace Approval has no render identity")
 	}
-	want := clientui.FormatFileAccessApprovalMarkdown(event.prompt.AccessTargets)
+	want := clientui.FormatFileAccessApprovalMarkdown(targets)
 	if identity.questionSource != want {
 		t.Fatalf("Approval Markdown = %q, want %q", identity.questionSource, want)
 	}
@@ -698,7 +703,7 @@ func TestApprovalAskDefaultsToAllowOnceOrFirstDecision(t *testing.T) {
 	tests := []struct {
 		name      string
 		decisions []clientui.ApprovalDecision
-		want      clientui.ApprovalDecision
+		want      promptpb.ApprovalDecision
 	}{
 		{
 			name: "allow once is selected despite order",
@@ -707,7 +712,7 @@ func TestApprovalAskDefaultsToAllowOnceOrFirstDecision(t *testing.T) {
 				clientui.ApprovalDecisionAllowSession,
 				clientui.ApprovalDecisionAllowOnce,
 			},
-			want: clientui.ApprovalDecisionAllowOnce,
+			want: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
 		},
 		{
 			name: "first decision is selected without allow once",
@@ -715,7 +720,7 @@ func TestApprovalAskDefaultsToAllowOnceOrFirstDecision(t *testing.T) {
 				clientui.ApprovalDecisionAllowSession,
 				clientui.ApprovalDecisionDeny,
 			},
-			want: clientui.ApprovalDecisionAllowSession,
+			want: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION,
 		},
 	}
 	for _, test := range tests {
@@ -731,8 +736,8 @@ func TestApprovalAskDefaultsToAllowOnceOrFirstDecision(t *testing.T) {
 			updated = runPromptDeliveryCommand(t, next.(*uiModel), command)
 			request := requirePromptAnswerBatchRequest(t, control)
 			entry := requireApprovalAnswerEntry(t, request)
-			if entry.ApprovalAnswer.Decision != test.want || entry.ApprovalAnswer.Commentary != nil {
-				t.Fatalf("approval answer = %+v, want %q without commentary", entry.ApprovalAnswer, test.want)
+			if entry.GetApprovalAnswer().Decision != test.want || entry.GetApprovalAnswer().Commentary != nil {
+				t.Fatalf("approval answer = %+v, want %q without commentary", entry.GetApprovalAnswer(), test.want)
 			}
 		})
 	}
@@ -776,12 +781,9 @@ func TestTabInsideDetailReturnsToOngoingMode(t *testing.T) {
 }
 
 func TestDetailModeStatusLineOmitsActionForCompleteAssistantRow(t *testing.T) {
-	page := clientui.TranscriptPage{
-		SessionID: detailTestSessionID,
-		Entries: []clientui.TranscriptCommittedRow{
-			detailTestAssistantRow("line one\nline two\nline three\nline four"),
-		},
-	}
+	page := &transcriptpb.Page{SessionId: detailTestSessionID,
+		Entries: []*transcriptpb.CommittedRow{
+			detailTestAssistantRow("line one\nline two\nline three\nline four")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	m := newProjectedStaticUIModel(
 		WithUISessionID(detailTestSessionID),
 		WithUIModelName("gpt-5"),

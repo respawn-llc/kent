@@ -6,7 +6,7 @@ import type {
   ChatSettingsMutationResponse,
 } from "./chatSettingsTypes";
 export type { ChatSettings } from "./chatSettingsTypes";
-import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind } from "./chatTranscriptSchemas";
+import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind } from "./chatTranscriptTypes";
 import type {
   CompactionRequestID,
   PendingWork,
@@ -20,12 +20,12 @@ export type {
   ChatTranscriptMessageByKind,
   ChatTranscriptPayload,
   ChatTranscriptPayloadByKind,
-} from "./chatTranscriptSchemas";
+} from "./chatTranscriptTypes";
 
 export type ChatWorkspaceSelector = Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
 export type ChatProjectTarget = Readonly<{ projectID: string; workspace: ChatWorkspaceSelector }>;
 export type ChatSessionTarget = ChatProjectTarget & Readonly<{ sessionID: string }>;
-export type ChatContextTarget = ChatProjectTarget & Readonly<{ sessionID?: string }>;
+export type ChatContextTarget = ChatSessionTarget;
 export type ChatSettingsTarget =
   (ChatProjectTarget & Readonly<{ kind: "new_chat" }>) | (ChatSessionTarget & Readonly<{ kind: "session" }>);
 export type InitialChatSettings = Readonly<{
@@ -104,7 +104,7 @@ export type ChatMainView = Readonly<{
 }>;
 export type ChatMainViewRead = Readonly<{ mainView: ChatMainView; goal: ChatGoalFact }>;
 export type ChatExecutionTarget = Readonly<{
-  workspaceID: string;
+  workspaceID: string | null;
   workspaceName: string;
   workspaceRoot: string;
   workspaceAvailability: "available" | "missing" | "inaccessible" | "unlinked";

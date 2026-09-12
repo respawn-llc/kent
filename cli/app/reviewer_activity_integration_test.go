@@ -2,6 +2,15 @@ package app
 
 import (
 	"context"
+	"core/server/llm"
+	"core/server/registry"
+	"core/server/runtime"
+	"core/server/sessionruntime"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	"core/shared/serverapi"
+	"core/shared/textutil"
 	"errors"
 	"io"
 	"strings"
@@ -9,15 +18,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"core/server/llm"
-	"core/server/registry"
-	"core/server/runtime"
-	"core/server/sessionruntime"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
-	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) {
@@ -84,9 +84,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			})
 
 			subscription, err := activity.SubscribeSessionTranscript(
-				context.Background(),
-				serverapi.TranscriptSubscribeRequest{SessionID: engine.SessionID()},
-			)
+				context.Background(), &transcriptpb.SubscribeRequest{SessionId: engine.SessionID()})
 			if err != nil {
 				t.Fatalf("subscribe transcript: %v", err)
 			}
@@ -106,9 +104,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			applyReviewerActivityUntil(
 				t,
 				controller,
-				subscription,
-				clientui.ReviewerActivityInactive,
-			)
+				subscription, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 
 			submitDone := make(chan error, 1)
 			go func() {
@@ -126,9 +122,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			applyReviewerActivityUntil(
 				t,
 				controller,
-				subscription,
-				clientui.ReviewerActivityInvoking,
-			)
+				subscription, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING)
 			if !model.isReviewerActive() {
 				t.Fatalf("TUI Reviewer projection = %+v, want active", model.runtimeActivityProjection)
 			}
@@ -157,9 +151,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			applyReviewerActivityUntil(
 				t,
 				controller,
-				subscription,
-				clientui.ReviewerActivityInactive,
-			)
+				subscription, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 			if model.isReviewerActive() {
 				t.Fatalf("TUI Reviewer projection = %+v, want inactive", model.runtimeActivityProjection)
 			}
@@ -254,8 +246,7 @@ func applyReviewerActivityUntil(
 	t *testing.T,
 	controller *ongoingTranscriptController,
 	subscription serverapi.TranscriptSubscription,
-	want clientui.ReviewerActivity,
-) {
+	want runtimepb.ReviewerActivity) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -267,13 +258,13 @@ func applyReviewerActivityUntil(
 		if _, _, err := controller.Accept(message); err != nil {
 			t.Fatalf("apply Reviewer activity message: %v", err)
 		}
-		switch message.Kind() {
-		case clientui.TranscriptMessageHydration:
-			if payload := message.Payload().(clientui.TranscriptHydration); payload.RuntimeReadModelUpdate.Activity.Reviewer == want {
+		switch payload := message.GetEvent().GetPayload().(type) {
+		case *transcriptpb.Event_Hydration:
+			if payload.Hydration.RuntimeReadModelUpdate.Activity.Reviewer == want {
 				return
 			}
-		case clientui.TranscriptMessageRuntimeReadModelUpdate:
-			if payload := message.Payload().(clientui.RuntimeReadModelUpdate); payload.Activity.Reviewer == want {
+		case *transcriptpb.Event_RuntimeReadModelUpdate:
+			if payload.RuntimeReadModelUpdate.Activity.Reviewer == want {
 				return
 			}
 		}

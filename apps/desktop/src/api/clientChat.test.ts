@@ -1,7 +1,16 @@
 import { ApiClient } from "./client";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
-import { create } from "@app/server-api-contract";
+import { create, encode } from "@app/server-api-contract";
+import { ReadService as SessionReadService } from "@app/server-api-contract/gen/kent/api/session/session_pb";
+import {
+  ChatContextService,
+  CompactionMode as ContextCompactionMode,
+} from "@app/server-api-contract/gen/kent/api/chat_context/chat_context_pb";
+import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import { TranscriptCloseReason } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { ChatService, QueueRequestSchema } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import {
   SessionRuntimeService,
@@ -142,113 +151,90 @@ function runtimePlanResult(planSessionID: string) {
 }
 
 function transcriptHydrationPayload() {
-  return {
-    SessionIdentity: {
-      SessionID: sessionID,
-      SessionName: null,
-      ConversationFreshness: 0,
-      ExecutionTarget: null,
+  return create(T.HydrationSchema, {
+    sessionIdentity: { sessionId: sessionID, conversationFreshness: R.ConversationFreshness.FRESH },
+    sessionStatus: {
+      reviewerFrequency: "off",
+      autoCompactionEnabled: true,
+      questionsEnabled: true,
+      thinkingLevel: "medium",
+      compactionMode: "local",
     },
-    SessionStatus: {
-      ReviewerFrequency: "off",
-      ReviewerEnabled: false,
-      AutoCompactionEnabled: true,
-      QuestionsEnabled: true,
-      FastModeAvailable: false,
-      FastModeEnabled: false,
-      ThinkingLevel: "medium",
-      CompactionMode: "local",
-      CompactionCount: 0,
-      PreviousSessionID: null,
-      ParentAgentSessionID: null,
-      NavigationTargetSessionID: null,
-      Workflow: null,
-    },
-    RuntimeReadModelUpdate: {
-      Version: { Epoch: "epoch-1", Generation: 1, Sequence: 1 },
-      Activity: {
-        State: "registered_idle",
-        ActiveStep: null,
-        Reviewer: "inactive",
-        QueueAccepting: true,
-        DiagnosticRecovery: false,
+    runtimeReadModelUpdate: {
+      version: { epoch: sessionID, generation: 1n, sequence: 1n },
+      activity: {
+        state: R.ActivityState.RUNTIME_ACTIVITY_RUNNING,
+        reviewer: R.ReviewerActivity.INACTIVE,
+        queueAccepting: true,
+        activeStep: {
+          runId: sessionID,
+          stepId: sessionID,
+          activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
+        },
       },
     },
-    TailSegment: {
-      OlderCursor: null,
-      HasMoreAbove: false,
-      Entries: [],
+    tailSegment: {},
+    activeAssistant: {
+      stepId: sessionID,
+      streamId: sessionID,
+      text: " ",
+      phase: T.AssistantPhase.COMMENTARY,
     },
-    ActiveAssistant: {
-      StepID: sessionID,
-      StreamID: sessionID,
-      Text: " ",
-      Phase: "commentary",
+    activeStep: {
+      runId: sessionID,
+      stepId: sessionID,
+      activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
+      lifecycle: T.StepLifecycle.STARTED,
+      status: T.RunStatus.RUNNING,
     },
-    ActiveThinkingStatus: null,
-    ActiveReasoningTraces: null,
-    ActiveStep: null,
-    ActiveCompaction: null,
-    InFlightTools: null,
-    PendingPrompts: null,
-    BackgroundActivities: null,
-    ContextUsage: null,
-    GoalStatus: null,
-  };
+  });
+}
+
+function mainViewResult(state: R.ActivityState, withGoal: boolean) {
+  return create(SessionReadService.method.getMainView.output, {
+    outcome: {
+      case: "success",
+      value: {
+        mainView: {
+          version: { epoch: sessionID, generation: 1n, sequence: 1n },
+          status: {
+            reviewerFrequency: "off",
+            autoCompactionEnabled: true,
+            questionsEnabled: true,
+            conversationFreshness: R.ConversationFreshness.FRESH,
+            thinkingLevel: "medium",
+            compactionMode: "local",
+            contextUsage: { usedTokens: 4, windowTokens: 100 },
+            ...(withGoal ? { goal: { availability: R.GoalAvailability.AVAILABLE } } : {}),
+          },
+          session: {
+            sessionId: sessionID,
+            conversationFreshness: R.ConversationFreshness.FRESH,
+            executionTarget: {
+              workspaceName: "Workspace",
+              workspaceRoot: "/workspace",
+              workspaceAvailability: ProjectAvailability.UNLINKED,
+              cwdRelpath: ".",
+              effectiveWorkdir: "/workspace",
+            },
+          },
+          activity: {
+            state,
+            reviewer: R.ReviewerActivity.INACTIVE,
+            queueAccepting: state !== R.ActivityState.RUNTIME_ACTIVITY_UNAVAILABLE,
+          },
+        },
+      },
+    },
+  });
 }
 
 describe("Desktop Chat read client", () => {
   it("accepts a dormant Main View with authoritative Goal absence", async () => {
-    const hydration = transcriptHydrationPayload();
-    const { Workflow: workflow, ...sessionStatus } = hydration.SessionStatus;
-    expect(workflow).toBeNull();
     const transport = new FakeRpcTransport([
       {
-        method: "session.getMainView",
-        result: {
-          MainView: {
-            Version: hydration.RuntimeReadModelUpdate.Version,
-            Status: {
-              ...sessionStatus,
-              ConversationFreshness: hydration.SessionIdentity.ConversationFreshness,
-              LastCommittedAssistantFinalAnswer: null,
-              ContextUsage: {
-                UsedTokens: 0,
-                WindowTokens: 100_000,
-                CacheHitPercent: 0,
-                HasCacheHitPercentage: false,
-              },
-              Goal: {
-                Goal: null,
-                Availability: "available",
-                Suspended: false,
-              },
-              WorkflowSession: null,
-            },
-            Session: {
-              SessionID: sessionID,
-              SessionName: "",
-              AgentRole: null,
-              ConversationFreshness: 0,
-              ExecutionTarget: {
-                WorkspaceID: "workspace-1",
-                WorkspaceName: "Workspace",
-                WorkspaceRoot: "/workspace",
-                WorkspaceAvailability: "available",
-                Worktree: null,
-                CwdRelpath: ".",
-                EffectiveWorkdir: "/workspace",
-              },
-            },
-            Activity: {
-              State: "unavailable",
-              ActiveStep: null,
-              Reviewer: "inactive",
-              QueueAccepting: false,
-              DiagnosticRecovery: false,
-            },
-          },
-        },
+        descriptor: SessionReadService.method.getMainView,
+        result: mainViewResult(R.ActivityState.RUNTIME_ACTIVITY_UNAVAILABLE, true),
       },
     ]);
 
@@ -261,74 +247,27 @@ describe("Desktop Chat read client", () => {
   it("reads Main View and Context and validates runtime activation identity", async () => {
     const transport = new FakeRpcTransport([
       {
-        method: "session.getMainView",
-        result: {
-          MainView: {
-            Version: { Epoch: "epoch-1", Generation: 1, Sequence: 1 },
-            Status: {
-              ReviewerFrequency: "off",
-              ReviewerEnabled: false,
-              AutoCompactionEnabled: true,
-              QuestionsEnabled: true,
-              FastModeAvailable: false,
-              FastModeEnabled: false,
-              ConversationFreshness: 0,
-              PreviousSessionID: null,
-              ParentAgentSessionID: null,
-              NavigationTargetSessionID: null,
-              LastCommittedAssistantFinalAnswer: null,
-              ThinkingLevel: "medium",
-              CompactionMode: "local",
-              ContextUsage: {
-                UsedTokens: 4,
-                WindowTokens: 100,
-                CacheHitPercent: 0,
-                HasCacheHitPercentage: false,
-              },
-              CompactionCount: 0,
-              Goal: null,
-              WorkflowSession: null,
-            },
-            Session: {
-              SessionID: sessionID,
-              SessionName: "",
-              AgentRole: null,
-              ConversationFreshness: 0,
-              ExecutionTarget: {
-                WorkspaceID: "",
-                WorkspaceName: "Workspace",
-                WorkspaceRoot: "/workspace",
-                WorkspaceAvailability: "unlinked",
-                Worktree: null,
-                CwdRelpath: ".",
-                EffectiveWorkdir: "/workspace",
-              },
-            },
-            Activity: {
-              State: "registered_idle",
-              ActiveStep: null,
-              Reviewer: "inactive",
-              QueueAccepting: true,
-              DiagnosticRecovery: false,
-            },
-          },
-        },
+        descriptor: SessionReadService.method.getMainView,
+        result: mainViewResult(R.ActivityState.RUNTIME_ACTIVITY_REGISTERED_IDLE, false),
       },
       {
-        method: "chat.context.get",
-        result: {
-          context: {
-            context_window_tokens: 100,
-            used_tokens: 4,
-            remaining_tokens: 96,
-            automatic_threshold_tokens: 80,
-            auto_compaction_enabled: true,
-            compaction_mode: "local",
-            completed_compaction_count: 0,
-            compaction_running: false,
-            manual_compact_available: true,
+        descriptor: ChatContextService.method.get,
+        result: create(ChatContextService.method.get.output, {
+          outcome: {
+            case: "success",
+            value: {
+              context: {
+                contextWindowTokens: 100n,
+                usedTokens: 4n,
+                remainingTokens: 96n,
+                automaticThresholdTokens: 80n,
+                autoCompactionEnabled: true,
+                compactionMode: ContextCompactionMode.LOCAL,
+                manualCompactAvailable: true,
+              },
+            },
           },
-        },
+        }),
       },
     ]);
     const client = new ApiClient(transport);
@@ -337,7 +276,7 @@ describe("Desktop Chat read client", () => {
       mainView: {
         sessionID,
         sessionName: null,
-        executionTarget: { workspaceID: "", workspaceAvailability: "unlinked" },
+        executionTarget: { workspaceID: null, workspaceAvailability: "unlinked" },
       },
       goal: { goal: null, availability: null },
     });
@@ -399,43 +338,61 @@ describe("Desktop Chat read client", () => {
   });
 
   it("converts Goal inspection, authoritative mutation, and ordered observation", async () => {
-    const now = "2026-09-04T10:00:00Z";
+    const now = "2026-09-04T10:00:00.000Z";
+    const createdAt = { seconds: BigInt(Date.parse(now) / 1000), nanos: 0 };
     const transport = new FakeRpcTransport([
       {
-        method: "runtime.goal.show",
-        result: {
-          goal: { id: "goal-1", objective: "ship", status: "active", created_at: now, updated_at: now },
-          availability: "available",
-        },
+        descriptor: R.GoalService.method.show,
+        result: create(R.GoalService.method.show.output, {
+          outcome: {
+            case: "success",
+            value: {
+              goal: {
+                id: sessionID,
+                objective: "ship",
+                status: R.GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE,
+                createdAt,
+                updatedAt: createdAt,
+              },
+              availability: R.GoalAvailability.AVAILABLE,
+            },
+          },
+        }),
       },
       {
-        method: "runtime.goal.pause",
-        result: {
-          result: {
-            kind: "authoritative_goal",
-            goal: {
-              id: "goal-1",
-              objective: "ship",
-              status: "paused",
-              created_at: now,
-              updated_at: now,
+        descriptor: R.GoalService.method.pause,
+        result: create(R.GoalService.method.pause.output, {
+          outcome: {
+            case: "success",
+            value: {
+              kind: R.GoalMutationResultKind.AUTHORITATIVE_GOAL,
+              goal: {
+                id: sessionID,
+                objective: "ship",
+                status: R.GoalStatus.RUNTIME_GOAL_STATUS_PAUSED,
+                createdAt,
+                updatedAt: createdAt,
+              },
             },
-            availability: null,
           },
-        },
+        }),
+      },
+      {
+        subscriptionDescriptor: R.GoalService.method.observe,
+        startResult: create(R.GoalService.method.observe.output, { outcome: { case: "success", value: {} } }),
       },
     ]);
     const client = new ApiClient(transport);
 
     await expect(client.chat.getGoal(target)).resolves.toEqual({
-      goal: { id: "goal-1", objective: "ship", status: "active", createdAt: now, updatedAt: now },
+      goal: { id: sessionID, objective: "ship", status: "active", createdAt: now, updatedAt: now },
       availability: "available",
     });
     await expect(client.chat.pauseGoal(target)).resolves.toEqual({
       kind: "authoritative_goal",
       fact: {
         goal: {
-          id: "goal-1",
+          id: sessionID,
           objective: "ship",
           status: "paused",
           createdAt: now,
@@ -452,14 +409,15 @@ describe("Desktop Chat read client", () => {
       onComplete: () => undefined,
       onError: (error) => observationErrors.push(error),
     });
-    expect(transport.chatSubscriptionStarts[0]?.establishmentTimeoutMs).toBeUndefined();
-    transport.emit("goal.observation", {
-      observation: {
-        sequence: 1,
-        kind: "hydration",
-        status: { goal: null, availability: "available" },
-      },
-    });
+    transport.emitDescriptor(
+      R.GoalService.method.observe,
+      R.GoalService.method.observation,
+      create(R.GoalObservationSchema, {
+        sequence: 1n,
+        kind: R.GoalObservationKind.HYDRATION,
+        status: { availability: R.GoalAvailability.AVAILABLE },
+      }),
+    );
     expect(observations).toEqual([
       {
         sequence: 1,
@@ -467,11 +425,11 @@ describe("Desktop Chat read client", () => {
         fact: { goal: null, availability: "available" },
       },
     ]);
-    transport.fail(
-      "goal.observe",
+    transport.failDescriptor(
+      R.GoalService.method.observe,
       new RpcError({ code: -32000, message: "Session unavailable", method: "goal.observe" }),
     );
-    transport.fail("goal.observe", new TransportError("Subscription socket closed."));
+    transport.failDescriptor(R.GoalService.method.observe, new TransportError("Subscription socket closed."));
     expect(observationErrors).toHaveLength(2);
     expect(observationErrors[0]).toBeInstanceOf(RpcError);
     expect(observationErrors[1]).toBeInstanceOf(TransportError);
@@ -481,41 +439,42 @@ describe("Desktop Chat read client", () => {
     const client = new ApiClient(
       new FakeRpcTransport([
         {
-          method: "session.getTranscriptPage",
-          handler: (_params, callIndex) => ({
-            transcript: {
-              SessionID: sessionID,
-              SessionName: "",
-              ConversationFreshness: callIndex,
-              OlderCursor: 11,
-              HasMoreAbove: true,
-              NewerCursor: 29,
-              HasMoreBelow: false,
-              LatestRollbackCandidate: { user_message_seq: 7, candidate_page_end_byte: 100 },
-              Entries: [
-                {
-                  Visibility: "ongoing",
-                  Integrity: 0,
-                  Kind: "assistant",
-                  Locator: { event_sequence: 7, row_ordinal: 1 },
-                  User: null,
-                  Assistant: {
-                    StepID: sessionID,
-                    StreamID: null,
-                    Text: "done",
-                    CondensedText: null,
-                    Phase: "final_answer",
-                    committed_at_unix_ms: null,
+          descriptor: T.ReadService.method.getPage,
+          resultFactory: (_params, callIndex) =>
+            create(T.ReadService.method.getPage.output, {
+              outcome: {
+                case: "success",
+                value: {
+                  transcript: {
+                    sessionId: sessionID,
+                    conversationFreshness:
+                      callIndex === 0 ? R.ConversationFreshness.FRESH : R.ConversationFreshness.ESTABLISHED,
+                    olderCursor: 11n,
+                    hasMoreAbove: true,
+                    newerCursor: callIndex === 0 ? 29n : undefined,
+                    hasMoreBelow: callIndex === 0,
+                    latestRollbackCandidate: { userMessageSeq: 7n, candidatePageEndByte: 100n },
+                    entries: [
+                      {
+                        visibility: T.EntryVisibility.ONGOING,
+                        integrity: T.RowIntegrity.VALID,
+                        locator: { eventSequence: 7n, rowOrdinal: 1 },
+                        row: {
+                          case: "assistant",
+                          value: {
+                            stepId: sessionID,
+                            text: "done",
+                            condensedText: "summary",
+                            phase: T.AssistantPhase.FINAL,
+                            committedAt: { seconds: 0n, nanos: 0 },
+                          },
+                        },
+                      },
+                    ],
                   },
-                  Tool: null,
-                  ReasoningTrace: null,
-                  Notice: null,
-                  ReviewerFeedback: null,
-                  ReviewerError: null,
                 },
-              ],
-            },
-          }),
+              },
+            }),
         },
       ]),
     );
@@ -527,7 +486,13 @@ describe("Desktop Chat read client", () => {
       sessionName: null,
       olderCursor: 11,
       newerCursor: 29,
-      entries: [{ Kind: "assistant", Locator: { event_sequence: 7, row_ordinal: 1 } }],
+      entries: [
+        {
+          Kind: "assistant",
+          Locator: { event_sequence: 7, row_ordinal: 1 },
+          Assistant: { Text: "done", CondensedText: "summary", committed_at_unix_ms: 0 },
+        },
+      ],
     });
     await expect(
       client.chat.getTranscriptPage(target, { direction: "newer", value: 29 }),
@@ -543,7 +508,14 @@ describe("Desktop Chat read client", () => {
     const errors: Error[] = [];
     const transportLosses: unknown[] = [];
     const completions: unknown[] = [];
-    const transport = new FakeRpcTransport([]);
+    const transport = new FakeRpcTransport([
+      {
+        subscriptionDescriptor: T.StreamService.method.subscribe,
+        startResult: create(T.StreamService.method.subscribe.output, {
+          outcome: { case: "success", value: {} },
+        }),
+      },
+    ]);
     const client = new ApiClient(transport);
     client.chat.subscribeTranscript(target, {
       onEvent: (event) => events.push(event),
@@ -551,34 +523,45 @@ describe("Desktop Chat read client", () => {
       onError: (error) => errors.push(error),
       onTransportLoss: () => transportLosses.push({}),
     });
-    expect(transport.chatSubscriptionStarts[0]?.establishmentTimeoutMs).toBeNull();
-    transport.fail("session.subscribeTranscript", new TransportError("isolated socket loss"));
+    transport.failDescriptor(T.StreamService.method.subscribe, new TransportError("isolated socket loss"));
     expect(errors).toEqual([]);
     expect(transportLosses).toHaveLength(1);
 
-    transport.emit("session.transcript", {
-      message: { sequence: 1, kind: "hydration", payload: transcriptHydrationPayload() },
-    });
-    transport.emit("session.transcript", {
-      message: {
-        sequence: 2,
-        kind: "session_identity",
-        payload: {
-          SessionID: "223e4567-e89b-42d3-a456-426614174000",
-          SessionName: null,
-          ConversationFreshness: 0,
-          ExecutionTarget: null,
-        },
-      },
-    });
-    transport.emit("session.transcript", {
-      message: {
-        sequence: 3,
-        kind: "session_identity",
-        payload: { SessionID: sessionID, SessionName: null, ConversationFreshness: 0, ExecutionTarget: null },
-      },
-    });
-    transport.complete("session.subscribeTranscript", 17, "subscriber overflow", "subscriber_overflow");
+    transport.emitDescriptor(
+      T.StreamService.method.subscribe,
+      T.StreamService.method.event,
+      create(T.MessageSchema, {
+        sequence: 1n,
+        event: { payload: { case: "hydration", value: transcriptHydrationPayload() } },
+      }),
+    );
+    for (const [sequence, identity] of [
+      [2n, "223e4567-e89b-42d3-a456-426614174000"],
+      [3n, sessionID],
+    ] as const) {
+      transport.emitDescriptor(
+        T.StreamService.method.subscribe,
+        T.StreamService.method.event,
+        create(T.MessageSchema, {
+          sequence,
+          event: {
+            payload: {
+              case: "sessionIdentity",
+              value: { sessionId: identity, conversationFreshness: R.ConversationFreshness.FRESH },
+            },
+          },
+        }),
+      );
+    }
+    transport.completeDescriptor(
+      T.StreamService.method.subscribe,
+      T.StreamService.method.complete,
+      create(T.StreamService.method.complete.input, {
+        code: -17,
+        message: "subscriber overflow",
+        transcriptCloseReason: TranscriptCloseReason.SUBSCRIBER_OVERFLOW,
+      }),
+    );
 
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ sequence: 1, kind: "hydration" });
@@ -586,51 +569,37 @@ describe("Desktop Chat read client", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(ContractError);
     expect(completions).toEqual([
-      { code: 17, message: "subscriber overflow", reason: "subscriber_overflow" },
+      { code: -17, message: "subscriber overflow", reason: "subscriber_overflow" },
     ]);
   });
 
   it("rejects hydration whose older-history boundary has no cursor", () => {
-    const errors: Error[] = [];
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
-    client.chat.subscribeTranscript(target, {
-      onEvent: () => undefined,
-      onComplete: () => undefined,
-      onError: (error) => errors.push(error),
-    });
     const payload = transcriptHydrationPayload();
-    payload.TailSegment.HasMoreAbove = true;
-
-    transport.emit("session.transcript", {
-      message: { sequence: 1, kind: "hydration", payload },
-    });
-
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toBeInstanceOf(ContractError);
+    if (payload.tailSegment === undefined) throw new Error("Tail fixture missing.");
+    payload.tailSegment.hasMoreAbove = true;
+    expect(() =>
+      encode(
+        T.MessageSchema,
+        create(T.MessageSchema, {
+          sequence: 1n,
+          event: { payload: { case: "hydration", value: payload } },
+        }),
+      ),
+    ).toThrow();
   });
 
-  it("rejects hydration whose tail entries are absent", () => {
-    const errors: Error[] = [];
-    const transport = new FakeRpcTransport([]);
-    const client = new ApiClient(transport);
-    client.chat.subscribeTranscript(target, {
-      onEvent: () => undefined,
-      onComplete: () => undefined,
-      onError: (error) => errors.push(error),
-    });
-    const validPayload = transcriptHydrationPayload();
-    const payload = {
-      ...validPayload,
-      TailSegment: { ...validPayload.TailSegment, Entries: null },
-    };
-
-    transport.emit("session.transcript", {
-      message: { sequence: 1, kind: "hydration", payload },
-    });
-
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toBeInstanceOf(ContractError);
+  it("rejects hydration whose tail segment is absent", () => {
+    const payload = transcriptHydrationPayload();
+    payload.tailSegment = undefined;
+    expect(() =>
+      encode(
+        T.MessageSchema,
+        create(T.MessageSchema, {
+          sequence: 1n,
+          event: { payload: { case: "hydration", value: payload } },
+        }),
+      ),
+    ).toThrow();
   });
 });
 

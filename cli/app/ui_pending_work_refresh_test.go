@@ -1,13 +1,12 @@
 package app
 
 import (
-	"errors"
-	"testing"
-
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
+	"errors"
+	"testing"
 )
 
 func TestPendingWorkRefreshHydrationScopeAndCoalescing(t *testing.T) {
@@ -57,10 +56,8 @@ func TestPendingWorkRefreshTriggersUseCapturedSession(t *testing.T) {
 		apply           func(*uiModel, runtimeids.SessionID)
 	}{
 		{"Changed", false, func(m *uiModel, _ runtimeids.SessionID) {
-			m.applyAdmittedTranscriptMessageState(
-				clientui.NewTranscriptMessage(2, clientui.NewTranscriptEvent(clientui.TranscriptPendingWorkChanged{})),
-				runtimeTupleMergeResult{},
-			)
+			m.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, &transcriptpb.PendingWorkChanged{}),
+				runtimeTupleMergeResult{})
 		}},
 		{"Send/Steer", true, func(m *uiModel, id runtimeids.SessionID) {
 			m.activeSubmit = activeSubmitState{token: 1}
@@ -84,8 +81,7 @@ func TestPendingWorkRefreshTriggersUseCapturedSession(t *testing.T) {
 		{"remove", true, func(m *uiModel, id runtimeids.SessionID) {
 			m.injectedQueue = []injectedRuntimeQueueItem{{LocalID: "local", State: injectedRuntimeQueueDiscardPending, DiscardToken: 1}}
 			m.inputController().handleInjectedQueueDiscardDone(injectedQueueDiscardDoneMsg{token: 1, sessionID: id, localID: "local", discarded: true})
-		}},
-	}
+		}}}
 	for _, trigger := range triggers {
 		for _, captured := range []runtimeids.SessionID{sessionID, runtimeids.NewSessionID()} {
 			m := newProjectedStaticUIModel()

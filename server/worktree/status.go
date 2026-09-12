@@ -30,7 +30,7 @@ func (s *Service) GetWorktreeStatus(ctx context.Context, req *worktreepb.StatusR
 	}
 	status := &worktreepb.StatusTarget{RecordedRoot: root}
 	if target.Worktree != nil {
-		record, err := s.metadata.GetWorktreeRecordByID(ctx, target.Worktree.ID)
+		record, err := s.metadata.GetWorktreeRecordByID(ctx, target.Worktree.Id)
 		switch {
 		case err == nil:
 			displayName := record.DisplayName
@@ -39,7 +39,7 @@ func (s *Service) GetWorktreeStatus(ctx context.Context, req *worktreepb.StatusR
 			if metadataErr != nil {
 				return nil, fmt.Errorf(
 					"decode recorded worktree metadata for %q: %w",
-					strings.TrimSpace(target.Worktree.ID),
+					strings.TrimSpace(target.Worktree.Id),
 					metadataErr,
 				)
 			}
@@ -51,17 +51,13 @@ func (s *Service) GetWorktreeStatus(ctx context.Context, req *worktreepb.StatusR
 		default:
 			return nil, fmt.Errorf(
 				"resolve recorded worktree metadata for %q: %w",
-				strings.TrimSpace(target.Worktree.ID),
+				strings.TrimSpace(target.Worktree.Id),
 				err,
 			)
 		}
 	}
-	projectedTarget, err := contractSessionExecutionTarget(target)
-	if err != nil {
-		return nil, err
-	}
 	response := &worktreepb.StatusSuccess{
-		Target:   projectedTarget,
+		Target:   target,
 		Worktree: status,
 		Problems: []*worktreepb.StatusProblem{},
 	}

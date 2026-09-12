@@ -9,12 +9,16 @@ import (
 	"sync"
 
 	"core/server/metadata"
+	"core/server/promptcontrol"
 	"core/server/runtime"
 	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/server/sessionruntime"
 	servicecontract "core/shared/apicontract"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -22,11 +26,11 @@ import (
 )
 
 type RuntimeActivityResolver interface {
-	RuntimeReadModelFeedSnapshot(ctx context.Context, sessionID string) (clientui.RuntimeReadModelUpdate, error)
+	RuntimeReadModelFeedSnapshot(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error)
 }
 
 type sessionSettingPublisher interface {
-	PublishSessionSettingFeedback(sessionID string, feedback clientui.TranscriptSessionSettingFeedback) error
+	PublishSessionSettingFeedback(sessionID string, feedback *transcriptpb.SessionSettingFeedback) error
 }
 
 type PromptHistoryStore interface {
@@ -63,14 +67,13 @@ type Service struct {
 	reactivator    WorkflowSessionReactivator
 	preparations   WorkflowSessionPreparationReader
 	persisted      session.PersistedSessionResolver
-	askViews       servicecontract.AskViewService
-	approvalViews  servicecontract.ApprovalViewService
+	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
 }
 
 type sessionUserTurnRequest struct {
 	SessionID string
-	Kind      serverapi.RuntimeUserTurnInputKind
+	Kind      runtimeinput.Kind
 	Text      string
 	Name      string
 	Arguments string
@@ -184,9 +187,9 @@ func (s *Service) WithPersistedSessionResolver(resolver session.PersistedSession
 	return s
 }
 
-func (s *Service) WithLiveWatchPromptSources(asks servicecontract.AskViewService, approvals servicecontract.ApprovalViewService, attention servicecontract.AttentionNotificationService) *Service {
+func (s *Service) WithLiveWatchPromptSources(prompts promptcontrol.PendingPromptSource, attention servicecontract.AttentionNotificationService) *Service {
 	if s != nil {
-		s.askViews, s.approvalViews, s.attention = asks, approvals, attention
+		s.pendingPrompts, s.attention = prompts, attention
 	}
 	return s
 }
@@ -308,35 +311,38 @@ func runRuntimeCommand[Resp any](
 	return response, err
 }
 
-func (s *Service) SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error {
-	if err := req.Validate(); err != nil {
+func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionNameRequest) error {
+	if err := protoapi.Validate(req); err != nil {
 		return err
 	}
-	return s.withRuntime(ctx, req.SessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
+	return s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		changed, err := engine.SetSessionName(callbackCtx, req.Name)
 		if err != nil {
 			return err
 		}
 		if publisher, ok := s.activity.(sessionSettingPublisher); ok {
 			name := strings.TrimSpace(req.Name)
-			return publisher.PublishSessionSettingFeedback(req.SessionID, clientui.TranscriptSessionSettingFeedback{
-				Kind:        clientui.SessionSettingSessionName,
-				Changed:     changed,
-				SessionName: &name,
+			return publisher.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
+				Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
+				Changed: changed,
+				Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: name},
 			})
 		}
 		return nil
 	})
 }
 
-func (s *Service) AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
-	if err := req.Validate(); err != nil {
+func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error {
+	if err := protoapi.Validate(req); err != nil {
 		return err
 	}
-	visibility := transcript.NormalizeEntryVisibility(transcript.EntryVisibility(req.Visibility))
-	return s.withRuntime(ctx, req.SessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		if visibility == transcript.EntryVisibilityAuto && strings.TrimSpace(req.NoticeID) != "" {
-			return engine.AppendCommittedEntryWithNoticeID(callbackCtx, req.Role, req.Text, req.NoticeID)
+	visibility, err := protoapi.AppendVisibilityFromProto(req.Visibility)
+	if err != nil {
+		return err
+	}
+	return s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
+		if visibility == transcript.EntryVisibilityAuto && strings.TrimSpace(req.GetNoticeId()) != "" {
+			return engine.AppendCommittedEntryWithNoticeID(callbackCtx, req.Role, req.Text, req.GetNoticeId())
 		}
 		if visibility == transcript.EntryVisibilityAuto {
 			return engine.AppendCommittedEntry(callbackCtx, req.Role, req.Text)
@@ -363,30 +369,30 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 	})
 }
 
-func (s *Service) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{}, err
+func (s *Service) ShouldCompactBeforeUserMessage(ctx context.Context, req *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	var shouldCompact bool
-	err := s.withRuntime(ctx, req.SessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
+	err := s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		var err error
 		shouldCompact, err = engine.ShouldCompactBeforeUserMessage(callbackCtx, req.Text)
 		return err
 	})
 	if err != nil {
-		return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{}, err
+		return nil, err
 	}
-	return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{ShouldCompact: shouldCompact}, nil
+	return &runtimepb.ShouldCompactSuccess{ShouldCompact: shouldCompact}, nil
 }
 
-func (s *Service) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
-	if err := req.Validate(); err != nil {
+func (s *Service) SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error {
+	if err := protoapi.Validate(req); err != nil {
 		return err
 	}
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), req.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+		commandErr := s.runAgentExecution(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
 			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, req.Command, attempt.Accept)
 			return err
 		})
@@ -395,14 +401,14 @@ func (s *Service) SubmitUserShellCommand(ctx context.Context, req serverapi.Runt
 	return err
 }
 
-func (s *Service) CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error {
-	if err := req.Validate(); err != nil {
+func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error {
+	if err := protoapi.Validate(req); err != nil {
 		return err
 	}
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), req.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+		commandErr := s.runAgentExecution(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
 			return admitManualCompaction(runCtx, engine, req, attempt.Accept)
 		})
 		return struct{}{}, attempt.Accepted(), commandErr
@@ -412,14 +418,14 @@ func (s *Service) CompactContext(ctx context.Context, req serverapi.RuntimeCompa
 
 func (s *Service) AdmitManualCompaction(
 	ctx context.Context,
-	req serverapi.RuntimeCompactContextRequest,
+	req *runtimepb.CompactContextRequest,
 ) (bool, error) {
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return false, err
 	}
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
-	commandErr := s.withRuntime(attempt.Context(), req.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+	commandErr := s.withRuntime(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
 		workflowState, stateErr := engine.WorkflowSessionState()
 		if stateErr != nil {
 			return stateErr
@@ -436,34 +442,38 @@ func (s *Service) AdmitManualCompaction(
 func admitManualCompaction(
 	ctx context.Context,
 	engine *runtime.Engine,
-	req serverapi.RuntimeCompactContextRequest,
+	req *runtimepb.CompactContextRequest,
 	accept runtime.CommandAcceptance,
 ) error {
-	_, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	requestID, err := runtimeids.ParseCompactionRequestID(req.RequestId)
+	if err != nil {
+		return err
+	}
+	_, err = engine.CompactContextAdmissionForRequestWithAcceptance(
 		ctx,
-		req.RequestID,
-		req.Admission,
+		requestID,
+		protoapi.ManualCompactionAdmissionFromProto(req.Admission),
 		accept,
 	)
 	return err
 }
 
-func (s *Service) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRequest) (serverapi.RuntimeInterruptResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeInterruptResponse{}, err
+func (s *Service) Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	if s == nil || s.authority == nil {
-		return serverapi.RuntimeInterruptResponse{}, errors.New("session runtime authority is required")
+		return nil, errors.New("session runtime authority is required")
 	}
-	sessionID := strings.TrimSpace(req.SessionID)
+	sessionID := strings.TrimSpace(req.SessionId)
 	return s.interrupt(ctx, sessionID)
 }
 
-func (s *Service) interrupt(ctx context.Context, sessionID string) (serverapi.RuntimeInterruptResponse, error) {
+func (s *Service) interrupt(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	id, err := runtimeids.ParseSessionID(sessionID)
 	if err != nil {
-		return serverapi.RuntimeInterruptResponse{}, err
+		return nil, err
 	}
 	interrupted, err := s.authority.InterruptCurrentAgentTurn(ctx, id, nil)
 	if err == nil && !interrupted {
@@ -476,13 +486,13 @@ func (s *Service) interrupt(ctx context.Context, sessionID string) (serverapi.Ru
 		err = serverapi.NewRuntimeCommandNotAcceptedError(err)
 	}
 	if err != nil {
-		return serverapi.RuntimeInterruptResponse{}, err
+		return nil, err
 	}
 	return s.runtimeInterruptResponse(ctx, sessionID)
 }
 
-func (s *Service) runtimeInterruptResponse(ctx context.Context, sessionID string) (serverapi.RuntimeInterruptResponse, error) {
-	var snapshot clientui.RuntimeReadModelUpdate
+func (s *Service) runtimeInterruptResponse(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
+	var snapshot *runtimepb.ReadModelUpdate
 	var err error
 	if s.activity != nil {
 		snapshot, err = s.activity.RuntimeReadModelFeedSnapshot(ctx, sessionID)
@@ -492,62 +502,82 @@ func (s *Service) runtimeInterruptResponse(ctx context.Context, sessionID string
 	if err != nil {
 		slog.WarnContext(ctx, "runtime interrupt activity snapshot unavailable", "session_id", sessionID, "error", err)
 		version := runtimeactivity.NextReadModelVersion(sessionID)
-		return serverapi.RuntimeInterruptResponse{
+		return &runtimepb.ReadModelUpdate{
 			Version: version,
-			Activity: clientui.RuntimeActivity{
-				State:              clientui.RuntimeActivityUnavailable,
-				Reviewer:           clientui.ReviewerActivityInactive,
+			Activity: &runtimepb.Activity{
+				State:              runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
+				Reviewer:           runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 				DiagnosticRecovery: true,
 			},
 		}, nil
 	}
-	return serverapi.RuntimeInterruptResponse{
+	return &runtimepb.ReadModelUpdate{
 		Version:  snapshot.Version,
 		Activity: snapshot.Activity,
 	}, nil
 }
 
-func (s *Service) ListPendingWork(ctx context.Context, req serverapi.RuntimeListPendingWorkRequest) (serverapi.RuntimeListPendingWorkResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeListPendingWorkResponse{}, err
+func (s *Service) ListPendingWork(ctx context.Context, req *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	var response serverapi.RuntimeListPendingWorkResponse
-	err := s.withRuntime(ctx, req.SessionID, func(_ context.Context, engine *runtime.Engine) error {
+	var pending runtimeinput.PendingWork
+	err := s.withRuntime(ctx, req.SessionId, func(_ context.Context, engine *runtime.Engine) error {
 		var snapshotErr error
-		response.PendingWork, snapshotErr = engine.PendingWorkSnapshot()
+		pending, snapshotErr = engine.PendingWorkSnapshot()
 		return snapshotErr
 	})
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		return serverapi.RuntimeListPendingWorkResponse{
-			PendingWork: serverapi.PendingWork{Items: []serverapi.PendingWorkItem{}},
+		return &runtimepb.ListPendingWorkSuccess{
+			PendingWork: &runtimepb.PendingWork{},
 		}, nil
 	}
-	return response, err
+	if err != nil {
+		return nil, err
+	}
+	work, err := protoapi.PendingWorkToProto(pending)
+	if err != nil {
+		return nil, err
+	}
+	return &runtimepb.ListPendingWorkSuccess{PendingWork: work}, nil
 }
 
-func (s *Service) RemovePendingWork(ctx context.Context, req serverapi.RuntimeRemovePendingWorkRequest) (serverapi.RuntimeRemovePendingWorkResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeRemovePendingWorkResponse{}, err
+func (s *Service) RemovePendingWork(ctx context.Context, req *runtimepb.RemovePendingWorkRequest) (*runtimepb.RemovePendingWorkSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	var response serverapi.RuntimeRemovePendingWorkResponse
-	err := s.withRuntime(ctx, req.SessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
+	itemID, err := runtimeids.ParseQueueItemID(req.ItemId)
+	if err != nil {
+		return nil, err
+	}
+	var restoration runtimeinput.PendingWorkRestoration
+	err = s.withRuntime(ctx, req.SessionId, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		var removeErr error
-		response.Restoration, removeErr = engine.RemovePendingWork(callbackCtx, req.ItemID)
+		restoration, removeErr = engine.RemovePendingWork(callbackCtx, itemID)
 		var notPending *runtimeinput.PendingWorkRemovalError
 		if errors.As(removeErr, &notPending) {
 			return &serverapi.PendingWorkNotPendingError{ItemID: notPending.ItemID}
 		}
 		return removeErr
 	})
-	return response, err
+	if err != nil {
+		return nil, err
+	}
+	kind, err := protoapi.PendingWorkKindToProto(restoration.Kind)
+	if err != nil {
+		return nil, err
+	}
+	return &runtimepb.RemovePendingWorkSuccess{Restoration: &runtimepb.PendingWorkRestoration{
+		Kind: kind, CanonicalInput: restoration.CanonicalInput,
+	}}, nil
 }
 
-func (s *Service) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {
-	if err := req.Validate(); err != nil {
+func (s *Service) RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error {
+	if err := protoapi.Validate(req); err != nil {
 		return err
 	}
-	return s.withRuntime(ctx, req.SessionID, func(_ context.Context, _ *runtime.Engine) error {
-		_, err := s.recordPromptHistory(ctx, strings.TrimSpace(req.SessionID), req.Text)
+	return s.withRuntime(ctx, req.SessionId, func(_ context.Context, _ *runtime.Engine) error {
+		_, err := s.recordPromptHistory(ctx, strings.TrimSpace(req.SessionId), req.Text)
 		return err
 	})
 }

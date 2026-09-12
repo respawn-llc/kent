@@ -15,15 +15,6 @@ func (r AttentionNotificationSubscribeRequest) Validate() error {
 	return nil
 }
 
-type AttentionSessionNotificationSubscribeRequest struct {
-	SessionID                    string `json:"session_id"`
-	IncludePendingPromptSnapshot bool   `json:"include_pending_prompt_snapshot,omitempty"`
-}
-
-func (r AttentionSessionNotificationSubscribeRequest) Validate() error {
-	return validateRequiredSessionID(r.SessionID)
-}
-
 type AttentionNotificationSubscription interface {
 	Next(context.Context) (clientui.AttentionNotificationEvent, error)
 	Close() error

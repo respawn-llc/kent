@@ -1,17 +1,16 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"context"
-	"errors"
-	"testing"
-	"time"
-
 	"core/cli/app/commands"
-	"core/shared/clientui"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
-
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
+	"testing"
+	"time"
 )
 
 type deadlineAuthStatusClient struct {
@@ -323,8 +322,7 @@ func TestSlashCommandPickerAuthRefreshUsesBoundedStatusTimeout(t *testing.T) {
 
 func TestSlashCommandPickerAlwaysShowsCopyWithoutReadingCachedRuntimeStatus(t *testing.T) {
 	client := &runtimeControlFakeClient{
-		status: clientui.RuntimeStatus{LastCommittedAssistantFinalAnswer: textutil.Value("done")},
-	}
+		status: &runtimepb.Status{LastCommittedAssistantFinalAnswer: textutil.Value("done")}}
 	m := newProjectedTestUIModel(client)
 	testSetMainInput(m, "/co")
 	m.refreshSlashCommandFilterFromInputWithAuth(true)

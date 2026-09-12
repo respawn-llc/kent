@@ -1,11 +1,16 @@
 package app
 
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"time"
 
 	"core/cli/tui"
 	tuiinput "core/cli/tui/input"
-	"core/shared/clientui"
 )
 
 type uiInputMode string
@@ -41,7 +46,7 @@ type uiAskState struct {
 type uiProcessListState struct {
 	open              bool
 	selection         int
-	entries           []clientui.BackgroundProcess
+	entries           []*processpb.BackgroundProcess
 	loading           bool
 	errorText         string
 	refreshToken      uint64
@@ -69,7 +74,7 @@ type rollbackCandidate struct {
 type uiRollbackPageNavigation struct {
 	direction                tui.DetailTranscriptPageDirection
 	anchorRollbackTargetID   string
-	request                  clientui.TranscriptPageRequest
+	request                  *transcriptpb.PageRequest
 	deadline                 time.Time
 	skippedCandidateFreePage bool
 }
@@ -99,7 +104,7 @@ type uiStatusOverlayState struct {
 type uiGoalOverlayState struct {
 	open             bool
 	scroll           int
-	goal             *clientui.Goal
+	goal             *runtimepb.Goal
 	confirmMode      string
 	confirmSelection int
 	pendingObjective string

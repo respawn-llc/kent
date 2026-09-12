@@ -22,7 +22,7 @@ export async function activateRuntime(
     }),
   );
   const plan = requireUnarySuccess(planMethod, result).plan;
-  if (plan === undefined || plan.sessionId !== sessionID)
+  if (plan?.sessionId !== sessionID)
     throw new ContractError("Session Plan does not match the requested Session.");
   try {
     const method = SessionRuntimeService.method.activate;
@@ -42,7 +42,7 @@ export async function activateRuntime(
         }),
       ),
     );
-    if (response.attachment === undefined || response.attachment.sessionId !== sessionID)
+    if (response.attachment?.sessionId !== sessionID)
       throw new ContractError("Runtime activation does not match the requested Session.");
     return { sessionID: response.attachment.sessionId, generation: Number(response.attachment.generation) };
   } catch (error) {

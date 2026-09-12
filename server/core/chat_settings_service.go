@@ -10,9 +10,10 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/sessionlaunch"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type chatSettingsService struct {
@@ -21,45 +22,51 @@ type chatSettingsService struct {
 
 func (s chatSettingsService) ReadChatSettings(
 	ctx context.Context,
-	req serverapi.ChatSettingsReadRequest,
-) (serverapi.ChatSettingsReadResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+	req *chatsettingspb.ReadRequest,
+) (*chatsettingspb.ReadSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	switch req.Target.TargetKind {
-	case serverapi.ChatSettingsReadTargetNewChat:
-		projectCtx, err := s.core.resolveProjectContext(ctx, *req.Target.ProjectID, *req.Target.WorkspaceID, "")
+	switch target := req.Target.(type) {
+	case *chatsettingspb.ReadRequest_NewChat:
+		projectCtx, err := s.core.resolveProjectContext(ctx, target.NewChat.ProjectId, target.NewChat.WorkspaceId, "")
 		if err != nil {
-			return serverapi.ChatSettingsReadResponse{}, err
+			return nil, err
 		}
 		return s.core.sessionLaunchServiceForProjectContext(projectCtx).NewChatSettings(ctx)
-	case serverapi.ChatSettingsReadTargetSession:
-		sessionID := *req.Target.Session
+	case *chatsettingspb.ReadRequest_Session:
+		sessionID, err := runtimeids.ParseSessionID(target.Session.SessionId)
+		if err != nil {
+			return nil, err
+		}
 		service, err := s.sessionSettingsService(ctx, sessionID.String())
 		if err != nil {
-			return serverapi.ChatSettingsReadResponse{}, err
+			return nil, err
 		}
 		return service.SessionChatSettings(ctx, sessionID)
 	default:
-		return serverapi.ChatSettingsReadResponse{}, errors.New("Chat settings target kind is invalid")
+		return nil, errors.New("Chat settings target kind is invalid")
 	}
 }
 func (s chatSettingsService) MutateChatSettings(
 	ctx context.Context,
-	req serverapi.ChatSettingsMutationRequest,
-) (serverapi.ChatSettingsMutationResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
+	req *chatsettingspb.MutationRequest,
+) (*chatsettingspb.MutationSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
-	result := serverapi.NewChatSettingsMutationApplied(false)
-	return s.mutateSessionChatSettings(ctx, req.SessionID, req.Operation, result)
+	sessionID, err := runtimeids.ParseSessionID(req.Session.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	return s.mutateSessionChatSettings(ctx, sessionID, req.Operation)
 }
 func (s chatSettingsService) mutateSessionChatSettings(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-	operation serverapi.ChatSettingsMutationOperation,
-	result serverapi.ChatSettingsMutationResult,
-) (serverapi.ChatSettingsMutationResponse, error) {
+	operation *chatsettingspb.MutationOperation,
+) (*chatsettingspb.MutationSuccess, error) {
+	result := &chatsettingspb.MutationResult{Outcome: &chatsettingspb.MutationResult_Applied{Applied: &chatsettingspb.MutationApplied{}}}
 	authority := s.core.safeBundles().Runtime.runtimeAuthority
 	var changed bool
 	err := authority.WithSessionChatSettings(ctx, sessionID.String(), func(
@@ -80,7 +87,7 @@ func (s chatSettingsService) mutateSessionChatSettings(
 			return false, err
 		}
 		if projected.Rejection != nil {
-			result = serverapi.NewChatSettingsMutationRejected(projected.Rejection.Reason)
+			result.Outcome = &chatsettingspb.MutationResult_Rejected{Rejected: projected.Rejection}
 			return false, nil
 		}
 		if engine != nil && projected.State.Agent == input.Raw.Agent {
@@ -112,27 +119,27 @@ func (s chatSettingsService) mutateSessionChatSettings(
 		return projected.State.Agent != input.Raw.Agent && changed, nil
 	})
 	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
+		return nil, err
 	}
-	if result.Applied != nil {
-		result.Applied.Changed = changed
+	if applied := result.GetApplied(); applied != nil {
+		applied.Changed = changed
 	}
 	responseCtx := context.WithoutCancel(ctx)
 	service, err := s.sessionSettingsService(responseCtx, sessionID.String())
 	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
+		return nil, err
 	}
 	settings, err := service.SessionChatSettings(responseCtx, sessionID)
 	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
+		return nil, err
 	}
 	contextFacts, err := s.core.safeBundles().Sessions.sessionContextOwner.ReadSessionChatContext(responseCtx, sessionID)
 	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
+		return nil, err
 	}
-	if result.Kind == serverapi.ChatSettingsMutationApplied {
+	if result.GetApplied() != nil {
 		registry := s.core.safeBundles().Runtime.runtimeRegistry
-		feedback, publishFeedback, feedbackErr := transcriptSessionSettingFeedback(operation, changed, settings.Session.Settings)
+		feedback, publishFeedback, feedbackErr := transcriptSessionSettingFeedback(operation, changed, settings.GetSession().Settings)
 		if feedbackErr != nil {
 			slog.ErrorContext(
 				responseCtx,
@@ -157,43 +164,46 @@ func (s chatSettingsService) mutateSessionChatSettings(
 			)
 		}
 	}
-	return serverapi.ChatSettingsMutationResponse{Result: result, Settings: settings.Session.Settings, Session: &settings.Session.Session, Context: contextFacts}, nil
+	return &chatsettingspb.MutationSuccess{Result: result, Settings: settings.GetSession().Settings, Session: settings.GetSession().Session, Context: contextFacts}, nil
 }
 
 func transcriptSessionSettingFeedback(
-	operation serverapi.ChatSettingsMutationOperation,
+	operation *chatsettingspb.MutationOperation,
 	changed bool,
-	settings serverapi.ChatSettings,
-) (clientui.TranscriptSessionSettingFeedback, bool, error) {
-	feedback := clientui.TranscriptSessionSettingFeedback{Changed: changed}
-	switch operation.Kind {
-	case serverapi.ChatSettingsMutationAgent:
-		return clientui.TranscriptSessionSettingFeedback{}, false, nil
-	case serverapi.ChatSettingsMutationSupervisor:
-		value := string(settings.Supervisor.Value)
-		feedback.Kind = clientui.SessionSettingSupervisor
-		feedback.Supervisor = &value
-	case serverapi.ChatSettingsMutationThinking:
-		value := strings.TrimSpace(settings.SelectedAgent.Thinking)
-		feedback.Kind = clientui.SessionSettingThinking
-		feedback.Thinking = &value
-	case serverapi.ChatSettingsMutationFast:
-		if settings.Fast == nil {
-			return clientui.TranscriptSessionSettingFeedback{}, false, errors.New("applied Fast setting has no authoritative value")
+	settings *chatsettingspb.Settings,
+) (*transcriptpb.SessionSettingFeedback, bool, error) {
+	feedback := &transcriptpb.SessionSettingFeedback{Changed: changed}
+	switch operation.Operation.(type) {
+	case *chatsettingspb.MutationOperation_AgentRole:
+		return nil, false, nil
+	case *chatsettingspb.MutationOperation_Supervisor:
+		value, err := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
+		if err != nil {
+			return nil, false, err
 		}
-		feedback.Kind = clientui.SessionSettingFastMode
-		feedback.FastMode = &settings.Fast.Value
-	case serverapi.ChatSettingsMutationQuestions:
-		feedback.Kind = clientui.SessionSettingQuestions
-		feedback.Questions = &settings.Questions.Enabled
-	case serverapi.ChatSettingsMutationAutoCompaction:
-		feedback.Kind = clientui.SessionSettingAutoCompaction
-		feedback.AutoCompaction = &settings.AutoCompaction.Stored
+		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR
+		feedback.Value = &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: value}
+	case *chatsettingspb.MutationOperation_Thinking:
+		value := strings.TrimSpace(settings.SelectedAgent.Thinking)
+		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING
+		feedback.Value = &transcriptpb.SessionSettingFeedback_Thinking{Thinking: value}
+	case *chatsettingspb.MutationOperation_FastEnabled:
+		if settings.Fast == nil {
+			return nil, false, errors.New("applied Fast setting has no authoritative value")
+		}
+		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE
+		feedback.Value = &transcriptpb.SessionSettingFeedback_FastMode{FastMode: settings.Fast.Value}
+	case *chatsettingspb.MutationOperation_QuestionsEnabled:
+		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS
+		feedback.Value = &transcriptpb.SessionSettingFeedback_Questions{Questions: settings.Questions.Enabled}
+	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
+		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION
+		feedback.Value = &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: settings.AutoCompaction.Stored}
 	default:
-		return clientui.TranscriptSessionSettingFeedback{}, false, errors.New("applied Chat settings operation kind is invalid")
+		return nil, false, errors.New("applied Chat settings operation kind is invalid")
 	}
-	if err := feedback.Validate(); err != nil {
-		return clientui.TranscriptSessionSettingFeedback{}, false, err
+	if err := protoapi.Validate(feedback); err != nil {
+		return nil, false, err
 	}
 	return feedback, true, nil
 }

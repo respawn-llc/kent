@@ -2,21 +2,22 @@ package app
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
-	"testing"
-
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"errors"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"os"
+	"path/filepath"
+	"testing"
 )
 
 func sessionLifecycleStringPtr(value string) *string { return &value }
@@ -77,14 +78,10 @@ func TestMaybeHandlePickedSessionWorkspaceChangeCanonicalizesAliases(t *testing.
 		context.Background(),
 		&remoteAppServer{
 			cfg:      config.App{WorkspaceRoot: aliasRoot, Settings: config.Settings{Theme: "dark"}},
-			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: aliasRoot, theme: "dark"},
-		},
-		"session-1",
-		clientui.SessionExecutionTarget{
+			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: aliasRoot, theme: "dark"}},
+		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         realRoot,
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err != nil {
 		t.Fatalf("maybeHandlePickedSessionWorkspaceChange: %v", err)
 	}
@@ -106,14 +103,10 @@ func TestMaybeHandlePickedSessionWorkspaceChangeUsesRemoteServerBindingRoot(t *t
 		context.Background(),
 		&remoteAppServer{
 			cfg:      config.App{WorkspaceRoot: "/source-client-workspace", Settings: config.Settings{Theme: "dark"}},
-			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: "/active-server-workspace", theme: "dark"},
-		},
-		"session-1",
-		clientui.SessionExecutionTarget{
+			retarget: &sessionWorkspaceRetargetContext{workspaceRoot: "/active-server-workspace", theme: "dark"}},
+		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         "/target-server-workspace",
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err != nil {
 		t.Fatalf("maybeHandlePickedSessionWorkspaceChange: %v", err)
 	}
@@ -126,12 +119,9 @@ func TestMaybeHandlePickedSessionWorkspaceChangeRejectsMissingBindingContext(t *
 	_, err := maybeHandlePickedSessionWorkspaceChange(
 		context.Background(),
 		narrowSessionLifecycleServer{},
-		"session-1",
-		clientui.SessionExecutionTarget{
+		"session-1", &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:         "/target-server-workspace",
-			WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		},
-	)
+			WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE})
 	if err == nil {
 		t.Fatal("expected missing workspace retarget context error")
 	}

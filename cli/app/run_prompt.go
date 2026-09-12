@@ -34,17 +34,17 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		Timeout:         timeout,
 		Overrides:       runPromptOverridesFromOptions(opts),
 	}, progress)
+	if response == nil && err != nil {
+		return RunPromptResult{}, err
+	}
 	result := RunPromptResult{
-		SessionID:   response.SessionID,
+		SessionID:   response.SessionId,
 		SessionName: response.SessionName,
 		Result:      response.Result,
-		Duration:    response.Duration,
+		Duration:    response.Duration.AsDuration(),
 		Warnings:    append([]string(nil), response.Warnings...),
 	}
-	if err != nil {
-		return result, err
-	}
-	return result, nil
+	return result, err
 }
 
 func runPromptCallerSessionID(opts Options, caller startupconfig.CallerContext) *string {

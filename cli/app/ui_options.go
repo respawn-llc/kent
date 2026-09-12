@@ -1,5 +1,7 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"fmt"
 	"strings"
@@ -107,7 +109,7 @@ func WithUIThinkingLevel(thinkingLevel string) UIOption {
 	}
 }
 
-func WithUIConversationFreshness(freshness clientui.ConversationFreshness) UIOption {
+func WithUIConversationFreshness(freshness runtimepb.ConversationFreshness) UIOption {
 	return func(m *uiModelConstruction) {
 		m.conversationFreshness = freshness
 	}

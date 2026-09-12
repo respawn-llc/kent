@@ -6,105 +6,106 @@ import (
 	"sync/atomic"
 
 	"core/shared/apicontract"
-	"core/shared/clientui"
-	"core/shared/serverapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type countingSessionViewClient struct {
 	apicontract.SessionViewService
-	view            clientui.RuntimeMainView
-	page            clientui.TranscriptPage
+	view            *runtimepb.MainView
+	page            *transcriptpb.Page
 	count           atomic.Int32
 	mainViewCount   atomic.Int32
 	pageCount       atomic.Int32
-	lastMainViewReq serverapi.SessionMainViewRequest
-	lastPageReq     serverapi.SessionTranscriptPageRequest
-	lastFinalReq    serverapi.SessionLatestCommittedAssistantFinalAnswerRequest
+	lastMainViewReq *sessionpb.MainViewRequest
+	lastPageReq     *transcriptpb.PageRequest
+	lastFinalReq    *transcriptpb.LatestFinalAnswerRequest
 	finalAnswer     *string
 	finalAnswerErr  error
 }
 
-func (c *countingSessionViewClient) GetSessionMainView(_ context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
+func (c *countingSessionViewClient) GetSessionMainView(_ context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	c.lastMainViewReq = req
 	c.count.Add(1)
 	c.mainViewCount.Add(1)
-	return serverapi.SessionMainViewResponse{MainView: c.view}, nil
+	return &sessionpb.MainViewSuccess{MainView: c.view}, nil
 }
 
-func (c *countingSessionViewClient) GetSessionTranscriptPage(_ context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
+func (c *countingSessionViewClient) GetSessionTranscriptPage(_ context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
 	c.lastPageReq = req
 	c.pageCount.Add(1)
-	return serverapi.SessionTranscriptPageResponse{Transcript: c.page}, nil
+	return &transcriptpb.PageSuccess{Transcript: c.page}, nil
 }
 
-func (c *countingSessionViewClient) GetLatestCommittedAssistantFinalAnswer(_ context.Context, req serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
+func (c *countingSessionViewClient) GetLatestCommittedAssistantFinalAnswer(_ context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
 	c.lastFinalReq = req
 	if c.finalAnswerErr != nil {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, c.finalAnswerErr
+		return &transcriptpb.LatestFinalAnswerSuccess{}, c.finalAnswerErr
 	}
-	return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{Answer: c.finalAnswer}, nil
+	return &transcriptpb.LatestFinalAnswerSuccess{Answer: c.finalAnswer}, nil
 }
 
-func (c *countingSessionViewClient) GetSessionExecutionEnvironment(context.Context, serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
-	return serverapi.SessionExecutionEnvironmentResponse{}, nil
+func (c *countingSessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
+	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
 }
 
 type controlledTranscriptPageResult struct {
-	response serverapi.SessionTranscriptPageResponse
+	response *transcriptpb.PageSuccess
 	err      error
 }
 
 type controlledTranscriptPageClient struct {
 	apicontract.SessionViewService
-	started chan serverapi.SessionTranscriptPageRequest
+	started chan *transcriptpb.PageRequest
 	results chan controlledTranscriptPageResult
 }
 
 func newControlledTranscriptPageClient() *controlledTranscriptPageClient {
 	return &controlledTranscriptPageClient{
-		started: make(chan serverapi.SessionTranscriptPageRequest, 8),
+		started: make(chan *transcriptpb.PageRequest, 8),
 		results: make(chan controlledTranscriptPageResult, 8),
 	}
 }
 
-func (c *controlledTranscriptPageClient) GetSessionMainView(context.Context, serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-	return serverapi.SessionMainViewResponse{}, nil
+func (c *controlledTranscriptPageClient) GetSessionMainView(context.Context, *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
+	return &sessionpb.MainViewSuccess{}, nil
 }
 
-func (c *controlledTranscriptPageClient) GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
+func (c *controlledTranscriptPageClient) GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
 	c.started <- req
 	select {
 	case result := <-c.results:
 		return result.response, result.err
 	case <-ctx.Done():
-		return serverapi.SessionTranscriptPageResponse{}, ctx.Err()
+		return &transcriptpb.PageSuccess{}, ctx.Err()
 	}
 }
 
-func (c *controlledTranscriptPageClient) GetLatestCommittedAssistantFinalAnswer(context.Context, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
-	return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, nil
+func (c *controlledTranscriptPageClient) GetLatestCommittedAssistantFinalAnswer(context.Context, *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
+	return &transcriptpb.LatestFinalAnswerSuccess{}, nil
 }
 
-func (c *controlledTranscriptPageClient) GetSessionExecutionEnvironment(ctx context.Context, _ serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
+func (c *controlledTranscriptPageClient) GetSessionExecutionEnvironment(ctx context.Context, _ *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
 	<-ctx.Done()
-	return serverapi.SessionExecutionEnvironmentResponse{}, ctx.Err()
+	return &sessionpb.ExecutionEnvironmentSuccess{}, ctx.Err()
 }
 
 type flakySessionViewClient struct {
 	apicontract.SessionViewService
 	mu        sync.Mutex
-	responses []serverapi.SessionMainViewResponse
+	responses []*sessionpb.MainViewSuccess
 	errs      []error
 	count     int
 }
 
-func (c *flakySessionViewClient) GetSessionMainView(context.Context, serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
+func (c *flakySessionViewClient) GetSessionMainView(context.Context, *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	idx := c.count
 	c.count++
 	if idx < len(c.errs) && c.errs[idx] != nil {
-		return serverapi.SessionMainViewResponse{}, c.errs[idx]
+		return &sessionpb.MainViewSuccess{}, c.errs[idx]
 	}
 	if idx < len(c.responses) {
 		return c.responses[idx], nil
@@ -112,17 +113,17 @@ func (c *flakySessionViewClient) GetSessionMainView(context.Context, serverapi.S
 	if len(c.responses) > 0 {
 		return c.responses[len(c.responses)-1], nil
 	}
-	return serverapi.SessionMainViewResponse{}, nil
+	return &sessionpb.MainViewSuccess{}, nil
 }
 
-func (c *flakySessionViewClient) GetSessionTranscriptPage(context.Context, serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-	return serverapi.SessionTranscriptPageResponse{}, nil
+func (c *flakySessionViewClient) GetSessionTranscriptPage(context.Context, *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
+	return &transcriptpb.PageSuccess{}, nil
 }
 
-func (c *flakySessionViewClient) GetLatestCommittedAssistantFinalAnswer(context.Context, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
-	return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, nil
+func (c *flakySessionViewClient) GetLatestCommittedAssistantFinalAnswer(context.Context, *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
+	return &transcriptpb.LatestFinalAnswerSuccess{}, nil
 }
 
-func (c *flakySessionViewClient) GetSessionExecutionEnvironment(context.Context, serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
-	return serverapi.SessionExecutionEnvironmentResponse{}, nil
+func (c *flakySessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
+	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
 }

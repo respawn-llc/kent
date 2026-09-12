@@ -16,14 +16,21 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	processpb "core/shared/protoapi/gen/kent/api/process"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func TestRoutePolicyAuthPolicyHandlesBlankAndUnknownMethods(t *testing.T) {
@@ -64,7 +71,7 @@ func TestRoutePolicyAllowsStatelessScopesWithoutGateway(t *testing.T) {
 		method string
 		params any
 	}{
-		{name: "notification", method: protocol.MethodRunPromptProgress, params: serverapi.RunPromptProgress{}},
+		{name: "notification", method: protocol.MethodWorkflowComplete, params: protocol.StreamCompleteParams{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := executor.authorizeScope(context.Background(), &connectionState{}, routeForTest(t, tc.method), tc.params); err != nil {
@@ -270,26 +277,21 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	executor := newRoutePolicyExecutor(fixture.gateway)
 	ctx := context.Background()
 
-	activeRoute := routeForTest(t, protocol.MethodSessionGetMainView)
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, activeRoute, serverapi.SessionMainViewRequest{SessionID: fixture.ownSessionID}); err != nil {
-		t.Fatalf("active project own session: %v", err)
-	}
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, activeRoute, serverapi.SessionMainViewRequest{SessionID: fixture.foreignSessionID}); err == nil {
-		t.Fatal("active project foreign session unexpectedly allowed")
-	}
-	transcriptPageRoute := routeForTest(t, protocol.MethodSessionGetTranscriptPage)
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, transcriptPageRoute, serverapi.SessionTranscriptPageRequest{SessionID: fixture.ownSessionID}); err != nil {
-		t.Fatalf("active project own transcript page: %v", err)
-	}
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, transcriptPageRoute, serverapi.SessionTranscriptPageRequest{SessionID: fixture.foreignSessionID}); err == nil {
-		t.Fatal("active project foreign transcript page unexpectedly allowed")
-	}
-	latestFinalRoute := routeForTest(t, protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer)
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, latestFinalRoute, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: fixture.ownSessionID}); err != nil {
-		t.Fatalf("active project own latest final answer: %v", err)
-	}
-	if err := executor.authorizeScope(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, latestFinalRoute, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: fixture.foreignSessionID}); err == nil {
-		t.Fatal("active project foreign latest final answer unexpectedly allowed")
+	for _, method := range []protoreflect.MethodDescriptor{
+		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
+		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetPage"),
+		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetLatestFinalAnswer"),
+	} {
+		operation, err := protoapi.OperationFromDescriptor(method)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: fixture.ownSessionID}); err != nil {
+			t.Fatalf("active project own Session %s: %v", operation.Name, err)
+		}
+		if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedProject: fixture.bindingA.ProjectID}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: fixture.foreignSessionID}); err == nil {
+			t.Fatalf("active project foreign Session %s unexpectedly allowed", operation.Name)
+		}
 	}
 	draftOperation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("PersistInputDraft"))
 	if err != nil {
@@ -330,33 +332,38 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	); err == nil {
 		t.Fatal("unrelated foreign-project draft mutation unexpectedly allowed")
 	}
-	typedSessionID, err := runtimeids.ParseSessionID(fixture.ownSessionID)
+	executionEnvironmentOperation, err := protoapi.OperationFromDescriptor(sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetExecutionEnvironment"))
 	if err != nil {
-		t.Fatalf("parse execution-environment session ID: %v", err)
+		t.Fatal(err)
 	}
-	executionEnvironmentRoute := routeForTest(t, protocol.MethodSessionGetExecutionEnvironment)
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		executionEnvironmentRoute,
-		serverapi.SessionExecutionEnvironmentRequest{SessionID: typedSessionID},
+		routeScopePolicy(executionEnvironmentOperation.Options.ScopePolicy),
+		executionEnvironmentOperation.Name,
+		routeScopeParams{sessionID: fixture.ownSessionID},
 	); err != nil {
 		t.Fatalf("active project own execution environment: %v", err)
 	}
-	followUpRoute := routeForTest(t, protocol.MethodPromptFollowUpWatch)
-	if err := executor.authorizeScope(
+	followUpOperation, err := protoapi.OperationFromDescriptor(promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("FollowUpService").Methods().ByName("Watch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		followUpRoute,
-		serverapi.PromptFollowUpWatchRequest{SessionID: typedSessionID},
+		routeScopePolicy(followUpOperation.Options.ScopePolicy),
+		followUpOperation.Name,
+		routeScopeParams{sessionID: fixture.ownSessionID},
 	); err != nil {
 		t.Fatalf("active project own prompt follow-up watch: %v", err)
 	}
-	if err := executor.authorizeScope(
+	if err := executor.authorizeScopeFacts(
 		ctx,
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		followUpRoute,
-		serverapi.PromptFollowUpWatchRequest{SessionID: runtimeids.NewSessionID()},
+		routeScopePolicy(followUpOperation.Options.ScopePolicy),
+		followUpOperation.Name,
+		routeScopeParams{sessionID: runtimeids.NewSessionID().String()},
 	); err == nil {
 		t.Fatal("active project foreign prompt follow-up watch unexpectedly allowed")
 	}
@@ -429,18 +436,21 @@ func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGateway: %v", err)
 	}
-	route := routeForTest(t, protocol.MethodRuntimeGoalShow)
-	err = newRoutePolicyExecutor(gateway).authorizeScope(context.Background(), &connectionState{}, route, serverapi.RuntimeGoalShowRequest{SessionID: "missing-session"})
+	operation, err := protoapi.OperationFromDescriptor(runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("GoalService").Methods().ByName("Show"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: "missing-session"})
 	if err != nil {
 		t.Fatalf("unbound goal scope: %v", err)
 	}
 
 	fixture := newRoutePolicyFixture(t)
-	err = newRoutePolicyExecutor(fixture.gateway).authorizeScope(
+	err = newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(
 		context.Background(),
 		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		route,
-		serverapi.RuntimeGoalShowRequest{SessionID: fixture.foreignSessionID},
+		routeScopePolicy(operation.Options.ScopePolicy), operation.Name,
+		routeScopeParams{sessionID: fixture.foreignSessionID},
 	)
 	if err == nil {
 		t.Fatal("active-project foreign goal scope unexpectedly allowed")
@@ -451,29 +461,24 @@ func TestRoutePolicyAuthorizesRuntimeLiveControlsWithoutActiveProject(t *testing
 	fixture := newRoutePolicyFixture(t)
 	executor := newRoutePolicyExecutor(fixture.gateway)
 	ctx := context.Background()
-	requiredRoute := routeForTest(t, protocol.MethodRuntimeLiveSteer)
-	waitRoute := routeForTest(t, protocol.MethodRuntimeLiveWait)
-	stopRoute := routeForTest(t, protocol.MethodRuntimeLiveStop)
-
-	if err := executor.authorizeScope(ctx, &connectionState{}, requiredRoute, serverapi.RuntimeLiveSteerRequest{
-		SessionID: fixture.ownSessionID,
-		Text:      "steer",
-	}); err != nil {
+	authorize := func(method protoreflect.Name, sessionID string) error {
+		operation, err := protoapi.OperationFromDescriptor(runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("LiveService").Methods().ByName(method))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return executor.authorizeScopeFacts(ctx, &connectionState{}, routeScopePolicy(operation.Options.ScopePolicy), operation.Name, routeScopeParams{sessionID: sessionID})
+	}
+	if err := authorize("Steer", fixture.ownSessionID); err != nil {
 		t.Fatalf("live steer root-scoped existing session: %v", err)
 	}
-	if err := executor.authorizeScope(ctx, &connectionState{}, waitRoute, serverapi.RuntimeLiveWaitRequest{SessionID: fixture.ownSessionID}); err != nil {
+	if err := authorize("Wait", fixture.ownSessionID); err != nil {
 		t.Fatalf("live wait root-scoped existing session: %v", err)
 	}
 	missing := "6ff7ace4-e08b-43fc-b425-73242f0b3d26"
-	if err := executor.authorizeScope(ctx, &connectionState{}, requiredRoute, serverapi.RuntimeLiveSteerRequest{
-		SessionID: missing,
-		Text:      "steer",
-	}); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+	if err := authorize("Steer", missing); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("missing required live session error = %v, want ErrRuntimeUnavailable", err)
 	}
-	if err := executor.authorizeScope(ctx, &connectionState{}, stopRoute, serverapi.RuntimeLiveStopRequest{
-		SessionID: missing,
-	}); err != nil {
+	if err := authorize("Stop", missing); err != nil {
 		t.Fatalf("optional live stop missing session: %v", err)
 	}
 }
@@ -514,20 +519,26 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 
 	executor := newRoutePolicyExecutor(fixture.gateway)
 	state := &connectionState{attachedProject: fixture.bindingA.ProjectID}
-	processRoute := routeForTest(t, protocol.MethodProcessGet)
-	if err := executor.authorizeScope(ctx, state, processRoute, serverapi.ProcessGetRequest{ProcessID: own.SessionID}); err != nil {
+	processOperation, err := protoapi.OperationFromDescriptor(processpb.File_kent_api_process_process_proto.Services().ByName("ViewService").Methods().ByName("Get"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(processOperation.Options.ScopePolicy), processOperation.Name, routeScopeParams{processID: own.SessionID}); err != nil {
 		t.Fatalf("own process: %v", err)
 	}
-	if err := executor.authorizeScope(ctx, state, processRoute, serverapi.ProcessGetRequest{ProcessID: foreign.SessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(processOperation.Options.ScopePolicy), processOperation.Name, routeScopeParams{processID: foreign.SessionID}); err == nil {
 		t.Fatal("foreign process unexpectedly allowed")
 	}
-	if err := executor.authorizeScope(ctx, state, processRoute, serverapi.ProcessGetRequest{ProcessID: ownerless.SessionID}); err == nil {
+	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(processOperation.Options.ScopePolicy), processOperation.Name, routeScopeParams{processID: ownerless.SessionID}); err == nil {
 		t.Fatal("ownerless process unexpectedly allowed")
 	}
 
-	listRoute := routeForTest(t, protocol.MethodProcessList)
-	if err := executor.authorizeScope(ctx, state, listRoute, serverapi.ProcessListRequest{
-		ProjectID: fixture.bindingA.ProjectID,
+	listOperation, err := protoapi.OperationFromDescriptor(processpb.File_kent_api_process_process_proto.Services().ByName("ViewService").Methods().ByName("List"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.authorizeScopeFacts(ctx, state, routeScopePolicy(listOperation.Options.ScopePolicy), listOperation.Name, routeScopeParams{
+		projectID: fixture.bindingA.ProjectID,
 	}); err != nil {
 		t.Fatalf("project-scoped process list: %v", err)
 	}
@@ -538,27 +549,33 @@ func TestRoutePolicyAuthorizesAttachmentAndProjectWorkspaceScopesWithoutWebSocke
 	executor := newRoutePolicyExecutor(fixture.gateway)
 	ctx := context.Background()
 
-	transcriptRoute := routeForTest(t, protocol.MethodSessionSubscribeTranscript)
+	transcriptOperation, err := protoapi.OperationFromDescriptor(transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	ownSessionID, err := runtimeids.ParseSessionID(fixture.ownSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.authorizeScope(ctx, &connectionState{attachedSession: &ownSessionID}, transcriptRoute, serverapi.TranscriptSubscribeRequest{SessionID: fixture.ownSessionID}); err != nil {
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(transcriptOperation.Options.ScopePolicy), transcriptOperation.Name, routeScopeParams{sessionID: fixture.ownSessionID}); err != nil {
 		t.Fatalf("attached transcript subscription: %v", err)
 	}
-	err = executor.authorizeScope(ctx, &connectionState{attachedSession: &ownSessionID}, transcriptRoute, serverapi.TranscriptSubscribeRequest{SessionID: fixture.foreignSessionID})
+	err = executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(transcriptOperation.Options.ScopePolicy), transcriptOperation.Name, routeScopeParams{sessionID: fixture.foreignSessionID})
 	var routeErr gatewayRouteError
 	if !errors.As(err, &routeErr) || routeErr.code != protocol.ErrCodeInvalidRequest {
 		t.Fatalf("attached transcript mismatch error = %v, want invalid request route error", err)
 	}
-	questionHistoryRoute := routeForTest(t, protocol.MethodSessionQuestionHistorySubscribe)
-	if err := executor.authorizeScope(ctx, &connectionState{attachedSession: &ownSessionID}, questionHistoryRoute, serverapi.QuestionHistorySubscribeRequest{
-		SessionID: fixture.ownSessionID, MaxHandoffs: 1,
+	questionHistoryOperation, err := protoapi.OperationFromDescriptor(sessionpb.File_kent_api_session_session_proto.Services().ByName("QuestionHistoryService").Methods().ByName("Subscribe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(questionHistoryOperation.Options.ScopePolicy), questionHistoryOperation.Name, routeScopeParams{
+		sessionID: fixture.ownSessionID,
 	}); err != nil {
 		t.Fatalf("attached Question-history subscription: %v", err)
 	}
-	err = executor.authorizeScope(ctx, &connectionState{attachedSession: &ownSessionID}, questionHistoryRoute, serverapi.QuestionHistorySubscribeRequest{
-		SessionID: fixture.foreignSessionID, MaxHandoffs: 1,
+	err = executor.authorizeScopeFacts(ctx, &connectionState{attachedSession: &ownSessionID}, routeScopePolicy(questionHistoryOperation.Options.ScopePolicy), questionHistoryOperation.Name, routeScopeParams{
+		sessionID: fixture.foreignSessionID,
 	})
 	if !errors.As(err, &routeErr) || routeErr.code != protocol.ErrCodeInvalidRequest {
 		t.Fatalf("attached Question-history mismatch error = %v, want invalid request route error", err)

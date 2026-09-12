@@ -10,7 +10,6 @@ import (
 
 	"core/server/auth"
 	rpccontract "core/shared/apicontract"
-	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -78,47 +77,7 @@ func (e routePolicyExecutor) preflight(ctx context.Context, state *connectionSta
 }
 
 func (e routePolicyExecutor) decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error) {
-	switch route.Method {
-	case protocol.MethodSessionGetExecutionEnvironment:
-		if e.gateway == nil {
-			break
-		}
-		params, err := e.gateway.sessionExecutionRequestContract.Decode(raw)
-		if err != nil {
-			return nil, fmt.Errorf("decode params: %w", err)
-		}
-		return params, nil
-	case protocol.MethodProcessList:
-		var message processpb.ListRequest
-		if err := protoapi.DecodeJSON(raw, &message); err != nil {
-			return nil, fmt.Errorf("decode params: %w", err)
-		}
-		return protoapi.ProcessListRequestFromProto(&message), nil
-	case protocol.MethodProcessKill:
-		var message processpb.KillRequest
-		if err := protoapi.DecodeJSON(raw, &message); err != nil {
-			return nil, fmt.Errorf("decode params: %w", err)
-		}
-		return protoapi.ProcessKillRequestFromProto(&message), nil
-	}
-	params, err := decodeRouteParams(route, raw)
-	if err != nil {
-		return nil, err
-	}
-	return normalizeLegacyProcessRequest(params), nil
-}
-
-func normalizeLegacyProcessRequest(params any) any {
-	switch request := params.(type) {
-	case serverapi.ProcessGetRequest:
-		request.ProcessID = strings.TrimSpace(request.ProcessID)
-		return request
-	case serverapi.ProcessInlineOutputRequest:
-		request.ProcessID = strings.TrimSpace(request.ProcessID)
-		return request
-	default:
-		return params
-	}
+	return decodeRouteParams(route, raw)
 }
 
 type gatewayRouteError struct {
@@ -244,12 +203,8 @@ func decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error
 	return params, nil
 }
 
-func (e routePolicyExecutor) authorizeScope(ctx context.Context, state *connectionState, route rpccontract.Route, params any) error {
-	scopeParams, err := routeScopeParamsFor(route, params)
-	if err != nil {
-		return err
-	}
-	return e.authorizeScopeFacts(ctx, state, route.Scope, route.Method, scopeParams)
+func (e routePolicyExecutor) authorizeScope(ctx context.Context, state *connectionState, route rpccontract.Route, _ any) error {
+	return e.authorizeScopeFacts(ctx, state, route.Scope, route.Method, routeScopeParams{})
 }
 
 func (e routePolicyExecutor) authorizeScopeFacts(
@@ -330,129 +285,6 @@ type routeScopeParams struct {
 	workspaceID               string
 	chatTarget                *chatpb.ChatTarget
 	worktreeManagement        *worktreepb.ManagementScope
-}
-
-func routeScopeParamsFor(route rpccontract.Route, params any) (routeScopeParams, error) {
-	switch route.Scope {
-	case rpccontract.ScopeAttachSession,
-		rpccontract.ScopeSessionActiveProject,
-		rpccontract.ScopeSessionActiveProjectIfSet,
-		rpccontract.ScopeSessionDraftHandoffProject,
-		rpccontract.ScopeSessionAttachedProject,
-		rpccontract.ScopeAttachedSession,
-		rpccontract.ScopeGoalSession,
-		rpccontract.ScopeRuntimeLiveSessionRequired,
-		rpccontract.ScopeRuntimeLiveSessionOptional:
-		sessionID, ok := routeSessionID(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed session id accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{sessionID: sessionID}, nil
-	case rpccontract.ScopeProcessActiveProject:
-		processID, ok := routeProcessID(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed process id accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{processID: processID}, nil
-	case rpccontract.ScopeProjectWorkspaceBinding:
-		projectID, workspaceID, ok := routeProjectWorkspaceBinding(params)
-		if !ok {
-			return routeScopeParams{}, fmt.Errorf("route %q scope %q requires typed project/workspace accessor", route.Method, route.Scope)
-		}
-		return routeScopeParams{projectID: projectID, workspaceID: workspaceID}, nil
-	default:
-		return routeScopeParams{}, nil
-	}
-}
-
-func routeProjectWorkspaceBinding(params any) (string, string, bool) {
-	return "", "", false
-}
-
-func routeSessionID(params any) (string, bool) {
-	switch p := params.(type) {
-	case serverapi.ChatContextRequest:
-		sessionID, selected := p.Target.SessionID()
-		if !selected {
-			return "", true
-		}
-		return sessionID.String(), true
-	case serverapi.SessionMainViewRequest:
-		return p.SessionID, true
-	case serverapi.SessionTranscriptPageRequest:
-		return p.SessionID, true
-	case serverapi.SessionLatestCommittedAssistantFinalAnswerRequest:
-		return p.SessionID, true
-	case serverapi.SessionExecutionEnvironmentRequest:
-		return p.SessionID.String(), true
-	case serverapi.RuntimeSetSessionNameRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeAppendCommittedEntryRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeShouldCompactBeforeUserMessageRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeSubmitUserTurnRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeSubmitUserShellCommandRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeCompactContextRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeInterruptRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveSteerRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveStopRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveWaitRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeLiveWatchRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeListPendingWorkRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeRemovePendingWorkRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeRecordPromptHistoryRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalShowRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalSetRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalStatusRequest:
-		return p.SessionID, true
-	case serverapi.RuntimeGoalClearRequest:
-		return p.SessionID, true
-	case serverapi.GoalObserveRequest:
-		return p.SessionID, true
-	case serverapi.AskListPendingBySessionRequest:
-		return p.SessionID, true
-	case serverapi.PromptAnswerBatchRequest:
-		return p.SessionID.String(), true
-	case serverapi.PromptFollowUpWatchRequest:
-		return p.SessionID.String(), true
-	case serverapi.ApprovalListPendingBySessionRequest:
-		return p.SessionID, true
-	case serverapi.TranscriptSubscribeRequest:
-		return p.SessionID, true
-	case serverapi.QuestionHistorySubscribeRequest:
-		return p.SessionID, true
-	case serverapi.AttentionSessionNotificationSubscribeRequest:
-		return p.SessionID, true
-	default:
-		return "", false
-	}
-}
-
-func routeProcessID(params any) (string, bool) {
-	switch p := params.(type) {
-	case serverapi.ProcessGetRequest:
-		return p.ProcessID, true
-	case serverapi.ProcessKillRequest:
-		return p.ProcessID, true
-	case serverapi.ProcessInlineOutputRequest:
-		return p.ProcessID, true
-	default:
-		return "", false
-	}
 }
 
 func (g *Gateway) preflightRouteRequest(ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) (any, protocol.Response, bool) {
@@ -582,20 +414,20 @@ func (g *Gateway) requireSessionInAttachedProject(ctx context.Context, state *co
 	return g.deps.SessionBelongsToProject(ctx, sessionID, projectID)
 }
 
-func (g *Gateway) processInActiveProject(ctx context.Context, state *connectionState, processID string) (serverapi.ProcessGetResponse, error) {
-	resp, err := g.deps.ProcessViewClient().GetProcess(ctx, serverapi.ProcessGetRequest{ProcessID: processID})
+func (g *Gateway) processInActiveProject(ctx context.Context, state *connectionState, processID string) (*processpb.GetSuccess, error) {
+	resp, err := g.deps.ProcessViewClient().GetProcess(ctx, &processpb.GetRequest{ProcessId: processID})
 	if err != nil {
-		return serverapi.ProcessGetResponse{}, err
+		return nil, err
 	}
 	if resp.Process == nil {
-		return serverapi.ProcessGetResponse{}, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
+		return nil, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
 	}
-	ownerSessionID := strings.TrimSpace(resp.Process.OwnerSessionID)
+	ownerSessionID := strings.TrimSpace(resp.Process.OwnerSessionId)
 	if ownerSessionID == "" {
-		return serverapi.ProcessGetResponse{}, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
+		return nil, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
 	}
 	if err := g.requireSessionInActiveProject(ctx, state, ownerSessionID); err != nil {
-		return serverapi.ProcessGetResponse{}, err
+		return nil, err
 	}
 	return resp, nil
 }

@@ -32,6 +32,7 @@ import (
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/shared/config"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -2062,7 +2063,7 @@ func TestResumeRetainsEstablishedSessionContractAndAttachedRuntime(t *testing.T)
 	})
 	subscription, err := f.runtimes.SubscribeSessionTranscript(
 		context.Background(),
-		serverapi.TranscriptSubscribeRequest{SessionID: sessionID.String()},
+		&transcriptpb.SubscribeRequest{SessionId: sessionID.String()},
 	)
 	if err != nil {
 		t.Fatalf("subscribe attached Session transcript: %v", err)
@@ -2601,8 +2602,8 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 	if !hasResource {
 		t.Fatal("source Exact Execution Scope has no Active Session Runtime")
 	}
-	transcript, err := f.runtimes.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{
-		SessionID: sessionID.String(),
+	transcript, err := f.runtimes.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
+		SessionId: sessionID.String(),
 	})
 	if err != nil {
 		t.Fatalf("subscribe source transcript: %v", err)

@@ -3,7 +3,6 @@ package worktree
 import (
 	"context"
 	"errors"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"core/server/sessionruntime"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
+	"google.golang.org/protobuf/proto"
 )
 
 func assertForeignManagementDeleteBlocked(t *testing.T, env *serviceTestEnv, worktreeID string) {
@@ -38,7 +38,7 @@ func assertForeignManagementDeleteBlocked(t *testing.T, env *serviceTestEnv, wor
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(before, after) {
+	if !proto.Equal(before, after) {
 		t.Fatalf("blocked management moved foreign caller: before=%+v after=%+v", before, after)
 	}
 }
@@ -87,7 +87,7 @@ func TestWorkspaceManagementKeepsForeignCallerExecutionRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Target.WorkspaceId != before.WorkspaceID {
+	if created.Target.GetWorkspaceId() != before.GetWorkspaceId() {
 		t.Fatalf("created target lost caller location: %v", created.Target)
 	}
 	_, err = env.service.DeleteWorktree(env.ctx, &worktreepb.DeleteRequest{
@@ -101,7 +101,7 @@ func TestWorkspaceManagementKeepsForeignCallerExecutionRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(before, after) {
+	if !proto.Equal(before, after) {
 		t.Fatalf("management moved live caller: %+v", after)
 	}
 	if _, live := env.authority.ExecutionByScope(handle.Scope().ID()); !live {

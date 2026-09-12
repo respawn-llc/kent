@@ -1,21 +1,20 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 import (
+	"core/cli/tui/ongoing"
+	"core/cli/tui/transcriptrender"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeinput"
 	"reflect"
 	"strings"
 	"testing"
-
-	"core/cli/tui/ongoing"
-	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
-	"core/shared/runtimeinput"
 )
 
 func TestOngoingFrameInputUsesOperatorLocalSectionsAndCursor(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUITerminalCursorState(newUITerminalCursorState()),
-		WithUIPromptHistory([]string{"older", "newer"}),
-	), 48, 10)
+		WithUIPromptHistory([]string{"older", "newer"})), 48, 10)
 	testSetMainInputAtRuneCursor(m, "hello", 2)
 	testSetPromptHistorySelection(m, 1)
 	m.helpVisible = true
@@ -52,8 +51,7 @@ func TestOngoingFrameInputUsesOperatorLocalSectionsAndCursor(t *testing.T) {
 		ongoing.FrameSectionHelp,
 		ongoing.FrameSectionInput,
 		ongoing.FrameSectionPromptHistory,
-		ongoing.FrameSectionStatus,
-	}
+		ongoing.FrameSectionStatus}
 	if got := frameSectionKinds(frame); !reflect.DeepEqual(got, wantKinds) {
 		t.Fatalf("frame section kinds = %v, want %v", got, wantKinds)
 	}
@@ -61,11 +59,10 @@ func TestOngoingFrameInputUsesOperatorLocalSectionsAndCursor(t *testing.T) {
 
 func TestOngoingFrameInputIgnoresRuntimeMainViewCopiesOfTranscriptOwnedFacts(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.runtimeActivityProjection = clientui.RuntimeActivity{
-		State:    clientui.RuntimeActivityRegisteredIdle,
-		Reviewer: clientui.ReviewerActivityInactive,
-	}
-	m.runtimeContextUsage = clientui.RuntimeContextUsage{UsedTokens: 123, WindowTokens: 456}
+	m.runtimeActivityProjection = &runtimepb.Activity{
+		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE}
+	m.runtimeContextUsage = &runtimepb.ContextUsage{UsedTokens: 123, WindowTokens: 456}
 
 	frame := m.ongoingFrameInput()
 
@@ -78,15 +75,13 @@ func TestOngoingFrameInputIgnoresRuntimeMainViewCopiesOfTranscriptOwnedFacts(t *
 }
 
 func TestOngoingFrameInputRendersAvailabilityOnlyGoalProjection(t *testing.T) {
-	availability := clientui.GoalAvailabilityAvailable
+	availability := runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE
 	client := &runtimeControlFakeClient{
-		cachedMainView: clientui.RuntimeMainView{
-			Status: clientui.RuntimeStatus{
-				Goal: &clientui.RuntimeGoal{Availability: &availability},
-			},
-		},
-		hasCachedMainView: true,
-	}
+		cachedMainView: &runtimepb.MainView{
+			Session: &runtimepb.SessionView{},
+			Status: &runtimepb.Status{
+				Goal: &runtimepb.GoalView{Availability: &availability}}},
+		hasCachedMainView: true}
 	m := sizedTestUIModel(newProjectedTestUIModel(client), 48, 10)
 
 	m.ongoingFrameInput()
@@ -94,18 +89,16 @@ func TestOngoingFrameInputRendersAvailabilityOnlyGoalProjection(t *testing.T) {
 
 func TestOngoingTranscriptControllerPlacesCursorAfterPrependedLiveSections(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUITerminalCursorState(newUITerminalCursorState()),
-	), 48, 10)
+		WithUITerminalCursorState(newUITerminalCursorState())), 48, 10)
 	testSetMainInputAtRuneCursor(m, "hello", 2)
 	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
-		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending"),
-	}}
+		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending")}}
 	surface := &ongoingSurfaceSpy{}
 	controller := newTestOngoingTranscriptController(surface, m.ongoingFrameInput)
 	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
-	if _, err := controller.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessagePendingWorkChanged)); err != nil {
+	if _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_PendingWorkChanged]())); err != nil {
 		t.Fatalf("accept queued message: %v", err)
 	}
 
@@ -125,23 +118,21 @@ func TestOngoingTranscriptControllerPlacesCursorAfterPrependedLiveSections(t *te
 func TestOngoingTranscriptControllerPreservesWrappedDisplayCursorTargetWithPrependedSections(t *testing.T) {
 	const width = 24
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUITerminalCursorState(newUITerminalCursorState()),
-	), width, 12)
+		WithUITerminalCursorState(newUITerminalCursorState())), width, 12)
 	testSetMainInput(m, strings.Repeat("界", 20)+" tail")
 	projected := m.layout().inputPaneProjection(width, m.layout().effectiveHeight(), uiThemeStyles(m.theme)).Cursor
 	if !projected.Visible {
 		t.Fatal("shared editor cursor projection is absent")
 	}
 	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
-		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending"),
-	}}
+		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending")}}
 
 	surface := &ongoingSurfaceSpy{}
 	controller := newTestOngoingTranscriptController(surface, m.ongoingFrameInput)
 	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
-	if _, err := controller.Accept(ongoingTranscriptMessage(2, clientui.TranscriptMessagePendingWorkChanged)); err != nil {
+	if _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_PendingWorkChanged]())); err != nil {
 		t.Fatalf("accept queued message: %v", err)
 	}
 
@@ -183,8 +174,7 @@ func TestOngoingFrameInputAskViewportAndCursorShareBoundedProjection(t *testing.
 		height = 10
 	)
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUITerminalCursorState(newUITerminalCursorState()),
-	), width, height)
+		WithUITerminalCursorState(newUITerminalCursorState())), width, height)
 	event := testQuestionAskEvent("ask-1", "Question source", "First", "Second")
 	testSetActiveAsk(m, &event)
 	m.ask.activeProjection.rows = []string{
@@ -192,8 +182,7 @@ func TestOngoingFrameInputAskViewportAndCursorShareBoundedProjection(t *testing.
 		"question row two",
 		"question row three",
 		"question row four",
-		"question row five",
-	}
+		"question row five"}
 	m.ask.freeform = true
 	testSetAskInputAtRuneCursor(m, "draft text", 5)
 
@@ -236,8 +225,7 @@ func TestOngoingFrameInputKeepsServerBackedQueuedStateTranscriptOwned(t *testing
 		LocalID:  "22222222-2222-4222-8222-222222222222",
 		ServerID: "11111111-1111-4111-8111-111111111111",
 		Text:     "server accepted",
-		State:    injectedRuntimeQueueEnqueued,
-	}}
+		State:    injectedRuntimeQueueEnqueued}}
 
 	frame := m.ongoingFrameInput()
 
@@ -274,8 +262,7 @@ func TestOngoingFrameInputRendersPendingInjectedMessagesBeforeServerAcceptance(t
 	m.injectedQueue = []injectedRuntimeQueueItem{{
 		LocalID: "11111111-1111-4111-8111-111111111111",
 		Text:    "pending injected before server acceptance",
-		State:   injectedRuntimeQueuePendingCreate,
-	}}
+		State:   injectedRuntimeQueuePendingCreate}}
 	frame := m.ongoingFrameInput()
 
 	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
@@ -300,8 +287,7 @@ func TestOngoingFrameInputRendersNoRuntimeInjectedMessages(t *testing.T) {
 		LocalID:  "11111111-1111-4111-8111-111111111111",
 		ServerID: "11111111-1111-4111-8111-111111111111",
 		Text:     "local injected without runtime client",
-		State:    injectedRuntimeQueueEnqueued,
-	}}
+		State:    injectedRuntimeQueueEnqueued}}
 	frame := m.ongoingFrameInput()
 
 	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
@@ -322,8 +308,7 @@ func TestOngoingFrameInputRendersNoRuntimeInjectedMessages(t *testing.T) {
 
 func TestOngoingFrameInputSanitizesPromptHistorySection(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUIPromptHistory([]string{"alpha\nbeta\tgamma\x1b"}),
-	), 48, 10)
+		WithUIPromptHistory([]string{"alpha\nbeta\tgamma\x1b"})), 48, 10)
 	testSetPromptHistorySelection(m, 0)
 
 	frame := m.ongoingFrameInput()

@@ -21,6 +21,7 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
@@ -121,14 +122,14 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	stopServer := startStandingRunPromptServer(t, workspace, server.URL)
 	defer stopServer()
 
-	var progresses []serverapi.RunPromptProgress
+	var progresses []*runpromptpb.ProgressEvent
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         server.URL,
 		OpenAIBaseURLExplicit: true,
-	}, "hello from user", 0, serverapi.RunPromptProgressFunc(func(progress serverapi.RunPromptProgress) {
+	}, "hello from user", 0, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
 	if err != nil {
@@ -143,12 +144,12 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if len(progresses) < 2 {
 		t.Fatalf("progress events = %+v, want session start and assistant response", progresses)
 	}
-	started := progresses[0].SessionStarted
-	if progresses[0].Kind != serverapi.RunPromptProgressKindSessionStarted || started == nil || started.SessionID.String() != result.SessionID {
+	started := progresses[0].GetSessionStarted()
+	if started == nil || started.SessionId != result.SessionID {
 		t.Fatalf("first progress event = %+v, want new session %q", progresses[0], result.SessionID)
 	}
-	last := progresses[len(progresses)-1].AssistantMessage
-	if progresses[len(progresses)-1].Kind != serverapi.RunPromptProgressKindAssistantMessage || last == nil || last.Content != result.Result {
+	last := progresses[len(progresses)-1].GetAssistantMessage()
+	if last == nil || last.Content != result.Result {
 		t.Fatalf("last progress event = %+v, want assistant result", progresses[len(progresses)-1])
 	}
 	if !strings.HasSuffix(result.SessionName, " "+subagentSessionSuffix) {

@@ -1,6 +1,12 @@
+import { create, operationName } from "@app/server-api-contract";
+import {
+  AnswerService,
+  AnswerBatchOutcome,
+  ApprovalDecision,
+} from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { ApiClient } from "./client";
 import { FakeRpcTransport } from "@/test-support/api";
-const sessionID = "session-1";
+const sessionID = "11111111-1111-4111-8111-111111111111";
 const stepID = "22222222-2222-4222-8222-222222222222";
 const batchRequest = {
   sessionID,
@@ -11,31 +17,44 @@ const batchRequest = {
     { kind: "declined" as const, toolCallID: "d" },
   ],
 } as const;
-const resolvedQuestion = { tool_call_id: "q", outcome: "resolved" } as const;
-const skippedApproval = { tool_call_id: "a", outcome: "skipped" };
-const resolvedDeclined = { tool_call_id: "d", outcome: "resolved" };
+const resolvedQuestion = { toolCallId: "q", outcome: AnswerBatchOutcome.RESOLVED } as const;
+const skippedApproval = { toolCallId: "a", outcome: AnswerBatchOutcome.SKIPPED };
+const resolvedDeclined = { toolCallId: "d", outcome: AnswerBatchOutcome.RESOLVED };
 const results = [resolvedQuestion, skippedApproval, resolvedDeclined];
 describe("ApiClient prompt answer batches", () => {
   it("encodes Tool Call keyed entries and parses Tool Call keyed outcomes", async () => {
-    const transport = new FakeRpcTransport([{ method: "prompt.answerBatch", result: { results } }]);
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: AnswerService.method.answerBatch,
+        result: create(AnswerService.method.answerBatch.output, {
+          outcome: { case: "success", value: { results } },
+        }),
+      },
+    ]);
     const client = new ApiClient(transport);
     const response = await client.answerPromptBatch(batchRequest);
     expect(transport.calls).toEqual([]);
     expect(transport.attachedSessionCalls).toEqual([
       {
         sessionID,
-        method: "prompt.answerBatch",
-        params: {
-          session_id: sessionID,
-          step_id: stepID,
-          entries: [
-            { tool_call_id: "q", question_answer: { selected_option_number: 2, freeform: "because" } },
-            { tool_call_id: "a", approval_answer: { decision: "allow_once" } },
-            { tool_call_id: "d", declined: {} },
-          ],
-        },
+        method: operationName(AnswerService.method.answerBatch),
       },
     ]);
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({
+      sessionId: sessionID,
+      stepId: stepID,
+      entries: [
+        {
+          toolCallId: "q",
+          answer: { case: "questionAnswer", value: { selectedOptionNumber: 2, freeform: "because" } },
+        },
+        {
+          toolCallId: "a",
+          answer: { case: "approvalAnswer", value: { decision: ApprovalDecision.ALLOW_ONCE } },
+        },
+        { toolCallId: "d", answer: { case: "declined", value: {} } },
+      ],
+    });
     expect(response.results).toEqual([
       { toolCallID: "q", outcome: "resolved" },
       { toolCallID: "a", outcome: "skipped" },
@@ -44,14 +63,24 @@ describe("ApiClient prompt answer batches", () => {
   });
   it.each([
     ["missing", { results: [] }],
-    ["foreign", { results: [{ tool_call_id: "foreign", outcome: "resolved" }] }],
-    ["duplicate", { results: [resolvedQuestion, { ...resolvedQuestion, outcome: "skipped" }] }],
+    ["foreign", { results: [{ toolCallId: "foreign", outcome: AnswerBatchOutcome.RESOLVED }] }],
+    [
+      "duplicate",
+      { results: [resolvedQuestion, { ...resolvedQuestion, outcome: AnswerBatchOutcome.SKIPPED }] },
+    ],
     [
       "whitespace-padded",
-      { results: [{ ...resolvedQuestion, tool_call_id: " q " }, skippedApproval, resolvedDeclined] },
+      { results: [{ ...resolvedQuestion, toolCallId: " q " }, skippedApproval, resolvedDeclined] },
     ],
   ])("rejects %s result identity sets", async (_case, result) => {
-    const transport = new FakeRpcTransport([{ method: "prompt.answerBatch", result }]);
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: AnswerService.method.answerBatch,
+        result: create(AnswerService.method.answerBatch.output, {
+          outcome: { case: "success", value: result },
+        }),
+      },
+    ]);
     const client = new ApiClient(transport);
     await expect(client.answerPromptBatch(batchRequest)).rejects.toThrow();
     expect(transport.attachedSessionCalls).toHaveLength(1);

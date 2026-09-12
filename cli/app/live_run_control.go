@@ -6,24 +6,15 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/sessionenv"
 )
 
-type RunLiveSteerResult struct {
-	QueueItemID string
-	Text        string
-}
-
-type RunLiveStopResult struct {
-	Status serverapi.RuntimeLiveStopStatus
-}
-
 type RunLiveWatchResult struct {
-	Response serverapi.RuntimeLiveWatchResponse
+	Response *promptpb.LiveWatchSuccess
 	Error    error
 	Close    func() error
 }
@@ -33,36 +24,32 @@ func RunLiveWatchWithCleanup(ctx context.Context, opts Options, targetSessionID 
 	if err != nil {
 		return RunLiveWatchResult{Error: err, Close: closeFn}
 	}
-	response, err := liveClient.LiveWatch(ctx, serverapi.RuntimeLiveWatchRequest{SessionID: targetSessionID.String()})
+	response, err := liveClient.LiveWatch(ctx, &promptpb.LiveWatchRequest{SessionId: targetSessionID.String()})
 	return RunLiveWatchResult{Response: response, Error: err, Close: closeFn}
 }
 
-func RunLiveSteer(ctx context.Context, opts Options, targetSessionID runtimeids.SessionID, text string) (RunLiveSteerResult, error) {
+func RunLiveSteer(ctx context.Context, opts Options, targetSessionID runtimeids.SessionID, text string) (*runtimepb.LiveSteerSuccess, error) {
 	trimmedText := strings.TrimSpace(text)
 	if trimmedText == "" {
-		return RunLiveSteerResult{}, errors.New("text is required")
+		return nil, errors.New("text is required")
 	}
 	callerSessionID, err := LiveSteerCallerSessionID()
 	if err != nil {
-		return RunLiveSteerResult{}, err
+		return nil, err
 	}
 	liveClient, closeFn, err := startRuntimeLiveControlClient(ctx, opts)
 	if err != nil {
 		if closeFn != nil {
 			_ = closeFn()
 		}
-		return RunLiveSteerResult{}, err
+		return nil, err
 	}
 	defer func() { _ = closeFn() }()
-	resp, err := liveClient.LiveSteer(ctx, serverapi.RuntimeLiveSteerRequest{
-		SessionID:       targetSessionID.String(),
-		CallerSessionID: callerSessionID,
+	return liveClient.LiveSteer(ctx, &runtimepb.LiveSteerRequest{
+		SessionId:       targetSessionID.String(),
+		CallerSessionId: callerSessionID,
 		Text:            trimmedText,
 	})
-	if err != nil {
-		return RunLiveSteerResult{}, err
-	}
-	return RunLiveSteerResult{QueueItemID: resp.QueueItemID, Text: resp.Text}, nil
 }
 
 func LiveSteerCallerSessionID() (*string, error) {
@@ -81,31 +68,27 @@ func LiveSteerCallerSessionID() (*string, error) {
 	return &value, nil
 }
 
-func RunLiveStop(ctx context.Context, opts Options, targetSessionID runtimeids.SessionID) (RunLiveStopResult, error) {
+func RunLiveStop(ctx context.Context, opts Options, targetSessionID runtimeids.SessionID) (*runtimepb.LiveStopSuccess, error) {
 	liveClient, closeFn, err := startRuntimeLiveControlClient(ctx, opts)
 	if err != nil {
 		if closeFn != nil {
 			_ = closeFn()
 		}
-		return RunLiveStopResult{}, err
+		return nil, err
 	}
 	defer func() { _ = closeFn() }()
-	resp, err := liveClient.LiveStop(ctx, serverapi.RuntimeLiveStopRequest{
-		SessionID: targetSessionID.String(),
+	return liveClient.LiveStop(ctx, &runtimepb.LiveStopRequest{
+		SessionId: targetSessionID.String(),
 	})
-	if err != nil {
-		return RunLiveStopResult{}, err
-	}
-	return RunLiveStopResult{Status: resp.Status}, nil
 }
 
 type RunLiveWaitResult struct {
-	Result RunPromptResult
+	Result *runtimepb.LiveWaitSuccess
 	Error  error
 	Close  func() error
 }
 
-func RunLiveWait(ctx context.Context, opts Options, targetSessionID runtimeids.SessionID) (RunPromptResult, error) {
+func RunLiveWait(ctx context.Context, opts Options, targetSessionID runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
 	result := RunLiveWaitWithCleanup(ctx, opts, targetSessionID)
 	if result.Close != nil {
 		_ = result.Close()
@@ -118,29 +101,10 @@ func RunLiveWaitWithCleanup(ctx context.Context, opts Options, targetSessionID r
 	if err != nil {
 		return RunLiveWaitResult{Error: err, Close: closeFn}
 	}
-	resp, err := liveClient.LiveWait(ctx, serverapi.RuntimeLiveWaitRequest{SessionID: targetSessionID.String()})
+	resp, err := liveClient.LiveWait(ctx, &runtimepb.LiveWaitRequest{SessionId: targetSessionID.String()})
 	return RunLiveWaitResult{
-		Result: runtimeLiveWaitResult(targetSessionID, resp),
+		Result: resp,
 		Error:  err,
 		Close:  closeFn,
 	}
-}
-
-func runtimeLiveWaitResult(targetSessionID runtimeids.SessionID, resp serverapi.RuntimeLiveWaitResponse) RunPromptResult {
-	resultText := ""
-	if resp.Result != nil {
-		resultText = *resp.Result
-	}
-	sessionID := targetSessionID.String()
-	if strings.TrimSpace(resp.SessionID) != "" {
-		sessionID = resp.SessionID
-	}
-	result := RunPromptResult{
-		SessionID:   sessionID,
-		SessionName: resp.SessionName,
-		Result:      resultText,
-		Duration:    time.Duration(resp.DurationMillis) * time.Millisecond,
-		Warnings:    nil,
-	}
-	return result
 }

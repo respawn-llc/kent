@@ -1,5 +1,7 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 import (
 	"context"
 	"errors"
@@ -7,7 +9,6 @@ import (
 	"core/cli/app/internal/remoteattach"
 	"core/shared/apicontract"
 	"core/shared/client"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/theme"
@@ -48,7 +49,7 @@ func (s *remoteAppServer) PresentationTheme() string {
 	return s.presentation.Theme
 }
 
-func (s *remoteAppServer) PromptCommandCatalogClient(_ context.Context, sessionID string, _ clientui.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error) {
+func (s *remoteAppServer) PromptCommandCatalogClient(_ context.Context, sessionID string, _ *worktreepb.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error) {
 	if s == nil {
 		return nil, errors.New("remote server is required")
 	}

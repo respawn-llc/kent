@@ -3,9 +3,9 @@ package transcriptrender
 import (
 	"testing"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestBackgroundedShellDetailExpansionShowsFullCommandAndCommittedOutput(t *testing.T) {
@@ -13,21 +13,21 @@ func TestBackgroundedShellDetailExpansionShowsFullCommandAndCommittedOutput(t *t
 		command = "printf first-line\nprintf full-command-line"
 		output  = "server supplied output"
 	)
-	row := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoingCollapsed,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowTool,
-		Tool: &clientui.TranscriptToolRow{
-			ToolName: string(toolspec.ToolExecCommand),
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			ToolName: proto.String(string(string(toolspec.ToolExecCommand))),
 			Text:     output,
-			Presentation: &transcript.ToolCallMeta{
-				ToolName:          string(toolspec.ToolExecCommand),
+			Presentation: &transcriptpb.ToolPresentation{
+				Presentation:      transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_SHELL,
+				RenderBehavior:    transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_SHELL,
 				IsShell:           true,
-				Command:           command,
-				CompactText:       "printf first-line",
+				Command:           stringPtr(command),
+				CompactText:       stringPtr("printf first-line"),
 				MovedToBackground: true,
 			},
-		},
+		}},
 	}
 	presentation := RenderDetailPresentation(row, 120, "dark")
 

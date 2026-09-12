@@ -3,17 +3,50 @@ package app
 import (
 	"testing"
 
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
+	"google.golang.org/protobuf/proto"
 )
 
+func TestRuntimeMainViewCacheOwnsIndependentSnapshots(t *testing.T) {
+	runtimeClient := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
+	incoming := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
+	incoming.Status.Goal = runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE), false)
+	incoming.Session.SessionName = proto.String("session")
+	expected := proto.Clone(incoming).(*runtimepb.MainView)
+	stored := runtimeClient.storeMainView(incoming)
+
+	incoming.Activity.ActiveStep.StepId = "changed-input"
+	incoming.Status.Goal.Goal.Objective = "changed-input"
+	stored.Session.SessionName = proto.String("changed-return")
+	stored.Version.Sequence++
+	if got := runtimeClient.MainView(); !proto.Equal(got, expected) {
+		t.Fatalf("cache changed through the input or stored result: got %v, want %v", got, expected)
+	}
+
+	cached, ok := runtimeClient.CachedMainView()
+	if !ok {
+		t.Fatal("stored snapshot is unavailable")
+	}
+	cached.Activity.QueueAccepting = false
+	cached.Status.Goal.Goal.Objective = "changed-cache-read"
+	runtimeClient.MainView().Version.Sequence++
+	runtimeClient.Status().Goal.Goal.Objective = "changed-status"
+	runtimeClient.SessionView().SessionName = proto.String("changed-session")
+	if got := runtimeClient.MainView(); !proto.Equal(got, expected) {
+		t.Fatalf("cache changed through a read projection: got %v, want %v", got, expected)
+	}
+}
+
 func TestRuntimeTuplePolicy(t *testing.T) {
-	valid := func(epoch string, generation, sequence uint64) clientui.ReadModelVersion {
-		return clientui.ReadModelVersion{Epoch: epoch, Generation: generation, Sequence: sequence}
+	valid := func(epoch string, generation, sequence uint64) *runtimepb.ReadModelVersion {
+		return &runtimepb.ReadModelVersion{Epoch: epoch, Generation: generation, Sequence: sequence}
 	}
 	tests := []struct {
 		name     string
-		current  clientui.ReadModelVersion
-		incoming clientui.ReadModelVersion
+		current  *runtimepb.ReadModelVersion
+		incoming *runtimepb.ReadModelVersion
 		ingress  runtimeTupleIngress
 		want     runtimeTupleDecision
 	}{
@@ -45,13 +78,13 @@ func TestHydrationRuntimeTupleAdmissionMapping(t *testing.T) {
 	)
 	tests := []struct {
 		name        string
-		incoming    clientui.RuntimeReadModelUpdate
+		incoming    *runtimepb.ReadModelUpdate
 		wantErr     bool
 		wantProject bool
 	}{
 		{
 			name: "exact current tuple is accepted",
-			incoming: clientui.RuntimeReadModelUpdate{
+			incoming: &runtimepb.ReadModelUpdate{
 				Version:  current.Version,
 				Activity: current.Activity,
 			},
@@ -59,23 +92,23 @@ func TestHydrationRuntimeTupleAdmissionMapping(t *testing.T) {
 		},
 		{
 			name: "lower sequence is developer error",
-			incoming: clientui.RuntimeReadModelUpdate{
-				Version:  clientui.ReadModelVersion{Epoch: current.Version.Epoch, Generation: current.Version.Generation, Sequence: 10},
+			incoming: &runtimepb.ReadModelUpdate{
+				Version:  &runtimepb.ReadModelVersion{Epoch: current.Version.Epoch, Generation: current.Version.Generation, Sequence: 10},
 				Activity: current.Activity,
 			},
 			wantErr: true,
 		},
 		{
 			name: "older generation is developer error",
-			incoming: clientui.RuntimeReadModelUpdate{
-				Version:  clientui.ReadModelVersion{Epoch: current.Version.Epoch, Generation: current.Version.Generation - 1, Sequence: 99},
+			incoming: &runtimepb.ReadModelUpdate{
+				Version:  &runtimepb.ReadModelVersion{Epoch: current.Version.Epoch, Generation: current.Version.Generation - 1, Sequence: 99},
 				Activity: current.Activity,
 			},
 			wantErr: true,
 		},
 		{
 			name: "same version conflict is developer error",
-			incoming: clientui.RuntimeReadModelUpdate{
+			incoming: &runtimepb.ReadModelUpdate{
 				Version:  current.Version,
 				Activity: runtimeTupleTestRunningActivity(),
 			},
@@ -90,9 +123,9 @@ func TestHydrationRuntimeTupleAdmissionMapping(t *testing.T) {
 				hasMainView: true,
 			}
 			message := ongoingHydrationMessage(1)
-			payload := message.Payload().(clientui.TranscriptHydration)
+			payload := message.Event.GetHydration()
 			payload.RuntimeReadModelUpdate = tt.incoming
-			message = clientui.NewTranscriptMessage(1, clientui.NewTranscriptEvent(payload))
+			message = &transcriptpb.Message{Sequence: 1, Event: &transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: payload}}}
 			result, err := client.admitTranscriptMessageState(message)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("admission error = %v, wantErr=%t", err, tt.wantErr)

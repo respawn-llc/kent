@@ -161,19 +161,19 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring.runtimeClient, "start prompt round trip")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	askPrompt := waitForRemoteTranscriptPrompt(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, "ask-1", submissionFailed)
-	if askPrompt.Kind != clientui.TranscriptPromptKindQuestion || askPrompt.Question != "Pick one" {
+	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Pick one" {
 		t.Fatalf("unexpected ask prompt: %+v", askPrompt)
 	}
 	answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, askPrompt, clientui.PromptAnswer{
-		ToolCallID:           askPrompt.ToolCallID,
+		ToolCallID:           clientui.ToolCallID(transcriptPromptToolCallID(askPrompt)),
 		SelectedOptionNumber: func() *int { selected := 2; return &selected }(),
 	})
 	approvalPrompt := waitForRemoteTranscriptPrompt(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, "", submissionFailed)
-	if approvalPrompt.Kind != clientui.TranscriptPromptKindApproval {
+	if approvalPrompt.GetApproval() == nil {
 		t.Fatalf("unexpected approval prompt: %+v", approvalPrompt)
 	}
 	answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, approvalPrompt, clientui.PromptAnswer{
-		ToolCallID: approvalPrompt.ToolCallID,
+		ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(approvalPrompt)),
 		Approval: &clientui.ApprovalPromptAnswer{
 			Decision:   clientui.ApprovalDecisionAllowOnce,
 			Commentary: "trusted",

@@ -17,8 +17,8 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/sessionlaunch"
-	"core/shared/clientui"
 	"core/shared/config"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -133,7 +133,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 			StoreOptions:             storeOptions,
 			PersistedSessions:        meta,
 			ProjectWorkspaceBoundary: fixedProjectWorkspaceBoundaryResolver{root: workspace},
-			ExecutionTargets: fixedSessionExecutionTargetResolver{target: clientui.SessionExecutionTarget{
+			ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
 				WorkspaceRoot:    workspace,
 				CwdRelpath:       ".",
 				EffectiveWorkdir: workspace,
@@ -163,14 +163,14 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if !create && response.SessionID != targetID {
-		t.Fatalf("continued session id = %q, want %q", response.SessionID, targetID)
+	if !create && response.SessionId != targetID {
+		t.Fatalf("continued session id = %q, want %q", response.SessionId, targetID)
 	}
 	if len(history.entries) != 1 || history.entries[0].Text != wantContent {
 		t.Fatalf("prompt history = %+v, want one entry with submitted representation", history.entries)
 	}
 
-	target, err := session.OpenByID(root, response.SessionID, storeOptions...)
+	target, err := session.OpenByID(root, response.SessionId, storeOptions...)
 	if err != nil {
 		t.Fatalf("OpenByID target: %v", err)
 	}

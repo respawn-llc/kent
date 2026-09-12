@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type sessionFeedSequencer struct {
@@ -37,7 +39,7 @@ func (s *sessionFeedSequencer) HasSubscribers() bool {
 }
 
 func (s *sessionFeedSequencer) Subscribe(
-	build func() (clientui.TranscriptHydration, error),
+	build func() (*transcriptpb.Hydration, error),
 ) (*transcriptSubscription, error) {
 	if s == nil {
 		return nil, nil
@@ -55,14 +57,14 @@ func (s *sessionFeedSequencer) Subscribe(
 		}
 		return nil, err
 	}
-	event := clientui.NewTranscriptEvent(hydration)
-	if err := event.Validate(); err != nil {
+	event := &transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: hydration}}
+	if err := protoapi.Validate(event); err != nil {
 		return nil, fmt.Errorf("build canonical transcript hydration: %w", err)
 	}
 	return s.broker.Subscribe(event)
 }
 
-func (s *sessionFeedSequencer) Publish(events []clientui.TranscriptEvent) {
+func (s *sessionFeedSequencer) Publish(events []*transcriptpb.Event) {
 	if s == nil || len(events) == 0 {
 		return
 	}
@@ -72,7 +74,7 @@ func (s *sessionFeedSequencer) Publish(events []clientui.TranscriptEvent) {
 	s.broker.Publish(events)
 }
 
-func (s *sessionFeedSequencer) PublishBuilt(build func() ([]clientui.TranscriptEvent, error)) error {
+func (s *sessionFeedSequencer) PublishBuilt(build func() ([]*transcriptpb.Event, error)) error {
 	if s == nil {
 		return nil
 	}
@@ -93,7 +95,7 @@ func (s *sessionFeedSequencer) PublishBuilt(build func() ([]clientui.TranscriptE
 	return nil
 }
 
-func (s *sessionFeedSequencer) PublishRuntimeReadModel(update clientui.RuntimeReadModelUpdate) {
+func (s *sessionFeedSequencer) PublishRuntimeReadModel(update *runtimepb.ReadModelUpdate) {
 	if s == nil {
 		return
 	}
@@ -102,7 +104,7 @@ func (s *sessionFeedSequencer) PublishRuntimeReadModel(update clientui.RuntimeRe
 	s.publishRuntimeReadModelLocked(update)
 }
 
-func (s *sessionFeedSequencer) CloseWithRuntimeReadModel(update clientui.RuntimeReadModelUpdate, err error) {
+func (s *sessionFeedSequencer) CloseWithRuntimeReadModel(update *runtimepb.ReadModelUpdate, err error) {
 	if s == nil {
 		return
 	}
@@ -135,17 +137,17 @@ func (s *sessionFeedSequencer) CloseContractViolation(err error) error {
 	return contractErr
 }
 
-func (s *sessionFeedSequencer) publishRuntimeReadModelLocked(update clientui.RuntimeReadModelUpdate) {
-	event := clientui.NewTranscriptEvent(update)
-	if err := event.Validate(); err != nil {
+func (s *sessionFeedSequencer) publishRuntimeReadModelLocked(update *runtimepb.ReadModelUpdate) {
+	event := &transcriptpb.Event{Payload: &transcriptpb.Event_RuntimeReadModelUpdate{RuntimeReadModelUpdate: update}}
+	if err := protoapi.Validate(event); err != nil {
 		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
 	}
-	s.broker.Publish([]clientui.TranscriptEvent{event})
+	s.broker.Publish([]*transcriptpb.Event{event})
 }
 
-func (s *sessionFeedSequencer) validateEvents(events []clientui.TranscriptEvent) {
+func (s *sessionFeedSequencer) validateEvents(events []*transcriptpb.Event) {
 	for _, event := range events {
-		if err := event.Validate(); err != nil {
+		if err := protoapi.Validate(event); err != nil {
 			panic(fmt.Sprintf("publish invalid canonical transcript event before batch mutation: %v", err))
 		}
 	}

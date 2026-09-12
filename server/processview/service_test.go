@@ -10,7 +10,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/shared/serverapi"
+	processpb "core/shared/protoapi/gen/kent/api/process"
 	"core/shared/toolspec"
 )
 
@@ -37,10 +37,10 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	})
 	ownerSessionID := "session-1"
 	ownerRunID := "run-1"
-	resp, err := fixture.service.ListProcesses(context.Background(), serverapi.ProcessListRequest{
-		ProjectID:      processViewTestProjectID,
-		OwnerSessionID: &ownerSessionID,
-		OwnerRunID:     &ownerRunID,
+	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
+		ProjectId:      processViewTestProjectID,
+		OwnerSessionId: &ownerSessionID,
+		OwnerRunId:     &ownerRunID,
 	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
@@ -49,7 +49,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		t.Fatalf("expected one process, got %+v", resp.Processes)
 	}
 	process := resp.Processes[0]
-	if process.OwnerSessionID != "session-1" || process.OwnerRunID != "run-1" || process.OwnerStepID != "step-1" {
+	if process.OwnerSessionId != "session-1" || process.GetOwnerRunId() != "run-1" || process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected ownership: %+v", process)
 	}
 	if !process.Backgrounded || !process.Running {
@@ -59,11 +59,11 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		t.Fatalf("expected retained output metadata, got %+v", process)
 	}
 
-	got, err := fixture.service.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: process.ID})
+	got, err := fixture.service.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: process.Id})
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
-	if got.Process == nil || got.Process.OwnerRunID != "run-1" || got.Process.OwnerStepID != "step-1" {
+	if got.Process == nil || got.Process.GetOwnerRunId() != "run-1" || got.Process.GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected process payload: %+v", got.Process)
 	}
 	if !got.Process.OutputAvailable || got.Process.OutputRetainedFromBytes != 0 || got.Process.OutputRetainedToBytes < process.OutputRetainedToBytes {
@@ -127,14 +127,14 @@ func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
 	waitForProcessCount(t, fixture.manager, 2)
 
 	ownerRunID := "run-b"
-	resp, err := fixture.service.ListProcesses(context.Background(), serverapi.ProcessListRequest{
-		ProjectID:  processViewTestProjectID,
-		OwnerRunID: &ownerRunID,
+	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
+		ProjectId:  processViewTestProjectID,
+		OwnerRunId: &ownerRunID,
 	})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(resp.Processes) != 1 || resp.Processes[0].OwnerRunID != "run-b" {
+	if len(resp.Processes) != 1 || resp.Processes[0].GetOwnerRunId() != "run-b" {
 		t.Fatalf("unexpected filtered processes: %+v", resp.Processes)
 	}
 }
@@ -146,12 +146,12 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	waitForInlineOutput(t, processViewTestWaitTimeout, func() (serverapi.ProcessInlineOutputResponse, error) {
-		return fixture.service.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
-	}, func(resp serverapi.ProcessInlineOutputResponse) bool {
+	waitForInlineOutput(t, processViewTestWaitTimeout, func() (*processpb.InlineOutputSuccess, error) {
+		return fixture.service.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: "1000", MaxChars: 12_000})
+	}, func(resp *processpb.InlineOutputSuccess) bool {
 		return resp.LogPath != "" && strings.Contains(resp.Output, "inline-preview")
 	})
-	resp, err := fixture.service.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
+	resp, err := fixture.service.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: "1000", MaxChars: 12_000})
 	if err != nil {
 		t.Fatalf("GetInlineOutput: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestServiceKillProcessSignalsManagerEntry(t *testing.T) {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	if _, err := fixture.service.KillProcess(context.Background(), serverapi.ProcessKillRequest{ProcessID: "1000"}); err != nil {
+	if _, err := fixture.service.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: "1000"}); err != nil {
 		t.Fatalf("KillProcess: %v", err)
 	}
 	waitForProcessKilled(t, fixture.manager, "1000")
@@ -178,7 +178,7 @@ func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
 	svc := NewProcessViewService(source, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := svc.KillProcess(ctx, serverapi.ProcessKillRequest{ProcessID: "1000"}); err != context.Canceled {
+	if _, err := svc.KillProcess(ctx, &processpb.KillRequest{ProcessId: "1000"}); err != context.Canceled {
 		t.Fatalf("KillProcess error = %v, want context canceled", err)
 	}
 	if source.killCalls != 0 {
@@ -189,7 +189,7 @@ func TestServiceKillProcessHonorsCanceledContext(t *testing.T) {
 func TestServiceKillProcessRepeatedCallExecutesAgain(t *testing.T) {
 	source := &stubKillProcessSource{}
 	svc := NewProcessViewService(source, nil)
-	req := serverapi.ProcessKillRequest{ProcessID: "1000"}
+	req := &processpb.KillRequest{ProcessId: "1000"}
 
 	if _, err := svc.KillProcess(context.Background(), req); err != nil {
 		t.Fatalf("KillProcess first: %v", err)
@@ -261,9 +261,9 @@ func waitForProcessSnapshot(t *testing.T, timeout time.Duration, check func() (s
 	return snapshot
 }
 
-func waitForInlineOutput(t *testing.T, timeout time.Duration, call func() (serverapi.ProcessInlineOutputResponse, error), match func(serverapi.ProcessInlineOutputResponse) bool) serverapi.ProcessInlineOutputResponse {
+func waitForInlineOutput(t *testing.T, timeout time.Duration, call func() (*processpb.InlineOutputSuccess, error), match func(*processpb.InlineOutputSuccess) bool) *processpb.InlineOutputSuccess {
 	t.Helper()
-	var resp serverapi.ProcessInlineOutputResponse
+	var resp *processpb.InlineOutputSuccess
 	testsetup.RequireUntil(t, time.Now().Add(timeout), 10*time.Millisecond, func() bool {
 		var err error
 		resp, err = call()

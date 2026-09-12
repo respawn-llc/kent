@@ -6,7 +6,7 @@ import (
 	"core/server/chatcontext"
 	"core/server/llm"
 	compaction "core/shared/config"
-	"core/shared/serverapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
 func TestCompactionPlannerDerivesThresholdsAndRunway(t *testing.T) {
@@ -18,7 +18,7 @@ func TestCompactionPlannerDerivesThresholdsAndRunway(t *testing.T) {
 		policy: chatcontext.Policy{
 			ContextWindowTokens:      1_000_000,
 			AutomaticThresholdTokens: 900_000,
-			CompactionMode:           serverapi.ChatContextCompactionModeProviderNative,
+			CompactionMode:           contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE,
 		},
 		maxOutputTokens:       4_000,
 		lockedMaxOutputTokens: 8_000,
@@ -143,7 +143,7 @@ func TestCompactionPlannerAppliesFallbacksAndSelectsEngine(t *testing.T) {
 		policy: chatcontext.Policy{
 			ContextWindowTokens:      2_000,
 			AutomaticThresholdTokens: 1_900,
-			CompactionMode:           serverapi.ChatContextCompactionModeDisabled,
+			CompactionMode:           contextpb.CompactionMode_COMPACTION_MODE_DISABLED,
 		},
 	}
 
@@ -162,7 +162,7 @@ func TestCompactionPlannerAppliesFallbacksAndSelectsEngine(t *testing.T) {
 
 	disabled := snapshot
 	disabled.autoCompactionEnabled = false
-	disabled.policy.CompactionMode = serverapi.ChatContextCompactionModeProviderNative
+	disabled.policy.CompactionMode = contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE
 	if planner.autoCompactionAvailable(disabled) {
 		t.Fatal("explicit auto compaction disable should make auto compaction unavailable")
 	}
@@ -185,13 +185,13 @@ func TestCompactionPlannerAppliesFallbacksAndSelectsEngine(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			policyMode := serverapi.ChatContextCompactionModeLocal
+			policyMode := contextpb.CompactionMode_COMPACTION_MODE_LOCAL
 			switch test.mode {
 			case "none":
-				policyMode = serverapi.ChatContextCompactionModeDisabled
+				policyMode = contextpb.CompactionMode_COMPACTION_MODE_DISABLED
 			case "native":
 				if test.caps.SupportsResponsesCompact {
-					policyMode = serverapi.ChatContextCompactionModeProviderNative
+					policyMode = contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE
 				}
 			}
 			if got := planner.enginePlan(compactionPlanningSnapshot{policy: chatcontext.Policy{CompactionMode: policyMode}}); got != test.want {

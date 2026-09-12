@@ -14,7 +14,7 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/tools"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -741,7 +741,7 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("timed out waiting for Reviewer follow-up tool")
 	}
-	if got := engine.ReviewerActivity(); got != clientui.ReviewerActivityAddressingFeedback {
+	if got := engine.ReviewerActivity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("Reviewer activity completed before its follow-up tool boundary: %q", got)
 	}
 
@@ -772,7 +772,7 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 		t.Fatal("Worktree transition callback did not run")
 	}
 	waitEngineLifecycleTasks(t, engine)
-	if got := engine.ReviewerActivity(); got != clientui.ReviewerActivityInactive {
+	if got := engine.ReviewerActivity(); got != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatal("Reviewer activity remained active after its follow-up completed")
 	}
 }

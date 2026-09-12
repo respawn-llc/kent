@@ -182,7 +182,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithPromptHistoryStore(metadataStore).
 		WithWorkflowTaskSessionResolver(metadataStore).
 		WithPersistedSessionResolver(metadataStore).
-		WithLiveWatchPromptSources(askService, approvalService, runtimeRegistry)
+		WithLiveWatchPromptSources(runtimeRegistry, runtimeRegistry)
 	runtimeControlService.WithPromptCommandResolver(promptCommandRuntimeResolver{
 		effectiveWorkspace: promptCommandEffectiveWorkspaceResolver{
 			persistenceRoot: cfg.PersistenceRoot,
@@ -366,7 +366,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		TaskSessions:     workflowTaskSessions,
 		Activity:         workflowActivity,
 		Attention:        workflowAttention,
-		Approvals:        approvalService,
+		PendingPrompts:   runtimeRegistry,
 	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
 	if err != nil {
 		cleanupNewFailure()
@@ -696,7 +696,7 @@ func (s workflowViewActiveTranscriptSource) SessionNewestActiveSegmentQuestions(
 			entry.ToolCall.ToolName != string(toolspec.ToolAskQuestion) {
 			continue
 		}
-		recommendedOptionIndex, err := promptcontrol.DecodeLegacyRecommendedOptionIndex(
+		recommendedOptionIndex, err := registry.DecodeLegacyRecommendedOptionIndex(
 			entry.ToolCall.RecommendedOptionIndex,
 			len(entry.ToolCall.Suggestions),
 		)
@@ -732,7 +732,7 @@ func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([
 		if err := toolCallID.Validate(); err != nil {
 			return nil, fmt.Errorf("session %q pending prompt identity: %w", sessionID, err)
 		}
-		recommendedOptionIndex, err := promptcontrol.DecodeLegacyRecommendedOptionIndex(
+		recommendedOptionIndex, err := registry.DecodeLegacyRecommendedOptionIndex(
 			item.Request.RecommendedOptionIndex,
 			len(item.Request.Suggestions),
 		)

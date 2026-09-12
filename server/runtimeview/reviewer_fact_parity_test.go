@@ -1,15 +1,17 @@
 package runtimeview
 
 import (
-	"reflect"
 	"testing"
 
 	"core/server/runtime"
 	"core/server/tools"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"core/shared/transcript"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
@@ -34,20 +36,23 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
 		"name",
-		clientui.ConversationFreshnessEstablished,
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
-	if !reflect.DeepEqual(hydration.TailSegment.Entries, page.Entries) {
+	if len(hydration.TailSegment.Entries) != len(page.Entries) {
 		t.Fatalf("hydration/page Reviewer rows differ: hydration=%+v page=%+v", hydration.TailSegment.Entries, page.Entries)
 	}
 	for index := range hydration.TailSegment.Entries {
-		if err := hydration.TailSegment.Entries[index].Validate(); err != nil {
+		if !proto.Equal(hydration.TailSegment.Entries[index], page.Entries[index]) {
+			t.Fatalf("hydration/page Reviewer row %d differs", index)
+		}
+		if err := protoapi.Validate(hydration.TailSegment.Entries[index]); err != nil {
 			t.Fatalf("hydrated Reviewer row %d failed validation: %v", index, err)
 		}
-		if err := page.Entries[index].Validate(); err != nil {
+		if err := protoapi.Validate(page.Entries[index]); err != nil {
 			t.Fatalf("paged Reviewer row %d failed validation: %v", index, err)
 		}
 	}
@@ -61,13 +66,13 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 		if len(liveMessages) != 1 {
 			t.Fatalf("live Reviewer subscription messages %d, want one", len(liveMessages))
 		}
-		if err := liveMessages[0].Validate(); err != nil {
+		if err := protoapi.Validate(liveMessages[0]); err != nil {
 			t.Fatalf("live Reviewer subscription event %d failed validation: %v", index, err)
 		}
-		liveRows := []clientui.TranscriptCommittedRow{
-			transcriptPayload[clientui.TranscriptCommittedRow](t, liveMessages[0]),
+		liveRows := []*transcriptpb.CommittedRow{
+			liveMessages[0].GetCommittedRow(),
 		}
-		if len(liveRows) != 1 || !reflect.DeepEqual(liveRows[0], hydration.TailSegment.Entries[index]) {
+		if len(liveRows) != 1 || !proto.Equal(liveRows[0], hydration.TailSegment.Entries[index]) {
 			t.Fatalf("live Reviewer row %d differs: live=%+v hydration=%+v", index, liveRows, hydration.TailSegment.Entries[index])
 		}
 	}
@@ -113,7 +118,7 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 	page, err := TranscriptPageFromSegment(
 		sessionID,
 		"name",
-		clientui.ConversationFreshnessEstablished,
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)
 	if err != nil {
@@ -140,9 +145,9 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 			len(liveMessages),
 		)
 	}
-	liveRow := transcriptPayload[clientui.TranscriptCommittedRow](t, liveMessages[0])
-	if !reflect.DeepEqual(hydration.TailSegment.Entries[0], page.Entries[0]) ||
-		!reflect.DeepEqual(hydration.TailSegment.Entries[0], liveRow) {
+	liveRow := liveMessages[0].GetCommittedRow()
+	if !proto.Equal(hydration.TailSegment.Entries[0], page.Entries[0]) ||
+		!proto.Equal(hydration.TailSegment.Entries[0], liveRow) {
 		t.Fatalf(
 			"Question rows differ: hydration=%+v page=%+v live=%+v",
 			hydration.TailSegment.Entries[0],
@@ -151,30 +156,28 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 		)
 	}
 	got := hydration.TailSegment.Entries[0]
-	if got.Tool == nil || got.Tool.QuestionAnswer == nil ||
-		got.Tool.QuestionAnswer.SelectedOptionNumber == nil ||
-		*got.Tool.QuestionAnswer.SelectedOptionNumber != selected ||
-		got.Tool.QuestionAnswer.Freeform == nil ||
-		*got.Tool.QuestionAnswer.Freeform != freeform {
-		t.Fatalf("Question answer facts = %+v, want selected=%d freeform=%q", got.Tool, selected, freeform)
+	if got.GetTool() == nil || got.GetTool().QuestionAnswer == nil ||
+		got.GetTool().QuestionAnswer.SelectedOptionNumber == nil ||
+		*got.GetTool().QuestionAnswer.SelectedOptionNumber != int32(selected) ||
+		got.GetTool().QuestionAnswer.Freeform == nil ||
+		*got.GetTool().QuestionAnswer.Freeform != freeform {
+		t.Fatalf("Question answer facts = %+v, want selected=%d freeform=%q", got.GetTool(), selected, freeform)
 	}
-	if err := got.Validate(); err != nil {
+	if err := protoapi.Validate(got); err != nil {
 		t.Fatalf("shared v1-compatible Question row failed validation: %v", err)
 	}
-	legacy := got
-	legacyTool := *got.Tool
-	legacyTool.QuestionAnswer = nil
-	legacy.Tool = &legacyTool
-	if err := legacy.Validate(); err != nil {
+	withoutAnswer := proto.Clone(got).(*transcriptpb.CommittedRow)
+	withoutAnswer.GetTool().QuestionAnswer = nil
+	if err := protoapi.Validate(withoutAnswer); err != nil {
 		t.Fatalf("shared contract rejected event-log v1 Question row without answer facts: %v", err)
 	}
 
 	selected = 1
 	freeform = "mutated"
-	if got.Tool.QuestionAnswer.SelectedOptionNumber == nil ||
-		*got.Tool.QuestionAnswer.SelectedOptionNumber != 2 ||
-		got.Tool.QuestionAnswer.Freeform == nil ||
-		*got.Tool.QuestionAnswer.Freeform != "keep the split" {
-		t.Fatalf("Question row aliases source answer facts: %+v", got.Tool.QuestionAnswer)
+	if got.GetTool().QuestionAnswer.SelectedOptionNumber == nil ||
+		*got.GetTool().QuestionAnswer.SelectedOptionNumber != 2 ||
+		got.GetTool().QuestionAnswer.Freeform == nil ||
+		*got.GetTool().QuestionAnswer.Freeform != "keep the split" {
+		t.Fatalf("Question row aliases source answer facts: %+v", got.GetTool().QuestionAnswer)
 	}
 }

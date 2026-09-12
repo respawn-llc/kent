@@ -122,7 +122,9 @@ describe("Desktop Worktree client", () => {
         },
       },
     });
-    expect(() => validate(ListResultSchema, result)).not.toThrow();
+    expect(() => {
+      validate(ListResultSchema, result);
+    }).not.toThrow();
     const client = new ApiClient(new FakeRpcTransport([{ descriptor: ListService.method.list, result }]));
     await expect(client.listWorktrees("retained-session")).rejects.toSatisfy(
       (error: unknown) => error instanceof RpcError && error.code === rpcErrorCodes.workspaceNotRegistered,

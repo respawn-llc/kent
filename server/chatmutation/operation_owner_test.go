@@ -10,6 +10,7 @@ import (
 	"core/server/sessionruntime"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -185,7 +186,7 @@ type lifecycleAdmission struct {
 
 func (a lifecycleAdmission) AdmitChatUserTurn(
 	ctx context.Context,
-	_ serverapi.RuntimeSubmitUserTurnRequest,
+	_ *runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	a.recorder.operationStage("admission", ctx)
 	return a.result, a.err
@@ -193,14 +194,14 @@ func (a lifecycleAdmission) AdmitChatUserTurn(
 
 func (lifecycleAdmission) AdmitChatQueuedUserInput(
 	context.Context,
-	serverapi.RuntimeSubmitUserTurnRequest,
+	*runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	panic("unexpected Queue admission")
 }
 
 func (lifecycleAdmission) AdmitManualCompaction(
 	context.Context,
-	serverapi.RuntimeCompactContextRequest,
+	*runtimepb.CompactContextRequest,
 ) (bool, error) {
 	panic("unexpected compaction admission")
 }

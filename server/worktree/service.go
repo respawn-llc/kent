@@ -121,7 +121,7 @@ func (l deleteTargetActivityLease) Close() {
 }
 
 type sessionWorkspaceContext struct {
-	target        clientui.SessionExecutionTarget
+	target        *worktreepb.SessionExecutionTarget
 	projectID     string
 	workspaceID   string
 	workspaceRoot string
@@ -1667,15 +1667,11 @@ func (s *Service) ListWorktrees(ctx context.Context, req *worktreepb.ListRequest
 	if err != nil {
 		return nil, err
 	}
-	worktrees, err := projectWorktreeList(topology, &workspaceCtx.target)
+	worktrees, err := projectWorktreeList(topology, workspaceCtx.target)
 	if err != nil {
 		return nil, err
 	}
-	target, err := contractSessionExecutionTarget(workspaceCtx.target)
-	if err != nil {
-		return nil, err
-	}
-	return &worktreepb.ListSuccess{Target: target, Worktrees: worktrees}, nil
+	return &worktreepb.ListSuccess{Target: workspaceCtx.target, Worktrees: worktrees}, nil
 }
 
 func (s *Service) ListWorkspaceWorktrees(ctx context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
@@ -1905,10 +1901,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 	}
 	var target *worktreepb.SessionExecutionTarget
 	if management.caller != nil {
-		target, err = contractSessionExecutionTarget(management.caller.target)
-		if err != nil {
-			return nil, err
-		}
+		target = management.caller.target
 	}
 	return &worktreepb.CreateSuccess{Target: target, Worktree: createdEntry}, nil
 }
@@ -2115,14 +2108,14 @@ func (s *Service) resolveSessionWorkspaceContext(ctx context.Context, sessionID 
 			err,
 		)
 	}
-	binding, err := s.metadata.LookupWorkspaceBindingByID(ctx, strings.TrimSpace(target.WorkspaceID))
+	binding, err := s.metadata.LookupWorkspaceBindingByID(ctx, strings.TrimSpace(target.GetWorkspaceId()))
 	if err != nil {
 		return sessionWorkspaceContext{}, err
 	}
 	return sessionWorkspaceContext{
 		target:        target,
 		projectID:     strings.TrimSpace(binding.ProjectID),
-		workspaceID:   strings.TrimSpace(target.WorkspaceID),
+		workspaceID:   strings.TrimSpace(target.GetWorkspaceId()),
 		workspaceRoot: strings.TrimSpace(target.WorkspaceRoot),
 		sessionID:     strings.TrimSpace(sessionID),
 	}, nil

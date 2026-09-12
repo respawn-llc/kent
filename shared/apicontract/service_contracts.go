@@ -3,13 +3,23 @@ package apicontract
 import (
 	"context"
 
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	processpb "core/shared/protoapi/gen/kent/api/process"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 
@@ -20,11 +30,11 @@ import (
 // They intentionally describe method shapes only: no runtime handles,
 // lifecycle orchestration, logging, timeout, or close policy belongs here.
 type ApprovalViewService interface {
-	ListPendingApprovalsBySession(ctx context.Context, req serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error)
+	ListPendingApprovalsBySession(ctx context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListApprovalsSuccess, error)
 }
 
 type AskViewService interface {
-	ListPendingAsksBySession(ctx context.Context, req serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error)
+	ListPendingAsksBySession(ctx context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListQuestionsSuccess, error)
 }
 
 type AuthBootstrapService interface {
@@ -42,7 +52,7 @@ type CapabilityFactsService interface {
 }
 
 type ChatContextService interface {
-	GetChatContext(ctx context.Context, req serverapi.ChatContextRequest) (serverapi.ChatContextResponse, error)
+	GetChatContext(ctx context.Context, req *chatcontextpb.GetRequest) (*chatcontextpb.GetSuccess, error)
 }
 
 type ChatMutationService interface {
@@ -52,7 +62,7 @@ type ChatMutationService interface {
 }
 
 type PromptCommandCatalogService interface {
-	GetPromptCommandCatalog(ctx context.Context, req serverapi.PromptCommandCatalogRequest) (serverapi.PromptCommandCatalogResponse, error)
+	GetPromptCommandCatalog(ctx context.Context, req *promptcommandpb.GetCatalogRequest) (*promptcommandpb.Catalog, error)
 }
 
 type OnboardingFinalizeService interface {
@@ -60,13 +70,13 @@ type OnboardingFinalizeService interface {
 }
 
 type ProcessControlService interface {
-	KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error)
-	GetInlineOutput(ctx context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error)
+	KillProcess(ctx context.Context, req *processpb.KillRequest) (*emptypb.Empty, error)
+	GetInlineOutput(ctx context.Context, req *processpb.InlineOutputRequest) (*processpb.InlineOutputSuccess, error)
 }
 
 type ProcessViewService interface {
-	ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error)
-	GetProcess(ctx context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error)
+	ListProcesses(ctx context.Context, req *processpb.ListRequest) (*processpb.ListSuccess, error)
+	GetProcess(ctx context.Context, req *processpb.GetRequest) (*processpb.GetSuccess, error)
 }
 
 type ProjectViewService interface {
@@ -90,16 +100,16 @@ type ProjectViewService interface {
 
 type AttentionNotificationService interface {
 	SubscribeAttentionNotifications(ctx context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error)
-	SubscribeSessionAttentionNotifications(ctx context.Context, req serverapi.AttentionSessionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error)
+	SubscribeSessionAttentionNotifications(ctx context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error)
 }
 
 type PromptControlService interface {
-	AnswerPromptBatch(ctx context.Context, req serverapi.PromptAnswerBatchRequest) (serverapi.PromptAnswerBatchResponse, error)
-	SubscribeFollowUp(ctx context.Context, req serverapi.PromptFollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error)
+	AnswerPromptBatch(ctx context.Context, req *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error)
+	SubscribeFollowUp(ctx context.Context, req *promptpb.FollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error)
 }
 
 type RunPromptService interface {
-	RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error)
+	RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error)
 }
 
 type ServerStatusService interface {
@@ -108,40 +118,40 @@ type ServerStatusService interface {
 }
 
 type RuntimeControlService interface {
-	SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error
-	AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error
-	ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error)
-	SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error)
-	SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error
-	CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error
-	Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRequest) (serverapi.RuntimeInterruptResponse, error)
-	RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error
-	ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error)
-	SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	ResumeGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	CompleteGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error)
-	ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error)
+	SetSessionName(ctx context.Context, req *runtimepb.SetSessionNameRequest) error
+	AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error
+	ShouldCompactBeforeUserMessage(ctx context.Context, req *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error)
+	SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error)
+	SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error
+	CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error
+	Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error)
+	RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error
+	ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error)
+	SetGoal(ctx context.Context, req *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error)
+	PauseGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
+	ResumeGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
+	CompleteGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)
+	ClearGoal(ctx context.Context, req *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error)
 }
 
 type RuntimePendingWorkService interface {
-	ListPendingWork(ctx context.Context, req serverapi.RuntimeListPendingWorkRequest) (serverapi.RuntimeListPendingWorkResponse, error)
-	RemovePendingWork(ctx context.Context, req serverapi.RuntimeRemovePendingWorkRequest) (serverapi.RuntimeRemovePendingWorkResponse, error)
+	ListPendingWork(ctx context.Context, req *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error)
+	RemovePendingWork(ctx context.Context, req *runtimepb.RemovePendingWorkRequest) (*runtimepb.RemovePendingWorkSuccess, error)
 }
 
 type RuntimeLiveControlService interface {
-	LiveSteer(ctx context.Context, req serverapi.RuntimeLiveSteerRequest) (serverapi.RuntimeLiveSteerResponse, error)
-	LiveStop(ctx context.Context, req serverapi.RuntimeLiveStopRequest) (serverapi.RuntimeLiveStopResponse, error)
-	LiveWait(ctx context.Context, req serverapi.RuntimeLiveWaitRequest) (serverapi.RuntimeLiveWaitResponse, error)
-	LiveWatch(ctx context.Context, req serverapi.RuntimeLiveWatchRequest) (serverapi.RuntimeLiveWatchResponse, error)
+	LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest) (*runtimepb.LiveSteerSuccess, error)
+	LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (*runtimepb.LiveStopSuccess, error)
+	LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) (*runtimepb.LiveWaitSuccess, error)
+	LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest) (*promptpb.LiveWatchSuccess, error)
 }
 
 type SessionTranscriptService interface {
-	SubscribeSessionTranscript(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error)
+	SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
 }
 
 type GoalObservationService interface {
-	SubscribeGoalObservation(ctx context.Context, req serverapi.GoalObserveRequest) (serverapi.GoalObservationSubscription, error)
+	SubscribeGoalObservation(ctx context.Context, req *runtimepb.GoalObserveRequest) (serverapi.GoalObservationSubscription, error)
 }
 
 type SessionLaunchService interface {
@@ -149,8 +159,8 @@ type SessionLaunchService interface {
 }
 
 type ChatSettingsService interface {
-	ReadChatSettings(ctx context.Context, req serverapi.ChatSettingsReadRequest) (serverapi.ChatSettingsReadResponse, error)
-	MutateChatSettings(ctx context.Context, req serverapi.ChatSettingsMutationRequest) (serverapi.ChatSettingsMutationResponse, error)
+	ReadChatSettings(ctx context.Context, req *chatsettingspb.ReadRequest) (*chatsettingspb.ReadSuccess, error)
+	MutateChatSettings(ctx context.Context, req *chatsettingspb.MutationRequest) (*chatsettingspb.MutationSuccess, error)
 }
 
 type SessionLifecycleService interface {
@@ -168,11 +178,11 @@ type SessionRuntimeService interface {
 }
 
 type SessionViewService interface {
-	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
-	GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error)
-	GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error)
-	GetSessionExecutionEnvironment(ctx context.Context, req serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error)
-	SubscribeQuestionHistory(ctx context.Context, req serverapi.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error)
+	GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)
+	GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error)
+	GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error)
+	GetSessionExecutionEnvironment(ctx context.Context, req *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error)
+	SubscribeQuestionHistory(ctx context.Context, req *sessionpb.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error)
 }
 
 type WorktreeService interface {

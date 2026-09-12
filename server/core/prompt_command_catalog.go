@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +13,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	"core/shared/serverapi"
 )
 
@@ -21,13 +22,16 @@ type promptCommandCatalogService struct {
 	catalog promptcommands.Service
 }
 
-func (s promptCommandCatalogService) GetPromptCommandCatalog(context.Context, serverapi.PromptCommandCatalogRequest) (serverapi.PromptCommandCatalogResponse, error) {
+func (s promptCommandCatalogService) GetPromptCommandCatalog(context.Context, *promptcommandpb.GetCatalogRequest) (*promptcommandpb.Catalog, error) {
 	entries, err := s.catalog.Catalog()
 	if err != nil {
-		return serverapi.PromptCommandCatalogResponse{}, publicPromptCommandError(err)
+		return nil, publicPromptCommandError(err)
 	}
-	response := serverapi.PromptCommandCatalogResponse{Commands: append([]serverapi.PromptCommandCatalogEntry(nil), entries...)}
-	return response, response.Validate()
+	response := &promptcommandpb.Catalog{Commands: make([]*promptcommandpb.CatalogEntry, 0, len(entries))}
+	for _, entry := range entries {
+		response.Commands = append(response.Commands, &promptcommandpb.CatalogEntry{Name: entry.Name, Preview: entry.Preview})
+	}
+	return response, protoapi.Validate(response)
 }
 
 type promptCommandRuntimeResolver struct {
@@ -40,17 +44,17 @@ type promptCommandSessionCatalogService struct {
 	sessionID string
 }
 
-func (s promptCommandSessionCatalogService) GetPromptCommandCatalog(ctx context.Context, req serverapi.PromptCommandCatalogRequest) (serverapi.PromptCommandCatalogResponse, error) {
+func (s promptCommandSessionCatalogService) GetPromptCommandCatalog(ctx context.Context, req *promptcommandpb.GetCatalogRequest) (*promptcommandpb.Catalog, error) {
 	if s.core == nil {
-		return serverapi.PromptCommandCatalogResponse{}, errors.New("core is required")
+		return nil, errors.New("core is required")
 	}
 	projectID, workspaceRoot, err := resolvePromptCommandSessionWorkspace(ctx, s.core.MetadataStore(), s.sessionID)
 	if err != nil {
-		return serverapi.PromptCommandCatalogResponse{}, err
+		return nil, err
 	}
 	catalog, err := s.core.PromptCommandCatalogClientForProjectWorkspace(ctx, projectID, workspaceRoot)
 	if err != nil {
-		return serverapi.PromptCommandCatalogResponse{}, err
+		return nil, err
 	}
 	return catalog.GetPromptCommandCatalog(ctx, req)
 }
@@ -87,7 +91,7 @@ func resolvePromptCommandSessionWorkspace(ctx context.Context, metadataStore *me
 	if err != nil {
 		return "", "", err
 	}
-	binding, err := metadataStore.LookupWorkspaceBindingByID(ctx, target.WorkspaceID)
+	binding, err := metadataStore.LookupWorkspaceBindingByID(ctx, target.GetWorkspaceId())
 	if err != nil {
 		return "", "", err
 	}
@@ -137,14 +141,6 @@ func (e *promptCommandPublicError) As(target any) bool {
 
 func (e *promptCommandPublicError) diagnosticCause() error {
 	return e.cause
-}
-
-func (e *promptCommandPublicError) RPCErrorCode() int {
-	return e.err.RPCErrorCode()
-}
-
-func (e *promptCommandPublicError) RPCErrorData() json.RawMessage {
-	return e.err.RPCErrorData()
 }
 
 func (s *Core) PromptCommandCatalogClientForProjectWorkspace(ctx context.Context, projectID, workspaceRoot string) (apicontract.PromptCommandCatalogService, error) {

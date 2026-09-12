@@ -16,7 +16,6 @@ export type {
   AttachedRequest,
   AttachedProjectCall,
   AttachedProjectDescriptorCall,
-  ChatSubscriptionInput,
   RuntimeOwnerContext,
   RuntimeOwnerOptions,
 } from "../transport";

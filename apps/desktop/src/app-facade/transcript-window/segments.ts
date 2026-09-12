@@ -1,4 +1,4 @@
-import { chatTranscriptCommittedRowSchema, ContractError } from "@/api";
+import { ContractError } from "@/api";
 import { replaceEqualDeep } from "@tanstack/react-query";
 
 import { committedItem, locatorKey } from "./renderSlots";
@@ -22,8 +22,6 @@ export function validateSegment(segment: Segment): void {
   validateBoundary(segment.hasMoreBelow, segment.newerCursor);
   let previous: CommittedRow | null = null;
   for (const row of segment.entries) {
-    const parsed = chatTranscriptCommittedRowSchema.safeParse(row);
-    if (!parsed.success) throw new ContractError(parsed.error.message);
     committedItem(row);
     if (previous !== null && compareRows(previous, row) >= 0) {
       throw new ContractError("Transcript segment locators must be unique and in committed order.");

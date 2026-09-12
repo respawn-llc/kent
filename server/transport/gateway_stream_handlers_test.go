@@ -2,18 +2,23 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"testing"
 	"time"
 
 	"core/shared/apicontract"
-	"core/shared/clientui"
-	"core/shared/protocol"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestPromptFollowUpSubscriptionInstallsBeforeSubscribeResponse(t *testing.T) {
@@ -22,33 +27,45 @@ func TestPromptFollowUpSubscriptionInstallsBeforeSubscribeResponse(t *testing.T)
 		t.Fatalf("parse Step ID: %v", err)
 	}
 	conn := &promptFollowUpRegistrationConn{}
-	serveGatewaySubscription(
-		conn,
-		context.Background(),
-		apicontract.Route{EventMethod: protocol.MethodPromptFollowUpEvent, CompleteMethod: protocol.MethodPromptFollowUpComplete},
-		protocol.Request{
-			JSONRPC: protocol.JSONRPCVersion,
-			ID:      "watch",
-			Method:  protocol.MethodPromptFollowUpWatch,
-			Params: mustJSON(t, serverapi.PromptFollowUpWatchRequest{
-				SessionID: runtimeids.NewSessionID(), StepID: stepID, ToolCallID: "prompt-1",
-			}),
+	fixture := newRoutePolicyFixture(t)
+	fixture.gateway.deps = &gatewayFollowUpDependencies{
+		GatewayDependencies: fixture.gateway.deps,
+		control: gatewayFollowUpService{
+			subscribe: func(context.Context, *promptpb.FollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error) {
+				conn.installed = true
+				return conn, nil
+			},
 		},
-		func(context.Context, serverapi.PromptFollowUpWatchRequest) (*promptFollowUpRegistrationConn, error) {
-			conn.installed = true
-			return conn, nil
-		},
-		func(event serverapi.PromptFollowUpEvent) protocol.PromptFollowUpEventParams {
-			return protocol.PromptFollowUpEventParams{Event: protocol.PromptFollowUpEvent{Kind: string(event.Kind)}}
-		},
+	}
+	serveGeneratedStream(t, fixture.gateway, conn, &connectionState{attachedProject: fixture.bindingA.ProjectID},
+		promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("FollowUpService").Methods().ByName("Watch"),
+		&promptpb.FollowUpWatchRequest{SessionId: fixture.ownSessionID, StepId: stepID.String(), ToolCallId: "prompt-1"},
 	)
 	if conn.sent != 2 {
 		t.Fatalf("frames = %d, want SubscribeResponse and completion", conn.sent)
 	}
 }
 
-func (*promptFollowUpRegistrationConn) Next(context.Context) (serverapi.PromptFollowUpEvent, error) {
-	return serverapi.PromptFollowUpEvent{}, io.EOF
+func (*promptFollowUpRegistrationConn) Next(context.Context) (*promptpb.FollowUpEvent, error) {
+	return nil, io.EOF
+}
+
+type gatewayFollowUpService struct {
+	apicontract.PromptControlService
+	subscribe func(context.Context, *promptpb.FollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error)
+}
+
+func (s gatewayFollowUpService) SubscribeFollowUp(ctx context.Context, req *promptpb.FollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error) {
+	return s.subscribe(ctx, req)
+}
+
+type gatewayFollowUpDependencies struct {
+	GatewayDependencies
+	control apicontract.PromptControlService
+}
+
+func (d *gatewayFollowUpDependencies) PromptControlClient() apicontract.PromptControlService {
+	return d.control
 }
 
 type promptFollowUpRegistrationConn struct {
@@ -70,73 +87,75 @@ func TestSessionTranscriptSubscriptionPublishesLiveRunFinishedWithoutRewritingSe
 	answer := "done"
 	now := time.Unix(1, 0).UTC()
 	subscription := &scriptedGatewayTranscriptSubscription{
-		messages: []clientui.TranscriptMessage{
-			clientui.NewTranscriptMessage(7, clientui.NewTranscriptEvent(clientui.TranscriptLiveRunResult{
-				Status:        clientui.LiveRunStatusCompleted,
-				ResultKind:    clientui.LiveRunResultAssistantFinalAnswer,
+		messages: []*transcriptpb.Message{
+			{Sequence: 7, Event: &transcriptpb.Event{Payload: &transcriptpb.Event_LiveRunFinished{LiveRunFinished: &transcriptpb.LiveRunFinished{
+				Status:        transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED,
+				ResultKind:    transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_ASSISTANT_FINAL_ANSWER,
 				WorkPerformed: true,
 				FinalAnswer:   &answer,
-				StartedAt:     now,
-				FinishedAt:    now,
-			})),
-			clientui.NewTranscriptMessage(8, clientui.NewTranscriptEvent(clientui.TranscriptOperationalDiagnostic{
-				Code:   clientui.OperationalDiagnosticSleepGuardFailed,
+				StartedAt:     timestamppb.New(now),
+				FinishedAt:    timestamppb.New(now),
+			}}}},
+			{Sequence: 8, Event: &transcriptpb.Event{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: &transcriptpb.OperationalDiagnostic{
+				Code:   transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_SLEEP_GUARD_FAILED,
 				Detail: "sleep guard failed",
-			})),
+			}}}},
 		},
 	}
 	conn := &recordingGatewayConn{}
-	route, ok := apicontract.RouteByMethod(protocol.MethodSessionSubscribeTranscript)
-	if !ok {
-		t.Fatal("session transcript route is not registered")
-	}
-	gateway := &Gateway{deps: &gatewayTranscriptDependencies{
-		transcript: gatewayTranscriptServiceFunc(func(context.Context, serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+	expected := append([]*transcriptpb.Message(nil), subscription.messages...)
+	fixture := newRoutePolicyFixture(t)
+	fixture.gateway.deps = &gatewayTranscriptDependencies{
+		GatewayDependencies: fixture.gateway.deps,
+		transcript: gatewayTranscriptServiceFunc(func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 			return subscription, nil
 		}),
-	}}
-	gateway.serveSessionTranscriptSubscription(
-		conn,
-		context.Background(),
-		&connectionState{},
-		route,
-		protocol.Request{
-			JSONRPC: protocol.JSONRPCVersion,
-			ID:      "subscribe",
-			Method:  protocol.MethodSessionSubscribeTranscript,
-			Params:  mustJSON(t, serverapi.TranscriptSubscribeRequest{SessionID: "session-1"}),
-		},
+	}
+	sessionID, err := runtimeids.ParseSessionID(fixture.ownSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	method := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe")
+	serveGeneratedStream(t, fixture.gateway, conn, &connectionState{attachedProject: fixture.bindingA.ProjectID, attachedSession: &sessionID},
+		method, &transcriptpb.SubscribeRequest{SessionId: fixture.ownSessionID},
 	)
 
-	var messages []clientui.TranscriptMessage
+	associated, err := protoapi.ResolveSubscriptionOperations(method)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var messages []*transcriptpb.Message
 	for _, frame := range conn.frames {
-		request := frame.Request()
-		if request.Method != protocol.MethodSessionTranscriptEvent {
+		envelope, err := protoapi.DecodeEnvelope(frame.Payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		event := envelope.GetNotificationEvent()
+		if event.GetOperation() != associated.Event.Name {
 			continue
 		}
-		var params protocol.SessionTranscriptEventParams
-		if err := json.Unmarshal(request.Params, &params); err != nil {
+		message := &transcriptpb.Message{}
+		if err := protoapi.Decode(event.Payload, message); err != nil {
 			t.Fatalf("decode transcript event: %v", err)
 		}
-		messages = append(messages, params.Message)
+		messages = append(messages, message)
 	}
 	if len(messages) != 2 {
 		t.Fatalf("transcript messages = %+v, want live-run-finished and diagnostic", messages)
 	}
-	if messages[0].Sequence != 7 || messages[0].Kind() != clientui.TranscriptMessageLiveRunFinished {
-		t.Fatalf("first transcript message = %+v, want seq=7 live-run-finished", messages[0])
-	}
-	if messages[1].Sequence != 8 || messages[1].Kind() != clientui.TranscriptMessageOperationalDiagnostic {
-		t.Fatalf("second transcript message = %+v, want seq=8 operational diagnostic", messages[1])
+	for i, message := range messages {
+		if !proto.Equal(message, expected[i]) {
+			t.Fatalf("transcript message %d = %v, want %v", i, message, expected[i])
+		}
 	}
 	if !subscription.closed {
 		t.Fatal("subscription was not closed")
 	}
 }
 
-type gatewayTranscriptServiceFunc func(context.Context, serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error)
+type gatewayTranscriptServiceFunc func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
 
-func (f gatewayTranscriptServiceFunc) SubscribeSessionTranscript(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+func (f gatewayTranscriptServiceFunc) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 	return f(ctx, req)
 }
 
@@ -163,13 +182,13 @@ func (*recordingGatewayConn) Closed() <-chan struct{}      { return nil }
 func (*recordingGatewayConn) Close() error                 { return nil }
 
 type scriptedGatewayTranscriptSubscription struct {
-	messages []clientui.TranscriptMessage
+	messages []*transcriptpb.Message
 	closed   bool
 }
 
-func (s *scriptedGatewayTranscriptSubscription) Next(context.Context) (clientui.TranscriptMessage, error) {
+func (s *scriptedGatewayTranscriptSubscription) Next(context.Context) (*transcriptpb.Message, error) {
 	if len(s.messages) == 0 {
-		return clientui.TranscriptMessage{}, io.EOF
+		return nil, io.EOF
 	}
 	message := s.messages[0]
 	s.messages = s.messages[1:]
@@ -179,4 +198,21 @@ func (s *scriptedGatewayTranscriptSubscription) Next(context.Context) (clientui.
 func (s *scriptedGatewayTranscriptSubscription) Close() error {
 	s.closed = true
 	return nil
+}
+
+func serveGeneratedStream(t *testing.T, gateway *Gateway, conn rpcwire.Conn, state *connectionState, method protoreflect.MethodDescriptor, request proto.Message) {
+	t.Helper()
+	bindings := make(map[string]gatewayBinaryBinding)
+	if err := registerSessionStreamsGatewayBinaryBindings(bindings); err != nil {
+		t.Fatal(err)
+	}
+	binding := bindings[gatewayOperationName(t, method)]
+	payload, err := protoapi.Encode(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.serveBinaryRequest(conn, t.Context(), state, gatewayBinaryRequest{
+		binding: binding,
+		call:    &sharedpb.Call{Operation: binding.operation.Name, Correlation: proto.String("subscribe"), Payload: payload},
+	})
 }

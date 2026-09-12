@@ -6,16 +6,18 @@ import (
 	"testing"
 	"unicode"
 
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/transcript"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestErrorNoticeClassifiesAsError(t *testing.T) {
-	row := &clientui.TranscriptNoticeRow{
-		Reason:   clientui.TranscriptNoticeRuntimeDiagnostic,
-		Severity: clientui.TranscriptNoticeError,
-		Diagnostic: &clientui.TranscriptDiagnostic{
-			Code:   clientui.TranscriptDiagnosticCode(transcript.EntryRoleDeveloperErrorFeedback),
+	row := &transcriptpb.NoticeRow{
+		Reason:   transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+		Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
+		Diagnostic: &transcriptpb.Diagnostic{
+			Code:   string(transcript.EntryRoleDeveloperErrorFeedback),
 			Detail: "failure",
 		},
 	}
@@ -32,17 +34,17 @@ func TestRuntimeDiagnosticErrorUsesCompleteTypedDetailInEveryMode(t *testing.T) 
 	}
 	misleadingCompact := "wrong compact source"
 	misleadingCondensed := "wrong condensed source"
-	row := errorNoticeRow(&clientui.TranscriptNoticeRow{
-		Reason:        clientui.TranscriptNoticeRuntimeDiagnostic,
-		Severity:      clientui.TranscriptNoticeError,
+	row := errorNoticeRow(&transcriptpb.NoticeRow{
+		Reason:        transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+		Severity:      transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 		CompactLabel:  &misleadingCompact,
 		CondensedText: &misleadingCondensed,
-		Diagnostic: &clientui.TranscriptDiagnostic{
-			Code:   clientui.TranscriptDiagnosticCode(transcript.EntryRoleDeveloperErrorFeedback),
+		Diagnostic: &transcriptpb.Diagnostic{
+			Code:   string(transcript.EntryRoleDeveloperErrorFeedback),
 			Detail: detail,
 		},
 	})
-	if err := row.Notice.Validate(); err != nil {
+	if err := protoapi.Validate(row.GetNotice()); err != nil {
 		t.Fatalf("runtime diagnostic row is invalid: %v", err)
 	}
 
@@ -66,16 +68,16 @@ func TestLegacyUntypedErrorUsesCompleteLegacyTextInEveryMode(t *testing.T) {
 	}
 	misleadingCompact := "wrong compact source"
 	misleadingCondensed := "wrong condensed source"
-	messageType := clientui.TranscriptMessageErrorFeedback
-	row := errorNoticeRow(&clientui.TranscriptNoticeRow{
-		Reason:        clientui.TranscriptNoticeLegacyUntypedNotice,
-		Severity:      clientui.TranscriptNoticeError,
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ERROR_FEEDBACK
+	row := errorNoticeRow(&transcriptpb.NoticeRow{
+		Reason:        transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		Severity:      transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 		MessageType:   &messageType,
 		LegacyText:    &legacy,
 		CompactLabel:  &misleadingCompact,
 		CondensedText: &misleadingCondensed,
 	})
-	if err := row.Notice.Validate(); err != nil {
+	if err := protoapi.Validate(row.GetNotice()); err != nil {
 		t.Fatalf("legacy error row is invalid: %v", err)
 	}
 
@@ -92,25 +94,25 @@ func TestLegacyUntypedErrorUsesCompleteLegacyTextInEveryMode(t *testing.T) {
 }
 
 func TestErrorNoticeReasonSelectsItsTypedContentSource(t *testing.T) {
-	cacheWarning := &clientui.TranscriptCacheWarning{
+	cacheWarning := &transcriptpb.CacheWarning{
 		Scope:      string(transcript.CacheWarningScopeConversation),
 		Reason:     string(transcript.CacheWarningReasonNonPostfix),
-		Visibility: transcript.EntryVisibilityOngoing,
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
 	}
 	compactionDetail := "typed compaction detail"
-	messageType := clientui.TranscriptMessageCompactionSummary
-	repair := &transcript.ToolOutputRepairNotice{
-		Kind:  transcript.ToolOutputRepairFreshResource,
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY
+	repair := &transcriptpb.ToolOutputRepair{
+		Kind:  string(transcript.ToolOutputRepairFreshResource),
 		Count: 2,
 	}
 	diagnosticDetail := "typed runtime diagnostic"
 	legacyText := "typed legacy text"
-	metadataType := clientui.TranscriptMessageWorktreeMode
-	metadataNotice := &clientui.TranscriptNoticeRow{
-		Reason:      clientui.TranscriptNoticeLegacyUntypedNotice,
-		Severity:    clientui.TranscriptNoticeError,
+	metadataType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE
+	metadataNotice := &transcriptpb.NoticeRow{
+		Reason:      transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		Severity:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 		MessageType: &metadataType,
-		Worktree: &clientui.TranscriptWorktreeContext{
+		Worktree: &transcriptpb.WorktreeContext{
 			Branch:        stringPtr("feature/error-source"),
 			WorktreePath:  "/workspace/feature",
 			WorkspaceRoot: "/workspace",
@@ -124,54 +126,54 @@ func TestErrorNoticeReasonSelectsItsTypedContentSource(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		notice *clientui.TranscriptNoticeRow
+		notice *transcriptpb.NoticeRow
 		want   string
 	}{
 		{
 			name: "cache warning",
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:       clientui.TranscriptNoticeCacheWarning,
-				Severity:     clientui.TranscriptNoticeError,
+			notice: &transcriptpb.NoticeRow{
+				Reason:       transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
+				Severity:     transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				CacheWarning: cacheWarning,
 			},
 			want: cacheWarningNoticeText(cacheWarning),
 		},
 		{
 			name: "compaction detail",
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:      clientui.TranscriptNoticeCompaction,
-				Severity:    clientui.TranscriptNoticeError,
+			notice: &transcriptpb.NoticeRow{
+				Reason:      transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
+				Severity:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				MessageType: &messageType,
-				Compaction:  &clientui.TranscriptCompactionNotice{Detail: &compactionDetail},
+				Compaction:  &transcriptpb.CompactionNotice{Detail: &compactionDetail},
 			},
 			want: compactionDetail,
 		},
 		{
 			name: "compaction formatter",
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:      clientui.TranscriptNoticeCompaction,
-				Severity:    clientui.TranscriptNoticeError,
+			notice: &transcriptpb.NoticeRow{
+				Reason:      transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
+				Severity:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				MessageType: &messageType,
-				Compaction:  &clientui.TranscriptCompactionNotice{},
+				Compaction:  &transcriptpb.CompactionNotice{},
 			},
 			want: compactionNoticeText(nil),
 		},
 		{
 			name: "tool output repair",
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:           clientui.TranscriptNoticeToolOutputRepair,
-				Severity:         clientui.TranscriptNoticeError,
+			notice: &transcriptpb.NoticeRow{
+				Reason:           transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
+				Severity:         transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				ToolOutputRepair: repair,
 			},
 			want: toolOutputRepairNoticeText(repair),
 		},
 		{
 			name: "runtime diagnostic",
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:   clientui.TranscriptNoticeRuntimeDiagnostic,
-				Severity: clientui.TranscriptNoticeError,
-				Diagnostic: &clientui.TranscriptDiagnostic{
-					Code:   clientui.TranscriptDiagnosticCode(transcript.EntryRoleDeveloperErrorFeedback),
+			notice: &transcriptpb.NoticeRow{
+				Reason:   transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+				Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
+				Diagnostic: &transcriptpb.Diagnostic{
+					Code:   string(transcript.EntryRoleDeveloperErrorFeedback),
 					Detail: diagnosticDetail,
 				},
 			},
@@ -179,9 +181,9 @@ func TestErrorNoticeReasonSelectsItsTypedContentSource(t *testing.T) {
 		},
 		{
 			name: "legacy text",
-			notice: &clientui.TranscriptNoticeRow{
-				Reason:     clientui.TranscriptNoticeLegacyUntypedNotice,
-				Severity:   clientui.TranscriptNoticeError,
+			notice: &transcriptpb.NoticeRow{
+				Reason:     transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+				Severity:   transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 				LegacyText: &legacyText,
 			},
 			want: legacyText,
@@ -195,7 +197,7 @@ func TestErrorNoticeReasonSelectsItsTypedContentSource(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := test.notice.Validate(); err != nil {
+			if err := protoapi.Validate(test.notice); err != nil {
 				t.Fatalf("notice is invalid: %v", err)
 			}
 			rendered := RenderCommittedRow(errorNoticeRow(test.notice), 120, "dark", ModeOngoingCollapsed)
@@ -205,42 +207,41 @@ func TestErrorNoticeReasonSelectsItsTypedContentSource(t *testing.T) {
 }
 
 func TestMetadataOnlyLegacyErrorWithoutTypedFormatterFailsValidation(t *testing.T) {
-	messageType := clientui.TranscriptMessageErrorFeedback
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ERROR_FEEDBACK
 	condensed := "condensed preview is not error content"
 	compact := "compact label is not error content"
 	sourcePath := "/preview/source/path"
-	notice := &clientui.TranscriptNoticeRow{
-		Reason:        clientui.TranscriptNoticeLegacyUntypedNotice,
-		Severity:      clientui.TranscriptNoticeError,
+	notice := &transcriptpb.NoticeRow{
+		Reason:        transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		Severity:      transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 		MessageType:   &messageType,
 		CondensedText: &condensed,
 		CompactLabel:  &compact,
 		SourcePath:    &sourcePath,
 	}
-	if err := notice.Validate(); err == nil {
+	if err := protoapi.Validate(notice); err == nil {
 		t.Fatal("metadata-only legacy error without a typed formatter passed validation")
 	}
 }
 
 func TestNonErrorNoticeAndToolRowsRetainCompactOneLineLayout(t *testing.T) {
 	legacy := "ordinary notice first line\nordinary notice second line"
-	notice := &clientui.TranscriptNoticeRow{
-		Reason:     clientui.TranscriptNoticeLegacyUntypedNotice,
-		Severity:   clientui.TranscriptNoticeInfo,
+	notice := &transcriptpb.NoticeRow{
+		Reason:     transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		Severity:   transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
 		LegacyText: &legacy,
 	}
 	rendered := RenderCommittedRow(errorNoticeRow(notice), 80, "dark", ModeOngoingCollapsed)
 	if got := len(rendered.Lines); got != 1 {
 		t.Fatalf("ordinary notice lines = %d, want compact single line", got)
 	}
-	tool := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoingCollapsed,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowTool,
-		Tool: &clientui.TranscriptToolRow{
-			ToolName: "ordinary_tool",
+	tool := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			ToolName: proto.String(string("ordinary_tool")),
 			Text:     "ordinary tool first line\nordinary tool second line",
-		},
+		}},
 	}
 	rendered = RenderCommittedRow(tool, 80, "dark", ModeOngoingCollapsed)
 	if got := len(rendered.Lines); got != 1 {
@@ -248,20 +249,19 @@ func TestNonErrorNoticeAndToolRowsRetainCompactOneLineLayout(t *testing.T) {
 	}
 }
 
-func errorNoticeRow(notice *clientui.TranscriptNoticeRow) clientui.TranscriptCommittedRow {
-	return clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Integrity:  transcript.RowIntegrityValid,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice:     notice,
+func errorNoticeRow(notice *transcriptpb.NoticeRow) *transcriptpb.CommittedRow {
+	return &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+		Row:        &transcriptpb.CommittedRow_Notice{Notice: notice},
 	}
 }
 
 func TestProviderModelMismatchNoticeRendersInDetailModesAndWraps(t *testing.T) {
-	row := errorNoticeRow(&clientui.TranscriptNoticeRow{
-		Reason:   clientui.TranscriptNoticeProviderModelMismatch,
-		Severity: clientui.TranscriptNoticeWarning,
-		ProviderModelMismatch: &transcript.ProviderModelMismatchNotice{
+	row := errorNoticeRow(&transcriptpb.NoticeRow{
+		Reason:   transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
+		Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING,
+		ProviderModelMismatch: &transcriptpb.ProviderModelMismatch{
 			RequestedModel: "session-contract-model",
 			ServedModel:    "served-model",
 		},

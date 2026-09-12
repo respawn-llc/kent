@@ -8,10 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/clientui"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -22,20 +26,17 @@ func TestStatusLineGitStartupUsesRuntimeWorktreeRootBranch(t *testing.T) {
 	worktreeRoot := initStatusLineGitRepo(t, "worktree-branch")
 	t.Chdir(processRoot)
 
-	runtimeClient := &runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{
-		ExecutionTarget: clientui.SessionExecutionTarget{
+	runtimeClient := &runtimeControlFakeClient{sessionView: &runtimepb.SessionView{
+		ExecutionTarget: &worktreepb.SessionExecutionTarget{
 			WorkspaceRoot:    workspaceRoot,
-			Worktree:         &clientui.SessionExecutionWorktreeTarget{ID: "worktree-1", Root: worktreeRoot},
-			EffectiveWorkdir: processRoot,
-		},
-	}}
+			Worktree:         &worktreepb.SessionExecutionWorktreeTarget{Id: "worktree-1", Root: worktreeRoot},
+			EffectiveWorkdir: processRoot}}}
 	search := newStubUIPathReferenceSearch()
 	close(search.events)
 	model := newProjectedTestUIModel(
 		runtimeClient,
 		WithUIPathReferenceSearch(search),
-		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: workspaceRoot}),
-	)
+		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: workspaceRoot}))
 
 	updated := drainStatusLineStartupCommands(t, model, model.Init())
 	rendered := stripANSIAndTrimRight(updated.layout().renderStatusLine(120, uiThemeStyles("dark")))
@@ -50,40 +51,31 @@ func TestStatusLineGitStartupUsesRuntimeWorktreeRootBranch(t *testing.T) {
 }
 
 func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
-	initial := clientui.SessionExecutionTarget{
-		WorkspaceID:           "workspace-1",
+	initial := &worktreepb.SessionExecutionTarget{WorkspaceId: textutil.Value("workspace-1"),
 		WorkspaceRoot:         "/repo",
-		WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		CwdRelpath:            ".",
-		EffectiveWorkdir:      "/repo",
-	}
-	entered := clientui.SessionExecutionTarget{
-		WorkspaceID:           "workspace-1",
+		EffectiveWorkdir:      "/repo"}
+	entered := &worktreepb.SessionExecutionTarget{WorkspaceId: textutil.Value("workspace-1"),
 		WorkspaceRoot:         "/repo",
-		WorkspaceAvailability: clientui.ProjectAvailabilityAvailable,
-		Worktree:              &clientui.SessionExecutionWorktreeTarget{ID: "worktree-1", Root: "/repo/feature"},
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		Worktree:              &worktreepb.SessionExecutionWorktreeTarget{Id: "worktree-1", Root: "/repo/feature"},
 		CwdRelpath:            ".",
-		EffectiveWorkdir:      "/repo/feature",
-	}
+		EffectiveWorkdir:      "/repo/feature"}
 	runtimeClient := &sessionRuntimeClient{
 		sessionID:   "session-1",
-		mainView:    clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}},
-		hasMainView: true,
-	}
+		mainView:    &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}},
+		hasMainView: true}
 	model := newProjectedTestUIModel(runtimeClient, WithUIStatusConfig(uiStatusConfig{
 		WorkspaceRoot:   initial.EffectiveWorkdir,
-		ExecutionTarget: initial,
-	}))
+		ExecutionTarget: initial}))
 	sessionID, err := runtimeids.ParseSessionID("session-1")
 	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
+		t.Fatalf("ParseSessionId: %v", err)
 	}
-	if _, err := runtimeClient.admitTranscriptMessageState(clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(clientui.TranscriptSessionIdentity{
-		SessionID:             sessionID,
-		ConversationFreshness: clientui.ConversationFreshnessEstablished,
-		ExecutionTarget:       &entered,
-	})),
-	); err != nil {
+	if _, err := runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+		ExecutionTarget:       entered})); err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)
 	}
 
@@ -99,37 +91,28 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 func TestTranscriptSessionIdentityReplacesConflictingConversationFreshnessCaches(t *testing.T) {
 	sessionID, err := runtimeids.ParseSessionID("session-1")
 	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
+		t.Fatalf("ParseSessionId: %v", err)
 	}
 	runtimeClient := &sessionRuntimeClient{
 		sessionID: "session-1",
-		mainView: clientui.RuntimeMainView{
-			Session: clientui.RuntimeSessionView{
-				SessionID:             "session-1",
-				ConversationFreshness: clientui.ConversationFreshnessEstablished,
-			},
-			Status: clientui.RuntimeStatus{
-				ConversationFreshness: clientui.ConversationFreshnessEstablished,
-			},
-		},
-		hasMainView: true,
-	}
-	_, err = runtimeClient.admitTranscriptMessageState(clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(
-		clientui.TranscriptSessionIdentity{
-			SessionID:             sessionID,
-			ConversationFreshness: clientui.ConversationFreshnessFresh,
-		},
-	)))
+		mainView: &runtimepb.MainView{
+			Session: &runtimepb.SessionView{SessionId: "session-1",
+				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED},
+			Status: &runtimepb.Status{
+				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}},
+		hasMainView: true}
+	_, err = runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}))
 	if err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)
 	}
-	if runtimeClient.mainView.Session.ConversationFreshness != clientui.ConversationFreshnessFresh {
+	if runtimeClient.mainView.Session.ConversationFreshness != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH {
 		t.Fatalf("session-view conversation freshness = %q, want fresh", runtimeClient.mainView.Session.ConversationFreshness)
 	}
-	if runtimeClient.mainView.Status.ConversationFreshness != clientui.ConversationFreshnessFresh {
+	if runtimeClient.mainView.Status.ConversationFreshness != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH {
 		t.Fatalf("status conversation freshness = %q, want fresh", runtimeClient.mainView.Status.ConversationFreshness)
 	}
-	if got := runtimeClient.Status().ConversationFreshness; got != clientui.ConversationFreshnessFresh {
+	if got := runtimeClient.Status().ConversationFreshness; got != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH {
 		t.Fatalf("cached conversation freshness = %q, want fresh", got)
 	}
 }
@@ -150,26 +133,21 @@ func TestStatusRequestCarriesCachedRuntimeAgentRole(t *testing.T) {
 func TestStatusRefreshUsesCurrentSessionAgentRoleWhenRuntimeCacheIsCold(t *testing.T) {
 	role := "qa_tester"
 	sessionViews := stubSessionViewClient{
-		getSessionMainView: func(_ context.Context, request serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-			if request.SessionID != "session-1" {
+		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
+			if request.SessionId != "session-1" {
 				t.Fatalf("current session view request = %+v, want session-1", request)
 			}
-			return serverapi.SessionMainViewResponse{
-				MainView: clientui.RuntimeMainView{
-					Session: clientui.RuntimeSessionView{SessionID: "session-1", AgentRole: &role},
-				},
-			}, nil
-		},
-	}
+			return &sessionpb.MainViewSuccess{
+				MainView: &runtimepb.MainView{
+					Session: &runtimepb.SessionView{SessionId: "session-1", AgentRole: &role}, Status: &runtimepb.Status{}}}, nil
+		}}
 	runtimeClient := &sessionRuntimeClient{
 		sessionID: "session-1",
-		mainView:  clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}},
-	}
+		mainView:  &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}}}
 	model := newProjectedTestUIModel(
 		runtimeClient,
 		WithUISessionID("session-1"),
-		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: t.TempDir(), SessionViews: sessionViews}),
-	)
+		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: t.TempDir(), SessionViews: sessionViews}))
 
 	messages := collectCmdMessages(t, model.statusRefreshCmd())
 	for _, message := range messages {
@@ -188,25 +166,19 @@ func TestStatusRefreshUsesCurrentSessionAgentRoleWhenRuntimeCacheIsCold(t *testi
 func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testing.T) {
 	previousSessionID := runtimeids.NewSessionID()
 	sessionViews := stubSessionViewClient{
-		getSessionMainView: func(_ context.Context, request serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-			if request.SessionID != previousSessionID.String() {
+		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
+			if request.SessionId != previousSessionID.String() {
 				t.Fatalf("previous session view request = %+v, want %s", request, previousSessionID)
 			}
-			return serverapi.SessionMainViewResponse{
-				MainView: clientui.RuntimeMainView{
-					Session: clientui.RuntimeSessionView{
-						SessionID:   previousSessionID.String(),
-						SessionName: "incident-root",
-					},
-				},
-			}, nil
-		},
-	}
+			return &sessionpb.MainViewSuccess{
+				MainView: &runtimepb.MainView{
+					Session: &runtimepb.SessionView{SessionId: previousSessionID.String(),
+						SessionName: textutil.Value("incident-root")}}}, nil
+		}}
 	collector := &stubProgressiveStatusCollector{base: uiStatusSnapshot{PreviousSessionID: &previousSessionID}}
 	model := newProjectedStaticUIModel(
 		WithUIStatusConfig(uiStatusConfig{SessionViews: sessionViews}),
-		WithUIStatusCollector(collector),
-	)
+		WithUIStatusCollector(collector))
 	cmd := model.statusRefreshCmd()
 	if cmd == nil {
 		t.Fatal("expected progressive status refresh to schedule base enrichment")
@@ -263,9 +235,9 @@ type statusRefreshRuntimeClient struct {
 	statusCalls int
 }
 
-func (c *statusRefreshRuntimeClient) Status() clientui.RuntimeStatus {
+func (c *statusRefreshRuntimeClient) Status() *runtimepb.Status {
 	c.statusCalls++
-	return clientui.RuntimeStatus{}
+	return &runtimepb.Status{}
 }
 
 func initStatusLineGitRepo(t *testing.T, branch string) string {

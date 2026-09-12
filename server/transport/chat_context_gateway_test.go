@@ -2,23 +2,24 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"core/server/chatcontext"
-	"core/shared/protocol"
+	"core/shared/protoapi"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"google.golang.org/protobuf/proto"
 )
 
 type chatContextSessionOwnerFixture struct {
-	context   serverapi.ChatContext
+	context   *contextpb.Context
 	err       error
 	calls     int
 	sessionID runtimeids.SessionID
 }
 
-func (o *chatContextSessionOwnerFixture) ReadSessionChatContext(_ context.Context, sessionID runtimeids.SessionID) (serverapi.ChatContext, error) {
+func (o *chatContextSessionOwnerFixture) ReadSessionChatContext(_ context.Context, sessionID runtimeids.SessionID) (*contextpb.Context, error) {
 	o.calls++
 	o.sessionID = sessionID
 	return o.context, o.err
@@ -54,15 +55,38 @@ func TestGatewayChatContextDispatchesOnlySessionOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("production Gateway registration: %v", err)
 	}
-	response := (&Gateway{deps: deps, registration: registration}).dispatch(
+	method := contextpb.File_kent_api_chat_context_chat_context_proto.Services().ByName("ChatContextService").Methods().ByName("Get")
+	binding := registration.binary[gatewayOperationName(t, method)]
+	payload, err := protoapi.Encode(&contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
+		Session: &contextpb.SessionTarget{SessionId: sessionID.String()},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, response, failure := (&Gateway{deps: deps, registration: registration}).dispatchBinary(
 		t.Context(),
 		&connectionState{handshakeDone: true, attachedProject: appCore.ProjectID()},
-		chatContextProtocolRequest(t, serverapi.NewSessionChatContextRequest(sessionID)),
+		gatewayBinaryRequest{binding: binding, call: &sharedpb.Call{
+			Operation: binding.operation.Name, Correlation: proto.String("chat-context"), Payload: payload,
+		}},
+		nil,
 	)
-	var got serverapi.ChatContextResponse
-	decodeGatewayChatContextResponse(t, response, &got)
-	if got.Context != want {
-		t.Fatalf("Context = %+v, want %+v", got.Context, want)
+	if failure != nil {
+		t.Fatalf("transport failure: %v", failure)
+	}
+	encoded, err := protoapi.Encode(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := &contextpb.GetResult{}
+	if err := protoapi.Decode(encoded, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.GetSuccess() == nil {
+		t.Fatalf("Context result = %v, want success", response)
+	}
+	if !proto.Equal(got.GetSuccess().Context, want) {
+		t.Fatalf("Context = %+v, want %+v", got.GetSuccess().Context, want)
 	}
 	if sessionOwner.calls != 1 || sessionOwner.sessionID != sessionID || deps.sessionCalls != 1 {
 		t.Fatalf("calls = Session owner %d (%s), Session resolver %d", sessionOwner.calls, sessionOwner.sessionID, deps.sessionCalls)
@@ -78,58 +102,37 @@ func TestGatewayChatContextValidatesTargetBeforeSessionDispatch(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
 
-	malformed := map[string]any{"target": map[string]any{}}
-	if got := callGatewayExpectError(t, conn, "malformed-context", protocol.MethodChatContextGet, malformed); got.Code != protocol.ErrCodeInvalidParams {
-		t.Fatalf("malformed Context error = %+v, want invalid params", got)
+	method := contextpb.File_kent_api_chat_context_chat_context_proto.Services().ByName("ChatContextService").Methods().ByName("Get")
+	malformed, err := protoapi.Marshal(&contextpb.GetRequest{Target: &contextpb.Target{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := callGatewayDescriptorPayload(t, conn, "malformed-context", method, malformed)
+	if got := envelope.GetTransportFailure(); got == nil || got.Code != sharedpb.TransportFailureCode_TRANSPORT_FAILURE_CODE_INVALID_PAYLOAD {
+		t.Fatalf("malformed Context error = %+v, want invalid payload", envelope)
 	}
 
 	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("parse Session id: %v", err)
 	}
-	var sessionResponse serverapi.ChatContextResponse
-	callGateway(t, conn, "session-context", protocol.MethodChatContextGet, serverapi.NewSessionChatContextRequest(sessionID), &sessionResponse)
-	if err := sessionResponse.Validate(); err != nil {
-		t.Fatalf("pre-auth Session Context response: %v", err)
+	sessionResponse := &contextpb.GetResult{}
+	callGatewayDescriptor(t, conn, "session-context", method, &contextpb.GetRequest{Target: &contextpb.Target{Target: &contextpb.Target_Session{
+		Session: &contextpb.SessionTarget{SessionId: sessionID.String()},
+	}}}, sessionResponse)
+	if sessionResponse.GetSuccess() == nil {
+		t.Fatalf("pre-auth Session Context response: %v", sessionResponse)
 	}
 }
 
-func chatContextProtocolRequest(t *testing.T, request serverapi.ChatContextRequest) protocol.Request {
-	t.Helper()
-	params, err := json.Marshal(request)
-	if err != nil {
-		t.Fatalf("marshal Chat Context request: %v", err)
-	}
-	return protocol.Request{
-		JSONRPC: protocol.JSONRPCVersion,
-		ID:      "chat-context",
-		Method:  protocol.MethodChatContextGet,
-		Params:  params,
-	}
-}
-
-func decodeGatewayChatContextResponse(t *testing.T, response protocol.Response, out *serverapi.ChatContextResponse) {
-	t.Helper()
-	if response.Error != nil {
-		t.Fatalf("response error = %+v", response.Error)
-	}
-	bytes, err := json.Marshal(response.Result)
-	if err != nil {
-		t.Fatalf("marshal response result: %v", err)
-	}
-	if err := json.Unmarshal(bytes, out); err != nil {
-		t.Fatalf("decode response result: %v", err)
-	}
-}
-
-func validGatewayChatContext() serverapi.ChatContext {
-	return serverapi.ChatContext{
+func validGatewayChatContext() *contextpb.Context {
+	return &contextpb.Context{
 		ContextWindowTokens:      100,
 		UsedTokens:               40,
 		RemainingTokens:          60,
 		AutomaticThresholdTokens: 80,
 		AutoCompactionEnabled:    true,
-		CompactionMode:           serverapi.ChatContextCompactionModeLocal,
+		CompactionMode:           contextpb.CompactionMode_COMPACTION_MODE_LOCAL,
 		CompletedCompactionCount: 2,
 		ManualCompactAvailable:   true,
 	}

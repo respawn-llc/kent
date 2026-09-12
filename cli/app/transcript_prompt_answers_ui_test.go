@@ -2,19 +2,21 @@ package app
 
 import (
 	"context"
+	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	"core/shared/serverapi"
 	"errors"
+	tea "github.com/charmbracelet/bubbletea"
 	"io"
 	"sync"
 	"testing"
-
-	"core/shared/clientui"
-	"core/shared/runtimeids"
-	"core/shared/serverapi"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
-func approvalCommentary(answer *serverapi.PromptApprovalAnswer) string {
+func approvalCommentary(answer *promptpb.ApprovalAnswer) string {
 	if answer == nil || answer.Commentary == nil {
 		return ""
 	}
@@ -24,7 +26,7 @@ func approvalCommentary(answer *serverapi.PromptApprovalAnswer) string {
 type deadlineThenSuccessPromptControl struct {
 	singlePromptOnlyControl
 	mu           sync.Mutex
-	askRequests  []serverapi.PromptAnswerBatchRequest
+	askRequests  []*promptpb.AnswerBatchRequest
 	firstStarted chan struct{}
 	firstRelease chan struct{}
 }
@@ -33,27 +35,26 @@ type scriptedAskPromptControl struct {
 	singlePromptOnlyControl
 	mu          sync.Mutex
 	results     []error
-	askRequests []serverapi.PromptAnswerBatchRequest
+	askRequests []*promptpb.AnswerBatchRequest
 }
 
 func (c *scriptedAskPromptControl) AnswerPromptBatch(
 	_ context.Context,
-	request serverapi.PromptAnswerBatchRequest,
-) (serverapi.PromptAnswerBatchResponse, error) {
+	request *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	call := len(c.askRequests)
 	c.askRequests = append(c.askRequests, request)
 	if call < len(c.results) && c.results[call] != nil {
-		return serverapi.PromptAnswerBatchResponse{}, c.results[call]
+		return &promptpb.AnswerBatchSuccess{}, c.results[call]
 	}
 	return resolvedPromptBatchResponse(request), nil
 }
 
-func (c *scriptedAskPromptControl) requests() []serverapi.PromptAnswerBatchRequest {
+func (c *scriptedAskPromptControl) requests() []*promptpb.AnswerBatchRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]serverapi.PromptAnswerBatchRequest(nil), c.askRequests...)
+	return append([]*promptpb.AnswerBatchRequest(nil), c.askRequests...)
 }
 
 func newDeadlineThenSuccessPromptControl() *deadlineThenSuccessPromptControl {
@@ -65,30 +66,29 @@ func newDeadlineThenSuccessPromptControl() *deadlineThenSuccessPromptControl {
 
 func (c *deadlineThenSuccessPromptControl) AnswerPromptBatch(
 	ctx context.Context,
-	request serverapi.PromptAnswerBatchRequest,
-) (serverapi.PromptAnswerBatchResponse, error) {
+	request *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
 	c.mu.Lock()
 	call := len(c.askRequests)
 	c.askRequests = append(c.askRequests, request)
 	c.mu.Unlock()
 	if call != 0 {
 		response := resolvedPromptBatchResponse(request)
-		response.Results[0].Outcome = serverapi.PromptAnswerBatchOutcomeSkipped
+		response.Results[0].Outcome = promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED
 		return response, nil
 	}
 	close(c.firstStarted)
 	select {
 	case <-ctx.Done():
-		return serverapi.PromptAnswerBatchResponse{}, ctx.Err()
+		return &promptpb.AnswerBatchSuccess{}, ctx.Err()
 	case <-c.firstRelease:
-		return serverapi.PromptAnswerBatchResponse{}, context.DeadlineExceeded
+		return &promptpb.AnswerBatchSuccess{}, context.DeadlineExceeded
 	}
 }
 
-func (c *deadlineThenSuccessPromptControl) requests() []serverapi.PromptAnswerBatchRequest {
+func (c *deadlineThenSuccessPromptControl) requests() []*promptpb.AnswerBatchRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]serverapi.PromptAnswerBatchRequest(nil), c.askRequests...)
+	return append([]*promptpb.AnswerBatchRequest(nil), c.askRequests...)
 }
 
 func TestAskDeadlineKeepsEditedRetryDraftActionableUntilCanonicalResolution(t *testing.T) {
@@ -161,7 +161,7 @@ func TestAskDeadlineKeepsEditedRetryDraftActionableUntilCanonicalResolution(t *t
 	}
 	successor := testQuestionPrompt("ask-successor", "Next?", "Continue", "Stop")
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(successor)})
-	if active := testActiveAsk(model); active == nil || active.prompt.ToolCallID != successor.ToolCallID {
+	if active := testActiveAsk(model); active == nil || transcriptPromptToolCallID(active.prompt) != transcriptPromptToolCallID(successor) {
 		t.Fatalf("later authoritative successor = %+v", active)
 	}
 
@@ -169,10 +169,10 @@ func TestAskDeadlineKeepsEditedRetryDraftActionableUntilCanonicalResolution(t *t
 	if len(requests) != 2 {
 		t.Fatalf("ask requests = %d, want deadline attempt plus user resubmission", len(requests))
 	}
-	if freeform := requireQuestionAnswerEntry(t, requests[0]).QuestionAnswer.Freeform; freeform == nil || *freeform != "original" {
+	if freeform := requireQuestionAnswerEntry(t, requests[0]).GetQuestionAnswer().Freeform; freeform == nil || *freeform != "original" {
 		t.Fatalf("first immutable request = %+v, want original draft", requests[0])
 	}
-	if freeform := requireQuestionAnswerEntry(t, requests[1]).QuestionAnswer.Freeform; freeform == nil || *freeform != "original edited" {
+	if freeform := requireQuestionAnswerEntry(t, requests[1]).GetQuestionAnswer().Freeform; freeform == nil || *freeform != "original edited" {
 		t.Fatalf("resubmitted request = %+v, want edited retry draft", requests[1])
 	}
 }
@@ -290,7 +290,7 @@ func TestAskSameKeyRefreshPreservesActiveDeliveryDraftAndSelection(t *testing.T)
 	<-control.firstStarted
 
 	refreshed := cloneTranscriptPromptForAsk(prompt)
-	refreshed.Question = "Refreshed question"
+	refreshed.GetQuestion().Question = "Refreshed question"
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(refreshed)})
 	if model.ask.activeDelivery != active {
 		t.Fatal("same-key refresh replaced active delivery ownership")
@@ -303,7 +303,7 @@ func TestAskSameKeyRefreshPreservesActiveDeliveryDraftAndSelection(t *testing.T)
 			testAskFreeform(model),
 		)
 	}
-	if testActiveAsk(model).prompt.Question != "Refreshed question" {
+	if transcriptPromptQuestion(testActiveAsk(model).prompt) != "Refreshed question" {
 		t.Fatalf("same-key refresh did not update prompt payload: %+v", testActiveAsk(model).prompt)
 	}
 
@@ -353,7 +353,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	model.promptAnswers = newTranscriptPromptAnswerer(ctx, control)
 	prompt := testQuestionPrompt("ask-old-session", "Proceed?", "Yes", "No")
-	model.sessionID = prompt.SessionID.String()
+	model.sessionID = transcriptPromptSessionID(prompt)
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
 
 	next, delivery := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -364,10 +364,8 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	}()
 	<-control.firstStarted
 
-	model.applyTranscriptSessionIdentity(clientui.TranscriptSessionIdentity{
-		SessionID:             runtimeids.NewSessionID(),
-		ConversationFreshness: clientui.ConversationFreshnessFresh,
-	})
+	model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: runtimeids.NewSessionID().String(),
+		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	if testActiveAsk(model) != nil || testPromptAnswerDeliveryActive(model) {
 		t.Fatal("session replacement retained the old prompt delivery")
 	}
@@ -399,10 +397,8 @@ func TestAskSessionReplacementRunsQueuedProjectionBeforeReplacementPrompt(t *tes
 	}
 
 	replacementSessionID := runtimeids.NewSessionID()
-	replacementCmd := model.applyTranscriptSessionIdentity(clientui.TranscriptSessionIdentity{
-		SessionID:             replacementSessionID,
-		ConversationFreshness: clientui.ConversationFreshnessFresh,
-	})
+	replacementCmd := model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: replacementSessionID.String(),
+		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	if replacementCmd == nil {
 		t.Fatal("session replacement dropped prompt reconciliation projection work")
 	}
@@ -425,8 +421,7 @@ func TestAskSessionReplacementRunsQueuedProjectionBeforeReplacementPrompt(t *tes
 	}
 	next, _ = model.Update(projectionCmd())
 	model = next.(*uiModel)
-	if model.ask.current == nil ||
-		model.ask.current.prompt.ToolCallID != "ask-new-session" ||
+	if model.ask.current == nil || transcriptPromptToolCallID(model.ask.current.prompt) != "ask-new-session" ||
 		!model.askReadyForInteraction() {
 		t.Fatal("replacement-session prompt did not become visible")
 	}
@@ -469,8 +464,11 @@ func TestAskResolutionBeforeDeliveryCommandRunsDoesNotCallPromptControl(t *testi
 func TestApprovalCommentaryRetriesAreDeliberateAndKeepToolCallIdentity(t *testing.T) {
 	for _, decision := range []clientui.ApprovalDecision{
 		clientui.ApprovalDecisionAllowOnce,
-		clientui.ApprovalDecisionDeny,
-	} {
+		clientui.ApprovalDecisionDeny} {
+		generatedDecision, err := protoapi.ApprovalDecisionToProto(decision)
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Run(string(decision), func(t *testing.T) {
 			control := &scriptedAskPromptControl{results: []error{context.DeadlineExceeded, io.ErrUnexpectedEOF}}
 			model := newProjectedStaticUIModel()
@@ -499,9 +497,9 @@ func TestApprovalCommentaryRetriesAreDeliberateAndKeepToolCallIdentity(t *testin
 			}
 			for i, request := range requests {
 				entry := requireApprovalAnswerEntry(t, request)
-				if entry.ToolCallID != "stable-tool-call" ||
-					entry.ApprovalAnswer.Decision != decision ||
-					approvalCommentary(entry.ApprovalAnswer) != wantCommentary[i] {
+				if entry.ToolCallId != "stable-tool-call" ||
+					entry.GetApprovalAnswer().Decision != generatedDecision ||
+					approvalCommentary(entry.GetApprovalAnswer()) != wantCommentary[i] {
 					t.Fatalf("attempt %d = %+v, want immutable %q commentary for %q", i+1, request, wantCommentary[i], decision)
 				}
 			}

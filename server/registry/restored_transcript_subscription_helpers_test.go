@@ -4,27 +4,27 @@ import (
 	"context"
 	"testing"
 
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 )
 
 func subscribeTranscriptForTest(t *testing.T, registry *RuntimeRegistry, sessionID string) serverapi.TranscriptSubscription {
 	t.Helper()
-	subscription, err := registry.SubscribeSessionTranscript(context.Background(), serverapi.TranscriptSubscribeRequest{SessionID: sessionID})
+	subscription, err := registry.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: sessionID})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
 	}
 	return subscription
 }
 
-func nextTranscriptMessageOfKind(t *testing.T, subscription serverapi.TranscriptSubscription, kind clientui.TranscriptMessageKind) clientui.TranscriptMessage {
+func nextTranscriptMessageOfKind[T any](t *testing.T, subscription serverapi.TranscriptSubscription) *transcriptpb.Message {
 	t.Helper()
 	for range 8 {
 		message := nextTranscriptMessage(t, subscription)
-		if message.Kind() == kind {
+		if _, ok := message.Event.Payload.(T); ok {
 			return message
 		}
 	}
-	t.Fatalf("did not receive transcript message kind %q", kind)
-	return clientui.TranscriptMessage{}
+	t.Fatalf("did not receive transcript payload type %T", *new(T))
+	return nil
 }

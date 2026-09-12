@@ -2,52 +2,51 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
-	"core/shared/clientui"
-	"core/shared/protocol"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRemoteAnswerPromptBatchValidatesExactResponseIdentitySet(t *testing.T) {
 	tests := []struct {
 		name     string
-		response serverapi.PromptAnswerBatchResponse
+		response *promptpb.AnswerBatchSuccess
 		wantErr  bool
 	}{
 		{
 			name: "reordered exact set",
-			response: serverapi.PromptAnswerBatchResponse{Results: []serverapi.PromptAnswerBatchResult{
-				{ToolCallID: "approval-1", Outcome: serverapi.PromptAnswerBatchOutcomeSkipped},
-				{ToolCallID: "question-1", Outcome: serverapi.PromptAnswerBatchOutcomeResolved},
+			response: &promptpb.AnswerBatchSuccess{Results: []*promptpb.AnswerBatchEntryResult{
+				{ToolCallId: "approval-1", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED},
+				{ToolCallId: "question-1", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED},
 			}},
 		},
 		{
 			name: "missing identity",
-			response: serverapi.PromptAnswerBatchResponse{Results: []serverapi.PromptAnswerBatchResult{
-				{ToolCallID: "question-1", Outcome: serverapi.PromptAnswerBatchOutcomeResolved},
+			response: &promptpb.AnswerBatchSuccess{Results: []*promptpb.AnswerBatchEntryResult{
+				{ToolCallId: "question-1", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED},
 			}},
 			wantErr: true,
 		},
 		{
 			name: "foreign identity",
-			response: serverapi.PromptAnswerBatchResponse{Results: []serverapi.PromptAnswerBatchResult{
-				{ToolCallID: "question-1", Outcome: serverapi.PromptAnswerBatchOutcomeResolved},
-				{ToolCallID: "foreign", Outcome: serverapi.PromptAnswerBatchOutcomeSkipped},
+			response: &promptpb.AnswerBatchSuccess{Results: []*promptpb.AnswerBatchEntryResult{
+				{ToolCallId: "question-1", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED},
+				{ToolCallId: "foreign", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED},
 			}},
 			wantErr: true,
 		},
 		{
 			name: "duplicate identity",
-			response: serverapi.PromptAnswerBatchResponse{Results: []serverapi.PromptAnswerBatchResult{
-				{ToolCallID: "question-1", Outcome: serverapi.PromptAnswerBatchOutcomeResolved},
-				{ToolCallID: "question-1", Outcome: serverapi.PromptAnswerBatchOutcomeSkipped},
+			response: &promptpb.AnswerBatchSuccess{Results: []*promptpb.AnswerBatchEntryResult{
+				{ToolCallId: "question-1", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED},
+				{ToolCallId: "question-1", Outcome: promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED},
 			}},
 			wantErr: true,
 		},
@@ -56,25 +55,17 @@ func TestRemoteAnswerPromptBatchValidatesExactResponseIdentitySet(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-				request := acceptRemoteHandshake(t, ws)
-				if err := websocket.JSON.Receive(ws, &request); err != nil {
-					t.Errorf("receive prompt answer batch: %v", err)
+				acceptRemoteHandshake(t, ws)
+				call := receiveRemoteGeneratedCall(t, ws, "AnswerService", "AnswerBatch", &promptpb.AnswerBatchRequest{})
+				method := bootstrapMethod(promptpb.File_kent_api_prompt_prompt_proto, "AnswerService", "AnswerBatch")
+				frame, err := remoteDescriptorResultFrame(method, call.Correlation, &promptpb.AnswerBatchResult{
+					Outcome: &promptpb.AnswerBatchResult_Success{Success: test.response},
+				}, proto.Marshal)
+				if err != nil {
+					t.Errorf("encode prompt answer batch response: %v", err)
 					return
 				}
-				if request.Method != protocol.MethodPromptAnswerBatch {
-					t.Errorf("method = %q, want %q", request.Method, protocol.MethodPromptAnswerBatch)
-					return
-				}
-				var params serverapi.PromptAnswerBatchRequest
-				if err := json.Unmarshal(request.Params, &params); err != nil {
-					t.Errorf("decode prompt answer batch: %v", err)
-					return
-				}
-				if err := params.Validate(); err != nil {
-					t.Errorf("validate prompt answer batch: %v", err)
-					return
-				}
-				if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(request.ID, test.response)); err != nil {
+				if err := websocket.Message.Send(ws, frame.Payload); err != nil {
 					t.Errorf("send prompt answer batch response: %v", err)
 				}
 			})
@@ -94,7 +85,7 @@ func TestRemoteAnswerPromptBatchValidatesExactResponseIdentitySet(t *testing.T) 
 			if err != nil {
 				t.Fatalf("AnswerPromptBatch: %v", err)
 			}
-			if err := serverapi.ValidatePromptAnswerBatchResponse(remotePromptAnswerBatchRequest(t), response); err != nil {
+			if err := protoapi.ValidatePromptAnswerBatchResponse(remotePromptAnswerBatchRequest(t), response); err != nil {
 				t.Fatalf("validated response: %v", err)
 			}
 		})
@@ -102,6 +93,11 @@ func TestRemoteAnswerPromptBatchValidatesExactResponseIdentitySet(t *testing.T) 
 }
 
 func TestRemoteAnswerPromptBatchDoesNotReconnectOrReplayAfterConnectionLoss(t *testing.T) {
+	method := bootstrapMethod(promptpb.File_kent_api_prompt_prompt_proto, "AnswerService", "AnswerBatch")
+	operation, err := protoapi.OperationFromDescriptor(method)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var connectionCount atomic.Int32
 	var requestCount atomic.Int32
 	firstRequestCommitted := make(chan struct{}, 1)
@@ -121,22 +117,23 @@ func TestRemoteAnswerPromptBatchDoesNotReconnectOrReplayAfterConnectionLoss(t *t
 				handshaken = handshaken || kind == remoteTestSetupHandshake
 				continue
 			}
-			request := event.Frame.Request()
 			if !handshaken {
 				reportHandlerError(handlerErrs, "connection %d sent application traffic before handshake", connectionIndex)
 				return
 			}
-			if request.Method != protocol.MethodPromptAnswerBatch {
-				reportHandlerError(handlerErrs, "connection %d method = %q, want prompt answer batch", connectionIndex, request.Method)
+			envelope, err := protoapi.DecodeEnvelope(event.Frame.Payload)
+			if err != nil {
+				reportHandlerError(handlerErrs, "connection %d decode envelope: %v", connectionIndex, err)
 				return
 			}
-			var params serverapi.PromptAnswerBatchRequest
-			if err := json.Unmarshal(request.Params, &params); err != nil {
+			call := envelope.GetCall()
+			if call == nil || call.Operation != operation.Name {
+				reportHandlerError(handlerErrs, "connection %d unexpected call: %+v", connectionIndex, call)
+				return
+			}
+			var params promptpb.AnswerBatchRequest
+			if err := protoapi.Decode(call.Payload, &params); err != nil {
 				reportHandlerError(handlerErrs, "connection %d decode prompt answer batch: %v", connectionIndex, err)
-				return
-			}
-			if err := params.Validate(); err != nil {
-				reportHandlerError(handlerErrs, "connection %d validate prompt answer batch: %v", connectionIndex, err)
 				return
 			}
 			requestCount.Add(1)
@@ -144,16 +141,23 @@ func TestRemoteAnswerPromptBatchDoesNotReconnectOrReplayAfterConnectionLoss(t *t
 				firstRequestCommitted <- struct{}{}
 				return
 			}
-			response := serverapi.PromptAnswerBatchResponse{
-				Results: make([]serverapi.PromptAnswerBatchResult, 0, len(params.Entries)),
+			response := &promptpb.AnswerBatchSuccess{
+				Results: make([]*promptpb.AnswerBatchEntryResult, 0, len(params.Entries)),
 			}
 			for _, entry := range params.Entries {
-				response.Results = append(response.Results, serverapi.PromptAnswerBatchResult{
-					ToolCallID: entry.ToolCallID,
-					Outcome:    serverapi.PromptAnswerBatchOutcomeSkipped,
+				response.Results = append(response.Results, &promptpb.AnswerBatchEntryResult{
+					ToolCallId: entry.ToolCallId,
+					Outcome:    promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED,
 				})
 			}
-			if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(request.ID, response))); err != nil {
+			frame, err := remoteDescriptorResultFrame(method, call.Correlation, &promptpb.AnswerBatchResult{
+				Outcome: &promptpb.AnswerBatchResult_Success{Success: response},
+			}, protoapi.Encode)
+			if err != nil {
+				reportHandlerError(handlerErrs, "connection %d encode prompt answer batch response: %v", connectionIndex, err)
+				return
+			}
+			if err := conn.Send(ctx, frame); err != nil {
 				reportHandlerError(handlerErrs, "connection %d send prompt answer batch response: %v", connectionIndex, err)
 			}
 			return
@@ -198,16 +202,16 @@ func TestRemoteAnswerPromptBatchDoesNotReconnectOrReplayAfterConnectionLoss(t *t
 		t.Fatalf("requests after explicit retry = %d, want 2", got)
 	}
 	for _, result := range response.Results {
-		if result.Outcome != serverapi.PromptAnswerBatchOutcomeSkipped {
+		if result.Outcome != promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED {
 			t.Fatalf("explicit all-stale response = %+v", response)
 		}
 	}
 	requireNoHandlerError(t, handlerErrs)
 }
 
-func remotePromptAnswerBatchRequest(t *testing.T) serverapi.PromptAnswerBatchRequest {
+func remotePromptAnswerBatchRequest(t *testing.T) *promptpb.AnswerBatchRequest {
 	t.Helper()
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
@@ -215,18 +219,18 @@ func remotePromptAnswerBatchRequest(t *testing.T) serverapi.PromptAnswerBatchReq
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
 	}
-	selected := 1
-	return serverapi.PromptAnswerBatchRequest{
-		SessionID: sessionID,
-		StepID:    stepID,
-		Entries: []serverapi.PromptAnswerBatchEntry{
+	selected := int32(1)
+	return &promptpb.AnswerBatchRequest{
+		SessionId: sessionID.String(),
+		StepId:    stepID.String(),
+		Entries: []*promptpb.AnswerBatchEntry{
 			{
-				ToolCallID:     clientui.ToolCallID("question-1"),
-				QuestionAnswer: &serverapi.PromptQuestionAnswer{SelectedOptionNumber: &selected},
+				ToolCallId: "question-1",
+				Answer:     &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{SelectedOptionNumber: &selected}},
 			},
 			{
-				ToolCallID: clientui.ToolCallID("approval-1"),
-				Declined:   &serverapi.PromptDeclined{},
+				ToolCallId: "approval-1",
+				Answer:     &promptpb.AnswerBatchEntry_Declined{Declined: &promptpb.Declined{}},
 			},
 		},
 	}

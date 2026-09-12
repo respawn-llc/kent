@@ -5,8 +5,10 @@ import (
 
 	"core/server/llm"
 	"core/server/runtime"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/transcript"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *testing.T) {
@@ -26,7 +28,7 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 	page, err := TranscriptPageFromSegment(
 		sessionID,
 		"session",
-		clientui.ConversationFreshness(0),
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 	)
 	if err != nil {
@@ -45,9 +47,9 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 	if len(page.Entries) != 1 || len(hydration.TailSegment.Entries) != 1 || len(live) != 1 {
 		t.Fatalf("projected rows: page=%d hydration=%d live=%d, want one each", len(page.Entries), len(hydration.TailSegment.Entries), len(live))
 	}
-	liveRow := transcriptPayload[clientui.TranscriptCommittedRow](t, live[0])
-	if page.Entries[0].Locator != hydration.TailSegment.Entries[0].Locator ||
-		page.Entries[0].Locator != liveRow.Locator {
+	liveRow := live[0].GetCommittedRow()
+	if !proto.Equal(page.Entries[0].Locator, hydration.TailSegment.Entries[0].Locator) ||
+		!proto.Equal(page.Entries[0].Locator, liveRow.Locator) {
 		t.Fatalf(
 			"locators disagree: page=%+v hydration=%+v live=%+v",
 			page.Entries[0].Locator,
@@ -55,7 +57,7 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 			liveRow.Locator,
 		)
 	}
-	if err := page.Entries[0].Locator.Validate(); err != nil {
+	if err := protoapi.Validate(page.Entries[0].Locator); err != nil {
 		t.Fatalf("projected locator is invalid: %v", err)
 	}
 }
@@ -85,7 +87,7 @@ func TestTranscriptTailSegmentProjectsRowsAndClosedOlderBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project empty tail: %v", err)
 	}
-	if empty.Entries == nil || len(empty.Entries) != 0 || empty.OlderCursor != nil || empty.HasMoreAbove {
+	if len(empty.Entries) != 0 || empty.OlderCursor != nil || empty.HasMoreAbove {
 		t.Fatalf("empty tail = %+v", empty)
 	}
 }
@@ -155,7 +157,7 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 	_, err := TranscriptPageFromSegment(
 		sessionID,
 		"session",
-		clientui.ConversationFreshness(0),
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:              runtimeStepIDPointer(stepID),
 			Visibility:          transcript.EntryVisibilityOngoing,

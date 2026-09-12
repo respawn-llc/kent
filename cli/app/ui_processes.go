@@ -1,5 +1,9 @@
 package app
 
+import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
 import (
 	"context"
 	"fmt"
@@ -9,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"core/shared/clientui"
+	"google.golang.org/protobuf/proto"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -19,12 +23,12 @@ const (
 	uiProcessOperationTimeout = 5 * time.Second
 )
 
-func (m *uiModel) applyProcessEntries(entries []clientui.BackgroundProcess) {
+func (m *uiModel) applyProcessEntries(entries []*processpb.BackgroundProcess) {
 	selectedID := ""
 	if m.processList.selection >= 0 && m.processList.selection < len(m.processList.entries) {
-		selectedID = m.processList.entries[m.processList.selection].ID
+		selectedID = m.processList.entries[m.processList.selection].Id
 	}
-	m.processList.entries = append([]clientui.BackgroundProcess(nil), entries...)
+	m.processList.entries = append([]*processpb.BackgroundProcess(nil), entries...)
 	m.processList.errorText = ""
 	m.processList.loading = false
 	if len(m.processList.entries) == 0 {
@@ -33,7 +37,7 @@ func (m *uiModel) applyProcessEntries(entries []clientui.BackgroundProcess) {
 	}
 	if selectedID != "" {
 		for idx, entry := range m.processList.entries {
-			if entry.ID == selectedID {
+			if entry.Id == selectedID {
 				m.processList.selection = idx
 				return
 			}
@@ -47,24 +51,24 @@ func (m *uiModel) applyProcessEntries(entries []clientui.BackgroundProcess) {
 	}
 }
 
-func (m *uiModel) applyTranscriptBackgroundActivity(activity clientui.TranscriptBackgroundActivity) {
+func (m *uiModel) applyTranscriptBackgroundActivity(activity *transcriptpb.BackgroundActivity) {
 	if m == nil {
 		return
 	}
-	processID := strings.TrimSpace(string(activity.ProcessID))
+	processID := strings.TrimSpace(string(activity.ProcessId))
 	if processID == "" {
 		panic("transcript background activity is missing process id")
 	}
-	update := clientui.BackgroundProcess{
-		ID:             processID,
-		OwnerSessionID: m.sessionID,
-		OwnerRunID:     activity.OwnerRunID.String(),
-		OwnerStepID:    activity.OwnerStepID.String(),
-		State:          string(activity.Lifecycle),
+	update := &processpb.BackgroundProcess{
+		Id:             processID,
+		OwnerSessionId: m.sessionID,
+		OwnerRunId:     proto.String(activity.OwnerRunId),
+		OwnerStepId:    proto.String(activity.OwnerStepId),
+		State:          transcriptBackgroundState(activity.Lifecycle),
 		Command:        activity.Command,
 		Workdir:        activity.Workdir,
 		ExitCode:       activity.ExitCode,
-		Running:        activity.Lifecycle == clientui.BackgroundLifecycleBackgrounded,
+		Running:        activity.Lifecycle == transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 		Backgrounded:   true,
 		KillRequested:  activity.UserRequestedKill,
 	}
@@ -76,22 +80,22 @@ func (m *uiModel) applyTranscriptBackgroundActivity(activity clientui.Transcript
 		update.OutputAvailable = true
 	}
 	for index, existing := range m.processList.entries {
-		if existing.ID != processID {
+		if existing.Id != processID {
 			continue
 		}
 		m.processList.entries[index] = mergeBackgroundProcessCacheEntry(existing, update)
 		return
 	}
-	m.processList.entries = append([]clientui.BackgroundProcess{update}, m.processList.entries...)
+	m.processList.entries = append([]*processpb.BackgroundProcess{update}, m.processList.entries...)
 }
 
-func mergeBackgroundProcessCacheEntry(existing, update clientui.BackgroundProcess) clientui.BackgroundProcess {
-	next := existing
-	if update.OwnerRunID != "" {
-		next.OwnerRunID = update.OwnerRunID
+func mergeBackgroundProcessCacheEntry(existing, update *processpb.BackgroundProcess) *processpb.BackgroundProcess {
+	next := proto.Clone(existing).(*processpb.BackgroundProcess)
+	if update.OwnerRunId != nil {
+		next.OwnerRunId = update.OwnerRunId
 	}
-	if update.OwnerStepID != "" {
-		next.OwnerStepID = update.OwnerStepID
+	if update.OwnerStepId != nil {
+		next.OwnerStepId = update.OwnerStepId
 	}
 	if update.State != "" {
 		next.State = update.State
@@ -116,6 +120,19 @@ func mergeBackgroundProcessCacheEntry(existing, update clientui.BackgroundProces
 	next.Backgrounded = next.Backgrounded || update.Backgrounded
 	next.KillRequested = update.KillRequested
 	return next
+}
+
+func transcriptBackgroundState(lifecycle transcriptpb.BackgroundLifecycle) string {
+	switch lifecycle {
+	case transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED:
+		return "backgrounded"
+	case transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_COMPLETED:
+		return "completed"
+	case transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_KILLED:
+		return "killed"
+	default:
+		panic("invalid background lifecycle")
+	}
 }
 
 func (m *uiModel) openProcessList() {
@@ -177,9 +194,9 @@ func (m *uiModel) selectLastProcess() {
 	m.processList.selection = len(m.processList.entries) - 1
 }
 
-func (m *uiModel) selectedProcess() (clientui.BackgroundProcess, bool) {
+func (m *uiModel) selectedProcess() (*processpb.BackgroundProcess, bool) {
 	if len(m.processList.entries) == 0 || m.processList.selection < 0 || m.processList.selection >= len(m.processList.entries) {
-		return clientui.BackgroundProcess{}, false
+		return &processpb.BackgroundProcess{}, false
 	}
 	return m.processList.entries[m.processList.selection], true
 }
@@ -382,7 +399,7 @@ func (c uiInputController) runProcessListAction(action string) (tea.Model, tea.C
 	if !ok {
 		return m, c.model.sendTransientStatusWithNoticeID("no background process selected", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	return c.runProcessAction(action, selected.ID)
+	return c.runProcessAction(action, selected.Id)
 }
 
 func (c uiInputController) runProcessAction(action, id string) (tea.Model, tea.Cmd) {
@@ -406,7 +423,7 @@ func (c uiInputController) runProcessAction(action, id string) (tea.Model, tea.C
 	case "logs":
 		path := ""
 		for _, entry := range m.processList.entries {
-			if entry.ID == id {
+			if entry.Id == id {
 				path = entry.LogPath
 				break
 			}
@@ -431,9 +448,9 @@ func (m *uiModel) appendProcessOutputToInput(id, output string) {
 	m.insertInputRunes([]rune(prefix + payload))
 }
 
-func processLogPath(entries []clientui.BackgroundProcess, id string) (string, error) {
+func processLogPath(entries []*processpb.BackgroundProcess, id string) (string, error) {
 	for _, entry := range entries {
-		if entry.ID == id {
+		if entry.Id == id {
 			if strings.TrimSpace(entry.LogPath) == "" {
 				return "", fmt.Errorf("process %s has no log file", id)
 			}

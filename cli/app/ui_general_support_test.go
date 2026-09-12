@@ -2,16 +2,15 @@ package app
 
 import (
 	"context"
-	"errors"
-	"testing"
-	"time"
-
 	"core/shared/apicontract"
-	"core/shared/serverapi"
-
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"testing"
+	"time"
 )
 
 func disableTransientStatusClearForTest(t *testing.T) {
@@ -25,30 +24,30 @@ func disableTransientStatusClearForTest(t *testing.T) {
 
 type stubSessionViewClient struct {
 	apicontract.SessionViewService
-	getSessionMainView   func(context.Context, serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
-	getLatestFinalAnswer func(context.Context, serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error)
+	getSessionMainView   func(context.Context, *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)
+	getLatestFinalAnswer func(context.Context, *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error)
 }
 
-func (s stubSessionViewClient) GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
+func (s stubSessionViewClient) GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	if s.getSessionMainView == nil {
-		return serverapi.SessionMainViewResponse{}, errors.New("session view stub is required")
+		return &sessionpb.MainViewSuccess{}, errors.New("session view stub is required")
 	}
 	return s.getSessionMainView(ctx, req)
 }
 
-func (s stubSessionViewClient) GetSessionTranscriptPage(context.Context, serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-	return serverapi.SessionTranscriptPageResponse{}, nil
+func (s stubSessionViewClient) GetSessionTranscriptPage(context.Context, *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
+	return &transcriptpb.PageSuccess{}, nil
 }
 
-func (s stubSessionViewClient) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
+func (s stubSessionViewClient) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
 	if s.getLatestFinalAnswer == nil {
-		return serverapi.SessionLatestCommittedAssistantFinalAnswerResponse{}, errors.New("latest final answer stub is required")
+		return &transcriptpb.LatestFinalAnswerSuccess{}, errors.New("latest final answer stub is required")
 	}
 	return s.getLatestFinalAnswer(ctx, req)
 }
 
-func (s stubSessionViewClient) GetSessionExecutionEnvironment(context.Context, serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
-	return serverapi.SessionExecutionEnvironmentResponse{}, nil
+func (s stubSessionViewClient) GetSessionExecutionEnvironment(context.Context, *sessionpb.ExecutionEnvironmentRequest) (*sessionpb.ExecutionEnvironmentSuccess, error) {
+	return &sessionpb.ExecutionEnvironmentSuccess{}, nil
 }
 
 func updateUIModel(t *testing.T, m *uiModel, msg tea.Msg) *uiModel {

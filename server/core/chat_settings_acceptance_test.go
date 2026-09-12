@@ -13,6 +13,9 @@ import (
 	"core/server/runtimewire"
 	brand "core/shared/config"
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -125,13 +128,13 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
 	chatSettings := appCore.ChatSettingsClient()
-	before, err := chatSettings.ReadChatSettings(t.Context(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.SessionChatSettingsTarget(sessionID),
+	before, err := chatSettings.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings before mutation: %v", err)
 	}
-	initialQuestions := before.Session.Settings.Questions.Enabled
+	initialQuestions := before.GetSession().Settings.Questions.Enabled
 	requestedQuestions := !initialQuestions
 
 	const ownerID = "chat-settings-acceptance-test"
@@ -140,7 +143,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 		OwnerID:               ownerID,
 		ActiveSettings:        resolved.Config.Settings,
 		QuestionsEnabled:      textutil.Value(initialQuestions),
-		AutoCompactionEnabled: textutil.Value(before.Session.Settings.AutoCompaction.Effective),
+		AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
 		Source:                resolved.Config.Source,
 	})
 	if err != nil {
@@ -148,7 +151,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = appCore.SessionRuntimeClient().ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  activation.Attachment,
+			Attachment:  activation,
 			OwnerID:     ownerID,
 			DropOwner:   true,
 			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
@@ -157,10 +160,14 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	t.Cleanup(model.unblock)
 
 	turnDone := make(chan error, 1)
+	input, err := protoapi.UserTurnInputToProto(runtimeinput.Text("hold the Agent Step"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	go func() {
-		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), serverapi.RuntimeSubmitUserTurnRequest{
-			SessionID: sessionID.String(),
-			Input:     runtimeinput.Text("hold the Agent Step"),
+		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{
+			SessionId: sessionID.String(),
+			Input:     input,
 		})
 		turnDone <- submitErr
 	}()
@@ -171,16 +178,15 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	}
 
 	type mutationResult struct {
-		response serverapi.ChatSettingsMutationResponse
+		response *chatsettingspb.MutationSuccess
 		err      error
 	}
 	mutationDone := make(chan mutationResult, 1)
 	go func() {
-		response, mutationErr := chatSettings.MutateChatSettings(t.Context(), serverapi.ChatSettingsMutationRequest{
-			SessionID: sessionID,
-			Operation: serverapi.ChatSettingsMutationOperation{
-				Kind:    serverapi.ChatSettingsMutationQuestions,
-				Enabled: textutil.Value(requestedQuestions),
+		response, mutationErr := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+			Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+			Operation: &chatsettingspb.MutationOperation{
+				Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: requestedQuestions},
 			},
 		})
 		mutationDone <- mutationResult{response: response, err: mutationErr}
@@ -195,7 +201,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if mutation.err != nil {
 		t.Fatalf("MutateChatSettings: %v", mutation.err)
 	}
-	if mutation.response.Result.Applied == nil || !mutation.response.Result.Applied.Changed {
+	if mutation.response.Result.GetApplied() == nil || !mutation.response.Result.GetApplied().Changed {
 		t.Fatalf("mutation result = %+v, want a durable change", mutation.response.Result)
 	}
 	if mutation.response.Settings.Questions.Enabled != requestedQuestions {
@@ -223,8 +229,8 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 
 func currentCoreRuntimeQuestions(t *testing.T, appCore *Core, sessionID runtimeids.SessionID) bool {
 	t.Helper()
-	response, err := appCore.SessionViewClient().GetSessionMainView(t.Context(), serverapi.SessionMainViewRequest{
-		SessionID: sessionID.String(),
+	response, err := appCore.SessionViewClient().GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
+		SessionId: sessionID.String(),
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)

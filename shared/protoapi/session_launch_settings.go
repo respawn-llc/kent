@@ -50,47 +50,47 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	serverPort, err := projectInt32(settings.ServerPort, "server port")
+	serverPort, err := Int32(settings.ServerPort, "server port")
 	if err != nil {
 		return nil, err
 	}
-	modelContextWindow, err := projectInt32(settings.ModelContextWindow, "model context window")
+	modelContextWindow, err := Int32(settings.ModelContextWindow, "model context window")
 	if err != nil {
 		return nil, err
 	}
-	compactionThreshold, err := projectInt32(settings.ContextCompactionThresholdTokens, "context compaction threshold")
+	compactionThreshold, err := Int32(settings.ContextCompactionThresholdTokens, "context compaction threshold")
 	if err != nil {
 		return nil, err
 	}
-	preSubmitLead, err := projectInt32(settings.PreSubmitCompactionLeadTokens, "pre-submit compaction lead")
+	preSubmitLead, err := Int32(settings.PreSubmitCompactionLeadTokens, "pre-submit compaction lead")
 	if err != nil {
 		return nil, err
 	}
-	minimumExec, err := projectInt32(settings.MinimumExecToBgSeconds, "minimum exec-to-background seconds")
+	minimumExec, err := Int32(settings.MinimumExecToBgSeconds, "minimum exec-to-background seconds")
 	if err != nil {
 		return nil, err
 	}
-	modelTimeout, err := projectInt32(settings.Timeouts.ModelRequestSeconds, "model request timeout")
+	modelTimeout, err := Int32(settings.Timeouts.ModelRequestSeconds, "model request timeout")
 	if err != nil {
 		return nil, err
 	}
-	shellOutputMax, err := projectInt32(settings.ShellOutputMaxChars, "shell output maximum")
+	shellOutputMax, err := Int32(settings.ShellOutputMaxChars, "shell output maximum")
 	if err != nil {
 		return nil, err
 	}
-	worktreeTimeout, err := projectInt32(settings.Worktrees.SetupTimeoutSeconds, "worktree setup timeout")
+	worktreeTimeout, err := Int32(settings.Worktrees.SetupTimeoutSeconds, "worktree setup timeout")
 	if err != nil {
 		return nil, err
 	}
-	workflowConcurrency, err := projectInt32(settings.Workflow.Concurrency, "workflow concurrency")
+	workflowConcurrency, err := Int32(settings.Workflow.Concurrency, "workflow concurrency")
 	if err != nil {
 		return nil, err
 	}
-	workflowAttempts, err := projectInt32(settings.Workflow.MaxInvalidCompletionAttempts, "workflow invalid completion attempts")
+	workflowAttempts, err := Int32(settings.Workflow.MaxInvalidCompletionAttempts, "workflow invalid completion attempts")
 	if err != nil {
 		return nil, err
 	}
-	maxSubagentDepth, err := projectInt32(settings.MaxSubagentDepth, "maximum subagent depth")
+	maxSubagentDepth, err := Int32(settings.MaxSubagentDepth, "maximum subagent depth")
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		PreventSleep:     sleepMode,
 	}
 	if settings.Workflow.PreCompactionTokens != nil {
-		value, conversionErr := projectInt32(*settings.Workflow.PreCompactionTokens, "workflow pre-compaction tokens")
+		value, conversionErr := Int32(*settings.Workflow.PreCompactionTokens, "workflow pre-compaction tokens")
 		if conversionErr != nil {
 			return nil, conversionErr
 		}
@@ -274,11 +274,11 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 	if err != nil {
 		return nil, err
 	}
-	window, err := projectInt32(settings.ModelContextWindow, "reviewer model context window")
+	window, err := Int32(settings.ModelContextWindow, "reviewer model context window")
 	if err != nil {
 		return nil, err
 	}
-	timeout, err := projectInt32(settings.TimeoutSeconds, "reviewer timeout")
+	timeout, err := Int32(settings.TimeoutSeconds, "reviewer timeout")
 	if err != nil {
 		return nil, err
 	}

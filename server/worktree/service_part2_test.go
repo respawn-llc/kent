@@ -7,7 +7,6 @@ import (
 	"core/server/session"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
 	"core/shared/config"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/sessioncontract"
@@ -358,7 +357,7 @@ func assertServiceTestSessionTarget(t *testing.T, env *serviceTestEnv, worktreeI
 	}
 }
 
-func mustResolveServiceTestTarget(t *testing.T, env *serviceTestEnv) clientui.SessionExecutionTarget {
+func mustResolveServiceTestTarget(t *testing.T, env *serviceTestEnv) *worktreepb.SessionExecutionTarget {
 	t.Helper()
 	target, err := env.store.ResolveSessionExecutionTarget(env.ctx, env.session.Meta().SessionID)
 	if err != nil {

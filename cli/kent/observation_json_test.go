@@ -11,8 +11,11 @@ import (
 
 	"core/cli/app"
 	"core/shared/clientui"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestObservationCleanupClosesOnceAndPreservesPrimaryEnvelope(t *testing.T) {
@@ -93,14 +96,15 @@ func TestTaskObservationHelpReturnsSuccessWithoutJSONEnvelope(t *testing.T) {
 func TestProjectRunWatchJSONQuestionUsesAnswerTargetAndOrderedSuggestions(t *testing.T) {
 	recommended := 2
 	responseSessionID := runtimeids.NewSessionID()
-	response := serverapi.RuntimeLiveWatchResponse{
-		SessionID: responseSessionID.String(),
-		Outcome: serverapi.RuntimeLiveWatchOutcome{
-			Kind: serverapi.RuntimeLiveWatchQuestion,
-			Question: &serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
-				ToolCallID: "ask-1", SessionID: responseSessionID, StepID: questionCommandStepID(), Question: "Proceed?",
-				Suggestions: []string{"yes", "no"}, RecommendedOptionIndex: &recommended,
-			}},
+	response := &promptpb.LiveWatchSuccess{
+		SessionId: responseSessionID.String(),
+		Outcome: &promptpb.LiveWatchOutcome{
+			Outcome: &promptpb.LiveWatchOutcome_Question{
+				Question: mustCLIObservationQuestion(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
+					ToolCallID: "ask-1", SessionID: responseSessionID, StepID: questionCommandStepID(), Question: "Proceed?", CreatedAt: time.Unix(1, 0),
+					Suggestions: []string{"yes", "no"}, RecommendedOptionIndex: &recommended,
+				}}),
+			},
 		},
 	}
 	envelope, code, err := projectRunWatchJSON("requested-session", response)
@@ -177,13 +181,7 @@ func TestProjectTaskObservationJSONPreservesQuestionNodeAndKeepsDoneEmpty(t *tes
 }
 
 func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T) {
-	noFinal, code, err := projectRunWatchJSON("session", serverapi.RuntimeLiveWatchResponse{
-		SessionID: "session",
-		Outcome: serverapi.RuntimeLiveWatchOutcome{
-			Kind:    serverapi.RuntimeLiveWatchNoFinalResult,
-			Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "no final"},
-		},
-	})
+	noFinal, code, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_NoFinalResult{NoFinalResult: &promptpb.LiveWatchFailure{Reason: "no final"}}}})
 	rawNoFinal, marshalErr := json.Marshal(noFinal)
 	if err != nil || marshalErr != nil || code != 0 || noFinal.Status != "success" {
 		t.Fatalf("no-final projection = %#v, code=%d, err=%v", noFinal, code, err)
@@ -207,13 +205,12 @@ func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T
 
 func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 	resultText := "done"
-	envelope, code, err := projectRunWatchJSON("session", serverapi.RuntimeLiveWatchResponse{
-		SessionID: "session",
-		Outcome: serverapi.RuntimeLiveWatchOutcome{
-			Kind: serverapi.RuntimeLiveWatchFinalAnswer,
-			FinalAnswer: &serverapi.RuntimeLiveWatchFinal{
-				Result: &resultText, SessionName: "live", DurationMillis: 2500,
-			},
+	envelope, code, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{
+		SessionId: "session",
+		Outcome: &promptpb.LiveWatchOutcome{
+			Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{
+				Result: &resultText, SessionName: "live", Duration: durationpb.New(2500 * time.Millisecond),
+			}},
 		},
 	})
 	if err != nil || code != 0 {
@@ -231,8 +228,9 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 	if outcome["session_name"] != "live" || outcome["duration_ms"] != float64(2500) {
 		t.Fatalf("final outcome = %#v", outcome)
 	}
-	wait, code := projectRunWaitJSON("session", app.RunPromptResult{
-		Result: "done", SessionName: "waited", Duration: 1500 * time.Millisecond,
+	wait, code := projectRunWaitJSON("session", &runtimepb.LiveWaitSuccess{
+		Result:      &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
+		SessionName: "waited", Duration: durationpb.New(1500 * time.Millisecond),
 	}, nil, context.Background())
 	if code != 0 {
 		t.Fatalf("wait projection code = %d", code)
@@ -280,10 +278,7 @@ func TestTaskFailureJSONPreservesTypedDiscriminatorMetadata(t *testing.T) {
 }
 
 func TestMalformedObservationProjectionReturnsError(t *testing.T) {
-	if _, _, err := projectRunWatchJSON("session", serverapi.RuntimeLiveWatchResponse{
-		SessionID: "session",
-		Outcome:   serverapi.RuntimeLiveWatchOutcome{Kind: serverapi.RuntimeLiveWatchQuestion},
-	}); err == nil {
+	if _, _, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_Question{Question: nil}}}); err == nil {
 		t.Fatal("Run malformed question unexpectedly projected successfully")
 	}
 	if _, _, err := projectTaskObservationJSON("task", serverapi.WorkflowTaskObservationResponse{
@@ -298,7 +293,9 @@ func TestMalformedObservationProjectionReturnsError(t *testing.T) {
 
 func TestRunWaitJSONSeparatesFinalAndCleanupWarnings(t *testing.T) {
 	var output bytes.Buffer
-	result := app.RunPromptResult{Result: "done", Warnings: []string{"final warning"}}
+	result := &runtimepb.LiveWaitSuccess{
+		Result: &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
+	}
 	if code := emitRunWaitJSON(&output, "session", result, nil, context.Background(), func() error {
 		return errors.New("close warning")
 	}); code != 0 {
@@ -313,8 +310,7 @@ func TestRunWaitJSONSeparatesFinalAndCleanupWarnings(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if len(envelope.Outcomes) != 1 || len(envelope.Outcomes[0].Warnings) != 1 ||
-		envelope.Outcomes[0].Warnings[0] != "final warning" ||
+	if len(envelope.Outcomes) != 1 || len(envelope.Outcomes[0].Warnings) != 0 ||
 		len(envelope.Warnings) != 1 || envelope.Warnings[0] != "close warning" {
 		t.Fatalf("envelope = %#v", envelope)
 	}
@@ -378,9 +374,9 @@ func TestRunWaitHardCutoverAndHeadlessEscape(t *testing.T) {
 	previousWait, previousPrompt := runLiveWaitApp, runPromptApp
 	defer func() { runLiveWaitApp, runPromptApp = previousWait, previousPrompt }()
 	waitCalls, promptCalls := 0, 0
-	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (app.RunPromptResult, error) {
+	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
 		waitCalls++
-		return app.RunPromptResult{}, nil
+		return &runtimepb.LiveWaitSuccess{}, nil
 	}
 	runPromptApp = func(context.Context, app.Options, string, time.Duration, serverapi.RunPromptProgressSink) (app.RunPromptResult, error) {
 		promptCalls++
@@ -411,9 +407,9 @@ func TestRunWaitCanonicalValidationPrecedesRemote(t *testing.T) {
 	previous := runLiveWaitApp
 	defer func() { runLiveWaitApp = previous }()
 	calls := 0
-	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (app.RunPromptResult, error) {
+	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
 		calls++
-		return app.RunPromptResult{}, nil
+		return &runtimepb.LiveWaitSuccess{}, nil
 	}
 	if code := runSubcommand([]string{"wait", "legacy-session"}); code != 2 || calls != 0 {
 		t.Fatalf("invalid Wait target exit=%d calls=%d", code, calls)

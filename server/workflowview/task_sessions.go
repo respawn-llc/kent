@@ -14,7 +14,8 @@ import (
 	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/server/workflow"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 )
 
@@ -174,19 +175,19 @@ func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([
 	return active, activeSessionIDs, nil
 }
 
-func taskSessionStatus(activity clientui.RuntimeActivity) (serverapi.WorkflowTaskSessionStatus, error) {
-	if err := activity.Validate(); err != nil {
+func taskSessionStatus(activity *runtimepb.Activity) (serverapi.WorkflowTaskSessionStatus, error) {
+	if err := protoapi.Validate(activity); err != nil {
 		return "", err
 	}
 	switch activity.State {
-	case clientui.RuntimeActivityAwaitingPrompt:
+	case runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT:
 		return serverapi.WorkflowTaskSessionStatusQuestion, nil
-	case clientui.RuntimeActivityStarting,
-		clientui.RuntimeActivityRunning,
-		clientui.RuntimeActivityDraining,
-		clientui.RuntimeActivityClosing:
+	case runtimepb.ActivityState_RUNTIME_ACTIVITY_STARTING,
+		runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
+		runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING,
+		runtimepb.ActivityState_RUNTIME_ACTIVITY_CLOSING:
 		return serverapi.WorkflowTaskSessionStatusRunning, nil
-	case clientui.RuntimeActivityRegisteredIdle, clientui.RuntimeActivityUnavailable:
+	case runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE, runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE:
 		return serverapi.WorkflowTaskSessionStatusIdle, nil
 	default:
 		return "", fmt.Errorf("unsupported runtime activity state %q", activity.State)

@@ -10,9 +10,10 @@ import (
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/invariant"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 type PendingPromptResponder interface {
@@ -40,84 +41,105 @@ func NewPromptControlService(prompts PendingPromptResponder) *PromptControlServi
 
 func (s *PromptControlService) AnswerPromptBatch(
 	ctx context.Context,
-	req serverapi.PromptAnswerBatchRequest,
-) (serverapi.PromptAnswerBatchResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, err
+	req *promptpb.AnswerBatchRequest,
+) (*promptpb.AnswerBatchSuccess, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
 	}
 	if s == nil || s.prompts == nil {
-		return serverapi.PromptAnswerBatchResponse{}, errors.New("prompt responder is required")
+		return nil, errors.New("prompt responder is required")
+	}
+	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	stepID, err := runtimeids.ParseStepID(req.StepId)
+	if err != nil {
+		return nil, err
 	}
 	commands := make([]sessionruntime.PromptAnswerCommand, 0, len(req.Entries))
 	for _, entry := range req.Entries {
-		command := sessionruntime.PromptAnswerCommand{ToolCallID: entry.ToolCallID}
-		switch {
-		case entry.QuestionAnswer != nil:
+		command := sessionruntime.PromptAnswerCommand{ToolCallID: clientui.ToolCallID(entry.ToolCallId)}
+		switch answer := entry.Answer.(type) {
+		case *promptpb.AnswerBatchEntry_QuestionAnswer:
+			var selected *int
+			if answer.QuestionAnswer.SelectedOptionNumber != nil {
+				value := int(*answer.QuestionAnswer.SelectedOptionNumber)
+				selected = &value
+			}
 			command.Payload = sessionruntime.PromptQuestionAnswerCommand{
 				Answer: askquestion.AskQuestionAnswer{
-					SelectedOptionNumber: textutil.Pointer(entry.QuestionAnswer.SelectedOptionNumber),
-					Freeform:             entry.QuestionAnswer.Freeform,
+					SelectedOptionNumber: selected,
+					Freeform:             answer.QuestionAnswer.Freeform,
 				},
 			}
-		case entry.ApprovalAnswer != nil:
+		case *promptpb.AnswerBatchEntry_ApprovalAnswer:
+			decision, err := protoapi.ApprovalDecisionFromProto(answer.ApprovalAnswer.Decision)
+			if err != nil {
+				return nil, err
+			}
 			command.Payload = sessionruntime.PromptApprovalAnswerCommand{
 				Answer: askquestion.AskQuestionApproval{
-					Decision:   askquestion.AskQuestionApprovalDecision(entry.ApprovalAnswer.Decision),
-					Commentary: entry.ApprovalAnswer.Commentary,
+					Decision:   askquestion.AskQuestionApprovalDecision(decision),
+					Commentary: answer.ApprovalAnswer.Commentary,
 				},
 			}
-		case entry.Declined != nil:
+		case *promptpb.AnswerBatchEntry_Declined:
 			command.Payload = sessionruntime.PromptDeclinedCommand{}
 		default:
-			return serverapi.PromptAnswerBatchResponse{}, reportPromptBatchTranslationInvariant(entry.ToolCallID)
+			return nil, reportPromptBatchTranslationInvariant(command.ToolCallID)
 		}
 		commands = append(commands, command)
 	}
-	results, err := s.prompts.ResolvePromptBatch(ctx, req.SessionID, req.StepID, commands)
+	results, err := s.prompts.ResolvePromptBatch(ctx, sessionID, stepID, commands)
 	if err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, err
+		return nil, err
 	}
-	response := serverapi.PromptAnswerBatchResponse{
-		Results: make([]serverapi.PromptAnswerBatchResult, 0, len(results)),
+	response := &promptpb.AnswerBatchSuccess{
+		Results: make([]*promptpb.AnswerBatchEntryResult, 0, len(results)),
 	}
 	for _, result := range results {
+		var outcome promptpb.AnswerBatchOutcome
 		switch result.Outcome {
 		case sessionruntime.PromptAnswerOutcomeResolved:
-			response.Results = appendPromptAnswerBatchResult(
-				response.Results,
-				result.ToolCallID,
-				serverapi.PromptAnswerBatchOutcomeResolved,
-			)
+			outcome = promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_RESOLVED
 		case sessionruntime.PromptAnswerOutcomeSkipped:
-			response.Results = appendPromptAnswerBatchResult(
-				response.Results,
-				result.ToolCallID,
-				serverapi.PromptAnswerBatchOutcomeSkipped,
-			)
+			outcome = promptpb.AnswerBatchOutcome_ANSWER_BATCH_OUTCOME_SKIPPED
 		default:
-			return serverapi.PromptAnswerBatchResponse{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"prompt batch responder returned invalid outcome %q",
 				result.Outcome,
 			)
 		}
+		response.Results = append(response.Results, &promptpb.AnswerBatchEntryResult{
+			ToolCallId: string(result.ToolCallID), Outcome: outcome,
+		})
 	}
-	if err := serverapi.ValidatePromptAnswerBatchResponse(req, response); err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, fmt.Errorf("validate prompt answer batch response: %w", err)
+	if err := protoapi.ValidatePromptAnswerBatchResponse(req, response); err != nil {
+		return nil, fmt.Errorf("validate prompt answer batch response: %w", err)
 	}
 	return response, nil
 }
 
 func (s *PromptControlService) SubscribeFollowUp(
 	ctx context.Context,
-	req serverapi.PromptFollowUpWatchRequest,
+	req *promptpb.FollowUpWatchRequest,
 ) (serverapi.PromptFollowUpSubscription, error) {
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}
-	return s.prompts.SubscribePromptFollowUp(ctx, req.SessionID, req.StepID, req.ToolCallID)
+	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	stepID, err := runtimeids.ParseStepID(req.StepId)
+	if err != nil {
+		return nil, err
+	}
+	return s.prompts.SubscribePromptFollowUp(ctx, sessionID, stepID, clientui.ToolCallID(req.ToolCallId))
 }
 
 func reportPromptBatchTranslationInvariant(toolCallID clientui.ToolCallID) error {
@@ -128,17 +150,6 @@ func reportPromptBatchTranslationInvariant(toolCallID clientui.ToolCallID) error
 		err,
 	))
 	return err
-}
-
-func appendPromptAnswerBatchResult(
-	results []serverapi.PromptAnswerBatchResult,
-	toolCallID clientui.ToolCallID,
-	outcome serverapi.PromptAnswerBatchOutcome,
-) []serverapi.PromptAnswerBatchResult {
-	return append(results, serverapi.PromptAnswerBatchResult{
-		ToolCallID: toolCallID,
-		Outcome:    outcome,
-	})
 }
 
 var _ servicecontract.PromptControlService = (*PromptControlService)(nil)

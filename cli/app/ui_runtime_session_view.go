@@ -1,11 +1,13 @@
 package app
 
-import "core/shared/clientui"
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
-func (m *uiModel) localRuntimeSessionView() clientui.RuntimeSessionView {
-	return clientui.RuntimeSessionView{
-		SessionID:             m.sessionID,
-		SessionName:           m.sessionName,
+import "core/shared/textutil"
+
+func (m *uiModel) localRuntimeSessionView() *runtimepb.SessionView {
+	return &runtimepb.SessionView{
+		SessionId:             m.sessionID,
+		SessionName:           textutil.OptionalTrimmedString(m.sessionName),
 		ConversationFreshness: m.conversationFreshness,
 	}
 }

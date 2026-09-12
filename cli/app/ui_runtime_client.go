@@ -9,7 +9,12 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const uiRuntimeControlTimeout = 3 * time.Second
@@ -31,7 +36,7 @@ type sessionRuntimeClient struct {
 	reconnectWarningObserver func(string, clientui.EntryVisibility)
 
 	mu               sync.RWMutex
-	mainView         clientui.RuntimeMainView
+	mainView         *runtimepb.MainView
 	hasMainView      bool
 	metadataRevision uint64
 }
@@ -46,7 +51,7 @@ func newUIRuntimeClientWithReads(sessionID string, reads apicontract.SessionView
 		reads:        reads,
 		controls:     controls,
 		chatSettings: chatSettings,
-		mainView:     clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: sessionID}},
+		mainView:     &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: sessionID}, Status: &runtimepb.Status{}},
 	}
 }
 
@@ -102,11 +107,11 @@ func (c *sessionRuntimeClient) appendRuntimeReconnectWarning() {
 	}
 	warningCtx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()
-	if err := c.controls.AppendCommittedEntry(warningCtx, serverapi.RuntimeAppendCommittedEntryRequest{
-		SessionID:  c.sessionID,
+	if err := c.controls.AppendCommittedEntry(warningCtx, &transcriptpb.AppendCommittedEntryRequest{
+		SessionId:  c.sessionID,
 		Role:       "warning",
 		Text:       runtimeReconnectWarningText,
-		Visibility: string(clientui.EntryVisibilityOngoing),
+		Visibility: transcriptpb.AppendVisibility_APPEND_VISIBILITY_ONGOING.Enum(),
 	}); err != nil {
 		c.notifyRuntimeReconnectWarning(runtimeReconnectWarningText, clientui.EntryVisibilityOngoing)
 	}
@@ -168,23 +173,23 @@ func (c *sessionRuntimeClient) SetRuntimeReconnectWarningObserver(observer func(
 	c.reconnectWarningObserver = observer
 }
 
-func (c *sessionRuntimeClient) MainView() clientui.RuntimeMainView {
+func (c *sessionRuntimeClient) MainView() *runtimepb.MainView {
 	view, _ := c.cachedMainView()
-	if view.Session.SessionID == "" {
-		view.Session.SessionID = c.sessionID
+	if view.Session.SessionId == "" {
+		view.Session.SessionId = c.sessionID
 	}
 	return view
 }
 
-func (c *sessionRuntimeClient) RefreshMainView() (clientui.RuntimeMainView, error) {
+func (c *sessionRuntimeClient) RefreshMainView() (*runtimepb.MainView, error) {
 	return c.refreshMainViewSync(uiRuntimeHydrationReadTimeout)
 }
 
-func (c *sessionRuntimeClient) Status() clientui.RuntimeStatus {
+func (c *sessionRuntimeClient) Status() *runtimepb.Status {
 	return c.MainView().Status
 }
 
-func (c *sessionRuntimeClient) SessionView() clientui.RuntimeSessionView {
+func (c *sessionRuntimeClient) SessionView() *runtimepb.SessionView {
 	return c.MainView().Session
 }
 
@@ -195,43 +200,44 @@ func (c *sessionRuntimeClient) readContext(timeout time.Duration) (context.Conte
 	return context.WithTimeout(context.Background(), timeout)
 }
 
-func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (clientui.RuntimeMainView, error) {
+func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (*runtimepb.MainView, error) {
 	view, err := c.fetchMainViewSync(timeout)
 	if err != nil {
 		c.mu.Lock()
-		if c.mainView.Session.SessionID == "" {
-			c.mainView.Session.SessionID = c.sessionID
+		if c.mainView.Session.SessionId == "" {
+			c.mainView.Session.SessionId = c.sessionID
 		}
 		c.hasMainView = true
-		view = c.mainView
+		view = proto.Clone(c.mainView).(*runtimepb.MainView)
 		c.mu.Unlock()
 		return view, err
 	}
 	return c.storeMainView(view), nil
 }
 
-func (c *sessionRuntimeClient) fetchMainView() (clientui.RuntimeMainView, error) {
+func (c *sessionRuntimeClient) fetchMainView() (*runtimepb.MainView, error) {
 	return c.fetchMainViewSync(uiRuntimeHydrationReadTimeout)
 }
 
-func (c *sessionRuntimeClient) fetchMainViewSync(timeout time.Duration) (clientui.RuntimeMainView, error) {
+func (c *sessionRuntimeClient) fetchMainViewSync(timeout time.Duration) (*runtimepb.MainView, error) {
 	ctx, cancel := c.readContext(timeout)
 	defer cancel()
-	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverRuntimeConnectionPreservingContext, false, func() (serverapi.SessionMainViewResponse, error) {
-		return c.reads.GetSessionMainView(ctx, serverapi.SessionMainViewRequest{SessionID: c.sessionID})
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverRuntimeConnectionPreservingContext, false, func() (*sessionpb.MainViewSuccess, error) {
+		return c.reads.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: c.sessionID})
 	})
 	c.notifyConnectionState(err)
 	if err != nil {
 		view, _ := c.cachedMainView()
-		if view.Session.SessionID == "" {
-			view.Session.SessionID = c.sessionID
+		if view.Session.SessionId == "" {
+			view.Session.SessionId = c.sessionID
 		}
 		return view, err
 	}
-	if resp.MainView.Session.SessionID == "" {
-		resp.MainView.Session.SessionID = c.sessionID
+	view := proto.Clone(resp.MainView).(*runtimepb.MainView)
+	if view.Session.SessionId == "" {
+		view.Session.SessionId = c.sessionID
 	}
-	return resp.MainView, nil
+	return view, nil
 }
 
 func (c *sessionRuntimeClient) notifyConnectionState(err error) {

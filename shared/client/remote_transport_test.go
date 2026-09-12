@@ -15,15 +15,16 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -485,6 +486,36 @@ func TestRemoteReconnectsUnaryControlConnectionAfterDrop(t *testing.T) {
 }
 
 func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
+	method := bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetMainView")
+	operation, err := protoapi.OperationFromDescriptor(method)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := protoapi.NewReadModelVersion("epoch-1", 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := &sessionpb.MainViewResult{Outcome: &sessionpb.MainViewResult_Success{Success: &sessionpb.MainViewSuccess{
+		MainView: &runtimepb.MainView{
+			Version: version,
+			Status: &runtimepb.Status{
+				ReviewerFrequency:     "never",
+				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
+				ThinkingLevel:         "medium", CompactionMode: "none",
+				ContextUsage: &runtimepb.ContextUsage{WindowTokens: 1000},
+			},
+			Session: &runtimepb.SessionView{
+				SessionId:             "session-1",
+				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
+				ExecutionTarget: &worktreepb.SessionExecutionTarget{
+					WorkspaceId: proto.String("workspace-1"), WorkspaceName: "workspace",
+					WorkspaceRoot: "/workspace", WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+					CwdRelpath: ".", EffectiveWorkdir: "/workspace",
+				},
+			},
+			Activity: &runtimepb.Activity{State: runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE, Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE},
+		},
+	}}}
 	var connectionCount atomic.Int32
 	var attachCount atomic.Int32
 	handlerErrs := make(chan error, 8)
@@ -511,16 +542,39 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				}
 				continue
 			}
-			req := event.Frame.Request()
+			envelope, err := protoapi.DecodeEnvelope(event.Frame.Payload)
+			if err != nil {
+				reportHandlerError(handlerErrs, "connection %d decode main-view call: %v", connIndex, err)
+				return
+			}
+			call := envelope.GetCall()
+			if call == nil {
+				reportHandlerError(handlerErrs, "connection %d expected generated call", connIndex)
+				return
+			}
 			if !handshaken || !attached {
-				reportHandlerError(handlerErrs, "connection %d sent %q before binary setup completed", connIndex, req.Method)
+				reportHandlerError(handlerErrs, "connection %d sent %q before binary setup completed", connIndex, call.Operation)
 				return
 			}
-			if req.Method != protocol.MethodSessionGetMainView {
-				reportHandlerError(handlerErrs, "connection %d method = %q, want Session main view", connIndex, req.Method)
+			if call.Operation != operation.Name {
+				reportHandlerError(handlerErrs, "connection %d method = %q, want Session main view", connIndex, call.Operation)
 				return
 			}
-			if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, serverapi.SessionMainViewResponse{}))); err != nil {
+			request := &sessionpb.MainViewRequest{}
+			if err := protoapi.Decode(call.Payload, request); err != nil {
+				reportHandlerError(handlerErrs, "decode Session main-view request: %v", err)
+				return
+			}
+			if request.SessionId != "session-1" {
+				reportHandlerError(handlerErrs, "main-view Session = %q, want session-1", request.SessionId)
+				return
+			}
+			frame, err := remoteDescriptorResultFrame(method, call.Correlation, response, protoapi.Encode)
+			if err != nil {
+				reportHandlerError(handlerErrs, "encode Session main-view response: %v", err)
+				return
+			}
+			if err := conn.Send(ctx, frame); err != nil {
 				reportHandlerError(handlerErrs, "send Session main-view response: %w", err)
 			}
 			return
@@ -538,7 +592,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	request := serverapi.SessionMainViewRequest{SessionID: "session-1"}
+	request := &sessionpb.MainViewRequest{SessionId: "session-1"}
 	if _, err := remote.GetSessionMainView(context.Background(), request); err != nil {
 		t.Fatalf("first GetSessionMainView: %v", err)
 	}
@@ -628,6 +682,17 @@ func TestRemoteProjectRootAttachmentRejectsDifferentWorkspaceOnReconnect(t *test
 }
 
 func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
+	service := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService")
+	submitMethod := service.Methods().ByName("SubmitUserTurn")
+	interruptMethod := service.Methods().ByName("Interrupt")
+	submitOperation, err := protoapi.OperationFromDescriptor(submitMethod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interruptOperation, err := protoapi.OperationFromDescriptor(interruptMethod)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var connectionCount atomic.Int32
 	handlerErrs := make(chan error, 8)
 	submitStarted := make(chan struct{}, 1)
@@ -653,52 +718,72 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 				attached = attached || kind == remoteTestSetupProject
 				continue
 			}
-			req := event.Frame.Request()
+			envelope, err := protoapi.DecodeEnvelope(event.Frame.Payload)
+			if err != nil {
+				reportHandlerError(handlerErrs, "decode binary request: %v", err)
+				return
+			}
+			call := envelope.GetCall()
+			if call == nil {
+				reportHandlerError(handlerErrs, "binary call is required")
+				return
+			}
 			if !handshaken {
-				reportHandlerError(handlerErrs, "application method %q arrived before handshake", req.Method)
+				reportHandlerError(handlerErrs, "application method %q arrived before handshake", call.Operation)
 				return
 			}
 			if !attached {
-				reportHandlerError(handlerErrs, "application method %q arrived before Project attachment", req.Method)
+				reportHandlerError(handlerErrs, "application method %q arrived before Project attachment", call.Operation)
 				return
 			}
-			switch req.Method {
-			case protocol.MethodRuntimeSubmitUserTurn:
+			switch call.Operation {
+			case submitOperation.Name:
 				select {
 				case submitStarted <- struct{}{}:
 				default:
 				}
 				<-releaseSubmit
-				if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, serverapi.RuntimeSubmitUserTurnResponse{
-					Message:    textutil.Value("done"),
-					ResultKind: clientui.UserTurnResultKindAssistantFinal,
-				}))); err != nil {
+				frame, err := remoteDescriptorResultFrame(submitMethod, call.Correlation, &runtimepb.SubmitUserTurnResult{
+					Outcome: &runtimepb.SubmitUserTurnResult_Success{Success: &runtimepb.SubmitUserTurnSuccess{
+						Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "done"}},
+					}},
+				}, protoapi.Encode)
+				if err != nil {
+					reportHandlerError(handlerErrs, "encode submit response: %v", err)
+					return
+				}
+				if err := conn.Send(ctx, frame); err != nil {
 					reportHandlerError(handlerErrs, "send submit response: %w", err)
 				}
 				return
-			case protocol.MethodRuntimeInterrupt:
+			case interruptOperation.Name:
 				select {
 				case interruptSeen <- struct{}{}:
 				default:
 				}
-				version, versionErr := clientui.NewReadModelVersion("epoch-1", 1, 1)
+				version, versionErr := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 				if versionErr != nil {
 					reportHandlerError(handlerErrs, "build interrupt version: %w", versionErr)
 					return
 				}
-				response := serverapi.RuntimeInterruptResponse{
+				response := &runtimepb.ReadModelUpdate{
 					Version: version,
-					Activity: clientui.RuntimeActivity{
-						State:    clientui.RuntimeActivityRegisteredIdle,
-						Reviewer: clientui.ReviewerActivityInactive,
+					Activity: &runtimepb.Activity{
+						State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
+						Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 					},
 				}
-				if err := conn.Send(ctx, rpcwire.FrameFromResponse(protocol.NewSuccessResponse(req.ID, response))); err != nil {
+				frame, err := remoteDescriptorResultFrame(interruptMethod, call.Correlation, &runtimepb.InterruptResult{Outcome: &runtimepb.InterruptResult_Success{Success: response}}, protoapi.Encode)
+				if err != nil {
+					reportHandlerError(handlerErrs, "encode interrupt response: %v", err)
+					return
+				}
+				if err := conn.Send(ctx, frame); err != nil {
 					reportHandlerError(handlerErrs, "send interrupt response: %w", err)
 				}
 				return
 			default:
-				reportHandlerError(handlerErrs, "unexpected method %q", req.Method)
+				reportHandlerError(handlerErrs, "unexpected method %q", call.Operation)
 				return
 			}
 		}
@@ -727,7 +812,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	interruptCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if _, err := remote.Interrupt(interruptCtx, serverapi.RuntimeInterruptRequest{SessionID: "session-1"}); err != nil {
+	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: "session-1"}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	select {

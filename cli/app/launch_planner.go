@@ -1,5 +1,9 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
+import sessionpb "core/shared/protoapi/gen/kent/api/session"
+
 import (
 	"context"
 	"errors"
@@ -50,7 +54,7 @@ type sessionLaunchPlan struct {
 	ThinkingOverrideExplicit   bool
 	ActivationAgentSelection   *serverapi.SessionRuntimeAgentSelection
 	StatusConfig               uiStatusConfig
-	ExecutionTarget            clientui.SessionExecutionTarget
+	ExecutionTarget            *worktreepb.SessionExecutionTarget
 	Source                     config.SourceReport
 	ClientLifecycleCommand     []string
 	ClientLifecycleOpeningKind lifecyclecontract.OpeningKind
@@ -104,7 +108,7 @@ func (p *runtimeLaunchPlan) closeWithPolicy(detachOnly bool) error {
 type sessionPickerRunner func(context.Context, sessionPageLoader, string, sessionPickerHeaderInfo) (sessionPickerResult, error)
 
 type sessionViewReader interface {
-	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
+	GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error)
 }
 
 type launchPlannerServer interface {
@@ -270,13 +274,13 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}, nil
 }
 
-func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessionViewReader, sessionID string) (clientui.SessionExecutionTarget, error) {
+func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessionViewReader, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	if sessionViews == nil {
-		return clientui.SessionExecutionTarget{}, errors.New("session view client is required")
+		return nil, errors.New("session view client is required")
 	}
-	resp, err := sessionViews.GetSessionMainView(ctx, serverapi.SessionMainViewRequest{SessionID: strings.TrimSpace(sessionID)})
+	resp, err := sessionViews.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: strings.TrimSpace(sessionID)})
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, err
+		return nil, err
 	}
 	return clientui.NormalizeSessionExecutionTarget(resp.MainView.Session.ExecutionTarget), nil
 }

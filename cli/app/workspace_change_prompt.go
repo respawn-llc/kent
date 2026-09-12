@@ -1,5 +1,7 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 import (
 	"context"
 	"errors"
@@ -104,7 +106,7 @@ type workspaceChangePromptModel struct {
 	result       workspaceChangePromptResult
 }
 
-func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget clientui.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
+func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("session server is required")
 	}
@@ -112,7 +114,7 @@ func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server session
 		return sessionWorkspaceChangeProceed, errors.New("session id is required")
 	}
 	executionTarget = clientui.NormalizeSessionExecutionTarget(executionTarget)
-	if executionTarget.WorkspaceAvailability != clientui.ProjectAvailabilityAvailable {
+	if executionTarget.GetWorkspaceAvailability() != projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE {
 		return sessionWorkspaceChangeProceed, nil
 	}
 	contextProvider, ok := server.(sessionWorkspaceRetargetContextProvider)

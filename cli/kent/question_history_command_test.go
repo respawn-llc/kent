@@ -10,20 +10,21 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/serverapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/sessionenv"
 	"core/shared/transcript"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/google/uuid"
 )
 
 type questionHistoryScriptSubscription struct {
-	events []serverapi.QuestionHistoryEvent
+	events []*sessionpb.QuestionHistoryEvent
 	err    error
 	closed bool
 }
 
-func (s *questionHistoryScriptSubscription) Next(context.Context) (serverapi.QuestionHistoryEvent, error) {
+func (s *questionHistoryScriptSubscription) Next(context.Context) (*sessionpb.QuestionHistoryEvent, error) {
 	if len(s.events) > 0 {
 		event := s.events[0]
 		s.events = s.events[1:]
@@ -32,9 +33,9 @@ func (s *questionHistoryScriptSubscription) Next(context.Context) (serverapi.Que
 	if s.err != nil {
 		err := s.err
 		s.err = nil
-		return serverapi.QuestionHistoryEvent{}, err
+		return nil, err
 	}
-	return serverapi.QuestionHistoryEvent{}, io.EOF
+	return nil, io.EOF
 }
 
 func (s *questionHistoryScriptSubscription) Close() error {
@@ -44,14 +45,12 @@ func (s *questionHistoryScriptSubscription) Close() error {
 
 func TestQuestionHistoryHumanStreamingRetainsPartialOutputOnFailure(t *testing.T) {
 	sub := &questionHistoryScriptSubscription{
-		events: []serverapi.QuestionHistoryEvent{
-			{Kind: serverapi.QuestionHistoryEventStarted, LargeHistory: boolPointer(false)},
-			{
-				Kind: serverapi.QuestionHistoryEventQuestion,
-				Question: &serverapi.QuestionHistoryQuestion{
-					Question: "opaque-question",
-					Answer:   "opaque-answer",
-				},
+		events: []*sessionpb.QuestionHistoryEvent{
+			{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: false}}},
+			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+				Question: "opaque-question",
+				Answer:   "opaque-answer",
+			}},
 			},
 		},
 		err: errors.New("terminal failure"),
@@ -68,14 +67,12 @@ func TestQuestionHistoryHumanStreamingRetainsPartialOutputOnFailure(t *testing.T
 
 func TestQuestionHistoryHumanStreamingReportsOutputFailure(t *testing.T) {
 	sub := &questionHistoryScriptSubscription{
-		events: []serverapi.QuestionHistoryEvent{
-			{Kind: serverapi.QuestionHistoryEventStarted, LargeHistory: boolPointer(false)},
-			{
-				Kind: serverapi.QuestionHistoryEventQuestion,
-				Question: &serverapi.QuestionHistoryQuestion{
-					Question: "opaque-question",
-					Answer:   "opaque-answer",
-				},
+		events: []*sessionpb.QuestionHistoryEvent{
+			{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: false}}},
+			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+				Question: "opaque-question",
+				Answer:   "opaque-answer",
+			}},
 			},
 		},
 	}
@@ -90,16 +87,14 @@ func TestQuestionHistoryHumanStreamingReportsOutputFailure(t *testing.T) {
 
 func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
 	sub := &questionHistoryScriptSubscription{
-		events: []serverapi.QuestionHistoryEvent{
-			{Kind: serverapi.QuestionHistoryEventStarted, LargeHistory: boolPointer(true)},
-			{
-				Kind: serverapi.QuestionHistoryEventQuestion,
-				Question: &serverapi.QuestionHistoryQuestion{
-					Question: "q",
-					Answer:   "a",
-				},
+		events: []*sessionpb.QuestionHistoryEvent{
+			{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: true}}},
+			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+				Question: "q",
+				Answer:   "a",
+			}},
 			},
-			{Kind: serverapi.QuestionHistoryEventCompleted, HistoryOmitted: boolPointer(false)},
+			{Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: false}}},
 		},
 	}
 	var stdout bytes.Buffer
@@ -129,14 +124,12 @@ func TestQuestionHistoryJSONStreamsExplicitNullsAndCompletion(t *testing.T) {
 
 func TestQuestionHistoryJSONLeavesPartialDocumentOnFailure(t *testing.T) {
 	sub := &questionHistoryScriptSubscription{
-		events: []serverapi.QuestionHistoryEvent{
-			{Kind: serverapi.QuestionHistoryEventStarted, LargeHistory: boolPointer(false)},
-			{
-				Kind: serverapi.QuestionHistoryEventQuestion,
-				Question: &serverapi.QuestionHistoryQuestion{
-					Question: "q",
-					Answer:   "a",
-				},
+		events: []*sessionpb.QuestionHistoryEvent{
+			{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: false}}},
+			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+				Question: "q",
+				Answer:   "a",
+			}},
 			},
 		},
 		err: errors.New("terminal failure"),
@@ -172,7 +165,7 @@ func TestQuestionHistoryListDispatchesAliasesAndSelectorContracts(t *testing.T) 
 			t.Fatalf("command %v opened Sessions = %v", commandArgs, *opened)
 		}
 		if len(remote.historyRequests) != 1 ||
-			remote.historyRequests[0].SessionID != explicit ||
+			remote.historyRequests[0].SessionId != explicit ||
 			remote.historyRequests[0].MaxHandoffs != 7 {
 			t.Fatalf("command %v request = %+v", commandArgs, remote.historyRequests)
 		}
@@ -215,7 +208,7 @@ func TestRunQuestionsTranslatesPositionalSessionToCanonicalList(t *testing.T) {
 		t.Fatalf("run questions exit = %d", exit)
 	}
 	if len(remote.historyRequests) != 1 ||
-		remote.historyRequests[0].SessionID != sessionID ||
+		remote.historyRequests[0].SessionId != sessionID ||
 		remote.historyRequests[0].MaxHandoffs != 4 {
 		t.Fatalf("run questions request = %+v", remote.historyRequests)
 	}
@@ -240,12 +233,12 @@ func TestQuestionHistoryStreamingInterruptionAndJSONWriteFailure(t *testing.T) {
 func TestQuestionHistoryJSONConvertsAnswerTimeToUTC(t *testing.T) {
 	at := transcript.CommittedAtUnixMs(time.Date(2026, time.August, 13, 12, 30, 0, 0, time.FixedZone("fixture", 2*60*60)).UnixMilli())
 	sub := &questionHistoryScriptSubscription{
-		events: []serverapi.QuestionHistoryEvent{
-			{Kind: serverapi.QuestionHistoryEventStarted, LargeHistory: boolPointer(false)},
-			{Kind: serverapi.QuestionHistoryEventQuestion, Question: &serverapi.QuestionHistoryQuestion{
-				Question: "q", Answer: "a", At: &at,
-			}},
-			{Kind: serverapi.QuestionHistoryEventCompleted, HistoryOmitted: boolPointer(false)},
+		events: []*sessionpb.QuestionHistoryEvent{
+			{Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: false}}},
+			{Event: &sessionpb.QuestionHistoryEvent_Question{Question: &sessionpb.QuestionHistoryQuestion{
+				Question: "q", Answer: "a", CommittedAt: timestamppb.New(time.UnixMilli(at.UnixMs())),
+			}}},
+			{Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: false}}},
 		},
 	}
 	var stdout bytes.Buffer

@@ -25,7 +25,7 @@ func TestBackgroundHydrationFiltersSessionProcessesAndOmitsPreview(t *testing.T)
 		t.Fatalf("background activities = %d, want one", len(activities))
 	}
 	activity := activities[0]
-	if activity.Preview != nil || activity.ProcessID != "process-1" ||
+	if activity.Preview != nil || activity.ProcessId != "process-1" ||
 		activity.Command != "go test ./..." || activity.Workdir != "/workspace" ||
 		activity.LogPath == nil || *activity.LogPath != "/tmp/process.log" {
 		t.Fatalf("background activity = %+v", activity)

@@ -15,6 +15,7 @@ import (
 	servicecontract "core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -178,12 +179,12 @@ func (s *Service) prepareSessionChatSettings(
 	}, taskIdentity, nil
 }
 
-func (s *Service) NewChatSettings(ctx context.Context) (serverapi.ChatSettingsReadResponse, error) {
+func (s *Service) NewChatSettings(ctx context.Context) (*chatsettingspb.ReadSuccess, error) {
 	planner := s.planner
 	if planner.ReloadConfig != nil {
 		snapshot, err := planner.ReloadConfig()
 		if err != nil {
-			return serverapi.ChatSettingsReadResponse{}, err
+			return nil, err
 		}
 		planner.Config = snapshot
 	}
@@ -192,31 +193,31 @@ func (s *Service) NewChatSettings(ctx context.Context) (serverapi.ChatSettingsRe
 		var err error
 		authState, err = s.authStates.StoredState(ctx)
 		if err != nil {
-			return serverapi.ChatSettingsReadResponse{}, err
+			return nil, err
 		}
 	}
 	catalog, err := launch.PrepareChatAgentCatalog(planner.Config, authState, false)
 	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+		return nil, err
 	}
 	projected, err := projectNewChatCatalog(catalog, planner.Config.Settings.CompactionMode)
 	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+		return nil, err
 	}
-	return serverapi.ChatSettingsReadResponse{NewChat: &projected}, nil
+	return &chatsettingspb.ReadSuccess{Target: &chatsettingspb.ReadSuccess_NewChat{NewChat: projected}}, nil
 }
 
 func (s *Service) SessionChatSettings(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-) (serverapi.ChatSettingsReadResponse, error) {
+) (*chatsettingspb.ReadSuccess, error) {
 	record, err := s.planner.PersistedSessions.ResolvePersistedSession(ctx, sessionID.String())
 	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+		return nil, err
 	}
 	input, taskIdentity, err := s.prepareSessionChatSettings(ctx, *record.Meta)
 	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+		return nil, err
 	}
 	settings, err := ProjectChatSettings(ChatSettingsProjectionInput{
 		Catalog:        input.Catalog,
@@ -227,18 +228,20 @@ func (s *Service) SessionChatSettings(
 		Locked:         input.Locked,
 	})
 	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+		return nil, err
 	}
-	facts := &serverapi.ChatSettingsSessionFacts{
-		SessionID:         sessionID,
-		PreviousSessionID: record.Meta.PreviousSessionID,
+	facts := &chatsettingspb.SessionFacts{
+		SessionId: sessionID.String(),
+	}
+	if record.Meta.PreviousSessionID != nil {
+		facts.PreviousSessionId = textutil.Value(record.Meta.PreviousSessionID.String())
 	}
 	if taskIdentity != nil {
-		facts.TaskID = &taskIdentity.TaskID
-		facts.TaskShortID = &taskIdentity.TaskShortID
+		facts.TaskId = &taskIdentity.TaskID
+		facts.TaskShortId = &taskIdentity.TaskShortID
 	}
-	return serverapi.ChatSettingsReadResponse{
-		Session: &serverapi.SessionChatSettings{Settings: settings, Session: *facts},
+	return &chatsettingspb.ReadSuccess{
+		Target: &chatsettingspb.ReadSuccess_Session{Session: &chatsettingspb.SessionSettings{Settings: settings, Session: facts}},
 	}, nil
 }
 

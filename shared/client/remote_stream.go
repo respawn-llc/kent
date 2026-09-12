@@ -32,160 +32,6 @@ func (c *Remote) SubscribeAttentionNotifications(ctx context.Context, req server
 	}), nil
 }
 
-func (c *Remote) SubscribeSessionAttentionNotifications(ctx context.Context, req serverapi.AttentionSessionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodAttentionSessionNotificationSubscribe, "subscribe-session-attention-notification", req, req.SessionID, true)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscription(conn, route, func(params protocol.AttentionNotificationEventParams) clientui.AttentionNotificationEvent {
-		return params.Event
-	}), nil
-}
-
-func (c *Remote) SubscribeFollowUp(ctx context.Context, req serverapi.PromptFollowUpWatchRequest) (serverapi.PromptFollowUpSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodPromptFollowUpWatch, "subscribe-prompt-follow-up", req, req.SessionID.String(), true)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.PromptFollowUpEventParams) (serverapi.PromptFollowUpEvent, error) {
-		event := serverapi.PromptFollowUpEvent{Kind: serverapi.PromptFollowUpEventKind(params.Event.Kind)}
-		if err := event.Validate(); err != nil {
-			return serverapi.PromptFollowUpEvent{}, err
-		}
-		return event, nil
-	}), nil
-}
-
-func (c *Remote) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
-	route := mustRemoteRoute(protocol.MethodRunPrompt)
-	conn, cleanup, err := c.openRPCConn(ctx)
-	if err != nil {
-		return serverapi.RunPromptResponse{}, err
-	}
-	defer cleanup()
-	params, err := json.Marshal(req)
-	if err != nil {
-		return serverapi.RunPromptResponse{}, err
-	}
-	const requestID = "run-prompt"
-	request := protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: requestID, Method: protocol.MethodRunPrompt, Params: params}
-	if err := conn.Send(ctx, rpcwire.FrameFromRequest(request)); err != nil {
-		return serverapi.RunPromptResponse{}, err
-	}
-	for {
-		frame, err := receiveFrame(ctx, conn)
-		if err != nil {
-			return serverapi.RunPromptResponse{}, err
-		}
-		message, err := frame.DecodeRequest()
-		if err != nil {
-			return serverapi.RunPromptResponse{}, err
-		}
-		if message.Method == route.EventMethod {
-			if progress != nil {
-				var update serverapi.RunPromptProgress
-				if err := json.Unmarshal(message.Params, &update); err != nil {
-					return serverapi.RunPromptResponse{}, err
-				}
-				if err := update.Validate(); err != nil {
-					return serverapi.RunPromptResponse{}, err
-				}
-				progress.PublishRunPromptProgress(update)
-			}
-			continue
-		}
-		if message.ID != requestID {
-			return serverapi.RunPromptResponse{}, fmt.Errorf("unexpected rpc frame id %q", message.ID)
-		}
-		resp, err := frame.DecodeResponse()
-		if err != nil {
-			return serverapi.RunPromptResponse{}, err
-		}
-		if resp.Error != nil {
-			return serverapi.RunPromptResponse{}, protocolError(resp.Error)
-		}
-		var result serverapi.RunPromptResponse
-		if len(resp.Result) > 0 {
-			if err := json.Unmarshal(resp.Result, &result); err != nil {
-				return serverapi.RunPromptResponse{}, err
-			}
-		}
-		return result, nil
-	}
-}
-
-func (c *Remote) SubscribeSessionTranscript(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
-	handoff, installHandoff, err := c.prepareDraftHandoff(ctx, req.SessionID)
-	if err != nil {
-		return nil, err
-	}
-	subscriptionRemote := c
-	if handoff != nil {
-		subscriptionRemote = handoff.remote
-	}
-	conn, route, err := subscriptionRemote.subscribeRPC(ctx, protocol.MethodSessionSubscribeTranscript, "subscribe-session-transcript", req, req.SessionID, true)
-	if err != nil {
-		if installHandoff {
-			_ = handoff.remote.Close()
-		}
-		return nil, err
-	}
-	if installHandoff {
-		err = c.installDraftHandoff(handoff)
-	}
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.SessionTranscriptEventParams) (clientui.TranscriptMessage, error) {
-		if err := params.Message.Validate(); err != nil {
-			return clientui.TranscriptMessage{}, err
-		}
-		return params.Message, nil
-	}), nil
-}
-
-func (c *Remote) SubscribeGoalObservation(ctx context.Context, req serverapi.GoalObserveRequest) (serverapi.GoalObservationSubscription, error) {
-	conn, route, err := c.subscribeRPC(
-		ctx,
-		protocol.MethodGoalObserve,
-		"subscribe-goal-observation",
-		req,
-		req.SessionID,
-		true,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.GoalObservationEventParams) (clientui.GoalObservation, error) {
-		return params.Observation, params.Observation.Validate()
-	}), nil
-}
-
-func (c *Remote) SubscribeQuestionHistory(ctx context.Context, req serverapi.QuestionHistorySubscribeRequest) (serverapi.QuestionHistorySubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodSessionQuestionHistorySubscribe, "subscribe-question-history", req, req.SessionID, true)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.SessionQuestionHistoryEventParams) (serverapi.QuestionHistoryEvent, error) {
-		event := serverapi.QuestionHistoryEvent{
-			Kind:           serverapi.QuestionHistoryEventKind(params.Event.Kind),
-			LargeHistory:   params.Event.LargeHistory,
-			HistoryOmitted: params.Event.HistoryOmitted,
-		}
-		if params.Event.Question != nil {
-			event.Question = &serverapi.QuestionHistoryQuestion{
-				Question:             params.Event.Question.Question,
-				Answer:               params.Event.Question.Answer,
-				SelectedOptionNumber: params.Event.Question.SelectedOptionNumber,
-				Commentary:           params.Event.Question.Commentary,
-				At:                   params.Event.Question.At,
-			}
-		}
-		return event, event.Validate()
-	}), nil
-}
-
 func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error) {
 	conn, route, err := c.subscribeRPC(ctx, protocol.MethodWorkflowSubscribeProject, "subscribe-workflow-project", req, "", false)
 	if err != nil {
@@ -226,23 +72,10 @@ func (c *Remote) subscribeRPC(ctx context.Context, method string, requestID stri
 	route := mustRemoteRoute(method)
 	var additionalAttachmentIntent *remoteAttachmentIntent
 	if attachSession {
-		c.mu.Lock()
-		attachmentIntent := c.attachIntent
-		c.mu.Unlock()
-		attachedSessionID, attachedToSession := attachmentIntent.sessionID()
-		if attachedToSession && attachedSessionID != strings.TrimSpace(sessionID) {
-			return nil, rpccontract.Route{}, fmt.Errorf(
-				"remote is attached to session %q, cannot subscribe to session %q",
-				attachedSessionID,
-				strings.TrimSpace(sessionID),
-			)
-		}
-		if !attachedToSession {
-			intent, err := newRemoteSessionAttachmentIntent(sessionID)
-			if err != nil {
-				return nil, rpccontract.Route{}, err
-			}
-			additionalAttachmentIntent = intent
+		var err error
+		additionalAttachmentIntent, err = c.subscriptionAttachment(sessionID)
+		if err != nil {
+			return nil, rpccontract.Route{}, err
 		}
 	}
 	conn, cleanup, err := c.openRPCConnWithAdditionalAttachment(ctx, additionalAttachmentIntent)
@@ -255,6 +88,20 @@ func (c *Remote) subscribeRPC(ctx context.Context, method string, requestID stri
 		return nil, rpccontract.Route{}, err
 	}
 	return conn, route, nil
+}
+
+func (c *Remote) subscriptionAttachment(sessionID string) (*remoteAttachmentIntent, error) {
+	c.mu.Lock()
+	attachmentIntent := c.attachIntent
+	c.mu.Unlock()
+	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	if attachedToSession {
+		if attachedSessionID != strings.TrimSpace(sessionID) {
+			return nil, fmt.Errorf("remote is attached to session %q, cannot subscribe to session %q", attachedSessionID, strings.TrimSpace(sessionID))
+		}
+		return nil, nil
+	}
+	return newRemoteSessionAttachmentIntent(sessionID)
 }
 
 func newRemoteSubscription[Wire any, Event any](conn rpcwire.Conn, route rpccontract.Route, event func(Wire) Event) *remoteSubscription[Event] {

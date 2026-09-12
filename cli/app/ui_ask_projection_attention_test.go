@@ -2,12 +2,10 @@ package app
 
 import (
 	"context"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
-
-	"core/shared/clientui"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestAskVisibleActivationUsesCompletedProjectionNotificationPreview(t *testing.T) {
@@ -141,7 +139,7 @@ func TestAskVisibleActivationOwnsNotificationTiming(t *testing.T) {
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
 	model.promptAttention = newUnfocusedBellHooks(ringer)
 	prompt := testQuestionPrompt("ask-1", "Question?", "yes")
-	message := clientui.NewTranscriptMessage(0, clientui.NewTranscriptEvent(prompt))
+	message := transcriptTestMessage(0, prompt)
 
 	command := model.applyAdmittedTranscriptMessageState(message, runtimeTupleMergeResult{})
 	if ringer.total() != 0 {
@@ -199,7 +197,7 @@ func TestAskHydrationAdmissionEmitsNoAttentionBeforeProjection(t *testing.T) {
 	model.promptAttention = newUnfocusedBellHooks(ringer)
 	prompt := testQuestionPrompt("ask-1", "Hydrated question?", "yes")
 
-	command := model.reconcileTranscriptPrompts([]clientui.TranscriptPrompt{prompt})
+	command := model.reconcileTranscriptPrompts([]*transcriptpb.Prompt{prompt})
 	if command == nil {
 		t.Fatal("hydration did not return the initial projection command")
 	}

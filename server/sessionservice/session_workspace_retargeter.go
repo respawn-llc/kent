@@ -16,7 +16,6 @@ import (
 	sessionruntime "core/server/sessionruntime"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
-	"core/shared/clientui"
 	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -30,7 +29,7 @@ type sessionRetargetMetadata interface {
 	CommitSessionWorkspaceRetarget(context.Context, metadata.SessionWorkspaceRetargetPlan, time.Time) (metadata.SessionWorkspaceRetargetResult, error)
 	ResolveProjectWorkspaceBoundary(context.Context, string) (metadata.ProjectWorkspaceBoundary, error)
 	ProjectWorkspaceAttached(context.Context, string, string) (bool, error)
-	ResolveSessionExecutionTarget(context.Context, string) (clientui.SessionExecutionTarget, error)
+	ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 }
 
 type sessionIdentityPublisher interface {

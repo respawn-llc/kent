@@ -7,8 +7,7 @@ import (
 
 	"core/server/registry"
 	askquestion "core/server/tools"
-	"core/shared/clientui"
-	"core/shared/serverapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 )
 
 const promptViewStepID = "11111111-1111-4111-8111-111111111111"
@@ -28,19 +27,19 @@ func TestServiceListsPendingAsksBySession(t *testing.T) {
 		{Request: askquestion.AskQuestionRequest{ToolCallID: "approval-1", StepID: promptViewStepID, Question: "allow?", Approval: true}, CreatedAt: now.Add(time.Second)},
 	}})
 
-	resp, err := svc.ListPendingAsksBySession(context.Background(), serverapi.AskListPendingBySessionRequest{SessionID: "session-1"})
+	resp, err := svc.ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("ListPendingAsksBySession: %v", err)
 	}
-	if len(resp.Asks) != 1 {
+	if len(resp.Questions) != 1 {
 		t.Fatalf("expected one pending ask, got %+v", resp)
 	}
-	if resp.Asks[0].ToolCallID != clientui.ToolCallID("ask-1") ||
-		resp.Asks[0].SessionID.String() != "session-1" ||
-		resp.Asks[0].StepID.String() != promptViewStepID ||
-		resp.Asks[0].RecommendedOptionIndex == nil ||
-		*resp.Asks[0].RecommendedOptionIndex != 2 {
-		t.Fatalf("unexpected pending ask: %+v", resp.Asks[0])
+	if resp.Questions[0].ToolCallId != "ask-1" ||
+		resp.Questions[0].SessionId != "session-1" ||
+		resp.Questions[0].StepId != promptViewStepID ||
+		resp.Questions[0].RecommendedOptionIndex == nil ||
+		*resp.Questions[0].RecommendedOptionIndex != 2 {
+		t.Fatalf("unexpected pending ask: %+v", resp.Questions[0])
 	}
 }
 
@@ -51,7 +50,7 @@ func TestAskViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}})
-			if _, err := svc.ListPendingAsksBySession(context.Background(), serverapi.AskListPendingBySessionRequest{SessionID: "session-1"}); err == nil {
+			if _, err := svc.ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{SessionId: "session-1"}); err == nil {
 				t.Fatal("accepted malformed pending prompt identity")
 			}
 		})
@@ -60,6 +59,7 @@ func TestAskViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T) {
 
 func TestServiceEncodesAbsentPendingAskRecommendationAsNil(t *testing.T) {
 	svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{
+		CreatedAt: time.Now().UTC(),
 		Request: askquestion.AskQuestionRequest{
 			ToolCallID:  "ask-1",
 			StepID:      promptViewStepID,
@@ -70,13 +70,13 @@ func TestServiceEncodesAbsentPendingAskRecommendationAsNil(t *testing.T) {
 
 	resp, err := svc.ListPendingAsksBySession(
 		context.Background(),
-		serverapi.AskListPendingBySessionRequest{SessionID: "session-1"},
+		&promptpb.ListPendingRequest{SessionId: "session-1"},
 	)
 	if err != nil {
 		t.Fatalf("ListPendingAsksBySession: %v", err)
 	}
-	if len(resp.Asks) != 1 || resp.Asks[0].RecommendedOptionIndex != nil {
-		t.Fatalf("pending asks = %+v, want absent recommendation", resp.Asks)
+	if len(resp.Questions) != 1 || resp.Questions[0].RecommendedOptionIndex != nil {
+		t.Fatalf("pending asks = %+v, want absent recommendation", resp.Questions)
 	}
 }
 
@@ -93,14 +93,14 @@ func TestServiceRejectsInvalidPendingAskRecommendation(t *testing.T) {
 
 	if _, err := svc.ListPendingAsksBySession(
 		context.Background(),
-		serverapi.AskListPendingBySessionRequest{SessionID: "session-1"},
+		&promptpb.ListPendingRequest{SessionId: "session-1"},
 	); err == nil {
 		t.Fatal("accepted pending ask recommendation outside suggestions")
 	}
 }
 
 func TestAskViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewAskViewService(&stubAskPendingPromptSource{}).ListPendingAsksBySession(context.Background(), serverapi.AskListPendingBySessionRequest{}); err == nil {
+	if _, err := NewAskViewService(&stubAskPendingPromptSource{}).ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
 		t.Fatal("expected validation error")
 	}
 }

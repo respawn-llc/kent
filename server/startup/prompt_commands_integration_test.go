@@ -17,8 +17,9 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
-	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
@@ -113,11 +114,11 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		return err == nil
 	}, "DialRemoteURLForProjectWorkspace")
 	defer func() { _ = remote.Close() }()
-	catalog, err := remote.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	catalog, err := remote.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("GetPromptCommandCatalog: %v", err)
 	}
-	if !slices.ContainsFunc(catalog.Commands, func(command serverapi.PromptCommandCatalogEntry) bool {
+	if !slices.ContainsFunc(catalog.Commands, func(command *promptcommandpb.CatalogEntry) bool {
 		return command.Name == "prompt:remote_demo" && command.Preview == "server body $ARGUMENTS"
 	}) {
 		t.Fatalf("catalog = %+v", catalog.Commands)
@@ -163,14 +164,14 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := remote.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
-		SessionID: plan.Plan.SessionId,
-		Input:     runtimeinput.Command("prompt:remote_demo", "hello world"),
+	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+		SessionId: plan.Plan.SessionId,
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	}); err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
 	}
 	_, _ = remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  attachment.Attachment,
+		Attachment:  attachment,
 		DropOwner:   true,
 		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
 	})

@@ -16,8 +16,6 @@ import (
 	"core/server/chatcontext"
 	"core/server/metadata"
 	"core/shared/apicontract"
-	"core/shared/invariant"
-	"core/shared/jsoncontract"
 	"core/shared/llmerrors"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -25,7 +23,6 @@ import (
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/serverjsoncontract"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -41,12 +38,11 @@ var ErrGatewayDependenciesRequired = errors.New("gateway dependencies are requir
 const canceledByClientMessage = "request canceled by client"
 
 type Gateway struct {
-	deps                            GatewayDependencies
-	identity                        protocol.ServerIdentity
-	registration                    gatewayRegistration
-	sessionReattachMu               sync.Mutex
-	sessionReattach                 *sessionReattachAuthority
-	sessionExecutionRequestContract serverjsoncontract.SessionExecutionEnvironmentRequest
+	deps              GatewayDependencies
+	identity          protocol.ServerIdentity
+	registration      gatewayRegistration
+	sessionReattachMu sync.Mutex
+	sessionReattach   *sessionReattachAuthority
 }
 
 type GatewayDependencies interface {
@@ -143,12 +139,6 @@ type gatewayUnaryHandler func(g *Gateway, ctx context.Context, state *connection
 
 var gatewayUnaryHandlers = routeHandlersForKind(apicontract.KindUnary, gatewayUnaryHandlerEntries)
 
-var gatewayProgressHandlerEntries = map[string]gatewayProgressHandler{
-	protocol.MethodRunPrompt: (*Gateway).serveRunPrompt,
-}
-
-type gatewayProgressHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route apicontract.Route, req protocol.Request) bool
-
 type gatewayRequestScheduleKind uint8
 
 const (
@@ -159,9 +149,7 @@ const (
 )
 
 type gatewayRequestSchedule struct {
-	kind          gatewayRequestScheduleKind
-	progress      gatewayProgressHandler
-	progressRoute apicontract.Route
+	kind gatewayRequestScheduleKind
 }
 
 type gatewayEstablishedRequest struct {
@@ -169,8 +157,6 @@ type gatewayEstablishedRequest struct {
 	binary  *gatewayBinaryRequest
 	failure *sharedpb.TransportFailure
 }
-
-var gatewayProgressHandlers = routeHandlersForKind(apicontract.KindProgress, gatewayProgressHandlerEntries)
 
 type connectionState struct {
 	handshakeDone         bool
@@ -187,14 +173,9 @@ type connectionState struct {
 type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route apicontract.Route, req protocol.Request)
 
 var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
-	protocol.MethodSessionSubscribeTranscript:            (*Gateway).serveSessionTranscriptSubscription,
-	protocol.MethodGoalObserve:                           (*Gateway).serveGoalObservationSubscription,
-	protocol.MethodSessionQuestionHistorySubscribe:       (*Gateway).serveQuestionHistorySubscription,
-	protocol.MethodAttentionNotificationSubscribe:        (*Gateway).serveAttentionNotificationSubscription,
-	protocol.MethodAttentionSessionNotificationSubscribe: (*Gateway).serveSessionAttentionNotificationSubscription,
-	protocol.MethodPromptFollowUpWatch:                   (*Gateway).servePromptFollowUpSubscription,
-	protocol.MethodWorkflowSubscribe:                     (*Gateway).serveWorkflowSubscription,
-	protocol.MethodWorkflowSubscribeProject:              (*Gateway).serveWorkflowProjectSubscription,
+	protocol.MethodAttentionNotificationSubscribe: (*Gateway).serveAttentionNotificationSubscription,
+	protocol.MethodWorkflowSubscribe:              (*Gateway).serveWorkflowSubscription,
+	protocol.MethodWorkflowSubscribeProject:       (*Gateway).serveWorkflowProjectSubscription,
 }
 
 var gatewaySubscriptionHandlers = routeHandlersForKind(apicontract.KindSubscription, gatewaySubscriptionHandlerEntries)
@@ -214,17 +195,6 @@ func routeHandlersForKind[T any](kind apicontract.Kind, entries map[string]T) ma
 	return handlers
 }
 
-func gatewayProgressHandlerForRoute(route apicontract.Route) (gatewayProgressHandler, bool) {
-	if route.Kind != apicontract.KindProgress {
-		return nil, false
-	}
-	handler, ok := gatewayProgressHandlers[route.Method]
-	if !ok {
-		return nil, false
-	}
-	return handler, true
-}
-
 func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
 	if isNilGatewayDependencies(deps) {
 		return nil, ErrGatewayDependenciesRequired
@@ -239,20 +209,10 @@ func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Ga
 	if err := registration.Validate(); err != nil {
 		return nil, fmt.Errorf("validate Gateway registration: %w", err)
 	}
-	debugMode := invariant.NewPolicy().Mode() == invariant.ModePanic
-	if debugDeps, ok := deps.(interface{ DebugEnabled() bool }); ok {
-		debugMode = debugMode || debugDeps.DebugEnabled()
-	}
-	preparer := jsoncontract.NewPreparer(debugMode)
-	sessionExecutionRequestContract, err := serverjsoncontract.PrepareSessionExecutionEnvironmentRequest(preparer)
-	if err != nil {
-		return nil, err
-	}
 	return &Gateway{
-		deps:                            deps,
-		identity:                        identity,
-		registration:                    registration,
-		sessionExecutionRequestContract: sessionExecutionRequestContract,
+		deps:         deps,
+		identity:     identity,
+		registration: registration,
 	}, nil
 }
 
@@ -398,6 +358,10 @@ func (g *Gateway) gatewayRequestScheduleForEstablished(request gatewayEstablishe
 		request.binary.binding.operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION {
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleSubscription}
 	}
+	if request.binary != nil &&
+		request.binary.binding.operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_PROGRESS {
+		return gatewayRequestSchedule{kind: gatewayRequestScheduleProgress}
+	}
 	if request.binary == nil {
 		panic("established Gateway request is required")
 	}
@@ -417,17 +381,6 @@ func (g *Gateway) gatewayRequestScheduleFor(req protocol.Request) gatewayRequest
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleOrdinary}
 	}
 	switch operation.Options.Kind {
-	case sharedpb.OperationKind_OPERATION_KIND_PROGRESS:
-		route.Scope = routeScopePolicy(operation.Options.ScopePolicy)
-		handler, ok := gatewayProgressHandlerForRoute(route)
-		if !ok {
-			panic(fmt.Sprintf("legacy progress operation %q has no handler", operation.Name))
-		}
-		return gatewayRequestSchedule{
-			kind:          gatewayRequestScheduleProgress,
-			progress:      handler,
-			progressRoute: route,
-		}
 	case sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION:
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleSubscription}
 	case sharedpb.OperationKind_OPERATION_KIND_UNARY:
@@ -440,8 +393,6 @@ func (g *Gateway) gatewayRequestScheduleFor(req protocol.Request) gatewayRequest
 
 func (g *Gateway) serveGatewayRequest(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request, schedule gatewayRequestSchedule) bool {
 	switch schedule.kind {
-	case gatewayRequestScheduleProgress:
-		return schedule.progress(g, conn, ctx, state, schedule.progressRoute, req)
 	case gatewayRequestScheduleSubscription:
 		g.serveSubscription(conn, ctx, state, req)
 		return false

@@ -32,7 +32,6 @@ import {
   type DescriptorSubscriptionInput,
   type AttachedProjectCall,
   type AttachedProjectDescriptorCall,
-  type ChatSubscriptionInput,
   type JsonValue,
   type ProjectAttachment,
   type RpcCallOptions,
@@ -55,7 +54,7 @@ type FakeDescriptorRoute = Readonly<{
   descriptor: DescMethod;
   result?: Message;
   error?: Error;
-  resultFactory?: (request: Message, callIndex: number) => Message;
+  resultFactory?: (request: Message, callIndex: number) => Message | Promise<Message>;
 }>;
 
 type FakeDescriptorSubscriptionRoute = Readonly<{
@@ -204,8 +203,6 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
   readonly attachedSessionCalls: Readonly<{
     sessionID: string;
     method: string;
-    params: JsonValue;
-    options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly attachedProjectCalls: Readonly<{
     projectID: string;
@@ -222,7 +219,6 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly subscriptionStarts: Readonly<{ method: string; params: JsonValue }>[] = [];
-  readonly chatSubscriptionStarts: ChatSubscriptionInput[] = [];
   readonly descriptorSubscriptionStarts: Readonly<{
     descriptor: DescMethod;
     request: Message;
@@ -278,7 +274,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     }
     const callIndex = this.#callCounts.get(operation) ?? 0;
     this.#callCounts.set(operation, callIndex + 1);
-    const result = route.resultFactory?.(request, callIndex) ?? route.result;
+    const result = await (route.resultFactory?.(request, callIndex) ?? route.result);
     if (result === undefined) {
       throw new Error(`Missing fake descriptor result: ${operation}`);
     }
@@ -378,16 +374,14 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     };
   }
 
-  async callAttachedSession(
+  async callDescriptorAttachedSession<Method extends DescMethod>(
     sessionID: string,
-    method: string,
-    params: JsonValue,
+    method: Method,
+    request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<unknown> {
-    this.attachedSessionCalls.push(
-      options === undefined ? { sessionID, method, params } : { sessionID, method, params, options },
-    );
-    return this.#dispatch(method, params);
+  ): Promise<MessageShape<Method["output"]>> {
+    this.attachedSessionCalls.push({ sessionID, method: operationName(method) });
+    return this.callDescriptor(method, request, options);
   }
 
   #projectAttachment(
@@ -443,11 +437,6 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     });
   }
 
-  subscribeChatSession(input: ChatSubscriptionInput): RpcSubscription {
-    this.chatSubscriptionStarts.push(input);
-    return this.subscribe(input.method, input.params, input.handler);
-  }
-
   #dispatch(method: string, params: JsonValue): unknown {
     const route = this.#routes.get(method);
     if (route === undefined) {
@@ -488,9 +477,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
         subscriber.handler.onEvent(method, params);
       } catch (cause) {
         const error = cause instanceof Error ? cause : new Error("Subscription event failed.");
-        if (!subscriber.handler.onEventFailure?.(error)) {
-          subscriber.handler.onError(error);
-        }
+        subscriber.handler.onError(error);
       }
     }
   }

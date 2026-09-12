@@ -9,7 +9,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/toolspec"
 )
 
@@ -22,20 +23,20 @@ type ChatSettingsProjectionInput struct {
 	Locked         *session.LockedContract
 }
 
-func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.CompactionMode) (serverapi.NewChatCatalog, error) {
+func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.CompactionMode) (*chatsettingspb.NewChatCatalog, error) {
 	entries := catalog.Entries()
 	choices := catalog.Choices()
-	result := serverapi.NewChatCatalog{Choices: make([]serverapi.NewChatAgentChoice, 0, len(entries))}
+	result := &chatsettingspb.NewChatCatalog{Choices: make([]*chatsettingspb.NewChatAgentChoice, 0, len(entries))}
 	for _, entry := range entries {
 		settings, err := projectSelectedChatSettings(ChatSettingsProjectionInput{
 			Agent: entry.Choice.Role, Settings: entry.Settings.Baseline, CompactionMode: mode,
 		}, entry, choices)
 		if err != nil {
-			return serverapi.NewChatCatalog{}, err
+			return nil, err
 		}
-		baseline := serverapi.InitialChatSettings{
+		baseline := &chatsettingspb.InitialChatSettings{
 			AgentRole: entry.Choice.Role, Supervisor: settings.Supervisor.Value,
-			QuestionsEnabled: settings.Questions.Enabled, AutoCompactionEnabled: settings.AutoCompaction.Stored,
+			QuestionsEnabled: &settings.Questions.Enabled, AutoCompactionEnabled: &settings.AutoCompaction.Stored,
 		}
 		if settings.Thinking != nil {
 			baseline.Thinking = &settings.Thinking.Value
@@ -43,7 +44,7 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 		if settings.Fast != nil {
 			baseline.Fast = &settings.Fast.Value
 		}
-		result.Choices = append(result.Choices, serverapi.NewChatAgentChoice{
+		result.Choices = append(result.Choices, &chatsettingspb.NewChatAgentChoice{
 			Agent: entry.Choice, Baseline: baseline, Supervisor: settings.Supervisor,
 			Thinking: settings.Thinking, Fast: settings.Fast, Questions: settings.Questions, AutoCompaction: settings.AutoCompaction,
 		})
@@ -51,13 +52,13 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 			result.InitialSettings = baseline
 		}
 	}
-	if err := result.InitialSettings.Validate(); err != nil {
-		return serverapi.NewChatCatalog{}, err
+	if err := protoapi.Validate(result); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
-func ProjectChatSettings(input ChatSettingsProjectionInput) (serverapi.ChatSettings, error) {
+func ProjectChatSettings(input ChatSettingsProjectionInput) (*chatsettingspb.Settings, error) {
 	cachingLocked := input.Locked != nil
 	defaultEntry, _ := input.Catalog.Lookup(config.DefaultSubagentRole)
 	selected, ok := input.Catalog.Lookup(input.Agent)
@@ -76,8 +77,8 @@ func ProjectChatSettings(input ChatSettingsProjectionInput) (serverapi.ChatSetti
 func projectSelectedChatSettings(
 	input ChatSettingsProjectionInput,
 	selected launch.PreparedChatAgentCatalogEntry,
-	choices []serverapi.ChatSettingsAgentChoice,
-) (serverapi.ChatSettings, error) {
+	choices []*chatsettingspb.AgentChoice,
+) (*chatsettingspb.Settings, error) {
 	cachingLocked := input.Locked != nil
 	effective := input.Settings
 	selectedRole := selected.Choice.Role
@@ -86,7 +87,7 @@ func projectSelectedChatSettings(
 	if cachingLocked {
 		normalizedAgent, ok := session.NormalizeChatAgent(input.Agent)
 		if !ok {
-			return serverapi.ChatSettings{}, errors.New("caching-locked Chat Agent is invalid")
+			return nil, errors.New("caching-locked Chat Agent is invalid")
 		}
 		selectedRole = normalizedAgent
 		selectedModel = input.Locked.Model
@@ -96,24 +97,32 @@ func projectSelectedChatSettings(
 			effective,
 		)
 		if err != nil {
-			return serverapi.ChatSettings{}, err
+			return nil, err
 		}
 		selectedSettings = lockedSettings
 	}
 	effective = normalizeProjectedChatSettings(effective, selectedSettings)
+	supervisor, err := protoapi.ChatSettingsSupervisorToProto(effective.Supervisor)
+	if err != nil {
+		return nil, err
+	}
+	supervisorBaseline, err := protoapi.ChatSettingsSupervisorToProto(selectedSettings.Baseline.Supervisor)
+	if err != nil {
+		return nil, err
+	}
 
-	agentEditability := serverapi.ChatSettingsEditable
+	agentEditability := chatsettingspb.Editability_EDITABILITY_EDITABLE
 	if input.WorkflowLocked {
-		agentEditability = serverapi.ChatSettingsWorkflowLock
+		agentEditability = chatsettingspb.Editability_EDITABILITY_WORKFLOW_LOCK
 	} else if cachingLocked {
-		agentEditability = serverapi.ChatSettingsCachingLock
+		agentEditability = chatsettingspb.Editability_EDITABILITY_CACHING_LOCK
 	}
 	thinking := projectChatThinking(effective.Thinking, selectedSettings)
-	var fast *serverapi.ChatSettingsFast
+	var fast *chatsettingspb.Fast
 	if selectedSettings.FastAvailable {
-		fast = &serverapi.ChatSettingsFast{
+		fast = &chatsettingspb.Fast{
 			Value:       effective.Fast,
-			Editability: serverapi.ChatSettingsEditable,
+			Editability: chatsettingspb.Editability_EDITABILITY_EDITABLE,
 		}
 	}
 	autoCompaction := projectChatAutoCompaction(
@@ -121,25 +130,25 @@ func projectSelectedChatSettings(
 		effective.AutoCompaction,
 		input.WorkflowLocked,
 	)
-	return serverapi.ChatSettings{
-		SelectedAgent: serverapi.ChatSettingsAgentSummary{
+	return &chatsettingspb.Settings{
+		SelectedAgent: &chatsettingspb.AgentSummary{
 			Role:     selectedRole,
 			Model:    selectedModel,
 			Thinking: effective.Thinking,
 		},
 		AgentChoices:     choices,
 		AgentEditability: agentEditability,
-		Supervisor: serverapi.ChatSettingsSupervisor{
-			Value:       serverapi.ChatSettingsSupervisorValue(effective.Supervisor),
-			Baseline:    serverapi.ChatSettingsSupervisorValue(selectedSettings.Baseline.Supervisor),
-			Editability: serverapi.ChatSettingsEditable,
+		Supervisor: &chatsettingspb.Supervisor{
+			Value:       supervisor,
+			Baseline:    supervisorBaseline,
+			Editability: chatsettingspb.Editability_EDITABILITY_EDITABLE,
 		},
 		Thinking: thinking,
 		Fast:     fast,
-		Questions: serverapi.ChatSettingsQuestions{
+		Questions: &chatsettingspb.Questions{
 			Capable:     selectedSettings.QuestionsAvailable,
 			Enabled:     effective.Questions,
-			Editability: serverapi.ChatSettingsEditable,
+			Editability: chatsettingspb.Editability_EDITABILITY_EDITABLE,
 		},
 		AutoCompaction: autoCompaction,
 		AgentLocked:    input.WorkflowLocked || cachingLocked,
@@ -194,23 +203,23 @@ func normalizeProjectedChatSettings(
 func projectChatThinking(
 	current string,
 	prepared launch.PreparedChatSettings,
-) *serverapi.ChatSettingsThinking {
+) *chatsettingspb.Thinking {
 	if len(prepared.SupportedThinkingValues) == 0 {
 		return nil
 	}
-	kind := serverapi.ChatSettingsThinkingEnumerated
+	kind := chatsettingspb.ThinkingKind_THINKING_KIND_ENUMERATED
 	values := append([]string(nil), prepared.SupportedThinkingValues...)
 	if !slices.Contains(values, current) ||
 		!slices.Contains(values, prepared.Baseline.Thinking) {
-		kind = serverapi.ChatSettingsThinkingCustom
+		kind = chatsettingspb.ThinkingKind_THINKING_KIND_CUSTOM
 		values = nil
 	}
-	return &serverapi.ChatSettingsThinking{
+	return &chatsettingspb.Thinking{
 		Kind:          kind,
 		Value:         current,
 		BaselineValue: prepared.Baseline.Thinking,
 		Values:        values,
-		Editability:   serverapi.ChatSettingsEditable,
+		Editability:   chatsettingspb.Editability_EDITABILITY_EDITABLE,
 	}
 }
 
@@ -218,23 +227,23 @@ func projectChatAutoCompaction(
 	mode config.CompactionMode,
 	stored bool,
 	workflowLocked bool,
-) serverapi.ChatSettingsAutoCompaction {
-	policy := serverapi.ChatSettingsAutoCompactionOptional
+) *chatsettingspb.AutoCompaction {
+	policy := chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_OPTIONAL
 	if mode == config.CompactionModeNone {
-		policy = serverapi.ChatSettingsAutoCompactionDisabled
+		policy = chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED
 	} else if workflowLocked {
-		policy = serverapi.ChatSettingsAutoCompactionRequired
+		policy = chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_REQUIRED
 	}
-	projected := serverapi.ChatSettingsAutoCompaction{Policy: policy, Stored: stored}
+	projected := &chatsettingspb.AutoCompaction{Policy: policy, Stored: stored}
 	switch {
 	case mode == config.CompactionModeNone:
-		projected.Editability = serverapi.ChatSettingsPolicyDisabled
+		projected.Editability = chatsettingspb.Editability_EDITABILITY_POLICY_DISABLED
 	case workflowLocked:
 		projected.Effective = true
-		projected.Editability = serverapi.ChatSettingsWorkflowLock
+		projected.Editability = chatsettingspb.Editability_EDITABILITY_WORKFLOW_LOCK
 	default:
 		projected.Effective = stored
-		projected.Editability = serverapi.ChatSettingsEditable
+		projected.Editability = chatsettingspb.Editability_EDITABILITY_EDITABLE
 	}
 	return projected
 }

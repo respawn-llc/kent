@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"core/server/metadata"
-	"core/shared/clientui"
 	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/textutil"
 	"core/shared/worktreecontract"
 
 	"google.golang.org/protobuf/proto"
@@ -98,11 +98,11 @@ func TestLinkedMainWorkspaceKeepsGitMainDeletionBlockedAndSwitchable(t *testing.
 		topology[2].GetRegistered() == nil {
 		t.Fatalf("topology = %+v, want main_workspace, external, registered", topology)
 	}
-	target := clientui.SessionExecutionTarget{
-		WorkspaceID:   "workspace",
+	target := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:   textutil.Value("workspace"),
 		WorkspaceRoot: workspaceRoot,
 	}
-	list, err := projectWorktreeList(topology, &target)
+	list, err := projectWorktreeList(topology, target)
 	if err != nil {
 		t.Fatalf("projectWorktreeList: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestLinkedMainWorkspaceKeepsGitMainDeletionBlockedAndSwitchable(t *testing.
 		t.Fatalf("Git main deletion = %v, want blocked", err)
 	}
 	if err := protoapi.Validate(&worktreepb.ListSuccess{
-		Target:    &worktreepb.SessionExecutionTarget{WorkspaceId: "workspace", WorkspaceName: "Workspace", WorkspaceRoot: workspaceRoot, WorkspaceAvailability: 1, CwdRelpath: ".", EffectiveWorkdir: workspaceRoot},
+		Target:    &worktreepb.SessionExecutionTarget{WorkspaceId: textutil.Value("workspace"), WorkspaceName: "Workspace", WorkspaceRoot: workspaceRoot, WorkspaceAvailability: 1, CwdRelpath: ".", EffectiveWorkdir: workspaceRoot},
 		Worktrees: list,
 	}); err != nil {
 		t.Fatalf("linked Main Workspace list validation: %v", err)
@@ -223,7 +223,7 @@ func TestLinkedMainWorkspaceDeletionBoundariesBlockGitMainWithoutMutation(t *tes
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget after delete: %v", err)
 	}
-	if !reflect.DeepEqual(afterTarget, beforeTarget) {
+	if !proto.Equal(afterTarget, beforeTarget) {
 		t.Fatalf("Session target changed: before=%+v after=%+v", beforeTarget, afterTarget)
 	}
 	afterRecords, err := env.store.ListWorktreeRecordsByWorkspaceID(env.ctx, env.binding.WorkspaceID)
@@ -458,7 +458,7 @@ func TestPreviewWorktreeDeleteLeavesTopologyAndSubsequentOperationsUnchanged(t *
 	if err != nil {
 		t.Fatalf("ListWorktrees after preview: %v", err)
 	}
-	if !reflect.DeepEqual(after, before) {
+	if !proto.Equal(after, before) {
 		t.Fatalf("worktree list changed after read-only preview:\nbefore=%+v\nafter=%+v", before, after)
 	}
 	if _, err := env.service.ResolveWorktreeSelector(env.ctx, &worktreepb.SelectorResolveRequest{
@@ -655,12 +655,12 @@ func TestProjectWorktreeListProjectsSessionActionsAndExternalFallbackFromLoadedF
 		external("/worktrees/unavailable", nil, false, false),
 	}
 
-	registeredTarget := clientui.SessionExecutionTarget{
-		WorkspaceID:   "workspace",
+	registeredTarget := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:   textutil.Value("workspace"),
 		WorkspaceRoot: "/repo",
-		Worktree:      &clientui.SessionExecutionWorktreeTarget{ID: "registered-id", Root: "/worktrees/registered"},
+		Worktree:      &worktreepb.SessionExecutionWorktreeTarget{Id: "registered-id", Root: "/worktrees/registered"},
 	}
-	currentRegistered, err := projectWorktreeList(entries, &registeredTarget)
+	currentRegistered, err := projectWorktreeList(entries, registeredTarget)
 	if err != nil {
 		t.Fatalf("project current registered: %v", err)
 	}

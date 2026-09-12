@@ -6,118 +6,131 @@ import (
 
 	"core/cli/tui"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
+	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func (m *uiModel) applyAdmittedTranscriptMessageState(
-	message clientui.TranscriptMessage,
+	message *transcriptpb.Message,
 	admission runtimeTupleMergeResult,
 ) tea.Cmd {
 	if m == nil {
 		return nil
 	}
 	if m.turnQueueHook != nil {
-		if message.Kind() == clientui.TranscriptMessageHydration {
+		if message.Event.GetHydration() != nil {
 			m.turnQueueHook.OnTurnQueueAborted()
 		} else {
 			m.turnQueueHook.OnTranscriptMessage(message)
 		}
 	}
-	switch message.Kind() {
-	case clientui.TranscriptMessageHydration:
-		return m.applyTranscriptHydration(message.Payload().(clientui.TranscriptHydration), admission)
-	case clientui.TranscriptMessageThinkingStatusUpdate:
-		m.applyTranscriptThinkingStatusUpdate(message.Payload().(clientui.TranscriptThinkingStatusUpdate))
-	case clientui.TranscriptMessageReasoningTraceReset:
+	switch message.Event.Payload.(type) {
+	case *transcriptpb.Event_Hydration:
+		return m.applyTranscriptHydration(message.Event.GetHydration(), admission)
+	case *transcriptpb.Event_ThinkingStatusUpdate:
+		m.applyTranscriptThinkingStatusUpdate(message.Event.GetThinkingStatusUpdate())
+	case *transcriptpb.Event_ReasoningTraceReset:
 		// A reset replaces the live reasoning body. The typed status remains
 		// current until another status arrives or the owning step finishes.
-	case clientui.TranscriptMessageUserMessageFlushed:
-		return m.applyTranscriptUserMessageFlushed(message.Payload().(clientui.TranscriptUserMessageFlushed))
-	case clientui.TranscriptMessageQueuedMessageState:
-		return m.applyTranscriptQueuedMessageState(message.Payload().(clientui.TranscriptQueuedMessageState))
-	case clientui.TranscriptMessagePendingWorkChanged:
+	case *transcriptpb.Event_UserMessageFlushed:
+		return m.applyTranscriptUserMessageFlushed(message.Event.GetUserMessageFlushed())
+	case *transcriptpb.Event_QueuedMessageState:
+		return m.applyTranscriptQueuedMessageState(message.Event.GetQueuedMessageState())
+	case *transcriptpb.Event_PendingWorkChanged:
 		return m.requestPendingWorkRefresh(m.pendingWorkRefresh.sessionID)
-	case clientui.TranscriptMessagePendingWorkRestored:
-		restoration := message.Payload().(clientui.TranscriptPendingWorkRestored).Restoration
+	case *transcriptpb.Event_PendingWorkRestored:
+		restoration := message.Event.GetPendingWorkRestored().Restoration
 		m.inputController().restoreServerOrderedTextBeforeComposer(restoration.CanonicalInput)
-	case clientui.TranscriptMessageSessionSettingFeedback:
-		return m.applySessionSettingFeedback(message.Payload().(clientui.TranscriptSessionSettingFeedback))
-	case clientui.TranscriptMessageHumanInputInterrupted:
-		return m.applyTranscriptHumanInputInterrupted(message.Payload().(clientui.TranscriptHumanInputInterrupted))
-	case clientui.TranscriptMessageStepState:
-		m.applyTranscriptStepState(message.Payload().(clientui.TranscriptStepState))
-	case clientui.TranscriptMessageRuntimeReadModelUpdate:
+	case *transcriptpb.Event_SessionSettingFeedback:
+		return m.applySessionSettingFeedback(message.Event.GetSessionSettingFeedback())
+	case *transcriptpb.Event_HumanInputInterrupted:
+		return m.applyTranscriptHumanInputInterrupted(message.Event.GetHumanInputInterrupted())
+	case *transcriptpb.Event_StepState:
+		m.applyTranscriptStepState(message.Event.GetStepState())
+	case *transcriptpb.Event_RuntimeReadModelUpdate:
 		cmd := m.applyTranscriptRuntimeReadModelUpdate(admission)
-		return sequenceCmds(cmd, m.missingPromptRehydrationCmd(admission.view.Session.SessionID))
-	case clientui.TranscriptMessageSessionStatus:
-		m.applyTranscriptSessionStatus(message.Payload().(clientui.TranscriptSessionStatus))
-	case clientui.TranscriptMessageSessionIdentity:
-		return m.applyTranscriptSessionIdentity(message.Payload().(clientui.TranscriptSessionIdentity))
-	case clientui.TranscriptMessageCompactionStatus:
+		return sequenceCmds(cmd, m.missingPromptRehydrationCmd(admission.view.Session.SessionId))
+	case *transcriptpb.Event_SessionStatus:
+		m.applyTranscriptSessionStatus(message.Event.GetSessionStatus())
+	case *transcriptpb.Event_SessionIdentity:
+		return m.applyTranscriptSessionIdentity(message.Event.GetSessionIdentity())
+	case *transcriptpb.Event_CompactionStatus:
 		// RuntimeActivity is the authoritative compaction lifecycle. This event
 		// carries lifecycle notification facts, not live-session state.
-		status := message.Payload().(clientui.TranscriptCompactionStatus)
-		if status.Mode == clientui.CompactionModeManual && status.RequestID != nil {
+		status := message.Event.GetCompactionStatus()
+		if status.Mode == transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL && status.RequestId != nil {
+			requestID, err := runtimeids.ParseCompactionRequestID(*status.RequestId)
+			if err != nil {
+				panic(err)
+			}
 			switch status.State {
-			case clientui.CompactionCompleted:
-				if m.clearPendingCompactionRequest(*status.RequestID) && m.turnQueueHook != nil {
+			case transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED:
+				if m.clearPendingCompactionRequest(requestID) && m.turnQueueHook != nil {
 					m.turnQueueHook.OnUserCompactionCompleted(m.inputController().turnQueueDrained())
 				}
-			case clientui.CompactionFailed:
-				m.clearPendingCompactionRequest(*status.RequestID)
+			case transcriptpb.CompactionState_COMPACTION_STATE_FAILED:
+				m.clearPendingCompactionRequest(requestID)
 			}
 		}
-	case clientui.TranscriptMessageContextUsage:
-		m.applyTranscriptContextUsage(message.Payload().(clientui.TranscriptContextUsage))
-	case clientui.TranscriptMessageGoalStatus:
+	case *transcriptpb.Event_ContextUsage:
+		m.applyTranscriptContextUsage(message.Event.GetContextUsage())
+	case *transcriptpb.Event_GoalStatus:
 		// The runtime-client main-view cache is the goal read model used by the
 		// status line and goal flow.
-	case clientui.TranscriptMessageBackgroundActivity:
-		m.applyTranscriptBackgroundActivity(message.Payload().(clientui.TranscriptBackgroundActivity))
+	case *transcriptpb.Event_BackgroundActivity:
+		m.applyTranscriptBackgroundActivity(message.Event.GetBackgroundActivity())
 		if m.processList.open {
 			return m.requestProcessListRefresh()
 		}
-	case clientui.TranscriptMessagePrompt:
-		prompt := message.Payload().(clientui.TranscriptPrompt)
-		if prompt.Status == clientui.TranscriptPromptStatusResolved {
-			return m.askController().resolvePrompt(string(prompt.ToolCallID))
+	case *transcriptpb.Event_Prompt:
+		prompt := message.Event.GetPrompt()
+		if prompt.Status == transcriptpb.PromptStatus_PROMPT_STATUS_RESOLVED {
+			return m.askController().resolvePrompt(string(transcriptPromptToolCallID(prompt)))
 		}
 		cmd := m.askController().acceptEvent(m.transcriptPromptEvent(prompt))
 		m.reconcileMissingPromptRecoveryScope()
 		return cmd
-	case clientui.TranscriptMessageWorktreeTransitionOutcome:
-		return m.reconcileTranscriptWorktreeTransitionOutcome(message.Payload().(clientui.TranscriptWorktreeTransitionOutcome))
-	case clientui.TranscriptMessageOperationalDiagnostic:
-		return m.applyTranscriptOperationalDiagnostic(message.Payload().(clientui.TranscriptOperationalDiagnostic))
+	case *transcriptpb.Event_WorktreeTransitionOutcome:
+		return m.reconcileTranscriptWorktreeTransitionOutcome(message.Event.GetWorktreeTransitionOutcome())
+	case *transcriptpb.Event_OperationalDiagnostic:
+		return m.applyTranscriptOperationalDiagnostic(message.Event.GetOperationalDiagnostic())
 	}
 	return nil
 }
 
 func (m *uiModel) applyTranscriptHydration(
-	hydration clientui.TranscriptHydration,
+	hydration *transcriptpb.Hydration,
 	admission runtimeTupleMergeResult,
 ) tea.Cmd {
 	var cmds []tea.Cmd
-	cmds = append(cmds, m.advancePendingWorkRefreshScope(hydration.SessionIdentity.SessionID))
+	sessionID, err := runtimeids.ParseSessionID(hydration.SessionIdentity.SessionId)
+	if err != nil {
+		panic(err)
+	}
+	cmds = append(cmds, m.advancePendingWorkRefreshScope(sessionID))
 	cmds = append(cmds, m.applyTranscriptSessionIdentity(hydration.SessionIdentity))
 	m.applyTranscriptSessionStatus(hydration.SessionStatus)
 	cmds = append(cmds, m.applyTranscriptRuntimeReadModelUpdate(admission))
 
 	m.reasoningStatusHeader = ""
 	if hydration.ActiveThinkingStatus != nil {
-		m.applyTranscriptThinkingStatusUpdate(*hydration.ActiveThinkingStatus)
+		m.applyTranscriptThinkingStatusUpdate(hydration.ActiveThinkingStatus)
 	}
 	if hydration.ActiveStep != nil {
-		m.applyTranscriptStepState(*hydration.ActiveStep)
+		m.applyTranscriptStepState(hydration.ActiveStep)
 	}
 
 	cmds = append(cmds, m.reconcileTranscriptPrompts(hydration.PendingPrompts))
-	cmds = append(cmds, m.missingPromptRehydrationCmd(hydration.SessionIdentity.SessionID.String()))
+	cmds = append(cmds, m.missingPromptRehydrationCmd(hydration.SessionIdentity.SessionId))
 	currentSessionID := strings.TrimSpace(m.sessionID)
 	preserved := m.processList.entries[:0]
 	for _, entry := range m.processList.entries {
-		if strings.TrimSpace(entry.OwnerSessionID) != currentSessionID {
+		if strings.TrimSpace(entry.OwnerSessionId) != currentSessionID {
 			preserved = append(preserved, entry)
 		}
 	}
@@ -127,9 +140,9 @@ func (m *uiModel) applyTranscriptHydration(
 		m.applyTranscriptBackgroundActivity(background)
 	}
 	if hydration.ContextUsage == nil {
-		m.setRuntimeContextUsage("", clientui.RuntimeContextUsage{})
+		m.setRuntimeContextUsage("", &runtimepb.ContextUsage{})
 	} else {
-		m.applyTranscriptContextUsage(*hydration.ContextUsage)
+		m.applyTranscriptContextUsage(hydration.ContextUsage)
 	}
 	if m.processList.open {
 		cmds = append(cmds, m.requestProcessListRefresh())
@@ -162,16 +175,25 @@ func (m *uiModel) reconcileMissingPromptRecoveryScope() {
 func (m *uiModel) missingPromptRecoveryScopeFor(sessionID string) (missingPromptRecoveryScope, bool) {
 	if m == nil ||
 		sessionID == "" ||
-		m.runtimeActivityProjection.State != clientui.RuntimeActivityAwaitingPrompt ||
+		m.runtimeActivityProjection == nil ||
+		m.runtimeActivityProjection.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT ||
 		m.runtimeActivityProjection.ActiveStep == nil ||
 		m.ask.hasCurrent() {
 		return missingPromptRecoveryScope{}, false
 	}
 	activeStep := m.runtimeActivityProjection.ActiveStep
+	runID, err := runtimeids.ParseRunID(activeStep.RunId)
+	if err != nil {
+		panic(err)
+	}
+	stepID, err := runtimeids.ParseStepID(activeStep.StepId)
+	if err != nil {
+		panic(err)
+	}
 	return missingPromptRecoveryScope{
 		sessionID: sessionID,
-		runID:     activeStep.RunID,
-		stepID:    activeStep.StepID,
+		runID:     runID,
+		stepID:    stepID,
 	}, true
 }
 
@@ -205,7 +227,7 @@ func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMe
 			"",
 		)
 	}
-	if view.Activity.ActiveForControl() {
+	if protoapi.RuntimeActivityActiveForControl(view.Activity) {
 		return nil
 	}
 	var cmd tea.Cmd
@@ -215,18 +237,18 @@ func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMe
 	return tea.Batch(cmd, m.releaseDeferredRuntimeSyncs())
 }
 
-func (m *uiModel) applyTranscriptStepState(state clientui.TranscriptStepState) {
-	if state.Lifecycle == clientui.StepLifecycleStarted {
+func (m *uiModel) applyTranscriptStepState(state *transcriptpb.StepState) {
+	if state.Lifecycle == transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED {
 		return
 	}
 	m.reasoningStatusHeader = ""
 }
 
-func (m *uiModel) applyTranscriptThinkingStatusUpdate(update clientui.TranscriptThinkingStatusUpdate) {
+func (m *uiModel) applyTranscriptThinkingStatusUpdate(update *transcriptpb.ThinkingStatusUpdate) {
 	m.reasoningStatusHeader = strings.TrimSpace(update.Text)
 }
 
-func (m *uiModel) applyTranscriptSessionStatus(status clientui.TranscriptSessionStatus) {
+func (m *uiModel) applyTranscriptSessionStatus(status *transcriptpb.SessionStatus) {
 	m.reviewerMode = status.ReviewerFrequency
 	m.reviewerEnabled = status.ReviewerEnabled
 	m.autoCompactionEnabled = status.AutoCompactionEnabled
@@ -236,14 +258,14 @@ func (m *uiModel) applyTranscriptSessionStatus(status clientui.TranscriptSession
 	m.thinkingLevel = status.ThinkingLevel
 }
 
-func (m *uiModel) applyTranscriptSessionIdentity(identity clientui.TranscriptSessionIdentity) tea.Cmd {
+func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionIdentity) tea.Cmd {
 	previousSessionID := strings.TrimSpace(m.sessionID)
-	nextSessionID := identity.SessionID.String()
+	nextSessionID := identity.SessionId
 	previousTarget := m.sessionExecutionTarget
 	m.sessionExecutionTarget = nil
 	if identity.ExecutionTarget != nil {
-		normalized := clientui.NormalizeSessionExecutionTarget(*identity.ExecutionTarget)
-		m.sessionExecutionTarget = &normalized
+		normalized := clientui.NormalizeSessionExecutionTarget(identity.ExecutionTarget)
+		m.sessionExecutionTarget = normalized
 	}
 	m.sessionID = nextSessionID
 	m.reconcileMissingPromptRecoveryScope()
@@ -254,7 +276,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity clientui.TranscriptSes
 	m.conversationFreshness = identity.ConversationFreshness
 	titleCmd := tea.SetWindowTitle(sessionTitle(m.sessionName))
 	if previousTarget != nil && m.sessionExecutionTarget != nil &&
-		(previousTarget.WorkspaceID != m.sessionExecutionTarget.WorkspaceID ||
+		(!textutil.EqualOptional(previousTarget.WorkspaceId, m.sessionExecutionTarget.WorkspaceId) ||
 			previousTarget.WorkspaceRoot != m.sessionExecutionTarget.WorkspaceRoot) {
 		m.sessionRetargeted = true
 		m.nextSessionID = nextSessionID
@@ -278,33 +300,33 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity clientui.TranscriptSes
 	)
 }
 
-func (m *uiModel) applyTranscriptContextUsage(usage clientui.TranscriptContextUsage) {
-	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), runtimeContextUsageFromTranscript(usage))
+func (m *uiModel) applyTranscriptContextUsage(usage *runtimepb.ContextUsage) {
+	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), usage)
 }
 
-func (m *uiModel) applyTranscriptUserMessageFlushed(flushed clientui.TranscriptUserMessageFlushed) tea.Cmd {
-	m.conversationFreshness = clientui.ConversationFreshnessEstablished
+func (m *uiModel) applyTranscriptUserMessageFlushed(flushed *transcriptpb.UserMessageFlushed) tea.Cmd {
+	m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	m.localConversationTurn = true
 	return nil
 }
 
-func (m *uiModel) applyTranscriptQueuedMessageState(state clientui.TranscriptQueuedMessageState) tea.Cmd {
-	if state.Status == clientui.QueuedUserMessageAccepted {
+func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMessageState) tea.Cmd {
+	if state.Status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED {
 		m.registerSteeredQueuedUserMessage(clientui.QueuedUserMessage{
-			ID:   state.QueueItemID.String(),
+			ID:   state.QueueItemId,
 			Text: dereferenceTranscriptText(state.Text),
 		})
 		return nil
 	}
-	ids := []string{state.QueueItemID.String()}
-	index := m.injectedQueueIndexByAnyID(state.QueueItemID.String())
+	ids := []string{state.QueueItemId}
+	index := m.injectedQueueIndexByAnyID(state.QueueItemId)
 	if index < 0 {
 		m.retainUnownedQueuedTerminalState(state)
 		return nil
 	}
 	localText := m.injectedQueue[index].Text
 	m.removeInjectedQueueItemsByIDs(ids)
-	if state.Status != clientui.QueuedUserMessageFailed {
+	if state.Status != transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED {
 		return nil
 	}
 	m.inputController().restoreInjectedTextIntoInput(localText)
@@ -317,15 +339,15 @@ func (m *uiModel) applyTranscriptQueuedMessageState(state clientui.TranscriptQue
 	)
 }
 
-func (m *uiModel) applyTranscriptHumanInputInterrupted(event clientui.TranscriptHumanInputInterrupted) tea.Cmd {
+func (m *uiModel) applyTranscriptHumanInputInterrupted(event *transcriptpb.HumanInputInterrupted) tea.Cmd {
 	ids := make([]string, 0, len(event.Items))
 	texts := make([]string, 0, len(event.Items))
 	for _, item := range event.Items {
-		id := item.QueueItemID.String()
+		id := item.QueueItemId
 		if m.injectedQueueIndexByAnyID(id) < 0 {
-			m.retainUnownedQueuedTerminalState(clientui.TranscriptQueuedMessageState{
-				QueueItemID: item.QueueItemID,
-				Status:      clientui.QueuedUserMessageDiscarded,
+			m.retainUnownedQueuedTerminalState(&transcriptpb.QueuedMessageState{
+				QueueItemId: item.QueueItemId,
+				Status:      transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED,
 			})
 		} else {
 			ids = append(ids, id)
@@ -354,7 +376,7 @@ func dereferenceTranscriptText(text *string) string {
 	return *text
 }
 
-func (m *uiModel) transcriptPromptEvent(prompt clientui.TranscriptPrompt) askEvent {
+func (m *uiModel) transcriptPromptEvent(prompt *transcriptpb.Prompt) askEvent {
 	if m.promptAnswers != nil {
 		return m.promptAnswers.event(prompt)
 	}
@@ -363,11 +385,11 @@ func (m *uiModel) transcriptPromptEvent(prompt clientui.TranscriptPrompt) askEve
 	}
 }
 
-func (m *uiModel) reconcileTranscriptPrompts(prompts []clientui.TranscriptPrompt) tea.Cmd {
+func (m *uiModel) reconcileTranscriptPrompts(prompts []*transcriptpb.Prompt) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(prompts)+1)
 	present := make(map[string]struct{}, len(prompts))
 	for _, prompt := range prompts {
-		present[string(prompt.ToolCallID)] = struct{}{}
+		present[string(transcriptPromptToolCallID(prompt))] = struct{}{}
 	}
 	var stale []string
 	if m.ask.hasCurrent() {
@@ -391,9 +413,9 @@ func (m *uiModel) reconcileTranscriptPrompts(prompts []clientui.TranscriptPrompt
 	return batchCmds(cmds...)
 }
 
-func (m *uiModel) applyTranscriptOperationalDiagnostic(diagnostic clientui.TranscriptOperationalDiagnostic) tea.Cmd {
+func (m *uiModel) applyTranscriptOperationalDiagnostic(diagnostic *transcriptpb.OperationalDiagnostic) tea.Cmd {
 	switch diagnostic.Code {
-	case clientui.OperationalDiagnosticSleepGuardFailed:
+	case transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_SLEEP_GUARD_FAILED:
 		return m.sendTransientStatusWithNoticeID(
 			"sleep prevention failed: "+diagnostic.Detail,
 			uiStatusNoticeError,
@@ -401,7 +423,7 @@ func (m *uiModel) applyTranscriptOperationalDiagnostic(diagnostic clientui.Trans
 			uiStatusNoticeReplace,
 			"",
 		)
-	case clientui.OperationalDiagnosticPromptHistoryPersistFailed:
+	case transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_PROMPT_HISTORY_PERSIST_FAILED:
 		return m.sendTransientStatusWithNoticeID(
 			"prompt history persistence failed: "+diagnostic.Detail,
 			uiStatusNoticeError,
@@ -409,7 +431,7 @@ func (m *uiModel) applyTranscriptOperationalDiagnostic(diagnostic clientui.Trans
 			uiStatusNoticeReplace,
 			"",
 		)
-	case clientui.OperationalDiagnosticInFlightClearFailed:
+	case transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_IN_FLIGHT_CLEAR_FAILED:
 		return m.sendTransientStatusWithNoticeID(
 			"run cleanup failed: "+diagnostic.Detail,
 			uiStatusNoticeError,

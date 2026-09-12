@@ -4,11 +4,9 @@ import (
 	"strings"
 
 	"core/cli/tui"
-	"core/shared/clientui"
-	"core/shared/rollbacktarget"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
-	"core/shared/transcript/patchformat"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -25,30 +23,30 @@ type residentSegmentMeta struct {
 
 type uiDetailTranscriptWindow struct {
 	sessionID               string
-	entries                 []clientui.TranscriptCommittedRow
+	entries                 []*transcriptpb.CommittedRow
 	loaded                  bool
 	olderCursor             *int64
 	hasMoreAbove            bool
 	newerCursor             *int64
 	hasMoreBelow            bool
-	latestRollbackCandidate *rollbacktarget.CandidateLocator
+	latestRollbackCandidate *transcriptpb.RollbackCandidate
 	segments                []residentSegmentMeta
-	lastRequest             clientui.TranscriptPageRequest
+	lastRequest             *transcriptpb.PageRequest
 }
 
 type uiDetailTranscriptMergeResult struct {
 	addedEntries        int
-	trimmedFrontEntries []clientui.TranscriptCommittedRow
+	trimmedFrontEntries []*transcriptpb.CommittedRow
 }
 
-func (w uiDetailTranscriptWindow) page() clientui.TranscriptPage {
-	return clientui.TranscriptPage{
-		SessionID:               w.sessionID,
+func (w uiDetailTranscriptWindow) page() *transcriptpb.Page {
+	return &transcriptpb.Page{
+		SessionId:               w.sessionID,
 		OlderCursor:             w.olderCursor,
 		HasMoreAbove:            w.hasMoreAbove,
 		NewerCursor:             w.newerCursor,
 		HasMoreBelow:            w.hasMoreBelow,
-		LatestRollbackCandidate: textutil.Pointer(w.latestRollbackCandidate),
+		LatestRollbackCandidate: proto.CloneOf(w.latestRollbackCandidate),
 		Entries:                 cloneDetailTranscriptRows(w.entries),
 	}
 }
@@ -58,7 +56,7 @@ func (w uiDetailTranscriptWindow) clone() uiDetailTranscriptWindow {
 	cloned.entries = cloneDetailTranscriptRows(w.entries)
 	cloned.olderCursor = textutil.Pointer(w.olderCursor)
 	cloned.newerCursor = textutil.Pointer(w.newerCursor)
-	cloned.latestRollbackCandidate = textutil.Pointer(w.latestRollbackCandidate)
+	cloned.latestRollbackCandidate = proto.CloneOf(w.latestRollbackCandidate)
 	cloned.lastRequest = cloneTranscriptPageRequest(w.lastRequest)
 	if len(w.segments) > 0 {
 		cloned.segments = make([]residentSegmentMeta, len(w.segments))
@@ -90,7 +88,7 @@ func (w *uiDetailTranscriptWindow) refreshBounds() {
 	w.hasMoreBelow = bottom.hasMoreBelow
 }
 
-func (w *uiDetailTranscriptWindow) refreshEdgeCursors(page clientui.TranscriptPage) {
+func (w *uiDetailTranscriptWindow) refreshEdgeCursors(page *transcriptpb.Page) {
 	if w == nil || len(w.segments) == 0 {
 		return
 	}
@@ -100,11 +98,11 @@ func (w *uiDetailTranscriptWindow) refreshEdgeCursors(page clientui.TranscriptPa
 	bottom := &w.segments[len(w.segments)-1]
 	bottom.newerCursor = textutil.Pointer(page.NewerCursor)
 	bottom.hasMoreBelow = page.HasMoreBelow
-	w.latestRollbackCandidate = textutil.Pointer(page.LatestRollbackCandidate)
+	w.latestRollbackCandidate = proto.CloneOf(page.LatestRollbackCandidate)
 	w.refreshBounds()
 }
 
-func segmentMetaFromPage(startLocal int, page clientui.TranscriptPage) residentSegmentMeta {
+func segmentMetaFromPage(startLocal int, page *transcriptpb.Page) residentSegmentMeta {
 	return residentSegmentMeta{
 		startLocal:   startLocal,
 		olderCursor:  textutil.Pointer(page.OlderCursor),
@@ -114,11 +112,11 @@ func segmentMetaFromPage(startLocal int, page clientui.TranscriptPage) residentS
 	}
 }
 
-func (w uiDetailTranscriptWindow) matchesPage(page clientui.TranscriptPage) bool {
+func (w uiDetailTranscriptWindow) matchesPage(page *transcriptpb.Page) bool {
 	if !w.loaded {
 		return false
 	}
-	if transcriptPageSessionChanged(w.sessionID, page.SessionID) {
+	if transcriptPageSessionChanged(w.sessionID, page.SessionId) {
 		return false
 	}
 	if len(w.entries) != len(page.Entries) {
@@ -132,28 +130,28 @@ func (w uiDetailTranscriptWindow) matchesPage(page clientui.TranscriptPage) bool
 	return true
 }
 
-func (w *uiDetailTranscriptWindow) replace(page clientui.TranscriptPage) {
+func (w *uiDetailTranscriptWindow) replace(page *transcriptpb.Page) {
 	if w == nil {
 		return
 	}
-	w.sessionID = strings.TrimSpace(page.SessionID)
+	w.sessionID = strings.TrimSpace(page.SessionId)
 	w.entries = cloneDetailTranscriptRows(page.Entries)
 	w.loaded = true
-	w.latestRollbackCandidate = textutil.Pointer(page.LatestRollbackCandidate)
+	w.latestRollbackCandidate = proto.CloneOf(page.LatestRollbackCandidate)
 	w.segments = []residentSegmentMeta{segmentMetaFromPage(0, page)}
 	w.refreshBounds()
 	w.trimToSegments(len(w.entries))
 }
 
-func (w *uiDetailTranscriptWindow) prependCursorPage(page clientui.TranscriptPage) uiDetailTranscriptMergeResult {
+func (w *uiDetailTranscriptWindow) prependCursorPage(page *transcriptpb.Page) uiDetailTranscriptMergeResult {
 	if w == nil {
 		return uiDetailTranscriptMergeResult{}
 	}
-	if !w.loaded || transcriptPageSessionChanged(w.sessionID, page.SessionID) {
+	if !w.loaded || transcriptPageSessionChanged(w.sessionID, page.SessionId) {
 		w.replace(page)
 		return uiDetailTranscriptMergeResult{}
 	}
-	w.latestRollbackCandidate = textutil.Pointer(page.LatestRollbackCandidate)
+	w.latestRollbackCandidate = proto.CloneOf(page.LatestRollbackCandidate)
 	if w.hasSegment(page) {
 		return uiDetailTranscriptMergeResult{}
 	}
@@ -170,7 +168,7 @@ func (w *uiDetailTranscriptWindow) prependCursorPage(page clientui.TranscriptPag
 		w.loaded = true
 		return uiDetailTranscriptMergeResult{}
 	}
-	merged := make([]clientui.TranscriptCommittedRow, 0, len(pageEntries)+len(w.entries))
+	merged := make([]*transcriptpb.CommittedRow, 0, len(pageEntries)+len(w.entries))
 	merged = append(merged, pageEntries...)
 	merged = append(merged, w.entries...)
 	w.entries = merged
@@ -187,15 +185,15 @@ func (w *uiDetailTranscriptWindow) prependCursorPage(page clientui.TranscriptPag
 	}
 }
 
-func (w *uiDetailTranscriptWindow) appendCursorPage(page clientui.TranscriptPage) uiDetailTranscriptMergeResult {
+func (w *uiDetailTranscriptWindow) appendCursorPage(page *transcriptpb.Page) uiDetailTranscriptMergeResult {
 	if w == nil {
 		return uiDetailTranscriptMergeResult{}
 	}
-	if !w.loaded || transcriptPageSessionChanged(w.sessionID, page.SessionID) {
+	if !w.loaded || transcriptPageSessionChanged(w.sessionID, page.SessionId) {
 		w.replace(page)
 		return uiDetailTranscriptMergeResult{}
 	}
-	w.latestRollbackCandidate = textutil.Pointer(page.LatestRollbackCandidate)
+	w.latestRollbackCandidate = proto.CloneOf(page.LatestRollbackCandidate)
 	if w.hasSegment(page) {
 		return uiDetailTranscriptMergeResult{}
 	}
@@ -224,7 +222,7 @@ func (w *uiDetailTranscriptWindow) appendCursorPage(page clientui.TranscriptPage
 	}
 }
 
-func (w uiDetailTranscriptWindow) hasSegment(page clientui.TranscriptPage) bool {
+func (w uiDetailTranscriptWindow) hasSegment(page *transcriptpb.Page) bool {
 	if len(w.segments) == 0 || len(page.Entries) == 0 {
 		return false
 	}
@@ -253,14 +251,14 @@ func (w uiDetailTranscriptWindow) hasSegment(page clientui.TranscriptPage) bool 
 	return false
 }
 
-func segmentBoundaryEqual(seg residentSegmentMeta, page clientui.TranscriptPage) bool {
+func segmentBoundaryEqual(seg residentSegmentMeta, page *transcriptpb.Page) bool {
 	return seg.hasMoreAbove == page.HasMoreAbove &&
 		seg.hasMoreBelow == page.HasMoreBelow &&
 		textutil.EqualOptional(seg.olderCursor, page.OlderCursor) &&
 		textutil.EqualOptional(seg.newerCursor, page.NewerCursor)
 }
 
-func (w *uiDetailTranscriptWindow) trimToSegments(anchorLocal int) []clientui.TranscriptCommittedRow {
+func (w *uiDetailTranscriptWindow) trimToSegments(anchorLocal int) []*transcriptpb.CommittedRow {
 	if w == nil || len(w.segments) <= uiDetailTranscriptMinResidentSegments {
 		return nil
 	}
@@ -278,7 +276,7 @@ func (w *uiDetailTranscriptWindow) trimToSegments(anchorLocal int) []clientui.Tr
 			break
 		}
 	}
-	trimmedFrontEntries := []clientui.TranscriptCommittedRow(nil)
+	trimmedFrontEntries := []*transcriptpb.CommittedRow(nil)
 	// The resident window is bounded to two pages max (current + one adjacent):
 	// the spec model for detail pagination. Eviction is driven by segment count
 	// alone — there is no entry-count ceiling. The far segment from the anchor is
@@ -290,12 +288,12 @@ func (w *uiDetailTranscriptWindow) trimToSegments(anchorLocal int) []clientui.Tr
 		lastDist := last - anchorSeg
 		if lastDist >= firstDist && anchorSeg != last {
 			cut := w.segments[last].startLocal
-			w.entries = append([]clientui.TranscriptCommittedRow(nil), w.entries[:cut]...)
+			w.entries = append([]*transcriptpb.CommittedRow(nil), w.entries[:cut]...)
 			w.segments = w.segments[:last]
 		} else if anchorSeg != 0 {
 			cut := w.segments[1].startLocal
 			trimmedFrontEntries = append(trimmedFrontEntries, cloneDetailTranscriptRows(w.entries[:cut])...)
-			w.entries = append([]clientui.TranscriptCommittedRow(nil), w.entries[cut:]...)
+			w.entries = append([]*transcriptpb.CommittedRow(nil), w.entries[cut:]...)
 			w.segments = w.segments[1:]
 			for i := range w.segments {
 				w.segments[i].startLocal -= cut
@@ -309,33 +307,34 @@ func (w *uiDetailTranscriptWindow) trimToSegments(anchorLocal int) []clientui.Tr
 	return trimmedFrontEntries
 }
 
-func (w uiDetailTranscriptWindow) requestedPageForDetailEntry() clientui.TranscriptPageRequest {
-	return clientui.TranscriptPageRequest{}
+func (w uiDetailTranscriptWindow) requestedPageForDetailEntry() *transcriptpb.PageRequest {
+	return &transcriptpb.PageRequest{}
 }
 
-func (w uiDetailTranscriptWindow) pageBefore() (clientui.TranscriptPageRequest, bool) {
+func (w uiDetailTranscriptWindow) pageBefore() (*transcriptpb.PageRequest, bool) {
 	if !w.loaded || !w.hasMoreAbove || w.olderCursor == nil {
-		return clientui.TranscriptPageRequest{}, false
+		return &transcriptpb.PageRequest{}, false
 	}
-	return clientui.TranscriptPageRequest{Cursor: textutil.Pointer(w.olderCursor)}, true
+	return &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *w.olderCursor}}, true
 }
 
-func (w uiDetailTranscriptWindow) pageAfter() (clientui.TranscriptPageRequest, bool) {
+func (w uiDetailTranscriptWindow) pageAfter() (*transcriptpb.PageRequest, bool) {
 	if !w.loaded || !w.hasMoreBelow || w.newerCursor == nil {
-		return clientui.TranscriptPageRequest{}, false
+		return &transcriptpb.PageRequest{}, false
 	}
-	return clientui.TranscriptPageRequest{NewerCursor: textutil.Pointer(w.newerCursor)}, true
+	return &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_NewerCursor{NewerCursor: *w.newerCursor}}, true
 }
 
-func pageRequestEqual(a, b clientui.TranscriptPageRequest) bool {
-	return textutil.EqualOptional(a.Cursor, b.Cursor) && textutil.EqualOptional(a.NewerCursor, b.NewerCursor)
+func pageRequestEqual(a, b *transcriptpb.PageRequest) bool {
+	// Navigation records the direction before the loader attaches Session scope.
+	return proto.Equal(
+		&transcriptpb.PageRequest{Direction: a.GetDirection()},
+		&transcriptpb.PageRequest{Direction: b.GetDirection()},
+	)
 }
 
-func cloneTranscriptPageRequest(request clientui.TranscriptPageRequest) clientui.TranscriptPageRequest {
-	return clientui.TranscriptPageRequest{
-		Cursor:      textutil.Pointer(request.Cursor),
-		NewerCursor: textutil.Pointer(request.NewerCursor),
-	}
+func cloneTranscriptPageRequest(request *transcriptpb.PageRequest) *transcriptpb.PageRequest {
+	return proto.CloneOf(request)
 }
 
 func transcriptPageSessionChanged(currentSessionID, nextSessionID string) bool {
@@ -347,64 +346,13 @@ func transcriptPageSessionChanged(currentSessionID, nextSessionID string) bool {
 	return trimmedCurrent != trimmedNext
 }
 
-func cloneDetailTranscriptRows(entries []clientui.TranscriptCommittedRow) []clientui.TranscriptCommittedRow {
+func cloneDetailTranscriptRows(entries []*transcriptpb.CommittedRow) []*transcriptpb.CommittedRow {
 	if len(entries) == 0 {
 		return nil
 	}
-	out := make([]clientui.TranscriptCommittedRow, 0, len(entries))
+	out := make([]*transcriptpb.CommittedRow, 0, len(entries))
 	for _, row := range entries {
-		copyRow := row
-		copyRow.User = textutil.Pointer(row.User)
-		if copyRow.User != nil {
-			copyRow.User.CondensedText = textutil.Pointer(row.User.CondensedText)
-			copyRow.User.RollbackTargetID = textutil.Pointer(row.User.RollbackTargetID)
-		}
-		copyRow.Assistant = textutil.Pointer(row.Assistant)
-		if copyRow.Assistant != nil {
-			copyRow.Assistant.StreamID = textutil.Pointer(row.Assistant.StreamID)
-			copyRow.Assistant.CondensedText = textutil.Pointer(row.Assistant.CondensedText)
-		}
-		copyRow.Tool = textutil.Pointer(row.Tool)
-		if copyRow.Tool != nil {
-			copyRow.Tool.ResultSummary = textutil.Pointer(row.Tool.ResultSummary)
-			copyRow.Tool.CondensedText = textutil.Pointer(row.Tool.CondensedText)
-			if row.Tool.Presentation != nil {
-				presentation := transcript.NormalizeToolCallMeta(*row.Tool.Presentation)
-				presentation.PatchPresentation = patchformat.ClonePresentation(presentation.PatchPresentation)
-				copyRow.Tool.Presentation = &presentation
-			}
-		}
-		copyRow.Notice = cloneDetailTranscriptNotice(row.Notice)
-		out = append(out, copyRow)
+		out = append(out, proto.CloneOf(row))
 	}
 	return out
-}
-
-func cloneDetailTranscriptNotice(notice *clientui.TranscriptNoticeRow) *clientui.TranscriptNoticeRow {
-	if notice == nil {
-		return nil
-	}
-	copyNotice := *notice
-	copyNotice.StepID = textutil.Pointer(notice.StepID)
-	copyNotice.MessageType = textutil.Pointer(notice.MessageType)
-	copyNotice.LegacyText = textutil.Pointer(notice.LegacyText)
-	copyNotice.NoticeID = textutil.Pointer(notice.NoticeID)
-	copyNotice.SourcePath = textutil.Pointer(notice.SourcePath)
-	if notice.Worktree != nil {
-		worktree := *notice.Worktree
-		worktree.Branch = textutil.Pointer(notice.Worktree.Branch)
-		copyNotice.Worktree = &worktree
-	}
-	copyNotice.CacheWarning = textutil.Pointer(notice.CacheWarning)
-	copyNotice.ToolOutputRepair = textutil.Pointer(notice.ToolOutputRepair)
-	copyNotice.ProviderModelMismatch = textutil.Pointer(notice.ProviderModelMismatch)
-	copyNotice.Diagnostic = textutil.Pointer(notice.Diagnostic)
-	if notice.Background != nil {
-		background := *notice.Background
-		background.ExitCode = textutil.Pointer(notice.Background.ExitCode)
-		copyNotice.Background = &background
-	}
-	copyNotice.CondensedText = textutil.Pointer(notice.CondensedText)
-	copyNotice.CompactLabel = textutil.Pointer(notice.CompactLabel)
-	return &copyNotice
 }

@@ -12,9 +12,10 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"google.golang.org/protobuf/proto"
 )
 
 type sessionChatContextWorkspaceResolver struct {
@@ -71,16 +72,16 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	if err != nil {
 		t.Fatalf("ReadSessionChatContext: %v", err)
 	}
-	want := serverapi.ChatContext{
+	want := &contextpb.Context{
 		ContextWindowTokens:      100_000,
 		UsedTokens:               125_000,
 		RemainingTokens:          -25_000,
 		AutomaticThresholdTokens: 75_000,
-		CompactionMode:           serverapi.ChatContextCompactionModeLocal,
+		CompactionMode:           contextpb.CompactionMode_COMPACTION_MODE_LOCAL,
 		CompletedCompactionCount: 3,
 		ManualCompactAvailable:   true,
 	}
-	if got != want {
+	if !proto.Equal(got, want) {
 		t.Fatalf("ReadSessionChatContext = %+v, want %+v", got, want)
 	}
 	if len(resolver.roots) != 1 || resolver.roots[0] != executionRoot {
@@ -146,7 +147,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 	}
 	if got.ContextWindowTokens != 140_000 ||
 		got.AutomaticThresholdTokens != 110_000 ||
-		got.CompactionMode != serverapi.ChatContextCompactionModeLocal {
+		got.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_LOCAL {
 		t.Fatalf("locked/current result = %+v, want current role budget/mode and preserved provider capabilities", got)
 	}
 	if authReader.calls != 0 {

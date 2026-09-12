@@ -82,7 +82,7 @@ WHERE id = 'worktree-same-root'`).Scan(&worktreeCount); err != nil {
 		t.Fatalf("resolve converted Session target: %v", err)
 	}
 	if target.Worktree != nil ||
-		target.WorkspaceID != "workspace-main-cutover" ||
+		target.GetWorkspaceId() != "workspace-main-cutover" ||
 		target.WorkspaceRoot != workspaceRoot ||
 		target.CwdRelpath != "pkg" ||
 		target.EffectiveWorkdir != filepath.Join(workspaceRoot, "pkg") {

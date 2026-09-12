@@ -1,22 +1,19 @@
 package transcriptrender
 
 import (
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"testing"
-
-	"core/shared/clientui"
-	"core/shared/transcript"
 )
 
 func TestAgentSteerNoticeUsesFullOngoingAndDetailExpansion(t *testing.T) {
-	messageType := clientui.TranscriptMessageAgentSteer
-	row := clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing,
-		Kind:       clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{
+	messageType := transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER
+	row := &transcriptpb.CommittedRow{
+		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+		Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{
 			MessageType:  &messageType,
 			CompactLabel: stringPtr("compact"),
-			Diagnostic:   &clientui.TranscriptDiagnostic{Detail: "full"},
-		},
+			Diagnostic:   &transcriptpb.Diagnostic{Detail: "full"},
+		}},
 	}
 	ongoing := RenderCommittedRow(row, 80, "dark", ModeOngoing)
 	if PlainLines(ongoing.Lines)[0] == "compact" {

@@ -42,7 +42,7 @@ func (m *ActiveRuntimeMaintenance) SteerSessionRebindFailure(reminder session.Se
 	return m.steerSessionRebindFailure(reminder)
 }
 
-func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, t
 
 type WorktreeTransitionAuthority func(func(context.Context) error) error
 
-type WorktreeTransitionTargetSync func(context.Context, clientui.SessionExecutionTarget, *session.WorktreeReminderState) error
+type WorktreeTransitionTargetSync func(context.Context, *worktreepb.SessionExecutionTarget, *session.WorktreeReminderState) error
 
 type WorktreeTransitionExecutor func(context.Context, WorktreeTransitionAuthority, WorktreeTransitionTargetSync, func(clientui.WorktreeTransitionOutcome) error) error
 
@@ -101,7 +101,7 @@ func (a *Authority) RunWorktreeTransition(
 				runCtx,
 				// Dormant maintenance already holds Session admission for this callback.
 				func(apply func(context.Context) error) error { return apply(runCtx) },
-				func(syncCtx context.Context, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+				func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 					if err := context.Cause(syncCtx); err != nil {
 						return err
 					}
@@ -133,7 +133,7 @@ func (a *Authority) RunWorktreeTransition(
 					func(apply func(context.Context) error) error {
 						return engine.ApplyWorktreeTransitionTerminal(executionCtx, apply)
 					},
-					func(syncCtx context.Context, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
+					func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 						normalizedTarget, normalizedReminder, err := normalizeTarget(target, reminder)
 						if err != nil {
 							return err
@@ -711,22 +711,22 @@ func (a *Authority) retireExactResource(ctx context.Context, resource *agentReso
 	return resource.closeResource(ctx)
 }
 
-func normalizeTarget(target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) (clientui.SessionExecutionTarget, *session.WorktreeReminderState, error) {
+func normalizeTarget(target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) (*worktreepb.SessionExecutionTarget, *session.WorktreeReminderState, error) {
 	normalizedTarget := clientui.NormalizeSessionExecutionTarget(target)
 	if normalizedTarget.EffectiveWorkdir == "" {
-		return clientui.SessionExecutionTarget{}, nil, errors.New("execution target effective workdir is required")
+		return &worktreepb.SessionExecutionTarget{}, nil, errors.New("execution target effective workdir is required")
 	}
 	if reminder == nil {
 		return normalizedTarget, nil, nil
 	}
 	normalized, err := session.NormalizeWorktreeReminderState(*reminder)
 	if err != nil {
-		return clientui.SessionExecutionTarget{}, nil, err
+		return &worktreepb.SessionExecutionTarget{}, nil, err
 	}
 	return normalizedTarget, &normalized, nil
 }
 
-func syncResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target clientui.SessionExecutionTarget, reminder *session.WorktreeReminderState) (bool, error) {
+func syncResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) (bool, error) {
 	previousReminder := engine.WorktreeReminderState()
 	previousContext := tools.FilesystemContext{}
 	if resource.localTools != nil {
@@ -759,7 +759,7 @@ func rebindResourceContext(resource *agentResource, engine *runtime.Engine, cont
 	return nil
 }
 
-func rebindResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target clientui.SessionExecutionTarget) error {
+func rebindResourceExecutionTarget(resource *agentResource, engine *runtime.Engine, target *worktreepb.SessionExecutionTarget) error {
 	if resource == nil || engine == nil {
 		return errors.New("active runtime resource is required")
 	}

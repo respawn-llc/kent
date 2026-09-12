@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"errors"
 	"io"
 	"os"
@@ -120,7 +121,7 @@ func prepareSharedRuntimeWiring(
 		initialLifecycleContext,
 		terminalFocus.FocusedForAttention,
 	)
-	subscribeTranscript := func(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+	subscribeTranscript := func(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 		return clients.SessionTranscript.SubscribeSessionTranscript(ctx, req)
 	}
 	var transcriptStream ongoingTranscriptEventStream
@@ -134,7 +135,7 @@ func prepareSharedRuntimeWiring(
 	requestTranscriptOpen := transcriptStream.RequestRehydration
 	notificationHooks := newBellHooks(newTerminalNotifier(plan.ActiveSettings.NotificationMethod, os.Stdout, os.LookupEnv), func() string {
 		if runtimeClient != nil {
-			if sessionName := strings.TrimSpace(runtimeClient.MainView().Session.SessionName); sessionName != "" {
+			if sessionName := strings.TrimSpace(runtimeClient.MainView().Session.GetSessionName()); sessionName != "" {
 				return sessionName
 			}
 		}

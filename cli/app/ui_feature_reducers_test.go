@@ -1,12 +1,11 @@
 package app
 
+import processpb "core/shared/protoapi/gen/kent/api/process"
+
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"testing"
 	"time"
-
-	"core/shared/clientui"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestZeroValueUIModelUsesPromotedFeatureDefaultsSafely(t *testing.T) {
@@ -44,8 +43,7 @@ func TestUIUpdateRoutesProcessRefreshThroughReducer(t *testing.T) {
 	t.Cleanup(func() { processListRefreshInterval = previousInterval })
 
 	m := newProjectedStaticUIModel(WithUIProcessClient(fixedUIProcessClient{
-		entries: []clientui.BackgroundProcess{{ID: "proc-1", Command: "sleep 1"}},
-	}))
+		entries: []*processpb.BackgroundProcess{{Id: "proc-1", Command: "sleep 1"}}}))
 	m.processList.open = true
 
 	next, cmd := m.Update(processListRefreshTickMsg{})
@@ -70,15 +68,14 @@ func TestUIUpdateRoutesProcessRefreshThroughReducer(t *testing.T) {
 	next, _ = updated.Update(refresh)
 	updated = next.(*uiModel)
 
-	if len(updated.processList.entries) != 1 || updated.processList.entries[0].ID != "proc-1" {
+	if len(updated.processList.entries) != 1 || updated.processList.entries[0].Id != "proc-1" {
 		t.Fatalf("expected process refresh reducer to update entries, got %#v", updated.processList.entries)
 	}
 }
 
 func TestProcessRefreshSingleFlightSchedulesOneDirtyFollowUp(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIProcessClient(fixedUIProcessClient{
-		entries: []clientui.BackgroundProcess{{ID: "proc-1", Command: "sleep 1"}},
-	}))
+		entries: []*processpb.BackgroundProcess{{Id: "proc-1", Command: "sleep 1"}}}))
 	m.processList.open = true
 
 	first := m.requestProcessListRefresh()
@@ -95,8 +92,7 @@ func TestProcessRefreshSingleFlightSchedulesOneDirtyFollowUp(t *testing.T) {
 
 	next, followUp := m.Update(processListRefreshDoneMsg{
 		token:   m.processList.refreshToken,
-		entries: []clientui.BackgroundProcess{{ID: "proc-1", Command: "sleep 1"}},
-	})
+		entries: []*processpb.BackgroundProcess{{Id: "proc-1", Command: "sleep 1"}}})
 	updated := next.(*uiModel)
 	if !updated.processList.refreshInFlight {
 		t.Fatal("expected dirty follow-up refresh to start after first completion")

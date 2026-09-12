@@ -2,14 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
-	"io"
-	"net"
-	"os"
-	"path/filepath"
-	"strconv"
-	"testing"
-
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
 	"core/server/llm"
@@ -22,6 +14,13 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/sessioncontract"
+	"errors"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
 )
 
 func registerAppWorkspace(t *testing.T, workspace string) {
@@ -84,11 +83,6 @@ func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) apicontract.P
 	return service
 }
 
-// startStandingRunPromptServer starts an in-process standing serve server for
-// the workspace and waits until it is reachable for headless run-prompt attach.
-// kent run is a pure client and never starts its own server, so integration
-// tests that drive RunPrompt end-to-end must provide a server to attach to.
-// Callers defer the returned cleanup, which stops serving and closes the server.
 func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
 	return startStandingRunPromptServerWithAuth(t, workspace, openAIBaseURL, apiKeyMemoryAuthHandler("test-key"))
 }
@@ -280,3 +274,11 @@ func openAuthoritativeAppSession(t *testing.T, persistenceRoot string, sessionID
 	t.Cleanup(func() { _ = metadataStore.Close() })
 	return store
 }
+
+// startStandingRunPromptServer starts an in-process standing serve server for
+// the workspace and waits until it is reachable for headless run-prompt attach.
+// kent run is a pure client and never starts its own server, so integration
+// tests that drive RunPrompt end-to-end must provide a server to attach to.
+// Callers defer the returned cleanup, which stops serving and closes the server.
+// Keep the metadata store alive for the lifetime of the session store so
+// persistence observer writes continue to succeed during the test.

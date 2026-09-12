@@ -50,7 +50,7 @@ func (s *Service) EnterWorktree(ctx context.Context, req *worktreepb.EnterReques
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(currentTarget.WorkspaceID) != request.workspace.workspaceID {
+	if strings.TrimSpace(currentTarget.GetWorkspaceId()) != request.workspace.workspaceID {
 		return s.enterWorktreeAcrossWorkspace(ctx, request, req.Origin)
 	}
 	selector := request.selector
@@ -155,8 +155,8 @@ func (s *Service) resolveCrossWorkspaceEnter(
 	if err != nil {
 		return metadata.SessionWorkspaceRetargetRequest{}, err
 	}
-	nextTarget := clientui.SessionExecutionTarget{
-		WorkspaceID:      request.workspace.workspaceID,
+	nextTarget := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:      &request.workspace.workspaceID,
 		WorkspaceRoot:    request.workspace.workspaceRoot,
 		CwdRelpath:       ".",
 		EffectiveWorkdir: next.record.CanonicalRoot,
@@ -223,7 +223,7 @@ func (s *Service) runWorktreeTransition(
 		) error {
 			runErr := execute(ctx, authority, func(
 				syncCtx context.Context,
-				target clientui.SessionExecutionTarget,
+				target *worktreepb.SessionExecutionTarget,
 				reminder *session.WorktreeReminderState,
 			) error {
 				if err := sync(syncCtx, target, reminder); err != nil {
@@ -422,12 +422,12 @@ func (s *Service) adoptExternalWorktree(ctx context.Context, workspaceID string,
 func (s *Service) currentTransitionWorktree(
 	ctx context.Context,
 	topology []*worktreepb.TopologyEntry,
-	target clientui.SessionExecutionTarget,
+	target *worktreepb.SessionExecutionTarget,
 ) (*syncedWorktree, error) {
 	if target.Worktree == nil {
 		return nil, nil
 	}
-	targetID := strings.TrimSpace(target.Worktree.ID)
+	targetID := strings.TrimSpace(target.Worktree.Id)
 	for _, entry := range topology {
 		id := topologyWorktreeID(entry)
 		if id == nil || strings.TrimSpace(*id) != targetID {

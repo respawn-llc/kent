@@ -3,18 +3,10 @@ package serverapi
 import (
 	"context"
 
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 
-type GoalObserveRequest struct {
-	SessionID string `json:"session_id"`
-}
-
-func (r GoalObserveRequest) Validate() error {
-	return validateRequiredSessionID(r.SessionID)
-}
-
 type GoalObservationSubscription interface {
-	Next(context.Context) (clientui.GoalObservation, error)
+	Next(context.Context) (*runtimepb.GoalObservation, error)
 	Close() error
 }

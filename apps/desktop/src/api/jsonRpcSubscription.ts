@@ -9,16 +9,8 @@ import {
   waitForSubscriptionEnd,
 } from "./jsonRpcSocket";
 import type { RpcEventHandler } from "./transport";
-
-class TerminalSubscriptionError extends Error {}
-const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
-
-export class SubscriptionErrorAlreadyReported extends Error {
-  constructor(readonly error: Error) {
-    super(error.message);
-    this.name = "SubscriptionErrorAlreadyReported";
-  }
-}
+import { TerminalSubscriptionError } from "./subscriptionErrors";
+export const defaultSubscriptionEstablishmentTimeoutMs = 30_000;
 
 export async function runJsonSubscription(
   input: Readonly<{
@@ -48,21 +40,19 @@ export async function runJsonSubscription(
   });
   const completeMethod = subscriptionCompleteMethod(method);
   const currentTerminal = (): typeof terminal => terminal;
-  const failTerminal = (error: Error, report = true): void => {
+  const failTerminal = (error: Error): void => {
     if (terminal !== null) return;
     terminal = { kind: "error", error };
-    if (report) {
-      try {
-        handler.onError(error);
-      } catch (callbackError) {
-        terminal = {
-          kind: "error",
-          error:
-            callbackError instanceof Error
-              ? callbackError
-              : new TransportError("Subscription error handler failed."),
-        };
-      }
+    try {
+      handler.onError(error);
+    } catch (callbackError) {
+      terminal = {
+        kind: "error",
+        error:
+          callbackError instanceof Error
+            ? callbackError
+            : new TransportError("Subscription error handler failed."),
+      };
     }
     resolveTerminal?.();
     socket.close();
@@ -78,10 +68,6 @@ export async function runJsonSubscription(
         socket.close();
       }
     } catch (cause) {
-      if (cause instanceof SubscriptionErrorAlreadyReported) {
-        failTerminal(cause.error, false);
-        return;
-      }
       const error = cause instanceof Error ? cause : new TransportError("Subscription message failed.");
       failTerminal(error);
     }

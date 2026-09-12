@@ -145,7 +145,7 @@ function mutationOperation(operation: ChatSettingsMutation): MutationOperation["
   }
 }
 
-function context(value: Context): ChatContext {
+export function context(value: Context): ChatContext {
   let compactionMode: string;
   switch (value.compactionMode) {
     case CompactionMode.DISABLED:

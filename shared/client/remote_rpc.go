@@ -14,12 +14,10 @@ import (
 	"time"
 
 	"core/shared/config"
-	"core/shared/jsoncontract"
 	"core/shared/llmerrors"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
-	"core/shared/serverjsoncontract"
 )
 
 var errRemoteClosed = errors.New("remote client is closed")
@@ -134,11 +132,6 @@ func hasExplicitTCPServerTarget(cfg config.App) bool {
 }
 
 func dialRemoteWithTransport(ctx context.Context, plan remoteDialPlan, transport rpcwire.ClientTransport, attachIntent *remoteAttachmentIntent) (*Remote, error) {
-	preparer := jsoncontract.NewPreparer(false)
-	sessionExecutionResponseContract, err := serverjsoncontract.PrepareSessionExecutionEnvironmentResponse(preparer)
-	if err != nil {
-		return nil, err
-	}
 	conn, err := plan.dial(ctx, transport)
 	if err != nil {
 		return nil, err
@@ -161,13 +154,12 @@ func dialRemoteWithTransport(ctx context.Context, plan remoteDialPlan, transport
 	}
 	control := newRemoteControlConn(conn)
 	return &Remote{
-		plan:                             plan,
-		transport:                        transport,
-		control:                          control,
-		identity:                         state.identity,
-		attachIntent:                     attachIntent,
-		attachment:                       state.attachment,
-		sessionExecutionResponseContract: sessionExecutionResponseContract,
+		plan:         plan,
+		transport:    transport,
+		control:      control,
+		identity:     state.identity,
+		attachIntent: attachIntent,
+		attachment:   state.attachment,
 	}, nil
 }
 
@@ -324,13 +316,12 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 	}
 	handoffControl := newRemoteControlConn(conn)
 	handoffRemote := &Remote{
-		plan:                             c.plan,
-		transport:                        c.transport,
-		control:                          handoffControl,
-		identity:                         state.identity,
-		attachIntent:                     handoffIntent,
-		attachment:                       state.attachment,
-		sessionExecutionResponseContract: c.sessionExecutionResponseContract,
+		plan:         c.plan,
+		transport:    c.transport,
+		control:      handoffControl,
+		identity:     state.identity,
+		attachIntent: handoffIntent,
+		attachment:   state.attachment,
 	}
 	handoffRemote.expectedRootID.Store(c.rootID())
 	handoffRemote.noAuthAck.Store(c.noAuthAck.Load())
@@ -672,9 +663,6 @@ func protocolError(resp *protocol.ResponseError) error {
 		return nil
 	}
 	message := strings.TrimSpace(resp.Message)
-	if resp.Code == protocol.ErrCodeRuntimeCommandNotAccepted {
-		return decodeRuntimeCommandNotAcceptedError(resp.Data)
-	}
 	if resp.Code == protocol.ErrCodeServerNotReady && len(resp.Data) > 0 {
 		return serverapi.DecodeServerNotReadyError(resp.Data, message)
 	}
@@ -720,12 +708,6 @@ func protocolError(resp *protocol.ResponseError) error {
 	if resp.Code == protocol.ErrCodeWorkflowLockedExecutionTarget && len(resp.Data) > 0 {
 		return serverapi.DecodeWorkflowLockedExecutionTargetError(resp.Data, message)
 	}
-	if resp.Code == protocol.ErrCodePromptCommands && len(resp.Data) > 0 {
-		return serverapi.DecodePromptCommandError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeChatSettingsAgentPreparation {
-		return serverapi.DecodeChatSettingsAgentPreparationError(resp.Data, message)
-	}
 	if resp.Code == protocol.ErrCodeRequestCanceled {
 		return requestCanceledError{message: message}
 	}
@@ -756,16 +738,6 @@ func protocolError(resp *protocol.ResponseError) error {
 		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeNoActiveRun, message, protocol.SentinelErrorJoined)
 	case protocol.ErrCodeRuntimeNoFinalAnswer:
 		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeNoFinalAnswer, message, protocol.SentinelErrorJoined)
-	case protocol.ErrCodeManualCompactionTooSoon:
-		return serverapi.DecodeManualCompactionError(resp.Code, resp.Data)
-	case protocol.ErrCodeManualCompactionDisabled:
-		return serverapi.DecodeManualCompactionError(resp.Code, resp.Data)
-	case protocol.ErrCodeManualCompactionActive:
-		return serverapi.DecodeManualCompactionError(resp.Code, resp.Data)
-	case protocol.ErrCodePendingWorkNotPending:
-		return serverapi.DecodePendingWorkNotPendingError(resp.Data)
-	case protocol.ErrCodePendingWorkCapacity:
-		return serverapi.DecodePendingWorkCapacityError(resp.Data)
 	case protocol.ErrCodeStreamUnavailable:
 		return errors.Join(serverapi.ErrStreamUnavailable, errors.New(message))
 	case protocol.ErrCodeStreamFailed:
@@ -785,50 +757,4 @@ func protocolError(resp *protocol.ResponseError) error {
 	default:
 		return errors.New(message)
 	}
-}
-
-func decodeRuntimeCommandNotAcceptedError(data json.RawMessage) error {
-	var payload struct {
-		Cause *protocol.ResponseError `json:"cause"`
-	}
-	if len(data) == 0 {
-		return errors.New("runtime command not-accepted response is missing cause data")
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return fmt.Errorf("decode runtime command not-accepted response: %w", err)
-	}
-	if payload.Cause == nil ||
-		payload.Cause.Code == 0 ||
-		strings.TrimSpace(payload.Cause.Message) == "" ||
-		payload.Cause.Code == protocol.ErrCodeRuntimeCommandNotAccepted {
-		return errors.New("runtime command not-accepted response contains an invalid cause")
-	}
-	cause := protocolError(payload.Cause)
-	if cause == nil {
-		return errors.New("runtime command not-accepted response contains an empty cause")
-	}
-	switch payload.Cause.Code {
-	case protocol.ErrCodePromptCommands:
-		var typed *serverapi.PromptCommandError
-		if !errors.As(cause, &typed) {
-			return errors.New("runtime command not-accepted response contains invalid prompt-command cause data")
-		}
-	case protocol.ErrCodeManualCompactionTooSoon:
-		if !errors.Is(cause, serverapi.ErrManualCompactionTooSoon) {
-			return errors.New("runtime command not-accepted response contains invalid manual-compaction cause data")
-		}
-	case protocol.ErrCodeManualCompactionDisabled:
-		if !errors.Is(cause, serverapi.ErrManualCompactionDisabled) {
-			return errors.New("runtime command not-accepted response contains invalid manual-compaction cause data")
-		}
-	case protocol.ErrCodeManualCompactionActive:
-		if !errors.Is(cause, serverapi.ErrManualCompactionActive) {
-			return errors.New("runtime command not-accepted response contains invalid manual-compaction cause data")
-		}
-	case protocol.ErrCodePendingWorkCapacity:
-		if !errors.Is(cause, serverapi.ErrPendingWorkCapacity) {
-			return errors.New("runtime command not-accepted response contains invalid Pending Work capacity cause data")
-		}
-	}
-	return errors.Join(serverapi.ErrRuntimeCommandNotAccepted, cause)
 }

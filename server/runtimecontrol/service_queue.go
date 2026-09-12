@@ -5,22 +5,28 @@ import (
 	"errors"
 
 	"core/server/runtime"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
 func (s *Service) AdmitChatQueuedUserInput(
 	ctx context.Context,
-	req serverapi.RuntimeSubmitUserTurnRequest,
+	req *runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
-	projection, err := s.resolveUserTurnInput(ctx, req.SessionID, req.Input)
+	input, err := protoapi.UserTurnInputFromProto(req.Input)
 	if err != nil {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionID)
+	projection, err := s.resolveUserTurnInput(ctx, req.SessionId, input)
+	if err != nil {
+		return serverapi.ChatInputAdmissionResult{}, err
+	}
+	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
 	if err != nil {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
@@ -46,7 +52,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 	if parseErr != nil {
 		return serverapi.ChatInputAdmissionResult{Accepted: true}, errors.Join(err, parseErr)
 	}
-	historyErr := s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(req), projection)
+	historyErr := s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(req.SessionId, input), projection)
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID:          queueItemID,
 		Accepted:             true,

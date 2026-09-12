@@ -1,176 +1,101 @@
 package client
 
 import (
-	"context"
-	"errors"
-	"io"
 	"testing"
 
-	"core/shared/protocol"
-	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 
 	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRemoteSessionExecutionEnvironmentRoundTripsAuthApplicability(t *testing.T) {
-	sessionID, err := runtimeids.ParseSessionID("environment-session")
-	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
-	}
 	tests := []struct {
-		name     string
-		response serverapi.SessionExecutionEnvironmentResponse
-		assert   func(*testing.T, serverapi.SessionExecutionAuthField)
+		name string
+		auth *sessionpb.ExecutionAuthField
 	}{
 		{
 			name: "explicit no auth",
-			response: sessionExecutionEnvironmentTransportResponse(
-				sessionID,
-				"openai",
-				serverapi.AvailableSessionExecutionAuth(serverapi.SessionExecutionAuth{
-					Provider: "openai",
-					Method:   serverapi.SessionExecutionAuthMethodNone,
-				}),
-			),
-			assert: func(t *testing.T, field serverapi.SessionExecutionAuthField) {
-				t.Helper()
-				value, ok := field.Value()
-				if !ok || value.Provider != "openai" || value.Method != serverapi.SessionExecutionAuthMethodNone {
-					t.Fatalf("auth field = %+v/%v", value, ok)
-				}
-			},
+			auth: &sessionpb.ExecutionAuthField{Result: &sessionpb.ExecutionAuthField_Available{
+				Available: &sessionpb.ExecutionAuth{Provider: "openai", Method: sessionpb.ExecutionAuthMethod_EXECUTION_AUTH_METHOD_NONE},
+			}},
 		},
 		{
 			name: "provider not applicable",
-			response: sessionExecutionEnvironmentTransportResponse(
-				sessionID,
-				"anthropic",
-				serverapi.UnavailableSessionExecutionAuth(serverapi.SessionExecutionAuthUnavailableNotApplicable),
-			),
-			assert: func(t *testing.T, field serverapi.SessionExecutionAuthField) {
-				t.Helper()
-				reason, ok := field.UnavailableReason()
-				if !ok || reason != serverapi.SessionExecutionAuthUnavailableNotApplicable {
-					t.Fatalf("auth unavailable reason = %q/%v", reason, ok)
-				}
-			},
+			auth: &sessionpb.ExecutionAuthField{Result: &sessionpb.ExecutionAuthField_Unavailable{
+				Unavailable: sessionpb.ExecutionAuthUnavailableReason_EXECUTION_AUTH_UNAVAILABLE_REASON_NOT_APPLICABLE,
+			}},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			want := sessionExecutionEnvironmentTransportResponse("environment-session", test.auth)
+			method := bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetExecutionEnvironment")
 			server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 				acceptRemoteHandshake(t, ws)
 				acceptRemoteProjectAttachment(t, ws, "workspace-1", "/workspace")
-				var req protocol.Request
-				for {
-					if err := websocket.JSON.Receive(ws, &req); err != nil {
-						if errors.Is(err, io.EOF) {
-							return
-						}
-						t.Fatalf("receive execution environment request: %v", err)
-					}
-					switch req.Method {
-					case protocol.MethodSessionGetExecutionEnvironment:
-						if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, test.response)); err != nil {
-							t.Fatalf("send execution environment response: %v", err)
-						}
-					default:
-						t.Fatalf("unexpected method %q", req.Method)
-					}
+				request := &sessionpb.ExecutionEnvironmentRequest{}
+				correlation := receiveRemoteDescriptorCall(t, ws, method, request)
+				if request.SessionId != want.Environment.SessionId {
+					t.Fatalf("requested Session = %q", request.SessionId)
 				}
+				sendRemoteDescriptorResult(t, ws, method, correlation, &sessionpb.ExecutionEnvironmentResult{
+					Outcome: &sessionpb.ExecutionEnvironmentResult_Success{Success: want},
+				})
 			})
-
-			remote, err := DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], "project-1")
+			remote, err := DialRemoteURLForProject(t.Context(), "ws"+server.URL[len("http"):], "project-1")
 			if err != nil {
-				t.Fatalf("DialRemoteURLForProject: %v", err)
+				t.Fatal(err)
 			}
 			defer func() { _ = remote.Close() }()
-
-			response, err := remote.GetSessionExecutionEnvironment(
-				context.Background(),
-				serverapi.SessionExecutionEnvironmentRequest{SessionID: sessionID},
-			)
+			response, err := remote.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{SessionId: want.Environment.SessionId})
 			if err != nil {
-				t.Fatalf("GetSessionExecutionEnvironment: %v", err)
+				t.Fatal(err)
 			}
-			if err := response.Validate(); err != nil {
-				t.Fatalf("response validation: %v", err)
+			if !proto.Equal(response.Environment.Auth, test.auth) {
+				t.Fatalf("auth applicability changed: got %v, want %v", response.Environment.Auth, test.auth)
 			}
-			test.assert(t, response.Environment.Auth)
 		})
 	}
 }
 
-func TestRemoteSessionExecutionEnvironmentRejectsExtraResponseField(t *testing.T) {
+func TestRemoteSessionExecutionEnvironmentRejectsMismatchedSession(t *testing.T) {
+	method := bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetExecutionEnvironment")
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
 		acceptRemoteProjectAttachment(t, ws, "workspace-1", "/workspace")
-		var req protocol.Request
-		for {
-			if err := websocket.JSON.Receive(ws, &req); err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				}
-				t.Fatalf("receive execution environment request: %v", err)
-			}
-			switch req.Method {
-			case protocol.MethodSessionGetExecutionEnvironment:
-				if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, map[string]any{
-					"environment": map[string]any{
-						"session_id": "environment-session",
-						"workspace":  map[string]any{"kind": "unavailable", "reason": "not_configured"},
-						"branch":     map[string]any{"kind": "unavailable", "reason": "not_git_repository"},
-						"auth":       map[string]any{"kind": "unavailable", "reason": "not_applicable"},
-						"model":      map[string]any{"kind": "unavailable", "reason": "not_configured"},
-						"extra":      true,
-					},
-				})); err != nil {
-					t.Fatalf("send execution environment response: %v", err)
-				}
-			default:
-				t.Fatalf("unexpected method %q", req.Method)
-			}
-		}
+		correlation := receiveRemoteDescriptorCall(t, ws, method, &sessionpb.ExecutionEnvironmentRequest{})
+		sendRemoteDescriptorResult(t, ws, method, correlation, &sessionpb.ExecutionEnvironmentResult{
+			Outcome: &sessionpb.ExecutionEnvironmentResult_Success{Success: sessionExecutionEnvironmentTransportResponse(
+				"another-session",
+				&sessionpb.ExecutionAuthField{Result: &sessionpb.ExecutionAuthField_Unavailable{
+					Unavailable: sessionpb.ExecutionAuthUnavailableReason_EXECUTION_AUTH_UNAVAILABLE_REASON_NOT_APPLICABLE,
+				}},
+			)},
+		})
 	})
-
-	remote, err := DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], "project-1")
+	remote, err := DialRemoteURLForProject(t.Context(), "ws"+server.URL[len("http"):], "project-1")
 	if err != nil {
-		t.Fatalf("DialRemoteURLForProject: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-
-	sessionID, err := runtimeids.ParseSessionID("environment-session")
-	if err != nil {
-		t.Fatalf("ParseSessionID: %v", err)
-	}
-	if _, err := remote.GetSessionExecutionEnvironment(
-		context.Background(),
-		serverapi.SessionExecutionEnvironmentRequest{SessionID: sessionID},
-	); err == nil {
-		t.Fatal("GetSessionExecutionEnvironment accepted an extra response field")
+	if _, err := remote.GetSessionExecutionEnvironment(t.Context(), &sessionpb.ExecutionEnvironmentRequest{SessionId: "environment-session"}); err == nil {
+		t.Fatal("accepted environment for a different Session")
 	}
 }
 
-func sessionExecutionEnvironmentTransportResponse(
-	sessionID runtimeids.SessionID,
-	provider string,
-	auth serverapi.SessionExecutionAuthField,
-) serverapi.SessionExecutionEnvironmentResponse {
-	return serverapi.SessionExecutionEnvironmentResponse{
-		Environment: serverapi.SessionExecutionEnvironment{
-			SessionID: sessionID,
-			Workspace: serverapi.UnavailableSessionExecutionWorkspace(
-				serverapi.SessionExecutionWorkspaceUnavailableNotConfigured,
-			),
-			Branch: serverapi.UnavailableSessionExecutionBranch(
-				serverapi.SessionExecutionBranchUnavailableNotGitRepository,
-			),
-			Auth: auth,
-			Model: serverapi.AvailableSessionExecutionModel(serverapi.SessionExecutionModel{
-				Name:     "model",
-				Provider: provider,
-			}),
-		},
-	}
+func sessionExecutionEnvironmentTransportResponse(sessionID string, auth *sessionpb.ExecutionAuthField) *sessionpb.ExecutionEnvironmentSuccess {
+	return &sessionpb.ExecutionEnvironmentSuccess{Environment: &sessionpb.ExecutionEnvironment{
+		SessionId: sessionID,
+		Workspace: &sessionpb.ExecutionWorkspaceField{Result: &sessionpb.ExecutionWorkspaceField_Unavailable{
+			Unavailable: sessionpb.ExecutionWorkspaceUnavailableReason_EXECUTION_WORKSPACE_UNAVAILABLE_REASON_NOT_CONFIGURED,
+		}},
+		Branch: &sessionpb.ExecutionBranchField{Result: &sessionpb.ExecutionBranchField_Unavailable{
+			Unavailable: sessionpb.ExecutionBranchUnavailableReason_EXECUTION_BRANCH_UNAVAILABLE_REASON_NOT_GIT_REPOSITORY,
+		}},
+		Auth: auth,
+		Model: &sessionpb.ExecutionModelField{Result: &sessionpb.ExecutionModelField_Unavailable{
+			Unavailable: sessionpb.ExecutionModelUnavailableReason_EXECUTION_MODEL_UNAVAILABLE_REASON_NOT_CONFIGURED,
+		}},
+	}}
 }

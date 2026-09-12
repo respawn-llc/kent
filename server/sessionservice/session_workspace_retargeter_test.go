@@ -544,7 +544,7 @@ func TestSessionWorkspaceRetargeterSchedulesSelfRebindAtStepBoundary(t *testing.
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
 	if target.Worktree == nil ||
-		target.Worktree.ID != targetWorktreeID ||
+		target.Worktree.Id != targetWorktreeID ||
 		canonicalRetargetTestPath(t, target.EffectiveWorkdir) != canonicalRetargetTestPath(t, targetWorktreeRoot) {
 		t.Fatalf("scheduled execution target = %+v, want Worktree %q at %q", target, targetWorktreeID, targetWorktreeRoot)
 	}
@@ -1007,8 +1007,8 @@ func TestSessionWorkspaceRetargeterStaleObserverCannotRestorePreviousTarget(t *t
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != retargeted.result.Binding.WorkspaceId {
-		t.Fatalf("workspace id = %q, want rebound workspace %q", target.WorkspaceID, retargeted.result.Binding.WorkspaceId)
+	if target.GetWorkspaceId() != retargeted.result.Binding.WorkspaceId {
+		t.Fatalf("workspace id = %q, want rebound workspace %q", target.GetWorkspaceId(), retargeted.result.Binding.WorkspaceId)
 	}
 }
 

@@ -182,7 +182,7 @@ func TestEnterWorktreeMovesDormantSessionFromNonGitWorkspaceAcrossProjects(t *te
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if target.WorkspaceID != env.binding.WorkspaceID || sessionTargetWorktreeID(target) != next.WorktreeID {
+	if target.GetWorkspaceId() != env.binding.WorkspaceID || sessionTargetWorktreeID(target) != next.WorktreeID {
 		t.Fatalf("retargeted execution target = %+v, want workspace %q worktree %q", target, env.binding.WorkspaceID, next.WorktreeID)
 	}
 	if target.EffectiveWorkdir != next.CanonicalRoot {
@@ -365,7 +365,7 @@ func TestWorktreeTransitionTerminalCases(t *testing.T) {
 		})
 	}
 }
-func runTerminalMutationCase(ctx context.Context, env *serviceTestEnv, nextWorktreeID string, previous clientui.SessionExecutionTarget, sync transitionTargetSync, writeFailure, syncFailure, rollbackFailure error, publicationFailure bool) error {
+func runTerminalMutationCase(ctx context.Context, env *serviceTestEnv, nextWorktreeID string, previous *worktreepb.SessionExecutionTarget, sync transitionTargetSync, writeFailure, syncFailure, rollbackFailure error, publicationFailure bool) error {
 	_, err := applyWorktreeTargetMutation(
 		func() error {
 			if writeFailure != nil {
@@ -373,7 +373,7 @@ func runTerminalMutationCase(ctx context.Context, env *serviceTestEnv, nextWorkt
 			}
 			return env.store.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdate{SessionID: env.session.Meta().SessionID, Workspace: &metadata.SessionExecutionTargetUpdateWorkspace{ID: env.binding.WorkspaceID}, Worktree: &metadata.SessionExecutionTargetUpdateWorktree{ID: nextWorktreeID}, CwdRelpath: "."})
 		},
-		func() (clientui.SessionExecutionTarget, error) {
+		func() (*worktreepb.SessionExecutionTarget, error) {
 			target, err := env.store.ResolveSessionExecutionTarget(ctx, env.session.Meta().SessionID)
 			if err == nil {
 				err = syncFailure

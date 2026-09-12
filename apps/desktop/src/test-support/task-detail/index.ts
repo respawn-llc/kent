@@ -1,4 +1,11 @@
 import { z } from "zod";
+import { create } from "@app/server-api-contract";
+import {
+  AnswerService,
+  AnswerBatchOutcome,
+  QuestionService,
+  type ListQuestionsResult,
+} from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { createElement } from "react";
 import { render } from "@testing-library/react";
 import {
@@ -12,6 +19,7 @@ import {
   guiTaskCommentAuthor,
   type JsonObject,
   type JsonValue,
+  type PromptAnswerBatchResponse,
   type QuestionAttentionItem,
   type TaskDetail,
 } from "@/api";
@@ -349,19 +357,48 @@ export const activityResponse = {
   next_offset: null,
 };
 
-export const pendingAskResponse = {
-  Asks: [
-    {
-      ToolCallID: "ask-1",
-      SessionID: "session-1",
-      StepID: "11111111-1111-4111-8111-111111111111",
-      Question: "Choose path",
-      Suggestions: ["Use option A", "Use option B"],
-      RecommendedOptionIndex: 1,
-      CreatedAt: "2026-05-16T00:00:00Z",
+export const pendingAskResponse = create(QuestionService.method.listPending.output, {
+  outcome: {
+    case: "success",
+    value: {
+      questions: [
+        {
+          toolCallId: "ask-1",
+          sessionId: "session-1",
+          stepId: "11111111-1111-4111-8111-111111111111",
+          question: "Choose path",
+          suggestions: ["Use option A", "Use option B"],
+          recommendedOptionIndex: 1,
+          createdAt: { seconds: 1778889600n },
+        },
+      ],
     },
-  ],
-};
+  },
+});
+
+export function promptAnswerBatchRoute(
+  handler: () => PromptAnswerBatchResponse | Promise<PromptAnswerBatchResponse>,
+): FakeRoute {
+  return {
+    descriptor: AnswerService.method.answerBatch,
+    resultFactory: async () => {
+      const response = await handler();
+      return create(AnswerService.method.answerBatch.output, {
+        outcome: {
+          case: "success",
+          value: {
+            results: response.results.map((result) => ({
+              toolCallId: result.toolCallID,
+              outcome: { resolved: AnswerBatchOutcome.RESOLVED, skipped: AnswerBatchOutcome.SKIPPED }[
+                result.outcome
+              ],
+            })),
+          },
+        },
+      });
+    },
+  };
+}
 
 export const commentAddResponse = {
   comment: {
@@ -427,7 +464,7 @@ export const taskUpdateResponse = {
 
 export type TaskDetailFixtureOptions = Readonly<{
   attention?: JsonValue;
-  asks?: unknown;
+  asks?: ListQuestionsResult;
   comments?: unknown;
   initialFocus?: TaskDetailInitialFocus | undefined;
   nativeBridge?: NativeBridge | undefined;
@@ -470,7 +507,7 @@ export function createTaskDetailTestServices(
       { method: "workflow.task.attention.list", result: attention },
       ...(comments === undefined ? [] : [{ method: "workflow.task.comment.list", result: comments }]),
       { method: "workflow.task.activity.list", result: activityResponse },
-      ...(asks === undefined ? [] : [{ method: "ask.listPendingBySession", result: asks }]),
+      ...(asks === undefined ? [] : [{ descriptor: QuestionService.method.listPending, result: asks }]),
       ...routes,
     ],
     nativeBridge,

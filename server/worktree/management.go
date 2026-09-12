@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"core/server/metadata"
-	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -61,11 +60,11 @@ func (m managementContext) sessionID() *string {
 	return &m.caller.sessionID
 }
 
-func (m managementContext) target() *clientui.SessionExecutionTarget {
+func (m managementContext) target() *worktreepb.SessionExecutionTarget {
 	if m.caller == nil {
 		return nil
 	}
-	return &m.caller.target
+	return m.caller.target
 }
 
 func (s *Service) beginManagementMutation(ctx context.Context, scope *worktreepb.ManagementScope) (func(), managementContext, error) {

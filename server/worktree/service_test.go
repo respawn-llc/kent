@@ -23,14 +23,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func sessionTargetWorktreeID(target clientui.SessionExecutionTarget) string {
-	if target.Worktree == nil {
-		return ""
-	}
-	return strings.TrimSpace(target.Worktree.ID)
-}
-
-func contractSessionTargetWorktreeID(target *worktreepb.SessionExecutionTarget) string {
+func sessionTargetWorktreeID(target *worktreepb.SessionExecutionTarget) string {
 	if target == nil || target.Worktree == nil {
 		return ""
 	}
@@ -136,8 +129,8 @@ func TestCreateWorktreeMarksProvenanceAndRunsSetupScriptWithProjectID(t *testing
 	if !createdView.Managed {
 		t.Fatal("expected worktree managed=true")
 	}
-	if contractSessionTargetWorktreeID(resp.Target) != "" {
-		t.Fatalf("create changed session target to %q", contractSessionTargetWorktreeID(resp.Target))
+	if sessionTargetWorktreeID(resp.Target) != "" {
+		t.Fatalf("create changed session target to %q", sessionTargetWorktreeID(resp.Target))
 	}
 	if resp.Target.EffectiveWorkdir != env.workspaceRoot {
 		t.Fatalf("create effective workdir = %q, want %q", resp.Target.EffectiveWorkdir, env.workspaceRoot)
@@ -837,8 +830,8 @@ func TestListWorktreesReportsMissingCurrentWorktreeWithoutRetargeting(t *testing
 	if err != nil {
 		t.Fatalf("ListWorktrees: %v", err)
 	}
-	if contractSessionTargetWorktreeID(resp.Target) != created.WorktreeID {
-		t.Fatalf("response target worktree id = %q, want %q", contractSessionTargetWorktreeID(resp.Target), created.WorktreeID)
+	if sessionTargetWorktreeID(resp.Target) != created.WorktreeID {
+		t.Fatalf("response target worktree id = %q, want %q", sessionTargetWorktreeID(resp.Target), created.WorktreeID)
 	}
 	foundMissing := false
 	for _, entry := range resp.Worktrees {
@@ -867,10 +860,10 @@ func TestListWorktreesReportsMissingCurrentWorktreeWithoutRetargeting(t *testing
 
 func TestSwitchSessionTargetRejectsInvalidPreviousTargetBeforeMetadataMutation(t *testing.T) {
 	env := newServiceTestEnv(t)
-	invalidPrevious := clientui.SessionExecutionTarget{
-		WorkspaceID:      env.binding.WorkspaceID,
+	invalidPrevious := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:      &env.binding.WorkspaceID,
 		WorkspaceRoot:    env.workspaceRoot,
-		Worktree:         &clientui.SessionExecutionWorktreeTarget{},
+		Worktree:         &worktreepb.SessionExecutionWorktreeTarget{},
 		CwdRelpath:       ".",
 		EffectiveWorkdir: env.workspaceRoot,
 	}
@@ -915,7 +908,7 @@ func TestCreateWorktreeKeepsCreatedStateWhenPostSetupSwitchFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorktree error = %v, want successful create without switching", err)
 	}
-	if contractSessionTargetWorktreeID(resp.Target) != "" {
+	if sessionTargetWorktreeID(resp.Target) != "" {
 		t.Fatalf("create changed target despite no-enter contract: target=%+v", resp.Target)
 	}
 	expectedRoot := resp.Worktree.Topology.GetRegistered().Kent.CanonicalRoot

@@ -6,7 +6,9 @@ import (
 
 	"core/server/runtime"
 	"core/server/runtimeview"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 func (r *RuntimeRegistry) composeTranscriptHydration(
@@ -15,47 +17,50 @@ func (r *RuntimeRegistry) composeTranscriptHydration(
 	entry *authorityRuntimeEntry,
 	snapshot runtime.TranscriptHydrationSnapshot,
 	tailPage runtime.TranscriptSegmentPage,
-) (clientui.TranscriptHydration, error) {
+) (*transcriptpb.Hydration, error) {
 	tailSegment, err := runtimeview.TranscriptTailSegmentFromSegment(tailPage)
 	if err != nil {
-		return clientui.TranscriptHydration{}, transcriptHydrationProjectionError{
+		return nil, transcriptHydrationProjectionError{
 			cause: fmt.Errorf("project transcript hydration tail segment: %w", err),
 		}
 	}
 	hydration, err := runtimeview.TranscriptHydrationFromSnapshotChecked(snapshot, tailSegment)
 	if err != nil {
-		return clientui.TranscriptHydration{}, transcriptHydrationProjectionError{
+		return nil, transcriptHydrationProjectionError{
 			cause: fmt.Errorf("project transcript hydration: %w", err),
 		}
 	}
 	readModel, err := r.RuntimeReadModelFeedSnapshot(ctx, sessionID)
 	if err != nil {
-		return clientui.TranscriptHydration{}, fmt.Errorf("build transcript runtime read model: %w", err)
+		return nil, fmt.Errorf("build transcript runtime read model: %w", err)
 	}
 	hydration.RuntimeReadModelUpdate = readModel
 	hydration.ActiveStep = transcriptActiveStepFromRuntimeReadModel(readModel)
-	clearMismatchedActiveFacts(&hydration)
+	clearMismatchedActiveFacts(hydration)
 	hydration.SessionStatus, err = runtimeview.TranscriptSessionStatusFromRuntime(entry.engine)
 	if err != nil {
-		return clientui.TranscriptHydration{}, fmt.Errorf("build transcript session status: %w", err)
+		return nil, fmt.Errorf("build transcript session status: %w", err)
 	}
 	hydration.SessionIdentity, err = runtimeview.TranscriptSessionIdentityFromRuntime(entry.engine)
 	if err != nil {
-		return clientui.TranscriptHydration{}, fmt.Errorf("build transcript session identity: %w", err)
+		return nil, fmt.Errorf("build transcript session identity: %w", err)
 	}
 	target, err := r.resolveSessionExecutionTarget(ctx, sessionID)
 	if err != nil {
-		return clientui.TranscriptHydration{}, err
+		return nil, err
 	}
 	hydration.SessionIdentity.ExecutionTarget = target
 
-	hydration.PendingPrompts = r.transcriptPendingPrompts(sessionID, readModel.Activity.ActiveStep)
+	hydration.PendingPrompts, err = r.transcriptPendingPrompts(sessionID, readModel.Activity.ActiveStep)
+	if err != nil {
+		return nil, err
+	}
 	hydration.BackgroundActivities, err = r.backgroundActivitiesForSession(sessionID)
 	if err != nil {
-		return clientui.TranscriptHydration{}, fmt.Errorf("build transcript background activities: %w", err)
+		return nil, fmt.Errorf("build transcript background activities: %w", err)
 	}
-	if err := hydration.Validate(); err != nil {
-		return clientui.TranscriptHydration{}, transcriptHydrationProjectionError{
+	if err := protoapi.Validate(hydration); err != nil {
+		return nil, transcriptHydrationProjectionError{
 			cause: fmt.Errorf("validate canonical transcript hydration: %w", err),
 		}
 	}
@@ -63,22 +68,22 @@ func (r *RuntimeRegistry) composeTranscriptHydration(
 }
 
 func transcriptActiveStepFromRuntimeReadModel(
-	update clientui.RuntimeReadModelUpdate,
-) *clientui.TranscriptStepState {
+	update *runtimepb.ReadModelUpdate,
+) *transcriptpb.StepState {
 	active := update.Activity.ActiveStep
 	if active == nil {
 		return nil
 	}
-	return &clientui.TranscriptStepState{
-		RunID:      active.RunID,
-		StepID:     active.StepID,
-		Lifecycle:  clientui.StepLifecycleStarted,
+	return &transcriptpb.StepState{
+		RunId:      active.RunId,
+		StepId:     active.StepId,
+		Lifecycle:  transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED,
 		ActiveKind: active.ActiveKind,
-		Status:     clientui.RunStatusRunning,
+		Status:     transcriptpb.RunStatus_RUN_STATUS_RUNNING,
 	}
 }
 
-func clearMismatchedActiveFacts(hydration *clientui.TranscriptHydration) {
+func clearMismatchedActiveFacts(hydration *transcriptpb.Hydration) {
 	if hydration == nil {
 		return
 	}
@@ -92,34 +97,34 @@ func clearMismatchedActiveFacts(hydration *clientui.TranscriptHydration) {
 		hydration.InFlightTools = nil
 		return
 	}
-	if hydration.ActiveAssistant != nil && hydration.ActiveAssistant.StepID != active.StepID {
+	if hydration.ActiveAssistant != nil && hydration.ActiveAssistant.StepId != active.StepId {
 		hydration.ActiveAssistant = nil
 	}
-	if hydration.ActiveThinkingStatus != nil && hydration.ActiveThinkingStatus.StepID != active.StepID {
+	if hydration.ActiveThinkingStatus != nil && hydration.ActiveThinkingStatus.StepId != active.StepId {
 		hydration.ActiveThinkingStatus = nil
 	}
 	if len(hydration.ActiveReasoningTraces) > 0 {
 		traces := hydration.ActiveReasoningTraces[:0]
 		for _, trace := range hydration.ActiveReasoningTraces {
-			if trace.StepID == active.StepID {
+			if trace.StepId == active.StepId {
 				traces = append(traces, trace)
 			}
 		}
 		hydration.ActiveReasoningTraces = traces
 	}
 	if hydration.ActiveStep != nil &&
-		(hydration.ActiveStep.RunID != active.RunID ||
-			hydration.ActiveStep.StepID != active.StepID ||
+		(hydration.ActiveStep.RunId != active.RunId ||
+			hydration.ActiveStep.StepId != active.StepId ||
 			hydration.ActiveStep.ActiveKind != active.ActiveKind) {
 		hydration.ActiveStep = nil
 	}
-	if hydration.ActiveCompaction != nil && hydration.ActiveCompaction.StepID != active.StepID {
+	if hydration.ActiveCompaction != nil && hydration.ActiveCompaction.StepId != active.StepId {
 		hydration.ActiveCompaction = nil
 	}
 	if len(hydration.InFlightTools) > 0 {
 		tools := hydration.InFlightTools[:0]
 		for _, tool := range hydration.InFlightTools {
-			if tool.StepID == active.StepID {
+			if tool.StepId == active.StepId {
 				tools = append(tools, tool)
 			}
 		}
@@ -129,19 +134,22 @@ func clearMismatchedActiveFacts(hydration *clientui.TranscriptHydration) {
 
 func (r *RuntimeRegistry) transcriptPendingPrompts(
 	sessionID string,
-	activeStep *clientui.RuntimeActiveStep,
-) []clientui.TranscriptPrompt {
+	activeStep *runtimepb.ActiveStep,
+) ([]*transcriptpb.Prompt, error) {
 	snapshots := r.pendingPrompts.List(sessionID)
 	if len(snapshots) == 0 {
-		return nil
+		return nil, nil
 	}
-	prompts := make([]clientui.TranscriptPrompt, 0, len(snapshots))
+	prompts := make([]*transcriptpb.Prompt, 0, len(snapshots))
 	for _, snapshot := range snapshots {
-		prompt := transcriptPendingPromptFromSnapshot(sessionID, snapshot, pendingPromptEventPending)
-		if activeStep == nil || prompt.StepID != activeStep.StepID {
+		if activeStep == nil || snapshot.Request.StepID != activeStep.StepId {
 			continue
+		}
+		prompt, err := transcriptPendingPromptFromSnapshot(sessionID, snapshot, pendingPromptEventPending)
+		if err != nil {
+			return nil, err
 		}
 		prompts = append(prompts, prompt)
 	}
-	return prompts
+	return prompts, nil
 }

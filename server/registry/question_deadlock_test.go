@@ -20,8 +20,10 @@ import (
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/config"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -192,7 +194,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subscription, err := registry.SubscribeSessionTranscript(t.Context(), serverapi.TranscriptSubscribeRequest{SessionID: id.String()})
+	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,14 +228,14 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if message.Kind() != clientui.TranscriptMessagePrompt {
+		if message.Event.GetPrompt() == nil {
 			continue
 		}
-		prompt := message.Payload().(clientui.TranscriptPrompt)
-		if prompt.Status != clientui.TranscriptPromptStatusPending {
+		prompt := message.Event.GetPrompt()
+		if prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 			continue
 		}
-		pendingToolCallID = prompt.ToolCallID
+		pendingToolCallID = clientui.ToolCallID(prompt.GetQuestion().ToolCallId)
 		if delayedSupervisor {
 			followUp, live := authority.SessionExecution(id)
 			if !live || followUp.Scope().ID() == handle.Scope().ID() {
@@ -242,8 +244,12 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 			handle = followUp
 		}
 		if answer {
-			answers, err := authority.ResolvePromptBatch(t.Context(), id, prompt.StepID, []sessionruntime.PromptAnswerCommand{{
-				ToolCallID: prompt.ToolCallID,
+			stepID, err := runtimeids.ParseStepID(prompt.GetQuestion().StepId)
+			if err != nil {
+				t.Fatal(err)
+			}
+			answers, err := authority.ResolvePromptBatch(t.Context(), id, stepID, []sessionruntime.PromptAnswerCommand{{
+				ToolCallID: clientui.ToolCallID(prompt.GetQuestion().ToolCallId),
 				Payload: sessionruntime.PromptQuestionAnswerCommand{
 					Answer: tools.AskQuestionAnswer{Freeform: textutil.Value("Native steering")},
 				},
@@ -266,12 +272,12 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		reopenedSubscription, err := registry.SubscribeSessionTranscript(t.Context(), serverapi.TranscriptSubscribeRequest{SessionID: id.String()})
+		reopenedSubscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		hydration := transcriptPayload[clientui.TranscriptHydration](t, nextTranscriptMessage(t, reopenedSubscription))
-		if len(hydration.PendingPrompts) != 1 || hydration.PendingPrompts[0].ToolCallID != pendingToolCallID {
+		hydration := nextTranscriptMessage(t, reopenedSubscription).Event.GetHydration()
+		if len(hydration.PendingPrompts) != 1 || hydration.PendingPrompts[0].GetQuestion().ToolCallId != string(pendingToolCallID) {
 			t.Fatalf("reopened transcript did not restore the pending question: %+v", hydration.PendingPrompts)
 		}
 		if err := reopenedSubscription.Close(); err != nil {
@@ -291,7 +297,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 
 		publicationEntered, releasePublication := make(chan struct{}), make(chan struct{})
 		var publicationGate sync.Once
-		registry.WithExecutionTargetResolver(func(ctx context.Context, sessionID string) (*clientui.SessionExecutionTarget, error) {
+		registry.WithExecutionTargetResolver(func(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 			publicationGate.Do(func() {
 				close(publicationEntered)
 				<-releasePublication
@@ -306,7 +312,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		reopened := make(chan error, 1)
 		go func() {
 			close(reopenStarted)
-			sub, err := registry.SubscribeSessionTranscript(t.Context(), serverapi.TranscriptSubscribeRequest{SessionID: id.String()})
+			sub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
 			if err == nil {
 				_, err = sub.Next(t.Context())
 				err = errors.Join(err, sub.Close())
@@ -331,8 +337,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	}
 	if delayedSupervisor {
 		view, available := registry.RuntimeMainViewSnapshot(id.String())
-		if !available || view.Activity.Reviewer != clientui.ReviewerActivityInactive ||
-			view.Activity.State != clientui.RuntimeActivityRegisteredIdle {
+		if !available || view.Activity.Reviewer != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
+			view.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
 			t.Fatalf("completed Supervisor turn left the client activity stuck: available=%t activity=%+v", available, view.Activity)
 		}
 	}

@@ -10,7 +10,7 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -203,12 +203,12 @@ func TestSupervisorStartedQuestionCanBeInterrupted(t *testing.T) {
 	if _, live := h.authority.SessionExecution(h.sessionID); live {
 		t.Fatal("interrupted Supervisor execution remained current")
 	}
-	if activity := h.engine.ReviewerActivity(); activity != clientui.ReviewerActivityInactive {
+	if activity := h.engine.ReviewerActivity(); activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatalf("idle Supervisor activity = %s", activity)
 	}
 }
 
-func (h *supervisorTurnHarness) awaitActivity(t *testing.T, want clientui.ReviewerActivity) {
+func (h *supervisorTurnHarness) awaitActivity(t *testing.T, want runtimepb.ReviewerActivity) {
 	t.Helper()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
@@ -295,7 +295,7 @@ func TestSupervisorTurnStaysMarkedThroughOrdinarySteerAndResetsAtIdle(t *testing
 	if !live {
 		t.Fatal("Supervisor follow-up has no exact execution")
 	}
-	if activity := h.engine.ReviewerActivity(); activity != clientui.ReviewerActivityAddressingFeedback {
+	if activity := h.engine.ReviewerActivity(); activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("Supervisor follow-up activity = %s", activity)
 	}
 	steered := h.queueOrdinarySteer(t)
@@ -309,14 +309,14 @@ func TestSupervisorTurnStaysMarkedThroughOrdinarySteerAndResetsAtIdle(t *testing
 	if !live || current.Scope().ID() != handle.Scope().ID() {
 		t.Fatalf("ordinary steer did not remain in Supervisor exact execution (current: %t, activity: %s)", live, h.engine.ReviewerActivity())
 	}
-	if activity := h.engine.ReviewerActivity(); activity != clientui.ReviewerActivityAddressingFeedback {
+	if activity := h.engine.ReviewerActivity(); activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("ordinary steer cleared Supervisor activity: %s", activity)
 	}
 	afterSteer.reply <- supervisorFinalResponse("Verified")
 	if _, err := handle.Wait(h.ctx); err != nil {
 		t.Fatalf("finish Supervisor turn: %v", err)
 	}
-	h.awaitActivity(t, clientui.ReviewerActivityInactive)
+	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 	if _, live := h.authority.SessionExecution(h.sessionID); live {
 		t.Fatal("Supervisor turn did not retire")
 	}
@@ -333,7 +333,7 @@ func TestSupervisorTurnStaysMarkedThroughOrdinarySteerAndResetsAtIdle(t *testing
 	if _, err := next.Wait(h.ctx); err != nil {
 		t.Fatalf("finish next ordinary turn: %v", err)
 	}
-	h.awaitActivity(t, clientui.ReviewerActivityInactive)
+	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 }
 
 func TestSupervisorFeedbackJoinsBusyHumanExactExecution(t *testing.T) {
@@ -357,7 +357,7 @@ func TestSupervisorFeedbackJoinsBusyHumanExactExecution(t *testing.T) {
 		if !live || current.Scope().ID() != second.Scope().ID() {
 			t.Fatal("human execution retired before Supervisor feedback admission")
 		}
-		h.awaitActivity(t, clientui.ReviewerActivityAddressingFeedback)
+		h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK)
 		withFeedback.reply <- commentary
 		withFeedback = h.awaitModel(t, h.main)
 	}
@@ -366,14 +366,14 @@ func TestSupervisorFeedbackJoinsBusyHumanExactExecution(t *testing.T) {
 	if !live || current.Scope().ID() != second.Scope().ID() {
 		t.Fatal("busy Supervisor feedback did not join the existing human exact execution")
 	}
-	if activity := h.engine.ReviewerActivity(); activity != clientui.ReviewerActivityAddressingFeedback {
+	if activity := h.engine.ReviewerActivity(); activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("busy Supervisor feedback activity = %s", activity)
 	}
 	withFeedback.reply <- supervisorFinalResponse("Checked")
 	if _, err := second.Wait(h.ctx); err != nil {
 		t.Fatalf("finish human execution with Supervisor feedback: %v", err)
 	}
-	h.awaitActivity(t, clientui.ReviewerActivityInactive)
+	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 	select {
 	case <-h.reviewer:
 		t.Fatal("human turn containing Supervisor feedback recursively invoked review")
@@ -437,7 +437,7 @@ func TestSupervisorFinalBoundarySteerKeepsQuestionOwned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if original.GroupID == continued.GroupID && activity != clientui.ReviewerActivityAddressingFeedback {
+	if original.GroupID == continued.GroupID && activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_ADDRESSING_FEEDBACK {
 		t.Fatalf("same live turn lost Supervisor activity across final boundary: %s", activity)
 	}
 }

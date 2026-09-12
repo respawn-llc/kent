@@ -1,5 +1,7 @@
 package app
 
+import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+
 import (
 	"context"
 	"errors"
@@ -8,10 +10,10 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -44,7 +46,7 @@ type sessionReattachServer interface {
 }
 
 type promptCommandCatalogServer interface {
-	PromptCommandCatalogClient(context.Context, string, clientui.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error)
+	PromptCommandCatalogClient(context.Context, string, *worktreepb.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error)
 }
 
 type interactiveSessionServer interface {
@@ -302,7 +304,7 @@ func prepareSessionUIRun(
 			catalogStatus = &notice
 		} else if catalogClient != nil {
 			promptCatalog = catalogClient
-			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, serverapi.PromptCommandCatalogRequest{})
+			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, &promptcommandpb.GetCatalogRequest{})
 			if catalogErr == nil {
 				var entries []commands.PromptCommandCatalogEntry
 				entries, catalogErr = promptCatalogSnapshot(response)

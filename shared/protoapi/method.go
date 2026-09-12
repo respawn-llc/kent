@@ -22,6 +22,17 @@ type SubscriptionOperations struct {
 	Completion Operation
 }
 
+func ResolveProgressOperation(descriptor protoreflect.MethodDescriptor) (Operation, error) {
+	operation, err := OperationFromDescriptor(descriptor)
+	if err != nil {
+		return Operation{}, err
+	}
+	if operation.Options.Kind != sharedpb.OperationKind_OPERATION_KIND_PROGRESS {
+		return Operation{}, fmt.Errorf("%s is not a progress operation", descriptor.FullName())
+	}
+	return resolveAssociatedNotification(operation, "progress", operation.Options.Event)
+}
+
 func ResolveSubscriptionOperations(descriptor protoreflect.MethodDescriptor) (SubscriptionOperations, error) {
 	subscribe, err := OperationFromDescriptor(descriptor)
 	if err != nil {

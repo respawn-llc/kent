@@ -6,26 +6,26 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/app/internal/worktreeui"
-	"core/shared/clientui"
 	"core/shared/invariant"
 	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeinput"
 	"core/shared/worktreecontract"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome clientui.TranscriptWorktreeTransitionOutcome) tea.Cmd {
+func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome *transcriptpb.WorktreeTransitionOutcome) tea.Cmd {
 	if m == nil {
 		return nil
 	}
 	var statusCmd tea.Cmd
-	if outcome.State == clientui.WorktreeTransitionFailed {
+	if outcome.State == transcriptpb.WorktreeTransitionState_WORKTREE_TRANSITION_STATE_FAILED {
 		failureText := ""
-		if selector := outcome.SelectorError; selector != nil {
+		if selector := outcome.GetSelectorError(); selector != nil {
 			failureText = fmt.Sprintf("Worktree selector %q did not resolve to one available Worktree; choose an exact Worktree ID or path", selector.Input)
 		} else {
-			failureText = outcome.Failure.Detail
+			failureText = outcome.GetFailure().Detail
 		}
 		statusCmd = m.sendTransientStatusWithNoticeID(
 			failureText,
@@ -36,7 +36,7 @@ func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome clientui.
 		)
 	} else {
 		statusCmd = m.sendTransientStatusWithNoticeID(
-			"Worktree "+string(outcome.Transition)+" completed",
+			"Worktree "+transcriptWorktreeTransitionLabel(outcome.Transition)+" completed",
 			uiStatusNoticeSuccess,
 			transientStatusDuration,
 			uiStatusNoticeReplace,
@@ -48,6 +48,19 @@ func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome clientui.
 		return tea.Batch(statusCmd, refresh, m.requestWorktreeListCmd())
 	}
 	return tea.Batch(statusCmd, refresh)
+}
+
+func transcriptWorktreeTransitionLabel(kind transcriptpb.WorktreeTransitionKind) string {
+	switch kind {
+	case transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_ENTER:
+		return "enter"
+	case transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_LEAVE:
+		return "leave"
+	case transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_DELETE:
+		return "delete"
+	default:
+		panic("invalid worktree transition kind")
+	}
 }
 
 func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {

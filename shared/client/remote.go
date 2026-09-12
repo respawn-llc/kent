@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,12 +14,10 @@ import (
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	processpb "core/shared/protoapi/gen/kent/api/process"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
-	"core/shared/serverjsoncontract"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -49,18 +46,17 @@ func validateRuntimeLiveResponseSession(operation string, requestedSessionID str
 }
 
 type Remote struct {
-	plan                             remoteDialPlan
-	transport                        rpcwire.ClientTransport
-	mu                               sync.Mutex
-	control                          *remoteControlConn
-	draftHandoff                     *remoteSessionControl
-	identity                         protocol.ServerIdentity
-	attachIntent                     *remoteAttachmentIntent
-	attachment                       *remoteAttachment
-	sessionExecutionResponseContract serverjsoncontract.SessionExecutionEnvironmentResponse
-	expectedRootID                   atomic.Value // string; empty disables root validation
-	noAuthAck                        atomic.Bool
-	closed                           atomic.Bool
+	plan           remoteDialPlan
+	transport      rpcwire.ClientTransport
+	mu             sync.Mutex
+	control        *remoteControlConn
+	draftHandoff   *remoteSessionControl
+	identity       protocol.ServerIdentity
+	attachIntent   *remoteAttachmentIntent
+	attachment     *remoteAttachment
+	expectedRootID atomic.Value // string; empty disables root validation
+	noAuthAck      atomic.Bool
+	closed         atomic.Bool
 }
 
 func DialRemoteURL(ctx context.Context, rpcURL string) (*Remote, error) {
@@ -369,10 +365,6 @@ func (c *Remote) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*
 		})
 }
 
-func (c *Remote) GetChatContext(ctx context.Context, req serverapi.ChatContextRequest) (serverapi.ChatContextResponse, error) {
-	return callValidatedControlRPC[serverapi.ChatContextRequest, serverapi.ChatContextResponse](c, ctx, protocol.MethodChatContextGet, req)
-}
-
 func (c *Remote) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
 	return callUnscopedRPC[serverapi.WorkflowCreateRequest, serverapi.WorkflowCreateResponse](c, ctx, protocol.MethodWorkflowCreate, req)
 }
@@ -640,205 +632,41 @@ func normalizeWorkflowTaskObservationRPCError(err error) error {
 
 func (c *Remote) ReadChatSettings(
 	ctx context.Context,
-	req serverapi.ChatSettingsReadRequest,
-) (serverapi.ChatSettingsReadResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
-	}
-	request, err := protoapi.ChatSettingsReadTargetToProto(req.Target)
-	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
-	}
+	req *chatsettingspb.ReadRequest,
+) (*chatsettingspb.ReadSuccess, error) {
 	response, err := callGeneratedBinary(c, ctx,
 		bootstrapMethod(chatsettingspb.File_kent_api_chat_settings_chat_settings_proto, "ChatSettingsService", "Read"),
-		request, &chatsettingspb.ReadResult{}, protoapi.ChatSettingsErrorFromProto)
+		req, &chatsettingspb.ReadResult{}, protoapi.ChatSettingsErrorFromProto)
 	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, err
+		return nil, err
 	}
-	decoded, err := protoapi.ChatSettingsReadFromProto(response, req.Target)
-	if err != nil {
-		return serverapi.ChatSettingsReadResponse{}, invalidResponseError(
-			"Chat settings",
-			err,
-		)
+	switch target := req.Target.(type) {
+	case *chatsettingspb.ReadRequest_NewChat:
+		if response.GetNewChat() == nil {
+			return nil, invalidResponseError("Chat settings", errors.New("New Chat catalog is required"))
+		}
+	case *chatsettingspb.ReadRequest_Session:
+		if response.GetSession() == nil || response.GetSession().Session.SessionId != target.Session.SessionId {
+			return nil, invalidResponseError("Chat settings", errors.New("response must contain the target Session"))
+		}
 	}
-	return decoded, nil
+	return response, nil
 }
 
 func (c *Remote) MutateChatSettings(
 	ctx context.Context,
-	req serverapi.ChatSettingsMutationRequest,
-) (serverapi.ChatSettingsMutationResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
-	}
-	request, err := protoapi.ChatSettingsMutationToProto(req)
-	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
-	}
+	req *chatsettingspb.MutationRequest,
+) (*chatsettingspb.MutationSuccess, error) {
 	response, err := callGeneratedBinary(c, ctx,
 		bootstrapMethod(chatsettingspb.File_kent_api_chat_settings_chat_settings_proto, "ChatSettingsService", "Mutate"),
-		request, &chatsettingspb.MutationResponse{}, protoapi.ChatSettingsErrorFromProto)
+		req, &chatsettingspb.MutationResponse{}, protoapi.ChatSettingsErrorFromProto)
 	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, err
+		return nil, err
 	}
-	decoded, err := protoapi.ChatSettingsMutationResponseFromProto(response, req.SessionID)
-	if err != nil {
-		return serverapi.ChatSettingsMutationResponse{}, invalidResponseError(
-			"Chat settings mutation",
-			err,
-		)
-	}
-	return decoded, nil
-}
-
-func (c *Remote) GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-	return callValidatedControlRPC[serverapi.SessionMainViewRequest, serverapi.SessionMainViewResponse](c, ctx, protocol.MethodSessionGetMainView, req)
-}
-
-func (c *Remote) GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-	var resp serverapi.SessionTranscriptPageResponse
-	if err := c.call(ctx, protocol.MethodSessionGetTranscriptPage, req, &resp); err != nil {
-		return resp, err
-	}
-	if err := resp.Validate(); err != nil {
-		return serverapi.SessionTranscriptPageResponse{}, fmt.Errorf("validate session transcript page response: %w", err)
-	}
-	return resp, nil
-}
-
-func (c *Remote) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req serverapi.SessionLatestCommittedAssistantFinalAnswerRequest) (serverapi.SessionLatestCommittedAssistantFinalAnswerResponse, error) {
-	var resp serverapi.SessionLatestCommittedAssistantFinalAnswerResponse
-	return resp, c.call(ctx, protocol.MethodSessionGetLatestCommittedAssistantFinalAnswer, req, &resp)
-}
-
-func (c *Remote) GetSessionExecutionEnvironment(ctx context.Context, req serverapi.SessionExecutionEnvironmentRequest) (serverapi.SessionExecutionEnvironmentResponse, error) {
-	var raw json.RawMessage
-	if err := c.call(ctx, protocol.MethodSessionGetExecutionEnvironment, req, &raw); err != nil {
-		return serverapi.SessionExecutionEnvironmentResponse{}, err
-	}
-	return c.sessionExecutionResponseContract.Decode(raw)
-}
-
-func (c *Remote) SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeSetSessionName, req, nil)
-}
-
-func (c *Remote) AppendCommittedEntry(ctx context.Context, req serverapi.RuntimeAppendCommittedEntryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeAppendCommittedEntry, req, nil)
-}
-
-func (c *Remote) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-	return callControlRPC[serverapi.RuntimeShouldCompactBeforeUserMessageRequest, serverapi.RuntimeShouldCompactBeforeUserMessageResponse](c, ctx, protocol.MethodRuntimeShouldCompactBeforeUserMessage, req)
-}
-
-func (c *Remote) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-	response, err := callDedicatedRPC[serverapi.RuntimeSubmitUserTurnRequest, serverapi.RuntimeSubmitUserTurnResponse](c, ctx, "runtime-submit-user-turn", protocol.MethodRuntimeSubmitUserTurn, req)
-	if err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeSubmitUserTurnResponse{}, fmt.Errorf("validate runtime submit user turn response: %w", err)
+	if response.Session.SessionId != req.Session.SessionId {
+		return nil, invalidResponseError("Chat settings mutation", errors.New("response must contain the target Session"))
 	}
 	return response, nil
-}
-
-func (c *Remote) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
-	return c.callDedicated(ctx, "runtime-submit-user-shell-command", protocol.MethodRuntimeSubmitUserShellCommand, req, nil)
-}
-
-func (c *Remote) CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error {
-	return c.callDedicated(ctx, "runtime-compact-context", protocol.MethodRuntimeCompactContext, req, nil)
-}
-
-func (c *Remote) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRequest) (serverapi.RuntimeInterruptResponse, error) {
-	return callDedicatedRPC[serverapi.RuntimeInterruptRequest, serverapi.RuntimeInterruptResponse](c, ctx, "runtime-interrupt", protocol.MethodRuntimeInterrupt, req)
-}
-
-func (c *Remote) LiveSteer(ctx context.Context, req serverapi.RuntimeLiveSteerRequest) (serverapi.RuntimeLiveSteerResponse, error) {
-	return callControlRPC[serverapi.RuntimeLiveSteerRequest, serverapi.RuntimeLiveSteerResponse](c, ctx, protocol.MethodRuntimeLiveSteer, req)
-}
-
-func (c *Remote) LiveStop(ctx context.Context, req serverapi.RuntimeLiveStopRequest) (serverapi.RuntimeLiveStopResponse, error) {
-	return callDedicatedRPC[serverapi.RuntimeLiveStopRequest, serverapi.RuntimeLiveStopResponse](c, ctx, "runtime-live-stop", protocol.MethodRuntimeLiveStop, req)
-}
-
-func (c *Remote) LiveWait(ctx context.Context, req serverapi.RuntimeLiveWaitRequest) (serverapi.RuntimeLiveWaitResponse, error) {
-	response, err := callDedicatedRPC[serverapi.RuntimeLiveWaitRequest, serverapi.RuntimeLiveWaitResponse](c, ctx, "runtime-live-wait", protocol.MethodRuntimeLiveWait, req)
-	if err != nil {
-		return serverapi.RuntimeLiveWaitResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeLiveWaitResponse{}, invalidResponseError("runtime live wait", err)
-	}
-	if err := validateRuntimeLiveResponseSession("runtime live wait", req.SessionID, response.SessionID); err != nil {
-		return serverapi.RuntimeLiveWaitResponse{}, err
-	}
-	return response, nil
-}
-
-func (c *Remote) LiveWatch(ctx context.Context, req serverapi.RuntimeLiveWatchRequest) (serverapi.RuntimeLiveWatchResponse, error) {
-	response, err := callDedicatedRPC[serverapi.RuntimeLiveWatchRequest, serverapi.RuntimeLiveWatchResponse](c, ctx, "runtime-live-watch", protocol.MethodRuntimeLiveWatch, req)
-	if err != nil {
-		return serverapi.RuntimeLiveWatchResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeLiveWatchResponse{}, invalidResponseError("runtime live watch", err)
-	}
-	if err := validateRuntimeLiveResponseSession("runtime live watch", req.SessionID, response.SessionID); err != nil {
-		return serverapi.RuntimeLiveWatchResponse{}, err
-	}
-	return response, nil
-}
-
-func (c *Remote) ListPendingWork(ctx context.Context, req serverapi.RuntimeListPendingWorkRequest) (serverapi.RuntimeListPendingWorkResponse, error) {
-	response, err := callControlRPC[serverapi.RuntimeListPendingWorkRequest, serverapi.RuntimeListPendingWorkResponse](c, ctx, protocol.MethodRuntimeListPendingWork, req)
-	if err != nil {
-		return serverapi.RuntimeListPendingWorkResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeListPendingWorkResponse{}, invalidResponseError("runtime pending work list", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) RemovePendingWork(ctx context.Context, req serverapi.RuntimeRemovePendingWorkRequest) (serverapi.RuntimeRemovePendingWorkResponse, error) {
-	response, err := callControlRPC[serverapi.RuntimeRemovePendingWorkRequest, serverapi.RuntimeRemovePendingWorkResponse](c, ctx, protocol.MethodRuntimeRemovePendingWork, req)
-	if err != nil {
-		return serverapi.RuntimeRemovePendingWorkResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return serverapi.RuntimeRemovePendingWorkResponse{}, invalidResponseError("runtime pending work removal", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeRecordPromptHistory, req, nil)
-}
-
-func (c *Remote) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalShowRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalShow, req)
-}
-
-func (c *Remote) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalSetRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalSet, req)
-}
-
-func (c *Remote) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalPause, req)
-}
-
-func (c *Remote) ResumeGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalResume, req)
-}
-
-func (c *Remote) CompleteGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalComplete, req)
-}
-
-func (c *Remote) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return callValidatedControlRPC[serverapi.RuntimeGoalClearRequest, serverapi.RuntimeGoalMutationResponse](c, ctx, protocol.MethodRuntimeGoalClear, req)
 }
 
 func callValidatedControlRPC[Request any, Response interface{ Validate() error }](c *Remote, ctx context.Context, method string, req Request) (Response, error) {
@@ -851,66 +679,6 @@ func callValidatedControlRPC[Request any, Response interface{ Validate() error }
 		return zero, invalidResponseError(method, err)
 	}
 	return response, nil
-}
-
-func (c *Remote) ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
-	encodedRequest, err := protoapi.EncodeJSON(protoapi.ProcessListRequestToProto(req))
-	if err != nil {
-		return serverapi.ProcessListResponse{}, err
-	}
-	var encodedResponse json.RawMessage
-	if err := c.call(ctx, protocol.MethodProcessList, json.RawMessage(encodedRequest), &encodedResponse); err != nil {
-		return serverapi.ProcessListResponse{}, err
-	}
-	var success processpb.ListSuccess
-	if err := protoapi.DecodeJSON(encodedResponse, &success); err != nil {
-		return serverapi.ProcessListResponse{}, invalidResponseError(protocol.MethodProcessList, err)
-	}
-	response, err := protoapi.ProcessListResponseFromProto(&success)
-	if err != nil {
-		return serverapi.ProcessListResponse{}, invalidResponseError(protocol.MethodProcessList, err)
-	}
-	return response, nil
-}
-
-func (c *Remote) GetProcess(ctx context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
-	var resp serverapi.ProcessGetResponse
-	return resp, c.call(ctx, protocol.MethodProcessGet, req, &resp)
-}
-
-func (c *Remote) KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
-	encodedRequest, err := protoapi.EncodeJSON(protoapi.ProcessKillRequestToProto(req))
-	if err != nil {
-		return serverapi.ProcessKillResponse{}, err
-	}
-	var resp serverapi.ProcessKillResponse
-	return resp, c.call(ctx, protocol.MethodProcessKill, json.RawMessage(encodedRequest), &resp)
-}
-
-func (c *Remote) GetInlineOutput(ctx context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
-	var resp serverapi.ProcessInlineOutputResponse
-	return resp, c.call(ctx, protocol.MethodProcessInlineOutput, req, &resp)
-}
-
-func (c *Remote) ListPendingAsksBySession(ctx context.Context, req serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error) {
-	var resp serverapi.AskListPendingBySessionResponse
-	return resp, c.call(ctx, protocol.MethodAskListPending, req, &resp)
-}
-
-func (c *Remote) AnswerPromptBatch(ctx context.Context, req serverapi.PromptAnswerBatchRequest) (serverapi.PromptAnswerBatchResponse, error) {
-	response, err := callControlRPC[serverapi.PromptAnswerBatchRequest, serverapi.PromptAnswerBatchResponse](c, ctx, protocol.MethodPromptAnswerBatch, req)
-	if err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, err
-	}
-	if err := serverapi.ValidatePromptAnswerBatchResponse(req, response); err != nil {
-		return serverapi.PromptAnswerBatchResponse{}, fmt.Errorf("validate prompt answer batch response: %w", err)
-	}
-	return response, nil
-}
-
-func (c *Remote) ListPendingApprovalsBySession(ctx context.Context, req serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-	var resp serverapi.ApprovalListPendingBySessionResponse
-	return resp, c.call(ctx, protocol.MethodApprovalListPending, req, &resp)
 }
 
 func (c *Remote) ensureOpen() error {

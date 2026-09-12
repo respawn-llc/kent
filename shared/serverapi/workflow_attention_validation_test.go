@@ -265,6 +265,10 @@ func TestWorkflowTaskActivityResponseValidationOnlyAcceptsDurableActivity(t *tes
 func validWorkflowAttentionQuestion(t *testing.T) WorkflowAttentionItem {
 	sessionName := "Session one"
 	recommended := 1
+	stepID, err := runtimeids.ParseStepID("22222222-2222-4222-8222-222222222222")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return WorkflowAttentionItem{
 		ID:          "question:task-1:node-1:session-1:question-1",
 		ProjectID:   "project-1",
@@ -277,8 +281,8 @@ func validWorkflowAttentionQuestion(t *testing.T) WorkflowAttentionItem {
 		CurrentNode: &WorkflowTaskCurrentNode{NodeID: "node-1"},
 		SessionName: &sessionName,
 		Question: &WorkflowAttentionQuestionPrompt{
-			SessionID:              mustPromptBatchSessionID(t),
-			StepID:                 mustPromptBatchStepID(t),
+			SessionID:              runtimeids.NewSessionID(),
+			StepID:                 stepID,
 			ToolCallID:             clientui.ToolCallID("question-1"),
 			Kind:                   WorkflowAttentionQuestionKindOrdinary,
 			Suggestions:            []string{"Continue"},

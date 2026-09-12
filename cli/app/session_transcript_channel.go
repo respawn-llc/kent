@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"core/cli/app/internal/runtimeattach"
-	"core/shared/clientui"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 )
 
@@ -22,7 +22,7 @@ const (
 
 type ongoingTranscriptEvent struct {
 	Kind    ongoingTranscriptEventKind
-	Message clientui.TranscriptMessage
+	Message *transcriptpb.Message
 	Err     error
 }
 
@@ -32,7 +32,7 @@ type ongoingTranscriptEventStream struct {
 	Stop               func()
 }
 
-type sessionTranscriptSubscriber func(context.Context, serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error)
+type sessionTranscriptSubscriber func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
 type sessionTranscriptReactivator func(context.Context) error
 
 func startSessionTranscriptEvents(
@@ -40,7 +40,7 @@ func startSessionTranscriptEvents(
 	sessionID string,
 	subscribe sessionTranscriptSubscriber,
 	reactivate sessionTranscriptReactivator,
-	observers ...func(clientui.TranscriptMessage),
+	observers ...func(*transcriptpb.Message),
 ) ongoingTranscriptEventStream {
 	out := make(chan ongoingTranscriptEvent, 64)
 	requests := make(chan struct{}, 1)
@@ -120,7 +120,7 @@ func startSessionTranscriptEvents(
 }
 
 type transcriptNextResult struct {
-	message clientui.TranscriptMessage
+	message *transcriptpb.Message
 	err     error
 }
 
@@ -129,7 +129,7 @@ func pumpSessionTranscriptSubscription(
 	sub serverapi.TranscriptSubscription,
 	out chan<- ongoingTranscriptEvent,
 	requests <-chan struct{},
-	observers ...func(clientui.TranscriptMessage),
+	observers ...func(*transcriptpb.Message),
 ) (reopen bool, stop bool, lossErr error) {
 	subClosed := false
 	closeSub := func() {
@@ -189,7 +189,7 @@ func waitForTranscriptRehydrationRequest(ctx context.Context, requests <-chan st
 }
 
 func subscribeSessionTranscript(ctx context.Context, sessionID string, subscribe sessionTranscriptSubscriber) (serverapi.TranscriptSubscription, error) {
-	return subscribe(ctx, serverapi.TranscriptSubscribeRequest{SessionID: sessionID})
+	return subscribe(ctx, &transcriptpb.SubscribeRequest{SessionId: sessionID})
 }
 
 func waitForTranscriptSubscriptionRetry(ctx context.Context) bool {

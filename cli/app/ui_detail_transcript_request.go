@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"core/shared/clientui"
-	"core/shared/invariant"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
@@ -18,13 +17,13 @@ import (
 type uiPendingDetailTranscriptRequest struct {
 	id        uuid.UUID
 	sessionID runtimeids.SessionID
-	request   clientui.TranscriptPageRequest
+	request   *transcriptpb.PageRequest
 	// Session replacement may warm this request outside Detail Mode.
 	detailMode bool
 	cancel     context.CancelFunc
 }
 
-func (m *uiModel) loadDetailTranscriptPageCmd(req clientui.TranscriptPageRequest) tea.Cmd {
+func (m *uiModel) loadDetailTranscriptPageCmd(req *transcriptpb.PageRequest) tea.Cmd {
 	return m.loadDetailTranscriptPageWithOptionsCmd(req, uiDetailTranscriptLoadOptions{
 		noticePolicy: uiDetailTranscriptLoadingNoticeVisible,
 	})
@@ -43,7 +42,7 @@ type uiDetailTranscriptLoadOptions struct {
 }
 
 func (m *uiModel) loadDetailTranscriptPageWithNoticePolicyCmd(
-	req clientui.TranscriptPageRequest,
+	req *transcriptpb.PageRequest,
 	noticePolicy uiDetailTranscriptLoadingNoticePolicy,
 ) tea.Cmd {
 	return m.loadDetailTranscriptPageWithOptionsCmd(req, uiDetailTranscriptLoadOptions{
@@ -52,7 +51,7 @@ func (m *uiModel) loadDetailTranscriptPageWithNoticePolicyCmd(
 }
 
 func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
-	req clientui.TranscriptPageRequest,
+	req *transcriptpb.PageRequest,
 	options uiDetailTranscriptLoadOptions,
 ) tea.Cmd {
 	if m == nil || m.pendingDetailTranscript != nil {
@@ -69,6 +68,7 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 		)
 	}
 	request := cloneTranscriptPageRequest(req)
+	request.SessionId = sessionID.String()
 	requestID := uuid.New()
 	parentCtx, cancel := context.WithCancel(context.Background())
 	m.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{
@@ -79,7 +79,7 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 		cancel:     cancel,
 	}
 	if options.noticePolicy == uiDetailTranscriptLoadingNoticeVisible &&
-		(request.Cursor != nil || request.NewerCursor != nil) {
+		request.Direction != nil {
 		m.showDetailTranscriptLoadingNotice(requestID)
 	}
 	var deadline *time.Time
@@ -105,29 +105,27 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 			ctx, timeoutCancel = context.WithDeadline(parentCtx, *deadline)
 		}
 		defer timeoutCancel()
-		resp, err := client.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{
-			SessionID:   sessionID.String(),
-			Cursor:      request.Cursor,
-			NewerCursor: request.NewerCursor,
-		})
+		resp, err := client.GetSessionTranscriptPage(ctx, request)
+		var page *transcriptpb.Page
 		if err == nil {
-			err = validateDetailTranscriptPageResponse(sessionID, resp.Transcript)
+			page = resp.Transcript
+			err = validateDetailTranscriptPageResponse(sessionID, page)
 		}
 		if deadline != nil && errors.Is(err, context.DeadlineExceeded) {
 			err = fmt.Errorf("%w: %w", errRollbackNavigationTimedOut, err)
 		}
-		return detailTranscriptLoadMsg{requestID: requestID, page: resp.Transcript, err: err}
+		return detailTranscriptLoadMsg{requestID: requestID, page: page, err: err}
 	}
 }
 
 func validateDetailTranscriptPageResponse(
 	requestSessionID runtimeids.SessionID,
-	page clientui.TranscriptPage,
+	page *transcriptpb.Page,
 ) error {
-	if err := invariant.ValidateTranscriptPage(page); err != nil {
+	if err := protoapi.Validate(page); err != nil {
 		return err
 	}
-	responseSessionID, err := runtimeids.ParseSessionID(page.SessionID)
+	responseSessionID, err := runtimeids.ParseSessionID(page.SessionId)
 	if err != nil {
 		return err
 	}

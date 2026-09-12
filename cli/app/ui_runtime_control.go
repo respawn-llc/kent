@@ -1,5 +1,7 @@
 package app
 
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+
 import (
 	"context"
 	"errors"
@@ -8,8 +10,10 @@ import (
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,8 +24,8 @@ type runtimeInterruptCandidateClient interface {
 }
 
 type chatSettingsRuntimeClient interface {
-	ReadChatSettings() (serverapi.ChatSettings, error)
-	MutateChatSettings(serverapi.ChatSettingsMutationOperation) (serverapi.ChatSettingsMutationResponse, error)
+	ReadChatSettings() (*chatsettingspb.Settings, error)
+	MutateChatSettings(*chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error)
 }
 
 func (m *uiModel) runtimeClient() clientui.RuntimeClient {
@@ -35,83 +39,78 @@ func (m *uiModel) hasRuntimeClient() bool {
 	return m.runtimeClient() != nil
 }
 
-func (m *uiModel) chatSettingsMutationCommand(operation serverapi.ChatSettingsMutationOperation) tea.Cmd {
+func (m *uiModel) chatSettingsMutationCommand(operation *chatsettingspb.MutationOperation) tea.Cmd {
 	client := m.runtimeClient().(chatSettingsRuntimeClient)
 	return func() tea.Msg {
 		response, err := client.MutateChatSettings(operation)
-		return chatSettingsDoneMsg{operation: operation.Kind, response: response, err: err}
+		return chatSettingsDoneMsg{operation: operation, response: response, err: err}
 	}
 }
 
 func (m *uiModel) chatSettingsToggleCommand(
-	kind serverapi.ChatSettingsMutationOperationKind,
+	operation *chatsettingspb.MutationOperation,
 	requested string,
 ) tea.Cmd {
 	client := m.runtimeClient().(chatSettingsRuntimeClient)
 	return func() tea.Msg {
 		settings, err := client.ReadChatSettings()
 		if err != nil {
-			return chatSettingsDoneMsg{operation: kind, err: err}
+			return chatSettingsDoneMsg{operation: operation, err: err}
 		}
-		operation, err := resolveChatSettingsToggle(kind, requested, settings)
+		operation, err := resolveChatSettingsToggle(operation, requested, settings)
 		if err != nil {
-			return chatSettingsDoneMsg{operation: kind, err: err}
+			return chatSettingsDoneMsg{operation: operation, err: err}
 		}
 		response, err := client.MutateChatSettings(operation)
-		return chatSettingsDoneMsg{operation: kind, response: response, err: err}
+		return chatSettingsDoneMsg{operation: operation, response: response, err: err}
 	}
 }
 
 func resolveChatSettingsToggle(
-	kind serverapi.ChatSettingsMutationOperationKind,
+	operation *chatsettingspb.MutationOperation,
 	requested string,
-	settings serverapi.ChatSettings,
-) (serverapi.ChatSettingsMutationOperation, error) {
+	settings *chatsettingspb.Settings,
+) (*chatsettingspb.MutationOperation, error) {
 	requested = strings.ToLower(strings.TrimSpace(requested))
-	switch kind {
-	case serverapi.ChatSettingsMutationSupervisor:
+	switch operation.Operation.(type) {
+	case *chatsettingspb.MutationOperation_Supervisor:
 		switch requested {
 		case "on":
 			value := settings.Supervisor.Baseline
-			if value == serverapi.ChatSettingsSupervisorOff {
-				value = serverapi.ChatSettingsSupervisorAfterEdits
+			if value == chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF {
+				value = chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_AFTER_EDITS
 			}
-			encoded := string(value)
-			return serverapi.ChatSettingsMutationOperation{
-				Kind:  kind,
-				Value: &encoded,
-			}, nil
+			return &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Supervisor{Supervisor: value}}, nil
 		case "off":
-			value := string(serverapi.ChatSettingsSupervisorOff)
-			return serverapi.ChatSettingsMutationOperation{Kind: kind, Value: &value}, nil
+			return &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Supervisor{Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF}}, nil
 		case "":
-			value := string(serverapi.ChatSettingsSupervisorOff)
-			if settings.Supervisor.Value == serverapi.ChatSettingsSupervisorOff {
-				value = string(settings.Supervisor.Baseline)
-				if value == string(serverapi.ChatSettingsSupervisorOff) {
-					value = string(serverapi.ChatSettingsSupervisorAfterEdits)
+			value := chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
+			if settings.Supervisor.Value == chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF {
+				value = settings.Supervisor.Baseline
+				if value == chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF {
+					value = chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_AFTER_EDITS
 				}
 			}
-			return serverapi.ChatSettingsMutationOperation{Kind: kind, Value: &value}, nil
+			return &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Supervisor{Supervisor: value}}, nil
 		}
-	case serverapi.ChatSettingsMutationFast:
+	case *chatsettingspb.MutationOperation_FastEnabled:
 		value := settings.Fast != nil && settings.Fast.Value
-		return enabledChatSettingsOperation(kind, requested, value)
-	case serverapi.ChatSettingsMutationQuestions:
-		return enabledChatSettingsOperation(kind, requested, settings.Questions.Enabled)
-	case serverapi.ChatSettingsMutationAutoCompaction:
-		return enabledChatSettingsOperation(kind, requested, settings.AutoCompaction.Stored)
+		return enabledChatSettingsOperation(operation, requested, value)
+	case *chatsettingspb.MutationOperation_QuestionsEnabled:
+		return enabledChatSettingsOperation(operation, requested, settings.Questions.Enabled)
+	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
+		return enabledChatSettingsOperation(operation, requested, settings.AutoCompaction.Stored)
 	default:
-		return serverapi.ChatSettingsMutationOperation{}, errors.New("unsupported Chat settings toggle")
+		return nil, errors.New("unsupported Chat settings toggle")
 	}
-	return serverapi.ChatSettingsMutationOperation{}, errors.New("invalid Chat settings toggle")
+	return nil, errors.New("invalid Chat settings toggle")
 }
 
 func enabledChatSettingsOperation(
-	kind serverapi.ChatSettingsMutationOperationKind,
+	operation *chatsettingspb.MutationOperation,
 	requested string,
 	current bool,
-) (serverapi.ChatSettingsMutationOperation, error) {
+) (*chatsettingspb.MutationOperation, error) {
 	target := current
 	switch requested {
 	case "":
@@ -121,12 +120,18 @@ func enabledChatSettingsOperation(
 	case "off":
 		target = false
 	default:
-		return serverapi.ChatSettingsMutationOperation{}, errors.New("invalid Chat settings toggle")
+		return nil, errors.New("invalid Chat settings toggle")
 	}
-	return serverapi.ChatSettingsMutationOperation{
-		Kind:    kind,
-		Enabled: &target,
-	}, nil
+	switch operation.Operation.(type) {
+	case *chatsettingspb.MutationOperation_FastEnabled:
+		return &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_FastEnabled{FastEnabled: target}}, nil
+	case *chatsettingspb.MutationOperation_QuestionsEnabled:
+		return &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: target}}, nil
+	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
+		return &chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_AutoCompactionEnabled{AutoCompactionEnabled: target}}, nil
+	default:
+		return nil, errors.New("unsupported Chat settings toggle")
+	}
 }
 
 func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
@@ -140,21 +145,21 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 	m.thinkingLevel = settings.SelectedAgent.Thinking
 	m.fastModeAvailable = settings.Fast != nil
 	m.fastModeEnabled = settings.Fast != nil && settings.Fast.Value
-	m.reviewerMode = string(settings.Supervisor.Value)
-	m.reviewerEnabled = settings.Supervisor.Value != serverapi.ChatSettingsSupervisorOff
+	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
+	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
 	m.questionsEnabled = settings.Questions.Enabled
 	m.autoCompactionEnabled = response.Context.AutoCompactionEnabled
 	m.modelContractLocked = settings.AgentLocked
 	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 	m.status.snapshot.CompactionCount = int(response.Context.CompletedCompactionCount)
-	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), clientui.RuntimeContextUsage{UsedTokens: int(response.Context.UsedTokens), WindowTokens: int(response.Context.ContextWindowTokens)})
-	if response.Result.Kind != serverapi.ChatSettingsMutationApplied {
+	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), &runtimepb.ContextUsage{UsedTokens: int32(response.Context.UsedTokens), WindowTokens: int32(response.Context.ContextWindowTokens)})
+	if rejected := response.Result.GetRejected(); rejected != nil {
 		return m.sendTransientStatusWithNoticeID(
-			chatSettingsRejectionNotices[response.Result.Rejected.Reason],
+			chatSettingsRejectionNotices[rejected.Reason],
 			uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "",
 		)
 	}
-	if response.Result.Applied == nil || !response.Result.Applied.Changed {
+	if !response.Result.GetApplied().GetChanged() {
 		return nil
 	}
 	return m.sendTransientStatusWithNoticeID(
@@ -164,48 +169,61 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 	)
 }
 
-func chatSettingsMutationNoticeID(kind serverapi.ChatSettingsMutationOperationKind) string {
-	switch kind {
-	case serverapi.ChatSettingsMutationSupervisor:
-		return sessionSettingNoticeID(clientui.SessionSettingSupervisor)
-	case serverapi.ChatSettingsMutationThinking:
-		return sessionSettingNoticeID(clientui.SessionSettingThinking)
-	case serverapi.ChatSettingsMutationFast:
-		return sessionSettingNoticeID(clientui.SessionSettingFastMode)
-	case serverapi.ChatSettingsMutationQuestions:
-		return sessionSettingNoticeID(clientui.SessionSettingQuestions)
-	case serverapi.ChatSettingsMutationAutoCompaction:
-		return sessionSettingNoticeID(clientui.SessionSettingAutoCompaction)
-	case serverapi.ChatSettingsMutationAgent:
+func chatSettingsMutationNoticeID(operation *chatsettingspb.MutationOperation) string {
+	switch operation.Operation.(type) {
+	case *chatsettingspb.MutationOperation_Supervisor:
+		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR)
+	case *chatsettingspb.MutationOperation_Thinking:
+		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING)
+	case *chatsettingspb.MutationOperation_FastEnabled:
+		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE)
+	case *chatsettingspb.MutationOperation_QuestionsEnabled:
+		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS)
+	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
+		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION)
+	case *chatsettingspb.MutationOperation_AgentRole:
 		return "session-setting:agent"
 	default:
 		panic("validated Chat settings mutation kind is exhaustive")
 	}
 }
 
-func chatSettingsSuccessNotice(kind serverapi.ChatSettingsMutationOperationKind, settings serverapi.ChatSettings) string {
-	switch kind {
-	case serverapi.ChatSettingsMutationAgent:
+func chatSettingsSuccessNotice(operation *chatsettingspb.MutationOperation, settings *chatsettingspb.Settings) string {
+	switch operation.Operation.(type) {
+	case *chatsettingspb.MutationOperation_AgentRole:
 		return "Agent: " + settings.SelectedAgent.Role
-	case serverapi.ChatSettingsMutationSupervisor:
+	case *chatsettingspb.MutationOperation_Supervisor:
 		return "Supervisor: " + chatSettingsSupervisorNotices[settings.Supervisor.Value]
-	case serverapi.ChatSettingsMutationThinking:
+	case *chatsettingspb.MutationOperation_Thinking:
 		return "Thinking: " + settings.SelectedAgent.Thinking
-	case serverapi.ChatSettingsMutationFast:
+	case *chatsettingspb.MutationOperation_FastEnabled:
 		return "Fast: " + chatSettingsOnOffValues[settings.Fast != nil && settings.Fast.Value]
-	case serverapi.ChatSettingsMutationQuestions:
+	case *chatsettingspb.MutationOperation_QuestionsEnabled:
 		return "Questions: " + chatSettingsOnOffValues[settings.Questions.Enabled]
-	case serverapi.ChatSettingsMutationAutoCompaction:
+	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
 		return "Auto-compaction: " + chatSettingsOnOffValues[settings.AutoCompaction.Stored]
 	}
-	panic("invalid Chat settings mutation operation kind " + string(kind))
+	panic("invalid Chat settings mutation operation kind")
+}
+
+func supervisorRuntimeMode(value chatsettingspb.SupervisorValue) string {
+	switch value {
+	case chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF:
+		return "off"
+	case chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_AFTER_EDITS:
+		return "edits"
+	case chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_ALWAYS:
+		return "all"
+	default:
+		panic("invalid supervisor value")
+	}
 }
 
 var chatSettingsOnOffValues = map[bool]string{false: "off", true: "on"}
 
-var chatSettingsSupervisorNotices = map[serverapi.ChatSettingsSupervisorValue]string{serverapi.ChatSettingsSupervisorOff: "Off", serverapi.ChatSettingsSupervisorAfterEdits: "After edits", serverapi.ChatSettingsSupervisorAlways: "Always"}
+var chatSettingsSupervisorNotices = map[chatsettingspb.SupervisorValue]string{chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF: "Off", chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_AFTER_EDITS: "After edits", chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_ALWAYS: "Always"}
 
-var chatSettingsRejectionNotices = map[serverapi.ChatSettingsMutationRejectionReason]string{serverapi.ChatSettingsMutationAgentLocked: "Agent is locked", serverapi.ChatSettingsMutationAgentUnavailable: "Agent is unavailable", serverapi.ChatSettingsMutationThinkingUnavailable: "Thinking is unavailable", serverapi.ChatSettingsMutationFastUnavailable: "Fast mode is unavailable", serverapi.ChatSettingsMutationAutoCompactionPolicyLock: "Auto-compaction is unavailable"}
+var chatSettingsRejectionNotices = map[chatsettingspb.MutationRejectionReason]string{chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED: "Agent is locked", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_UNAVAILABLE: "Agent is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE: "Thinking is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_FAST_UNAVAILABLE: "Fast mode is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AUTO_COMPACTION_POLICY_LOCKED: "Auto-compaction is unavailable"}
 
 func (m *uiModel) setRuntimeSessionName(name string) error {
 	m.checkTUIBlockingOperation("runtime control mutation", "set session name")
@@ -217,7 +235,7 @@ func (m *uiModel) setRuntimeSessionName(name string) error {
 	return nil
 }
 
-func (m *uiModel) showRuntimeGoal() (*clientui.RuntimeGoal, error) {
+func (m *uiModel) showRuntimeGoal() (*runtimepb.GoalView, error) {
 	m.checkTUIBlockingOperation("runtime control read", "show goal")
 	if client := m.runtimeClient(); client != nil {
 		goal, err := client.ShowGoal()
@@ -505,7 +523,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 			decision := m.startRuntimeMainViewRefreshRequest(runtimeReadModelResetMainViewRefreshRequest())
 			return tea.Batch(followUpCmd, decision.cmd)
 		}
-		if view := m.cachedRuntimeMainView(); view.Activity.State != "" && !view.Activity.ActiveForControl() && m.hasPendingInterrupt() {
+		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
 			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {
 				m.activity = uiActivityError
 				return tea.Batch(followUpCmd, m.sendTransientStatusWithNoticeID("invalid runtime activity: "+err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))

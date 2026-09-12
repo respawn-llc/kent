@@ -233,7 +233,7 @@ message SessionExecutionWorktreeTarget {
 }
 
 message SessionExecutionTarget {
-  string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string workspace_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_root = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   kent.api.project.ProjectAvailability workspace_availability = 4 [(buf.validate.field).enum = {

@@ -105,10 +105,8 @@ export function chatOperationError(method: DescMethod, failure: ChatWireError): 
         operation: failure.detail.value.operation ?? null,
         cause: failure.detail.value.cause ?? null,
       });
+    case "pendingWorkNotPending":
     case undefined:
-      if (failure.code.length === 0) {
-        throw new ContractError("Chat operation returned an empty error code.");
-      }
       return new ChatOperationError(generic, { kind: "unknown", code: failure.code });
   }
 }

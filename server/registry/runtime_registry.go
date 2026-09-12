@@ -20,6 +20,10 @@ import (
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -37,7 +41,7 @@ type RuntimeRegistry struct {
 	questionBatches            *attentionnotify.QuestionBatchTracker
 	workflowEventPublisher     func(context.Context, serverapi.WorkflowProjectEvent) error
 	workflowAttentionSnapshot  WorkflowAttentionNotificationSnapshotSource
-	executionTargetResolver    func(context.Context, string) (*clientui.SessionExecutionTarget, error)
+	executionTargetResolver    func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 	backgroundProcessSnapshots func() []shelltool.Snapshot
 }
 
@@ -45,7 +49,7 @@ type authorityRuntimeEntry struct {
 	ref         runtimeids.SessionResourceRef
 	engine      *runtime.Engine
 	sessionFeed *sessionFeedSequencer
-	mainView    atomic.Pointer[clientui.RuntimeMainView]
+	mainView    atomic.Pointer[runtimepb.MainView]
 
 	publicationMu sync.Mutex
 	mu            sync.Mutex
@@ -242,7 +246,7 @@ func (e *authorityRuntimeEntry) transcriptAttachable() bool {
 	return e.lifecycle == authorityRuntimeEntryReady && e.feedReady
 }
 
-func (r *RuntimeRegistry) WithExecutionTargetResolver(resolver func(context.Context, string) (*clientui.SessionExecutionTarget, error)) *RuntimeRegistry {
+func (r *RuntimeRegistry) WithExecutionTargetResolver(resolver func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)) *RuntimeRegistry {
 	if r == nil {
 		return nil
 	}
@@ -277,7 +281,7 @@ func (r *RuntimeRegistry) ActiveRuntimeActivitySnapshots(context.Context) ([]run
 			panic("Runtime Main View index contains an invalid entry")
 		}
 		view := entry.mainView.Load()
-		if view == nil || !view.Activity.ActiveForControl() {
+		if view == nil || !protoapi.RuntimeActivityActiveForControl(view.Activity) {
 			return true
 		}
 		snapshots = append(snapshots, runtimeactivity.ActiveSessionSnapshot{
@@ -292,7 +296,7 @@ func (r *RuntimeRegistry) ActiveRuntimeActivitySnapshots(context.Context) ([]run
 	return snapshots, nil
 }
 
-func (r *RuntimeRegistry) RuntimeReadModelFeedSnapshot(_ context.Context, sessionID string) (clientui.RuntimeReadModelUpdate, error) {
+func (r *RuntimeRegistry) RuntimeReadModelFeedSnapshot(_ context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	id := strings.TrimSpace(sessionID)
 	if r == nil || id == "" {
 		return runtimeactivity.BuildFeedSnapshot(
@@ -304,7 +308,7 @@ func (r *RuntimeRegistry) RuntimeReadModelFeedSnapshot(_ context.Context, sessio
 	return runtimeactivity.BuildFeedSnapshot(runtimeactivity.NextReadModelVersion(id), resolver)
 }
 
-func (r *RuntimeRegistry) unavailableRuntimeReadModelFeedSnapshot(sessionID string) (clientui.RuntimeReadModelUpdate, error) {
+func (r *RuntimeRegistry) unavailableRuntimeReadModelFeedSnapshot(sessionID string) (*runtimepb.ReadModelUpdate, error) {
 	id := strings.TrimSpace(sessionID)
 	return runtimeactivity.BuildFeedSnapshot(runtimeactivity.NextReadModelVersion(id), runtimeactivity.ResolverSnapshot{})
 }
@@ -420,12 +424,12 @@ func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt 
 		entry.sessionFeed.Publish(messages)
 	}
 	if runtimeEventShouldPublishSessionStatus(evt) {
-		return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
+		return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 			status, err := runtimeview.TranscriptSessionStatusFromRuntime(entry.engine)
 			if err != nil {
 				return nil, err
 			}
-			return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(status)}, nil
+			return []*transcriptpb.Event{{Payload: &transcriptpb.Event_SessionStatus{SessionStatus: status}}}, nil
 		})
 	}
 	return nil
@@ -440,12 +444,12 @@ func (r *RuntimeRegistry) PublishSessionIdentity(sessionID string) error {
 	if entry == nil {
 		return nil
 	}
-	return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
+	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 		identity, err := r.sessionIdentity(entry, id)
 		if err != nil {
 			return nil, err
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(identity)}, nil
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_SessionIdentity{SessionIdentity: identity}}}, nil
 	})
 }
 
@@ -457,23 +461,23 @@ func (r *RuntimeRegistry) PublishSessionStatus(sessionID string) error {
 	if entry == nil {
 		return nil
 	}
-	return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
+	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 		status, err := r.sessionStatus(entry)
 		if err != nil {
 			return nil, err
 		}
-		return []clientui.TranscriptEvent{clientui.NewTranscriptEvent(status)}, nil
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_SessionStatus{SessionStatus: status}}}, nil
 	})
 }
 
 func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	sessionID string,
-	feedback clientui.TranscriptSessionSettingFeedback,
+	feedback *transcriptpb.SessionSettingFeedback,
 ) error {
 	if r == nil {
 		return nil
 	}
-	if err := feedback.Validate(); err != nil {
+	if err := protoapi.Validate(feedback); err != nil {
 		return err
 	}
 	id := strings.TrimSpace(sessionID)
@@ -481,15 +485,15 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	if entry == nil {
 		return nil
 	}
-	return r.publishTranscriptAndMainView(entry, func() ([]clientui.TranscriptEvent, error) {
-		feedbackEvent := clientui.NewTranscriptEvent(feedback)
-		if feedback.Kind == clientui.SessionSettingSessionName {
+	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
+		feedbackEvent := &transcriptpb.Event{Payload: &transcriptpb.Event_SessionSettingFeedback{SessionSettingFeedback: feedback}}
+		if feedback.Kind == transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME {
 			identity, err := r.sessionIdentity(entry, id)
 			if err != nil {
 				return nil, err
 			}
-			return []clientui.TranscriptEvent{
-				clientui.NewTranscriptEvent(identity),
+			return []*transcriptpb.Event{
+				{Payload: &transcriptpb.Event_SessionIdentity{SessionIdentity: identity}},
 				feedbackEvent,
 			}, nil
 		}
@@ -497,8 +501,8 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 		if err != nil {
 			return nil, err
 		}
-		return []clientui.TranscriptEvent{
-			clientui.NewTranscriptEvent(status),
+		return []*transcriptpb.Event{
+			{Payload: &transcriptpb.Event_SessionStatus{SessionStatus: status}},
 			feedbackEvent,
 		}, nil
 	})
@@ -507,24 +511,24 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 func (r *RuntimeRegistry) sessionIdentity(
 	entry *authorityRuntimeEntry,
 	sessionID string,
-) (clientui.TranscriptSessionIdentity, error) {
+) (*transcriptpb.SessionIdentity, error) {
 	identity, err := runtimeview.TranscriptSessionIdentityFromRuntime(entry.engine)
 	if err != nil {
-		return clientui.TranscriptSessionIdentity{}, err
+		return nil, err
 	}
 	target, err := r.resolveSessionExecutionTarget(context.Background(), sessionID)
 	if err != nil {
-		return clientui.TranscriptSessionIdentity{}, err
+		return nil, err
 	}
 	identity.ExecutionTarget = target
 	return identity, nil
 }
 
-func (r *RuntimeRegistry) sessionStatus(entry *authorityRuntimeEntry) (clientui.TranscriptSessionStatus, error) {
+func (r *RuntimeRegistry) sessionStatus(entry *authorityRuntimeEntry) (*transcriptpb.SessionStatus, error) {
 	return runtimeview.TranscriptSessionStatusFromRuntime(entry.engine)
 }
 
-func (r *RuntimeRegistry) resolveSessionExecutionTarget(ctx context.Context, sessionID string) (*clientui.SessionExecutionTarget, error) {
+func (r *RuntimeRegistry) resolveSessionExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	if r == nil || r.executionTargetResolver == nil {
 		return nil, nil
 	}
@@ -535,11 +539,11 @@ func (r *RuntimeRegistry) resolveSessionExecutionTarget(ctx context.Context, ses
 	if target == nil {
 		return nil, nil
 	}
-	normalized := clientui.NormalizeSessionExecutionTarget(*target)
+	normalized := clientui.NormalizeSessionExecutionTarget(target)
 	if clientui.SessionExecutionTargetIsZero(normalized) {
 		return nil, fmt.Errorf("resolve execution target for session %q returned an empty target", strings.TrimSpace(sessionID))
 	}
-	return &normalized, nil
+	return normalized, nil
 }
 
 func runtimeEventShouldPublishSessionStatus(evt runtime.Event) bool {
@@ -550,7 +554,7 @@ func transcriptEventRequiresVisibleSubscriber(evt runtime.Event) bool {
 	return evt.Kind == runtime.EventAssistantDelta || evt.Kind == runtime.EventAssistantDeltaReset
 }
 
-func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update clientui.RuntimeReadModelUpdate) {
+func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update *runtimepb.ReadModelUpdate) {
 	if r == nil {
 		return
 	}
@@ -558,14 +562,14 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 	if entry == nil {
 		return
 	}
-	if err := update.Validate(); err != nil {
+	if err := protoapi.Validate(update); err != nil {
 		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
 	}
 	entry.publicationMu.Lock()
 	defer entry.publicationMu.Unlock()
 	current := entry.mainView.Load()
 	if current != nil &&
-		(current.Version == update.Version || current.Version.NewerThan(update.Version)) {
+		(protoapi.ReadModelVersionsEqual(current.Version, update.Version) || protoapi.ReadModelVersionNewerThan(current.Version, update.Version)) {
 		return
 	}
 	publicationErr := r.publishRuntimeMainViewLocked(entry, update.Version, update.Activity)
@@ -573,7 +577,7 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 		log.Printf("publish Runtime Main View for Session %q: %v", strings.TrimSpace(sessionID), publicationErr)
 	}
 	entry.sessionFeed.PublishRuntimeReadModel(update)
-	r.updateAggregateRuntimeActivityForAuthority(sessionID, entry, update.Activity.ActiveForControl())
+	r.updateAggregateRuntimeActivityForAuthority(sessionID, entry, protoapi.RuntimeActivityActiveForControl(update.Activity))
 }
 
 func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, outcome clientui.WorktreeTransitionOutcome) {
@@ -587,39 +591,70 @@ func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, out
 	if entry == nil {
 		return
 	}
-	transcriptOutcome := clientui.TranscriptWorktreeTransitionOutcome{
-		OperationID: outcome.OperationID,
-		Transition:  outcome.Transition,
-		State:       outcome.State,
+	transcriptOutcome := &transcriptpb.WorktreeTransitionOutcome{
+		OperationId: outcome.OperationID.String(),
+	}
+	switch outcome.Transition {
+	case clientui.WorktreeTransitionEnter:
+		transcriptOutcome.Transition = transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_ENTER
+	case clientui.WorktreeTransitionLeave:
+		transcriptOutcome.Transition = transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_LEAVE
+	case clientui.WorktreeTransitionDelete:
+		transcriptOutcome.Transition = transcriptpb.WorktreeTransitionKind_WORKTREE_TRANSITION_KIND_DELETE
+	}
+	switch outcome.State {
+	case clientui.WorktreeTransitionCompleted:
+		transcriptOutcome.State = transcriptpb.WorktreeTransitionState_WORKTREE_TRANSITION_STATE_COMPLETED
+	case clientui.WorktreeTransitionFailed:
+		transcriptOutcome.State = transcriptpb.WorktreeTransitionState_WORKTREE_TRANSITION_STATE_FAILED
 	}
 	if outcome.Failure != nil {
 		if outcome.Failure.SelectorError != nil {
-			transcriptOutcome.SelectorError = outcome.Failure.SelectorError
+			transcriptOutcome.FailureDetail = &transcriptpb.WorktreeTransitionOutcome_SelectorError{SelectorError: outcome.Failure.SelectorError}
 		} else {
-			transcriptOutcome.Failure = &clientui.TranscriptDiagnostic{
-				Code:   clientui.TranscriptDiagnosticCode("worktree_transition_failed"),
+			transcriptOutcome.FailureDetail = &transcriptpb.WorktreeTransitionOutcome_Failure{Failure: &transcriptpb.Diagnostic{
+				Code:   "worktree_transition_failed",
 				Detail: outcome.Failure.Diagnostic,
-			}
+			}}
 		}
 		if outcome.Failure.DeletePrecondition != nil {
-			dirtyState := *outcome.Failure.DeletePrecondition
-			transcriptOutcome.DeletePrecondition = &dirtyState
+			native := outcome.Failure.DeletePrecondition
+			dirtyState := &worktreepb.DirtyState{UnknownCause: native.UnknownCause}
+			switch native.Kind {
+			case clientui.WorktreeDirtyStateClean:
+				dirtyState.Kind = worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN
+			case clientui.WorktreeDirtyStateDirty:
+				dirtyState.Kind = worktreepb.DirtyStateKind_DIRTY_STATE_DIRTY
+			case clientui.WorktreeDirtyStateUnknown:
+				dirtyState.Kind = worktreepb.DirtyStateKind_DIRTY_STATE_UNKNOWN
+			}
+			if native.DirtyFileCount != nil {
+				count, err := protoapi.Int32(*native.DirtyFileCount, "dirty file count")
+				if err != nil {
+					if closeErr := entry.sessionFeed.CloseContractViolation(err); closeErr != nil {
+						log.Printf("publish Worktree transition for Session %q: %v", sessionID, closeErr)
+					}
+					return
+				}
+				dirtyState.DirtyFileCount = &count
+			}
+			transcriptOutcome.DeletePrecondition = &worktreepb.DeletePreconditionDetails{DirtyState: dirtyState}
 		}
 	}
-	entry.sessionFeed.Publish([]clientui.TranscriptEvent{clientui.NewTranscriptEvent(transcriptOutcome)})
+	entry.sessionFeed.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_WorktreeTransitionOutcome{WorktreeTransitionOutcome: transcriptOutcome}}})
 }
 
-func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req serverapi.TranscriptSubscribeRequest) (serverapi.TranscriptSubscription, error) {
+func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 	if r == nil {
 		return nil, fmt.Errorf("runtime registry is required")
 	}
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	id := strings.TrimSpace(req.SessionID)
+	id := strings.TrimSpace(req.SessionId)
 	for {
 		authorityEntry, authorityChanged := r.authorityEntryAndChange(id)
 		if authorityEntry != nil {
@@ -647,7 +682,7 @@ func (r *RuntimeRegistry) subscribeAuthorityTranscript(ctx context.Context, id s
 			return fmt.Errorf("read transcript hydration tail segment: %w", pageErr)
 		}
 		var subscribeErr error
-		sub, subscribeErr = entry.sessionFeed.Subscribe(func() (clientui.TranscriptHydration, error) {
+		sub, subscribeErr = entry.sessionFeed.Subscribe(func() (*transcriptpb.Hydration, error) {
 			return r.composeTranscriptHydration(ctx, id, entry, snapshot, tailPage)
 		})
 		return subscribeErr

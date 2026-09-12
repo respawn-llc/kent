@@ -2,21 +2,21 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"core/server/onboarding"
 	"core/server/promptcommands"
-	"core/shared/clientui"
+	"core/shared/protoapi"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
-	"core/shared/protocol"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/rpcwire"
 	"core/shared/runtimeids"
-	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 
 	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
@@ -26,18 +26,12 @@ func TestRemotePromptCommandCatalogUsesAttachedWorkspaceAndValidatesResponse(t *
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		acceptRemoteHandshake(t, ws)
 		acceptRemoteProjectAttachment(t, ws, "workspace-b", "/workspace-b")
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive catalog request: %v", err)
-		}
-		if req.Method != protocol.MethodPromptCommandCatalogGet {
-			t.Fatalf("catalog method = %q, want %q", req.Method, protocol.MethodPromptCommandCatalogGet)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.PromptCommandCatalogResponse{
-			Commands: []serverapi.PromptCommandCatalogEntry{{Name: "prompt:remote_demo", Preview: "remote"}},
-		})); err != nil {
-			t.Fatalf("send catalog response: %v", err)
-		}
+		req := receiveRemoteGeneratedCall(t, ws, "PromptCommandService", "GetCatalog", &promptcommandpb.GetCatalogRequest{})
+		sendRemoteGeneratedResult(t, ws, req, &promptcommandpb.GetCatalogResult{
+			Outcome: &promptcommandpb.GetCatalogResult_Success{Success: &promptcommandpb.Catalog{
+				Commands: []*promptcommandpb.CatalogEntry{{Name: "prompt:remote_demo", Preview: "remote"}},
+			}},
+		})
 	})
 
 	remote, err := DialRemoteURLForProjectWorkspace(context.Background(), "ws"+server.URL[len("http"):], "project-1", "/workspace-b")
@@ -45,7 +39,7 @@ func TestRemotePromptCommandCatalogUsesAttachedWorkspaceAndValidatesResponse(t *
 		t.Fatalf("DialRemoteURLForProjectWorkspace: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	catalog, err := remote.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	catalog, err := remote.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("GetPromptCommandCatalog: %v", err)
 	}
@@ -64,20 +58,14 @@ func TestRemotePromptCommandCatalogUsesAttachedWorkspaceAndValidatesResponse(t *
 func TestRemotePromptCommandErrorRoundTripsTypedKind(t *testing.T) {
 	command := "prompt:stale"
 	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		req := acceptRemoteHandshake(t, ws)
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive catalog request: %v", err)
-		}
-		if req.Method != protocol.MethodPromptCommandCatalogGet {
-			t.Fatalf("catalog method = %q", req.Method)
-		}
-		data := (&serverapi.PromptCommandError{
-			Kind:    serverapi.PromptCommandErrorKindCommandNotFound,
-			Command: &command,
-		}).RPCErrorData()
-		if err := websocket.JSON.Send(ws, protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodePromptCommands, "stale", data)); err != nil {
-			t.Fatalf("send typed error: %v", err)
-		}
+		acceptRemoteHandshake(t, ws)
+		req := receiveRemoteGeneratedCall(t, ws, "PromptCommandService", "GetCatalog", &promptcommandpb.GetCatalogRequest{})
+		sendRemoteGeneratedResult(t, ws, req, &promptcommandpb.GetCatalogResult{
+			Outcome: &promptcommandpb.GetCatalogResult_Error{Error: &promptcommandpb.GetCatalogError{
+				Code:   "command_not_found",
+				Detail: &promptcommandpb.GetCatalogError_CommandNotFound{CommandNotFound: &promptcommandpb.CommandNotFoundDetails{Command: command}},
+			}},
+		})
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -85,7 +73,7 @@ func TestRemotePromptCommandErrorRoundTripsTypedKind(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 	var typed *serverapi.PromptCommandError
-	_, err = remote.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	_, err = remote.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if !errors.As(err, &typed) {
 		t.Fatalf("error = %T %v, want PromptCommandError", err, err)
 	}
@@ -135,61 +123,112 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	}
 	service := promptcommands.New(serverRoot, serverWorkspace)
 	resolvedContent := make(chan string, 1)
-	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		acceptRemoteHandshake(t, ws)
-		attach := acceptRemoteProjectAttachment(t, ws, "workspace-server", serverWorkspace)
-		if attach.GetWorkspaceRoot() != clientRoot {
-			t.Errorf("client workspace root = %q, want %q", attach.GetWorkspaceRoot(), clientRoot)
-			return
-		}
-		var req protocol.Request
-		for {
-			if err := websocket.JSON.Receive(ws, &req); err != nil {
+	submitMethod := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService").Methods().ByName("SubmitUserTurn")
+	submitOperation, err := protoapi.OperationFromDescriptor(submitMethod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogMethod := promptcommandpb.File_kent_api_prompt_command_prompt_command_proto.Services().ByName("PromptCommandService").Methods().ByName("GetCatalog")
+	catalogOperation, err := protoapi.OperationFromDescriptor(catalogMethod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(func(ctx context.Context, conn rpcwire.Conn) {
+		for event := range conn.Events() {
+			if event.Err != nil {
 				return
 			}
-			switch req.Method {
-			case protocol.MethodPromptCommandCatalogGet:
-				entries, err := service.Catalog()
+			_, handled, err := handleRemoteTestSetupFrame(ctx, conn, event.Frame, remoteTestSetupResponse{
+				projectID: "project-1", workspaceID: "workspace-server", workspaceRoot: serverWorkspace,
+			})
+			if handled {
 				if err != nil {
-					t.Errorf("Catalog: %v", err)
+					t.Errorf("setup: %v", err)
 					return
 				}
-				if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.PromptCommandCatalogResponse{Commands: entries})); err != nil {
-					t.Errorf("send catalog response: %v", err)
+				continue
+			}
+			switch event.Frame.Kind {
+			case rpcwire.FrameBinary:
+				envelope, err := protoapi.DecodeEnvelope(event.Frame.Payload)
+				if err != nil {
+					t.Errorf("decode submit envelope: %v", err)
 					return
 				}
-			case protocol.MethodRuntimeSubmitUserTurn:
-				var submit serverapi.RuntimeSubmitUserTurnRequest
-				if err := json.Unmarshal(req.Params, &submit); err != nil {
+				call := envelope.GetCall()
+				if call != nil && call.Operation == catalogOperation.Name {
+					if err := protoapi.Decode(call.Payload, &promptcommandpb.GetCatalogRequest{}); err != nil {
+						t.Errorf("decode catalog request: %v", err)
+						return
+					}
+					entries, err := service.Catalog()
+					if err != nil {
+						t.Errorf("Catalog: %v", err)
+						return
+					}
+					catalog := &promptcommandpb.Catalog{}
+					for _, entry := range entries {
+						catalog.Commands = append(catalog.Commands, &promptcommandpb.CatalogEntry{Name: entry.Name, Preview: entry.Preview})
+					}
+					frame, err := remoteDescriptorResultFrame(catalogMethod, call.Correlation, &promptcommandpb.GetCatalogResult{
+						Outcome: &promptcommandpb.GetCatalogResult_Success{Success: catalog},
+					}, protoapi.Encode)
+					if err != nil {
+						t.Errorf("encode catalog response: %v", err)
+						return
+					}
+					if err := conn.Send(ctx, frame); err != nil {
+						t.Errorf("send catalog response: %v", err)
+						return
+					}
+					continue
+				}
+				if call == nil || call.Operation != submitOperation.Name {
+					t.Errorf("unexpected binary call: %+v", call)
+					return
+				}
+				var submit runtimepb.SubmitUserTurnRequest
+				if err := protoapi.Decode(call.Payload, &submit); err != nil {
 					t.Errorf("decode submit request: %v", err)
 					return
 				}
-				if submit.Input.PromptCommand == nil {
+				command := submit.Input.GetPromptCommand()
+				if command == nil {
 					t.Errorf("submit input = %+v, want typed prompt command", submit.Input)
 					return
 				}
-				content, err := service.Resolve(submit.Input.PromptCommand.Name, submit.Input.PromptCommand.Arguments)
+				content, err := service.Resolve(command.Name, command.Arguments)
 				if err != nil {
 					t.Errorf("Resolve: %v", err)
 					return
 				}
 				resolvedContent <- content
-				if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.RuntimeSubmitUserTurnResponse{
-					Message:    textutil.Value("accepted"),
-					ResultKind: clientui.UserTurnResultKindAssistantFinal,
-				})); err != nil {
+				frame, err := remoteDescriptorResultFrame(submitMethod, call.Correlation, &runtimepb.SubmitUserTurnResult{
+					Outcome: &runtimepb.SubmitUserTurnResult_Success{Success: &runtimepb.SubmitUserTurnSuccess{
+						Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "accepted"}},
+					}},
+				}, protoapi.Encode)
+				if err != nil {
+					t.Errorf("encode submit response: %v", err)
+					return
+				}
+				if err := conn.Send(ctx, frame); err != nil {
 					t.Errorf("send submit response: %v", err)
 				}
 				return
+			default:
+				t.Errorf("unexpected frame kind: %v", event.Frame.Kind)
+				return
 			}
 		}
-	})
+	}))
+	defer server.Close()
 	remote, err := DialRemoteURLForProjectWorkspace(context.Background(), "ws"+server.URL[len("http"):], "project-1", clientRoot)
 	if err != nil {
 		t.Fatalf("DialRemoteURLForProjectWorkspace: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	catalog, err := remote.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	catalog, err := remote.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("GetPromptCommandCatalog: %v", err)
 	}
@@ -203,9 +242,9 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	if !foundRemoteCommand {
 		t.Fatalf("catalog = %+v", catalog.Commands)
 	}
-	_, err = remote.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
-		SessionID: runtimeids.NewSessionID().String(),
-		Input:     runtimeinput.Command("prompt:remote_demo", "hello world"),
+	_, err = remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+		SessionId: runtimeids.NewSessionID().String(),
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)

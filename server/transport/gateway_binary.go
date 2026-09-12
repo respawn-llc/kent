@@ -25,7 +25,8 @@ type gatewayBinaryBinding struct {
 	policy            gatewayBinaryExecutionPolicy
 	request           func() proto.Message
 	scope             func(proto.Message) (routeScopeParams, error)
-	invoke            func(*Gateway, context.Context, *connectionState, proto.Message) (proto.Message, error)
+	invoke            func(*Gateway, context.Context, *connectionState, proto.Message, func(proto.Message) error) (proto.Message, error)
+	progressEvent     *protoapi.Operation
 	subscribe         func(*Gateway, context.Context, *connectionState, proto.Message) (gatewayBinarySubscriber, error)
 	associated        *protoapi.SubscriptionOperations
 	start             proto.Message
@@ -117,6 +118,30 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerSessionRuntimeGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
+	if err := registerSessionViewGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerSessionStreamsGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerRuntimeControlGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerRuntimeLiveGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerPromptGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerPromptCatalogGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerRunPromptGatewayBinaryBinding(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerProcessGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
 	if err := registerSessionRemovalGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
@@ -124,6 +149,9 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 		return nil, err
 	}
 	if err := registerChatSettingsGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
+	if err := registerChatContextGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
 	if err := registerWorktreeGatewayBinaryBindings(bindings); err != nil {
@@ -174,6 +202,7 @@ func registerGatewayBinaryUnary[
 			ctx context.Context,
 			state *connectionState,
 			message proto.Message,
+			_ func(proto.Message) error,
 		) (proto.Message, error) {
 			request, ok := message.(Request)
 			if !ok {
@@ -585,7 +614,12 @@ func (g *Gateway) serveBinaryRequest(
 	state *connectionState,
 	request gatewayBinaryRequest,
 ) bool {
-	subscription, result, transportFailure := g.dispatchBinary(ctx, state, request)
+	subscription, result, transportFailure := g.dispatchBinary(ctx, state, request, func(event proto.Message) error {
+		if request.binding.progressEvent == nil {
+			return errors.New("binary operation does not declare progress")
+		}
+		return sendBinaryNotification(ctx, conn, *request.binding.progressEvent, event)
+	})
 	if transportFailure != nil {
 		return sendTransportFailure(ctx, conn, transportFailure)
 	}
@@ -630,6 +664,7 @@ func (g *Gateway) dispatchBinary(
 	ctx context.Context,
 	state *connectionState,
 	request gatewayBinaryRequest,
+	progress func(proto.Message) error,
 ) (gatewayBinarySubscriber, proto.Message, *sharedpb.TransportFailure) {
 	binding := request.binding
 	var decoded proto.Message
@@ -690,7 +725,7 @@ func (g *Gateway) dispatchBinary(
 		}
 		return subscription, binding.start, nil
 	}
-	result, err := binding.invoke(g, ctx, state, message)
+	result, err := binding.invoke(g, ctx, state, message, progress)
 	if err != nil {
 		return fail(err)
 	}

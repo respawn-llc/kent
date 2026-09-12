@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"sync"
 
 	"core/server/goalview"
 	"core/server/session"
-	"core/shared/clientui"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/proto"
 )
 
 const goalObservationBufferSize = 64
@@ -26,14 +27,14 @@ type goalObservationSubscription struct {
 	broker    *goalObservationBroker
 	sessionID string
 	id        uint64
-	ch        chan clientui.GoalObservation
+	ch        chan *runtimepb.GoalObservation
 	done      chan struct{}
 	closeOnce sync.Once
 
 	mu       sync.Mutex
 	err      error
 	sequence uint64
-	last     clientui.GoalProjection
+	last     *runtimepb.GoalProjection
 }
 
 func newGoalObservationBroker() *goalObservationBroker {
@@ -42,15 +43,15 @@ func newGoalObservationBroker() *goalObservationBroker {
 
 func (s *Store) SubscribeGoalObservation(
 	ctx context.Context,
-	req serverapi.GoalObserveRequest,
+	req *runtimepb.GoalObserveRequest,
 ) (serverapi.GoalObservationSubscription, error) {
-	if err := req.Validate(); err != nil {
+	if err := protoapi.Validate(req); err != nil {
 		return nil, err
 	}
 	if s == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	record, err := session.ResolvePersistedSessionRecord(ctx, s, strings.TrimSpace(req.SessionID))
+	record, err := session.ResolvePersistedSessionRecord(ctx, s, strings.TrimSpace(req.SessionId))
 	if err != nil {
 		return nil, err
 	}
@@ -58,27 +59,31 @@ func (s *Store) SubscribeGoalObservation(
 	if err != nil {
 		return nil, err
 	}
-	return s.goalObservations.subscribe(strings.TrimSpace(req.SessionID), status), nil
+	return s.goalObservations.subscribe(strings.TrimSpace(req.SessionId), status), nil
 }
 
-func goalProjection(meta *session.Meta) (clientui.GoalProjection, error) {
+func goalProjection(meta *session.Meta) (*runtimepb.GoalProjection, error) {
 	if meta == nil {
-		return clientui.GoalProjection{}, errors.New("persisted Session metadata is required")
+		return &runtimepb.GoalProjection{}, errors.New("persisted Session metadata is required")
 	}
 	availability, err := session.GoalAvailabilityFromMeta(*meta)
 	if err != nil {
-		return clientui.GoalProjection{}, err
+		return &runtimepb.GoalProjection{}, err
 	}
 	projectedAvailability := goalview.AvailabilityFromSession(availability)
-	return clientui.GoalProjection{
-		Goal:         goalview.CoreFromSessionState(meta.Goal),
+	goal, err := goalview.CoreFromSessionState(meta.Goal)
+	if err != nil {
+		return nil, err
+	}
+	return &runtimepb.GoalProjection{
+		Goal:         goal,
 		Availability: &projectedAvailability,
 	}, nil
 }
 
 func (b *goalObservationBroker) subscribe(
 	sessionID string,
-	status clientui.GoalProjection,
+	status *runtimepb.GoalProjection,
 ) *goalObservationSubscription {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -87,14 +92,14 @@ func (b *goalObservationBroker) subscribe(
 		broker:    b,
 		sessionID: sessionID,
 		id:        b.nextID,
-		ch:        make(chan clientui.GoalObservation, goalObservationBufferSize),
+		ch:        make(chan *runtimepb.GoalObservation, goalObservationBufferSize),
 		done:      make(chan struct{}),
 		sequence:  1,
 		last:      cloneGoalProjection(status),
 	}
-	subscription.ch <- clientui.GoalObservation{
+	subscription.ch <- &runtimepb.GoalObservation{
 		Sequence: 1,
-		Kind:     clientui.GoalObservationHydration,
+		Kind:     runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_HYDRATION,
 		Status:   cloneGoalProjection(status),
 	}
 	subscribers := b.sessions[sessionID]
@@ -106,7 +111,7 @@ func (b *goalObservationBroker) subscribe(
 	return subscription
 }
 
-func (b *goalObservationBroker) publish(sessionID string, status clientui.GoalProjection) {
+func (b *goalObservationBroker) publish(sessionID string, status *runtimepb.GoalProjection) {
 	if b == nil {
 		return
 	}
@@ -114,13 +119,13 @@ func (b *goalObservationBroker) publish(sessionID string, status clientui.GoalPr
 	subscribers := b.sessions[strings.TrimSpace(sessionID)]
 	var overflowed []*goalObservationSubscription
 	for id, subscription := range subscribers {
-		if reflect.DeepEqual(subscription.last, status) {
+		if proto.Equal(subscription.last, status) {
 			continue
 		}
 		subscription.sequence++
-		message := clientui.GoalObservation{
+		message := &runtimepb.GoalObservation{
 			Sequence: subscription.sequence,
-			Kind:     clientui.GoalObservationUpdate,
+			Kind:     runtimepb.GoalObservationKind_GOAL_OBSERVATION_KIND_UPDATE,
 			Status:   cloneGoalProjection(status),
 		}
 		select {
@@ -153,9 +158,9 @@ func (b *goalObservationBroker) remove(subscription *goalObservationSubscription
 	b.mu.Unlock()
 }
 
-func (s *goalObservationSubscription) Next(ctx context.Context) (clientui.GoalObservation, error) {
+func (s *goalObservationSubscription) Next(ctx context.Context) (*runtimepb.GoalObservation, error) {
 	if s == nil {
-		return clientui.GoalObservation{}, io.EOF
+		return &runtimepb.GoalObservation{}, io.EOF
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -170,9 +175,9 @@ func (s *goalObservationSubscription) Next(ctx context.Context) (clientui.GoalOb
 		if err == nil {
 			err = io.EOF
 		}
-		return clientui.GoalObservation{}, err
+		return &runtimepb.GoalObservation{}, err
 	case <-ctx.Done():
-		return clientui.GoalObservation{}, context.Cause(ctx)
+		return &runtimepb.GoalObservation{}, context.Cause(ctx)
 	}
 }
 
@@ -194,15 +199,6 @@ func (s *goalObservationSubscription) finish(err error) {
 	})
 }
 
-func cloneGoalProjection(input clientui.GoalProjection) clientui.GoalProjection {
-	output := input
-	if input.Goal != nil {
-		goal := *input.Goal
-		output.Goal = &goal
-	}
-	if input.Availability != nil {
-		availability := *input.Availability
-		output.Availability = &availability
-	}
-	return output
+func cloneGoalProjection(input *runtimepb.GoalProjection) *runtimepb.GoalProjection {
+	return proto.Clone(input).(*runtimepb.GoalProjection)
 }

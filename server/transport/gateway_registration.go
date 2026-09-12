@@ -175,13 +175,17 @@ func validateBinaryBinding(operation protoapi.Operation, binding gatewayBinaryBi
 	}
 	switch operation.Options.Kind {
 	case sharedpb.OperationKind_OPERATION_KIND_UNARY:
-		if binding.invoke == nil || binding.subscribe != nil || binding.associated != nil {
+		if binding.invoke == nil || binding.subscribe != nil || binding.associated != nil || binding.progressEvent != nil {
 			return fmt.Errorf("binary unary binding %q has invalid handlers", operation.Name)
 		}
 	case sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION:
 		if binding.invoke != nil || binding.subscribe == nil || binding.associated == nil ||
-			binding.start == nil || binding.complete == nil {
+			binding.start == nil || binding.complete == nil || binding.progressEvent != nil {
 			return fmt.Errorf("binary subscription binding %q has invalid handlers", operation.Name)
+		}
+	case sharedpb.OperationKind_OPERATION_KIND_PROGRESS:
+		if binding.invoke == nil || binding.progressEvent == nil || binding.subscribe != nil || binding.associated != nil {
+			return fmt.Errorf("binary progress binding %q has invalid handlers", operation.Name)
 		}
 	default:
 		return fmt.Errorf("binary binding %q has unsupported operation kind %s", operation.Name, operation.Options.Kind)
@@ -218,10 +222,6 @@ func validateLegacyRegistration(operation protoapi.Operation, route apicontract.
 	case apicontract.KindUnary:
 		if _, exists := gatewayUnaryHandlers[route.Method]; !exists {
 			return fmt.Errorf("legacy unary route %q has no unary handler", route.Method)
-		}
-	case apicontract.KindProgress:
-		if _, exists := gatewayProgressHandlers[route.Method]; !exists {
-			return fmt.Errorf("legacy progress route %q has no progress handler", route.Method)
 		}
 	case apicontract.KindSubscription:
 		if _, exists := gatewaySubscriptionHandlers[route.Method]; !exists {

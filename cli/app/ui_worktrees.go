@@ -11,7 +11,6 @@ import (
 	tuiinput "core/cli/tui/input"
 	"core/shared/apicontract"
 	"core/shared/clientui"
-	projectpb "core/shared/protoapi/gen/kent/api/project"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -121,7 +120,7 @@ type uiWorktreeOverlayState struct {
 	deleteTargetResolutionPending bool
 	phase                         uiWorktreeOverlayPhase
 	selection                     int
-	target                        clientui.SessionExecutionTarget
+	target                        *worktreepb.SessionExecutionTarget
 	entries                       []worktreeui.Item
 	errorText                     string
 	mutationToken                 uint64
@@ -308,7 +307,7 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 	if err := m.recordWorktreeSelection(); err != nil {
 		return err
 	}
-	m.worktrees.target = clientSessionExecutionTarget(resp.Target)
+	m.worktrees.target = resp.Target
 	entries, err := worktreeui.ProjectItems(resp.Worktrees)
 	if err != nil {
 		m.worktrees.entries = nil
@@ -347,45 +346,6 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 		m.closeWorktreeDialog()
 	}
 	return nil
-}
-
-func clientSessionExecutionTarget(target *worktreepb.SessionExecutionTarget) clientui.SessionExecutionTarget {
-	if target == nil {
-		return clientui.SessionExecutionTarget{}
-	}
-	var worktree *clientui.SessionExecutionWorktreeTarget
-	if target.Worktree != nil {
-		worktree = &clientui.SessionExecutionWorktreeTarget{
-			ID:           target.Worktree.Id,
-			Name:         target.Worktree.Name,
-			Root:         target.Worktree.Root,
-			Availability: string(clientProjectAvailability(target.Worktree.Availability)),
-		}
-	}
-	return clientui.SessionExecutionTarget{
-		WorkspaceID:           target.WorkspaceId,
-		WorkspaceName:         target.WorkspaceName,
-		WorkspaceRoot:         target.WorkspaceRoot,
-		WorkspaceAvailability: clientProjectAvailability(target.WorkspaceAvailability),
-		Worktree:              worktree,
-		CwdRelpath:            target.CwdRelpath,
-		EffectiveWorkdir:      target.EffectiveWorkdir,
-	}
-}
-
-func clientProjectAvailability(value projectpb.ProjectAvailability) clientui.ProjectAvailability {
-	switch value {
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE:
-		return clientui.ProjectAvailabilityAvailable
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_MISSING:
-		return clientui.ProjectAvailabilityMissing
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_INACCESSIBLE:
-		return clientui.ProjectAvailabilityInaccessible
-	case projectpb.ProjectAvailability_PROJECT_AVAILABILITY_UNLINKED:
-		return clientui.ProjectAvailabilityUnlinked
-	default:
-		return ""
-	}
 }
 
 func (m *uiModel) applyWorktreeIntent() tea.Cmd {
@@ -643,8 +603,8 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	service := worktreeui.Service{
 		Client:        m.worktreeClient,
 		SessionID:     m.sessionID,
-		WorkspaceID:   target.WorkspaceID,
-		WorkspaceRoot: target.WorkspaceRoot,
+		WorkspaceID:   target.GetWorkspaceId(),
+		WorkspaceRoot: target.GetWorkspaceRoot(),
 		ResolveContext: func() (context.Context, context.CancelFunc) {
 			return context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 		},

@@ -16,7 +16,10 @@ import (
 	brand "core/shared/config"
 	"core/shared/protoapi"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -95,7 +98,7 @@ func TestPromptCommandCatalogUsesRequestedWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PromptCommandCatalogClientForProjectWorkspace: %v", err)
 	}
-	response, err := client.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	response, err := client.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("GetPromptCommandCatalog: %v", err)
 	}
@@ -142,7 +145,7 @@ func TestPromptCommandCatalogUsesRegisteredWorktreeRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PromptCommandCatalogClientForProjectWorkspace: %v", err)
 	}
-	response, err := client.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	response, err := client.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("GetPromptCommandCatalog: %v", err)
 	}
@@ -170,8 +173,8 @@ func TestPromptCommandEffectiveWorkspaceResolverUsesSuppliedWorkspace(t *testing
 }
 
 func TestPromptCommandWorkspaceRootUsesCurrentWorktree(t *testing.T) {
-	target := clientui.SessionExecutionTarget{
-		Worktree: &clientui.SessionExecutionWorktreeTarget{Root: "/worktrees/feature"},
+	target := &worktreepb.SessionExecutionTarget{
+		Worktree: &worktreepb.SessionExecutionWorktreeTarget{Root: "/worktrees/feature"},
 	}
 	got, err := clientui.SessionExecutionWorkspaceRoot(target, "/workspace/main")
 	if err != nil {
@@ -207,7 +210,7 @@ func TestPromptCommandCatalogRedactsFilesystemCauseAtClientBoundary(t *testing.T
 	if err != nil {
 		t.Fatalf("PromptCommandCatalogClientForProjectWorkspace: %v", err)
 	}
-	response, err := client.GetPromptCommandCatalog(context.Background(), serverapi.PromptCommandCatalogRequest{})
+	response, err := client.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 	if err != nil {
 		t.Fatalf("catalog broken symlink: %v", err)
 	}
@@ -499,14 +502,14 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 
 	response, err := appCore.ChatSettingsClient().ReadChatSettings(
 		t.Context(),
-		serverapi.ChatSettingsReadRequest{
-			Target: serverapi.SessionChatSettingsTarget(sessionID),
+		&chatsettingspb.ReadRequest{
+			Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
 		},
 	)
 	if err != nil {
 		t.Fatalf("ReadChatSettings detached Session: %v", err)
 	}
-	if response.Session == nil || response.Session.Session.SessionID != sessionID {
+	if response.GetSession() == nil || response.GetSession().Session.SessionId != sessionID.String() {
 		t.Fatalf("detached response = %+v", response)
 	}
 	executionTarget, err := appCore.MetadataStore().ResolveSessionExecutionTarget(
@@ -516,8 +519,8 @@ func TestChatSettingsMaterializedReadUsesDetachedSessionSnapshotWithoutRebinding
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
 	}
-	if executionTarget.WorkspaceID != "" {
-		t.Fatalf("detached read rebound workspace %q", executionTarget.WorkspaceID)
+	if executionTarget.WorkspaceId != nil {
+		t.Fatalf("detached read rebound workspace %q", executionTarget.GetWorkspaceId())
 	}
 }
 

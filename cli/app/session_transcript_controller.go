@@ -8,8 +8,8 @@ import (
 
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
-	"core/shared/clientui"
-	"core/shared/transcript"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -17,16 +17,16 @@ import (
 const ongoingTranscriptQueueLimit = 1000
 
 type ongoingTranscriptSurface interface {
-	ApplyTerminalMessage(clientui.TranscriptMessage, ongoing.FrameInput) (ongoing.Result, error)
+	ApplyTerminalMessage(*transcriptpb.Message, ongoing.FrameInput) (ongoing.Result, error)
 	Render(ongoing.FrameInput) (ongoing.Result, error)
 	Resize(ongoing.Size, ongoing.FrameInput) (ongoing.Result, error)
 }
 
 type ongoingFrameProvider func() ongoing.FrameInput
 
-type ongoingTranscriptRuntimeAdmission func(clientui.TranscriptMessage) (runtimeTupleMergeResult, error)
+type ongoingTranscriptRuntimeAdmission func(*transcriptpb.Message) (runtimeTupleMergeResult, error)
 
-type ongoingTranscriptAdmittedStateObserver func(clientui.TranscriptMessage, runtimeTupleMergeResult) tea.Cmd
+type ongoingTranscriptAdmittedStateObserver func(*transcriptpb.Message, runtimeTupleMergeResult) tea.Cmd
 
 type ongoingTranscriptController struct {
 	surface          ongoingTranscriptSurface
@@ -36,7 +36,7 @@ type ongoingTranscriptController struct {
 	normalOwned      bool
 	hydrated         bool
 	lastSequence     uint64
-	queue            []clientui.TranscriptMessage
+	queue            []*transcriptpb.Message
 	queueOverflowed  bool
 	renderPending    bool
 	liveReadModel    ongoingTranscriptReadModel
@@ -67,8 +67,8 @@ func newOngoingTranscriptController(
 	}
 }
 
-func (c *ongoingTranscriptController) Accept(message clientui.TranscriptMessage) (ongoing.Result, tea.Cmd, error) {
-	if err := message.Validate(); err != nil {
+func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ongoing.Result, tea.Cmd, error) {
+	if err := protoapi.Validate(message); err != nil {
 		return ongoing.Result{}, nil, fmt.Errorf("validate ongoing transcript message: %w", err)
 	}
 	if result, ok := c.classifyDelivery(message); ok {
@@ -83,7 +83,7 @@ func (c *ongoingTranscriptController) Accept(message clientui.TranscriptMessage)
 	stateChanged := c.applyState(message)
 	stateCmd := c.stateObserver(message, admission)
 	if !c.normalOwned {
-		if !isAppOwnedOngoingMessage(message.Kind()) {
+		if !isAppOwnedOngoingMessage(message.Event) {
 			c.enqueue(message)
 		}
 		c.renderPending = c.renderPending || stateChanged
@@ -94,7 +94,7 @@ func (c *ongoingTranscriptController) Accept(message clientui.TranscriptMessage)
 }
 
 func (c *ongoingTranscriptController) diagnoseRuntimeAdmissionError(
-	message clientui.TranscriptMessage,
+	message *transcriptpb.Message,
 	err error,
 ) error {
 	var conflict hydrationRuntimeTupleConflictError
@@ -105,7 +105,7 @@ func (c *ongoingTranscriptController) diagnoseRuntimeAdmissionError(
 	facts := conflict.facts()
 	facts["terminal_size"] = frame.Size
 	facts["terminal_cursor"] = frame.Cursor
-	hydration, _ := message.Payload().(clientui.TranscriptHydration)
+	hydration := message.Event.GetHydration()
 	facts["quoted_payload"] = strconv.Quote(fmt.Sprintf("%+v", hydration))
 	return ongoing.NewDeveloperError(
 		"admit_transcript_hydration_runtime_tuple",
@@ -159,9 +159,9 @@ func (c *ongoingTranscriptController) HandleSubscriptionLoss() ongoing.Result {
 	return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonSequenceGap}
 }
 
-func (c *ongoingTranscriptController) classifyDelivery(message clientui.TranscriptMessage) (ongoing.Result, bool) {
+func (c *ongoingTranscriptController) classifyDelivery(message *transcriptpb.Message) (ongoing.Result, bool) {
 	if !c.hydrated {
-		if message.Sequence != 1 || message.Kind() != clientui.TranscriptMessageHydration {
+		if message.Sequence != 1 || message.Event.GetHydration() == nil {
 			return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonSequenceGap}, true
 		}
 		return ongoing.Result{}, false
@@ -169,21 +169,21 @@ func (c *ongoingTranscriptController) classifyDelivery(message clientui.Transcri
 	if message.Sequence != c.lastSequence+1 {
 		return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonSequenceGap}, true
 	}
-	if message.Kind() == clientui.TranscriptMessageHydration {
+	if message.Event.GetHydration() != nil {
 		return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonSequenceGap}, true
 	}
 	return ongoing.Result{}, false
 }
 
-func (c *ongoingTranscriptController) commitDelivery(message clientui.TranscriptMessage) {
+func (c *ongoingTranscriptController) commitDelivery(message *transcriptpb.Message) {
 	if !c.hydrated {
 		c.hydrated = true
 	}
 	c.lastSequence = message.Sequence
 }
 
-func (c *ongoingTranscriptController) acceptedHydration(message clientui.TranscriptMessage) bool {
-	return message.Kind() == clientui.TranscriptMessageHydration &&
+func (c *ongoingTranscriptController) acceptedHydration(message *transcriptpb.Message) bool {
+	return message.Event.GetHydration() != nil &&
 		c.hydrated &&
 		c.lastSequence == message.Sequence
 }
@@ -197,7 +197,7 @@ func (c *ongoingTranscriptController) requestScratchRehydration() {
 	c.liveReadModel.reset()
 }
 
-func (c *ongoingTranscriptController) enqueue(message clientui.TranscriptMessage) {
+func (c *ongoingTranscriptController) enqueue(message *transcriptpb.Message) {
 	if c.queueOverflowed {
 		return
 	}
@@ -225,20 +225,20 @@ func (c *ongoingTranscriptController) drainQueued() (ongoing.Result, error) {
 	return ongoing.Result{}, nil
 }
 
-func (c *ongoingTranscriptController) applyNow(message clientui.TranscriptMessage, stateChanged bool) (ongoing.Result, error) {
-	if isAppOwnedOngoingMessage(message.Kind()) {
+func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, stateChanged bool) (ongoing.Result, error) {
+	if isAppOwnedOngoingMessage(message.Event) {
 		if stateChanged {
 			return c.surface.Render(c.frameInput())
 		}
 		return ongoing.Result{}, nil
 	}
-	if message.Kind() == clientui.TranscriptMessageHydration {
-		hydration := message.Payload().(clientui.TranscriptHydration)
+	if message.Event.GetHydration() != nil {
+		hydration := message.Event.GetHydration()
 		result, err := c.surface.ApplyTerminalMessage(message, c.frameInput())
 		if err != nil {
 			return ongoing.Result{}, err
 		}
-		if stateChanged && hydrationHasNoTerminalRows(&hydration) {
+		if stateChanged && hydrationHasNoTerminalRows(hydration) {
 			return c.surface.Render(c.frameInput())
 		}
 		return result, nil
@@ -246,75 +246,75 @@ func (c *ongoingTranscriptController) applyNow(message clientui.TranscriptMessag
 	return c.surface.ApplyTerminalMessage(message, c.frameInput())
 }
 
-func (c *ongoingTranscriptController) applyState(message clientui.TranscriptMessage) bool {
-	if message.Kind() == clientui.TranscriptMessageHydration {
-		hydration := message.Payload().(clientui.TranscriptHydration)
-		return c.applyHydrationAppOwnedFacts(&hydration)
+func (c *ongoingTranscriptController) applyState(message *transcriptpb.Message) bool {
+	if message.Event.GetHydration() != nil {
+		hydration := message.Event.GetHydration()
+		return c.applyHydrationAppOwnedFacts(hydration)
 	}
-	if message.Kind() == clientui.TranscriptMessageCommittedRow {
-		row := message.Payload().(clientui.TranscriptCommittedRow)
-		if row.Tool != nil {
-			c.liveReadModel.removePendingTool(string(row.Tool.ToolCallID))
+	if message.Event.GetCommittedRow() != nil {
+		row := message.Event.GetCommittedRow()
+		if tool := row.GetTool(); tool != nil {
+			c.liveReadModel.removePendingTool(tool.GetToolCallId())
 			return true
 		}
 	}
-	if !isAppOwnedOngoingMessage(message.Kind()) {
+	if !isAppOwnedOngoingMessage(message.Event) {
 		return false
 	}
 	return c.applyAppOwnedMessage(message)
 }
 
-func (c *ongoingTranscriptController) applyAppOwnedMessage(message clientui.TranscriptMessage) bool {
-	switch message.Kind() {
-	case clientui.TranscriptMessageStepState,
-		clientui.TranscriptMessageRuntimeReadModelUpdate:
+func (c *ongoingTranscriptController) applyAppOwnedMessage(message *transcriptpb.Message) bool {
+	switch message.Event.Payload.(type) {
+	case *transcriptpb.Event_StepState,
+		*transcriptpb.Event_RuntimeReadModelUpdate:
 		// Canonical runtime state is represented by the app status line.
-	case clientui.TranscriptMessageUserMessageFlushed:
+	case *transcriptpb.Event_UserMessageFlushed:
 		// The state observer owns input reconciliation. Re-render the client-local
 		// queue after it removes the flushed operation identities.
-	case clientui.TranscriptMessageQueuedMessageState:
+	case *transcriptpb.Event_QueuedMessageState:
 		// Queue lifecycle is reconciled by the state observer. Pending Work is
 		// the sole server membership projection.
-	case clientui.TranscriptMessagePendingWorkChanged:
+	case *transcriptpb.Event_PendingWorkChanged:
 		// The hydration-scoped Pending Work refresh owner handles invalidation.
-	case clientui.TranscriptMessagePendingWorkRestored:
+	case *transcriptpb.Event_PendingWorkRestored:
 		// Composer restoration is owned by the transcript state observer.
 		return false
-	case clientui.TranscriptMessageSessionSettingFeedback:
+	case *transcriptpb.Event_SessionSettingFeedback:
 		// Typed setting feedback is owned by the app transient-status surface.
 		return false
-	case clientui.TranscriptMessageSessionStatus:
+	case *transcriptpb.Event_SessionStatus:
 		// Session status is already represented by the app status line.
-	case clientui.TranscriptMessageSessionIdentity:
+	case *transcriptpb.Event_SessionIdentity:
 		// Session identity is already represented by the app status line.
-	case clientui.TranscriptMessageCompactionStatus:
+	case *transcriptpb.Event_CompactionStatus:
 		// Compaction status is already represented by the app status line.
-	case clientui.TranscriptMessagePrompt:
-		payload := message.Payload().(clientui.TranscriptPrompt)
-		c.liveReadModel.applyPendingPrompt(&payload)
+	case *transcriptpb.Event_Prompt:
+		payload := message.Event.GetPrompt()
+		c.liveReadModel.applyPendingPrompt(payload)
 		return true
-	case clientui.TranscriptMessageContextUsage:
+	case *transcriptpb.Event_ContextUsage:
 		// Context usage is already represented by the app status line.
-	case clientui.TranscriptMessageGoalStatus:
+	case *transcriptpb.Event_GoalStatus:
 		// Goal status is already represented by the app status line.
-	case clientui.TranscriptMessageBackgroundActivity:
+	case *transcriptpb.Event_BackgroundActivity:
 		// Backgrounding ends the mutable foreground tool lifecycle. The immutable
 		// tool row and later completion notice own its ongoing presentation.
-	case clientui.TranscriptMessageToolStart:
-		payload := message.Payload().(clientui.TranscriptToolStart)
+	case *transcriptpb.Event_ToolStart:
+		payload := message.Event.GetToolStart()
 		c.liveReadModel.addPendingTool(payload)
 		return true
-	case clientui.TranscriptMessageToolAbort:
-		payload := message.Payload().(clientui.TranscriptToolAbort)
-		c.liveReadModel.removePendingTool(string(payload.ToolCallID))
+	case *transcriptpb.Event_ToolAbort:
+		payload := message.Event.GetToolAbort()
+		c.liveReadModel.removePendingTool(string(payload.ToolCallId))
 		return true
 	default:
-		panic(fmt.Sprintf("unsupported app-owned transcript message kind %q", message.Kind()))
+		panic(fmt.Sprintf("unsupported app-owned transcript message kind %q", message.Event))
 	}
 	return true
 }
 
-func (c *ongoingTranscriptController) applyHydrationAppOwnedFacts(hydration *clientui.TranscriptHydration) bool {
+func (c *ongoingTranscriptController) applyHydrationAppOwnedFacts(hydration *transcriptpb.Hydration) bool {
 	if hydration == nil {
 		return false
 	}
@@ -327,14 +327,14 @@ func (c *ongoingTranscriptController) applyHydrationAppOwnedFacts(hydration *cli
 	}
 	if len(hydration.PendingPrompts) > 0 {
 		for _, prompt := range hydration.PendingPrompts {
-			c.liveReadModel.applyPendingPrompt(&prompt)
+			c.liveReadModel.applyPendingPrompt(prompt)
 		}
 		changed = true
 	}
 	return changed
 }
 
-func hydrationHasNoTerminalRows(hydration *clientui.TranscriptHydration) bool {
+func hydrationHasNoTerminalRows(hydration *transcriptpb.Hydration) bool {
 	if hydration == nil {
 		return true
 	}
@@ -342,8 +342,8 @@ func hydrationHasNoTerminalRows(hydration *clientui.TranscriptHydration) bool {
 		return false
 	}
 	for _, row := range hydration.TailSegment.Entries {
-		switch transcript.NormalizeEntryVisibility(transcript.EntryVisibility(row.Visibility)) {
-		case transcript.EntryVisibilityOngoing, transcript.EntryVisibilityOngoingCollapsed:
+		switch row.Visibility {
+		case transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING, transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED:
 			return false
 		}
 	}
@@ -366,7 +366,7 @@ func (c *ongoingTranscriptController) frameInput() ongoing.FrameInput {
 	return frame
 }
 
-func queuedOrSteeredText(state *clientui.TranscriptQueuedMessageState) string {
+func queuedOrSteeredText(state *transcriptpb.QueuedMessageState) string {
 	if state == nil {
 		return ""
 	}
@@ -375,26 +375,50 @@ func queuedOrSteeredText(state *clientui.TranscriptQueuedMessageState) string {
 	}
 	failureReason := ""
 	if state.FailureReason != nil {
-		failureReason = string(*state.FailureReason)
+		switch *state.FailureReason {
+		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_CLOSING:
+			failureReason = "closing"
+		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_TERMINAL_WORKFLOW_COMPLETION:
+			failureReason = "terminal_workflow_completion"
+		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_RUNTIME_UNAVAILABLE:
+			failureReason = "runtime_unavailable"
+		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_STOPPED:
+			failureReason = "stopped"
+		default:
+			panic("invalid queued message failure reason")
+		}
 	}
-	lines := joinFacts(compactNonEmptyStrings(humanizeTranscriptFact(string(state.Status)), humanizeTranscriptFact(failureReason)))
+	status := ""
+	switch state.Status {
+	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED:
+		status = "accepted"
+	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED:
+		status = "submitted"
+	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED:
+		status = "failed"
+	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED:
+		status = "discarded"
+	default:
+		panic("invalid queued message status")
+	}
+	lines := joinFacts(compactNonEmptyStrings(humanizeTranscriptFact(status), humanizeTranscriptFact(failureReason)))
 	if len(lines) == 0 {
 		return ""
 	}
 	return lines[0]
 }
 
-func pendingPromptLines(prompt *clientui.TranscriptPrompt) []string {
-	if prompt == nil || prompt.Status != clientui.TranscriptPromptStatusPending {
+func pendingPromptLines(prompt *transcriptpb.Prompt) []string {
+	if prompt == nil || prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 		return nil
 	}
-	return joinFacts(compactNonEmptyStrings(prompt.Question))
+	return joinFacts(compactNonEmptyStrings(transcriptPromptQuestion(prompt)))
 }
 
-func pendingPromptListLines(prompts []clientui.TranscriptPrompt) []string {
+func pendingPromptListLines(prompts []*transcriptpb.Prompt) []string {
 	lines := make([]string, 0, len(prompts))
 	for _, prompt := range prompts {
-		lines = append(lines, pendingPromptLines(&prompt)...)
+		lines = append(lines, pendingPromptLines(prompt)...)
 	}
 	return lines
 }
@@ -446,24 +470,24 @@ func humanizeTranscriptFact(value string) string {
 	return strings.ReplaceAll(strings.TrimSpace(value), "_", " ")
 }
 
-func isAppOwnedOngoingMessage(kind clientui.TranscriptMessageKind) bool {
-	switch kind {
-	case clientui.TranscriptMessageStepState,
-		clientui.TranscriptMessageRuntimeReadModelUpdate,
-		clientui.TranscriptMessageQueuedMessageState,
-		clientui.TranscriptMessagePendingWorkChanged,
-		clientui.TranscriptMessagePendingWorkRestored,
-		clientui.TranscriptMessageSessionSettingFeedback,
-		clientui.TranscriptMessageUserMessageFlushed,
-		clientui.TranscriptMessageSessionStatus,
-		clientui.TranscriptMessageSessionIdentity,
-		clientui.TranscriptMessageCompactionStatus,
-		clientui.TranscriptMessageContextUsage,
-		clientui.TranscriptMessageGoalStatus,
-		clientui.TranscriptMessageBackgroundActivity,
-		clientui.TranscriptMessagePrompt,
-		clientui.TranscriptMessageToolStart,
-		clientui.TranscriptMessageToolAbort:
+func isAppOwnedOngoingMessage(event *transcriptpb.Event) bool {
+	switch event.Payload.(type) {
+	case *transcriptpb.Event_StepState,
+		*transcriptpb.Event_RuntimeReadModelUpdate,
+		*transcriptpb.Event_QueuedMessageState,
+		*transcriptpb.Event_PendingWorkChanged,
+		*transcriptpb.Event_PendingWorkRestored,
+		*transcriptpb.Event_SessionSettingFeedback,
+		*transcriptpb.Event_UserMessageFlushed,
+		*transcriptpb.Event_SessionStatus,
+		*transcriptpb.Event_SessionIdentity,
+		*transcriptpb.Event_CompactionStatus,
+		*transcriptpb.Event_ContextUsage,
+		*transcriptpb.Event_GoalStatus,
+		*transcriptpb.Event_BackgroundActivity,
+		*transcriptpb.Event_Prompt,
+		*transcriptpb.Event_ToolStart,
+		*transcriptpb.Event_ToolAbort:
 		return true
 	default:
 		return false

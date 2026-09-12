@@ -7,6 +7,8 @@ import (
 
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/serverapi"
 )
 
@@ -47,38 +49,40 @@ func observationQuestionHint(targetArgs []string, question serverapi.Observation
 	return commandString(append(args, "--commentary", "<answer>"))
 }
 
-func writeRunWatchResponse(w io.Writer, stderr io.Writer, response serverapi.RuntimeLiveWatchResponse, continueHint string) int {
+func writeRunWatchResponse(w io.Writer, stderr io.Writer, response *promptpb.LiveWatchSuccess, continueHint string) int {
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	switch response.Outcome.Kind {
-	case serverapi.RuntimeLiveWatchQuestion:
-		if response.Outcome.Question == nil {
-			fmt.Fprintf(stderr, "invalid live watch response: %s outcome has no question payload\n", response.Outcome.Kind)
-			return 1
-		}
-		writeObservedQuestion(w, *response.Outcome.Question, observationQuestionHint([]string{"--session", response.SessionID}, *response.Outcome.Question))
-	case serverapi.RuntimeLiveWatchFinalAnswer:
-		if response.Outcome.FinalAnswer != nil {
-			result := ""
-			if response.Outcome.FinalAnswer.Result != nil {
-				result = *response.Outcome.FinalAnswer.Result
-			}
-			emitRunFinalText(w, nil, result, continueHint)
-		}
-	case serverapi.RuntimeLiveWatchNoFinalResult, serverapi.RuntimeLiveWatchExecutionError, serverapi.RuntimeLiveWatchInterrupted:
-		if response.Outcome.Failure == nil {
-			fmt.Fprintf(stderr, "invalid live watch response: %s outcome has no failure payload\n", response.Outcome.Kind)
-			return 1
-		}
-		fmt.Fprintln(w, response.Outcome.Failure.Reason)
-		if response.Outcome.Failure.Diagnostic != nil {
-			fmt.Fprintln(w, *response.Outcome.Failure.Diagnostic)
-		}
-		if response.Outcome.Kind == serverapi.RuntimeLiveWatchInterrupted {
-			return 130
-		}
+	if err := protoapi.Validate(response); err != nil {
+		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	var failure *promptpb.LiveWatchFailure
+	code := 1
+	switch outcome := response.Outcome.Outcome.(type) {
+	case *promptpb.LiveWatchOutcome_Question:
+		question, err := protoapi.ObservationQuestionFromProto(outcome.Question)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		writeObservedQuestion(w, question, observationQuestionHint([]string{"--session", response.SessionId}, question))
+	case *promptpb.LiveWatchOutcome_FinalAnswer:
+		emitRunFinalText(w, nil, outcome.FinalAnswer.GetResult(), continueHint)
+	case *promptpb.LiveWatchOutcome_NoFinalResult:
+		failure = outcome.NoFinalResult
+	case *promptpb.LiveWatchOutcome_ExecutionError:
+		failure = outcome.ExecutionError
+	case *promptpb.LiveWatchOutcome_Interrupted:
+		failure = outcome.Interrupted
+		code = 130
+	}
+	if failure != nil {
+		fmt.Fprintln(w, failure.Reason)
+		if failure.Diagnostic != nil {
+			fmt.Fprintln(w, *failure.Diagnostic)
+		}
+		return code
 	}
 	return 0
 }

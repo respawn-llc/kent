@@ -13,8 +13,13 @@ import (
 	"core/server/session"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/serverapi"
-	"core/shared/transcript"
+	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/textutil"
 )
 
 type serviceFakeLLM struct {
@@ -41,13 +46,13 @@ type serviceBlockingLLM struct {
 }
 
 type staticExecutionTargetResolver struct {
-	target clientui.SessionExecutionTarget
+	target *worktreepb.SessionExecutionTarget
 }
 
 func newDormantMainViewTestService(
 	t *testing.T,
 	store *session.Store,
-	target clientui.SessionExecutionTarget,
+	target *worktreepb.SessionExecutionTarget,
 ) *Service {
 	t.Helper()
 	settings := config.DefaultOnboardingSettings()
@@ -61,14 +66,15 @@ func newDormantMainViewTestService(
 }
 
 func TestValidateSessionTranscriptPageResponseUsesInvariantFailurePolicy(t *testing.T) {
-	response := serverapi.SessionTranscriptPageResponse{
-		Transcript: clientui.TranscriptPage{
-			SessionID: "12345678-1234-4234-8234-123456789012",
-			Entries: []clientui.TranscriptCommittedRow{{
-				Visibility: transcript.EntryVisibilityOngoing,
-				Kind:       clientui.TranscriptRowUser,
-				Locator:    transcript.CommittedRowLocator{EventSequence: 0, RowOrdinal: 1},
-				User:       &clientui.TranscriptUserRow{Text: "malformed"},
+	response := &transcriptpb.PageSuccess{
+		Transcript: &transcriptpb.Page{
+			SessionId:             "12345678-1234-4234-8234-123456789012",
+			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+			Entries: []*transcriptpb.CommittedRow{{
+				Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
+				Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+				Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 0, RowOrdinal: 1},
+				Row:        &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{Text: "malformed"}},
 			}},
 		},
 	}
@@ -90,7 +96,7 @@ func TestValidateSessionTranscriptPageResponseUsesInvariantFailurePolicy(t *test
 	})
 }
 
-func (r staticExecutionTargetResolver) ResolveSessionExecutionTarget(context.Context, string) (clientui.SessionExecutionTarget, error) {
+func (r staticExecutionTargetResolver) ResolveSessionExecutionTarget(context.Context, string) (*worktreepb.SessionExecutionTarget, error) {
 	return r.target, nil
 }
 
@@ -136,11 +142,11 @@ func TestServiceGetSessionMainViewReturnsCompletedRuntimeProjectionWhileRunIsBlo
 		t.Fatal("timed out waiting for active run")
 	}
 
-	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)
 	}
-	if resp.MainView.Activity.State == clientui.RuntimeActivityUnavailable {
+	if resp.MainView.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
 		t.Fatalf("expected completed Runtime Main View, got %+v", resp.MainView.Activity)
 	}
 	close(release)
@@ -153,11 +159,11 @@ func TestServiceGetSessionMainViewDoesNotRequireStoreResolutionForLiveRuntime(t 
 	store := newSessionViewStore(t, t.TempDir(), "ws", t.TempDir())
 	fixture := newSessionViewRuntimeFixture(t, store, &serviceFakeLLM{})
 	response, err := NewService(failingPersistedSessionResolver{err: errors.New("store unavailable")}, fixture.activity, nil).
-		GetSessionMainView(t.Context(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+		GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get live main view: %v", err)
 	}
-	if response.MainView.Activity.State != clientui.RuntimeActivityRegisteredIdle {
+	if response.MainView.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
 		t.Fatalf("live activity = %+v, want registered idle", response.MainView.Activity)
 	}
 }
@@ -178,33 +184,33 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	appendSessionViewMessage(t, store, "step-1", session.MessageRoleUser, "hello", nil, nil)
 	appendSessionViewMessage(t, store, "step-1", session.MessageRoleAssistant, "final answer", sessionViewMessagePhasePointer(session.MessagePhaseFinal), nil)
 	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
-	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)
 	}
-	if err := resp.MainView.Activity.Validate(); err != nil {
+	if err := protoapi.Validate(resp.MainView.Activity); err != nil {
 		t.Fatalf("validate dormant session activity: %v", err)
 	}
-	if resp.MainView.Session.SessionID != store.Meta().SessionID || resp.MainView.Session.SessionName != "incident triage" {
+	if resp.MainView.Session.SessionId != store.Meta().SessionID || resp.MainView.Session.GetSessionName() != "incident triage" {
 		t.Fatalf("unexpected dormant session view: %+v", resp.MainView.Session)
 	}
 	if resp.MainView.Session.AgentRole == nil || *resp.MainView.Session.AgentRole != role {
 		t.Fatalf("dormant session agent role = %v, want %q", resp.MainView.Session.AgentRole, role)
 	}
-	if resp.MainView.Status.ParentAgentSessionID == nil || resp.MainView.Status.ParentAgentSessionID.String() != parentSessionID ||
-		resp.MainView.Status.NavigationTargetSessionID == nil || resp.MainView.Status.NavigationTargetSessionID.String() != parentSessionID ||
+	if resp.MainView.Status.ParentAgentSessionId == nil || *resp.MainView.Status.ParentAgentSessionId != parentSessionID ||
+		resp.MainView.Status.NavigationTargetSessionId == nil || *resp.MainView.Status.NavigationTargetSessionId != parentSessionID ||
 		resp.MainView.Status.LastCommittedAssistantFinalAnswer == nil ||
 		*resp.MainView.Status.LastCommittedAssistantFinalAnswer != "final answer" {
 		t.Fatalf("unexpected dormant status: %+v", resp.MainView.Status)
 	}
 	if resp.MainView.Status.Goal == nil ||
 		resp.MainView.Status.Goal.Goal == nil ||
-		resp.MainView.Status.Goal.Goal.Status != clientui.RuntimeGoalStatusActive ||
+		resp.MainView.Status.Goal.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE ||
 		resp.MainView.Status.Goal.Goal.Objective != "ship dormant goal" {
 		t.Fatalf("unexpected dormant goal status: %+v", resp.MainView.Status.Goal)
 	}
-	if resp.MainView.Activity.State != clientui.RuntimeActivityUnavailable ||
-		resp.MainView.Activity.Reviewer != clientui.ReviewerActivityInactive {
+	if resp.MainView.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE ||
+		resp.MainView.Activity.Reviewer != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
 		t.Fatalf("dormant activity = %+v, want unavailable", resp.MainView.Activity)
 	}
 }
@@ -234,13 +240,13 @@ func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *tes
 		app: config.App{Settings: settings},
 	}).WithChatContextAuthReader(&sessionChatContextAuthReader{})
 
-	response, err := service.GetSessionMainView(t.Context(), serverapi.SessionMainViewRequest{
-		SessionID: store.Meta().SessionID,
+	response, err := service.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
+		SessionId: store.Meta().SessionID,
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)
 	}
-	if err := response.Validate(); err != nil {
+	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("dormant Main View contract: %v", err)
 	}
 	status := response.MainView.Status
@@ -256,10 +262,10 @@ func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *tes
 	}
 	if status.Goal == nil || status.Goal.Goal != nil ||
 		status.Goal.Availability == nil ||
-		*status.Goal.Availability != clientui.GoalAvailabilityAvailable {
+		*status.Goal.Availability != runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE {
 		t.Fatalf("dormant no-Goal projection = %+v", status.Goal)
 	}
-	if response.MainView.Activity.State != clientui.RuntimeActivityUnavailable {
+	if response.MainView.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
 		t.Fatalf("dormant activity = %+v, want unavailable", response.MainView.Activity)
 	}
 	if response.MainView.Session.ExecutionTarget != target {
@@ -270,20 +276,22 @@ func TestServiceGetSessionMainViewProjectsCompleteDormantStateWithoutGoal(t *tes
 func TestServiceGetSessionMainViewIncludesExecutionTarget(t *testing.T) {
 	dir := t.TempDir()
 	store := newSessionViewStore(t, dir, "ws", dir)
-	target := clientui.SessionExecutionTarget{
-		WorkspaceID:      "workspace-1",
-		WorkspaceRoot:    dir,
-		CwdRelpath:       ".",
-		EffectiveWorkdir: dir,
+	target := &worktreepb.SessionExecutionTarget{
+		WorkspaceId:           textutil.Value("workspace-1"),
+		WorkspaceName:         "workspace",
+		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+		WorkspaceRoot:         dir,
+		CwdRelpath:            ".",
+		EffectiveWorkdir:      dir,
 	}
 	svc := newDormantMainViewTestService(t, store, target)
 
-	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)
 	}
-	if resp.MainView.Session.ExecutionTarget.WorkspaceID != "workspace-1" {
-		t.Fatalf("workspace id = %q, want workspace-1", resp.MainView.Session.ExecutionTarget.WorkspaceID)
+	if resp.MainView.Session.ExecutionTarget.GetWorkspaceId() != "workspace-1" {
+		t.Fatalf("workspace id = %q, want workspace-1", resp.MainView.Session.ExecutionTarget.GetWorkspaceId())
 	}
 	if resp.MainView.Session.ExecutionTarget.EffectiveWorkdir != dir {
 		t.Fatalf("effective workdir = %q, want %q", resp.MainView.Session.ExecutionTarget.EffectiveWorkdir, dir)
@@ -293,7 +301,7 @@ func TestServiceGetSessionMainViewIncludesExecutionTarget(t *testing.T) {
 func TestServiceRequiresSessionStoreResolverForDormantReads(t *testing.T) {
 	svc := NewService(nil, nil, nil)
 
-	if _, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: "session-1"}); err == nil || !errors.Is(err, session.ErrPersistedSessionResolverRequired) {
+	if _, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: "session-1"}); err == nil || !errors.Is(err, session.ErrPersistedSessionResolverRequired) {
 		t.Fatalf("expected explicit persisted Session resolver error for main view, got %v", err)
 	}
 	if _, err := svc.SessionTranscriptTailEntries(context.Background(), "session-1"); err == nil || !errors.Is(err, session.ErrPersistedSessionResolverRequired) {
@@ -373,7 +381,7 @@ func TestServiceDormantHistoryReplacementStartsNewTranscriptSegment(t *testing.T
 		t.Fatalf("entry count = %d, want empty active segment", len(entries))
 	}
 
-	mainViewResp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	mainViewResp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)
 	}
@@ -434,14 +442,14 @@ func TestServiceDormantReadsDoNotMutatePersistedEvents(t *testing.T) {
 	}
 
 	svc := newDormantMainViewTestService(t, store, availableSessionExecutionTarget(dir))
-	resp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
+	resp, err := svc.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)
 	}
-	if resp.MainView.Activity.State != clientui.RuntimeActivityUnavailable {
+	if resp.MainView.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
 		t.Fatalf("dormant activity = %+v, want unavailable", resp.MainView.Activity)
 	}
-	if _, err := svc.GetSessionTranscriptPage(t.Context(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID}); err != nil {
+	if _, err := svc.GetSessionTranscriptPage(t.Context(), &transcriptpb.PageRequest{SessionId: store.Meta().SessionID}); err != nil {
 		t.Fatalf("get session transcript page: %v", err)
 	}
 	if _, err := svc.SessionTranscriptTailEntries(t.Context(), store.Meta().SessionID); err != nil {

@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +26,6 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
-	"core/shared/clientui"
 	"core/shared/llmerrors"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -35,9 +33,14 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
@@ -46,6 +49,7 @@ import (
 	"core/shared/textutil"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -111,7 +115,7 @@ type gatewayChatLifecycleAdmission struct {
 
 func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
 	context.Context,
-	serverapi.RuntimeSubmitUserTurnRequest,
+	*runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID: a.queueItemID,
@@ -121,14 +125,14 @@ func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
 
 func (gatewayChatLifecycleAdmission) AdmitChatQueuedUserInput(
 	context.Context,
-	serverapi.RuntimeSubmitUserTurnRequest,
+	*runtimepb.SubmitUserTurnRequest,
 ) (serverapi.ChatInputAdmissionResult, error) {
 	panic("unexpected Queue admission")
 }
 
 func (gatewayChatLifecycleAdmission) AdmitManualCompaction(
 	context.Context,
-	serverapi.RuntimeCompactContextRequest,
+	*runtimepb.CompactContextRequest,
 ) (bool, error) {
 	panic("unexpected compaction admission")
 }
@@ -362,18 +366,18 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 	}
 }
 
-func gatewaySessionExecutionTarget(t *testing.T, conn *websocket.Conn, requestID, sessionID string) clientui.SessionExecutionTarget {
+func gatewaySessionExecutionTarget(t *testing.T, conn *websocket.Conn, requestID, sessionID string) *worktreepb.SessionExecutionTarget {
 	t.Helper()
-	var response serverapi.SessionMainViewResponse
-	callGateway(
+	var response sessionpb.MainViewResult
+	callGatewayDescriptor(
 		t,
 		conn,
 		requestID,
-		protocol.MethodSessionGetMainView,
-		serverapi.SessionMainViewRequest{SessionID: sessionID},
+		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
+		&sessionpb.MainViewRequest{SessionId: sessionID},
 		&response,
 	)
-	return response.MainView.Session.ExecutionTarget
+	return response.GetSuccess().GetMainView().GetSession().GetExecutionTarget()
 }
 
 func registerGatewayWorkspace(t *testing.T, workspace string) {
@@ -447,53 +451,6 @@ func TestProtocolErrorMapsStreamFailureAsStreamFailure(t *testing.T) {
 	}
 	if message != source.Error() {
 		t.Fatalf("protocol error message = %q, want %q", message, source.Error())
-	}
-}
-
-func TestResponseForErrorPreservesRuntimeCommandNotAcceptedCause(t *testing.T) {
-	command := "prompt:review"
-	cause := &serverapi.PromptCommandError{
-		Kind:    serverapi.PromptCommandErrorKindCommandNotFound,
-		Command: &command,
-	}
-	source := serverapi.NewRuntimeCommandNotAcceptedError(cause)
-	response := responseForError("runtime-command", source)
-	if response.Error == nil || response.Error.Code != protocol.ErrCodeRuntimeCommandNotAccepted {
-		t.Fatalf("runtime command response = %+v, want structured not-accepted error", response.Error)
-	}
-	var payload struct {
-		Cause protocol.ResponseError `json:"cause"`
-	}
-	if err := json.Unmarshal(response.Error.Data, &payload); err != nil {
-		t.Fatalf("decode nested cause: %v", err)
-	}
-	if payload.Cause.Code != protocol.ErrCodePromptCommands {
-		t.Fatalf("nested cause code = %d, want %d", payload.Cause.Code, protocol.ErrCodePromptCommands)
-	}
-	decoded := serverapi.DecodePromptCommandError(payload.Cause.Data, payload.Cause.Message)
-	var promptErr *serverapi.PromptCommandError
-	if !errors.As(decoded, &promptErr) || promptErr.Kind != cause.Kind || promptErr.Command == nil || *promptErr.Command != command {
-		t.Fatalf("nested cause = %T %+v, want %+v", decoded, promptErr, cause)
-	}
-}
-
-func TestResponseForErrorPreservesRuntimeCommandNotAcceptedUnavailableCause(t *testing.T) {
-	source := serverapi.NewRuntimeCommandNotAcceptedError(errors.Join(
-		serverapi.ErrRuntimeUnavailable,
-		errors.New("session has no Ready runtime"),
-	))
-	response := responseForError("runtime-command", source)
-	if response.Error == nil || response.Error.Code != protocol.ErrCodeRuntimeCommandNotAccepted {
-		t.Fatalf("runtime command response = %+v, want structured not-accepted error", response.Error)
-	}
-	var payload struct {
-		Cause protocol.ResponseError `json:"cause"`
-	}
-	if err := json.Unmarshal(response.Error.Data, &payload); err != nil {
-		t.Fatalf("decode nested cause: %v", err)
-	}
-	if payload.Cause.Code != protocol.ErrCodeRuntimeUnavailable {
-		t.Fatalf("nested cause code = %d, want %d", payload.Cause.Code, protocol.ErrCodeRuntimeUnavailable)
 	}
 }
 
@@ -585,7 +542,7 @@ func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
 				return
 			}
 			switch req.Method {
-			case protocol.MethodChatContextGet:
+			case protocol.MethodWorkflowList:
 				resp := protocol.NewErrorResponse(req.ID, code, message)
 				if err := conn.Send(ctx, rpcwire.FrameFromResponse(resp)); err != nil {
 					reportGatewayHandlerError(handlerErrs, "send project list error: %w", err)
@@ -605,12 +562,12 @@ func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	_, err = remote.GetChatContext(
+	_, err = remote.ListWorkflows(
 		context.Background(),
-		serverapi.NewSessionChatContextRequest(runtimeids.NewSessionID()),
+		serverapi.WorkflowListRequest{},
 	)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("GetChatContext error = %v, want context.Canceled", err)
+		t.Fatalf("ListWorkflows error = %v, want context.Canceled", err)
 	}
 	if err == nil || err.Error() != message {
 		t.Fatalf("expected cancellation message %q, got %v", message, err)
@@ -1286,7 +1243,7 @@ func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	sendGatewayRequest(t, conn, "1", protocol.MethodProcessList, map[string]any{"project_id": "project-1"})
+	sendGatewayRequest(t, conn, "1", protocol.MethodWorkflowList, map[string]any{"project_id": "project-1"})
 	var response protocol.Response
 	if err := websocket.JSON.Receive(conn, &response); err == nil {
 		t.Fatalf("pre-handshake application traffic unexpectedly received %+v", response)
@@ -1334,8 +1291,14 @@ func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testi
 	}
 
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
-	if respErr := callGatewayExpectError(t, conn, "run-1", protocol.MethodRunPrompt, serverapi.RunPromptRequest{Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), Prompt: "test"}); respErr.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("run.prompt error = %+v, want auth required", respErr)
+	runRequest, err := protoapi.RunPromptRequestToProto(serverapi.RunPromptRequest{Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), Prompt: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runResult runpromptpb.Result
+	callGatewayDescriptor(t, conn, "run-1", runpromptpb.File_kent_api_run_prompt_run_prompt_proto.Services().ByName("RunService").Methods().ByName("Prompt"), runRequest, &runResult)
+	if runResult.GetError().GetAuthRequired() == nil {
+		t.Fatalf("run.prompt error = %+v, want auth required", &runResult)
 	}
 
 	apiKey := "server-key"
@@ -1416,8 +1379,12 @@ func TestGatewayPersistedNoAuthDoesNotAuthorizeFreshConnectionsWithoutAck(t *tes
 	handshakeGateway(t, subscription)
 	requireGatewayProjectAttachment(t, subscription, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 	requireGatewaySessionAttachment(t, subscription, "attach-session", store.Meta().SessionID)
-	if respErr := callGatewayExpectError(t, subscription, "subscribe-fresh-no-ack", protocol.MethodSessionSubscribeTranscript, serverapi.TranscriptSubscribeRequest{SessionID: store.Meta().SessionID}); respErr.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("fresh session transcript subscribe = %+v, want auth required", respErr)
+	var result transcriptpb.SubscribeResult
+	callGatewayDescriptor(t, subscription, "subscribe-fresh-no-ack",
+		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"),
+		&transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID}, &result)
+	if result.GetError().GetAuthRequired() == nil {
+		t.Fatalf("fresh session transcript subscribe = %+v, want auth required", &result)
 	}
 }
 
@@ -1455,37 +1422,17 @@ func TestGatewaySessionTranscriptSubscriptionReturnsHydrationOnDedicatedRoute(t 
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 	requireGatewaySessionAttachment(t, conn, "attach-session", store.Meta().SessionID)
-	callGateway(t, conn, "subscribe-transcript", protocol.MethodSessionSubscribeTranscript, serverapi.TranscriptSubscribeRequest{SessionID: store.Meta().SessionID}, nil)
-
-	var notification protocol.Request
-	if err := websocket.JSON.Receive(conn, &notification); err != nil {
-		t.Fatalf("receive transcript notification: %v", err)
+	service := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService")
+	var result transcriptpb.SubscribeResult
+	callGatewayDescriptor(t, conn, "subscribe-transcript", service.Methods().ByName("Subscribe"),
+		&transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID}, &result)
+	if result.GetSuccess() == nil {
+		t.Fatalf("subscribe: %v", &result)
 	}
-	if notification.Method != protocol.MethodSessionTranscriptEvent {
-		t.Fatalf("notification method = %q, want transcript event", notification.Method)
-	}
-	var params protocol.SessionTranscriptEventParams
-	if err := json.Unmarshal(notification.Params, &params); err != nil {
-		t.Fatalf("decode transcript event: %v", err)
-	}
-	if params.Message.Sequence != 1 || params.Message.Kind() != clientui.TranscriptMessageHydration {
-		t.Fatalf("transcript message = %+v, want seq=1 hydration", params.Message)
-	}
-	var paramsWire map[string]json.RawMessage
-	if err := json.Unmarshal(notification.Params, &paramsWire); err != nil {
-		t.Fatalf("decode transcript event envelope: %v", err)
-	}
-	var messageWire map[string]json.RawMessage
-	if err := json.Unmarshal(paramsWire["message"], &messageWire); err != nil {
-		t.Fatalf("decode transcript message wire envelope: %v", err)
-	}
-	for _, field := range []string{"sequence", "kind", "payload"} {
-		if _, ok := messageWire[field]; !ok {
-			t.Fatalf("transcript wire envelope missing %q: %s", field, notification.Params)
-		}
-	}
-	if string(messageWire["kind"]) != `"hydration"` || string(messageWire["payload"]) == "null" {
-		t.Fatalf("transcript wire envelope = %s, want hydration with payload", notification.Params)
+	var message transcriptpb.Message
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &message)
+	if message.Sequence != 1 || message.GetEvent().GetHydration() == nil {
+		t.Fatalf("transcript message = %+v, want seq=1 hydration", &message)
 	}
 }
 
@@ -1503,36 +1450,24 @@ func TestGatewayQuestionHistorySubscriptionPassesAttachedSessionPreflight(t *tes
 	handshakeGateway(t, conn)
 	requireGatewayProjectAttachment(t, conn, "attach-project", &connectionpb.AttachProjectRequest{ProjectId: appCore.ProjectID()})
 	requireGatewaySessionAttachment(t, conn, "attach-session", store.Meta().SessionID)
-	callGateway(t, conn, "subscribe-question-history", protocol.MethodSessionQuestionHistorySubscribe, serverapi.QuestionHistorySubscribeRequest{
-		SessionID: store.Meta().SessionID, MaxHandoffs: 1,
-	}, nil)
-
-	for _, wantKind := range []serverapi.QuestionHistoryEventKind{
-		serverapi.QuestionHistoryEventStarted,
-		serverapi.QuestionHistoryEventCompleted,
-	} {
-		var notification protocol.Request
-		if err := websocket.JSON.Receive(conn, &notification); err != nil {
-			t.Fatalf("receive Question-history notification: %v", err)
-		}
-		if notification.Method != protocol.MethodSessionQuestionHistoryEvent {
-			t.Fatalf("notification method = %q, want Question-history event", notification.Method)
-		}
-		var params protocol.SessionQuestionHistoryEventParams
-		if err := json.Unmarshal(notification.Params, &params); err != nil {
-			t.Fatalf("decode Question-history event: %v", err)
-		}
-		if params.Event.Kind != string(wantKind) {
-			t.Fatalf("Question-history event kind = %q, want %q", params.Event.Kind, wantKind)
-		}
+	service := sessionpb.File_kent_api_session_session_proto.Services().ByName("QuestionHistoryService")
+	var result sessionpb.QuestionHistorySubscribeResult
+	callGatewayDescriptor(t, conn, "subscribe-question-history", service.Methods().ByName("Subscribe"),
+		&sessionpb.QuestionHistorySubscribeRequest{SessionId: store.Meta().SessionID, MaxHandoffs: 1}, &result)
+	if result.GetSuccess() == nil {
+		t.Fatalf("subscribe Question history: %v", &result)
 	}
-	var complete protocol.Request
-	if err := websocket.JSON.Receive(conn, &complete); err != nil {
-		t.Fatalf("receive Question-history completion: %v", err)
+	var started sessionpb.QuestionHistoryEvent
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &started)
+	if started.GetStarted() == nil {
+		t.Fatalf("expected Question history started: %v", &started)
 	}
-	if complete.Method != protocol.MethodSessionQuestionHistoryComplete {
-		t.Fatalf("completion method = %q, want Question-history complete", complete.Method)
+	var completed sessionpb.QuestionHistoryEvent
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &completed)
+	if completed.GetCompleted() == nil {
+		t.Fatalf("expected Question history completed: %v", &completed)
 	}
+	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Complete"), &sharedpb.StreamCompletion{})
 }
 
 func gatewaySessionPlanRequest(t *testing.T) *sessionlaunchpb.SessionPlanRequest {
@@ -1627,10 +1562,10 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	if _, err := remote.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: foreignSession.Meta().SessionID}); err == nil {
+	if _, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{SessionId: foreignSession.Meta().SessionID}); err == nil {
 		t.Fatal("expected foreign-project session view access to be rejected")
 	}
-	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), serverapi.SessionLatestCommittedAssistantFinalAnswerRequest{SessionID: foreignSession.Meta().SessionID}); err == nil {
+	if _, err := remote.GetLatestCommittedAssistantFinalAnswer(context.Background(), &transcriptpb.LatestFinalAnswerRequest{SessionId: foreignSession.Meta().SessionID}); err == nil {
 		t.Fatal("expected foreign-project final answer access to be rejected")
 	}
 	if _, err := remote.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{SessionId: foreignSession.Meta().SessionID, Input: "should fail"}); err == nil {
@@ -1643,8 +1578,8 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSessionID foreign: %v", err)
 	}
-	if _, err := remote.ReadChatSettings(context.Background(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.SessionChatSettingsTarget(foreignSessionID),
+	if _, err := remote.ReadChatSettings(context.Background(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: foreignSessionID.String()}},
 	}); err == nil {
 		t.Fatal("expected foreign-project Chat settings access to be rejected")
 	}
@@ -1684,23 +1619,23 @@ func TestGatewayAuthorizesNewChatAndSessionSettingsTargets(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	newChat, err := remote.ReadChatSettings(t.Context(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.NewChatSettingsTarget(appCore.ProjectID(), workspace.ID),
+	newChat, err := remote.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{ProjectId: appCore.ProjectID(), WorkspaceId: workspace.ID}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings New Chat: %v", err)
 	}
-	if newChat.Session != nil {
-		t.Fatalf("New Chat response has Session facts: %+v", newChat.Session)
+	if newChat.GetSession() != nil {
+		t.Fatalf("New Chat response has Session facts: %+v", newChat.GetSession())
 	}
-	sessionSettings, err := remote.ReadChatSettings(t.Context(), serverapi.ChatSettingsReadRequest{
-		Target: serverapi.SessionChatSettingsTarget(sessionID),
+	sessionSettings, err := remote.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings Session: %v", err)
 	}
-	if sessionSettings.Session == nil || sessionSettings.Session.Session.SessionID != sessionID {
-		t.Fatalf("Session settings response = %+v", sessionSettings.Session)
+	if sessionSettings.GetSession() == nil || sessionSettings.GetSession().Session.SessionId != sessionID.String() {
+		t.Fatalf("Session settings response = %+v", sessionSettings.GetSession())
 	}
 
 	conn := dialGateway(t, server)
@@ -1727,22 +1662,23 @@ func TestGatewayAuthorizesNewChatAndSessionSettingsTargets(t *testing.T) {
 
 func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, sessionID string) {
 	t.Helper()
-	wantMessage := "session " + strconv.Quote(sessionID) + " not available"
 	for _, tc := range []struct {
-		name   string
-		method string
-		params any
+		method protoreflect.Name
+		params proto.Message
+		result proto.Message
 	}{
-		{name: "show", method: protocol.MethodRuntimeGoalShow, params: serverapi.RuntimeGoalShowRequest{SessionID: sessionID}},
-		{name: "set", method: protocol.MethodRuntimeGoalSet, params: serverapi.RuntimeGoalSetRequest{SessionID: sessionID, Objective: "ship", Actor: "user"}},
-		{name: "pause", method: protocol.MethodRuntimeGoalPause, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "user"}},
-		{name: "resume", method: protocol.MethodRuntimeGoalResume, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "user"}},
-		{name: "complete", method: protocol.MethodRuntimeGoalComplete, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "agent"}},
-		{name: "clear", method: protocol.MethodRuntimeGoalClear, params: serverapi.RuntimeGoalClearRequest{SessionID: sessionID, Actor: "user"}},
+		{method: "Show", params: &runtimepb.GoalShowRequest{SessionId: sessionID}, result: &runtimepb.GoalShowResult{}},
+		{method: "Set", params: &runtimepb.GoalSetRequest{SessionId: sessionID, Objective: "ship", Actor: "user"}, result: &runtimepb.GoalSetResult{}},
+		{method: "Pause", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalPauseResult{}},
+		{method: "Resume", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalResumeResult{}},
+		{method: "Complete", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalCompleteResult{}},
+		{method: "Clear", params: &runtimepb.GoalClearRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalClearResult{}},
 	} {
-		err := callGatewayExpectError(t, conn, "foreign-goal-"+tc.name, tc.method, tc.params)
-		if err.Code != protocol.ErrCodeInternalError || err.Message != wantMessage {
-			t.Fatalf("foreign goal %s error = code %d message %q, want code %d message %q", tc.name, err.Code, err.Message, protocol.ErrCodeInternalError, wantMessage)
+		method := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("GoalService").Methods().ByName(tc.method)
+		callGatewayDescriptor(t, conn, "foreign-goal-"+string(tc.method), method, tc.params, tc.result)
+		classification, err := protoapi.ClassifyResult(tc.result)
+		if err != nil || classification.Outcome == protoapi.OperationSuccess {
+			t.Fatalf("foreign Goal %s accepted: %v (%v)", tc.method, tc.result, err)
 		}
 	}
 }
@@ -1912,8 +1848,11 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 	requireGatewaySessionAttachment(t, conn, "attach-session-a", storeA.Meta().SessionID)
 	requireGatewayProjectAttachment(t, conn, "attach-project-b", &connectionpb.AttachProjectRequest{ProjectId: bindingB.ProjectID})
 
-	if respErr := callGatewayExpectError(t, conn, "subscribe", protocol.MethodSessionSubscribeTranscript, serverapi.TranscriptSubscribeRequest{SessionID: storeA.Meta().SessionID}); respErr.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("expected session-attach-required error after project reattach, got %+v", respErr)
+	var result transcriptpb.SubscribeResult
+	callGatewayDescriptor(t, conn, "subscribe", transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"),
+		&transcriptpb.SubscribeRequest{SessionId: storeA.Meta().SessionID}, &result)
+	if result.GetError() == nil {
+		t.Fatalf("expected session-attach-required error after project reattach, got %+v", &result)
 	}
 }
 

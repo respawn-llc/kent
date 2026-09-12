@@ -5,11 +5,23 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/serverapi"
 )
+
+func mustCLIObservationQuestion(t *testing.T, question serverapi.ObservationQuestion) *promptpb.ObservationQuestion {
+	t.Helper()
+	value, err := protoapi.ObservationQuestionToProto(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
 
 func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 	question := serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
@@ -34,19 +46,20 @@ func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 }
 
 func TestRunWatchApprovalHintTargetsSession(t *testing.T) {
-	sessionID := "session-dynamic"
+	sessionID := "session-1"
 	var output bytes.Buffer
-	code := writeRunWatchResponse(&output, io.Discard, serverapi.RuntimeLiveWatchResponse{
-		SessionID: sessionID,
-		Outcome: serverapi.RuntimeLiveWatchOutcome{
-			Kind: serverapi.RuntimeLiveWatchQuestion,
-			Question: &serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
-				ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("session-1"),
-				StepID: questionCommandStepID(), Question: "Allow access?",
-				Options: []clientui.ApprovalOption{{
-					Label: "Allow once",
-				}},
-			}},
+	code := writeRunWatchResponse(&output, io.Discard, &promptpb.LiveWatchSuccess{
+		SessionId: sessionID,
+		Outcome: &promptpb.LiveWatchOutcome{
+			Outcome: &promptpb.LiveWatchOutcome_Question{
+				Question: mustCLIObservationQuestion(t, serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
+					ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("session-1"),
+					StepID: questionCommandStepID(), Question: "Allow access?", CreatedAt: time.Unix(1, 0),
+					Options: []clientui.ApprovalOption{{
+						Label: "Allow once", Decision: clientui.ApprovalDecisionAllowOnce,
+					}},
+				}}),
+			},
 		},
 	}, "")
 	if code != 0 {
@@ -66,13 +79,12 @@ func TestRunWatchRendersInterruptedReasonAndDiagnostic(t *testing.T) {
 	reason := "interrupted"
 	diagnostic := "stop detail"
 	var output bytes.Buffer
-	code := writeRunWatchResponse(&output, io.Discard, serverapi.RuntimeLiveWatchResponse{
-		SessionID: "session-dynamic",
-		Outcome: serverapi.RuntimeLiveWatchOutcome{
-			Kind: serverapi.RuntimeLiveWatchInterrupted,
-			Failure: &serverapi.RuntimeLiveWatchFailure{
+	code := writeRunWatchResponse(&output, io.Discard, &promptpb.LiveWatchSuccess{
+		SessionId: "session-dynamic",
+		Outcome: &promptpb.LiveWatchOutcome{
+			Outcome: &promptpb.LiveWatchOutcome_Interrupted{Interrupted: &promptpb.LiveWatchFailure{
 				Reason: reason, Diagnostic: &diagnostic,
-			},
+			}},
 		},
 	}, "")
 	if code != 130 {

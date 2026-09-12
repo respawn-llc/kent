@@ -75,7 +75,7 @@ func (s *Service) prepareInitialChatCreation(
 	}
 	settings := entry.Settings.Baseline
 	if available && entry.Choice.Role == creation.Settings.AgentRole {
-		settings.Supervisor = string(creation.Settings.Supervisor)
+		settings.Supervisor = creation.Settings.Supervisor
 		if creation.Settings.Thinking != nil {
 			thinking := *creation.Settings.Thinking
 			_, enumerated := llm.LookupModelCapabilityContract(entry.ResolvedSettings.Model)

@@ -1,9 +1,14 @@
-package serverapi
+package serverapi_test
 
 import (
-	"encoding/json"
-	"errors"
 	"testing"
+	"time"
+
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -12,126 +17,99 @@ const (
 )
 
 func TestRuntimeLiveSteerRequestValidateUsesUUIDV4Boundaries(t *testing.T) {
-	req := RuntimeLiveSteerRequest{
-		SessionID: validLiveSessionID,
-		Text:      " steer the run ",
+	req := &runtimepb.LiveSteerRequest{SessionId: validLiveSessionID, Text: " steer the run "}
+	if err := protoapi.Validate(req); err != nil {
+		t.Fatal(err)
 	}
-	if err := req.Validate(); err != nil {
-		t.Fatalf("Validate valid request: %v", err)
+	caller := validLiveSessionID
+	req.CallerSessionId = &caller
+	if err := protoapi.Validate(req); err != nil {
+		t.Fatal(err)
 	}
-	callerID := validLiveSessionID
-	req.CallerSessionID = &callerID
-	if err := req.Validate(); err != nil {
-		t.Fatalf("Validate valid caller provenance: %v", err)
-	}
-
-	cases := []RuntimeLiveSteerRequest{
-		{SessionID: "session-1", Text: "text"},
-		{SessionID: "018f3f8c-5b1a-7b72-8cb9-01af2c01a7e8", Text: "text"},
-		{SessionID: validLiveSessionID, Text: " \t "},
-	}
-	for _, tc := range cases {
-		if err := tc.Validate(); err == nil {
-			t.Fatalf("Validate accepted invalid request: %+v", tc)
+	for _, invalid := range []*runtimepb.LiveSteerRequest{
+		{SessionId: "session-1", Text: "text"},
+		{SessionId: "018f3f8c-5b1a-7b72-8cb9-01af2c01a7e8", Text: "text"},
+		{SessionId: validLiveSessionID, Text: " \t "},
+	} {
+		if err := protoapi.Validate(invalid); err == nil {
+			t.Fatalf("accepted invalid request: %+v", invalid)
 		}
 	}
 }
 
 func TestRuntimeLiveSteerRequestRejectsMalformedCallerProvenance(t *testing.T) {
-	for _, caller := range []string{"", "/invalid/session", "session-1", "  " /* whitespace is not canonical */} {
-		req := RuntimeLiveSteerRequest{
-			SessionID:       validLiveSessionID,
-			Text:            "text",
-			CallerSessionID: &caller,
-		}
-		if err := req.Validate(); err == nil {
-			t.Fatalf("Validate accepted caller session %q", caller)
+	for _, caller := range []string{"", "/invalid/session", "session-1", "  "} {
+		req := &runtimepb.LiveSteerRequest{SessionId: validLiveSessionID, Text: "text", CallerSessionId: &caller}
+		if err := protoapi.Validate(req); err == nil {
+			t.Fatalf("accepted caller Session %q", caller)
 		}
 	}
 }
 
 func TestRuntimeLiveStopRequestValidateAndStatus(t *testing.T) {
-	if err := (RuntimeLiveStopRequest{
-		SessionID: validLiveSessionID,
-	}).Validate(); err != nil {
-		t.Fatalf("Validate valid stop: %v", err)
+	if err := protoapi.Validate(&runtimepb.LiveStopRequest{SessionId: validLiveSessionID}); err != nil {
+		t.Fatal(err)
 	}
-	if err := (RuntimeLiveStopResponse{Status: RuntimeLiveStopStatusStopped}).Validate(); err != nil {
-		t.Fatalf("Validate stopped status: %v", err)
+	for _, status := range []runtimepb.LiveStopStatus{runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED, runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE} {
+		if err := protoapi.Validate(&runtimepb.LiveStopSuccess{Status: status}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := (RuntimeLiveStopResponse{Status: RuntimeLiveStopStatusIdle}).Validate(); err != nil {
-		t.Fatalf("Validate idle status: %v", err)
-	}
-	if err := (RuntimeLiveStopResponse{Status: RuntimeLiveStopStatus("paused")}).Validate(); err == nil {
-		t.Fatal("Validate accepted unsupported stop status")
+	if err := protoapi.Validate(&runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus(999)}); err == nil {
+		t.Fatal("accepted unsupported stop status")
 	}
 }
 
 func TestRuntimeLiveWaitRequestAndResponseValidation(t *testing.T) {
-	if err := (RuntimeLiveWaitRequest{SessionID: validLiveSessionID}).Validate(); err != nil {
-		t.Fatalf("Validate valid wait: %v", err)
+	if err := protoapi.Validate(&runtimepb.LiveWaitRequest{SessionId: validLiveSessionID}); err != nil {
+		t.Fatal(err)
 	}
-	if err := (RuntimeLiveWaitResponse{
-		SessionID:      validLiveSessionID,
-		SessionName:    "Session",
-		Result:         stringPtr("final"),
-		DurationMillis: 42,
-		LiveRunGroupID: validLiveQueueItemID,
-		TerminalRunID:  validLiveQueueItemID,
-		TerminalStepID: validLiveQueueItemID,
-		TerminalStatus: "completed",
-		ResultKind:     RuntimeLiveResultKindAssistantFinalAnswer,
-	}).Validate(); err != nil {
-		t.Fatalf("Validate valid wait response: %v", err)
+	response := validLiveWaitResponse()
+	if err := protoapi.Validate(response); err != nil {
+		t.Fatal(err)
 	}
-	if err := (RuntimeLiveWaitResponse{
-		SessionID:      validLiveSessionID,
-		SessionName:    "Session",
-		Result:         stringPtr("final"),
-		DurationMillis: -1,
-		LiveRunGroupID: validLiveQueueItemID,
-		TerminalRunID:  validLiveQueueItemID,
-		TerminalStepID: validLiveQueueItemID,
-		TerminalStatus: "completed",
-		ResultKind:     RuntimeLiveResultKindAssistantFinalAnswer,
-	}).Validate(); err == nil {
-		t.Fatal("Validate accepted negative duration")
+	response.Duration = durationpb.New(-time.Millisecond)
+	if err := protoapi.Validate(response); err == nil {
+		t.Fatal("accepted negative duration")
 	}
 }
 
-func TestRuntimeLiveWaitResponseSerializesNoAnswerReasonAsNull(t *testing.T) {
-	raw, err := json.Marshal(RuntimeLiveWaitResponse{
-		SessionID:      validLiveSessionID,
-		SessionName:    "Session",
-		Result:         stringPtr("final"),
-		DurationMillis: 42,
-		LiveRunGroupID: validLiveQueueItemID,
-		TerminalRunID:  validLiveQueueItemID,
-		TerminalStepID: validLiveQueueItemID,
-		TerminalStatus: "completed",
-		ResultKind:     RuntimeLiveResultKindAssistantFinalAnswer,
-	})
+func TestRuntimeLiveWaitResponsePreservesFinalAnswerUnion(t *testing.T) {
+	wire, err := protoapi.Encode(validLiveWaitResponse())
 	if err != nil {
-		t.Fatalf("Marshal wait response: %v", err)
+		t.Fatal(err)
 	}
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("Unmarshal wait response: %v", err)
+	var decoded runtimepb.LiveWaitSuccess
+	if err := protoapi.Decode(wire, &decoded); err != nil {
+		t.Fatal(err)
 	}
-	if value, ok := decoded["no_answer_reason"]; !ok || value != nil {
-		t.Fatalf("no_answer_reason = %#v, want JSON null", value)
+	if decoded.GetAssistantFinalAnswer() == nil || decoded.GetNoFinalAnswer() != nil {
+		t.Fatalf("unexpected final answer selection: %T", decoded.Result)
 	}
 }
 
-func stringPtr(value string) *string {
-	return &value
+func validLiveWaitResponse() *runtimepb.LiveWaitSuccess {
+	return &runtimepb.LiveWaitSuccess{
+		SessionId: validLiveSessionID, SessionName: "Session",
+		Result:   &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "final"}},
+		Duration: durationpb.New(42 * time.Millisecond), LiveRunGroupId: validLiveQueueItemID,
+		TerminalRunId: validLiveQueueItemID, TerminalStepId: validLiveQueueItemID, TerminalStatus: "completed",
+	}
 }
 
-func TestRuntimeLiveControlSentinels(t *testing.T) {
-	if !errors.Is(ErrRuntimeNoActiveRun, ErrRuntimeNoActiveRun) {
-		t.Fatal("ErrRuntimeNoActiveRun does not satisfy errors.Is")
-	}
-	if !errors.Is(ErrRuntimeNoFinalAnswer, ErrRuntimeNoFinalAnswer) {
-		t.Fatal("ErrRuntimeNoFinalAnswer does not satisfy errors.Is")
+func TestRuntimeLiveWatchResponseRejectsQuestionSessionMismatch(t *testing.T) {
+	ask := &promptpb.Question{SessionId: "session-b", ToolCallId: "ask-1", StepId: validLiveQueueItemID, Question: "Continue?", CreatedAt: timestamppb.Now()}
+	approval := &promptpb.Approval{SessionId: "session-b", ToolCallId: "approval-1", StepId: validLiveQueueItemID,
+		Question: &ask.Question, CreatedAt: timestamppb.Now(), Options: []*promptpb.ApprovalOption{{Decision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE, Label: "Allow once"}}}
+	for _, question := range []*promptpb.ObservationQuestion{
+		{Question: &promptpb.ObservationQuestion_Ask{Ask: ask}},
+		{Question: &promptpb.ObservationQuestion_Approval{Approval: approval}},
+	} {
+		response := &promptpb.LiveWatchSuccess{SessionId: "session-a", Outcome: &promptpb.LiveWatchOutcome{
+			Outcome: &promptpb.LiveWatchOutcome_Question{Question: question},
+		}}
+		if err := protoapi.Validate(response); err == nil {
+			t.Fatal("question Session mismatch accepted")
+		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
 
 	rpccontract "core/shared/apicontract"
 	"core/shared/clientui"
@@ -17,59 +16,6 @@ import (
 type gatewaySubscription[Event any] interface {
 	Next(context.Context) (Event, error)
 	Close() error
-}
-
-func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) bool {
-	if err := req.Validate(); err != nil {
-		return sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, err.Error()))
-	}
-	if !state.handshakeDone {
-		return sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "handshake is required before other methods"))
-	}
-	if err := g.requireCoreActive(); err != nil {
-		return sendResponse(ctx, conn, responseForError(req.ID, err))
-	}
-	if err := newRoutePolicyExecutor(g).requireAuth(ctx, state, req.Method); err != nil {
-		return sendResponse(ctx, conn, responseForError(req.ID, err))
-	}
-	decoded, preflightResp, failed := g.preflightRouteRequest(ctx, state, route, req)
-	if failed {
-		return sendResponse(ctx, conn, preflightResp)
-	}
-	params, ok := decoded.(serverapi.RunPromptRequest)
-	if !ok {
-		return sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInternalError, "run prompt route contract mismatch"))
-	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var progressBroken atomic.Bool
-	progress := serverapi.RunPromptProgressFunc(func(update serverapi.RunPromptProgress) {
-		if progressBroken.Load() {
-			return
-		}
-		err := update.Validate()
-		var data []byte
-		if err == nil {
-			data, err = json.Marshal(update)
-		}
-		if err == nil {
-			err = conn.Send(runCtx, rpcwire.FrameFromRequest(protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: route.EventMethod, Params: data}))
-		}
-		if err != nil {
-			if progressBroken.CompareAndSwap(false, true) {
-				cancel()
-			}
-		}
-	})
-	runClient, err := g.runPromptClientForState(runCtx, state)
-	if err != nil {
-		return sendResponse(ctx, conn, responseForError(req.ID, err))
-	}
-	resp, err := runClient.RunPrompt(runCtx, params, progress)
-	if err != nil {
-		return sendResponse(ctx, conn, responseForError(req.ID, err))
-	}
-	return sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, resp))
 }
 
 func (g *Gateway) serveSubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
@@ -104,52 +50,6 @@ func (g *Gateway) serveSubscription(conn rpcwire.Conn, ctx context.Context, stat
 		return
 	}
 	gatewaySubscriptionHandlers[req.Method](g, conn, ctx, state, route, req)
-}
-
-func (g *Gateway) serveSessionTranscriptSubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.SessionTranscriptClient().SubscribeSessionTranscript, func(message clientui.TranscriptMessage) protocol.SessionTranscriptEventParams {
-		return protocol.SessionTranscriptEventParams{Message: message}
-	})
-}
-
-func (g *Gateway) serveGoalObservationSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(
-		conn,
-		ctx,
-		route,
-		req,
-		g.deps.GoalObservationClient().SubscribeGoalObservation,
-		func(observation clientui.GoalObservation) protocol.GoalObservationEventParams {
-			return protocol.GoalObservationEventParams{Observation: observation}
-		},
-	)
-}
-
-func (g *Gateway) serveQuestionHistorySubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(
-		conn,
-		ctx,
-		route,
-		req,
-		g.deps.SessionViewClient().SubscribeQuestionHistory,
-		func(event serverapi.QuestionHistoryEvent) protocol.SessionQuestionHistoryEventParams {
-			wire := protocol.SessionQuestionHistoryEvent{
-				Kind:           string(event.Kind),
-				LargeHistory:   event.LargeHistory,
-				HistoryOmitted: event.HistoryOmitted,
-			}
-			if event.Question != nil {
-				wire.Question = &protocol.SessionQuestionHistoryQuestion{
-					Question:             event.Question.Question,
-					Answer:               event.Question.Answer,
-					SelectedOptionNumber: event.Question.SelectedOptionNumber,
-					Commentary:           event.Question.Commentary,
-					At:                   event.Question.At,
-				}
-			}
-			return protocol.SessionQuestionHistoryEventParams{Event: wire}
-		},
-	)
 }
 
 func serveGatewaySubscription[Req interface{ Validate() error }, Event any, Wire any, Sub gatewaySubscription[Event]](
@@ -199,18 +99,6 @@ func serveGatewaySubscription[Req interface{ Validate() error }, Event any, Wire
 func (g *Gateway) serveAttentionNotificationSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
 	serveGatewaySubscription(conn, ctx, route, req, g.deps.AttentionNotificationClient().SubscribeAttentionNotifications, func(evt clientui.AttentionNotificationEvent) protocol.AttentionNotificationEventParams {
 		return protocol.AttentionNotificationEventParams{Event: evt}
-	})
-}
-
-func (g *Gateway) serveSessionAttentionNotificationSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.AttentionNotificationClient().SubscribeSessionAttentionNotifications, func(evt clientui.AttentionNotificationEvent) protocol.AttentionNotificationEventParams {
-		return protocol.AttentionNotificationEventParams{Event: evt}
-	})
-}
-
-func (g *Gateway) servePromptFollowUpSubscription(conn rpcwire.Conn, ctx context.Context, _ *connectionState, route rpccontract.Route, req protocol.Request) {
-	serveGatewaySubscription(conn, ctx, route, req, g.deps.PromptControlClient().SubscribeFollowUp, func(evt serverapi.PromptFollowUpEvent) protocol.PromptFollowUpEventParams {
-		return protocol.PromptFollowUpEventParams{Event: protocol.PromptFollowUpEvent{Kind: string(evt.Kind)}}
 	})
 }
 

@@ -6,8 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"core/shared/clientui"
 	"core/shared/lifecyclecontract"
+	"core/shared/protoapi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
@@ -39,27 +40,30 @@ func NewEventContext(initial lifecyclecontract.Context) *EventContext {
 	return &EventContext{context: cloneContext(initial)}
 }
 
-func (c *EventContext) AcceptSessionIdentity(identity clientui.TranscriptSessionIdentity) error {
-	if err := identity.Validate(); err != nil {
+func (c *EventContext) AcceptSessionIdentity(identity *transcriptpb.SessionIdentity) error {
+	if err := protoapi.Validate(identity); err != nil {
+		return err
+	}
+	sessionID, err := runtimeids.ParseSessionID(identity.SessionId)
+	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	sessionID := identity.SessionID
 	c.context.SessionID = &sessionID
 	c.context.SessionTitle = textutil.Pointer(identity.SessionName)
 	c.mu.Unlock()
 	return nil
 }
 
-func (c *EventContext) AcceptSessionStatus(status clientui.TranscriptSessionStatus) error {
-	if err := status.Validate(); err != nil {
+func (c *EventContext) AcceptSessionStatus(status *transcriptpb.SessionStatus) error {
+	if err := protoapi.Validate(status); err != nil {
 		return err
 	}
 	c.mu.Lock()
 	if status.Workflow == nil {
 		c.context.WorkflowTaskID = nil
 	} else {
-		taskID := lifecyclecontract.WorkflowTaskID(status.Workflow.TaskID)
+		taskID := lifecyclecontract.WorkflowTaskID(status.Workflow.TaskId)
 		c.context.WorkflowTaskID = &taskID
 	}
 	c.mu.Unlock()

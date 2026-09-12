@@ -7,9 +7,12 @@ import (
 	"strings"
 
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/proto"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -22,7 +25,7 @@ type transcriptPromptAnswerer struct {
 }
 
 type promptBatchAnswerer interface {
-	AnswerPromptBatch(context.Context, serverapi.PromptAnswerBatchRequest) (serverapi.PromptAnswerBatchResponse, error)
+	AnswerPromptBatch(context.Context, *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error)
 }
 
 type transcriptPromptKey struct {
@@ -61,12 +64,12 @@ func (a *transcriptPromptAnswerer) withConnectionOutcomeSink(sink func(error)) *
 	return &copy
 }
 
-func (a *transcriptPromptAnswerer) event(prompt clientui.TranscriptPrompt) askEvent {
+func (a *transcriptPromptAnswerer) event(prompt *transcriptpb.Prompt) askEvent {
 	return askEvent{prompt: cloneTranscriptPromptForAsk(prompt)}
 }
 
 func (a *transcriptPromptAnswerer) delivery(
-	prompt clientui.TranscriptPrompt,
+	prompt *transcriptpb.Prompt,
 	answer clientui.PromptAnswer,
 	answerErr error,
 ) (*activePromptAnswerDelivery, tea.Cmd, error) {
@@ -106,37 +109,45 @@ func (a *transcriptPromptAnswerer) delivery(
 }
 
 func (a *transcriptPromptAnswerer) submitter(
-	prompt clientui.TranscriptPrompt,
+	prompt *transcriptpb.Prompt,
 	answer clientui.PromptAnswer,
 	answerErr error,
 ) (func(context.Context) error, error) {
-	var answerPayload serverapi.PromptAnswer
+	entry := &promptpb.AnswerBatchEntry{ToolCallId: transcriptPromptToolCallID(prompt)}
 	switch {
 	case answerErr != nil:
-		answerPayload = serverapi.DeclinedPromptAnswer()
+		entry.Answer = &promptpb.AnswerBatchEntry_Declined{Declined: &promptpb.Declined{}}
 	case transcriptPromptIsApproval(prompt) && answer.Approval != nil:
-		answerPayload = serverapi.ApprovalPromptAnswer(serverapi.PromptApprovalAnswer{
-			Decision:   answer.Approval.Decision,
+		decision, err := protoapi.ApprovalDecisionToProto(answer.Approval.Decision)
+		if err != nil {
+			return nil, err
+		}
+		entry.Answer = &promptpb.AnswerBatchEntry_ApprovalAnswer{ApprovalAnswer: &promptpb.ApprovalAnswer{
+			Decision:   decision,
 			Commentary: textutil.OptionalExactString(answer.Approval.Commentary),
-		})
+		}}
 	case transcriptPromptIsApproval(prompt):
 		return nil, errors.New("approval response is required")
 	case answer.Approval != nil:
 		return nil, errors.New("question response cannot carry approval answer")
 	default:
-		answerPayload = serverapi.QuestionPromptAnswer(serverapi.PromptQuestionAnswer{
-			SelectedOptionNumber: answer.SelectedOptionNumber,
-			Freeform:             textutil.OptionalExactString(answer.FreeformAnswer),
-		})
+		question := &promptpb.QuestionAnswer{Freeform: textutil.OptionalExactString(answer.FreeformAnswer)}
+		if answer.SelectedOptionNumber != nil {
+			selected, err := protoapi.Int32(*answer.SelectedOptionNumber, "selected_option_number")
+			if err != nil {
+				return nil, err
+			}
+			question.SelectedOptionNumber = &selected
+		}
+		entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: question}
 	}
-	entry, err := serverapi.PromptAnswerBatchEntryFrom(prompt.ToolCallID, answerPayload)
-	if err != nil {
+	request := &promptpb.AnswerBatchRequest{
+		SessionId: transcriptPromptSessionID(prompt),
+		StepId:    transcriptPromptStepID(prompt),
+		Entries:   []*promptpb.AnswerBatchEntry{entry},
+	}
+	if err := protoapi.Validate(request); err != nil {
 		return nil, fmt.Errorf("convert prompt answer: %w", err)
-	}
-	request := serverapi.PromptAnswerBatchRequest{
-		SessionID: prompt.SessionID,
-		StepID:    prompt.StepID,
-		Entries:   []serverapi.PromptAnswerBatchEntry{entry},
 	}
 	return func(ctx context.Context) error {
 		_, err := a.control.AnswerPromptBatch(ctx, request)
@@ -144,21 +155,23 @@ func (a *transcriptPromptAnswerer) submitter(
 	}, nil
 }
 
-func newTranscriptPromptKey(prompt clientui.TranscriptPrompt) (transcriptPromptKey, error) {
-	if prompt.SessionID.IsZero() {
+func newTranscriptPromptKey(prompt *transcriptpb.Prompt) (transcriptPromptKey, error) {
+	sessionID, err := runtimeids.ParseSessionID(transcriptPromptSessionID(prompt))
+	if err != nil {
 		return transcriptPromptKey{}, errors.New("prompt answer session id is required")
 	}
-	if prompt.StepID.IsZero() {
+	stepID, err := runtimeids.ParseStepID(transcriptPromptStepID(prompt))
+	if err != nil {
 		return transcriptPromptKey{}, errors.New("prompt answer step id is required")
 	}
-	rawToolCallID := string(prompt.ToolCallID)
+	rawToolCallID := transcriptPromptToolCallID(prompt)
 	if strings.TrimSpace(rawToolCallID) == "" || strings.TrimSpace(rawToolCallID) != rawToolCallID {
 		return transcriptPromptKey{}, errors.New("prompt answer tool call id is required without surrounding whitespace")
 	}
 	return transcriptPromptKey{
-		sessionID:  prompt.SessionID,
-		stepID:     prompt.StepID,
-		toolCallID: prompt.ToolCallID,
+		sessionID:  sessionID,
+		stepID:     stepID,
+		toolCallID: clientui.ToolCallID(rawToolCallID),
 	}, nil
 }
 
@@ -204,13 +217,6 @@ func clonePromptAnswer(answer clientui.PromptAnswer) clientui.PromptAnswer {
 	return answer
 }
 
-func cloneTranscriptPromptForAsk(prompt clientui.TranscriptPrompt) clientui.TranscriptPrompt {
-	prompt.Suggestions = append([]string(nil), prompt.Suggestions...)
-	prompt.ApprovalOptions = append([]clientui.ApprovalDecision(nil), prompt.ApprovalOptions...)
-	prompt.AccessTargets = append([]clientui.FileAccessTarget(nil), prompt.AccessTargets...)
-	if prompt.RecommendedOptionIndex != nil {
-		recommended := *prompt.RecommendedOptionIndex
-		prompt.RecommendedOptionIndex = &recommended
-	}
-	return prompt
+func cloneTranscriptPromptForAsk(prompt *transcriptpb.Prompt) *transcriptpb.Prompt {
+	return proto.CloneOf(prompt)
 }

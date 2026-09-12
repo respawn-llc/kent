@@ -2,6 +2,11 @@ package ptyfixture
 
 import (
 	"context"
+	"core/cli/tui/transcriptrender"
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/appfixture"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/theme"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,13 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"core/cli/tui/transcriptrender"
-	"core/internal/testharness/pty"
-	"core/internal/testharness/pty/appfixture"
-	"core/shared/clientui"
-	"core/shared/theme"
-	"core/shared/transcript"
 )
 
 const (
@@ -582,11 +580,7 @@ func countProviderModelMismatchScreenRows(screen pty.ScreenSnapshot) int {
 }
 
 func providerModelMismatchRenderedText(mode transcriptrender.Mode) string {
-	return transcriptrender.RenderCommittedRow(clientui.TranscriptCommittedRow{
-		Visibility: transcript.EntryVisibilityOngoing, Integrity: transcript.RowIntegrityValid, Kind: clientui.TranscriptRowNotice,
-		Notice: &clientui.TranscriptNoticeRow{Reason: clientui.TranscriptNoticeProviderModelMismatch, Severity: clientui.TranscriptNoticeWarning,
-			ProviderModelMismatch: &transcript.ProviderModelMismatchNotice{RequestedModel: "gpt-5", ServedModel: "served-model"}},
-	}, 80, "dark", mode).Lines[0].Plain()
+	return transcriptrender.RenderCommittedRow(&transcriptpb.CommittedRow{Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING, Integrity: transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID, Row: &transcriptpb.CommittedRow_Notice{Notice: &transcriptpb.NoticeRow{Reason: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH, Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING, ProviderModelMismatch: &transcriptpb.ProviderModelMismatch{RequestedModel: "gpt-5", ServedModel: "served-model"}}}}, 80, "dark", mode).Lines[0].Plain()
 }
 
 func colorMatches(actual string, expected theme.Color) bool {
