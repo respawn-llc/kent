@@ -668,6 +668,7 @@ func TestResponsesStubStreamsRequiredOperationToHTTPTransport(t *testing.T) {
 	if len(deltas) != 1 || deltas[0] != output {
 		t.Fatalf("assistant deltas = %#v, want %q", deltas, output)
 	}
+	waitForNoActiveRequests(t, stub)
 	if err := stub.Verify(); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -696,6 +697,8 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 	}); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
+	// A terminal stream event can reach the client before handler cleanup.
+	waitForNoActiveRequests(t, compact)
 	if err := compact.Verify(); err != nil {
 		t.Fatalf("Verify compact: %v", err)
 	}
@@ -716,6 +719,7 @@ func TestResponsesStubServesCompactAndModelMetadataTransportRoutes(t *testing.T)
 	if window != 200000 {
 		t.Fatalf("model context window = %d, want 200000", window)
 	}
+	waitForNoActiveRequests(t, model)
 	if err := model.Verify(); err != nil {
 		t.Fatalf("Verify model metadata: %v", err)
 	}
