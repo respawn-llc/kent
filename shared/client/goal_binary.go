@@ -97,18 +97,14 @@ func (c *Remote) SetGoal(
 }
 
 type GoalSetGeneratedError struct {
-	Code                        string
-	RuntimeUnavailableSessionID *string
-	InternalFailureOperation    *string
-	InternalFailureCause        *string
-	UnknownFields               []byte
+	Failure *runtimepb.GoalSetError
 }
 
 func (e *GoalSetGeneratedError) Error() string {
-	if e == nil || e.Code == "" {
+	if e == nil || e.Failure == nil || e.Failure.Code == "" {
 		return "Goal Set failed"
 	}
-	return fmt.Sprintf("Goal Set failed with code %q", e.Code)
+	return fmt.Sprintf("Goal Set failed with code %q", e.Failure.Code)
 }
 
 func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
@@ -124,32 +120,8 @@ func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
 	case "internal_failure":
 		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:
-		generated := &GoalSetGeneratedError{
-			Code:          failure.Code,
-			UnknownFields: append([]byte(nil), failure.ProtoReflect().GetUnknown()...),
-		}
-		switch detail := failure.Detail.(type) {
-		case *runtimepb.GoalSetError_RuntimeUnavailable:
-			if detail.RuntimeUnavailable != nil {
-				sessionID := detail.RuntimeUnavailable.SessionId
-				generated.RuntimeUnavailableSessionID = &sessionID
-			}
-		case *runtimepb.GoalSetError_InternalFailure:
-			if detail.InternalFailure != nil {
-				generated.InternalFailureOperation = cloneOptionalString(detail.InternalFailure.Operation)
-				generated.InternalFailureCause = cloneOptionalString(detail.InternalFailure.Cause)
-			}
-		}
-		return generated
+		return &GoalSetGeneratedError{Failure: failure}
 	}
-}
-
-func cloneOptionalString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }
 
 func goalMutationFromProto(

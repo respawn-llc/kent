@@ -104,6 +104,7 @@ func TestRemoteSetGoalPreservesSuccessfulDiagnostic(t *testing.T) {
 
 func TestGoalSetGeneratedErrorPreservesUnknownDetailsAndFields(t *testing.T) {
 	unknown := []byte{0x98, 0x06, 0x07}
+	nestedUnknown := []byte{0xa0, 0x06, 0x09}
 	failure := &runtimepb.GoalSetError{
 		Code: "future_code",
 		Detail: &runtimepb.GoalSetError_InternalFailure{
@@ -114,21 +115,30 @@ func TestGoalSetGeneratedErrorPreservesUnknownDetailsAndFields(t *testing.T) {
 		},
 	}
 	failure.ProtoReflect().SetUnknown(unknown)
+	failure.GetInternalFailure().ProtoReflect().SetUnknown(nestedUnknown)
 
 	err := goalSetGeneratedError(failure)
 	var generated *GoalSetGeneratedError
 	if !errors.As(err, &generated) {
 		t.Fatalf("error = %T %v, want GoalSetGeneratedError", err, err)
 	}
-	if generated.Code != "future_code" ||
-		generated.InternalFailureOperation == nil ||
-		*generated.InternalFailureOperation != "goal.set" ||
-		generated.InternalFailureCause == nil ||
-		*generated.InternalFailureCause != "fixture failure" {
-		t.Fatalf("generated error = %+v, want typed future detail", generated)
+	if generated.Failure != failure {
+		t.Fatalf("generated Failure = %p, want original %p", generated.Failure, failure)
 	}
-	if !bytes.Equal(generated.UnknownFields, unknown) {
-		t.Fatalf("unknown fields = %x, want %x", generated.UnknownFields, unknown)
+	if generated.Failure.Code != "future_code" ||
+		generated.Failure.GetInternalFailure().GetOperation() != "goal.set" ||
+		generated.Failure.GetInternalFailure().GetCause() != "fixture failure" {
+		t.Fatalf("generated Failure = %+v, want typed future detail", generated.Failure)
+	}
+	if !bytes.Equal(generated.Failure.ProtoReflect().GetUnknown(), unknown) {
+		t.Fatalf("outer unknown fields = %x, want %x", generated.Failure.ProtoReflect().GetUnknown(), unknown)
+	}
+	if !bytes.Equal(generated.Failure.GetInternalFailure().ProtoReflect().GetUnknown(), nestedUnknown) {
+		t.Fatalf(
+			"nested unknown fields = %x, want %x",
+			generated.Failure.GetInternalFailure().ProtoReflect().GetUnknown(),
+			nestedUnknown,
+		)
 	}
 }
 
@@ -157,9 +167,9 @@ func TestGoalSetGeneratedErrorPreservesUnknownDetailsThroughGenericDecoder(t *te
 	if !errors.As(err, &generated) {
 		t.Fatalf("error = %T %v, want GoalSetGeneratedError", err, err)
 	}
-	if generated.Code != failure.Code ||
-		generated.InternalFailureOperation == nil ||
-		*generated.InternalFailureOperation != "goal.set" {
-		t.Fatalf("generated error = %+v, want future Goal detail", generated)
+	if generated.Failure == nil ||
+		generated.Failure.Code != failure.Code ||
+		generated.Failure.GetInternalFailure().GetOperation() != "goal.set" {
+		t.Fatalf("generated Failure = %+v, want future Goal detail", generated.Failure)
 	}
 }

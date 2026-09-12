@@ -11,47 +11,45 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/sessionruntime"
-	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/clientui"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
-func (s *Service) ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
+func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.RuntimeGoalShowResponse{}, err
 	}
 	if s == nil || s.persisted == nil {
-		return nil, errors.New("persisted session resolver is required")
+		return serverapi.RuntimeGoalShowResponse{}, errors.New("persisted session resolver is required")
 	}
-	sessionID := strings.TrimSpace(req.SessionId)
+	sessionID := strings.TrimSpace(req.SessionID)
 	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve persisted session %q: %w", sessionID, err)
+		return serverapi.RuntimeGoalShowResponse{}, fmt.Errorf("resolve persisted session %q: %w", sessionID, err)
 	}
 	if record.Meta == nil {
-		return nil, fmt.Errorf("persisted session %q metadata is required", sessionID)
+		return serverapi.RuntimeGoalShowResponse{}, fmt.Errorf("persisted session %q metadata is required", sessionID)
 	}
 	availability, err := session.GoalAvailabilityFromMeta(*record.Meta)
 	if err != nil {
-		return nil, err
+		return serverapi.RuntimeGoalShowResponse{}, err
 	}
-	goal, err := goalview.CoreFromSessionState(record.Meta.Goal)
-	if err != nil {
-		return nil, err
-	}
-	return &runtimepb.GoalShowSuccess{
-		Goal:         goal,
-		Availability: goalview.AvailabilityFromSession(availability),
+	return serverapi.RuntimeGoalShowResponse{
+		GoalEnvelope: clientui.GoalEnvelope{
+			Goal:         goalview.CoreFromSessionState(record.Meta.Goal),
+			Availability: goalview.AvailabilityFromSession(availability),
+		},
 	}, nil
 }
 
-func (s *Service) SetGoal(ctx context.Context, req *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
+func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionId))
+	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
 	if err != nil {
-		return nil, err
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
 	mutation := goalMutation{
 		kind:      goalMutationSet,
@@ -59,52 +57,74 @@ func (s *Service) SetGoal(ctx context.Context, req *runtimepb.GoalSetRequest) (*
 		Actor:     session.GoalActor(strings.TrimSpace(req.Actor)),
 		StartLoop: req.ExecutionPolicy != serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState,
 	}
-	return s.mutateGoal(ctx, sessionID, req.GetRunId(), req.GetStepId(), mutation)
+	result, operationErr := s.mutateGoal(ctx, sessionID, req.RunID, req.StepID, mutation)
+	if operationErr != nil &&
+		(!goalResultAccepted(result) || errors.Is(operationErr, serverapi.ErrRuntimeUnavailable)) {
+		return serverapi.RuntimeGoalSetResponse{}, goalMutationError(operationErr)
+	}
+	response, err := goalResponseFromRuntimeResult(result, mutation)
+	if err != nil {
+		return serverapi.RuntimeGoalSetResponse{}, err
+	}
+	return serverapi.RuntimeGoalSetResponse{
+		Result:     response.Result,
+		Diagnostic: goalMutationError(operationErr),
+	}, nil
 }
 
-func (s *Service) PauseGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+func (s *Service) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return s.setGoalStatus(ctx, req, session.GoalStatusPaused)
 }
 
-func (s *Service) ResumeGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+func (s *Service) ResumeGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return s.setGoalStatus(ctx, req, session.GoalStatusActive)
 }
 
-func (s *Service) CompleteGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
+func (s *Service) CompleteGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
 	return s.setGoalStatus(ctx, req, session.GoalStatusComplete)
 }
 
 func (s *Service) setGoalStatus(
 	ctx context.Context,
-	req *runtimepb.GoalMutationRequest,
+	req serverapi.RuntimeGoalStatusRequest,
 	status session.GoalStatus,
-) (*runtimepb.GoalMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
+) (serverapi.RuntimeGoalMutationResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionId))
+	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
 	if err != nil {
-		return nil, err
+		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	return s.mutateGoal(ctx, sessionID, req.GetRunId(), req.GetStepId(), goalMutation{
+	mutation := goalMutation{
 		kind:   goalMutationStatus,
 		Status: status,
 		Actor:  session.GoalActor(strings.TrimSpace(req.Actor)),
-	})
+	}
+	result, err := s.mutateGoal(ctx, sessionID, req.RunID, req.StepID, mutation)
+	if err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, goalMutationError(err)
+	}
+	return goalResponseFromRuntimeResult(result, mutation)
 }
 
-func (s *Service) ClearGoal(ctx context.Context, req *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
+func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionId))
+	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
 	if err != nil {
-		return nil, err
+		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	return s.mutateGoal(ctx, sessionID, "", "", goalMutation{
+	mutation := goalMutation{
 		kind:  goalMutationClear,
 		Actor: session.GoalActor(strings.TrimSpace(req.Actor)),
-	})
+	}
+	result, err := s.mutateGoal(ctx, sessionID, "", "", mutation)
+	if err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, goalMutationError(err)
+	}
+	return goalResponseFromRuntimeResult(result, mutation)
 }
 
 type goalMutationKind uint8
@@ -129,32 +149,32 @@ func (s *Service) mutateGoal(
 	rawRunID string,
 	rawStepID string,
 	mutation goalMutation,
-) (*runtimepb.GoalMutationSuccess, error) {
+) (runtime.GoalCommandResult, error) {
 	if s == nil || s.authority == nil {
-		return nil, errors.New("session runtime authority is required")
+		return runtime.GoalCommandResult{}, errors.New("session runtime authority is required")
 	}
 	runText, stepText := strings.TrimSpace(rawRunID), strings.TrimSpace(rawStepID)
 	if mutation.Actor == session.GoalActorAgent && stepText != "" {
 		if runText == "" {
-			return nil, runtime.ErrAgentGoalStepInactive
+			return runtime.GoalCommandResult{}, runtime.ErrAgentGoalStepInactive
 		}
 		runID, err := runtimeids.ParseRunID(runText)
 		if err != nil {
-			return nil, err
+			return runtime.GoalCommandResult{}, err
 		}
 		stepID, err := runtimeids.ParseStepID(stepText)
 		if err != nil {
-			return nil, err
+			return runtime.GoalCommandResult{}, err
 		}
 		result, err := s.applyExactAgentGoalMutation(ctx, sessionID, runID, stepID, mutation)
-		return goalResponseFromRuntimeResult(result, mutation, goalMutationError(err))
+		return result, goalMutationError(err)
 	}
 	if runText != "" || stepText != "" {
-		return nil, errors.New("Goal execution identity requires an agent Step")
+		return runtime.GoalCommandResult{}, errors.New("Goal execution identity requires an agent Step")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
-		return nil, err
+		return runtime.GoalCommandResult{}, err
 	}
 	var dormant runtime.GoalCommandResult
 	var dormantErr error
@@ -166,13 +186,13 @@ func (s *Service) mutateGoal(
 		return dormantErr
 	})
 	if err != nil {
-		return nil, goalMutationError(err)
+		return runtime.GoalCommandResult{}, goalMutationError(err)
 	}
 	if !admission.RuntimeAvailable {
-		return goalResponseFromRuntimeResult(dormant, mutation, goalMutationError(dormantErr))
+		return dormant, goalMutationError(dormantErr)
 	}
 	result, err := s.applyLiveGoalMutation(ctx, sessionID, mutation)
-	return goalResponseFromRuntimeResult(result, mutation, goalMutationError(err))
+	return result, goalMutationError(err)
 }
 
 func (s *Service) applyLiveGoalMutation(
@@ -277,12 +297,13 @@ func applyDormantGoalMutation(store *session.Store, mutation goalMutation) (runt
 		goal, metadataReceipt, err := store.SetGoal(mutation.Objective, mutation.Actor)
 		result := runtimeGoalResult(goal, false, runtime.GoalCommandApplied, metadataReceipt, session.CommitReceipt{})
 		result.Availability = &availability
-		if err != nil || !metadataReceipt.Committed {
+		if !metadataReceipt.Committed {
 			return result, err
 		}
+		metadataErr := err
 		noticeReceipt, noticeErr := runtime.SteerPersistedGoalNotice(store, runtime.GoalNoticeSet, &goal)
 		result.NoticeReceipt = noticeReceipt
-		return result, noticeErr
+		return result, errors.Join(metadataErr, noticeErr)
 	case goalMutationStatus:
 		if current := store.Meta().Goal; current != nil && current.Status == mutation.Status {
 			result := runtimeGoalResult(*current, false, runtime.GoalCommandNoop, session.CommitReceipt{}, session.CommitReceipt{})
@@ -342,49 +363,41 @@ func goalResultAccepted(result runtime.GoalCommandResult) bool {
 func goalResponseFromRuntimeResult(
 	result runtime.GoalCommandResult,
 	mutation goalMutation,
-	err error,
-) (*runtimepb.GoalMutationSuccess, error) {
-	if err != nil {
-		return nil, err
-	}
-	var availability *runtimepb.GoalAvailability
+) (serverapi.RuntimeGoalMutationResponse, error) {
+	var availability *clientui.GoalAvailability
 	if result.Availability != nil {
 		value := goalview.AvailabilityFromSession(*result.Availability)
 		availability = &value
 	}
 	requestedStatus, hasRequestedStatus := goalMutationRequestedStatus(mutation)
-	var response *runtimepb.GoalMutationSuccess
+	var mutationResult clientui.GoalMutationResult
 	switch result.Disposition {
 	case runtime.GoalCommandApplied, runtime.GoalCommandNoop:
 		if mutation.kind == goalMutationClear {
 			if !result.Cleared || result.Disposition != runtime.GoalCommandApplied {
-				return nil, errors.New("Goal Clear result is not authoritative")
+				return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal Clear result is not authoritative")
 			}
-			response = &runtimepb.GoalMutationSuccess{
-				Kind:         runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR,
+			mutationResult = clientui.GoalMutationResult{
+				Kind:         clientui.GoalMutationResultAuthoritativeClear,
 				Availability: availability,
 			}
 			break
 		}
 		if result.Cleared || !hasRequestedStatus || result.GoalState.Status != requestedStatus {
-			return nil, errors.New("authoritative Goal result does not match the requested state")
+			return serverapi.RuntimeGoalMutationResponse{}, errors.New("authoritative Goal result does not match the requested state")
 		}
-		goal, err := goalview.CoreFromSessionState(&result.GoalState)
-		if err != nil {
-			return nil, err
-		}
-		response = &runtimepb.GoalMutationSuccess{
-			Kind:         runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
-			Goal:         goal,
+		mutationResult = clientui.GoalMutationResult{
+			Kind:         clientui.GoalMutationResultAuthoritativeGoal,
+			Goal:         goalview.CoreFromSessionState(&result.GoalState),
 			Availability: availability,
 		}
 	default:
-		return nil, errors.New("Goal mutation is missing an authoritative result")
+		return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal mutation is missing an authoritative result")
 	}
-	if err := protoapi.Validate(response); err != nil {
-		return nil, err
+	if err := mutationResult.Validate(); err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	return response, nil
+	return serverapi.RuntimeGoalMutationResponse{Result: mutationResult}, nil
 }
 
 func goalMutationRequestedStatus(mutation goalMutation) (session.GoalStatus, bool) {
