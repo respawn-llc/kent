@@ -29,12 +29,14 @@ export type NewChatGoalDelivery = Readonly<{
   target: ChatSessionTarget;
   mutation: ChatGoalMutationResult | null;
 }>;
+export type NewChatGoalResolutionListener = (delivery: NewChatGoalDelivery) => void;
 
 export class NewChatGoalBinding {
   readonly #api: Pick<ChatApi, "setGoal">;
   readonly #captureTarget: NewChatGoalBindingOptions["captureTarget"];
   readonly #onResolved: NewChatGoalBindingOptions["onResolved"];
   readonly #listeners = new Set<() => void>();
+  readonly #resolutionListeners = new Set<NewChatGoalResolutionListener>();
   #snapshot: NewChatGoalBindingSnapshot = {
     kind: "unresolved",
     availability: null,
@@ -54,6 +56,11 @@ export class NewChatGoalBinding {
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  subscribeResolution(listener: NewChatGoalResolutionListener): () => void {
+    this.#resolutionListeners.add(listener);
+    return () => this.#resolutionListeners.delete(listener);
   }
 
   setAvailability(availability: ChatGoalAvailability | null): void {
@@ -76,20 +83,19 @@ export class NewChatGoalBinding {
     this.#notify();
     try {
       const result = await this.#api.setGoal(target, objective);
-      if (result.sessionID === null) {
-        this.#snapshot = { kind: "unresolved", availability: this.#snapshot.availability, pending: false };
-        this.#notify();
-        return result;
-      }
       const exactTarget: ChatSessionTarget = {
         projectID: target.projectID,
         workspace: { workspaceID: target.workspaceID },
         sessionID: result.sessionID,
       };
-      this.#onResolved?.({
+      const delivery = {
         target: exactTarget,
         mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
-      });
+      } satisfies NewChatGoalDelivery;
+      this.#onResolved?.(delivery);
+      for (const listener of this.#resolutionListeners) {
+        listener(delivery);
+      }
       this.#snapshot = { kind: "resolved_session", target: exactTarget };
       this.#notify();
       return result;

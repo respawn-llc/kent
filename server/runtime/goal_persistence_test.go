@@ -35,7 +35,7 @@ func TestGoalPersistenceDoesNotWaitForModelBoundary(t *testing.T) {
 	}
 }
 
-func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrBlockQueue(t *testing.T) {
+func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrSurfaceDuplicateFeedback(t *testing.T) {
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
@@ -55,8 +55,8 @@ func TestGoalNoticeFailureDoesNotUndoCommittedGoalOrBlockQueue(t *testing.T) {
 	if goal := engine.Goal(); goal == nil || goal.ID != result.ID {
 		t.Fatalf("notice failure changed committed goal: %+v", goal)
 	}
-	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError == "" {
-		t.Fatal("notice failure was not surfaced")
+	if snapshot := engine.ChatSnapshot(); snapshot.StreamingError != "" {
+		t.Fatalf("notice failure surfaced duplicate Runtime feedback: %q", snapshot.StreamingError)
 	}
 	count := 0
 	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {
@@ -82,7 +82,16 @@ func TestGoalSetContinuesNoticeAfterCommittedMetadataIssue(t *testing.T) {
 	if !result.MetadataReceipt.Committed {
 		t.Fatalf("metadata receipt = %+v, want committed", result.MetadataReceipt)
 	}
-	if !result.NoticeReceipt.Committed {
-		t.Fatalf("notice receipt = %+v, want committed notice after metadata issue", result.NoticeReceipt)
+	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("drain notice after metadata issue: %v", err)
+	}
+	count := 0
+	for _, message := range engine.transcriptRuntimeState().SnapshotMessages() {
+		if message.MessageType != nil && *message.MessageType == llm.MessageTypeGoal {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("goal notices = %d, want one notice after metadata issue", count)
 	}
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { ApiSubscription, ChatApi, ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
+import type {
+  ApiSubscription,
+  ChatApi,
+  ChatGoalMutationResult,
+  ChatGoalObservationHandler,
+  ChatSessionTarget,
+} from "@/api";
 
 import { ChatGoalDestinationController, type ChatGoalMutationIntent } from "./chatGoalDestination";
 
@@ -41,6 +47,40 @@ describe("Chat Goal destination controller", () => {
     });
 
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("admits a validated authoritative result while hydration is pending", () => {
+    const { api, handlers } = observationApi();
+    const controller = new ChatGoalDestinationController(api, target);
+    controller.start();
+    const fact = {
+      goal: {
+        id: "goal-1",
+        objective: "ship",
+        status: "active",
+        createdAt: "2026-09-12T10:00:00Z",
+        updatedAt: "2026-09-12T10:00:00Z",
+      },
+      availability: "available",
+    } satisfies Extract<ChatGoalMutationResult, { kind: "authoritative_goal" }>["fact"];
+    const result: ChatGoalMutationResult = { kind: "authoritative_goal", fact };
+
+    expect(controller.admitAuthoritativeResult(result)).toBe(true);
+    expect(controller.snapshot).toMatchObject({
+      authority: { kind: "observed", value: fact },
+      observation: { kind: "loading" },
+    });
+
+    handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      fact: { goal: null, availability: "available" },
+    });
+    expect(controller.snapshot.authority).toMatchObject({
+      kind: "observed",
+      value: { goal: null, availability: "available" },
+    });
+    expect(controller.admitAuthoritativeResult(result)).toBe(false);
   });
 
   it("keeps newer observed authority when an older authoritative mutation result settles", () => {

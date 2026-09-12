@@ -175,7 +175,7 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 		}
 		return result, errors.Join(metadataErr, noticeBuildErr, e.startGoalLoop(false))
 	}
-	noticeReceipt, noticeErr := e.enqueueGoalNotice(
+	noticeReceipt, noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
 		false,
@@ -184,7 +184,7 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 	if !startLoop {
 		return result, errors.Join(metadataErr, noticeErr)
 	}
-	return result, errors.Join(metadataErr, noticeErr, e.startGoalLoop(noticeReceipt.Committed))
+	return result, errors.Join(metadataErr, noticeErr, e.startGoalLoop(noticeAccepted))
 }
 
 func (e *Engine) SetGoalStatus(ctx context.Context, status session.GoalStatus, actor session.GoalActor) (GoalCommandResult, error) {
@@ -245,7 +245,7 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	if err != nil {
 		return result, err
 	}
-	noticeReceipt, noticeErr := e.enqueueGoalNotice(
+	noticeReceipt, noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
 		true,
@@ -254,7 +254,7 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	if !startLoop || status != session.GoalStatusActive {
 		return result, noticeErr
 	}
-	return result, errors.Join(noticeErr, e.startGoalLoop(noticeReceipt.Committed))
+	return result, errors.Join(noticeErr, e.startGoalLoop(noticeAccepted))
 }
 
 func (e *Engine) ApplyGoalForStep(stepID string, operation CurrentGoalOperation) (GoalCommandResult, error) {
@@ -329,7 +329,7 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 	if err != nil {
 		return result, err
 	}
-	noticeReceipt, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability), true)
+	noticeReceipt, _, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability), true)
 	result.NoticeReceipt = noticeReceipt
 	return result, noticeErr
 }
@@ -340,15 +340,19 @@ func (e *Engine) enqueueGoalNotice(
 	message llm.Message,
 	update GoalStatusUpdate,
 	surfaceFailure bool,
-) (session.CommitReceipt, error) {
-	return awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (session.CommitReceipt, error) {
+) (session.CommitReceipt, bool, error) {
+	_, accepted := trySubmitEngineRuntimeOperation(e, func(context.Context) (struct{}, error) {
 		message = normalizeMessageForTranscript(message, e.transcriptWorkingDir())
-		receipt, err := e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
+		_, err := e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
 		if err != nil && surfaceFailure {
 			e.surfaceRunErrorRaw(err)
 		}
-		return receipt, err
+		return struct{}{}, err
 	})
+	if !accepted {
+		return session.CommitReceipt{}, false, ErrEngineClosed
+	}
+	return session.CommitReceipt{}, true, nil
 }
 
 func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
@@ -389,7 +393,7 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
 		reportErr(err)
 		return
 	}
-	if _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability), true); err != nil {
+	if _, _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability), true); err != nil {
 		reportErr(err)
 	}
 }

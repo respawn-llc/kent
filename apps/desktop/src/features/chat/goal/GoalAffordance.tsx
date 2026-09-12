@@ -13,14 +13,14 @@ export function GoalAffordance({ goal, onActivate }: GoalAffordanceProps) {
   const { t } = useTranslation();
   return (
     <InteractiveChip
-      aria-label={t("chat.goal.title")}
+      aria-label={t("chat.goal.objective")}
       onClick={onActivate}
       size="default"
       tone={goal.goal?.status === "active" ? "primary" : "neutral"}
       data-state={goal.goal?.status === "active" ? "active" : "neutral"}
     >
       <Target aria-hidden="true" size={15} strokeWidth={1.7} />
-      <span>{t("chat.goal.title")}</span>
+      <span>{t("chat.goal.objective")}</span>
     </InteractiveChip>
   );
 }
