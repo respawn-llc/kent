@@ -141,35 +141,3 @@ func TestGoalSetGeneratedErrorPreservesUnknownDetailsAndFields(t *testing.T) {
 		)
 	}
 }
-
-func TestGoalSetGeneratedErrorPreservesUnknownDetailsThroughGenericDecoder(t *testing.T) {
-	failure := &runtimepb.GoalSetError{
-		Code: "future_code",
-		Detail: &runtimepb.GoalSetError_InternalFailure{
-			InternalFailure: &sharedpb.InternalFailureDetails{
-				Operation: stringPointer("goal.set"),
-				Cause:     stringPointer("fixture failure"),
-			},
-		},
-	}
-	failure.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 0x07})
-	result := &runtimepb.GoalSetResult{
-		Outcome: &runtimepb.GoalSetResult_Error{Error: failure},
-	}
-
-	_, err := decodeGeneratedResultWithFailureClassifier(
-		goalMethod("Set"),
-		result,
-		goalSetGeneratedError,
-		noGeneratedPlatformFailure[*runtimepb.GoalSetError],
-	)
-	var generated *GoalSetGeneratedError
-	if !errors.As(err, &generated) {
-		t.Fatalf("error = %T %v, want GoalSetGeneratedError", err, err)
-	}
-	if generated.Failure == nil ||
-		generated.Failure.Code != failure.Code ||
-		generated.Failure.GetInternalFailure().GetOperation() != "goal.set" {
-		t.Fatalf("generated Failure = %+v, want future Goal detail", generated.Failure)
-	}
-}

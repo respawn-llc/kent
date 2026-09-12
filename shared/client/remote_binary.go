@@ -65,38 +65,11 @@ func callGeneratedBinary[
 	decodeFailure func(Failure) error,
 	classifyValidation ...func(error) error,
 ) (Success, error) {
-	return callGeneratedBinaryWithFailureClassifier(
-		c,
-		ctx,
-		method,
-		request,
-		result,
-		decodeFailure,
-		generatedPlatformFailure[Failure],
-		classifyValidation...,
-	)
-}
-
-func callGeneratedBinaryWithFailureClassifier[
-	Request proto.Message,
-	Success any,
-	Failure comparableProtoMessage,
-	Result generatedUnaryResult[Success, Failure],
-](
-	c *Remote,
-	ctx context.Context,
-	method protoreflect.MethodDescriptor,
-	request Request,
-	result Result,
-	decodeFailure func(Failure) error,
-	classifyFailure func(Failure) (error, bool),
-	classifyValidation ...func(error) error,
-) (Success, error) {
 	var zeroSuccess Success
 	if err := c.callBinary(ctx, method, request, result, classifyValidation...); err != nil {
 		return zeroSuccess, err
 	}
-	return decodeGeneratedResultWithFailureClassifier(method, result, decodeFailure, classifyFailure)
+	return decodeGeneratedResult(method, result, decodeFailure)
 }
 
 func decodeGeneratedResult[
@@ -108,24 +81,6 @@ func decodeGeneratedResult[
 	result Result,
 	decodeFailure func(Failure) error,
 ) (Success, error) {
-	return decodeGeneratedResultWithFailureClassifier(
-		method,
-		result,
-		decodeFailure,
-		generatedPlatformFailure[Failure],
-	)
-}
-
-func decodeGeneratedResultWithFailureClassifier[
-	Success any,
-	Failure comparableProtoMessage,
-	Result generatedUnaryResult[Success, Failure],
-](
-	method protoreflect.MethodDescriptor,
-	result Result,
-	decodeFailure func(Failure) error,
-	classifyFailure func(Failure) (error, bool),
-) (Success, error) {
 	var zeroSuccess Success
 	classified, err := protoapi.ClassifyResult(result)
 	if err != nil {
@@ -135,14 +90,14 @@ func decodeGeneratedResultWithFailureClassifier[
 		return result.GetSuccess(), nil
 	}
 	if classified.Outcome == protoapi.OperationGenericFailure {
-		return zeroSuccess, decodeFailure(result.GetError())
+		return zeroSuccess, generatedOperationFailure(classified.Failure.Code)
 	}
 	var zeroFailure Failure
 	failure := result.GetError()
 	if failure == zeroFailure {
 		return zeroSuccess, fmt.Errorf("%s classified a failure without an error value", method.FullName())
 	}
-	if err, matched := classifyFailure(failure); matched {
+	if err, matched := generatedPlatformFailure(failure); matched {
 		return zeroSuccess, err
 	}
 	return zeroSuccess, decodeFailure(failure)
@@ -158,10 +113,6 @@ func generatedPlatformFailure[Failure comparableProtoMessage](failure Failure) (
 	if typed, ok := any(failure).(generatedInternalFailure); ok && typed.GetInternalFailure() != nil {
 		return protoapi.InternalFailureFromProto(typed.GetInternalFailure()), true
 	}
-	return nil, false
-}
-
-func noGeneratedPlatformFailure[Failure comparableProtoMessage](Failure) (error, bool) {
 	return nil, false
 }
 
