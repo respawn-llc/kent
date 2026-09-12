@@ -2,6 +2,8 @@
 // https://github.com/vercel/ai-elements
 import { motion, useReducedMotion } from "motion/react";
 
+import { motionDurationFromCSSVar, shimmerMotion } from "./motion";
+
 export function Shimmer({ children }: Readonly<{ children: string }>) {
   const reducedMotion = useReducedMotion();
   return (
@@ -9,7 +11,12 @@ export function Shimmer({ children }: Readonly<{ children: string }>) {
       className="inline-block bg-clip-text text-transparent"
       initial={{ backgroundPosition: "100% center" }}
       animate={{ backgroundPosition: reducedMotion ? "100% center" : "0% center" }}
-      transition={{ duration: 1, ease: "linear", repeat: reducedMotion ? 0 : Infinity }}
+      transition={{
+        duration:
+          motionDurationFromCSSVar(shimmerMotion.durationVarName, shimmerMotion.fallbackDurationMs) / 1000,
+        ease: shimmerMotion.ease,
+        repeat: reducedMotion ? 0 : Infinity,
+      }}
       style={{
         backgroundSize: "250% 100%, auto",
         backgroundRepeat: "no-repeat",

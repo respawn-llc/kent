@@ -33,7 +33,11 @@ export function TranscriptReasoningSlot({
           />
         ) : undefined
       }
-      body={<StreamingMarkdown streaming={item.state === "live"} value={item.value.Text} />}
+      body={
+        <div className="text-[var(--color-muted)]">
+          <StreamingMarkdown streaming={item.state === "live"} value={item.value.Text} />
+        </div>
+      }
       collapseLabel={t("app.collapse")}
       defaultExpanded={false}
       expandLabel={t("app.expand")}

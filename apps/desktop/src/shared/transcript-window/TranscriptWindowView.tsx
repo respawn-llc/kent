@@ -60,6 +60,7 @@ type TranscriptRowWrapperProps = HTMLAttributes<HTMLDivElement> &
   Readonly<{ "data-transcript-presentation-key": string }>;
 
 const presentationKeyAttribute = "data-transcript-presentation-key";
+const transcriptContentClassName = "mx-auto w-full max-w-[1200px]";
 
 export function TranscriptWindowView({
   snapshot,
@@ -166,7 +167,7 @@ export function TranscriptWindowView({
       estimateSize={estimateSize}
       footer={
         snapshot.showsLive ? (
-          <div data-transcript-presentation-key="thinking-status-tail">
+          <div className={transcriptContentClassName} data-transcript-presentation-key="thinking-status-tail">
             {slots.thinkingStatus(snapshot.thinkingStatus)}
           </div>
         ) : undefined
@@ -192,7 +193,7 @@ export function TranscriptWindowView({
       pixelOffsetRequest={pixelOffsetRequest}
       previousBoundary={previousBoundary}
       renderItem={(item) => (
-        <div className="mx-auto w-full max-w-[1200px]">
+        <div className={transcriptContentClassName}>
           <TranscriptFamilySlot item={item} slots={slots} />
         </div>
       )}
