@@ -78,6 +78,16 @@ export const runtimeStatusSchema = z
     WorkflowSession: z.object({ TaskID: identifier, WorkflowID: identifier }).strict().nullable(),
   })
   .strict();
+export const activeKindSchema = z.enum([
+  "user_turn",
+  "workflow_turn",
+  "goal_loop",
+  "compaction",
+  "pre_submit_compaction",
+  "user_shell",
+  "background",
+  "runtime_maintenance",
+]);
 export const runtimeActivitySchema = z
   .object({
     State: z.enum([
@@ -90,7 +100,7 @@ export const runtimeActivitySchema = z
       "closing",
     ]),
     ActiveStep: z
-      .object({ RunID: identifier, StepID: identifier, ActiveKind: identifier })
+      .object({ RunID: identifier, StepID: identifier, ActiveKind: activeKindSchema })
       .strict()
       .nullable(),
     Reviewer: z.enum(["inactive", "invoking", "addressing_feedback"]),

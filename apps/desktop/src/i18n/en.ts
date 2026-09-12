@@ -102,6 +102,12 @@ export const englishResources = {
       },
     },
     chatTranscript: {
+      thinking: "Thinking...",
+      working: "Working…",
+      compacting: "Compacting…",
+      running: "Running…",
+      reviewing: "Reviewing…",
+      thoughtDuration: "Thought for {{seconds}} seconds",
       copy: "Copy",
       copied: "Copied",
       copyFailed: "Could not copy transcript content.",

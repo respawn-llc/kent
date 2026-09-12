@@ -469,6 +469,8 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("restores retained pixels after remounted group pages establish their first results", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
     const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
     const scrollPositions = new WeakMap<HTMLElement, number>();
     let maximumScrollTop = Number.POSITIVE_INFINITY;
@@ -531,6 +533,8 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("restores retained pixels while established group pages refresh", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
     const memory = createProjectTasksViewMemory();
     memory.setScrollOffsets(200, 120);
     fixture.initialGroupPagesRefreshing = true;

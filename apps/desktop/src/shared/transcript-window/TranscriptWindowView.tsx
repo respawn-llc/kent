@@ -164,6 +164,13 @@ export function TranscriptWindowView({
     <VirtualizedInfiniteList
       className="h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto"
       estimateSize={estimateSize}
+      footer={
+        snapshot.showsLive ? (
+          <div data-transcript-presentation-key="thinking-status-tail">
+            {slots.thinkingStatus(snapshot.thinkingStatus)}
+          </div>
+        ) : undefined
+      }
       getItemAnchorKey={presentationKey}
       getItemKey={presentationKey}
       getItemWrapperProps={rowWrapperProps}
@@ -271,7 +278,5 @@ function TranscriptFamilySlot({
     case "reviewer_feedback":
     case "reviewer_error":
       return slots.notice(item);
-    case "thinking_status":
-      return slots.thinkingStatus(item);
   }
 }

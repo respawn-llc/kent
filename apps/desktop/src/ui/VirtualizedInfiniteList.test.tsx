@@ -373,6 +373,10 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
 
   it("preserves the restored anchor when a later layout resets the scroll element", () => {
     const items = Array.from({ length: 20 }, (_value, index) => `item-${index.toString()}`);
+    virtualizer.getVirtualItems.mockReturnValue([
+      { end: 280, index: 6, key: "item-6", lane: 0, size: 40, start: 240 },
+    ]);
+    virtualizer.getOffsetForIndex.mockReturnValue([240, "start"]);
     const request = createVirtualizedPixelOffsetRequest("layout-reset", 240);
     const view = render(<List items={items} request={request} />);
     const list = screen.getByRole("list");
@@ -584,6 +588,10 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
   });
 
   it("loads independent visible items once for their current request generation", () => {
+    virtualizer.getVirtualItems.mockReturnValue([
+      { end: 40, index: 0, key: "active-boundary", lane: 0, size: 40, start: 0 },
+      { end: 80, index: 1, key: "done-boundary", lane: 0, size: 40, start: 40 },
+    ]);
     const loadActive = vi.fn();
     const loadDone = vi.fn();
     const view = render(
@@ -681,6 +689,9 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
   });
 
   it("retires visibility-trigger state after its boundary is removed", () => {
+    virtualizer.getVirtualItems.mockReturnValue([
+      { end: 40, index: 0, key: "active-boundary", lane: 0, size: 40, start: 0 },
+    ]);
     const load = vi.fn();
     const trigger = {
       itemKey: "active-boundary",
