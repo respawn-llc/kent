@@ -94,12 +94,13 @@ export function GoalMetadata({
       </div>
       {createdAt === null ? null : (
         <span className="text-sm text-[var(--color-muted)]">
-          {t("chat.goal.setAt", {
-            date: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
+          {t("chat.goal.setAt")}{" "}
+          <time data-testid="goal-set-time" dateTime={createdAt}>
+            {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
               new Date(createdAt),
-            ),
-            age: formatGoalAge(createdAt, now),
-          })}
+            )}
+          </time>{" "}
+          {t("chat.goal.age", { age: formatGoalAge(createdAt, now) })}
         </span>
       )}
     </IslandSurface>

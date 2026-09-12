@@ -3,22 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import { SidebarHost } from "@/app/sidebar";
-import { SidebarProvider } from "@/app/sidebarProvider";
-import { sidebarDestinationPolicy } from "@/app/sidebarDestinationPolicy";
-import { SidebarRootOwner } from "@/app-facade";
+import { TestSidebar } from "@/test-support/sidebar";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
 
 function renderFixture() {
   const services = createTestServices([]);
   render(
     <TestAppProviders services={services}>
-      <SidebarProvider policy={sidebarDestinationPolicy}>
-        <SidebarRootOwner>
-          <GoalBrowserFixtureHarness />
-        </SidebarRootOwner>
-        <SidebarHost />
-      </SidebarProvider>
+      <TestSidebar>
+        <GoalBrowserFixtureHarness />
+      </TestSidebar>
     </TestAppProviders>,
   );
 }

@@ -3,7 +3,6 @@ import {
   useId,
   useRef,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
@@ -198,18 +197,14 @@ type MarkdownFloatingAction = Awaited<ReactNode>;
 
 function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloatingAction | undefined }>) {
   const phase = useOpacityExit(action !== undefined);
-  const [actionStore] = useState(() => createRetainedActionStore(action));
+  const [retainedAction, setRetainedAction] = useState<MarkdownFloatingAction | undefined>(action);
   const actionRef = useRef<HTMLDivElement | null>(null);
-  const lastAction = useSyncExternalStore(
-    actionStore.subscribe,
-    actionStore.getSnapshot,
-    actionStore.getSnapshot,
-  );
-  useEffect(() => {
-    if (action !== undefined) {
-      actionStore.remember(action);
-    }
-  }, [action, actionStore]);
+  if (action !== undefined && action !== retainedAction) {
+    setRetainedAction(action);
+  }
+  if (phase === "hidden" && retainedAction !== undefined) {
+    setRetainedAction(undefined);
+  }
   useEffect(() => {
     if (phase !== "exiting") {
       return;
@@ -222,7 +217,7 @@ function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloa
   if (phase === "hidden") {
     return null;
   }
-  const renderedAction = action ?? lastAction;
+  const renderedAction = action ?? retainedAction;
   if (renderedAction === undefined) {
     return null;
   }
@@ -257,25 +252,6 @@ function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloa
       <div className={exiting ? "pointer-events-none" : "pointer-events-auto"}>{renderedAction}</div>
     </div>
   );
-}
-
-type RetainedActionStore = Readonly<{
-  getSnapshot(): MarkdownFloatingAction | undefined;
-  remember: (action: MarkdownFloatingAction) => void;
-  subscribe: (listener: () => void) => () => void;
-}>;
-
-function createRetainedActionStore(initialAction: MarkdownFloatingAction | undefined): RetainedActionStore {
-  let currentAction = initialAction;
-  return {
-    getSnapshot() {
-      return currentAction;
-    },
-    remember: (nextAction) => {
-      currentAction = nextAction;
-    },
-    subscribe: () => () => undefined,
-  };
 }
 
 function MarkdownFieldEditor({

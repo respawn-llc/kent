@@ -265,8 +265,11 @@ function createFixtureRuntime(state: GoalFixtureState, notify: () => void): Goal
       currentFact = fact;
       return {
         sessionID: target.kind === "new_chat" ? fixtureSessionID : target.sessionID,
-        outcome: { kind: "mutation", mutation: { kind: "authoritative_goal", fact } },
-        diagnostic: null,
+        outcome: {
+          kind: "mutation",
+          mutation: { kind: "authoritative_goal", fact },
+          diagnostic: null,
+        },
       };
     },
     subscribeGoal: (_target, handler): ApiSubscription => {

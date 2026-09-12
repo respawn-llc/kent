@@ -1,4 +1,5 @@
 import type { ChatGoalSetResult } from "@/api";
+import { ChatOperationError, RpcError } from "@/api";
 import { NewChatGoalBinding, type NewChatGoalBindingSnapshot, type NewChatGoalDelivery } from "./goalBinding";
 
 const result: ChatGoalSetResult = {
@@ -18,8 +19,8 @@ const result: ChatGoalSetResult = {
         availability: "available",
       },
     },
+    diagnostic: null,
   },
-  diagnostic: null,
 };
 
 describe("New Chat Goal binding", () => {
@@ -98,8 +99,13 @@ describe("New Chat Goal binding", () => {
   it("delivers a Session-bearing rejection without a Goal handoff", async () => {
     const rejected: ChatGoalSetResult = {
       sessionID: result.sessionID,
-      outcome: { kind: "rejected", error: { kind: "runtime_unavailable" } },
-      diagnostic: null,
+      outcome: {
+        kind: "rejected",
+        error: new ChatOperationError(
+          new RpcError({ code: 500, message: "Goal Set failed", method: "runtime.goal.set" }),
+          { kind: "runtime_unavailable", sessionID: result.sessionID },
+        ),
+      },
     };
     const deliveries: NewChatGoalDelivery[] = [];
     const binding = new NewChatGoalBinding({

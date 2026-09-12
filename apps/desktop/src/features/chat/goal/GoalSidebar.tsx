@@ -9,14 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import type {
-  ChatApi,
-  ChatError,
-  ChatGoalFact,
-  ChatGoalMutationResult,
-  ChatGoalStatus,
-  ChatSessionTarget,
-} from "@/api";
+import type { ChatApi, ChatGoalFact, ChatGoalMutationResult, ChatGoalStatus, ChatSessionTarget } from "@/api";
 import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import {
   ChatGoalDestinationController,
@@ -30,6 +23,11 @@ import { ErrorState, LoadingState } from "@/ui";
 import { type NewChatGoalBinding } from "./goalBinding";
 import { GoalMarkdownField } from "./GoalMarkdownField";
 import { GoalActions, GoalMetadata, GoalSaveButton, goalLifecycleAction } from "./GoalSidebarParts";
+import {
+  goalErrorMessage,
+  goalSetDiagnosticNotificationID,
+  reportGoalSetDiagnostic,
+} from "./goalNotifications";
 export type GoalSidebarApi = Pick<
   ChatApi,
   "setGoal" | "subscribeGoal" | "pauseGoal" | "resumeGoal" | "clearGoal"
@@ -56,15 +54,27 @@ function NewChatGoalSidebar({
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [handoff, setHandoff] = useState<NewChatGoalHandoff | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  useEffect(() => {
+    return binding.subscribeResolution((delivery) => {
+      const controller = new ChatGoalDestinationController(api, delivery.target);
+      if (delivery.mutation !== null && !controller.admitAuthoritativeResult(delivery.mutation)) {
+        controller.dispose();
+        throw new ContractError("New Chat Goal result could not be admitted to its destination.");
+      }
+      setHandoff({ controller, target: delivery.target });
+    });
+  }, [api, binding]);
 
   if (snapshot.kind === "resolved_session") {
-    return <ExactGoalSidebar api={api} initialDraft={draft} target={snapshot.target} />;
+    const seeded = handoff?.target.sessionID === snapshot.target.sessionID ? handoff.controller : undefined;
+    return <ExactGoalSidebar api={api} controller={seeded} initialDraft={draft} target={snapshot.target} />;
   }
 
   const unavailable = snapshot.availability === "agent_capability_missing";
@@ -147,12 +157,18 @@ function NewChatGoalSidebar({
 }
 function ExactGoalSidebar({
   api,
+  controller,
   initialDraft = "",
   target,
-}: Readonly<{ api: GoalSidebarApi; initialDraft?: string; target: ChatSessionTarget }>) {
-  const model = useExactGoalSidebarModel(api, initialDraft, target);
+}: Readonly<{
+  api: GoalSidebarApi;
+  controller?: ChatGoalDestinationController | undefined;
+  initialDraft?: string;
+  target: ChatSessionTarget;
+}>) {
+  const model = useExactGoalSidebarModel(api, initialDraft, target, controller);
 
-  if (model.snapshot.observation.kind === "loading") {
+  if (model.snapshot.observation.kind === "loading" && model.fact === null) {
     return <LoadingState fullPage={false} title={model.t("chat.goal.loading")} />;
   }
   if (model.snapshot.observation.kind === "error") {
@@ -195,6 +211,11 @@ type ExactGoalSidebarModel = Readonly<{
   save: () => void;
   runLifecycle: () => void;
   clear: () => void;
+}>;
+
+type NewChatGoalHandoff = Readonly<{
+  controller: ChatGoalDestinationController;
+  target: ChatSessionTarget;
 }>;
 
 type DraftState = Readonly<{ base: string; draft: string }>;
@@ -396,10 +417,14 @@ function useExactGoalSidebarModel(
   api: GoalSidebarApi,
   initialDraft: string,
   target: ChatSessionTarget,
+  initialController?: ChatGoalDestinationController,
 ): ExactGoalSidebarModel {
   const { t } = useTranslation();
   const [localDraft, setLocalDraft] = useState<DraftState>({ base: "", draft: initialDraft });
-  const controller = useMemo(() => new ChatGoalDestinationController(api, target), [api, target]);
+  const controller = useMemo(
+    () => initialController ?? new ChatGoalDestinationController(api, target),
+    [api, initialController, target],
+  );
   const reconcileSnapshot = useCallback(() => {
     setLocalDraft((current) => {
       const snapshot = controller.snapshot;
@@ -624,37 +649,4 @@ function useControllerSnapshot(controller: ChatGoalDestinationController, onSnap
     [controller, onSnapshot],
   );
   return snapshot;
-}
-
-function goalErrorMessage(error: ChatError, t: ReturnType<typeof useTranslation>["t"]): string {
-  switch (error.kind) {
-    case "runtime_unavailable":
-      return t("chatSettings.errors.runtimeUnavailable");
-    case "internal_failure":
-      return error.cause ?? t("chatSettings.errors.internalFailure");
-    case "unknown":
-      return t("chatSettings.errors.unknown", { code: error.code });
-    default:
-      throw new Error("Unexpected Goal Set error detail.");
-  }
-}
-
-type StatusPush = ReturnType<typeof useStatusController>["push"];
-
-function goalSetDiagnosticNotificationID(): string {
-  return `goal-set-diagnostic:${crypto.randomUUID()}`;
-}
-
-function reportGoalSetDiagnostic(
-  push: StatusPush,
-  t: ReturnType<typeof useTranslation>["t"],
-  diagnostic: ChatOperationError,
-  id: string,
-): void {
-  push({
-    id,
-    title: t("chat.goal.savedWithWarning"),
-    body: goalErrorMessage(diagnostic.detail, t),
-    tone: "warning",
-  });
 }

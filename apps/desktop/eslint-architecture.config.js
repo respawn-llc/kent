@@ -183,8 +183,9 @@ const ownerDependencyPolicies = ownerDependencyMatrix.flatMap(({ from, dependenc
 const testDependencyPolicies = Object.freeze([
   Object.freeze({
     from: {
-      file: {
-        categories: architectureFileCategories.TEST,
+      element: {
+        types: architectureOwners.TEST_SUPPORT,
+        fileInternalPath: "sidebar/index.ts",
       },
     },
     allow: {

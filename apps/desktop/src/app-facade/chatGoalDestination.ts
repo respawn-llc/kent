@@ -103,6 +103,13 @@ export class ChatGoalDestinationController {
     this.#openObservation();
   }
 
+  admitAuthoritativeResult(result: ChatGoalMutationResult): boolean {
+    if (this.#disposed || this.source.snapshot.kind !== "unobserved") return false;
+    this.source.admit(result.fact);
+    this.#notify();
+    return true;
+  }
+
   replaceObservation(): void {
     if (this.#disposed) return;
     this.#subscription?.close();

@@ -46,9 +46,9 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    await expect(new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship")).rejects.toMatchObject(
-      { detail: expected },
-    );
+    await expect(
+      new ApiClient(transport).chat.setGoal({ kind: "session", sessionID }, "ship"),
+    ).rejects.toMatchObject({ detail: expected });
   });
 
   it("retains complete generated evidence for a future Goal Set error", async () => {
@@ -83,18 +83,13 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    const error = await new ApiClient(transport)
-      .chat.setGoal({ kind: "session", sessionID }, "ship")
+    const error = await new ApiClient(transport).chat
+      .setGoal({ kind: "session", sessionID }, "ship")
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ChatOperationError);
     expect(error).toMatchObject({ detail: { kind: "unknown", code: "future_code" } });
-    const retained = (error as ChatOperationError).data as typeof futureError;
-    expect(retained.$unknown).toEqual(futureError.$unknown);
-    expect(retained.detail.value.$unknown).toEqual(futureError.detail.value.$unknown);
-    expect(retained.detail.value).toMatchObject({
-      operation: "goal.set",
-      cause: "fixture failure",
-    });
+    if (!(error instanceof ChatOperationError)) throw new Error("Expected a ChatOperationError.");
+    expect(error.data).toEqual(futureError);
   });
 
   it("returns a Session-bearing rejection with the shared typed error owner", async () => {

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type {
@@ -180,6 +180,85 @@ describe("Goal sidebar", () => {
     expect(screen.getByTestId("goal-save")).toBeInTheDocument();
   });
 
+  it("applies a New Chat authoritative Goal before warning while hydration is pending", async () => {
+    const services = createTestServices([]);
+    let goalVisibleWhenWarningWasShown = false;
+    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation((value) => {
+      if (value.tone === "warning") {
+        goalVisibleWhenWarningWasShown = screen.queryByText("New Chat Goal") !== null;
+      }
+    });
+    const result: ChatGoalSetResult = {
+      sessionID,
+      outcome: {
+        kind: "mutation",
+        mutation: {
+          kind: "authoritative_goal",
+          fact: {
+            goal: {
+              id: "goal-new-chat",
+              objective: "New Chat Goal",
+              status: "active",
+              createdAt: "2026-09-12T10:00:00Z",
+              updatedAt: "2026-09-12T10:00:00Z",
+            },
+            availability: "available",
+          },
+        },
+        diagnostic: goalSetError({
+          kind: "internal_failure",
+          operation: "runtime.detach",
+          cause: "release failed",
+        }),
+      },
+    };
+    const api: GoalSidebarApi = {
+      clearGoal: vi.fn(async () => {
+        throw new Error("Unexpected Goal mutation.");
+      }),
+      pauseGoal: vi.fn(async () => {
+        throw new Error("Unexpected Goal mutation.");
+      }),
+      resumeGoal: vi.fn(async () => {
+        throw new Error("Unexpected Goal mutation.");
+      }),
+      setGoal: vi.fn(async () => result),
+      subscribeGoal: vi.fn((): ApiSubscription => ({ close: vi.fn() })),
+    };
+    const binding = new NewChatGoalBinding({
+      api: { setGoal: api.setGoal },
+      captureTarget: () => ({
+        kind: "new_chat",
+        projectID: "project-1",
+        workspaceID: "workspace-1",
+        initialSettings: {
+          agentRole: "default",
+          supervisor: "off",
+          thinking: null,
+          fast: null,
+          questionsEnabled: true,
+          autoCompactionEnabled: true,
+        },
+      }),
+    });
+    render(
+      <TestAppProviders services={services}>
+        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+      </TestAppProviders>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Goal" }), "New Chat Goal");
+    await user.click(screen.getByTestId("goal-save"));
+
+    await waitFor(() => {
+      expect(notice.mock.calls.filter(([value]) => value.tone === "warning")).toHaveLength(1);
+    });
+    expect(screen.getByText("New Chat Goal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(goalVisibleWhenWarningWasShown).toBe(true);
+  });
+
   it("notifies a New Chat Goal failure after the sidebar closes", async () => {
     const services = createTestServices([]);
     const pending = deferred<ChatGoalSetResult>();
@@ -283,7 +362,7 @@ describe("Goal sidebar", () => {
 
     expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
     expect(screen.getByLabelText("Active")).toBeInTheDocument();
-    expect(screen.queryByText(/Set at/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("goal-set-time")).not.toBeInTheDocument();
 
     pending.resolve({
       sessionID,
@@ -305,7 +384,9 @@ describe("Goal sidebar", () => {
         diagnostic: null,
       },
     });
-    expect(await screen.findByText(/Set at/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("goal-set-time")).toHaveAttribute("dateTime", "2026-09-12T10:00:00Z");
+    });
   });
 
   it("applies a committed Goal before showing one non-failure diagnostic warning", async () => {
@@ -352,8 +433,63 @@ describe("Goal sidebar", () => {
       expect(notice).toHaveBeenCalledOnce();
     });
     expect(notice.mock.lastCall?.[0].tone).toBe("warning");
-    expect(notice.mock.lastCall?.[0].id).not.toBe("goal-set-diagnostic");
     expect(goalVisibleWhenWarningWasShown).toBe(true);
+  });
+
+  it("shows both warnings after overlapping Goals are applied", async () => {
+    const services = createTestServices([]);
+    const first = deferred<ChatGoalSetResult>();
+    const second = deferred<ChatGoalSetResult>();
+    const warningGoalCounts: number[] = [];
+    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation((value) => {
+      if (value.tone === "warning") {
+        warningGoalCounts.push(screen.getAllByRole("button", { name: "Pause" }).length);
+      }
+    });
+    const firstApi = createGoalSidebarApi({ goal: null, setGoal: vi.fn(async () => first.promise) });
+    const secondApi = createGoalSidebarApi({ goal: null, setGoal: vi.fn(async () => second.promise) });
+    render(
+      <TestAppProviders services={services}>
+        <div className="grid grid-cols-2">
+          <div data-testid="first-goal">
+            <GoalSidebarPage input={{ kind: "session", api: firstApi, target }} />
+          </div>
+          <div data-testid="second-goal">
+            <GoalSidebarPage
+              input={{
+                kind: "session",
+                api: secondApi,
+                target: { ...target, sessionID: "223e4567-e89b-42d3-a456-426614174000" },
+              }}
+            />
+          </div>
+        </div>
+      </TestAppProviders>,
+    );
+
+    const user = userEvent.setup();
+    const firstGoal = within(screen.getByTestId("first-goal"));
+    const secondGoal = within(screen.getByTestId("second-goal"));
+    await user.click(await firstGoal.findByRole("textbox", { name: "Goal" }));
+    await user.type(firstGoal.getByRole("textbox", { name: "Goal" }), "First overlapping Goal");
+    await user.click(firstGoal.getByTestId("goal-save"));
+    await user.click(await secondGoal.findByRole("textbox", { name: "Goal" }));
+    await user.type(secondGoal.getByRole("textbox", { name: "Goal" }), "Second overlapping Goal");
+    await user.click(secondGoal.getByTestId("goal-save"));
+
+    await act(async () => {
+      first.resolve(goalSetResult("First overlapping Goal", "goal-first"));
+      second.resolve(
+        goalSetResult("Second overlapping Goal", "goal-second", "223e4567-e89b-42d3-a456-426614174000"),
+      );
+      await Promise.all([first.promise, second.promise]);
+    });
+
+    await waitFor(() => {
+      expect(warningGoalCounts).toHaveLength(2);
+    });
+    expect(warningGoalCounts).toEqual([2, 2]);
+    expect(notice).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the requested lifecycle presentation when authority clears during the request", async () => {
@@ -465,6 +601,37 @@ function mountExactGoal(api: GoalSidebarApi) {
       <GoalSidebarPage input={{ kind: "session", api, target }} />
     </TestAppProviders>,
   );
+}
+
+function goalSetResult(
+  objective: string,
+  id: string,
+  resultSessionID: string = sessionID,
+): ChatGoalSetResult {
+  return {
+    sessionID: resultSessionID,
+    outcome: {
+      kind: "mutation",
+      mutation: {
+        kind: "authoritative_goal",
+        fact: {
+          goal: {
+            id,
+            objective,
+            status: "active",
+            createdAt: "2026-09-12T10:00:00Z",
+            updatedAt: "2026-09-12T10:00:00Z",
+          },
+          availability: "available",
+        },
+      },
+      diagnostic: goalSetError({
+        kind: "internal_failure",
+        operation: "runtime.detach",
+        cause: "release failed",
+      }),
+    },
+  };
 }
 
 function createGoalSidebarApi({

@@ -86,30 +86,38 @@ export function requireChatSuccess(method: DescMethod, result: ChatRpcResult): M
 export function chatOperationError(method: DescMethod, failure: ChatWireError): ChatOperationError {
   const generic = protobufRpcError(method, failure);
   if (method === GoalService.method.set) {
-    switch (failure.code) {
-      case "runtime_unavailable":
-        if (failure.detail.case !== "runtimeUnavailable") {
-          throw new ContractError("Goal Set runtime-unavailable error detail is missing.");
-        }
-        return new ChatOperationError(generic, {
-          kind: "runtime_unavailable",
-          sessionID: failure.detail.value.sessionId,
-        });
-      case "internal_failure":
-        if (failure.detail.case !== "internalFailure") {
-          throw new ContractError("Goal Set internal-failure error detail is missing.");
-        }
-        return new ChatOperationError(generic, {
-          kind: "internal_failure",
-          operation: failure.detail.value.operation ?? null,
-          cause: failure.detail.value.cause ?? null,
-        });
-      case "":
-        throw new ContractError("Chat operation returned an empty error code.");
-      default:
-        return new ChatOperationError(generic, { kind: "unknown", code: failure.code });
-    }
+    return goalSetOperationError(generic, failure);
   }
+  return standardChatOperationError(generic, failure);
+}
+
+function goalSetOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
+  switch (failure.code) {
+    case "runtime_unavailable":
+      if (failure.detail.case !== "runtimeUnavailable") {
+        throw new ContractError("Goal Set runtime-unavailable error detail is missing.");
+      }
+      return new ChatOperationError(generic, {
+        kind: "runtime_unavailable",
+        sessionID: failure.detail.value.sessionId,
+      });
+    case "internal_failure":
+      if (failure.detail.case !== "internalFailure") {
+        throw new ContractError("Goal Set internal-failure error detail is missing.");
+      }
+      return new ChatOperationError(generic, {
+        kind: "internal_failure",
+        operation: failure.detail.value.operation ?? null,
+        cause: failure.detail.value.cause ?? null,
+      });
+    case "":
+      throw new ContractError("Chat operation returned an empty error code.");
+    default:
+      return new ChatOperationError(generic, { kind: "unknown", code: failure.code });
+  }
+}
+
+function standardChatOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
   switch (failure.detail.case) {
     case "sessionNotFound":
       return new ChatOperationError(generic, {
