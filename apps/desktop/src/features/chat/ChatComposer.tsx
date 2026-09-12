@@ -176,19 +176,17 @@ function ComposerControls({
   const { t } = useTranslation();
   return (
     <div className="chat-composer-controls">
-      <div className="min-w-0 flex-1">
-        {settingsChip ?? (composer.submission.kind === "loading" ? <Spinner size="sm" /> : null)}
-      </div>
+      <div className="min-w-0 flex-1">{settingsChip}</div>
       {stoppable && (
         <IconTooltipButton
           label={connected ? t("chatComposer.stop") : t("common.readOnly")}
           disabled={!connected}
           onClick={() => {
-            void composer.pending.stop();
+            composer.pending.stop();
           }}
           size="icon-sm"
         >
-          {composer.pending.stopRequests > 0 ? <Spinner size="sm" /> : <Square size={15} />}
+          {composer.pending.stopPending ? <Spinner size="sm" /> : <Square size={15} />}
         </IconTooltipButton>
       )}
       <IconTooltipButton
@@ -196,10 +194,10 @@ function ComposerControls({
         disabled={!connected || !composer.canSubmit}
         variant="primary"
         onClick={() => {
-          void composer.submit("send");
+          composer.submit("send");
         }}
       >
-        {composer.inputRequests > 0 || composer.draft.kind === "loading" ? (
+        {composer.inputPending || composer.draft.kind === "loading" ? (
           <Spinner size="sm" className="text-[var(--color-on-primary)]" />
         ) : (
           <ArrowUp size={18} />

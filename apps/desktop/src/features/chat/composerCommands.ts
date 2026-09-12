@@ -36,12 +36,14 @@ export type ComposerCommandResolution =
   | Readonly<{ kind: "unknown-prompt"; token: string }>;
 
 export function tokenizeComposerCommand(text: string): ComposerCommandInvocation {
-  let tokenEnd = 0;
+  let tokenStart = 0;
+  while (tokenStart < text.length && text.charAt(tokenStart).trim().length === 0) tokenStart++;
+  let tokenEnd = tokenStart;
   while (tokenEnd < text.length && text.charAt(tokenEnd).trim().length > 0) tokenEnd++;
   let argumentsStart = tokenEnd;
   while (argumentsStart < text.length && text.charAt(argumentsStart).trim().length === 0) argumentsStart++;
   return {
-    token: text.slice(0, tokenEnd),
+    token: text.slice(tokenStart, tokenEnd),
     separatorWhitespace: text.slice(tokenEnd, argumentsStart),
     arguments: text.slice(argumentsStart),
   };

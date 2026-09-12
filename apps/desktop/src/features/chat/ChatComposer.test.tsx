@@ -1,10 +1,26 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { RegistryProvider } from "@effect/atom-react";
 import type { ChatInputMutationResult, InitialChatSettings } from "@/api";
 import { parsePendingWorkItemID } from "@/api";
 
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import {
+  createTestServices,
+  TestAppProviders as AppProviders,
+  type TestAppServices,
+} from "@/test-support/app-services";
 import { useChatComposer, type ComposerSubmission } from "./useChatComposer";
+
+function TestAppProviders({
+  children,
+  services,
+}: Readonly<{ children: ReactNode; services: TestAppServices }>) {
+  return (
+    <RegistryProvider>
+      <AppProviders services={services}>{children}</AppProviders>
+    </RegistryProvider>
+  );
+}
 
 const target = {
   kind: "session",
@@ -21,6 +37,38 @@ const accepted: ChatInputMutationResult = {
   },
 };
 
+it("retains disconnected Session edits without admitting a background draft write", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("saved");
+  const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(result.current.draft.kind).toBe("ready");
+  });
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    persist.mockClear();
+    act(() => {
+      services.transport.connection.set("disconnected");
+      result.current.edit("offline edits");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    expect(persist).not.toHaveBeenCalled();
+    expect(result.current.text).toBe("offline edits");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("clears on activation and preserves later typing after acceptance", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("submitted");
@@ -35,8 +83,8 @@ it("clears on activation and preserves later typing after acceptance", async () 
   const { result } = renderHook(
     () =>
       useChatComposer({
-        target,
-        submission: { kind: "ready", target },
+        ...target,
+        submission: { kind: "ready" },
       }),
     {
       wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
@@ -48,10 +96,12 @@ it("clears on activation and preserves later typing after acceptance", async () 
     expect(result.current.draft.kind).toBe("ready");
   });
   act(() => {
-    void result.current.submit("send");
+    result.current.submit("send");
   });
   expect(result.current.text).toBe("");
-  expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" });
+  await waitFor(() => {
+    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" });
+  });
   act(() => {
     result.current.edit("later");
   });
@@ -70,7 +120,7 @@ it("appends independently rejected Queue inputs after text typed during delivery
   vi.spyOn(services.api.chat, "queue").mockImplementation(
     async () => new Promise((resolve) => deliveries.push(resolve)),
   );
-  const { result } = renderHook(() => useChatComposer({ target, submission: { kind: "ready", target } }), {
+  const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
@@ -79,13 +129,13 @@ it("appends independently rejected Queue inputs after text typed during delivery
     expect(result.current.draft.kind).toBe("ready");
   });
   act(() => {
-    void result.current.submit("queue");
+    result.current.submit("queue");
   });
   act(() => {
     result.current.edit("second");
   });
   act(() => {
-    void result.current.submit("queue");
+    result.current.submit("queue");
   });
   act(() => {
     result.current.edit("later");
@@ -94,10 +144,13 @@ it("appends independently rejected Queue inputs after text typed during delivery
     sessionID: target.sessionID,
     outcome: { kind: "not_accepted", reason: { kind: "pending_work_capacity" } },
   };
+  await waitFor(() => {
+    expect(deliveries).toHaveLength(2);
+  });
   await act(async () => deliveries[1]?.(rejected));
   await act(async () => deliveries[0]?.(rejected));
   expect(result.current.text).toBe("later\nsecond\nfirst\n ");
-  expect(result.current.inputRequests).toBe(0);
+  expect(result.current.inputPending).toBe(false);
 });
 
 it("restores a failed request but does not restore an accepted input with a diagnostic", async () => {
@@ -115,7 +168,7 @@ it("restores a failed request but does not restore an accepted input with a diag
         diagnostic: { kind: "prompt_history_failure", operation: null, cause: null },
       },
     });
-  const { result } = renderHook(() => useChatComposer({ target, submission: { kind: "ready", target } }), {
+  const { result } = renderHook(() => useChatComposer({ ...target, submission: { kind: "ready" } }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
@@ -124,11 +177,11 @@ it("restores a failed request but does not restore an accepted input with a diag
     expect(result.current.draft.kind).toBe("ready");
   });
   await act(async () => {
-    await result.current.submit("send");
+    result.current.submit("send");
   });
   expect(result.current.text).toBe("input");
   await act(async () => {
-    await result.current.submit("send");
+    result.current.submit("send");
   });
   expect(result.current.text).toBe("");
 });
@@ -151,9 +204,9 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   const steer = vi.spyOn(services.api.chat, "steer").mockResolvedValue(rejected);
   const onDeliveredSession = vi.fn();
   const { result, rerender } = renderHook(
-    ({ submission }: { submission: ComposerSubmission }) =>
+    ({ submission }: { submission: ComposerSubmission<"new_chat"> }) =>
       useChatComposer({
-        target: newChat,
+        ...newChat,
         submission,
         onDeliveredSession,
       }),
@@ -168,12 +221,12 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
     result.current.edit("typed before settings");
   });
   await act(async () => {
-    await result.current.submit("send");
+    result.current.submit("send");
   });
   expect(steer).not.toHaveBeenCalled();
-  rerender({ submission: { kind: "ready", target: { ...newChat, initialSettings: settings } } });
+  rerender({ submission: { kind: "ready", initialSettings: settings } });
   await act(async () => {
-    await result.current.submit("send");
+    result.current.submit("send");
   });
   expect(steer).toHaveBeenCalledWith(
     { ...newChat, initialSettings: settings },
@@ -181,6 +234,27 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   );
   expect(result.current.text).toBe("typed before settings");
   expect(onDeliveredSession).toHaveBeenCalledWith(rejected);
+  const readPending = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({
+    items: [
+      {
+        id: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        kind: "message",
+        lane: "queue",
+        state: "pending",
+        canonicalInput: "created Session work",
+        message: { text: "created Session work" },
+      },
+    ],
+  });
+  steer.mockResolvedValue(accepted);
+  await act(async () => {
+    result.current.submit("send");
+  });
+  await waitFor(() => {
+    expect(readPending).toHaveBeenCalledWith({ ...newChat, sessionID: accepted.sessionID });
+  });
+  expect(result.current.target).toEqual(newChat);
+  expect(result.current.pending.items).toEqual([]);
 });
 
 it.each(["send", "queue"] as const)(
@@ -195,8 +269,8 @@ it.each(["send", "queue"] as const)(
     const { result } = renderHook(
       () =>
         useChatComposer({
-          target,
-          submission: { kind: "ready", target },
+          ...target,
+          submission: { kind: "ready" },
           commands: [
             {
               token: "/review",
@@ -217,7 +291,7 @@ it.each(["send", "queue"] as const)(
       expect(result.current.draft.kind).toBe("ready");
     });
     await act(async () => {
-      await result.current.submit(intent);
+      result.current.submit(intent);
     });
     expect(queue).toHaveBeenCalledWith(target, {
       kind: "command",
@@ -240,8 +314,8 @@ it.each([true, false])(
     const { result } = renderHook(
       () =>
         useChatComposer({
-          target,
-          submission: { kind: "ready", target },
+          ...target,
+          submission: { kind: "ready" },
           commands: [
             {
               token: "/direct",
@@ -262,7 +336,7 @@ it.each([true, false])(
       expect(result.current.draft.kind).toBe("ready");
     });
     await act(async () => {
-      await result.current.submit("queue");
+      result.current.submit("queue");
     });
     expect(supportsQueue ? queue : send).toHaveBeenCalledWith(target, {
       token: "/hidden",
@@ -283,7 +357,7 @@ it("places a late saved draft before typing without losing exact whitespace", as
     }),
   );
   const save = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ target }), {
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
@@ -306,7 +380,7 @@ it("restores exact text in either direction and does not add separators for empt
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ target }), {
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
@@ -344,7 +418,7 @@ it("prepends live interrupted messages in event order and restores Discard only 
       kind: "manual_compaction",
       canonicalInput: "/compact guidance",
     });
-  const { result } = renderHook(() => useChatComposer({ target }), {
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
     wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
       <TestAppProviders services={services}>{children}</TestAppProviders>
     ),
@@ -361,11 +435,11 @@ it("prepends live interrupted messages in event order and restores Discard only 
   expect(result.current.text).toBe("one\n \ntwo\ndraft");
   const item = parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed");
   await act(async () => {
-    await result.current.pending.discard(item);
+    result.current.pending.discard(item);
   });
   expect(result.current.text).toBe("one\n \ntwo\ndraft");
   await act(async () => {
-    await result.current.pending.discard(item);
+    result.current.pending.discard(item);
   });
   expect(removal).toHaveBeenCalledTimes(2);
   expect(result.current.text).toBe("one\n \ntwo\ndraft\n/compact guidance");

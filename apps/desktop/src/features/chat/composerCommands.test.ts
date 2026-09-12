@@ -1,5 +1,28 @@
 import { composerSuggestions, resolveComposerCommand } from "./composerCommands";
 
+it.each(["  ", "\t "])("recognizes the first command token after leading %j", (leading) => {
+  expect(
+    resolveComposerCommand(`${leading}/hidden\t arguments `, [
+      {
+        token: "/visible",
+        aliases: ["/hidden"],
+        description: null,
+        preview: null,
+        execution: { kind: "prompt", catalogIdentity: "file:command" },
+      },
+    ]),
+  ).toEqual({
+    kind: "input",
+    activation: {
+      kind: "command",
+      catalogIdentity: "file:command",
+      token: "/hidden",
+      separatorWhitespace: "\t ",
+      arguments: "arguments ",
+    },
+  });
+});
+
 it("preserves the exact prompt alias, whitespace and arguments for typed admission", () => {
   expect(
     resolveComposerCommand("/hidden\t \nargument ", [
@@ -23,12 +46,15 @@ it("preserves the exact prompt alias, whitespace and arguments for typed admissi
   });
 });
 
-it.each(["/unknown text", "$ echo hello"])("keeps unregistered ordinary input %s intact", (text) => {
-  expect(resolveComposerCommand(text, [])).toEqual({ kind: "input", activation: { kind: "text", text } });
-});
+it.each(["/unknown text", "$ echo hello", " \t/unknown text"])(
+  "keeps unregistered ordinary input %s intact",
+  (text) => {
+    expect(resolveComposerCommand(text, [])).toEqual({ kind: "input", activation: { kind: "text", text } });
+  },
+);
 
-it("keeps the reserved prompt namespace a command error", () => {
-  expect(resolveComposerCommand("/prompt:missing arguments", [])).toEqual({
+it.each(["", "  ", "\t "])("keeps the reserved prompt namespace a command error after %j", (leading) => {
+  expect(resolveComposerCommand(`${leading}/prompt:missing arguments`, [])).toEqual({
     kind: "unknown-prompt",
     token: "/prompt:missing",
   });
@@ -46,6 +72,7 @@ it("hides aliases from discovery and ends discovery when arguments begin", () =>
   ];
   expect(composerSuggestions("/h", commands)).toEqual([]);
   expect(composerSuggestions("/v", commands)).toEqual(commands);
+  expect(composerSuggestions(" \t/v", commands)).toEqual(commands);
   expect(composerSuggestions("/visible ", commands)).toEqual([]);
 });
 

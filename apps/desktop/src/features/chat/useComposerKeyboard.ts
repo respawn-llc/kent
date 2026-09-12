@@ -50,7 +50,7 @@ export function useComposerKeyboard(
         if (event.key === "Escape" && handlePickerKey(composer, event)) return;
         if (platform === "macos" && event.metaKey && event.key === "." && stopAvailable) {
           event.preventDefault();
-          void composer.pending.stop();
+          composer.pending.stop();
         } else if (escapeStopPlatform(platform) && event.key === "Escape") {
           if (
             advance({
@@ -61,7 +61,7 @@ export function useComposerKeyboard(
             })
           ) {
             event.preventDefault();
-            void composer.pending.stop();
+            composer.pending.stop();
           }
         }
       },
@@ -70,7 +70,7 @@ export function useComposerKeyboard(
       if (handled(event) || handlePickerKey(composer, event)) return;
       if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.metaKey) {
         event.preventDefault();
-        void composer.submit(event.ctrlKey ? "queue" : "send");
+        composer.submit(event.ctrlKey ? "queue" : "send");
       }
     },
   };

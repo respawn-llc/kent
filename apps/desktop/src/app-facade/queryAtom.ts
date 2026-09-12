@@ -6,6 +6,8 @@ import {
   type QueryKey,
   type QueryObserverResult,
   type MutationObserverResult,
+  type QueryClient,
+  type MutationFilters,
 } from "@tanstack/react-query";
 import * as Atom from "effect/unstable/reactivity/Atom";
 
@@ -37,5 +39,17 @@ export function queryAtom<Q, E, A, D, K extends QueryKey, V, P>(
       }),
     );
     return observer.getCurrentResult();
+  });
+}
+
+export function mutationPendingAtom(client: QueryClient, filters: MutationFilters): Atom.Atom<boolean> {
+  return Atom.make((get) => {
+    const pending = () => client.isMutating(filters) > 0;
+    get.addFinalizer(
+      client.getMutationCache().subscribe(() => {
+        get.setSelf(pending());
+      }),
+    );
+    return pending();
   });
 }
