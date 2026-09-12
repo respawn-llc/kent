@@ -49,6 +49,7 @@ export function createComposerPendingViewModel({
     Atom.make((get) => {
       const observer = new QueryObserver<PendingWork, Error>(client, {
         ...composerReadOptions,
+        staleTime: 0,
         queryKey: ["chat-composer-pending", owner, identity],
         queryFn:
           target.kind === "session"
@@ -87,6 +88,7 @@ export function createComposerPendingViewModel({
         yield* Effect.tryPromise(async () =>
           client.fetchQuery({
             ...composerReadOptions,
+            staleTime: 0,
             queryKey: ["chat-composer-returned-pending", owner, sessionID],
             queryFn: async () => services.api.chat.listPendingWork({ ...target, sessionID }),
           }),
