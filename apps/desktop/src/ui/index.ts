@@ -135,4 +135,6 @@ export {
   type VirtualizedInfiniteListBoundaryState,
 } from "./InfiniteListBoundary";
 export { useStableCallback } from "./useStableCallback";
+export { Shimmer } from "./Shimmer";
+export { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./radix/collapsible";
 export type { StatusNotice, ToastTone } from "./statusToast";

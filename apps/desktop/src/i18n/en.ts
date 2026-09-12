@@ -102,6 +102,12 @@ export const englishResources = {
       },
     },
     chatTranscript: {
+      thinking: "Thinking...",
+      working: "Working…",
+      compacting: "Compacting…",
+      running: "Running…",
+      reviewing: "Reviewing…",
+      thoughtDuration: "Thought for {{seconds}} seconds",
       copy: "Copy",
       copied: "Copied",
       copyFailed: "Could not copy transcript content.",
@@ -271,6 +277,16 @@ export const englishResources = {
       },
     },
     chat: {
+      worktree: {
+        title: "Worktree",
+        refresh: "Refresh worktrees",
+        create: "Create worktree",
+        switch: "Switch",
+        delete: "Delete worktree",
+        empty: "No worktrees",
+        external: "External",
+        missing: "Missing",
+      },
       toolRows: {
         backgrounded: "Backgrounded",
         collapse: "Collapse tool details",

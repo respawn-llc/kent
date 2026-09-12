@@ -101,16 +101,22 @@ const slots: TranscriptRenderSlots<ReactElement | null> = {
   tool: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
   reasoning: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
   notice: (item) => <div data-testid={`family-${item.kind}`} />,
-  thinkingStatus: (item) => <div data-testid={`family-${item.kind}`}>{item.value.Text}</div>,
+  thinkingStatus: (item) =>
+    item === null ? null : (
+      <div data-testid="family-thinking-status">{item.kind === "text" ? item.text : item.kind}</div>
+    ),
 };
 
 describe("TranscriptWindowView promotion and measurements", () => {
   beforeEach(() => {
     geometry = installResizeObserverGeometry();
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(800);
   });
 
   afterEach(() => {
     geometry.restore();
+    vi.restoreAllMocks();
   });
 
   it("keeps typed family presentations mounted and reports a surviving anchor with raw viewport facts", () => {
