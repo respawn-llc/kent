@@ -1,20 +1,9 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-  type PointerEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useRef, type KeyboardEvent, type PointerEvent } from "react";
 
-import { ChevronDown } from "lucide-react";
-
+import { CollapsibleMarkdownViewport, type MarkdownHeightClamp } from "./CollapsibleMarkdownViewport";
 import { StaticMarkdown } from "./MarkdownText";
 import { cx } from "./classes";
 import { fieldIslandInputClassName, type FieldIslandRadius } from "./fieldInputStyles";
-import { useOpacityExit } from "./motion";
 import {
   consumeTextFieldSubmitShortcut,
   type TextFieldSubmitShortcutPolicy,
@@ -31,11 +20,7 @@ export type MarkdownFieldSubmitIntent = Readonly<{
   policy: TextFieldSubmitShortcutPolicy;
 }>;
 
-export type MarkdownFieldHeightClamp = Readonly<{
-  maximumLines: number;
-  minimumLines: number;
-  viewportPercent: number;
-}>;
+export type MarkdownFieldHeightClamp = MarkdownHeightClamp;
 
 type MarkdownFieldCommonProps = Readonly<{
   disabled: boolean;
@@ -276,22 +261,9 @@ function MarkdownFieldReadViewport({
   taskListInteraction: MarkdownFieldTaskListInteraction | undefined;
   value: string;
 }>) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
   const collapsible = readPresentation.kind === "collapsible";
   const collapsed = collapsible && !readPresentation.expanded;
-  const overflows = useMarkdownFieldOverflow({
-    contentRef,
-    enabled: collapsed,
-    viewportRef,
-  });
-  const affordancePhase = useOpacityExit(collapsible && !readPresentation.expanded && overflows);
-
-  const collapsedContentStyle: CSSProperties = collapsed
-    ? { maxHeight: heightClamp(readPresentation.collapsedHeightClamp) }
-    : {};
   const taskListProps = markdownTaskListProps(disabled, taskListInteraction, onChange);
-  const expandLabel = readPresentation.kind === "collapsible" ? readPresentation.expandLabel : undefined;
 
   return (
     <div
@@ -318,70 +290,25 @@ function MarkdownFieldReadViewport({
         role="textbox"
         tabIndex={disabled ? -1 : 0}
       >
-        <div
-          className={cx("relative min-w-0 max-w-full", collapsed && "overflow-hidden")}
-          data-slot="markdown-field-read-content-viewport"
-          data-testid="markdown-field-read-content-viewport"
-          ref={viewportRef}
-          style={collapsedContentStyle}
+        <CollapsibleMarkdownViewport
+          expanded={!collapsed}
+          {...(collapsible
+            ? {
+                collapsedHeightClamp: readPresentation.collapsedHeightClamp,
+                expandLabel: readPresentation.expandLabel,
+              }
+            : {})}
+          {...(onExpand === undefined ? {} : { onExpand })}
         >
-          <div className="min-w-0 max-w-full" ref={contentRef}>
-            {value.trim().length > 0 ? (
-              <StaticMarkdown disabled={disabled} {...(taskListProps ?? {})} value={value} />
-            ) : (
-              <span className="text-[var(--color-muted)]">{placeholder}</span>
-            )}
-          </div>
-          {renderMarkdownFieldFade(affordancePhase, expandLabel, onExpand)}
-          {renderMarkdownFieldExpandButton(affordancePhase, expandLabel, onExpand)}
-        </div>
+          {value.trim().length > 0 ? (
+            <StaticMarkdown disabled={disabled} {...(taskListProps ?? {})} value={value} />
+          ) : (
+            <span className="text-[var(--color-muted)]">{placeholder}</span>
+          )}
+        </CollapsibleMarkdownViewport>
       </div>
     </div>
   );
-}
-
-function useMarkdownFieldOverflow({
-  contentRef,
-  enabled,
-  viewportRef,
-}: Readonly<{
-  contentRef: Readonly<{ current: HTMLDivElement | null }>;
-  enabled: boolean;
-  viewportRef: Readonly<{ current: HTMLDivElement | null }>;
-}>): boolean {
-  const [overflows, setOverflows] = useState(false);
-  useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    const measureOverflow = () => {
-      const viewport = viewportRef.current;
-      if (viewport !== null) {
-        setOverflows(viewport.scrollHeight > viewport.clientHeight);
-      }
-    };
-    const frame = window.requestAnimationFrame(measureOverflow);
-    window.addEventListener("resize", measureOverflow);
-    if (typeof ResizeObserver === "undefined") {
-      return () => {
-        window.cancelAnimationFrame(frame);
-        window.removeEventListener("resize", measureOverflow);
-      };
-    }
-    const observer = new ResizeObserver(measureOverflow);
-    if (viewportRef.current !== null) {
-      observer.observe(viewportRef.current);
-    }
-    if (contentRef.current !== null) {
-      observer.observe(contentRef.current);
-    }
-    return () => {
-      observer.disconnect();
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("resize", measureOverflow);
-    };
-  }, [contentRef, enabled, viewportRef]);
-  return enabled && overflows;
 }
 
 function activateFromPointer(
@@ -435,54 +362,4 @@ function markdownTaskListProps(
     onTaskListChange: onChange,
     taskListItemToggleLabel: (checked) => (checked ? interaction.checkedLabel : interaction.uncheckedLabel),
   };
-}
-
-function renderMarkdownFieldFade(
-  phase: ReturnType<typeof useOpacityExit>,
-  expandLabel: string | undefined,
-  onExpand: (() => void) | undefined,
-): ReactNode {
-  if (phase === "hidden" || onExpand === undefined || expandLabel === undefined) {
-    return null;
-  }
-  return (
-    <div
-      aria-hidden="true"
-      className={cx(
-        "pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-[var(--color-island-1)] transition-opacity motion-reduce:transition-none",
-        phase === "visible" ? "opacity-100" : "opacity-0",
-      )}
-      data-state={phase}
-    />
-  );
-}
-
-function renderMarkdownFieldExpandButton(
-  phase: ReturnType<typeof useOpacityExit>,
-  expandLabel: string | undefined,
-  onExpand: (() => void) | undefined,
-): ReactNode {
-  if (phase === "hidden" || onExpand === undefined || expandLabel === undefined) {
-    return null;
-  }
-  return (
-    <button
-      aria-label={expandLabel}
-      aria-hidden={phase === "visible" ? undefined : true}
-      className={cx(
-        "app-region-no-drag absolute inset-x-0 bottom-0 grid h-10 place-items-center text-[var(--color-on-island)] transition-opacity motion-reduce:transition-none",
-        phase === "visible" ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
-      )}
-      data-state={phase}
-      onClick={onExpand}
-      tabIndex={phase === "visible" ? undefined : -1}
-      type="button"
-    >
-      <ChevronDown aria-hidden="true" size={20} strokeWidth={1.5} />
-    </button>
-  );
-}
-
-function heightClamp(clamp: MarkdownFieldHeightClamp): string {
-  return `clamp(${clamp.minimumLines.toString()}lh,${clamp.viewportPercent.toString()}dvh,${clamp.maximumLines.toString()}lh)`;
 }

@@ -251,6 +251,7 @@ func TestScriptedResponsesDoesNotCommitGloballyRejectedConcurrentLineage(t *test
 	if response.Assistant.Content == nil || *response.Assistant.Content != "second" {
 		t.Fatalf("retry response = %+v", response)
 	}
+	waitForNoActiveRequests(t, stub)
 	if err := stub.Verify(); err != nil {
 		t.Fatalf("Verify after non-admitted concurrency: %v", err)
 	}
