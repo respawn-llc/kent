@@ -52,6 +52,8 @@ export type {
   ChatTranscriptHandler,
   ChatGoalObservationHandler,
   ChatGoal,
+  ChatGoalSetResult,
+  ChatGoalSetTarget,
   ChatGoalAvailability,
   ChatGoalFact,
   ChatGoalMutationResult,

@@ -1,4 +1,5 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
+import { chatGoalEnglish } from "./chatGoalEn";
 
 export const englishResources = {
   translation: {
@@ -266,6 +267,7 @@ export const englishResources = {
       },
     },
     chat: {
+      goal: chatGoalEnglish,
       toolRows: {
         backgrounded: "Backgrounded",
         collapse: "Collapse tool details",

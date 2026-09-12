@@ -77,6 +77,7 @@ type goalRuntimeDoneMsg struct {
 	objective      string
 	goal           *clientui.RuntimeGoal
 	mutation       clientui.GoalMutationResult
+	diagnostic     error
 	err            error
 }
 

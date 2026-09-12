@@ -43,20 +43,33 @@ func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowReq
 	}, nil
 }
 
-func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
+func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error) {
 	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
 	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.SessionID))
 	if err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
+		return serverapi.RuntimeGoalSetResponse{}, err
 	}
 	mutation := goalMutation{
 		kind:      goalMutationSet,
 		Objective: strings.TrimSpace(req.Objective),
 		Actor:     session.GoalActor(strings.TrimSpace(req.Actor)),
+		StartLoop: req.ExecutionPolicy != serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState,
 	}
-	return s.mutateGoal(ctx, sessionID, req.RunID, req.StepID, mutation)
+	result, operationErr := s.mutateGoal(ctx, sessionID, req.RunID, req.StepID, mutation)
+	if operationErr != nil &&
+		(!goalResultAccepted(result) || errors.Is(operationErr, serverapi.ErrRuntimeUnavailable)) {
+		return serverapi.RuntimeGoalSetResponse{}, goalMutationError(operationErr)
+	}
+	response, err := goalResponseFromRuntimeResult(result, mutation)
+	if err != nil {
+		return serverapi.RuntimeGoalSetResponse{}, err
+	}
+	return serverapi.RuntimeGoalSetResponse{
+		Result:     response.Result,
+		Diagnostic: goalMutationError(operationErr),
+	}, nil
 }
 
 func (s *Service) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {
@@ -83,11 +96,16 @@ func (s *Service) setGoalStatus(
 	if err != nil {
 		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	return s.mutateGoal(ctx, sessionID, req.RunID, req.StepID, goalMutation{
+	mutation := goalMutation{
 		kind:   goalMutationStatus,
 		Status: status,
 		Actor:  session.GoalActor(strings.TrimSpace(req.Actor)),
-	})
+	}
+	result, err := s.mutateGoal(ctx, sessionID, req.RunID, req.StepID, mutation)
+	if err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, goalMutationError(err)
+	}
+	return goalResponseFromRuntimeResult(result, mutation)
 }
 
 func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalMutationResponse, error) {
@@ -98,10 +116,15 @@ func (s *Service) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearR
 	if err != nil {
 		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	return s.mutateGoal(ctx, sessionID, "", "", goalMutation{
+	mutation := goalMutation{
 		kind:  goalMutationClear,
 		Actor: session.GoalActor(strings.TrimSpace(req.Actor)),
-	})
+	}
+	result, err := s.mutateGoal(ctx, sessionID, "", "", mutation)
+	if err != nil {
+		return serverapi.RuntimeGoalMutationResponse{}, goalMutationError(err)
+	}
+	return goalResponseFromRuntimeResult(result, mutation)
 }
 
 type goalMutationKind uint8
@@ -117,6 +140,7 @@ type goalMutation struct {
 	Objective string
 	Status    session.GoalStatus
 	Actor     session.GoalActor
+	StartLoop bool
 }
 
 func (s *Service) mutateGoal(
@@ -125,32 +149,32 @@ func (s *Service) mutateGoal(
 	rawRunID string,
 	rawStepID string,
 	mutation goalMutation,
-) (serverapi.RuntimeGoalMutationResponse, error) {
+) (runtime.GoalCommandResult, error) {
 	if s == nil || s.authority == nil {
-		return serverapi.RuntimeGoalMutationResponse{}, errors.New("session runtime authority is required")
+		return runtime.GoalCommandResult{}, errors.New("session runtime authority is required")
 	}
 	runText, stepText := strings.TrimSpace(rawRunID), strings.TrimSpace(rawStepID)
 	if mutation.Actor == session.GoalActorAgent && stepText != "" {
 		if runText == "" {
-			return serverapi.RuntimeGoalMutationResponse{}, runtime.ErrAgentGoalStepInactive
+			return runtime.GoalCommandResult{}, runtime.ErrAgentGoalStepInactive
 		}
 		runID, err := runtimeids.ParseRunID(runText)
 		if err != nil {
-			return serverapi.RuntimeGoalMutationResponse{}, err
+			return runtime.GoalCommandResult{}, err
 		}
 		stepID, err := runtimeids.ParseStepID(stepText)
 		if err != nil {
-			return serverapi.RuntimeGoalMutationResponse{}, err
+			return runtime.GoalCommandResult{}, err
 		}
 		result, err := s.applyExactAgentGoalMutation(ctx, sessionID, runID, stepID, mutation)
-		return goalResponseFromRuntimeResult(result, mutation, goalMutationError(err))
+		return result, goalMutationError(err)
 	}
 	if runText != "" || stepText != "" {
-		return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal execution identity requires an agent Step")
+		return runtime.GoalCommandResult{}, errors.New("Goal execution identity requires an agent Step")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
+		return runtime.GoalCommandResult{}, err
 	}
 	var dormant runtime.GoalCommandResult
 	var dormantErr error
@@ -162,13 +186,13 @@ func (s *Service) mutateGoal(
 		return dormantErr
 	})
 	if err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, goalMutationError(err)
+		return runtime.GoalCommandResult{}, goalMutationError(err)
 	}
 	if !admission.RuntimeAvailable {
-		return goalResponseFromRuntimeResult(dormant, mutation, goalMutationError(dormantErr))
+		return dormant, goalMutationError(dormantErr)
 	}
 	result, err := s.applyLiveGoalMutation(ctx, sessionID, mutation)
-	return goalResponseFromRuntimeResult(result, mutation, goalMutationError(err))
+	return result, goalMutationError(err)
 }
 
 func (s *Service) applyLiveGoalMutation(
@@ -241,10 +265,13 @@ func applyLiveGoalMutation(ctx context.Context, engine *runtime.Engine, mutation
 		if err := engine.ValidateGoalSet(mutation.Objective, mutation.Actor); err != nil {
 			return runtime.GoalCommandResult{}, err
 		}
-		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
-			return runtime.GoalCommandResult{}, err
+		if mutation.StartLoop {
+			if err := engine.RequireGoalLoopStartAllowed(); err != nil {
+				return runtime.GoalCommandResult{}, err
+			}
+			return engine.SetGoalAndStartLoop(ctx, mutation.Objective, mutation.Actor)
 		}
-		return engine.SetGoalAndStartLoop(ctx, mutation.Objective, mutation.Actor)
+		return engine.SetGoal(ctx, mutation.Objective, mutation.Actor)
 	case goalMutationStatus:
 		if mutation.Status == session.GoalStatusActive {
 			return engine.SetGoalStatusAndStartLoop(ctx, mutation.Status, mutation.Actor)
@@ -270,12 +297,13 @@ func applyDormantGoalMutation(store *session.Store, mutation goalMutation) (runt
 		goal, metadataReceipt, err := store.SetGoal(mutation.Objective, mutation.Actor)
 		result := runtimeGoalResult(goal, false, runtime.GoalCommandApplied, metadataReceipt, session.CommitReceipt{})
 		result.Availability = &availability
-		if err != nil || !metadataReceipt.Committed {
+		if !metadataReceipt.Committed {
 			return result, err
 		}
+		metadataErr := err
 		noticeReceipt, noticeErr := runtime.SteerPersistedGoalNotice(store, runtime.GoalNoticeSet, &goal)
 		result.NoticeReceipt = noticeReceipt
-		return result, noticeErr
+		return result, errors.Join(metadataErr, noticeErr)
 	case goalMutationStatus:
 		if current := store.Meta().Goal; current != nil && current.Status == mutation.Status {
 			result := runtimeGoalResult(*current, false, runtime.GoalCommandNoop, session.CommitReceipt{}, session.CommitReceipt{})
@@ -335,11 +363,7 @@ func goalResultAccepted(result runtime.GoalCommandResult) bool {
 func goalResponseFromRuntimeResult(
 	result runtime.GoalCommandResult,
 	mutation goalMutation,
-	err error,
 ) (serverapi.RuntimeGoalMutationResponse, error) {
-	if err != nil {
-		return serverapi.RuntimeGoalMutationResponse{}, err
-	}
 	var availability *clientui.GoalAvailability
 	if result.Availability != nil {
 		value := goalview.AvailabilityFromSession(*result.Availability)
@@ -370,11 +394,10 @@ func goalResponseFromRuntimeResult(
 	default:
 		return serverapi.RuntimeGoalMutationResponse{}, errors.New("Goal mutation is missing an authoritative result")
 	}
-	response := serverapi.RuntimeGoalMutationResponse{Result: mutationResult}
-	if err := response.Validate(); err != nil {
+	if err := mutationResult.Validate(); err != nil {
 		return serverapi.RuntimeGoalMutationResponse{}, err
 	}
-	return response, nil
+	return serverapi.RuntimeGoalMutationResponse{Result: mutationResult}, nil
 }
 
 func goalMutationRequestedStatus(mutation goalMutation) (session.GoalStatus, bool) {

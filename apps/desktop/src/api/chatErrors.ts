@@ -1,8 +1,10 @@
 import type { DescMethod, Message, MessageShape } from "@app/server-api-contract";
 import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import type {
+  GoalSetError,
   ListPendingWorkError,
   LiveStopError,
   RemovePendingWorkError,
@@ -11,6 +13,14 @@ import type { SessionResolveTransitionError } from "@app/server-api-contract/gen
 
 import { ContractError, RpcError } from "./errors";
 import { protobufRpcError } from "./protobufRpc";
+
+export type ChatRuntimeUnavailableError = Readonly<{ kind: "runtime_unavailable"; sessionID: string }>;
+export type ChatInternalFailureError = Readonly<{
+  kind: "internal_failure";
+  operation: string | null;
+  cause: string | null;
+}>;
+export type ChatKnownErrorDetail = ChatRuntimeUnavailableError | ChatInternalFailureError;
 
 export type ChatError =
   | Readonly<{ kind: "session_not_found"; sessionID: string }>
@@ -22,9 +32,9 @@ export type ChatError =
     }>
   | Readonly<{ kind: "auth_required" }>
   | Readonly<{ kind: "server_not_ready" }>
-  | Readonly<{ kind: "runtime_unavailable"; sessionID: string }>
-  | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
-  | Readonly<{ kind: "unknown"; code: string }>;
+  | ChatRuntimeUnavailableError
+  | ChatInternalFailureError
+  | Readonly<{ kind: "unknown"; code: string; knownDetail: ChatKnownErrorDetail | null }>;
 
 export class ChatOperationError extends RpcError {
   constructor(
@@ -38,11 +48,13 @@ export class ChatOperationError extends RpcError {
 
 type ChatWireError =
   | WireChatOperationError
+  | GoalSetError
   | ReadError
   | ListPendingWorkError
   | LiveStopError
   | RemovePendingWorkError
   | SessionResolveTransitionError;
+type KnownChatError = Exclude<ChatError, Readonly<{ kind: "unknown" }>>;
 
 type ChatRpcResult = Readonly<{
   outcome:
@@ -76,41 +88,84 @@ export function requireChatSuccess(method: DescMethod, result: ChatRpcResult): M
 
 export function chatOperationError(method: DescMethod, failure: ChatWireError): ChatOperationError {
   const generic = protobufRpcError(method, failure);
+  if (method === GoalService.method.set) {
+    return goalSetOperationError(generic, failure);
+  }
+  return standardChatOperationError(generic, failure);
+}
+
+function goalSetOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
+  const knownDetail = chatErrorDetailFromWire(failure);
+  switch (failure.code) {
+    case "runtime_unavailable":
+      if (knownDetail?.kind !== "runtime_unavailable") {
+        throw new ContractError("Goal Set runtime-unavailable error detail is missing.");
+      }
+      return new ChatOperationError(generic, knownDetail);
+    case "internal_failure":
+      if (knownDetail?.kind !== "internal_failure") {
+        throw new ContractError("Goal Set internal-failure error detail is missing.");
+      }
+      return new ChatOperationError(generic, knownDetail);
+    case "":
+      throw new ContractError("Chat operation returned an empty error code.");
+    default:
+      return new ChatOperationError(generic, {
+        kind: "unknown",
+        code: failure.code,
+        knownDetail: goalKnownErrorDetail(knownDetail),
+      });
+  }
+}
+
+function standardChatOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
+  const detail = chatErrorDetailFromWire(failure);
+  if (detail !== null) {
+    return new ChatOperationError(generic, detail);
+  }
+  if (failure.code.length === 0) {
+    throw new ContractError("Chat operation returned an empty error code.");
+  }
+  return new ChatOperationError(generic, { kind: "unknown", code: failure.code, knownDetail: null });
+}
+
+function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
   switch (failure.detail.case) {
     case "sessionNotFound":
-      return new ChatOperationError(generic, {
+      return {
         kind: "session_not_found",
         sessionID: failure.detail.value.sessionId,
-      });
+      };
     case "workspaceNotRegistered":
-      return new ChatOperationError(generic, { kind: "workspace_not_registered" });
+      return { kind: "workspace_not_registered" };
     case "chatSettingsAgentPreparation":
-      return new ChatOperationError(generic, {
+      return {
         kind: "agent_preparation",
         agent: failure.detail.value.agent,
         category: agentPreparationCategory(failure.detail.value.category),
-      });
+      };
     case "authRequired":
-      return new ChatOperationError(generic, { kind: "auth_required" });
+      return { kind: "auth_required" };
     case "serverNotReady":
-      return new ChatOperationError(generic, { kind: "server_not_ready" });
+      return { kind: "server_not_ready" };
     case "runtimeUnavailable":
-      return new ChatOperationError(generic, {
-        kind: "runtime_unavailable",
-        sessionID: failure.detail.value.sessionId,
-      });
+      return { kind: "runtime_unavailable", sessionID: failure.detail.value.sessionId };
     case "internalFailure":
-      return new ChatOperationError(generic, {
+      return {
         kind: "internal_failure",
         operation: failure.detail.value.operation ?? null,
         cause: failure.detail.value.cause ?? null,
-      });
+      };
     case undefined:
-      if (failure.code.length === 0) {
-        throw new ContractError("Chat operation returned an empty error code.");
-      }
-      return new ChatOperationError(generic, { kind: "unknown", code: failure.code });
+      return null;
   }
+}
+
+function goalKnownErrorDetail(detail: KnownChatError | null): ChatKnownErrorDetail | null {
+  if (detail?.kind === "runtime_unavailable" || detail?.kind === "internal_failure") {
+    return detail;
+  }
+  return null;
 }
 
 function agentPreparationCategory(

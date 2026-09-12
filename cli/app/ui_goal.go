@@ -228,7 +228,10 @@ func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective s
 		case goalRuntimeShow, goalRuntimeCheckSet, goalRuntimeCheckClear:
 			msg.goal, msg.err = client.ShowGoal()
 		case goalRuntimeSet:
-			msg.mutation, msg.err = client.SetGoal(objective)
+			var result clientui.GoalSetResult
+			result, msg.err = client.SetGoal(objective)
+			msg.mutation = result.Result
+			msg.diagnostic = result.Diagnostic
 		case goalRuntimePause:
 			msg.mutation, msg.err = client.PauseGoal()
 		case goalRuntimeResume:
@@ -308,14 +311,11 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 		}
 		return sequenceCmds(m.goalRuntimeCommand(goalRuntimeClear, ""), followUpCmd)
 	case goalRuntimeSet:
-		if msg.mutationSerial != m.goalRuntimeMutationSerial {
-			return followUpCmd
-		}
 		m.goal.goal = goalCoreFromMutationResult(msg.mutation)
 		if m.goal.open && strings.TrimSpace(m.goal.confirmMode) != "" {
 			m.goal.confirmMode = ""
 		}
-		return followUpCmd
+		return sequenceCmds(goalSetDiagnosticStatus(m, msg.diagnostic), followUpCmd)
 	case goalRuntimePause, goalRuntimeResume, goalRuntimeComplete:
 		if msg.mutationSerial != m.goalRuntimeMutationSerial {
 			return followUpCmd
@@ -333,6 +333,19 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	default:
 		return followUpCmd
 	}
+}
+
+func goalSetDiagnosticStatus(m *uiModel, diagnostic error) tea.Cmd {
+	if diagnostic == nil {
+		return nil
+	}
+	return m.sendTransientStatusWithNoticeID(
+		runtimeattach.FormatSubmissionError(diagnostic),
+		uiStatusNoticeWarning,
+		transientStatusDuration,
+		uiStatusNoticeReplace,
+		"",
+	)
 }
 
 func (m *uiModel) openGoalOverlay(goal *clientui.RuntimeGoal, err error) {

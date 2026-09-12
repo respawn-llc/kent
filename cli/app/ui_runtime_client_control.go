@@ -85,11 +85,16 @@ func (c *sessionRuntimeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 	return runtimeGoalFromResponse(resp), nil
 }
 
-func (c *sessionRuntimeClient) SetGoal(objective string) (clientui.GoalMutationResult, error) {
-	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (serverapi.RuntimeGoalMutationResponse, error) {
-		return c.controls.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{SessionID: c.sessionID, Objective: objective, Actor: "user"})
+func (c *sessionRuntimeClient) SetGoal(objective string) (clientui.GoalSetResult, error) {
+	resp, err := runtimeGoalCall(c, true, func(ctx context.Context) (serverapi.RuntimeGoalSetResponse, error) {
+		return c.controls.SetGoal(ctx, serverapi.RuntimeGoalSetRequest{
+			SessionID:       c.sessionID,
+			Objective:       objective,
+			Actor:           "user",
+			ExecutionPolicy: serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState,
+		})
 	})
-	return resp.Result, err
+	return clientui.GoalSetResult{Result: resp.Result, Diagnostic: resp.Diagnostic}, err
 }
 
 func (c *sessionRuntimeClient) PauseGoal() (clientui.GoalMutationResult, error) {

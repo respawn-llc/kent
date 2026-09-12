@@ -195,7 +195,7 @@ type RuntimeClient interface {
 	SessionView() RuntimeSessionView
 	SetSessionName(name string) error
 	ShowGoal() (*RuntimeGoal, error)
-	SetGoal(objective string) (GoalMutationResult, error)
+	SetGoal(objective string) (GoalSetResult, error)
 	PauseGoal() (GoalMutationResult, error)
 	ResumeGoal() (GoalMutationResult, error)
 	CompleteGoal() (GoalMutationResult, error)

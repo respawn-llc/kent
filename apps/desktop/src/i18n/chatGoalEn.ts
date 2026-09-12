@@ -1,0 +1,22 @@
+export const chatGoalEnglish = {
+  guidance:
+    "A good Goal is specific and outcome-focused. State what should be true when the work is complete, plus any constraints Kent must respect.",
+  objective: "Goal",
+  save: "Save",
+  pause: "Pause",
+  resume: "Resume",
+  reopen: "Reopen",
+  clear: "Clear",
+  active: "Active",
+  paused: "Paused",
+  complete: "Complete",
+  unavailableForAgent: "Unavailable for this Agent",
+  mutationFailed: "Goal action failed",
+  setFailed: "Goal could not be saved",
+  savedWithWarning: "Goal saved with a warning",
+  loading: "Loading Goal",
+  loadFailed: "Goal could not be loaded",
+  setAt: "Set at",
+  age: "({{age}} ago)",
+  clearFailed: "Goal could not be cleared",
+};

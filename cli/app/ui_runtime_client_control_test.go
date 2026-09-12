@@ -35,8 +35,8 @@ func (c *goalRuntimeControlClient) ShowGoal(ctx context.Context, _ serverapi.Run
 	return serverapi.RuntimeGoalShowResponse{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalMutationResponse, error) {
-	return serverapi.RuntimeGoalMutationResponse{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error) {
+	return serverapi.RuntimeGoalSetResponse{}, c.respond(ctx)
 }
 
 func (c *goalRuntimeControlClient) PauseGoal(ctx context.Context, _ serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalMutationResponse, error) {

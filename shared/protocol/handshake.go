@@ -92,7 +92,6 @@ const (
 	MethodRuntimeRemovePendingWork                      = "runtime.pendingWork.remove"
 	MethodRuntimeRecordPromptHistory                    = "runtime.recordPromptHistory"
 	MethodRuntimeGoalShow                               = "runtime.goal.show"
-	MethodRuntimeGoalSet                                = "runtime.goal.set"
 	MethodRuntimeGoalPause                              = "runtime.goal.pause"
 	MethodRuntimeGoalResume                             = "runtime.goal.resume"
 	MethodRuntimeGoalComplete                           = "runtime.goal.complete"

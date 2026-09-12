@@ -151,12 +151,14 @@ func (f *runtimeControlFakeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 	f.showGoalCalls++
 	return cloneRuntimeGoal(f.goal), f.err
 }
-func (f *runtimeControlFakeClient) SetGoal(objective string) (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) SetGoal(objective string) (clientui.GoalSetResult, error) {
 	f.setGoalArg = objective
 	f.goal = runtimeControlTestGoal(objective, clientui.RuntimeGoalStatusActive)
-	return clientui.GoalMutationResult{
-		Kind: clientui.GoalMutationResultAuthoritativeGoal,
-		Goal: f.goal.Goal,
+	return clientui.GoalSetResult{
+		Result: clientui.GoalMutationResult{
+			Kind: clientui.GoalMutationResultAuthoritativeGoal,
+			Goal: f.goal.Goal,
+		},
 	}, f.err
 }
 func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
@@ -323,6 +325,51 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		m.goal.goal.Objective != "latest" ||
 		m.goal.goal.Status != clientui.RuntimeGoalStatusPaused {
 		t.Fatalf("Goal projection = %+v, want latest paused mutation result", m.goal.goal)
+	}
+}
+
+func TestGoalSetAppliesGoalBeforeWarningWithoutTranscriptEntry(t *testing.T) {
+	disableTransientStatusClearForTest(t)
+	client := &runtimeControlFakeClient{}
+	model := newProjectedClosedUIModel(client)
+	model.sessionID = "session-1"
+	model.goalRuntimeMutationSerial = 1
+	model.goalRuntimePending = goalRuntimePendingState{
+		token:             1,
+		sessionID:         model.sessionID,
+		inFlight:          true,
+		inFlightOperation: goalRuntimeSet,
+		inFlightObjective: "ship the feature",
+		desiredOperation:  goalRuntimeSet,
+		desiredObjective:  "ship the feature",
+	}
+
+	model.applyGoalRuntimeDone(goalRuntimeDoneMsg{
+		token:          1,
+		sessionID:      model.sessionID,
+		mutationSerial: 1,
+		operation:      goalRuntimeSet,
+		mutation: clientui.GoalMutationResult{
+			Kind: clientui.GoalMutationResultAuthoritativeGoal,
+			Goal: &clientui.Goal{
+				ID:        "goal-1",
+				Objective: "ship the feature",
+				Status:    clientui.RuntimeGoalStatusActive,
+				CreatedAt: time.Unix(1, 0),
+				UpdatedAt: time.Unix(1, 0),
+			},
+		},
+		diagnostic: errors.New("post-commit warning"),
+	})
+
+	if model.goal.goal == nil || model.goal.goal.Objective != "ship the feature" {
+		t.Fatalf("Goal projection = %+v, want committed Goal", model.goal.goal)
+	}
+	if model.transientStatus != "post-commit warning" || model.transientStatusKind != uiStatusNoticeWarning {
+		t.Fatalf("warning status = %q (%v), want post-commit warning", model.transientStatus, model.transientStatusKind)
+	}
+	if client.appendCalls != 0 {
+		t.Fatalf("transcript append calls = %d, want no diagnostic transcript entry", client.appendCalls)
 	}
 }
 

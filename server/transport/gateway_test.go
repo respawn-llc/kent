@@ -35,6 +35,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -164,6 +165,13 @@ func (gatewayChatAuthorizationService) Compact(
 	panic("unexpected Compact")
 }
 
+func (gatewayChatAuthorizationService) SetGoal(
+	context.Context,
+	*runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	panic("unexpected Goal Set")
+}
+
 func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
 	gateway, err := NewGateway(
@@ -267,6 +275,37 @@ func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
 	}
 }
 
+func TestGatewayGoalSetUsesTargetAwareDedicatedOperation(t *testing.T) {
+	appCore, server := newGatewayTestServer(t)
+	defer func() { _ = appCore.Close() }()
+	defer server.Close()
+	store := createGatewayAuthoritativeSession(t, appCore)
+	remote, err := remoteclient.DialRemoteURLForProject(
+		context.Background(),
+		"ws"+server.URL[len("http"):],
+		appCore.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("DialRemoteURLForProject: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	response, err := remote.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		SessionID:       store.Meta().SessionID,
+		Objective:       "ship through target-aware Set",
+		Actor:           "user",
+		ExecutionPolicy: serverapi.RuntimeGoalExecutionPolicyStartOrContinue,
+	})
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if response.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal ||
+		response.Result.Goal == nil ||
+		response.Result.Goal.Objective != "ship through target-aware Set" {
+		t.Fatalf("Goal Set response = %+v", response.Result)
+	}
+}
+
 func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
 	t.Cleanup(func() { _ = appCore.Close() })
@@ -294,6 +333,7 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 		resolver,
 		gatewayChatLifecyclePlanner{attachment: attachment},
 		gatewayChatLifecycleAdmission{queueItemID: runtimeids.NewQueueItemID()},
+		nil,
 	)
 	gateway, err := NewGateway(
 		&gatewayChatLifecycleDependencies{GatewayDependencies: appCore, chat: service},
@@ -1710,7 +1750,6 @@ func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, session
 		params any
 	}{
 		{name: "show", method: protocol.MethodRuntimeGoalShow, params: serverapi.RuntimeGoalShowRequest{SessionID: sessionID}},
-		{name: "set", method: protocol.MethodRuntimeGoalSet, params: serverapi.RuntimeGoalSetRequest{SessionID: sessionID, Objective: "ship", Actor: "user"}},
 		{name: "pause", method: protocol.MethodRuntimeGoalPause, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "user"}},
 		{name: "resume", method: protocol.MethodRuntimeGoalResume, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "user"}},
 		{name: "complete", method: protocol.MethodRuntimeGoalComplete, params: serverapi.RuntimeGoalStatusRequest{SessionID: sessionID, Actor: "agent"}},
@@ -1720,6 +1759,25 @@ func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, session
 		if err.Code != protocol.ErrCodeInternalError || err.Message != wantMessage {
 			t.Fatalf("foreign goal %s error = code %d message %q, want code %d message %q", tc.name, err.Code, err.Message, protocol.ErrCodeInternalError, wantMessage)
 		}
+	}
+	var goalSet runtimepb.GoalSetResult
+	callGatewayDescriptor(
+		t,
+		conn,
+		"foreign-goal-set-binary",
+		runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("GoalService").Methods().ByName("Set"),
+		&runtimepb.GoalSetRequest{
+			Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+			}},
+			Objective:       "ship",
+			Actor:           "user",
+			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+		},
+		&goalSet,
+	)
+	if goalSet.GetError() == nil || goalSet.GetError().Code != "internal_failure" {
+		t.Fatalf("foreign binary Goal Set result = %+v, want internal failure", goalSet.GetError())
 	}
 }
 

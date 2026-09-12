@@ -427,8 +427,6 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.RuntimeGoalShowRequest:
 		return p.SessionID, true
-	case serverapi.RuntimeGoalSetRequest:
-		return p.SessionID, true
 	case serverapi.RuntimeGoalStatusRequest:
 		return p.SessionID, true
 	case serverapi.RuntimeGoalClearRequest:

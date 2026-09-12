@@ -105,6 +105,11 @@ type GoalMutationResult struct {
 	Availability *GoalAvailability      `json:"availability"`
 }
 
+type GoalSetResult struct {
+	Result     GoalMutationResult
+	Diagnostic error
+}
+
 func (g GoalEnvelope) Validate() error {
 	if err := g.Availability.Validate(); err != nil {
 		return err

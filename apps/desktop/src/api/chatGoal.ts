@@ -1,8 +1,24 @@
 import { z } from "zod";
 
+import { validate } from "@app/server-api-contract";
+import {
+  GoalAvailability,
+  GoalMutationResultKind,
+  GoalService,
+  GoalSetResultSchema,
+  GoalStatus,
+} from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import type {
+  GoalMutationSuccess,
+  GoalSetResult,
+} from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import { ContractError } from "./errors";
+import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { parseRpcResponse } from "./clientParse";
+import { timestampMillis } from "./clientTime";
 import { goalSchema, type runtimeStatusSchema } from "./chatSchemas";
 import { type goalStatusSchema } from "./chatTranscriptFactSchemas";
+import type { ChatProjectTarget, InitialChatSettings } from "./chatTypes";
 
 export type ChatGoalAvailability = "available" | "agent_capability_missing";
 export type ChatGoalStatus = "active" | "paused" | "complete";
@@ -22,6 +38,30 @@ export type ChatGoalProjection =
 export type ChatGoalMutationResult =
   | Readonly<{ kind: "authoritative_goal"; fact: ChatGoalFact & Readonly<{ goal: ChatGoal }> }>
   | Readonly<{ kind: "authoritative_clear"; fact: ChatGoalFact & Readonly<{ goal: null }> }>;
+export type ChatGoalSetTarget =
+  | Readonly<{
+      kind: "session";
+      sessionID: string;
+      projectID?: string;
+      workspace?: ChatProjectTarget["workspace"];
+    }>
+  | Readonly<{
+      kind: "new_chat";
+      projectID: string;
+      workspaceID: string;
+      initialSettings: InitialChatSettings;
+      initialInputDraft?: string;
+    }>;
+export type ChatGoalSetResult = Readonly<{
+  sessionID: string;
+  outcome:
+    | Readonly<{
+        kind: "mutation";
+        mutation: ChatGoalMutationResult;
+        diagnostic: ChatOperationError | null;
+      }>
+    | Readonly<{ kind: "rejected"; error: ChatOperationError }>;
+}>;
 export type ChatGoalObservation = Readonly<{
   sequence: number;
   kind: "hydration" | "update";
@@ -123,6 +163,142 @@ export function parseGoalMutationResult(input: unknown): ChatGoalMutationResult 
       };
     case "authoritative_clear":
       return { kind: result.kind, fact: { goal: null, availability: result.availability } };
+  }
+}
+
+export function goalMutationFromGenerated(success: GoalMutationSuccess): ChatGoalMutationResult {
+  switch (success.kind) {
+    case GoalMutationResultKind.AUTHORITATIVE_GOAL: {
+      if (success.goal?.createdAt === undefined || success.goal.updatedAt === undefined) {
+        throw new ContractError("Authoritative Goal result requires complete Goal timestamps.");
+      }
+      const status = goalStatusFromGenerated(success.goal.status);
+      return {
+        kind: "authoritative_goal",
+        fact: {
+          goal: chatGoal({
+            id: success.goal.id,
+            objective: success.goal.objective,
+            status,
+            created_at: new Date(timestampMillis(success.goal.createdAt)).toISOString(),
+            updated_at: new Date(timestampMillis(success.goal.updatedAt)).toISOString(),
+          }),
+          availability:
+            success.availability === undefined ? null : goalAvailabilityFromGenerated(success.availability),
+        },
+      };
+    }
+    case GoalMutationResultKind.AUTHORITATIVE_CLEAR:
+      return {
+        kind: "authoritative_clear",
+        fact: {
+          goal: null,
+          availability:
+            success.availability === undefined ? null : goalAvailabilityFromGenerated(success.availability),
+        },
+      };
+    case GoalMutationResultKind.UNSPECIFIED:
+      throw new ContractError("Goal mutation result kind is invalid.");
+    default:
+      throw new ContractError("Goal mutation result kind is invalid.");
+  }
+}
+
+function goalStatusFromGenerated(status: GoalStatus): ChatGoalStatus {
+  switch (status) {
+    case GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE:
+      return "active";
+    case GoalStatus.RUNTIME_GOAL_STATUS_PAUSED:
+      return "paused";
+    case GoalStatus.RUNTIME_GOAL_STATUS_COMPLETE:
+      return "complete";
+    case GoalStatus.RUNTIME_GOAL_STATUS_UNSPECIFIED:
+      throw new ContractError("Goal status is invalid.");
+    default:
+      throw new ContractError("Goal status is invalid.");
+  }
+}
+
+function goalAvailabilityFromGenerated(availability: GoalAvailability): ChatGoalAvailability {
+  switch (availability) {
+    case GoalAvailability.AVAILABLE:
+      return "available";
+    case GoalAvailability.AGENT_CAPABILITY_MISSING:
+      return "agent_capability_missing";
+    case GoalAvailability.UNSPECIFIED:
+      throw new ContractError("Goal availability is invalid.");
+    default:
+      throw new ContractError("Goal availability is invalid.");
+  }
+}
+
+export function chatGoalSetResultFromGenerated(
+  result: GoalSetResult,
+  requestedSessionID?: string,
+): ChatGoalSetResult {
+  validateGoalSetResult(result);
+  if (result.outcome.case === "error") {
+    throw chatOperationError(GoalService.method.set, result.outcome.value);
+  }
+  if (result.outcome.case !== "success") {
+    throw new ContractError("Goal Set result outcome is required.");
+  }
+  const success = result.outcome.value;
+  const sessionID = goalSetSessionID(success.session?.sessionId, requestedSessionID);
+  return {
+    sessionID,
+    outcome: goalSetOutcome(success),
+  };
+}
+
+function validateGoalSetResult(result: GoalSetResult): void {
+  try {
+    validate(GoalSetResultSchema, result);
+  } catch {
+    throw new ContractError("Goal Set result did not match the GUI contract.", [
+      { code: "invalid_value", path: ["GoalSetResult"] },
+    ]);
+  }
+}
+
+function goalSetSessionID(sessionID: string | undefined, requestedSessionID?: string): string {
+  if (sessionID === undefined || sessionID.trim().length === 0) {
+    throw new ContractError("Goal Set success Session is required.");
+  }
+  if (requestedSessionID !== undefined && sessionID !== requestedSessionID) {
+    throw new ContractError("Goal Set success Session does not match the requested Session.");
+  }
+  return sessionID;
+}
+
+function goalSetOutcome(
+  success: Extract<GoalSetResult["outcome"], { case: "success" }>["value"],
+): ChatGoalSetResult["outcome"] {
+  switch (success.outcome.case) {
+    case "mutation": {
+      const mutation = goalMutationFromGenerated(success.outcome.value);
+      if (mutation.kind !== "authoritative_goal") {
+        throw new ContractError("Goal Set response returned an illegal mutation result.");
+      }
+      return {
+        kind: "mutation",
+        mutation,
+        diagnostic:
+          success.diagnostic === undefined
+            ? null
+            : chatOperationError(GoalService.method.set, success.diagnostic),
+      };
+    }
+    case "rejected":
+      if (success.diagnostic !== undefined) {
+        throw new ContractError("Goal Set rejection cannot include a diagnostic.");
+      }
+      return {
+        kind: "rejected",
+        error: chatOperationError(GoalService.method.set, success.outcome.value),
+      };
+    case undefined:
+      throw new ContractError("Goal Set success outcome is required.");
   }
 }
 
