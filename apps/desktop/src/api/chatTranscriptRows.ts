@@ -4,6 +4,7 @@ import type {
   ChatDiagnostic,
   ChatNotice,
   ChatReasoningIdentity,
+  ChatWebSearchDetail,
 } from "./chatTranscriptTypes";
 import { enumValue, required, safeNumber } from "./chatWire";
 import { timestampMillis } from "./clientTime";
@@ -262,6 +263,7 @@ function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
     ResultSummary: value.resultSummary ?? null,
     CondensedText: value.condensedText ?? null,
     Presentation: toolPresentation(value.presentation, value.toolName),
+    WebSearch: value.webSearch === undefined ? null : webSearchDetail(value.webSearch),
     QuestionAnswer:
       value.questionAnswer === undefined
         ? null
@@ -270,6 +272,38 @@ function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
             Freeform: value.questionAnswer.freeform ?? null,
           },
   };
+}
+
+function webSearchDetail(value: T.WebSearchDetail): ChatWebSearchDetail {
+  return {
+    action: webSearchAction(value),
+    results: value.results.map((result) => ({
+      kind: enumValue(result.kind, {
+        [T.WebSearchResultKind.LINK]: "link",
+        [T.WebSearchResultKind.IMAGE]: "image",
+      }),
+      title: result.title ?? null,
+      destination: result.destination ?? null,
+    })),
+    sources: value.sources,
+  };
+}
+
+function webSearchAction(value: T.WebSearchDetail): ChatWebSearchDetail["action"] {
+  switch (value.action.case) {
+    case "search":
+      return { kind: "search", queries: value.action.value.queries };
+    case "openPage":
+      return { kind: "open-page", url: value.action.value.url ?? null };
+    case "findInPage":
+      return {
+        kind: "find-in-page",
+        url: value.action.value.url ?? null,
+        pattern: value.action.value.pattern ?? null,
+      };
+    case undefined:
+      throw new ContractError("Web Search action is missing.");
+  }
 }
 
 function reasoningRow(value: T.ReasoningTraceRow): NonNullable<ChatCommittedRow["ReasoningTrace"]> {

@@ -73,6 +73,8 @@ export type ToolPresentation =
   | Readonly<{
       kind: "web-search";
       compact: string | null;
+      detail: CommittedTool["WebSearch"];
+      failure: string | undefined;
       icon: "globe";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
@@ -311,6 +313,8 @@ function resolveWebSearch(
   return {
     kind: "web-search",
     compact: query === undefined ? context.tool.ToolName : strings.searchedWeb(query),
+    detail: context.committed?.WebSearch,
+    failure: context.committed?.IsError ? context.output : undefined,
     icon: "globe",
     iconTone: toolIconTone(context.item, context.meta),
     running: context.item.kind === "live",

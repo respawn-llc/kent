@@ -641,22 +641,29 @@ func isSedPrintRangeExpression(expression string) bool {
 	return segmentHasDigit
 }
 
+type hostedWebSearchPayload struct {
+	Type    string                `json:"type"`
+	ID      string                `json:"id"`
+	Status  string                `json:"status"`
+	Action  hostedWebSearchAction `json:"action"`
+	Results json.RawMessage       `json:"results"`
+}
+
+type hostedWebSearchAction struct {
+	Type    string          `json:"type"`
+	Query   *string         `json:"query"`
+	Queries json.RawMessage `json:"queries"`
+	URL     *string         `json:"url"`
+	Pattern *string         `json:"pattern"`
+	Sources json.RawMessage `json:"sources"`
+}
+
 func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) {
 	raw := item.Raw
 	if len(raw) == 0 || !json.Valid(raw) {
 		return HostedExecution{}, false
 	}
-	var payload struct {
-		Type   string `json:"type"`
-		ID     string `json:"id"`
-		Status string `json:"status"`
-		Action struct {
-			Type    string `json:"type"`
-			Query   string `json:"query"`
-			URL     string `json:"url"`
-			Pattern string `json:"pattern"`
-		} `json:"action"`
-	}
+	var payload hostedWebSearchPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return HostedExecution{}, false
 	}
@@ -678,15 +685,23 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	if actionType != "" {
 		input["action"] = actionType
 	}
-	query := strings.TrimSpace(payload.Action.Query)
+	query := ""
+	queries, queriesErr := decodeWebSearchQueries(payload.Action.Queries)
+	if payload.Action.Query != nil {
+		query = strings.TrimSpace(*payload.Action.Query)
+	} else if len(queries) > 0 {
+		query = strings.TrimSpace(queries[0])
+	}
 	searchQuery := query
-	if url := strings.TrimSpace(payload.Action.URL); url != "" {
+	if payload.Action.URL != nil {
+		url := strings.TrimSpace(*payload.Action.URL)
 		if query == "" {
 			query = url
 		}
 		input["url"] = url
 	}
-	if pattern := strings.TrimSpace(payload.Action.Pattern); pattern != "" {
+	if payload.Action.Pattern != nil {
+		pattern := strings.TrimSpace(*payload.Action.Pattern)
 		if query == "" {
 			query = pattern
 		}
@@ -713,7 +728,9 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 		output = mustJSON(map[string]any{"raw": string(raw)})
 	}
 	isError := strings.EqualFold(strings.TrimSpace(payload.Status), "failed")
-	if strings.EqualFold(actionType, "search") {
+	// Malformed optional query lists remain in the saved completion so the
+	// display projection can report their decoding failure.
+	if strings.EqualFold(actionType, "search") && queriesErr == nil {
 		if err := ValidateWebSearchQuery(searchQuery); err != nil {
 			output = mustJSON(map[string]any{"error": InvalidWebSearchQueryMessage})
 			isError = true

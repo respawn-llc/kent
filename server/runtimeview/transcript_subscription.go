@@ -903,6 +903,10 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 		if err != nil {
 			return nil, err
 		}
+		webSearch, err := webSearchDetailToProto(fact.Tool.WebSearch)
+		if err != nil {
+			return nil, err
+		}
 		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
 			StepId:         textutil.Pointer(fact.StepID),
 			ToolCallId:     textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
@@ -913,6 +917,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			CondensedText:  optionalNonBlankString(fact.Tool.CondensedText),
 			Presentation:   presentation,
 			QuestionAnswer: answer,
+			WebSearch:      webSearch,
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
 		if fact.ReasoningTrace == nil || fact.StepID == nil {

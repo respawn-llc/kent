@@ -823,6 +823,97 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 	}
 }
 
+func TestWebSearchLiveAndReopenedPage(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		details     string
+		wantDetail  bool
+		wantFailure bool
+	}{
+		{"populated", `,"results":[{"title":"Example","url":"https://example.com","snippet":"excluded"}]`, true, false},
+		{"absent", "", false, false},
+		{"malformed", `,"results":[{"url":42}]`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"example","queries":["example"]}` + tc.details + `}`)
+			caps := scriptedllm.DefaultProviderCapabilities()
+			caps.SupportsNativeWebSearch = true
+			client := scriptedllm.NewClient(scriptedllm.Script{
+				Capabilities: &caps,
+				Steps: []scriptedllm.Step{
+					{Response: llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant}, OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeOther, Raw: raw}}}},
+					scriptedllm.FinalAnswer("done"),
+				},
+			})
+			store := newRuntimeViewStore(t)
+			var completion runtime.Event
+			engine := newRuntimeViewEngine(t, store, client, runtime.Config{
+				Model: "gpt-5", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch},
+				OnEvent: func(event runtime.Event) {
+					if event.Kind == runtime.EventToolCallCompleted {
+						completion = event
+					}
+				},
+			})
+			if _, err := engine.SubmitUserMessage(context.Background(), "search example"); err != nil {
+				t.Fatal(err)
+			}
+			events, err := TranscriptMessagesFromRuntimeEventChecked(completion)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var live *transcriptpb.ToolRow
+			for _, event := range events {
+				assertTranscriptRoundTrip(t, &transcriptpb.Message{Sequence: 2, Event: event})
+				if row := event.GetCommittedRow(); row != nil {
+					live = row.GetTool()
+				}
+			}
+			if live == nil || (live.WebSearch != nil) != tc.wantDetail || live.IsError != tc.wantFailure {
+				t.Fatalf("incorrect live projection: %+v", live)
+			}
+			if !tc.wantFailure && live.Text != "" {
+				t.Fatalf("raw output exposed: %q", live.Text)
+			}
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened := newRuntimeViewEngine(t, store, scriptedllm.NewClient(scriptedllm.Script{}))
+			segment, err := reopened.TranscriptNewestSegmentPage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := TranscriptPageFromSegment(projectionWorkspaceID, "search", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, segment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := protoapi.Validate(page); err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := proto.Marshal(page)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := new(transcriptpb.Page)
+			if err := proto.Unmarshal(encoded, decoded); err != nil {
+				t.Fatal(err)
+			}
+			if err := protoapi.Validate(decoded); err != nil {
+				t.Fatal(err)
+			}
+			for _, row := range decoded.Entries {
+				if tool := row.GetTool(); tool != nil && tool.GetToolCallId() == "ws_1" {
+					if !proto.Equal(live, tool) {
+						t.Fatalf("live/history differ: %v / %v", live, tool)
+					}
+					return
+				}
+			}
+			t.Fatal("saved search missing from bounded page")
+		})
+	}
+}
+
 func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 	targetID := rollbacktarget.EncodeUserMessageSeq(91)
 	locator := &rollbacktarget.CandidateLocator{

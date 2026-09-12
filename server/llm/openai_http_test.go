@@ -852,8 +852,10 @@ func TestBuildPayload_UsesTransportStoreSetting(t *testing.T) {
 func TestBuildPayload_AddsNativeWebSearchToolWhenEnabled(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:                 "gpt-5",
-		EnableNativeWebSearch: true,
+		Model:                   "gpt-5",
+		EnableNativeWebSearch:   true,
+		SupportsReasoningEffort: true,
+		ReasoningEffort:         "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -870,6 +872,13 @@ func TestBuildPayload_AddsNativeWebSearchToolWhenEnabled(t *testing.T) {
 	}
 	if got := tool["type"]; got != "web_search" {
 		t.Fatalf("expected web_search tool, got %#v", got)
+	}
+	if !reflect.DeepEqual(payload.Include, []responses.ResponseIncludable{
+		responses.ResponseIncludableWebSearchCallResults,
+		responses.ResponseIncludableWebSearchCallActionSources,
+		responses.ResponseIncludableReasoningEncryptedContent,
+	}) {
+		t.Fatalf("unexpected hosted search includes: %v", payload.Include)
 	}
 }
 
@@ -1098,6 +1107,9 @@ func TestBuildPayload_DoesNotAddNativeWebSearchToolWhenDisabled(t *testing.T) {
 	jsonPayload := mustMarshalObject(t, payload)
 	if _, ok := jsonPayload["tools"]; ok {
 		t.Fatalf("expected no tools in payload, got %#v", jsonPayload["tools"])
+	}
+	if len(payload.Include) != 0 {
+		t.Fatalf("unexpected includes without hosted search: %v", payload.Include)
 	}
 }
 

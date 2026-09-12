@@ -301,6 +301,7 @@ export const englishResources = {
         moreLines_other: "{{count}} more lines",
         patchFailed: "Patch failed",
         searchedWeb: 'Searched the web for "{{query}}"',
+        image: "image",
         viewedImage: "Viewed image at {{path}}",
       },
     },

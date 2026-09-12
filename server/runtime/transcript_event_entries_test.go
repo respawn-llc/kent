@@ -134,6 +134,42 @@ func TestCustomToolCallOutputProjectsAsRegularToolResultEntry(t *testing.T) {
 	}
 }
 
+func TestWebSearchCompletionContent(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		output      string
+		failed      bool
+		wantFailure bool
+		wantDetail  bool
+	}{
+		{"populated", `{"action":{"type":"search"},"results":[{"title":"Result","url":"https://example.com","snippet":"excluded"}]}`, false, false, true},
+		{"absent", `{"action":{"type":"search"}}`, false, false, false},
+		{"malformed", `{"action":{"type":"search"},"results":[{"url":42}]}`, false, true, false},
+		{"provider failure", `{"error":"provider failure"}`, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: json.RawMessage(tc.output), IsError: tc.failed}
+			entries := TranscriptEntriesFromEvent(Event{Kind: EventToolCallCompleted, ToolResult: &result})
+			if len(entries) != 1 {
+				t.Fatalf("lost completion: %+v", entries)
+			}
+			entry := entries[0]
+			if (entry.Role == "tool_result_error") != tc.wantFailure || (entry.WebSearch != nil) != tc.wantDetail {
+				t.Fatalf("incorrect projection: %+v", entry)
+			}
+			if tc.wantFailure && entry.Text == "" {
+				t.Fatal("failure diagnostic lost")
+			}
+			if !tc.wantFailure && entry.Text != "" {
+				t.Fatalf("successful raw output exposed: %q", entry.Text)
+			}
+			if string(result.Output) != tc.output || result.IsError != tc.failed {
+				t.Fatal("saved authority changed")
+			}
+		})
+	}
+}
+
 func TestTranscriptEntriesFromEventOmitsPrePersistCompactionStatusRows(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
