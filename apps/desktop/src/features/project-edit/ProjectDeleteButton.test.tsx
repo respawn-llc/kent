@@ -1,94 +1,66 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { RegistryProvider } from "@effect/atom-react";
+import { QueryClient } from "@tanstack/react-query";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ReactNode } from "react";
+import { AppServicesProvider, StatusProvider } from "@/app-facade";
+import { appI18n } from "@/i18n";
+import { createTestServices } from "@/test-support/app-services";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
+import { createProjectEditViewModel } from "./ProjectEditViewModel";
 import { ProjectDeleteButton } from "./ProjectDeleteButton";
-type CompletionInput = Readonly<{
-  navigateHome?: (() => Promise<void>) | undefined;
-}>;
-type FallbackConfig = Readonly<{
-  renderFallback: (payload: Readonly<{ projectID: string }>, close: () => void) => ReactNode;
-}>;
 
-const fixture = vi.hoisted(() => ({
-  complete: vi.fn<(input: CompletionInput) => Promise<void>>(),
-  mutateAsync: vi.fn(async () => ({ blockers: [], deleted: true })),
-  openHome: vi.fn(async () => undefined),
-  push: vi.fn(),
-}));
-
-vi.mock("./useProjectEditData", () => ({
-  useProjectDelete: () => ({ isPending: false, mutateAsync: fixture.mutateAsync }),
-}));
-
-vi.mock("@/app-facade", () => ({
-  completeProjectDeletion: fixture.complete,
-  useAppNavigation: () => ({ openHome: fixture.openHome }),
-  useAppServices: () => ({
-    nativeBridge: {
-      capabilities: { dialogWindows: false },
-      dialogs: { openWindow: vi.fn(async () => undefined) },
-    },
-  }),
-  useConnectionSnapshot: () => ({ phase: "connected" }),
-  useNativeDialogFallback: function useNativeDialogFallback(config: FallbackConfig) {
-    const [payload, setPayload] = useState<Readonly<{ projectID: string }> | undefined>();
-    return {
-      fallback:
-        payload === undefined
-          ? null
-          : config.renderFallback(payload, () => {
-              setPayload(undefined);
-            }),
-      open: async (next: Readonly<{ projectID: string }>) => {
-        setPayload(next);
-      },
-    };
-  },
-  useStatusController: () => ({ push: fixture.push }),
-}));
-
-describe("ProjectDeleteButton scoped completion", () => {
-  beforeEach(() => {
-    fixture.complete.mockReset();
-    fixture.complete.mockImplementation(async (input) => {
-      if (input.navigateHome !== undefined) await input.navigateHome();
-    });
-    fixture.mutateAsync.mockClear();
-    fixture.openHome.mockClear();
-    fixture.push.mockClear();
+it.each([
+  ["accepted", 1],
+  ["stale", 0],
+] as const)("navigates Home only when the original sidebar close is %s", async (outcome, homeCalls) => {
+  const services = createTestServices([]);
+  const remove = vi
+    .spyOn(services.api, "deleteProject")
+    .mockResolvedValue({ projectID: "project-1", deleted: true, blockers: [] });
+  const navigator = createTestSidebarNavigator({ close: vi.fn(() => outcome) });
+  const openHome = vi.fn(async () => undefined);
+  const client = new QueryClient();
+  const push = vi.fn();
+  const model = createProjectEditViewModel({
+    services,
+    client,
+    projectID: "project-1",
+    t: appI18n.t,
+    push,
+    navigator,
   });
-
-  it.each([
-    ["accepted", 1],
-    ["stale", 0],
-  ] as const)("navigates Home only when scoped close is %s", async (outcome, homeCalls) => {
-    const navigator = createTestSidebarNavigator({
-      close: vi.fn(() => outcome),
-    });
-    const queryClient = new QueryClient();
-    const user = userEvent.setup();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectDeleteButton navigator={navigator} projectID="project-1" />
-      </QueryClientProvider>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "projectEdit.deleteProject" }));
-    await user.click(await screen.findByRole("button", { name: "projectEdit.deleteConfirm" }));
-    await waitFor(() => {
-      expect(fixture.complete).toHaveBeenCalledOnce();
-    });
-
-    expect(navigator.close).toHaveBeenCalledOnce();
-    expect(fixture.openHome).toHaveBeenCalledTimes(homeCalls);
-    expect(fixture.complete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        navigateHome: outcome === "accepted" ? fixture.openHome : undefined,
-        projectID: "project-1",
-      }),
-    );
-    queryClient.clear();
+  const user = userEvent.setup();
+  const view = render(
+    <RegistryProvider>
+      <AppServicesProvider services={services}>
+        <StatusProvider>
+          <ProjectDeleteButton model={model} projectID="project-1" openHome={openHome} />
+        </StatusProvider>
+      </AppServicesProvider>
+    </RegistryProvider>,
+  );
+  const selectedProjectOpenHome = vi.fn(async () => undefined);
+  view.rerender(
+    <RegistryProvider>
+      <AppServicesProvider services={services}>
+        <StatusProvider>
+          <ProjectDeleteButton model={model} projectID="project-1" openHome={selectedProjectOpenHome} />
+        </StatusProvider>
+      </AppServicesProvider>
+    </RegistryProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: appI18n.t("projectEdit.deleteProject") }));
+  expect(remove).not.toHaveBeenCalled();
+  await user.click(
+    within(await screen.findByRole("dialog")).getByRole("button", {
+      name: appI18n.t("projectEdit.deleteConfirm"),
+    }),
+  );
+  await waitFor(() => {
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
   });
+  expect(navigator.close).toHaveBeenCalledOnce();
+  expect(selectedProjectOpenHome).toHaveBeenCalledTimes(homeCalls);
+  expect(openHome).not.toHaveBeenCalled();
+  expect(remove).toHaveBeenCalledOnce();
 });

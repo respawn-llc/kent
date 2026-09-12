@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { createArchitecturePolicy } from "../desktop/eslint-architecture.config.js";
+import {
+  checkEffectPolicy,
+  effectPolicyConfig,
+} from "./check-effect-policy.mjs";
 
 const desktopRequire = createRequire(
   new URL("../desktop/package.json", import.meta.url),
@@ -162,3 +167,127 @@ function assertRule(messagesByPath, path, ruleId) {
     `expected ${path} to violate ${ruleId}`,
   );
 }
+
+test("Effect policy accepts standard action bindings and rejects root, aliased, detached and global execution", async () => {
+  const eslint = new ESLint({
+    cwd: fixtureRoot,
+    overrideConfigFile: true,
+    overrideConfig: effectPolicyConfig(),
+  });
+  const [allowed, forbidden, standardTest] = await eslint.lintFiles([
+    "src/features/alpha/allowed-effect.tsx",
+    "src/features/alpha/forbidden-effect.ts",
+    "src/features/alpha/allowed-effect.test.ts",
+  ]);
+  assert.deepEqual(allowed.messages, []);
+  assert.deepEqual(standardTest.messages, []);
+  assert.ok(forbidden.errorCount >= 9);
+  assert.ok(
+    forbidden.messages.every(
+      (message) => message.ruleId === "app/no-unowned-effect",
+    ),
+  );
+});
+
+test("Effect policy fails closed for exported namespaces and dynamic loading", async () => {
+  const eslint = new ESLint({
+    overrideConfigFile: true,
+    overrideConfig: effectPolicyConfig(),
+  });
+  for (const code of [
+    'import * as E from "effect/Effect"; export const runtime = E;',
+    'import("effect/Effect").then((E) => E.runPromise(E.void));',
+    'import { createRequire as factory } from "node:module"; const load = factory(import.meta.url); const E = load("effect/Effect"); E.runPromise(E.void);',
+  ]) {
+    const [result] = await eslint.lintText(code);
+    assert.ok(result.errorCount > 0, code);
+  }
+});
+
+test("the repository policy checks HTML scripts and Astro frontmatter, scripts and expressions", async () => {
+  const results = await checkEffectPolicy([
+    join(fixtureRoot, "tooling/forbidden-effect.html"),
+    join(fixtureRoot, "tooling/forbidden-effect.astro"),
+  ]);
+  assert.equal(results.length, 2);
+  for (const result of results) {
+    assert.ok(result.errorCount > 0, result.filePath);
+    assert.ok(
+      result.messages.every(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  }
+});
+
+test("HTML script data remains data while JavaScript scripts are checked", async () => {
+  const results = await checkEffectPolicy([
+    join(fixtureRoot, "tooling/allowed-effect-script-data.html"),
+  ]);
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0].messages, []);
+});
+
+test("staged Effect contracts reject custom subscriptions but retain native/Query inputs and pre-Effect exports", async () => {
+  const results = await checkEffectPolicy([
+    join(fixtureRoot, "src/app-facade/allowed-effect-integration.ts"),
+    join(fixtureRoot, "src/app-facade/allowed-pre-effect-subscription.ts"),
+    join(fixtureRoot, "src/app-facade/effect-barrel.ts"),
+    join(fixtureRoot, "src/app-facade/forbidden-effect-subscription.ts"),
+  ]);
+  for (const result of results.slice(0, 3))
+    assert.deepEqual(result.messages, [], result.filePath);
+  assert.ok(
+    results[3].messages.some(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ),
+  );
+});
+
+test("Effect policy rejects union subscription signatures without a checker failure", async () => {
+  const [result] = await checkEffectPolicy([
+    join(fixtureRoot, "src/app-facade/forbidden-effect-union-subscription.ts"),
+  ]);
+  assert.ok(
+    result.messages.some(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ),
+  );
+  assert.equal(result.fatalErrorCount, 0);
+});
+
+test("staged contracts follow Effect values across application imports", async () => {
+  const [result] = await checkEffectPolicy([
+    join(
+      fixtureRoot,
+      "src/app-facade/forbidden-indirect-effect-subscription.ts",
+    ),
+  ]);
+  assert.ok(
+    result.messages.some(
+      (message) => message.ruleId === "app/no-effect-subscriptions",
+    ),
+  );
+});
+
+for (const fixture of [
+  "forbidden-effect.ts",
+  "forbidden-effect-registry-barrel.ts",
+  "forbidden-effect-registry-namespace.ts",
+])
+  test(`the required Just policy command rejects ${fixture}`, () => {
+    const result = spawnSync(
+      "just",
+      [
+        "_lint",
+        "_effect-policy",
+        `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
+      ],
+      {
+        cwd: fileURLToPath(new URL("../..", import.meta.url)),
+        encoding: "utf8",
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stderr);
+  });
