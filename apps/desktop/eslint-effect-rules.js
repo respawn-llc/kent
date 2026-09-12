@@ -360,9 +360,8 @@ function subscriptionContract(type, checker) {
         .getCallSignatures()
         .some(
           (signature) =>
-            signature.parameters.some((parameter) =>
-              callable(checker.getTypeOfSymbol(parameter)),
-            ) && unlistenHandle(checker.getReturnTypeOfSignature(signature), checker),
+            signature.parameters.some((parameter) => callable(checker.getTypeOfSymbol(parameter))) &&
+            unlistenHandle(checker.getReturnTypeOfSignature(signature), checker),
         ),
   );
 }
