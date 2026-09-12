@@ -19,16 +19,16 @@ export function ChatAssistantMessage({
       data-next={neighbors?.next}
     >
       <div className="chat-message-width">
-        <Island className="chat-message-island" level={1}>
+        <Island className="chat-message-island" level={1} unpadded>
           {item.state === "live" ? (
             <StreamingMarkdown value={item.value.Text} />
           ) : (
             <StaticMarkdown value={item.value.Text} />
           )}
+          {item.state === "committed" && (
+            <MessageFooter text={item.value.Text} committedAt={item.value.committed_at_unix_ms} />
+          )}
         </Island>
-        {item.state === "committed" && (
-          <MessageFooter text={item.value.Text} committedAt={item.value.committed_at_unix_ms} />
-        )}
       </div>
     </div>
   );

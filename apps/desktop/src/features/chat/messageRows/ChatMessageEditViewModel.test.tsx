@@ -3,12 +3,12 @@ import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { ChatOperationError, RpcError } from "@/api";
+import { ChatOperationError, RpcError, TransportError } from "@/api";
 import { appI18n } from "@/i18n";
 import { createTestServices } from "@/test-support/app-services";
 import { deferred, target } from "@/test-support/chat-runtime";
 import { row } from "@/test-support/transcript-window";
-import { settingsOperationFailureMessage } from "../chatSettingsPresentation";
+import { chatOperationFailureMessage } from "../chatSettingsPresentation";
 import { createChatMessageEditViewModel, useChatMessageEditActions } from "./ChatMessageEditViewModel";
 import type { ChatUserMessageItem } from "./ChatUserMessage";
 
@@ -102,40 +102,47 @@ it("admits one pending Edit even when activated twice in the same turn", async (
   expect(view.result.current.request.isSuccess).toBe(true);
 });
 
-it("reports failure without a child handoff and allows another explicit Edit", async () => {
-  const view = setup();
-  const failure = new ChatOperationError(
+it.each([
+  new ChatOperationError(
     new RpcError({
       code: -32603,
       message: "Store unavailable",
       method: "session.resolve_transition",
     }),
     { kind: "internal_failure", operation: "fork", cause: "Store unavailable" },
-  );
-  const input = { item: userItem(), draft: "unchanged parent", onSuccess: view.onSuccess };
-  await act(async () => {
-    view.result.current.activate(input);
-  });
-  await act(async () => {
-    view.response.reject(failure);
-    await view.response.promise.catch(() => undefined);
-  });
-  expect(view.result.current.request.error).toBe(failure);
-  expect(view.onSuccess).not.toHaveBeenCalled();
-  expect(view.push).toHaveBeenCalledWith(
-    expect.objectContaining({
-      tone: "danger",
-      body: settingsOperationFailureMessage(appI18n.t, failure),
-    }),
-  );
-  expect(input.draft).toBe("unchanged parent");
-  view.fork.mockResolvedValue("retried-child");
-  await act(async () => {
-    view.result.current.activate(input);
-  });
-  expect(view.fork).toHaveBeenCalledTimes(2);
-  expect(view.onSuccess).toHaveBeenCalledExactlyOnceWith({
-    sessionID: "retried-child",
-    draft: "**Original**\n\n\nunchanged parent",
-  });
-});
+  ),
+  new TransportError("Binary transport rejected the request."),
+])(
+  "reports recovery guidance and diagnostics without a child handoff and allows another Edit: %s",
+  async (failure) => {
+    const view = setup();
+    const input = { item: userItem(), draft: "unchanged parent", onSuccess: view.onSuccess };
+    await act(async () => {
+      view.result.current.activate(input);
+    });
+    await act(async () => {
+      view.response.reject(failure);
+      await view.response.promise.catch(() => undefined);
+    });
+    expect(view.result.current.request.error).toBe(failure);
+    expect(view.onSuccess).not.toHaveBeenCalled();
+    expect(view.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: "danger",
+        body: appI18n.t("chatTranscript.editFailureRecovery", {
+          diagnostic: chatOperationFailureMessage(appI18n.t, failure, "edit"),
+        }),
+      }),
+    );
+    expect(input.draft).toBe("unchanged parent");
+    view.fork.mockResolvedValue("retried-child");
+    await act(async () => {
+      view.result.current.activate(input);
+    });
+    expect(view.fork).toHaveBeenCalledTimes(2);
+    expect(view.onSuccess).toHaveBeenCalledExactlyOnceWith({
+      sessionID: "retried-child",
+      draft: "**Original**\n\n\nunchanged parent",
+    });
+  },
+);

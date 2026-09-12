@@ -68,7 +68,7 @@ export function CollapsibleMarkdownViewport({
           <div
             aria-hidden="true"
             className={cx(
-              "pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-[var(--markdown-collapse-fill,var(--color-island-1))] transition-opacity motion-reduce:transition-none",
+              "pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-[var(--color-island-1)] transition-opacity motion-reduce:transition-none",
               phase === "visible" ? "opacity-100" : "opacity-0",
             )}
             data-state={phase}

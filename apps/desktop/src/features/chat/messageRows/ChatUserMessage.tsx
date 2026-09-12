@@ -33,7 +33,7 @@ export function ChatUserMessage({
       data-next={neighbors?.next}
     >
       <div className="chat-message-width">
-        <Island className="chat-message-island" level={1}>
+        <Island className="chat-message-island" level={1} unpadded>
           <CollapsibleMarkdownViewport
             collapsedHeightClamp={{ minimumLines: 10, maximumLines: 10, viewportPercent: 100 }}
             expanded={expanded}
@@ -44,29 +44,29 @@ export function ChatUserMessage({
           >
             <StaticMarkdown value={item.value.Text} />
           </CollapsibleMarkdownViewport>
+          <MessageFooter
+            text={item.value.Text}
+            committedAt={item.value.committed_at_unix_ms}
+            edit={
+              item.value.RollbackTargetID == null ? null : (
+                <IconTooltipButton
+                  disabled={edit.serverMutationAvailability === "disconnected"}
+                  label={
+                    edit.serverMutationAvailability === "disconnected"
+                      ? t("common.readOnly")
+                      : t("chatTranscript.edit")
+                  }
+                  onClick={() => {
+                    if (edit.serverMutationAvailability === "available") edit.onEdit(item);
+                  }}
+                  size="icon-sm"
+                >
+                  <Pencil className="size-4" />
+                </IconTooltipButton>
+              )
+            }
+          />
         </Island>
-        <MessageFooter
-          text={item.value.Text}
-          committedAt={item.value.committed_at_unix_ms}
-          edit={
-            item.value.RollbackTargetID == null ? null : (
-              <IconTooltipButton
-                disabled={edit.serverMutationAvailability === "disconnected"}
-                label={
-                  edit.serverMutationAvailability === "disconnected"
-                    ? t("common.readOnly")
-                    : t("chatTranscript.edit")
-                }
-                onClick={() => {
-                  if (edit.serverMutationAvailability === "available") edit.onEdit(item);
-                }}
-                size="icon-sm"
-              >
-                <Pencil className="size-4" />
-              </IconTooltipButton>
-            )
-          }
-        />
       </div>
     </div>
   );

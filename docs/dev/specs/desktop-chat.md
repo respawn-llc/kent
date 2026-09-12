@@ -160,8 +160,8 @@
 - User messages, assistant commentary, and assistant final answers are the only durable transcript islands. Tools, Reasoning Traces, context, diagnostics, notices, and every other durable non-conversational item use borderless inline disclosure or tool-row presentation.
 - Thinking Status is the sole non-message exception that may imitate an assistant island. It remains transient and never becomes transcript history.
 - User messages exceeding approximately ten body-text lines of rendered height must begin collapsed to that approximate height with a fade and accessible Expand action. Expansion is one-way until the row leaves the viewport. Assistant messages stay expanded.
-- Each committed message has an always-visible footer aligned and width-matched with the message. Footer actions are icon-only controls with accessible names and explanatory hover or focus text. Eligible user messages offer Copy and Edit; assistant messages offer Copy. Copy uses the original Markdown source. Edit is the only fork action.
-- User message islands must use a subtle theme tint; assistant message islands must use a neutral fill. The footer must place its timestamp at the leading edge and its actions at the trailing edge.
+- Each committed message must contain an always-visible, width-matched footer inside its island, outside collapsed content. Footer actions are icon-only controls with accessible names and explanatory hover or focus text. Eligible user messages offer Copy and Edit; assistant messages offer Copy. Copy uses the original Markdown source. Edit is the only fork action.
+- User and assistant message islands must use neutral fills, compact padding, and no shadow. The footer must place its timestamp at the leading edge and its actions at the trailing edge.
 - Successful message Copy must crossfade its icon to a green checkmark for two seconds. Copy failure must use Sonner.
 - A committed user or assistant message with committed time shows the client machine's locale-formatted hour and minute in its footer.
 - Timestamp presentation uses the client machine's local time zone and 12-hour or 24-hour convention.
@@ -169,7 +169,7 @@
 - Desktop does not show relative age or refresh timestamp labels on a timer.
 - A committed message without committed time omits the timestamp without a placeholder or warning.
 - A live assistant message has no footer. The committed message receives Copy when it resolves.
-- Consecutive user or assistant messages use tighter spacing and a compact adjacent corner on their matching side. Messages remain separate islands.
+- Consecutive user or assistant messages must use tighter spacing and small, nearly squared inner joining corners on their matching side. Their outer corners must remain rounded. Messages remain separate islands.
 - Tools, diagnostics, context, and notices use flat transcript rows rather than message islands. Transcript content opens no duplicate detail surfaces; its full content is available through expansion.
 - Contextual destinations adapt between shifted and overlay presentation. Processes and Goal are the defined Chat destinations. Session settings use a non-modal popover from the composer Settings chip, not a contextual destination.
 

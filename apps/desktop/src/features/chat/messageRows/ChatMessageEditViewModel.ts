@@ -6,7 +6,7 @@ import type { TFunction } from "i18next";
 
 import type { ChatApi, ChatForkEditInput, ChatSessionTarget } from "@/api";
 import { queryAtom, type StatusController } from "@/app-facade";
-import { settingsOperationFailureMessage } from "../chatSettingsPresentation";
+import { chatOperationFailureMessage } from "../chatSettingsPresentation";
 import type { ChatUserMessageItem } from "./ChatUserMessage";
 
 export type ChatMessageEditHandoff = Readonly<{ sessionID: string; draft: string }>;
@@ -46,7 +46,9 @@ export function createChatMessageEditViewModel({
       push({
         id: "chat-message-edit-failed",
         title: t("chatTranscript.editFailed"),
-        body: settingsOperationFailureMessage(t, error),
+        body: t("chatTranscript.editFailureRecovery", {
+          diagnostic: chatOperationFailureMessage(t, error, "edit"),
+        }),
         tone: "danger",
       });
     },

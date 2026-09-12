@@ -68,12 +68,25 @@ export function settingsDisabledReason(
   }
 }
 
-export function settingsOperationFailureMessage(t: TFunction, error: unknown): string {
+const operationFailureLabels = {
+  settings: { internal: "chatSettings.errors.internalFailure", unknown: "chatSettings.errors.unknown" },
+  edit: { internal: "chatTranscript.editFailed", unknown: "chatTranscript.editUnknownFailure" },
+} as const;
+
+export function chatOperationFailureMessage(
+  t: TFunction,
+  error: unknown,
+  operation: keyof typeof operationFailureLabels,
+): string {
   if (!(error instanceof ChatOperationError)) return errorMessage(error);
-  return typedSettingsOperationFailureMessage(t, error.detail);
+  return typedChatOperationFailureMessage(t, error.detail, operationFailureLabels[operation]);
 }
 
-function typedSettingsOperationFailureMessage(t: TFunction, detail: ChatError): string {
+function typedChatOperationFailureMessage(
+  t: TFunction,
+  detail: ChatError,
+  labels: (typeof operationFailureLabels)[keyof typeof operationFailureLabels],
+): string {
   switch (detail.kind) {
     case "session_not_found":
       return t("chatSettings.errors.sessionNotFound");
@@ -88,9 +101,9 @@ function typedSettingsOperationFailureMessage(t: TFunction, detail: ChatError): 
     case "runtime_unavailable":
       return t("chatSettings.errors.runtimeUnavailable");
     case "internal_failure":
-      return internalFailureMessage(t, detail);
+      return internalFailureMessage(t, detail, t(labels.internal));
     case "unknown":
-      return t("chatSettings.errors.unknown", { code: detail.code });
+      return t(labels.unknown, { code: detail.code });
   }
 }
 
@@ -111,9 +124,10 @@ function agentPreparationFailureMessage(
 function internalFailureMessage(
   t: TFunction,
   detail: Extract<ChatError, { kind: "internal_failure" }>,
+  internalFailureLabel: string,
 ): string {
   return [
-    t("chatSettings.errors.internalFailure"),
+    internalFailureLabel,
     detail.operation === null ? null : t("chatSettings.errors.operation", { operation: detail.operation }),
     detail.cause === null ? null : t("chatSettings.errors.cause", { cause: detail.cause }),
   ]
