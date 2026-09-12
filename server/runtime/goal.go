@@ -178,7 +178,6 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 	noticeReceipt, noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
-		false,
 	)
 	result.NoticeReceipt = noticeReceipt
 	if !startLoop {
@@ -248,7 +247,6 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	noticeReceipt, noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
-		true,
 	)
 	result.NoticeReceipt = noticeReceipt
 	if !startLoop || status != session.GoalStatusActive {
@@ -329,7 +327,7 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 	if err != nil {
 		return result, err
 	}
-	noticeReceipt, _, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability), true)
+	noticeReceipt, _, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability))
 	result.NoticeReceipt = noticeReceipt
 	return result, noticeErr
 }
@@ -339,12 +337,11 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 func (e *Engine) enqueueGoalNotice(
 	message llm.Message,
 	update GoalStatusUpdate,
-	surfaceFailure bool,
 ) (session.CommitReceipt, bool, error) {
 	_, accepted := trySubmitEngineRuntimeOperation(e, func(context.Context) (struct{}, error) {
 		message = normalizeMessageForTranscript(message, e.transcriptWorkingDir())
 		_, err := e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
-		if err != nil && surfaceFailure {
+		if err != nil {
 			e.surfaceRunErrorRaw(err)
 		}
 		return struct{}{}, err
@@ -393,7 +390,7 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
 		reportErr(err)
 		return
 	}
-	if _, _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability), true); err != nil {
+	if _, _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability)); err != nil {
 		reportErr(err)
 	}
 }
