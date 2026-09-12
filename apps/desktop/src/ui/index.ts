@@ -65,6 +65,7 @@ export {
   homeListCardShellClassName,
 } from "./HomeListCard";
 export { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
+export { CollapsibleMarkdownViewport } from "./CollapsibleMarkdownViewport";
 export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";
 export { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 export type { SyntaxHighlightedCodeProps } from "./SyntaxHighlightedCode";

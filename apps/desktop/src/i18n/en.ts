@@ -105,6 +105,8 @@ export const englishResources = {
       copy: "Copy",
       copied: "Copied",
       copyFailed: "Could not copy transcript content.",
+      edit: "Edit in a new Session",
+      editFailed: "Could not create an edited Session.",
       reviewerSuggestions_one: "{{count}} suggestion",
       reviewerSuggestions_other: "{{count}} suggestions",
       notice: {

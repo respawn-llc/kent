@@ -159,8 +159,10 @@
 - Transcript content is at most 1200px wide. User and assistant messages are content-sized up to 1000px, with normal wrapping. User messages align right and assistant messages align left; there are no avatars or role labels.
 - User messages, assistant commentary, and assistant final answers are the only durable transcript islands. Tools, Reasoning Traces, context, diagnostics, notices, and every other durable non-conversational item use borderless inline disclosure or tool-row presentation.
 - Thinking Status is the sole non-message exception that may imitate an assistant island. It remains transient and never becomes transcript history.
-- User messages longer than 10 rendered lines begin collapsed to 10 lines with a fade and accessible Expand action. Expansion is one-way until the row leaves the viewport. Assistant messages stay expanded.
+- User messages exceeding approximately ten body-text lines of rendered height must begin collapsed to that approximate height with a fade and accessible Expand action. Expansion is one-way until the row leaves the viewport. Assistant messages stay expanded.
 - Each committed message has an always-visible footer aligned and width-matched with the message. Footer actions are icon-only controls with accessible names and explanatory hover or focus text. Eligible user messages offer Copy and Edit; assistant messages offer Copy. Copy uses the original Markdown source. Edit is the only fork action.
+- User message islands must use a subtle theme tint; assistant message islands must use a neutral fill. The footer must place its timestamp at the leading edge and its actions at the trailing edge.
+- Successful message Copy must crossfade its icon to a green checkmark for two seconds. Copy failure must use Sonner.
 - A committed user or assistant message with committed time shows the client machine's locale-formatted hour and minute in its footer.
 - Timestamp presentation uses the client machine's local time zone and 12-hour or 24-hour convention.
 - Hover, focus, and assistive technology expose the full locale-formatted local date and time, including seconds.
@@ -175,13 +177,14 @@
 
 - Desktop replaces the TUI rollback picker with the Edit action in an eligible committed user-message footer. It adds no global rollback picker, double-Escape shortcut, separate Fork action, or confirmation dialog.
 - A user message is eligible only when the server supplies its typed rollback target. Desktop never derives eligibility from role, text, position, or another row.
-- Edit follows the TUI admission boundary. It is unavailable while authoritative runtime input is blocked or while the ordinary composer draft is nonblank. The server enforces active-work admission; the client does not become the sole blocker.
+- Edit must remain available regardless of the parent's ordinary composer draft or runtime activity, including running, waiting for an answer, startup, shutdown, and draining. Creating the child must not stop or modify parent work.
 - Activating Edit immediately resolves the ordinary fork/rollback transition. It does not wait for the edited text to be submitted.
+- When Edit starts, Chat must capture the parent draft and replace the parent Chat content with the existing loading state until child creation succeeds or fails. The parent Chat must not accept interaction while this operation is pending.
 - The server creates one durable main child Session whose copied history ends immediately before the selected user message. The selected message and all later parent history are absent from the child, and the parent Session remains unchanged.
 - Copied history preserves each source event's committed time. Source history without committed time remains without it, and copied compaction replacement history retains its compaction time. Only messages newly committed in the child receive a new committed time.
 - The child inherits the TUI fork contract: execution context, locked contract, continuation context, worktree-reminder state, previous-Session lineage, and parent-agent ancestry. Goal inheritance follows the Rollback Picker contract.
 - The server names the child `<parent name or Session ID> → edit u<N>`. Desktop adds no naming field.
-- After creation, Chat navigates to the child Session at latest, places the selected original user-message text in its ordinary composer draft, and focuses the composer. Editing and submission then use the normal child-Session composer flow.
+- After creation, Chat must navigate through the navigation stack to the child Session at latest and focus its ordinary composer. The child draft must contain the selected original user-message text followed by one blank line and the parent's existing composer draft, preserving both texts verbatim. When the parent draft is empty, Chat must omit the separator. The parent draft must remain unchanged. Editing and submission then use the normal child-Session composer flow.
 - Fork failure leaves the operator in the unchanged parent Session and surfaces the authoritative diagnostic through Sonner. Desktop creates no optimistic child route or local fork state.
 - `To parent chat` follows the child's previous-Session lineage and opens the parent at latest. Parent-agent lineage remains omitted from ordinary Chat.
 
