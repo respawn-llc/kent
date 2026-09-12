@@ -31,7 +31,7 @@
 - Live streaming, ordinary committed emission, startup hydration, and Scratch Rehydration emit every user turn, assistant commentary turn, and assistant final turn from its complete source Markdown. These paths never substitute condensed text, a compact label, a line-limited preview, or an ellipsis for that source.
 - Assistant finalization matches the committed entry to its Streaming Message identity and compares only with the active stream source. If committed text extends the streamed source, Ongoing Mode emits only the missing suffix. Any other mismatch without a real connection gap is a developer error.
 - **Pending tool activity lives only in the Mutable Band. It shows a loading spinner until Kent commits the completed tool row to Scrollback.**
-- Messages in TUI use icon-like, single-symbol glyphs: `@` for web search, `§` for Reviewer feedback, `⇄` for file edits (edit/patch tools), `$` for shell tool calls including failed shell exits, `⚠` for warnings, `!` for Reviewer errors, other error notices, and default tool errors, `ℹ` for ongoing-visible neutral notices (such as goal and worktree messages), and `?` for questions.
+- Messages in TUI use icon-like, single-symbol glyphs: `@` for web search, `§` for Reviewer feedback, `⇄` for file edits (edit/patch tools), `$` for shell tool calls including failed shell exits, `⚠` for warnings, `!` for Reviewer errors, other error notices, and default tool errors, `⚙` for Thinking updates, Headless Mode entry/exit, Workflow Mode entry/exit, Worktree Mode entry/exit, and Session rebind notices, `ℹ` for other neutral notices, and `?` for questions.
 - The first immutable row of every user turn uses `❯`; the first immutable row of every final assistant response uses `❮`, including responses entering scrollback through source-backed streaming promotion. Later logical lines begin at column one with no role-prefix padding; terminal soft wraps reflow naturally. Width-formatted constructs may reserve the first-line prefix width in their layout budget without adding leading padding.
 - **Pending tool-call previews in live region use the same rendering/layout as committed tool-call previews, with no pending-only labels.**
 - A pending Question's live row shows only the Question text. It does not show a tool name or prompt kind.
@@ -132,7 +132,7 @@
 - `worktree_mode_exit`: `O`
 - `goal`: `O`
 - `active_goal_continuation`: `D`
-- Thinking-level feedback from `/thinking` is not rendered as a transcript row in ongoing or detail. The TUI surfaces thinking level through the status-line model label/reasoning segment instead of neutral transcript notices.
+- Immediate Thinking-level feedback from `/thinking` uses the status-line model label/reasoning segment. Committed Thinking updates, as defined in Model Requests And Cache Continuity, must use detail-only, non-expandable transcript rows with the label `Thinking set: <level>` and the `⚙` symbol.
 - Locked non-message roles:
 - user turns: `O`
 - assistant commentary turns: `O`
@@ -182,7 +182,7 @@
 - Kent does not invent a semantic color for an unspecified symbol.
 - Tool previews are input-first. Shell previews show the typed command from tool metadata. Patch/edit previews show structured patch paths and diff add/remove counts or lines. Other tool previews show typed compact/input metadata. Tool result summaries and error summaries do not replace the input preview.
 - Successful patch rows must not show a result suffix.
-- Failed patch rows may show failure status.
+- Failed patch rows may show failure status. In Ongoing Mode, the file path and changed-line counts must take priority over the failure status, which must use only the remaining width. Long paths must be ellipsized from the start to preserve the filename and leave room for changed-line counts. When no room remains for failure status, its separator must also be omitted. Content-mismatch status must read "Mismatch between file and model-supplied content" without a path; the detailed model-facing error must remain unchanged.
 - A `web_search` preview in ongoing and collapsed Detail reads `Searched the web for "<query>"`, using its typed query. Its compact preview does not append result metadata. Expanded Detail shows the raw query and any committed output.
 - A `view_image` preview in ongoing and detail reads `Viewed image at <path>`, using its typed image path. The image path belongs only to typed image metadata until the client renders that preview.
 - A successful answered question in ongoing renders the full Markdown question followed by the selected option's full text and optional custom commentary from its typed condensed answer. The question uses the user text role; response text uses faint primary, and `│`/`└` continuation guides remain faint structural chrome. Unselected suggestions and numeric option summaries are omitted. Collapsed detail remains question-only.

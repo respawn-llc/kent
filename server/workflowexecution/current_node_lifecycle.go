@@ -590,7 +590,8 @@ func (c *CurrentNodeController) ApplyPendingApproval(
 	if err != nil {
 		return workflowstore.PendingApprovalApplyResult{}, err
 	}
-	return runCurrentNodeTaskMutation(ctx, c, initial.Source.TaskID, func(ctx context.Context) (workflowstore.PendingApprovalApplyResult, error) {
+	var starts []currentNodeQueuedStart
+	applied, err := runCurrentNodeTaskMutation(ctx, c, initial.Source.TaskID, func(ctx context.Context) (workflowstore.PendingApprovalApplyResult, error) {
 		approval, err := c.store.PendingApproval(ctx, approvalID)
 		if err != nil {
 			return workflowstore.PendingApprovalApplyResult{}, err
@@ -613,23 +614,31 @@ func (c *CurrentNodeController) ApplyPendingApproval(
 			}
 			return applied, starts, nil
 		}
-		applied, starts, err := apply()
+		applied, preparedStarts, err := apply()
 		if err != nil {
 			return workflowstore.PendingApprovalApplyResult{}, err
 		}
-		starts, err = c.steerAndWaitStarts(ctx, starts, recoverCommittedCurrentNodeStarts)
-		if err != nil {
-			return workflowstore.PendingApprovalApplyResult{}, err
-		}
+		starts = preparedStarts
+		return applied, nil
+	})
+	if err != nil {
+		return applied, err
+	}
+	starts, err = c.steerAndWaitStarts(ctx, starts, recoverCommittedCurrentNodeStarts)
+	if err != nil {
+		return applied, err
+	}
+	err = c.runTaskMutation(ctx, initial.Source.TaskID, func(context.Context) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, start := range starts {
 			if err := c.queueExplicitStartLocked(start); err != nil {
-				return workflowstore.PendingApprovalApplyResult{}, err
+				return err
 			}
 		}
-		return applied, nil
+		return nil
 	})
+	return applied, err
 }
 
 func (c *CurrentNodeController) ApplyManualMove(
@@ -641,7 +650,9 @@ func (c *CurrentNodeController) ApplyManualMove(
 		return workflowstore.ManualMoveResult{}, errors.New("current node workflow controller is required")
 	}
 	taskID := prepared.TaskID()
-	return runCurrentNodeTaskMutation(ctx, c, taskID, func(ctx context.Context) (workflowstore.ManualMoveResult, error) {
+	var starts []currentNodeQueuedStart
+	var assignmentDiagnostic error
+	moved, err := runCurrentNodeTaskMutation(ctx, c, taskID, func(ctx context.Context) (workflowstore.ManualMoveResult, error) {
 		if err := c.EnsureTaskQuiescent(taskID); err != nil {
 			return workflowstore.ManualMoveResult{}, err
 		}
@@ -661,9 +672,9 @@ func (c *CurrentNodeController) ApplyManualMove(
 			return workflowstore.ManualMoveResult{}, errors.New("manual move assignment store is required")
 		}
 		var (
-			assignmentSteers     map[workflow.CurrentNodeReferenceKey]CurrentNodeAssignmentSteer
-			assignmentDiagnostic error
+			assignmentSteers map[workflow.CurrentNodeReferenceKey]CurrentNodeAssignmentSteer
 		)
+		targetKinds := make(map[workflow.CurrentNodeReferenceKey]workflow.NodeKind)
 		moved, err := manualMoveStore.ApplyManualMoveWithTargetAssignments(
 			ctx,
 			prepared,
@@ -675,6 +686,13 @@ func (c *CurrentNodeController) ApplyManualMove(
 				preparation, steers, err := assignmentPreparer.PrepareManualMoveAssignments(ctx, contexts)
 				assignmentSteers = steers
 				assignmentDiagnostic = preparation.Diagnostic
+				for _, input := range contexts {
+					key, keyErr := input.CurrentNode.Reference.Key()
+					if keyErr != nil {
+						return preparation, errors.Join(err, keyErr)
+					}
+					targetKinds[key] = input.Node.Kind
+				}
 				return preparation, err
 			},
 		)
@@ -684,28 +702,51 @@ func (c *CurrentNodeController) ApplyManualMove(
 		if moved.Outcome == workflowstore.ManualMoveResultOutcomeNoOp {
 			return moved, nil
 		}
-		starts, err := currentNodeExplicitStarts(moved.Mutation.Created)
-		if err != nil {
-			return moved, err
+		var errStarts error
+		starts, errStarts = currentNodeExplicitStarts(moved.Mutation.Created)
+		if errStarts != nil {
+			return moved, errStarts
 		}
 		for index := range starts {
 			key, err := starts[index].reference.Key()
 			if err != nil {
 				return moved, err
 			}
+			kind, present := targetKinds[key]
+			if !present {
+				return moved, errors.New("Manual Move start has no prepared target kind")
+			}
+			starts[index].nodeKind = kind
 			if steer := assignmentSteers[key]; steer != nil {
 				starts[index].assignmentSteer = steer
 			}
 		}
+		return moved, nil
+	})
+	if err != nil || moved.Outcome == workflowstore.ManualMoveResultOutcomeNoOp {
+		return moved, err
+	}
+	for index := range starts {
+		if starts[index].assignmentSteer != nil || starts[index].nodeKind == workflow.NodeKindScript {
+			continue
+		}
+		assignment, err := c.steerAssignment(ctx, starts[index].reference)
+		if err != nil {
+			return moved, errors.Join(assignmentDiagnostic, err, c.recoverCurrentNodeStartFailures(ctx, starts[index:], false, err))
+		}
+		starts[index].assignmentSteer = assignment
+	}
+	err = c.runTaskMutation(ctx, taskID, func(context.Context) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, start := range starts {
 			if err := c.queueExplicitStartLocked(start); err != nil {
-				return moved, err
+				return err
 			}
 		}
-		return moved, assignmentDiagnostic
+		return nil
 	})
+	return moved, errors.Join(assignmentDiagnostic, err)
 }
 
 // EnsureTaskQuiescent rejects Task-wide state replacement while the

@@ -15,6 +15,7 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/tools"
+	"core/shared/modelcontract"
 )
 
 func TestCommittedLocalEntrySteeringSerializesPersistProjectEmitOrder(t *testing.T) {
@@ -105,7 +106,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 
 	cacheDone := make(chan error, 1)
 	go func() {
-		cacheDone <- eng.observePromptCacheResponse(stepID, preparedCacheRequestObservation{
+		cacheDone <- eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 			request: persistedCacheRequestObserved{
 				DigestVersion: requestCacheDigestVersion,
 				CacheKey:      "session-1/cache-key",
@@ -118,7 +119,7 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 				Reason: transcript.CacheWarningReasonNonPostfix,
 			},
 			previousCachedInputTokens: 10,
-		}, llm.Usage{CachedInputTokens: textutil.Value(0)})
+		}, modelcontract.ProviderUsageEvidence{}, llm.Usage{CachedInputTokens: textutil.Value(0)})
 	}()
 	select {
 	case <-cachePersistEntered:
@@ -155,8 +156,15 @@ func TestCacheWarningObservationSerializesPersistProjectEmitOrder(t *testing.T) 
 	if len(persisted) < 3 {
 		t.Fatalf("persisted event count = %d, want at least 3 events=%+v", len(persisted), persisted)
 	}
-	if persisted[0].Kind != sessionEventCacheWarning || persisted[1].Kind != sessionEventCacheResponseObserved || persisted[2].Kind != "local_entry" {
-		t.Fatalf("persisted event order = %s, %s, %s; want cache_warning, cache_response_observed, local_entry", persisted[0].Kind, persisted[1].Kind, persisted[2].Kind)
+	persistedKinds := make([]string, 0, len(persisted))
+	for _, event := range persisted {
+		persistedKinds = append(persistedKinds, event.Kind)
+	}
+	if len(persistedKinds) < 3 ||
+		persistedKinds[0] != sessionEventCacheWarning ||
+		persistedKinds[1] != sessionEventCacheResponseObserved ||
+		persistedKinds[2] != "local_entry" {
+		t.Fatalf("persisted event order = %v; want cache_warning, cache_response_observed, local_entry", persistedKinds)
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -180,7 +188,7 @@ func TestAssistantMessageAfterCacheWarningDoesNotOwnCacheWarningRange(t *testing
 	restoreStep := setTestActiveStep(eng, stepID)
 	defer restoreStep()
 
-	if err := eng.observePromptCacheResponse(stepID, preparedCacheRequestObservation{
+	if err := eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "session-1/cache-key",
@@ -193,7 +201,7 @@ func TestAssistantMessageAfterCacheWarningDoesNotOwnCacheWarningRange(t *testing
 			Reason: transcript.CacheWarningReasonNonPostfix,
 		},
 		previousCachedInputTokens: 10,
-	}, llm.Usage{CachedInputTokens: textutil.Value(0)}); err != nil {
+	}, modelcontract.ProviderUsageEvidence{}, llm.Usage{CachedInputTokens: textutil.Value(0)}); err != nil {
 		t.Fatalf("observe cache warning: %v", err)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/server/llm"
+	"core/shared/modelcontract"
 	"core/shared/rpcwire"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -131,7 +132,12 @@ func (e *Engine) compactWithContextRepairRetry(
 }
 
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *observedModelClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
-	observed, err := e.prepareCacheObservedRequest(stepID, request, cacheResponseObservationExactStep)
+	observed, err := e.prepareCacheObservedRequest(
+		stepID,
+		request,
+		modelcontract.ProviderOperationPurposeCompaction,
+		cacheResponseObservationExactStep,
+	)
 	if err != nil {
 		return llm.CompactionResponse{}, err
 	}
@@ -168,11 +174,24 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 }
 
 func (e *Engine) compactionRequest(ctx context.Context, input []llm.ResponseItem, instructions string) (llm.CompactionRequest, error) {
-	return e.compactionRequestFromItems(ctx, compactionConversationWithPromptItems(input, instructions))
+	request, err := e.compactionRequestFromItems(ctx, input)
+	if err != nil {
+		return llm.CompactionRequest{}, err
+	}
+	request.Items = compactionConversationWithPromptItems(request.Items, instructions)
+	return request, nil
 }
 
 func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.ResponseItem) (llm.CompactionRequest, error) {
 	locked, err := e.ensureLocked()
+	if err != nil {
+		return llm.CompactionRequest{}, err
+	}
+	caps, err := e.providerCapabilities(ctx)
+	if err != nil {
+		return llm.CompactionRequest{}, err
+	}
+	thinking, err := prepareNativeThinkingBaseline(e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
 	if err != nil {
 		return llm.CompactionRequest{}, err
 	}
@@ -199,7 +218,7 @@ func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.Res
 	if err != nil {
 		return llm.CompactionRequest{}, err
 	}
-	req.ReasoningEffort = e.ThinkingLevel()
+	req.ReasoningEffort = thinking.effort
 	req.FastMode = e.FastModeEnabled()
 	if e.supportsPromptCacheKey(ctx) {
 		req.PromptCacheKey = e.conversationPromptCacheKey(e.SessionID())
@@ -317,7 +336,15 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 			return "", toolCallRejectionCount, err
 		}
 
-		resp, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, nil, nil, nil)
+		resp, err := e.generateWithRetryClient(
+			ctx,
+			stepID,
+			e.llm,
+			req,
+			nil,
+			nil,
+			nil,
+		)
 		if err != nil {
 			return "", toolCallRejectionCount, err
 		}

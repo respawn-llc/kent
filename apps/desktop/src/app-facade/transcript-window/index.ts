@@ -1,6 +1,7 @@
 export { TranscriptWindow } from "./transcriptWindow";
 export type { TranscriptCommittedItem, TranscriptRenderItem, TranscriptRenderSlots } from "./renderSlots";
 export type {
+  ThinkingStatusPresentation,
   TranscriptBoundary,
   TranscriptDirection,
   TranscriptLiveFact,

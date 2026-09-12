@@ -149,6 +149,7 @@
   --radius-x: 18px;
   --radius-xl: 24px;
   --motion-fast: 140ms ease;
+  --motion-shimmer-duration: 1000ms;
   --motion-normal: 400ms ease;
   --motion-expressive: 700ms ease;
   --motion-morph: 350ms ease-in-out;
@@ -288,6 +289,7 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms ease;
+    --motion-shimmer-duration: 0ms;
     --motion-normal: 0ms ease;
     --motion-expressive: 0ms ease;
     --motion-morph: 0ms ease-in-out;

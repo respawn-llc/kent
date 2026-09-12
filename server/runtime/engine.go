@@ -17,6 +17,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/jsoncontract"
+	"core/shared/modelcontract"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -77,7 +78,7 @@ type Config struct {
 	MaxTokens                       int
 	ThinkingLevel                   string
 	SupportedThinkingValues         []string
-	ModelCapabilities               session.LockedModelCapabilities
+	ModelCapabilities               *session.LockedModelCapabilities
 	FastModeEnabled                 bool
 	WebSearchMode                   string
 	PromptFacingSnapshotReloader    PromptFacingSnapshotReloader
@@ -248,6 +249,7 @@ func New(
 		cfg.AutoCompactionEnabled = &enabled
 	}
 	cfg.SupportedThinkingValues = slices.Clone(cfg.SupportedThinkingValues)
+	cfg.ModelCapabilities = textutil.Pointer(cfg.ModelCapabilities)
 	var workflowPromptContract *workflowruntime.CompletionContract
 	if cfg.WorkflowPrompt != nil {
 		prepared, err := newWorkflowPromptCompletionContract(cfg.WorkflowPrompt)
@@ -255,9 +257,6 @@ func New(
 			return nil, fmt.Errorf("prepare runtime workflow prompt completion contract: %w", err)
 		}
 		workflowPromptContract = &prepared
-	}
-	if !cfg.ModelCapabilities.SupportsReasoningEffort && !cfg.ModelCapabilities.SupportsVisionInputs {
-		cfg.ModelCapabilities = llm.LockedModelCapabilitiesForModel(cfg.Model)
 	}
 	reviewerSuggestionsContract, err := prepareReviewerSuggestionsContract(
 		jsoncontract.NewPreparer(cfg.Debug),
@@ -295,7 +294,19 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("resolve provider capabilities during runtime construction: %w", err)
 	}
+	modelContract, knownModel := llm.LookupModelCapabilityContract(eng.cfg.Model)
+	if knownModel && modelContract.SupportsNativeThinkingUpdates && (cfg.ProviderCapabilitiesOverride != nil || store.Meta().Locked != nil) {
+		resolved, err := eng.llm.capabilities(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("resolve native provider capabilities: %w", err)
+		}
+		providerCapabilities.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
+	}
 	eng.cfg.ProviderCapabilitiesOverride = &providerCapabilities
+	if eng.cfg.ModelCapabilities == nil {
+		capabilities := llm.LockedModelCapabilitiesForModel(cfg.Model, providerCapabilities)
+		eng.cfg.ModelCapabilities = &capabilities
+	}
 	policySettings := config.Settings{
 		ModelContextWindow:               eng.cfg.ContextWindowTokens,
 		ContextCompactionThresholdTokens: eng.cfg.AutoCompactTokenLimit,
@@ -784,17 +795,18 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		if _, err := e.QueueAgentSteer(stepCtx, steer, nil); err != nil {
+		message := steer.Message()
+		if message.Content == nil {
+			return errInvalidQueuedUserMessage
+		}
+		item, err := e.queueMessage(stepCtx, message, *message.Content, true, false, nil)
+		if err != nil {
 			return err
 		}
-		if _, err := e.flushPendingUserInjections(stepID, steerUserInjections()); err != nil {
-			return err
+		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, ownedInputFlushObserver(item.ID, onFlushed), steerUserInjections(map[string]struct{}{item.ID: {}}))
+		if result.FinalAnswer != nil {
+			assistant = *result.FinalAnswer
 		}
-		if onFlushed != nil {
-			onFlushed()
-		}
-		msg, runErr := e.runStepLoop(stepCtx, stepID)
-		assistant = msg
 		return runErr
 	})
 	e.surfaceRunError(err)
@@ -825,16 +837,11 @@ func (e *Engine) submitUserMessageWithOutcome(ctx context.Context, text string, 
 		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		if _, err := e.Steer(stepCtx, text, accept); err != nil {
+		item, err := e.queueUserInput(stepCtx, plainQueuedUserInput(text), true, false, accept)
+		if err != nil {
 			return err
 		}
-		if _, err := e.flushPendingUserInjections(stepID, steerUserInjections()); err != nil {
-			return err
-		}
-		if onFlushed != nil {
-			onFlushed()
-		}
-		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, nil)
+		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, ownedInputFlushObserver(item.ID, onFlushed), steerUserInjections(map[string]struct{}{item.ID: {}}))
 		outcome = userTurnResultFromStepLoop(result)
 		return runErr
 	})
@@ -949,18 +956,18 @@ func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, e
 	return e.runStepLoopWithPendingUserInjectionObserver(ctx, stepID, nil)
 }
 
-func (e *Engine) runStepLoopWithPendingUserInjectionObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(session.CommitReceipt)) (llm.Message, error) {
-	result, err := e.runStepLoopWithPendingUserInjectionOutcomeObserver(ctx, stepID, onQueuedUserFlushCommitted)
+func (e *Engine) runStepLoopWithPendingUserInjectionObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(userInjectionCommitResult), selection ...userInjectionSelection) (llm.Message, error) {
+	result, err := e.runStepLoopWithPendingUserInjectionOutcomeObserver(ctx, stepID, onQueuedUserFlushCommitted, selection...)
 	if result.FinalAnswer == nil {
 		return llm.Message{}, err
 	}
 	return *result.FinalAnswer, err
 }
 
-func (e *Engine) runStepLoopWithPendingUserInjectionOutcomeObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(session.CommitReceipt)) (stepLoopResult, error) {
+func (e *Engine) runStepLoopWithPendingUserInjectionOutcomeObserver(ctx context.Context, stepID string, onQueuedUserFlushCommitted func(userInjectionCommitResult), selection ...userInjectionSelection) (stepLoopResult, error) {
 	reviewerFrequency := e.ReviewerFrequency()
 	reviewerClient := e.reviewerRuntimeState().Client()
-	result, err := e.runStepLoopWithQueuedUserFlushObserver(ctx, stepID, reviewerFrequency, reviewerClient, true, onQueuedUserFlushCommitted)
+	result, err := e.runStepLoopWithQueuedUserFlushObserver(ctx, stepID, reviewerFrequency, reviewerClient, true, onQueuedUserFlushCommitted, selection...)
 	outcome := userTurnResultFromStepLoop(result)
 	if outcome.Kind == UserTurnResultAssistantFinal && outcome.FinalAnswer != nil {
 		e.recordLiveRunAssistantFinalAnswer(stepID, *outcome.FinalAnswer)
@@ -977,14 +984,27 @@ func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, revi
 	return e.runStepLoopWithQueuedUserFlushObserver(ctx, stepID, reviewerFrequency, reviewerClient, refreshReviewerConfigOnResolve, nil)
 }
 
-func (e *Engine) runStepLoopWithQueuedUserFlushObserver(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient *observedModelClient, refreshReviewerConfigOnResolve bool, onQueuedUserFlushCommitted func(session.CommitReceipt)) (stepLoopResult, error) {
+func (e *Engine) runStepLoopWithQueuedUserFlushObserver(ctx context.Context, stepID string, reviewerFrequency string, reviewerClient *observedModelClient, refreshReviewerConfigOnResolve bool, onQueuedUserFlushCommitted func(userInjectionCommitResult), selection ...userInjectionSelection) (stepLoopResult, error) {
 	e.ensureOrchestrationCollaborators()
+	inputSelection := steerUserInjections()
+	if len(selection) > 0 {
+		inputSelection = selection[0]
+	}
 	return e.stepFlow.RunStepLoopWithOptions(ctx, stepID, stepLoopOptions{
 		ReviewerFrequency:              reviewerFrequency,
 		ReviewerClient:                 reviewerClient,
 		RefreshReviewerConfigOnResolve: refreshReviewerConfigOnResolve,
 		OnQueuedUserFlushCommitted:     onQueuedUserFlushCommitted,
+		UserInputSelection:             inputSelection,
 	})
+}
+
+func ownedInputFlushObserver(id string, onFlushed func()) func(userInjectionCommitResult) {
+	return func(result userInjectionCommitResult) {
+		if _, committed := result.queueItemIDs[id]; committed && onFlushed != nil {
+			onFlushed()
+		}
+	}
 }
 
 func (e *Engine) ensureLocked() (session.LockedContract, error) {
@@ -1009,11 +1029,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		MaxOutputToken:    e.cfg.MaxTokens,
 		EnabledTools:      toolspec.IDStrings(e.cfg.EnabledTools),
 		WebSearchMode:     strings.TrimSpace(e.cfg.WebSearchMode),
-		ModelCapabilities: e.cfg.ModelCapabilities,
-		ToolPreambles: func() *bool {
-			enabled := !e.cfg.HeadlessMode && e.cfg.ToolPreambles
-			return &enabled
-		}(),
+		ModelCapabilities: *e.cfg.ModelCapabilities,
 	}
 	if prompt, configured := e.workflowPrompt(); configured {
 		mode, err := workflowruntime.ParseCompletionMode(string(prompt.CompletionMode))
@@ -1025,12 +1041,11 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	if hasProviderContract {
 		lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
 	}
-	systemPrompt, err := e.buildSystemPromptSnapshotForRoot(lock, e.systemPromptWorkspaceRootLocked())
+	mainPrompt, err := e.prepareMainPromptSnapshot(context.Background(), lock, e.systemPromptWorkspaceRootLocked())
 	if err != nil {
 		return session.LockedContract{}, err
 	}
-	lock.SystemPrompt = systemPrompt
-	lock.HasSystemPrompt = true
+	lock = lock.WithMainPromptSnapshot(mainPrompt)
 	if err := e.store.MarkModelDispatchLocked(lock); err != nil {
 		return session.LockedContract{}, err
 	}
@@ -1093,7 +1108,12 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 }
 
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
-	observed, err := e.prepareCacheObservedRequest(stepID, req, cacheResponseObservationExactStep)
+	observed, err := e.prepareCacheObservedRequest(
+		stepID,
+		req,
+		modelcontract.ProviderOperationPurposeGeneration,
+		cacheResponseObservationExactStep,
+	)
 	if err != nil {
 		return llm.Response{}, err
 	}

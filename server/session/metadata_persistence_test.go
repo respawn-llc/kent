@@ -351,7 +351,7 @@ func TestForkAtUserMessagePreservesPersistenceObserver(t *testing.T) {
 	}
 	observer.called = false
 
-	forked, _, err := ForkAtUserMessage(parentLog, userEvt.Seq(), "Parent -> edit u1", testSessionCategory)
+	forked, _, err := ForkAtUserMessage(parentLog, userEvt.Seq(), "Parent -> edit u1", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("fork at user message: %v", err)
 	}
@@ -597,6 +597,9 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5"}); err != nil {
+		t.Fatal(err)
+	}
 
 	observer.Arm()
 	type mutationOutcome struct {
@@ -605,10 +608,9 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	}
 	firstDone := make(chan mutationOutcome, 1)
 	go func() {
-		role := "reviewer"
-		result, err := store.SetContinuationContextAndMarkLockedPromptFacingContractStale(
-			ContinuationContext{AgentRole: &role},
-		)
+		result, err := store.RefreshLockedReviewerPromptSnapshot(LockedReviewerPromptSnapshot{
+			ReviewerPrompt: "reviewer", HasReviewerPrompt: true,
+		})
 		firstDone <- mutationOutcome{result: result, err: err}
 	}()
 	select {
@@ -633,8 +635,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if store.Meta().Name != "later mutation" {
 		t.Fatalf("session name = %q, want later mutation", store.Meta().Name)
 	}
-	if continuation := store.Meta().Continuation; continuation == nil || continuation.AgentRole == nil || *continuation.AgentRole != "reviewer" {
-		t.Fatalf("committed continuation mutation = %+v, want reviewer", continuation)
+	if locked := store.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
+		t.Fatalf("committed reviewer snapshot = %+v, want present", locked)
 	}
 
 	reopened, err := OpenByID(root, store.Meta().SessionID, sessionTestPersistence.options()...)
@@ -644,7 +646,7 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if reopened.Meta().Name != "later mutation" {
 		t.Fatalf("reopened name = %q, want later mutation", reopened.Meta().Name)
 	}
-	if continuation := reopened.Meta().Continuation; continuation == nil || continuation.AgentRole == nil || *continuation.AgentRole != "reviewer" {
-		t.Fatalf("reopened continuation = %+v, want reviewer", continuation)
+	if locked := reopened.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
+		t.Fatalf("reopened reviewer snapshot = %+v, want present", locked)
 	}
 }

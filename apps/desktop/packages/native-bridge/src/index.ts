@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import {
@@ -121,6 +122,7 @@ export type NativeBridge = Readonly<{
     isFocused(): Promise<boolean>;
     focusMain(): Promise<void>;
     onFocusChanged(handler: (focused: boolean) => void): Promise<NativeUnlisten>;
+    onFileDrop(handler: (paths: readonly string[]) => void): Promise<NativeUnlisten>;
     fitCurrentToContent(size: NativeDialogContentSize): Promise<void>;
     setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void>;
   }>;
@@ -280,6 +282,9 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       isFocused: browserWindowFocus.isFocused,
       focusMain: browserWindowFocus.focusMain,
       onFocusChanged: browserWindowFocus.onFocusChanged,
+      async onFileDrop(): Promise<NativeUnlisten> {
+        return () => undefined;
+      },
       async fitCurrentToContent(): Promise<void> {
         return Promise.resolve();
       },
@@ -384,6 +389,14 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       isFocused: tauriWindowFocus.isFocused,
       focusMain: tauriWindowFocus.focusMain,
       onFocusChanged: tauriWindowFocus.onFocusChanged,
+      async onFileDrop(handler): Promise<NativeUnlisten> {
+        if (platform === "windows") return () => undefined;
+        return getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload.type === "drop") {
+            handler(event.payload.paths);
+          }
+        });
+      },
       async fitCurrentToContent(size: NativeDialogContentSize): Promise<void> {
         await fitCurrentWindowToContent(size);
       },

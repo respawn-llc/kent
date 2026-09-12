@@ -61,16 +61,11 @@ function reasoning(value: Reasoning): TranscriptProvisionalItem {
   return { kind: "reasoning_trace", state: "live", key: reasoningKey(value.StepID, value.Identity), value };
 }
 
-function thinking(value: NonNullable<Hydration["ActiveThinkingStatus"]>): TranscriptProvisionalItem {
-  return { kind: "thinking_status", key: JSON.stringify(["thinking", value.StepID]), value };
-}
-
 export function hydratedLive(hydration: Hydration): readonly TranscriptProvisionalItem[] {
   const items = [
     ...hydration.ActiveReasoningTraces.map(reasoning),
     ...(hydration.ActiveAssistant === null ? [] : [assistant(hydration.ActiveAssistant)]),
     ...hydration.InFlightTools.map(tool),
-    ...(hydration.ActiveThinkingStatus === null ? [] : [thinking(hydration.ActiveThinkingStatus)]),
   ];
   if (new Set(items.map((item) => item.key)).size !== items.length) {
     throw new ContractError("Hydration contains duplicate live correlations.");
@@ -80,7 +75,7 @@ export function hydratedLive(hydration: Hydration): readonly TranscriptProvision
 
 export function reduceLive(
   items: readonly TranscriptProvisionalItem[],
-  fact: TranscriptLiveFact,
+  fact: Exclude<TranscriptLiveFact, { kind: "thinking_status_update" }>,
 ): readonly TranscriptProvisionalItem[] {
   let next: TranscriptProvisionalItem;
   switch (fact.kind) {
@@ -92,9 +87,6 @@ export function reduceLive(
       break;
     case "reasoning_trace_update":
       next = reasoning(fact.payload);
-      break;
-    case "thinking_status_update":
-      next = thinking(fact.payload);
       break;
     case "assistant_stream_abort":
       return items.filter((item) => item.key !== assistantKey(fact.payload.StreamID));

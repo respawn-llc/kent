@@ -9,6 +9,7 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -186,7 +187,7 @@ func TestPromptCacheResponseAppliesLineageByCommitReceipt(t *testing.T) {
 
 	stepID := runtimeTestStepID("step-1")
 	err := runTestActiveStep(eng, stepID, func() error {
-		return eng.observePromptCacheResponse(stepID, prepared, llm.Usage{
+		return eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, prepared, modelcontract.ProviderUsageEvidence{}, llm.Usage{
 			CachedInputTokens: textutil.Value(7),
 		})
 	})
@@ -602,9 +603,6 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
 	eng := mustNewTestEngine(t, store, engineClient, newTestToolRegistry(t), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err := store.ResetLockedContractForCompactionBoundary(); err != nil {
-		t.Fatalf("seed persisted contract generation: %v", err)
-	}
 	send := func(req llm.Request) capturedRequest {
 		t.Helper()
 		before := len(capturedRequests)

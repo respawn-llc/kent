@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
+import type { WorktreeBrowserActions } from "./worktreeBrowser";
 
 export type SidebarMode = "overlay" | "shift";
 export type SidebarPhase = "closing" | "open";
@@ -50,6 +51,12 @@ export type LinkWorkflowCompletion =
   Readonly<{ kind: "created"; workflowID: string }> | Readonly<{ kind: "linked"; workflowID: string }>;
 
 export type SidebarDestination =
+  | Readonly<{
+      kind: "worktree";
+      mode?: SidebarMode;
+      sessionID: string;
+      onAction: WorktreeBrowserActions;
+    }>
   | (Readonly<{
       kind: "newTask";
       mode?: SidebarMode;

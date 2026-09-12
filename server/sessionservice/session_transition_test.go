@@ -89,7 +89,8 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	appendSessionMessage(t, store, "s2", session.MessageRoleAssistant, "a2")
 
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
-		Store: store,
+		Store:        store,
+		ForkThinking: session.ForkThinking{Desired: "medium"},
 		Transition: sessionTransition{
 			Action:             sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialPrompt:      "edited user message",
@@ -130,7 +131,8 @@ func TestResolveForkRollbackPreservesIntentionalEmptyDraftOverride(t *testing.T)
 	appendSessionMessage(t, store, "s2", session.MessageRoleAssistant, "a2")
 
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
-		Store: store,
+		Store:        store,
+		ForkThinking: session.ForkThinking{Desired: "medium"},
 		Transition: sessionTransition{
 			Action:             sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialInput:       textutil.Value(""),

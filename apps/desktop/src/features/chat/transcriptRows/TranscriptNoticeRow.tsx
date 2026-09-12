@@ -17,6 +17,14 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
   const policy = projectNotice(row, noticeProse(notice, t));
   if (policy === null) return null;
   const Icon = policy.icon;
+  if (policy.kind === "compact") {
+    return (
+      <p className="chat-transcript-row-body flex min-w-0 items-center gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)] text-sm text-[var(--color-muted)]">
+        <Icon className="size-4 shrink-0" />
+        <span>{policy.summary}</span>
+      </p>
+    );
+  }
 
   return (
     <TranscriptFlatRow
@@ -74,6 +82,8 @@ function structuredNoticeText(notice: TranscriptNotice, t: Translate, expanded: 
 
 function reasonNoticeText(notice: TranscriptNotice, t: Translate, expanded: boolean): string | undefined {
   switch (notice.Reason) {
+    case "thinking_update":
+      return t("chatTranscript.notice.thinkingSet", { effort: notice.ThinkingEffort });
     case "cache_warning":
       return cacheWarningText(notice, t);
     case "compaction":

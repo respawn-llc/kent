@@ -35,7 +35,7 @@
 - A committed live-Runtime setting change is accepted in Session mutation order and applies at the next between-Agent-Step boundary.
 - Setting changes enter neither user-visible Pending Work nor the post-turn Queue.
 - The server publishes each successful setting change and its typed transient feedback to every connected client.
-- A setting change affects later provider and compaction requests and never alters an Agent Step already running.
+- A setting change affects later provider and compaction requests and never alters an Agent Step already running. Native Thinking updates follow the legal-position deferral rule in Model Requests And Cache Continuity.
 - Setting changes create no model-visible entries or transcript rows except for the cache-preserving Thinking configuration items defined by Model Requests And Cache Continuity.
 - An operator Thinking change and a Workflow-owned Thinking change have no relative ordering or precedence guarantee when they overlap.
 - Kent does not delay either change, assign a shared winner order, or reconcile the two owners. Request acceptance and response order do not determine the effective Thinking value.

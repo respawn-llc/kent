@@ -553,6 +553,12 @@ func TestUpdateContentMismatchPreservesTargetPathInFailurePayload(t *testing.T) 
 	if payload.Kind != "content_mismatch" {
 		t.Fatalf("expected content_mismatch payload, got %+v", payload)
 	}
+	if result.Summary == nil || *result.Summary == payload.Error {
+		t.Fatal("expected a compact summary separate from the detailed model error")
+	}
+	if strings.Contains(*result.Summary, payload.Path) || strings.Contains(*result.Summary, payload.Reason) {
+		t.Fatal("compact summary includes the target path or detailed reason")
+	}
 	if payload.Path != "a.txt" {
 		t.Fatalf("expected target path in payload, got %+v", payload)
 	}

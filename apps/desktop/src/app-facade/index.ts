@@ -48,3 +48,6 @@ export * from "./WindowChromeTitleProvider";
 export * from "./TaskSearchMemoryProvider";
 export * from "./workflowProjectEvents";
 export * from "./worktreeQueries";
+export * from "./worktreeBrowser";
+export * from "./queryAtom";
+export * from "./projectWorkspaceChanges";

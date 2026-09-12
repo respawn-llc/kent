@@ -207,6 +207,9 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 	diagnostic := errors.New("workflow post-completion finalization diagnostic")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	fixture := newCommittedRemoteCompactionFixture(t, gate, nil)
+	if err := fixture.store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
 	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil
 	}, diagnostic)
@@ -222,6 +225,15 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 	if !fixture.engine.compactionRuntimeState().WorkflowPostCompletionBoundary() {
 		t.Fatal("committed replacement lost its post-completion boundary after diagnostic")
 	}
+	if fixture.store.Meta().OriginalThinkingEffort != nil {
+		t.Fatal("committed replacement retained the baseline after a finalization diagnostic")
+	}
+	if fixture.store.Meta().Locked != nil {
+		t.Fatal("committed replacement retained the contract after a finalization diagnostic")
+	}
+	if reopened := mustOpenTestSession(t, fixture.store.Dir()); reopened.Meta().OriginalThinkingEffort != nil {
+		t.Fatal("reopen restored the old baseline after a committed replacement")
+	}
 	if len(fixture.client.compactionCalls) != 1 {
 		t.Fatalf("compaction calls = %d, want one", len(fixture.client.compactionCalls))
 	}
@@ -229,7 +241,10 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 
 func TestWorkflowPostCompletionCompactionPreCommitFailureDoesNotCreateBoundary(t *testing.T) {
 	t.Parallel()
-	fixture := newCommittedRemoteCompactionFixture(t, runtimeTestSessionPersistence, nil)
+	fixture := newCommittedRemoteCompactionFixture(t, runtimeTestSessionPersistence, &session.LockedContract{Model: "gpt-5"})
+	if err := fixture.store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
 	blocker := mustBlockTestEventLogAppends(t, fixture.store)
 	t.Cleanup(func() {
 		if err := blocker.Restore(); err != nil {
@@ -243,6 +258,12 @@ func TestWorkflowPostCompletionCompactionPreCommitFailureDoesNotCreateBoundary(t
 	}
 	if fixture.engine.compactionRuntimeState().WorkflowPostCompletionBoundary() {
 		t.Fatal("failed workflow replacement created a post-completion boundary")
+	}
+	if effort := fixture.store.Meta().OriginalThinkingEffort; effort == nil || *effort != "medium" {
+		t.Fatal("uncommitted replacement changed the original Thinking baseline")
+	}
+	if fixture.store.Meta().Locked == nil {
+		t.Fatal("uncommitted replacement cleared the contract")
 	}
 }
 

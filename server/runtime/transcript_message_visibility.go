@@ -10,6 +10,14 @@ import (
 	"core/shared/transcript"
 )
 
+func configurationUpdateChatEntry(item llm.ResponseItem) ChatEntry {
+	return ChatEntry{
+		Visibility:     transcript.EntryVisibilityDetail,
+		Role:           string(transcript.EntryRoleSystem),
+		ThinkingEffort: textutil.Pointer(item.ConfigurationEffort),
+	}
+}
+
 func visibleUserTranscriptEntry(msg llm.Message) (ChatEntry, bool) {
 	if msg.Content == nil {
 		return ChatEntry{}, false

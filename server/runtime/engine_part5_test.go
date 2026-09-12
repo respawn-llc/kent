@@ -96,8 +96,8 @@ func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T)
 	writeTestFile(t, reviewerPromptPath, "reviewer B")
 	scheduleManualCompactionAndWait(t, eng)
 	mainLocked := store.Meta().Locked
-	if mainLocked == nil || mainLocked.HasSystemPrompt || mainLocked.HasReviewerPrompt {
-		t.Fatalf("locked prompts after compaction = %+v, want both stale", mainLocked)
+	if mainLocked != nil {
+		t.Fatalf("contract after compaction = %+v, want absent", mainLocked)
 	}
 	reviewerReq, err = eng.buildReviewerRequest(context.Background(), newObservedModelClient(reviewerClient))
 	if err != nil {
@@ -106,7 +106,7 @@ func TestReviewerSystemPromptRefreshesIndependentlyAfterCompaction(t *testing.T)
 	if reviewerReq.SystemPrompt != "reviewer B" {
 		t.Fatalf("reviewer after compaction = %q, want reviewer B", reviewerReq.SystemPrompt)
 	}
-	if locked := store.Meta().Locked; locked == nil || locked.SystemPrompt != "" || !locked.HasReviewerPrompt || locked.ReviewerPrompt != "reviewer B" {
+	if locked := store.Meta().Locked; locked == nil || !locked.HasSystemPrompt || !locked.HasReviewerPrompt || locked.ReviewerPrompt != "reviewer B" {
 		t.Fatalf("locked prompts after reviewer refresh = %+v", locked)
 	}
 }

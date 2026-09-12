@@ -5,7 +5,9 @@ import {
   Info,
   RefreshCw,
   Server,
+  Settings,
   TriangleAlert,
+  Workflow,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -20,14 +22,21 @@ export type TranscriptNotice = NonNullable<ChatTranscriptCommittedRow["Notice"]>
 export type TranscriptNoticeBody =
   Readonly<{ kind: "markdown"; text: string }> | Readonly<{ kind: "plain_text"; text: string }>;
 
-export type TranscriptNoticePolicy = Readonly<{
-  summary: string;
-  icon: LucideIcon;
-  iconTone: TranscriptFlatRowIconTone;
-  defaultExpanded: boolean;
-  body: TranscriptNoticeBody;
-  copyText: string;
-}>;
+export type TranscriptNoticePolicy =
+  | Readonly<{
+      kind: "compact";
+      summary: string;
+      icon: LucideIcon;
+    }>
+  | Readonly<{
+      kind: "disclosure";
+      summary: string;
+      icon: LucideIcon;
+      iconTone: TranscriptFlatRowIconTone;
+      defaultExpanded: boolean;
+      body: TranscriptNoticeBody;
+      copyText: string;
+    }>;
 
 export type TranscriptNoticeProse = Readonly<{
   expanded: string;
@@ -66,12 +75,16 @@ export function projectNotice(
 ): TranscriptNoticePolicy | null {
   const notice = row.Notice;
   if (notice === null || shouldOmitNotice(row, notice)) return null;
+  if (notice.Reason === "thinking_update") {
+    return { kind: "compact", summary: prose.compact, icon: Settings };
+  }
 
   const body = isMarkdownNotice(notice)
     ? ({ kind: "markdown", text: noticeOriginalText(notice) } as const)
     : ({ kind: "plain_text", text: prose.expanded } as const);
   const copyText = body.kind === "markdown" && notice.Reason !== "compaction" ? body.text : prose.expanded;
   return {
+    kind: "disclosure",
     summary: noticeCompactText(notice, prose.compact),
     icon: noticeIcon(notice),
     iconTone: noticeIconTone(notice),
@@ -214,6 +227,9 @@ function noticeMessageTypeIcon(notice: TranscriptNotice): LucideIcon | undefined
     case "worktree_mode":
     case "worktree_mode_exit":
       return GitBranch;
+    case "workflow_mode":
+    case "workflow_mode_exit":
+      return Workflow;
     default:
       return undefined;
   }
@@ -231,6 +247,7 @@ function noticeReasonIcon(notice: TranscriptNotice): LucideIcon | undefined {
       return Server;
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
+    case "thinking_update":
       return undefined;
   }
 }

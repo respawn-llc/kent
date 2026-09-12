@@ -26,6 +26,7 @@ export type {
   ChatCompactionResult,
   ChatContext,
   ChatContextTarget,
+  ChatExecutionTarget,
   ChatForkEditInput,
   InitialChatSettings,
   ChatInputMutationResult,

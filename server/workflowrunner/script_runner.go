@@ -151,7 +151,7 @@ func (s *Starter) finalizeCurrentNodeScript(
 			"error", outcome.Diagnostic,
 		)
 	}
-	return controller.ContinueCurrentNode(context.WithoutCancel(ctx), outcome.CommittedResult)
+	return controller.ContinueCurrentNode(context.WithoutCancel(ctx), outcome.CommittedResult, nil)
 }
 
 func scriptExecutionFailure(result sessionruntime.ScriptResult, runErr error) error {

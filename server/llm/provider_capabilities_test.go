@@ -270,6 +270,15 @@ func TestResolveRuntimeProviderCapabilities(t *testing.T) {
 			if err != nil {
 				t.Fatalf("InferProviderCapabilities(%q): %v", tt.wantID, err)
 			}
+			if _, overridden := ProviderCapabilitiesFromOverride(tt.settings.ProviderCapabilities); overridden {
+				withoutOverride := tt.settings
+				withoutOverride.ProviderCapabilities = config.ProviderCapabilitiesOverride{}
+				transport, err := ResolveRuntimeProviderCapabilities(tt.auth, withoutOverride)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want.SupportsNativeThinkingUpdates = transport.SupportsNativeThinkingUpdates
+			}
 			if got != want {
 				t.Fatalf("capabilities = %+v, want %+v", got, want)
 			}

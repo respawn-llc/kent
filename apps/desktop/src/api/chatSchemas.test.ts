@@ -9,6 +9,67 @@ import { committedRow } from "./chatTranscriptRows";
 
 const stepId = "123e4567-e89b-42d3-a456-426614174000";
 
+describe("committed Thinking notices", () => {
+  it("preserves the selected effort on a detail-visible configuration row", () => {
+    const row = committedRow(decode(T.CommittedRowSchema, encode(T.CommittedRowSchema, thinkingRow("high"))));
+    expect(row.Visibility).toBe("detail");
+    expect(row.Notice?.ThinkingEffort).toBe("high");
+  });
+
+  it("rejects Thinking notices without a nonblank selected effort", () => {
+    for (const effort of ["", " \t\n", undefined]) {
+      expect(() => encode(T.CommittedRowSchema, thinkingRow(effort))).toThrow();
+    }
+  });
+
+  it("rejects Thinking effort on other notice reasons", () => {
+    const notice = create(T.NoticeRowSchema, {
+      reason: T.NoticeReason.LEGACY_UNTYPED_NOTICE,
+      severity: T.NoticeSeverity.INFO,
+      legacyText: "notice",
+    });
+    expect(() => encode(T.NoticeRowSchema, notice)).not.toThrow();
+    notice.thinkingEffort = "high";
+    expect(() => encode(T.NoticeRowSchema, notice)).toThrow();
+  });
+
+  it.each([
+    { severity: T.NoticeSeverity.WARNING },
+    { severity: T.NoticeSeverity.ERROR },
+    { messageType: T.NoticeMessageType.HEADLESS_MODE },
+    { legacyText: "notice" },
+    { cacheWarning: { scope: "session", reason: "cache", visibility: T.EntryVisibility.DETAIL } },
+    { compaction: { count: 1 } },
+    { toolOutputRepair: { kind: "fresh_resource", count: 1 } },
+    { providerModelMismatch: { requestedModel: "requested", servedModel: "served" } },
+    { background: { activityId: "activity", processId: "process" } },
+  ])("rejects competing Thinking notice facts: %o", (payload) => {
+    const notice = create(T.NoticeRowSchema, {
+      reason: T.NoticeReason.THINKING_UPDATE,
+      severity: T.NoticeSeverity.INFO,
+      thinkingEffort: "high",
+      ...payload,
+    });
+    expect(() => encode(T.NoticeRowSchema, notice)).toThrow();
+  });
+});
+
+function thinkingRow(effort: string | undefined) {
+  return create(T.CommittedRowSchema, {
+    visibility: T.EntryVisibility.DETAIL,
+    integrity: T.RowIntegrity.VALID,
+    locator: { eventSequence: 1n, rowOrdinal: 1 },
+    row: {
+      case: "notice",
+      value: {
+        reason: T.NoticeReason.THINKING_UPDATE,
+        severity: T.NoticeSeverity.INFO,
+        ...(effort === undefined ? {} : { thinkingEffort: effort }),
+      },
+    },
+  });
+}
+
 describe("committed Ask Question rows", () => {
   it("preserves typed answers and absent or one-based recommendations", () => {
     for (const recommendedOptionIndex of [undefined, 1, 2]) {

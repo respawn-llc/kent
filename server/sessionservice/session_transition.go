@@ -26,8 +26,9 @@ type sessionTransition struct {
 }
 
 type sessionTransitionResolveRequest struct {
-	Store      *session.Store
-	Transition sessionTransition
+	Store        *session.Store
+	Transition   sessionTransition
+	ForkThinking session.ForkThinking
 }
 
 func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) (sessionTransition, error) {
@@ -111,7 +112,7 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain)
+	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkThinking)
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}

@@ -417,13 +417,30 @@ func (e *Engine) SetWorkflowThinkingValue(value workflow.ThinkingValue) error {
 // ClearWorkflowThinkingValue removes a workflow-owned thinking override while
 // preserving the current prompt-cache lineage and contract generation.
 func (e *Engine) ClearWorkflowThinkingValue() error {
-	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-		return struct{}{}, e.setThinkingValue("")
+	_, err := awaitEngineRuntimeOperation(context.Background(), e, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, e.clearThinkingValue(ctx)
 	})
 	return err
 }
 
+func (e *Engine) clearThinkingValue(ctx context.Context) error {
+	prepared, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	if err != nil {
+		return err
+	}
+	if err := e.store.SetThinkingOverride(nil); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.cfg.ThinkingLevel = prepared.ConfiguredThinking
+	e.mu.Unlock()
+	return nil
+}
+
 func (e *Engine) setThinkingValue(value string) error {
+	if err := e.store.SetThinkingOverride(&value); err != nil {
+		return err
+	}
 	e.mu.Lock()
 	e.cfg.ThinkingLevel = strings.TrimSpace(value)
 	e.mu.Unlock()

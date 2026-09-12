@@ -8,10 +8,19 @@ export type ChatExecutionFacts = Readonly<{
   CwdRelpath: string;
   EffectiveWorkdir: string;
 }>;
+export type ChatActiveKind =
+  | "user_turn"
+  | "workflow_turn"
+  | "goal_loop"
+  | "compaction"
+  | "pre_submit_compaction"
+  | "user_shell"
+  | "background"
+  | "runtime_maintenance";
 export type ChatActivityFacts = Readonly<{
   State:
     "unavailable" | "registered_idle" | "starting" | "running" | "awaiting_prompt" | "draining" | "closing";
-  ActiveStep: Readonly<{ RunID: string; StepID: string; ActiveKind: string }> | null;
+  ActiveStep: Readonly<{ RunID: string; StepID: string; ActiveKind: ChatActiveKind }> | null;
   Reviewer: "inactive" | "invoking" | "addressing_feedback";
   QueueAccepting: boolean;
   DiagnosticRecovery: boolean;
@@ -92,10 +101,12 @@ export type ChatNotice = Readonly<{
     | "legacy_untyped_notice"
     | "runtime_diagnostic"
     | "tool_output_repair"
-    | "provider_model_mismatch";
+    | "provider_model_mismatch"
+    | "thinking_update";
   Severity: "info" | "warning" | "error";
   MessageType?: string | null;
   LegacyText?: string | null;
+  ThinkingEffort?: string | null;
   NoticeID?: string | null;
   SourcePath?: string | null;
   Worktree?: Readonly<{
@@ -241,7 +252,7 @@ export interface ChatTranscriptPayloadByKind {
     RunID: string;
     StepID: string;
     Lifecycle: "started" | "finished";
-    ActiveKind: string;
+    ActiveKind: ChatActiveKind;
     Status: "running" | "completed" | "interrupted" | "failed";
   }>;
   runtime_read_model_update: Readonly<{

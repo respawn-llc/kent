@@ -603,9 +603,9 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 	}
 }
 
-func TestCompactNowInvalidatesPromptSnapshotsWhenStaleMetadataObserverFails(t *testing.T) {
+func TestCompactNowClearsContractWhenMetadataObserverFails(t *testing.T) {
 	t.Parallel()
-	observerErr := errors.New("prompt snapshot stale observer failure")
+	observerErr := errors.New("contract reset observer failure")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	fixture := newCommittedRemoteCompactionFixture(t, gate, &session.LockedContract{
 		Model:             "gpt-5",
@@ -615,8 +615,7 @@ func TestCompactNowInvalidatesPromptSnapshotsWhenStaleMetadataObserverFails(t *t
 		HasReviewerPrompt: true,
 	})
 	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		locked := snapshot.Meta.Locked
-		return locked != nil && !locked.HasSystemPrompt && !locked.HasReviewerPrompt
+		return snapshot.Meta.Locked == nil
 	}, observerErr)
 
 	var receipt session.CommitReceipt
@@ -637,12 +636,11 @@ func TestCompactNowInvalidatesPromptSnapshotsWhenStaleMetadataObserverFails(t *t
 	}
 
 	locked, ok := fixture.engine.lockedContractState().Snapshot()
-	if !ok || locked.HasSystemPrompt || locked.HasReviewerPrompt {
-		t.Fatalf("live locked snapshot presence after committed stale mutation = %+v", locked)
+	if ok {
+		t.Fatalf("live contract after committed replacement = %+v, want absent", locked)
 	}
-	if persisted := fixture.store.Meta().Locked; persisted == nil ||
-		persisted.HasSystemPrompt || persisted.HasReviewerPrompt {
-		t.Fatalf("persisted locked snapshot presence after committed stale mutation = %+v", persisted)
+	if persisted := fixture.store.Meta().Locked; persisted != nil {
+		t.Fatalf("persisted contract after committed replacement = %+v, want absent", persisted)
 	}
 
 	request, requestErr := fixture.engine.buildRequest(context.Background(), "next", false)
@@ -770,8 +768,8 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 		reopenedLog,
 		forkTargetSeq,
 		"fork",
-		sessioncontract.SessionCategoryMain,
-	)
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
 	if err != nil {
 		t.Fatalf("fork compacted session: %v", err)
 	}

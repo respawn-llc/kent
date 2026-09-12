@@ -13,6 +13,49 @@ import (
 
 var ErrChatAgentLocked = errors.New("Chat Agent is locked")
 
+func (s *Store) AdoptOriginalThinkingEffort(effort string) error {
+	if err := ValidateOriginalThinkingEffort(&effort); err != nil {
+		return err
+	}
+	return s.mutateAndPersist(func() error {
+		adoptOriginalThinkingEffort(&s.meta, effort)
+		return nil
+	})
+}
+
+func adoptOriginalThinkingEffort(meta *Meta, effort string) {
+	if meta.OriginalThinkingEffort != nil {
+		return
+	}
+	meta.OriginalThinkingEffort = textutil.Value(effort)
+	if meta.ChatSettings == nil {
+		meta.ChatSettings = &ChatSettingsOverrides{}
+	}
+	if meta.ChatSettings.Thinking == nil {
+		meta.ChatSettings.Thinking = textutil.Value(effort)
+	}
+}
+
+func ValidateOriginalThinkingEffort(effort *string) error {
+	if effort != nil && strings.TrimSpace(*effort) == "" {
+		return errors.New("original Thinking effort must be nonempty when present")
+	}
+	return nil
+}
+
+func (s *Store) SetThinkingOverride(effort *string) error {
+	if effort != nil && strings.TrimSpace(*effort) == "" {
+		return errors.New("Thinking effort is required")
+	}
+	return s.mutateAndPersist(func() error {
+		if s.meta.ChatSettings == nil {
+			s.meta.ChatSettings = &ChatSettingsOverrides{}
+		}
+		s.meta.ChatSettings.Thinking = textutil.Pointer(effort)
+		return normalizeMetaChatSettings(&s.meta)
+	})
+}
+
 type ChatSettingsOverrides struct {
 	Supervisor     *string `json:"supervisor,omitempty"`
 	Thinking       *string `json:"thinking,omitempty"`

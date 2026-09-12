@@ -30,6 +30,20 @@ Architecture lint applies to production, tests, type imports, re-exports, dynami
 
 Boundary enforcement is fail-closed: every desktop TypeScript file and local dependency must be classified. Do not add grandfather lists, inline suppressions, deep-import shortcuts, or compatibility barrels. Any exception requires explicit approval, an adjacent configuration rationale, and focused policy-fixture coverage.
 
+## Effect reference and ownership
+
+- The main Project Edit destination is the Effect reference. Its immutable ViewModel defines readonly observations and explicit `Atom.fn` actions; `AppProviders` owns the standard Atom React `RegistryProvider` for the window. React uses standard value-mode action bindings. Use concurrent actions with synchronous admission from the actual Query mutation observers; do not add pending flags, custom runners, retention, or disposal timers.
+- Query owns server content, request outcomes, mutation completion callbacks, invalidation, and bounded pages. `app-facade/queryAtom` publishes the library result directly and finalizes its subscription with Atom. Keep mutation observation mounted with the feature action bindings, even without visual readers: Query's MutationObserver does not restore a detached mutation on resubscribe.
+- Local name/key drafts use nullable uninitialized atoms. Derived state is computed from those inputs and Query. Keep visual dialog state in React. Query mutation callbacks own feedback and invalidation after navigation; Atom-local work follows library disposal. Completion uses the original sidebar navigator's accepted/stale outcome.
+- Native Workspace changes enter through the cold `projectWorkspaceChanges` Stream. Scope owns asynchronous registration and release. Filter to the Project before the one-slot sliding buffer; only change notifications may be combined. Registration failure explicitly fails the supplied Stream queue and produces the ordinary temporary status notification without restart.
+- Production adoption is limited to Effect, Scope, Fiber, Stream, Atom, and Atom React. `Queue.offerUnsafe` and `Queue.fail` are permitted only for the queue supplied to this native `Stream.callback` integration; do not create queues, an event bus, an application subscription service, or an Effect DI/HTTP/Schema stack.
+- First-party root/detached execution, manual root scopes/registries, global registry access, and opaque namespace forwarding are forbidden across active JavaScript/TypeScript owners. The semantic rules in the existing ESLint plugin are invoked through the shared desktop compiler prerequisite for lint/build/check. Subscription enforcement follows Effect-facing export declarations and types, without treating pre-Effect facade re-exports as migrated. Native and Query callbacks remain low-level inputs; application observations expose readonly Atoms or Streams.
+- KENT-365 owns the retained React/Promise native Delete/Unlink confirmation internals. KENT-659 owns the retained shell reconnect refresh. The Project Edit reference disables its own automatic retry, focus/reconnect refetch and offline queuing, and attempts valid explicit actions without a connection-status gate.
+
+### Installed Effect guidance
+
+Use `.kent/skills/effect-ts/SKILL.md` when building or changing Effect-backed desktop screens. It maps the installed maintainers' usage guidance to the Project Edit reference. Read `apps/desktop/node_modules/effect/AGENTS.md` completely before writing Effect code, follow its relevant links, and consult the installed `effect/src` for version-specific APIs. Repository Just, dependency policy, and the narrow adoption boundary override generic upstream architecture recommendations. `just setup --apply` installs and prepares the supported Effect-aware TypeScript 7 compiler without changing TypeScript versions.
+
 ## Checks
 
 - Run `just setup --apply` before GUI work, then use `just lint desktop`, `just test desktop`, `just build desktop`, or `just check desktop --dry-run`.

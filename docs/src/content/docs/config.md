@@ -17,6 +17,8 @@ Interactive session flows resolve workspace-local config from the session worksp
 
 Each session activation uses its Agent's current context window, auto-compaction threshold, and compaction mode. These settings are not saved in the session contract, and changing them does not invalidate the prompt cache. An active run keeps its budget until the next activation.
 
+Successful compaction clears the session's saved model capabilities, tool selection, generation settings, and prompts. The next model request creates a fresh snapshot. This applies to manual, automatic, handoff, and Workflow compaction; failed compaction leaves the existing snapshot unchanged.
+
 :::tip
 `kent serve` starts without a workspace root, so it doesn't matter where you run the server.
 :::
@@ -101,6 +103,12 @@ verbose_output = false # set true to show complete supervisor suggestions in ong
 `[workflow] subagents` defaults to `false` and has no environment override. Set it to `true` to let workflow agents delegate to eligible custom roles. This setting does not affect direct workflow-node assignment.
 
 `workflow_subagent` is optional role metadata and defaults to `true`. A custom role is callable by a workflow agent only when `agent_callable`, `[workflow] subagents`, and its effective `workflow_subagent` value all permit it. The global workflow setting remains authoritative.
+
+## Thinking
+
+Thinking selects the model's reasoning effort. Change it in Chat settings or with [`/thinking <level>`](/slash-commands/). Available levels depend on the model and provider.
+
+A Session's Thinking override takes precedence over its Agent configuration and global `thinking_level`. Use terminal detail mode to inspect recorded Thinking updates on supported models.
 
 ## CLI Overrides
 
@@ -204,14 +212,14 @@ Use these for custom supervisor models or supervisor providers when the built-in
 
 ### Model Capability Overrides
 
-Use these only for custom or alias models when the built-in model registry is not enough.
+Use these to override model capability defaults, including disabling vision or enabling capabilities for custom and alias models.
 
-| Key                                            | Type | Default | Env                                                 | Description                                                                           |
-| ---------------------------------------------- | ---- | ------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `model_capabilities.supports_reasoning_effort` | bool | `false` | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
-| `model_capabilities.supports_vision_inputs`    | bool | `false` | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Marks the configured model as supporting multimodal image and PDF inputs.             |
+| Key                                            | Type | Default                | Env                                                 | Description                                                                           |
+| ---------------------------------------------- | ---- | ---------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
+| `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Overrides support for multimodal image and PDF inputs.                                |
 
-If both values stay `false`, Kent falls back to the built-in model capability registry.
+Unconfigured model capabilities use the built-in model catalog. Unknown `gpt-*` models on first-party OpenAI providers default to native image and PDF input support. Explicit text-only catalog entries remain disabled; custom providers do not inherit this default. Set `model_capabilities.supports_vision_inputs = false` explicitly to disable vision for a model.
 
 ### Provider Capability Overrides
 

@@ -416,6 +416,64 @@ func (s *Store) resolveMaterializedCurrentNodeStartContext(
 	if err != nil {
 		return CurrentNodeStartContext{}, fmt.Errorf("resolve entering source node for current node %v: %w", currentNode.Reference, err)
 	}
+	promptReferences, promptReferencesErr := workflow.ExtractPromptTemplateReferences(enteringEdge.PromptTemplate)
+	var promptSessionID *runtimeids.SessionID
+	if promptReferencesErr == nil && promptReferences.SessionID && sourceNode.Kind() == workflow.NodeKindAgent {
+		var currentBranch *workflow.TransitionBranchKey
+		if branchKey, branchScoped := currentNode.Reference.TransitionBranchKey(); branchScoped {
+			currentBranch = &branchKey
+		}
+		scope := workflow.ResolvePromptSessionNodeScope(definition, workflow.NodeIDOf(sourceNode), currentNode.Reference.NodeID, currentBranch)
+		if !scope.Ambiguous {
+			sourceReference, err := workflow.NewCurrentNodeReference(task.ID, workflow.NodeIDOf(sourceNode), scope.BranchKey)
+			if err != nil {
+				return CurrentNodeStartContext{}, fmt.Errorf("resolve prompt source node reference for current node %v: %w", currentNode.Reference, err)
+			}
+			promptSessionID, err = latestPromptSessionForNode(ctx, q, sourceReference)
+			if err != nil {
+				return CurrentNodeStartContext{}, fmt.Errorf("resolve prompt source Session for current node %v: %w", currentNode.Reference, err)
+			}
+		}
+	}
+	priorSessionIDs := map[workflow.ModelKey]*runtimeids.SessionID{}
+	if promptReferencesErr == nil {
+		for _, prior := range promptReferences.PriorParams {
+			if strings.TrimSpace(prior.ParameterKey) != workflow.RuntimePromptParameterSessionID {
+				continue
+			}
+			transitionKey := workflow.ModelKey(strings.TrimSpace(string(prior.TransitionKey)))
+			priorSessionIDs[transitionKey] = nil
+			var currentBranch *workflow.TransitionBranchKey
+			if branchKey, branchScoped := currentNode.Reference.TransitionBranchKey(); branchScoped {
+				currentBranch = &branchKey
+			}
+			resolution := workflow.ResolvePromptSessionReference(
+				definition,
+				transitionKey,
+				workflow.NodeIDOf(sourceNode),
+				currentNode.Reference.NodeID,
+				currentBranch,
+			)
+			if len(resolution.Guaranteed) != 1 || resolution.BranchScopeAmbiguous {
+				continue
+			}
+			priorSourceNode, err := currentNodeDefinitionNode(definition, resolution.SourceNodeID)
+			if err != nil {
+				return CurrentNodeStartContext{}, fmt.Errorf("resolve prior prompt source node for current node %v: %w", currentNode.Reference, err)
+			}
+			if priorSourceNode.Kind() != workflow.NodeKindAgent {
+				continue
+			}
+			priorSourceReference, err := workflow.NewCurrentNodeReference(task.ID, workflow.NodeIDOf(priorSourceNode), resolution.BranchKey)
+			if err != nil {
+				return CurrentNodeStartContext{}, fmt.Errorf("resolve prior prompt source node reference for current node %v: %w", currentNode.Reference, err)
+			}
+			priorSessionIDs[transitionKey], err = latestPromptSessionForNode(ctx, q, priorSourceReference)
+			if err != nil {
+				return CurrentNodeStartContext{}, fmt.Errorf("resolve prior prompt source Session for current node %v: %w", currentNode.Reference, err)
+			}
+		}
+	}
 	nodeRecord, err := nodeRecordFromCurrentDefinition(node)
 	if err != nil {
 		return CurrentNodeStartContext{}, err
@@ -428,6 +486,8 @@ func (s *Store) resolveMaterializedCurrentNodeStartContext(
 		EnteringEdge:    enteringEdge,
 		ContextMode:     effectiveContextMode,
 		SourceSessionID: sourceSessionID,
+		PromptSessionID: promptSessionID,
+		PriorSessionIDs: priorSessionIDs,
 		IsFanoutBranch:  currentNode.Reference.IsBranchScoped(),
 		AcceptedTransitionPath: AcceptedTransitionPath{
 			SourceNodeDisplayName: workflow.NodeDisplayName(sourceNode),
@@ -621,6 +681,21 @@ func latestTaskSessionForNode(ctx context.Context, q *sqlitegen.Queries, current
 		CurrentNode:  currentNode,
 		AssociatedAt: time.UnixMilli(associatedAtUnixMs).UTC(),
 	}, nil
+}
+
+func latestPromptSessionForNode(
+	ctx context.Context,
+	q *sqlitegen.Queries,
+	currentNode workflow.CurrentNodeReference,
+) (*runtimeids.SessionID, error) {
+	association, err := latestTaskSessionForNode(ctx, q, currentNode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &association.SessionID, nil
 }
 
 func currentTaskSessionForNode(

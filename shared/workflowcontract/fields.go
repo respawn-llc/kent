@@ -6,4 +6,5 @@ const (
 	MaxParameterKeyChars             = MaxOutputFieldNameChars
 	MaxParameterDescriptionChars     = MaxOutputFieldDescriptionChars
 	RuntimePromptParameterCommentary = "commentary"
+	RuntimePromptParameterSessionID  = "session_id"
 )

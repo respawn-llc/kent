@@ -85,6 +85,7 @@ function notice(value: T.NoticeRow): ChatNotice {
       [T.NoticeReason.RUNTIME_DIAGNOSTIC]: "runtime_diagnostic",
       [T.NoticeReason.TOOL_OUTPUT_REPAIR]: "tool_output_repair",
       [T.NoticeReason.PROVIDER_MODEL_MISMATCH]: "provider_model_mismatch",
+      [T.NoticeReason.THINKING_UPDATE]: "thinking_update",
     }),
     Severity: enumValue(value.severity, {
       [T.NoticeSeverity.INFO]: "info",
@@ -93,6 +94,7 @@ function notice(value: T.NoticeRow): ChatNotice {
     }),
     MessageType: value.messageType === undefined ? null : messageType(value.messageType),
     LegacyText: value.legacyText ?? null,
+    ThinkingEffort: value.thinkingEffort ?? null,
     NoticeID: value.noticeId ?? null,
     SourcePath: value.sourcePath ?? null,
     ...noticeContext(value),

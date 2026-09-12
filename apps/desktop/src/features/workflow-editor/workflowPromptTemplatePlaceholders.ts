@@ -9,6 +9,8 @@ export type PromptTemplatePlaceholder =
       label: string;
       tone: PromptTemplatePlaceholderTone;
       value: string;
+      disabled?: boolean;
+      disabledReason?: string;
     }>
   | Readonly<{
       kind: "info";
@@ -29,6 +31,7 @@ export const builtInPromptTemplatePlaceholderNames = [
   "NodeId",
   "NodeKey",
   "NodeDisplayName",
+  "SessionId",
 ] as const;
 
 export const commentaryPromptTemplatePlaceholder = {
@@ -40,8 +43,13 @@ export const commentaryPromptTemplatePlaceholder = {
 
 export function workflowPromptTemplatePlaceholders(
   parameters: readonly Pick<WorkflowParameter, "key">[],
+  options: Readonly<{
+    sessionIdDisabledReason: string;
+    sourceKind: string;
+  }>,
 ): readonly PromptTemplatePlaceholder[] {
   const seen = new Set<string>();
+  const sessionIdDisabled = isSessionIDPlaceholderDisabled(options.sourceKind);
   const parameterPlaceholders = parameters.flatMap((parameter) => {
     const parameterKey = parameter.key.trim();
     if (!isWorkflowModelKeyValid(parameterKey)) {
@@ -66,7 +74,15 @@ export function workflowPromptTemplatePlaceholders(
       label: `.${name}`,
       tone: "muted" as const,
       value: `{{.${name}}}`,
+      disabled: name === "SessionId" && sessionIdDisabled,
+      ...(name === "SessionId" && sessionIdDisabled
+        ? { disabledReason: options.sessionIdDisabledReason }
+        : {}),
     })),
     commentaryPromptTemplatePlaceholder,
   ];
+}
+
+function isSessionIDPlaceholderDisabled(sourceKind: string): boolean {
+  return sourceKind === "start" || sourceKind === "script" || sourceKind === "join";
 }

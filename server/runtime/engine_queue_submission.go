@@ -262,20 +262,18 @@ func (e *Engine) submitQueuedUserMessages(ctx context.Context, selection userInj
 			if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 				return err
 			}
-			flushResult, err := e.flushPendingUserInjections(stepID, selection)
-			if flushResult.receipt.Committed {
-				receipt = flushResult.receipt
-			}
-			if err != nil {
-				return err
-			}
-			consumedQueueItemIDs = flushResult.queueItemIDs
-			if flushResult.flushed == 0 {
+			if !e.messageFlow.HasPendingUserInjections() {
 				return nil
 			}
-			msg, runErr := e.runStepLoopWithPendingUserInjectionObserver(stepCtx, stepID, func(flushReceipt session.CommitReceipt) {
-				receipt = flushReceipt
-			})
+			msg, runErr := e.runStepLoopWithPendingUserInjectionObserver(stepCtx, stepID, func(result userInjectionCommitResult) {
+				receipt = result.receipt
+				if consumedQueueItemIDs == nil {
+					consumedQueueItemIDs = make(map[string]struct{})
+				}
+				for id := range result.queueItemIDs {
+					consumedQueueItemIDs[id] = struct{}{}
+				}
+			}, selection)
 			assistant = msg
 			return runErr
 		})

@@ -42,7 +42,7 @@ desktop mode="":
         echo "Usage: just lint desktop [--dry-run]" >&2
         exit 2
     fi
-    node apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
+    just build _desktop-compiler
 
 tui mode="":
     #!/usr/bin/env bash
@@ -90,3 +90,7 @@ docs mode="":
 [private]
 _desktop-native:
     cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+
+[private]
+_effect-policy *paths:
+    node apps/scripts/check-effect-policy.mjs {{paths}}

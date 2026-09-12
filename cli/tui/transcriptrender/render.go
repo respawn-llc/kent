@@ -103,8 +103,19 @@ func renderCommittedRow(
 			Lines: renderTextBlock(StyleRoleNoticeForegroundFaint, text, width, mode),
 		}
 	case *transcriptpb.CommittedRow_Notice:
+		thinkingUpdate := row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE
+		if thinkingUpdate {
+			if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
+				return Row{Group: GroupNotice}
+			}
+			mode = ModeDetailCollapsed
+		}
 		role, text := noticeRoleAndText(row.GetNotice(), row.Visibility, mode)
 		meta := toolMeta{}
+		if noticeUsesConfigurationSymbol(row.GetNotice()) {
+			symbol := ConfigurationSymbol
+			meta.SymbolText = &symbol
+		}
 		group := GroupNotice
 		if row.GetNotice() != nil && row.GetNotice().MessageType != nil && *row.GetNotice().MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE {
 			symbolRole := StyleRoleNoticePrimary
@@ -112,6 +123,9 @@ func renderCommittedRow(
 			group = GroupTool
 		}
 		options := textBlockOptions{}
+		if thinkingUpdate {
+			options.forceFull = true
+		}
 		if row.GetNotice() != nil && row.GetNotice().Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR {
 			options.forceFull = true
 		}
@@ -476,7 +490,7 @@ func attachPrefixWithFirstLineMetaAndContinuation(
 		}
 		if inlineMeta != "" {
 			if modeUsesOngoingContinuationPrefix(mode) {
-				spans = ongoingInlineMetaSpans(spans, inlineMeta, bodyWidth)
+				spans = ongoingInlineMetaSpans(spans, inlineMeta, bodyWidth, role)
 			} else {
 				gap := bodyWidth - lipgloss.Width(command) - lipgloss.Width(inlineMeta)
 				if gap < 1 {
@@ -506,10 +520,17 @@ func attachPrefixWithFirstLineMetaAndContinuation(
 	return out
 }
 
-func ongoingInlineMetaSpans(command []Span, inlineMeta string, bodyWidth int) []Span {
+func ongoingInlineMetaSpans(command []Span, inlineMeta string, bodyWidth int, role StyleRole) []Span {
 	separator := SemanticSpan("  · ", StyleRoleNotice, SpanAttributeFaint)
 	meta := SemanticSpan(inlineMeta, StyleRoleNotice, SpanAttributeFaint)
 	suffix := []Span{separator, meta}
+	if role == StyleRoleToolPatch {
+		remaining := bodyWidth - spansWidth(command)
+		if remaining <= spansWidth([]Span{separator}) {
+			return TruncateLine(Line{Spans: command}, max(1, bodyWidth), false).Spans
+		}
+		return append(command, TruncateLine(Line{Spans: suffix}, remaining, false).Spans...)
+	}
 	suffixWidth := spansWidth(suffix)
 	if suffixWidth >= bodyWidth {
 		return TruncateLine(Line{Spans: suffix}, max(1, bodyWidth), false).Spans
@@ -639,6 +660,9 @@ func roleSymbolText(role StyleRole, meta toolMeta) string {
 	if meta.IsError && role != StyleRoleToolShell {
 		return reviewerErrorGlyph
 	}
+	if meta.SymbolText != nil {
+		return *meta.SymbolText
+	}
 	symbol := "•"
 	switch role {
 	case StyleRoleUser:
@@ -664,12 +688,37 @@ func roleSymbolText(role StyleRole, meta toolMeta) string {
 	return symbol
 }
 
+func noticeUsesConfigurationSymbol(row *transcriptpb.NoticeRow) bool {
+	if row == nil || row.Severity != transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO {
+		return false
+	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
+		return true
+	}
+	if row.MessageType != nil {
+		switch *row.MessageType {
+		case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT,
+			transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE_EXIT,
+			transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE_EXIT,
+			transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND:
+			return true
+		}
+	}
+	return false
+}
+
 func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.EntryVisibility, mode Mode) (StyleRole, string) {
 	if row == nil {
 		return StyleRoleNotice, "notice"
 	}
 	isError := row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR
 	role := noticeStyleRoleForMode(row, mode)
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
+		if row.ThinkingEffort == nil {
+			panic("Thinking-update notice is missing its effort")
+		}
+		return role, fmt.Sprintf("Thinking set: %s", *row.ThinkingEffort)
+	}
 	if isError {
 		role = StyleRoleError
 	}

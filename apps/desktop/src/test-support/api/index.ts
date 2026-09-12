@@ -21,6 +21,9 @@ import {
   DeleteResultSchema,
   DirtyStateKind,
   EnterResultSchema,
+  ListService,
+  ListEntrySchema,
+  type ListEntry,
   SelectorResolveResultSchema,
   SelectorService,
   SwitchOperationKind,
@@ -63,6 +66,73 @@ type FakeDescriptorSubscriptionRoute = Readonly<{
 }>;
 
 export type FakeRoute = FakeJsonRoute | FakeDescriptorRoute | FakeDescriptorSubscriptionRoute;
+
+export function worktreeBrowserFixtureEntry(
+  kind: "mainWorkspace" | "registered" | "missing",
+  current: boolean,
+): ListEntry {
+  const git = {
+    canonicalRoot: "/repo/feature",
+    headObject: "abc123",
+    branchName: "feature",
+    detached: false,
+    bare: false,
+    isMainWorktree: kind === "mainWorkspace",
+    pathAvailable: true,
+  };
+  const kent = {
+    worktreeId: "worktree-1",
+    canonicalRoot: git.canonicalRoot,
+    displayName: "Feature",
+    managed: true,
+    createdBranch: true,
+  };
+  return create(ListEntrySchema, {
+    topology: {
+      topology:
+        kind === "mainWorkspace"
+          ? { case: kind, value: { git } }
+          : kind === "registered"
+            ? { case: kind, value: { git, kent } }
+            : { case: kind, value: { kent } },
+    },
+    projection: {
+      selector: kind === "mainWorkspace" ? "main" : "feature",
+      isCurrent: current,
+      ...(!current && kind !== "missing"
+        ? {
+            switch:
+              kind === "mainWorkspace"
+                ? { kind: SwitchOperationKind.WORKTREE_SWITCH_OPERATION_LEAVE_MAIN }
+                : { kind: SwitchOperationKind.WORKTREE_SWITCH_OPERATION_ENTER, selector: "feature" },
+          }
+        : {}),
+      ...(kind !== "mainWorkspace" ? { deletePreview: { selector: kent.worktreeId } } : {}),
+    },
+  });
+}
+
+export function worktreeBrowserFixtureRoute(worktrees: ListEntry[] = []) {
+  return {
+    descriptor: ListService.method.list,
+    result: create(ListService.method.list.output, {
+      outcome: {
+        case: "success",
+        value: {
+          target: {
+            workspaceId: "workspace-1",
+            workspaceName: "Workspace",
+            workspaceRoot: "/repo",
+            workspaceAvailability: ProjectAvailability.AVAILABLE,
+            cwdRelpath: ".",
+            effectiveWorkdir: "/repo",
+          },
+          worktrees,
+        },
+      },
+    }),
+  };
+}
 
 export function worktreeQueryFixtureRoutes(): readonly FakeRoute[] {
   const topology = {

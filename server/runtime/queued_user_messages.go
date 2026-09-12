@@ -200,10 +200,21 @@ func (s *queuedUserMessageStore) FinalizeClaimItems(claim *queuedUserMessageClai
 	return finalized
 }
 
-func (s *queuedUserMessageStore) FailClaimItems(
-	claim *queuedUserMessageClaim,
-	ids map[string]struct{},
-) (technical []queuedUserMessage, stopped []QueuedUserMessage) {
+func (s *queuedUserMessageStore) ClaimStopped(claim *queuedUserMessageClaim) bool {
+	if claim == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, pending := range s.items {
+		if pending.claimID != nil && *pending.claimID == claim.id && pending.removeOnRelease {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *queuedUserMessageStore) FailClaimItems(claim *queuedUserMessageClaim, ids map[string]struct{}) (technical []queuedUserMessage, stopped []QueuedUserMessage) {
 	if s == nil || claim == nil || len(ids) == 0 {
 		return nil, nil
 	}
@@ -211,7 +222,7 @@ func (s *queuedUserMessageStore) FailClaimItems(
 	defer s.mu.Unlock()
 	remaining := s.items[:0]
 	for _, pending := range s.items {
-		_, selected := ids[strings.TrimSpace(pending.message.ID)]
+		_, selected := ids[pending.message.ID]
 		if !selected || pending.claimID == nil || *pending.claimID != claim.id {
 			remaining = append(remaining, pending)
 			continue

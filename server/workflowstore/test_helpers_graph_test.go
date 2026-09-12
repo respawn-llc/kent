@@ -433,6 +433,100 @@ func createFanoutJoinWorkflow(t *testing.T, ctx context.Context, store *Store) r
 	return workflowID
 }
 
+func createSequentialFanoutSessionReferenceWorkflow(t *testing.T, ctx context.Context, store *Store) runtimeids.WorkflowID {
+	t.Helper()
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	verifyCID := testNodeID("node-verify-c-" + workflowID.String())
+	verifyDID := testNodeID("node-verify-d-" + workflowID.String())
+	verifyJoinID := testNodeID("node-verify-join-" + workflowID.String())
+	verifyCJoinEdgeID := testEdgeID("edge-verify-c-join-" + workflowID.String())
+	verifyDJoinEdgeID := testEdgeID("edge-verify-d-join-" + workflowID.String())
+	verifyCJoinGroupID := testTransitionGroupID("group-verify-c-join-" + workflowID.String())
+	verifyDJoinGroupID := testTransitionGroupID("group-verify-d-join-" + workflowID.String())
+	verifyJoinDoneGroupID := testTransitionGroupID("group-verify-join-done-" + workflowID.String())
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(def workflow.Definition, req *WorkflowGraphSaveRequest) {
+		terminal := nodeByKind(t, def, workflow.NodeKindTerminal)
+		synthID := workflow.NodeIDOf(nodeByKey(t, def, "synth"))
+		req.Nodes = append(req.Nodes,
+			NodeRecord{ID: verifyCID, WorkflowID: workflowID, Key: "verify_c", Kind: workflow.NodeKindAgent, DisplayName: "Verify C", SubagentRole: "coder"},
+			NodeRecord{ID: verifyDID, WorkflowID: workflowID, Key: "verify_d", Kind: workflow.NodeKindAgent, DisplayName: "Verify D", SubagentRole: "coder"},
+			NodeRecord{
+				ID: verifyJoinID, WorkflowID: workflowID, Key: "verify_join", Kind: workflow.NodeKindJoin, DisplayName: "Verify Join",
+				JoinInputProviders: []workflow.JoinInputProvider{{InputName: "verified", ProviderEdgeID: verifyCJoinEdgeID}},
+			},
+		)
+		req.TransitionGroups = mutateWorkflowGraphSaveTransitionGroup(
+			req.TransitionGroups,
+			testTransitionGroupID("group-synth-done-"+workflowID.String()),
+			func(group *TransitionGroupRecord) {
+				group.TransitionID = "verify"
+				group.DisplayName = "Verify"
+			},
+		)
+		req.TransitionGroups = append(req.TransitionGroups,
+			TransitionGroupRecord{ID: verifyCJoinGroupID, WorkflowID: workflowID, SourceNodeID: verifyCID, TransitionID: "verify_c_done", DisplayName: "Verify C Done"},
+			TransitionGroupRecord{ID: verifyDJoinGroupID, WorkflowID: workflowID, SourceNodeID: verifyDID, TransitionID: "verify_d_done", DisplayName: "Verify D Done"},
+			TransitionGroupRecord{ID: verifyJoinDoneGroupID, WorkflowID: workflowID, SourceNodeID: verifyJoinID, TransitionID: "verify_done", DisplayName: "Verify Done"},
+		)
+		verifyC := workflowGraphSaveEdgeRecord(
+			t,
+			req.Edges,
+			testEdgeID("edge-synth-done-"+workflowID.String()),
+		)
+		verifyC.Key = "verify_c"
+		verifyC.TargetNodeID = verifyCID
+		verifyC.PromptTemplate = "Verify C {{.Params.join_a.session_id}}."
+		req.Edges = append(req.Edges,
+			EdgeRecord{
+				ID:                testEdgeID("edge-synth-verify-d-" + workflowID.String()),
+				WorkflowID:        workflowID,
+				TransitionGroupID: testTransitionGroupID("group-synth-done-" + workflowID.String()),
+				Key:               "verify_d",
+				TargetNodeID:      verifyDID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+				PromptTemplate:    "Verify D {{.Params.join_a.session_id}}.",
+			},
+			EdgeRecord{
+				ID:                verifyCJoinEdgeID,
+				WorkflowID:        workflowID,
+				TransitionGroupID: verifyCJoinGroupID,
+				Key:               "verify_c_done",
+				TargetNodeID:      verifyJoinID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+			EdgeRecord{
+				ID:                verifyDJoinEdgeID,
+				WorkflowID:        workflowID,
+				TransitionGroupID: verifyDJoinGroupID,
+				Key:               "verify_d_done",
+				TargetNodeID:      verifyJoinID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+			EdgeRecord{
+				ID:                testEdgeID("edge-verify-join-done-" + workflowID.String()),
+				WorkflowID:        workflowID,
+				TransitionGroupID: verifyJoinDoneGroupID,
+				Key:               "verify_done",
+				TargetNodeID:      workflow.NodeIDOf(terminal),
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+		)
+		if verifyC.TransitionGroupID != testTransitionGroupID("group-synth-done-"+workflowID.String()) ||
+			synthID == "" {
+			t.Fatalf("sequential fanout fixture has invalid synth transition group")
+		}
+	})
+	return workflowID
+}
+
 func createMixedExecutableFanoutWorkflow(t *testing.T, ctx context.Context, store *Store) runtimeids.WorkflowID {
 	t.Helper()
 	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Mixed Executable Fanout Workflow"})

@@ -126,6 +126,14 @@ Configure the root-level TOML key, supported range, and disable-with-zero behavi
 
 Headless runs are non-interactive. They do not stop to ask the human operator questions mid-run, issue tool preambles, or support the Supervisor. That makes them more suitable for background execution, automation, and saves tokens. You can talk to a headless agent if you select it in the `/resume` (session picker).
 
+### Provider usage history
+
+Successful provider operations retain one usage observation in Session history. Each observation includes the operation identity and originating Session identity, operation purpose and time, requested and served provider/model details, provider response identity when available, provider-reported usage and metadata, and hosted-tool evidence.
+
+Usage observations retain provider data for external price lookup; Kent does not calculate monetary costs, fetch prices, or expose Session totals. Missing provider fields and usage from earlier history remain absent rather than representing zero consumption, and copied history preserves the original operation identity.
+
+Only provider operations that return successfully through the model transport are observed. Failed, interrupted, or incomplete operations, provider omissions, and process termination can leave the retained history incomplete.
+
 ## Workspace Binding
 
 Headless runs fail if the selected workspace is not already attached to a Kent project.

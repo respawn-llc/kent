@@ -1022,6 +1022,7 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		transcript.NoticeReasonRuntimeDiagnostic:     transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
 		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
 		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
+		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
 	}
 	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
 	if !ok {
@@ -1041,14 +1042,15 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		return nil, err
 	}
 	notice := &transcriptpb.NoticeRow{
-		Reason:        reason,
-		Severity:      severity,
-		StepId:        textutil.Pointer(stepID),
-		LegacyText:    optionalStringPointer(fact.LegacyText),
-		SourcePath:    textutil.OptionalTrimmedString(fact.SourcePath),
-		Worktree:      worktree,
-		CondensedText: optionalNonBlankString(fact.CondensedText),
-		CompactLabel:  optionalNonBlankString(fact.CompactLabel),
+		Reason:         reason,
+		Severity:       severity,
+		StepId:         textutil.Pointer(stepID),
+		LegacyText:     optionalStringPointer(fact.LegacyText),
+		SourcePath:     textutil.OptionalTrimmedString(fact.SourcePath),
+		Worktree:       worktree,
+		CondensedText:  optionalNonBlankString(fact.CondensedText),
+		CompactLabel:   optionalNonBlankString(fact.CompactLabel),
+		ThinkingEffort: textutil.Pointer(fact.ThinkingEffort),
 	}
 	if messageType := strings.TrimSpace(string(fact.MessageType)); messageType != "" {
 		typed, err := transcriptNoticeMessageType(llm.MessageType(messageType))

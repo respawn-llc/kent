@@ -33,7 +33,7 @@ var supportedImageMIMEs = map[string]struct{}{
 type Tool struct {
 	fileAccess            *tools.FileAccessPolicy
 	outsideWorkspaceAudit OutsideWorkspaceAuditLogger
-	supported             bool
+	supported             func() bool
 }
 
 type OutsideWorkspaceAudit struct {
@@ -86,7 +86,10 @@ type contentItem struct {
 	Filename string `json:"filename,omitempty"`
 }
 
-func New(filesystemContext tools.FilesystemContext, supported bool, opts ...Option) (*Tool, error) {
+func New(filesystemContext tools.FilesystemContext, supported func() bool, opts ...Option) (*Tool, error) {
+	if supported == nil {
+		return nil, errors.New("view_image requires the current model capability")
+	}
 	settings := options{}
 	for _, opt := range opts {
 		if opt != nil {
@@ -110,7 +113,7 @@ func New(filesystemContext tools.FilesystemContext, supported bool, opts ...Opti
 }
 
 func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
-	if !t.supported {
+	if !t.supported() {
 		return tools.ErrorResult(c, "view_image is not allowed because this model does not support image/file inputs"), nil
 	}
 

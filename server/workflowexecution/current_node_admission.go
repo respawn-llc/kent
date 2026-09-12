@@ -491,7 +491,8 @@ func (c *CurrentNodeController) steerAndWaitStarts(
 			return nil, cause
 		}
 		recoveryStarts := outcome.committed
-		if recovery == recoverAllCurrentNodeStarts {
+		var preparationErr *TaskStartPreparationError
+		if recovery == recoverAllCurrentNodeStarts || errors.As(cause, &preparationErr) {
 			recoveryStarts = starts
 		}
 		return nil, errors.Join(cause, c.recoverCurrentNodeStartFailures(ctx, recoveryStarts, false, cause))

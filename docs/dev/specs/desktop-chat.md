@@ -68,22 +68,24 @@
 - User interruption creates no transcript row. Runtime error feedback and committed error items remain visible where supplied by the server.
 - Background activity and controls appear in Processes, while committed Background process results remain in transcript order. Worktree control outcomes, sleep-guard failures, and prompt-history failures use notifications and create no transcript row.
 - Thinking Status, Context, Goal, and Pending Work are the only live-control areas defined here. Session name stays in application chrome. Transient status-line notices and errors use notifications rather than feature-specific status surfaces.
-- While authoritative runtime activity is running, Thinking Status appears at the live end of the transcript immediately before the composer. It uses the same visual language as an assistant message but is transient runtime presentation, not a transcript row or durable history.
+- While authoritative runtime activity is running or Reviewer invocation is active, Thinking Status appears at the live end of the transcript immediately before the composer. Reviewer invocation must remain visible when the main Agent is idle. Thinking Status uses the same visual language as an assistant message but is transient runtime presentation, not a transcript row or durable history.
+- Thinking Status must scroll with the live transcript tail. It must not remain pinned above the composer while the operator reads older messages.
 - Thinking Status contains an animated activity spinner followed by one status line. Main-agent user-turn, Workflow-turn, and Goal-loop work shows the latest authoritative Thinking Status text, or `Working…` before the server supplies one for the current Agent Step. Reviewer work shows `Reviewing…`. Compaction and pre-submit compaction show `Compacting…`. User shell, background, and runtime-maintenance work show `Running…`.
 - The Thinking Status spinner follows the TUI's semantic activity tones: Reviewer uses Success, compaction uses Secondary, and every other running kind uses Primary.
 - A reasoning update without a new Thinking Status value retains the latest value for that Agent Step. Desktop never derives Thinking Status from Reasoning Trace text.
 - The server supplies one logical Thinking Status line. It may wrap to at most two visual lines, and the spinner aligns with the first line rather than the visual center of the wrapped block.
 - Thinking Status never presents steps, a timeline, or a Chain of Thought. Desktop does not parse text or manufacture work stages.
 - Thinking Status remains visible throughout the complete running active-work scope. For a main-agent Agent Step this includes assistant streaming and tool execution. As live or committed content arrives, it remains the final transient tail immediately before the composer.
-- Thinking Status disappears when its owning active work finishes or runtime activity leaves running. Its exit combines a short downward slide with a fade; reduced motion removes the transition.
+- Thinking Status disappears when neither main-agent work nor Reviewer invocation remains active. Its exit combines a short downward slide with a fade; reduced motion removes the transition.
 - A later Agent Step starts fresh at `Working…`. Desktop does not morph Thinking Status into an assistant message.
 - Thinking Status is non-interactive. It has no disclosure, Copy action, hover detail, or link to a Reasoning Trace.
 - While the Reviewer model request is processing, the same transient presentation shows a spinner and `Reviewing…`. Reviewer completion removes it and creates no completed-review marker.
 - Main-agent Thinking Status takes precedence over Reviewer activity. If a main-agent follow-up starts while Reviewer activity is still represented, the fresh ordinary `Working…` and Thinking Status presentation replaces `Reviewing…`.
 - While a Question or Approval waits for the operator, Thinking Status is absent. The prompt picker alone owns the waiting state.
 - When answering or external resolution resumes main-agent work, Desktop starts fresh at `Working…`.
-- A Reasoning Trace is a durable collapsible transcript item. Its collapsed header shows a brain icon, its first nonblank content line end-truncated to the available width, and the disclosure affordance. Unix and Windows line endings both delimit logical lines. Deriving this compact preview does not trim or normalize the complete projected text. It has no separate type label.
-- Expanding a Reasoning Trace reveals its complete selectable plain text in a muted tone. Desktop does not render Reasoning Trace content as Markdown.
+- A Reasoning Trace is a durable collapsible transcript item. Its header must show a brain icon and the disclosure affordance. While reasoning is ongoing, the header must show `Thinking...` with a shimmer animation. When committed reasoning has an authoritative duration, the header must show that duration, such as `Thought for 12.8 seconds`. Only when duration is absent must the header show the first nonblank content line, end-truncated to the available width. Unix and Windows line endings both delimit logical lines. Deriving this compact preview does not trim or normalize the complete projected text. It has no separate type label.
+- Expanding a Reasoning Trace must reveal its complete selectable content in a muted tone. Newly arriving text must animate into view smoothly. Desktop may render Markdown, but smooth streaming takes precedence when Markdown rendering would compromise performance.
+- Reasoning Trace expansion, collapse, and height changes as streaming adds lines must animate smoothly. Reduced motion must remove these animations. Reasoning Traces must reuse shared styling and must not add decorative hover treatment.
 - The first nonempty progressive Reasoning Trace update creates one provisional collapsed item. Later updates change that same item in place. The operator may expand it while it streams, and its complete visible text continues updating in place.
 - If the server resets a provider attempt, Desktop removes every still-provisional Reasoning Trace created by that discarded attempt, retains committed Reasoning Traces, and retains the current Thinking Status. A later trace update creates fresh provisional trace content.
 - Reasoning Trace durability begins only when completed-response processing reaches reasoning reconciliation. Kent does not gate assistant, tool, edit, or Agent Step lifecycle operations on trace persistence. If response processing fails before reconciliation, the server removes the still-provisional traces without durable rows even when an earlier response effect already completed. A trace that has already committed remains durable and is never removed by that cleanup.
@@ -371,10 +373,12 @@
 - The under-composer control row contains one Worktree affordance that identifies the Session's current concise execution target.
 - For a branch-backed worktree, the affordance shows the branch name. For a detached or otherwise non-branch worktree, it shows the Kent worktree display name. For the main workspace, it shows the workspace name.
 - When the current target is missing or inaccessible, the affordance preserves that recorded target name and adds warning iconography and semantic warning treatment. It does not replace the identity with generic warning copy.
+- For a missing or inaccessible Worktree, the affordance must show the recorded Kent display name, including when the Worktree was branch-backed.
 - The affordance end-truncates a long target name. The Worktree sidebar owns the complete target facts.
 - Activating the Worktree affordance opens the shared adaptive contextual-sidebar host.
 - Desktop does not place Worktree management in the Settings popover or a separate full-page destination.
 - Opening the Worktree list moves keyboard focus to its first enabled list action. If no row has an enabled action, focus moves to the header `+` action.
+- The Worktree list must use Tab and Shift+Tab to navigate enabled actions and Enter or Space to activate the focused action. Row text must not be a separate interactive focus stop.
 - Opening Worktree creation moves focus to `Branch or ref`.
 - Escape closes the delete popup back to the list, returns creation to the list, and closes the list-level sidebar.
 - Closing Worktree restores focus to the under-composer Worktree control when that control opened it, or to the composer when a slash command opened it.
@@ -382,6 +386,7 @@
 - The sidebar header has a primary icon-only `+` action for creating a worktree.
 - The sidebar header has a secondary icon-only Refresh action beside `+`.
 - Opening the Worktree sidebar performs one server-owned list read. The response may race with Worktree mutations or out-of-band Git changes. Initial loading uses the standard compact Loading state, and failure uses the matching compact Error state with Retry.
+- During manual or automatic list refresh, Desktop must retain the previous rows and show pending feedback on Refresh. If the read fails, Desktop must retain those rows and show compact Error with Retry. A successful read must replace the list in server order.
 - Successful Worktree creation, switching, and deletion refresh the list. Manual Refresh discovers out-of-band Git topology changes.
 - Desktop adds no Worktree-list polling loop or timer-based refresh.
 - After reconnection, Desktop reissues the current-target and open Worktree-list reads.

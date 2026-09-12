@@ -58,11 +58,16 @@ export type TranscriptBoundary =
   | Readonly<{ kind: "loading"; cursor: number }>
   | Readonly<{ kind: "error"; cursor: number; error: Error }>;
 export type TranscriptWindowSnapshot = Readonly<{
+  showsLive: boolean;
+  thinkingStatus: ThinkingStatusPresentation | null;
   items: readonly TranscriptRenderItem[];
   older: TranscriptBoundary;
   newer: TranscriptBoundary;
   opening: Readonly<{ kind: "loading" | "ready" | "disposed" }> | Readonly<{ kind: "error"; error: Error }>;
 }>;
+export type ThinkingStatusPresentation =
+  | Readonly<{ kind: "working" | "compacting" | "running" | "reviewing" }>
+  | Readonly<{ kind: "text"; text: string }>;
 export type TranscriptWindowEffect =
   | Readonly<{ kind: "scratch-rehydration" }>
   | Readonly<{ kind: "page-request"; request: TranscriptPageRequest }>

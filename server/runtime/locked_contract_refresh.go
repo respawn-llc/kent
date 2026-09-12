@@ -16,35 +16,22 @@ type PromptFacingSnapshotReloader interface {
 }
 
 type PromptFacingSnapshotConfig struct {
-	Settings      config.Settings
-	Source        config.SourceReport
-	ActiveToolIDs []toolspec.ID
-	WebSearchMode string
+	ConfiguredThinking string
+	Settings           config.Settings
+	Source             config.SourceReport
+	ActiveToolIDs      []toolspec.ID
+	WebSearchMode      string
 }
 
 func (e *Engine) ensureMainPromptFacingContractFresh(ctx context.Context, locked session.LockedContract) (session.LockedContract, error) {
 	if locked.HasSystemPrompt || strings.TrimSpace(locked.SystemPrompt) != "" {
 		return locked, nil
 	}
-	reloaded, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	snapshot, err := e.prepareMainPromptSnapshot(ctx, locked, e.systemPromptWorkspaceRoot())
 	if err != nil {
 		return session.LockedContract{}, err
 	}
-	next := locked
-	next.ToolPreambles = e.promptRefreshToolPreambles(reloaded.Settings.ToolPreambles)
-	prompt, err := e.buildSystemPromptSnapshotFromConfig(next, e.systemPromptWorkspaceRoot(), systemPromptSnapshotOptions{
-		WorkspaceRoot:     e.systemPromptWorkspaceRoot(),
-		GlobalConfigDir:   e.cfg.GlobalConfigDir,
-		SystemPromptFiles: reloaded.Settings.SystemPromptFiles,
-	}, reloaded.ActiveToolIDs)
-	if err != nil {
-		return session.LockedContract{}, err
-	}
-	result, err := e.store.RefreshLockedMainPromptSnapshot(session.LockedMainPromptSnapshot{
-		SystemPrompt:    prompt,
-		HasSystemPrompt: true,
-		ToolPreambles:   next.ToolPreambles,
-	})
+	result, err := e.store.RefreshLockedMainPromptSnapshot(snapshot)
 	if commitErr := e.applyLockedContractMutationResult(result, err, e.lockedContractState().ApplyMainPromptSnapshot); commitErr != nil {
 		return session.LockedContract{}, commitErr
 	}
@@ -55,6 +42,25 @@ func (e *Engine) ensureMainPromptFacingContractFresh(ctx context.Context, locked
 		return session.LockedContract{}, err
 	}
 	return session.LockedContract{}, errors.New("locked main prompt snapshot refresh did not commit")
+}
+
+func (e *Engine) prepareMainPromptSnapshot(ctx context.Context, locked session.LockedContract, workspaceRoot string) (session.LockedMainPromptSnapshot, error) {
+	reloaded, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	if err != nil {
+		return session.LockedMainPromptSnapshot{}, err
+	}
+	locked.ToolPreambles = e.promptRefreshToolPreambles(reloaded.Settings.ToolPreambles)
+	prompt, err := e.buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, systemPromptSnapshotOptions{
+		WorkspaceRoot:     workspaceRoot,
+		GlobalConfigDir:   e.cfg.GlobalConfigDir,
+		SystemPromptFiles: reloaded.Settings.SystemPromptFiles,
+	}, reloaded.ActiveToolIDs)
+	if err != nil {
+		return session.LockedMainPromptSnapshot{}, err
+	}
+	return session.LockedMainPromptSnapshot{
+		SystemPrompt: prompt, HasSystemPrompt: true, ToolPreambles: locked.ToolPreambles,
+	}, nil
 }
 
 func (e *Engine) ensureReviewerPromptFresh(ctx context.Context) (string, bool, error) {
@@ -91,6 +97,7 @@ func (e *Engine) reloadPromptFacingSnapshotConfig(ctx context.Context) (PromptFa
 		return e.cfg.PromptFacingSnapshotReloader.ReloadPromptFacingSnapshotConfig(ctx, e.SessionID())
 	}
 	return PromptFacingSnapshotConfig{
+		ConfiguredThinking: config.DefaultOnboardingSettings().ThinkingLevel,
 		Settings: config.Settings{
 			SystemPromptFiles: e.cfg.SystemPromptFiles,
 			ToolPreambles:     e.cfg.ToolPreambles,

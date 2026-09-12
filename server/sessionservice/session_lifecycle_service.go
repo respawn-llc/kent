@@ -7,10 +7,12 @@ import (
 	"strings"
 
 	"core/server/auth"
+	"core/server/launch"
 	"core/server/metadata"
 	"core/server/projectview"
 	"core/server/session"
 	"core/server/sessionruntime"
+	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -233,9 +235,18 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	transition.ForkUserMessageSeq = forkUserMessageSeq
+	app, err := config.Load(store.Meta().WorkspaceRoot, config.LoadOptions{ConfigRoot: s.persistenceRoot})
+	if err != nil {
+		return nil, err
+	}
+	thinking, err := launch.ResolveForkThinking(ctx, app, store.Meta(), s.authManager, false)
+	if err != nil {
+		return nil, err
+	}
 	resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{
-		Store:      store,
-		Transition: transition,
+		Store:        store,
+		Transition:   transition,
+		ForkThinking: thinking,
 	})
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err

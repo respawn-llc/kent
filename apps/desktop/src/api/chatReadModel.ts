@@ -3,6 +3,7 @@ import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/proje
 import type { SessionExecutionTarget } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type {
   ChatActivityFacts,
+  ChatActiveKind,
   ChatExecutionFacts,
   ChatTranscriptPayloadByKind,
 } from "./chatTranscriptTypes";
@@ -16,7 +17,7 @@ export function conversationFreshness(value: R.ConversationFreshness): 0 | 1 {
   return enumValue(value, { [R.ConversationFreshness.FRESH]: 0, [R.ConversationFreshness.ESTABLISHED]: 1 });
 }
 
-export function activeKind(value: R.ActivityActiveKind): string {
+export function activeKind(value: R.ActivityActiveKind): ChatActiveKind {
   return enumValue(value, {
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN]: "user_turn",
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN]: "workflow_turn",

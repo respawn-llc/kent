@@ -1,3 +1,5 @@
+import { effectRules } from "./eslint-effect-rules.js";
+
 const componentDirectories = new Set(["components", "ui"]);
 const disallowedEffectCalls = new Set(["fetch", "invoke"]);
 const knownBridgeIdentifiers = new Set(["apiClient", "appClient", "nativeBridge", "serverClient"]);
@@ -10,6 +12,7 @@ const eslintDisableDirectiveKeywords = new Set([
 
 export const appArchitecture = {
   rules: {
+    ...effectRules,
     "no-eslint-disable": {
       meta: {
         type: "problem",

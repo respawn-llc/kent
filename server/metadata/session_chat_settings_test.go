@@ -43,10 +43,19 @@ func TestSessionChatSettingsRoundTripThroughMetadataDocument(t *testing.T) {
 	if err := chat.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable: %v", err)
 	}
+	if err := chat.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := chat.AdoptOriginalThinkingEffort("low"); err != nil {
+		t.Fatal(err)
+	}
 
 	record, err := store.ResolvePersistedSession(context.Background(), chat.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
+	}
+	if record.Meta.OriginalThinkingEffort == nil || *record.Meta.OriginalThinkingEffort != "high" {
+		t.Fatalf("original effort = %v", record.Meta.OriginalThinkingEffort)
 	}
 	state, err := session.ChatDraftStateFromMeta(*record.Meta)
 	if err != nil {

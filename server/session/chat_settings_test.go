@@ -8,6 +8,43 @@ import (
 	"core/shared/textutil"
 )
 
+func TestThinkingSurvivesPreparationRestore(t *testing.T) {
+	store := newSessionTestStore(t)
+	if err := store.SetThinkingOverride(textutil.Value("medium")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := store.PromptFacingMetadataSnapshot()
+	if err := store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetThinkingOverride(textutil.Value("high")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RestorePromptFacingMetadata(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	meta := store.Meta()
+	if meta.ChatSettings == nil || meta.ChatSettings.Thinking == nil || *meta.ChatSettings.Thinking != "high" ||
+		meta.OriginalThinkingEffort == nil || *meta.OriginalThinkingEffort != "medium" {
+		t.Fatalf("restoration changed Thinking: %+v", meta)
+	}
+}
+
+func TestThinkingAdoptionPreservesDesiredOverride(t *testing.T) {
+	store := newSessionTestStore(t)
+	if err := store.SetThinkingOverride(textutil.Value("low")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	meta := store.Meta()
+	if meta.OriginalThinkingEffort == nil || *meta.OriginalThinkingEffort != "high" ||
+		meta.ChatSettings == nil || meta.ChatSettings.Thinking == nil || *meta.ChatSettings.Thinking != "low" {
+		t.Fatal("native adoption overwrote the independently selected desired effort")
+	}
+}
+
 func TestNormalizeChatSettingsOverridesValidatesPresentValuesAndClones(t *testing.T) {
 	supervisor := "edits"
 	thinking := "  custom-depth  "

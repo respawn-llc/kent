@@ -1,10 +1,12 @@
 import { QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { I18nextProvider } from "react-i18next";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { useReconnectRefresh } from "./connectionRefresh";
+import { useWindowFileDrops } from "./fileDrops";
 import { useNativeWindowGlassTintSync } from "./nativeWindowGlassTint";
 import { createAppQueryClient } from "./queryClient";
 import type { AppServices } from "@/app-facade";
@@ -23,23 +25,26 @@ export type AppProvidersProps = Readonly<{
 
 export function AppProviders({ services, children }: AppProvidersProps) {
   const queryClient = useMemo(() => createAppQueryClient(), []);
+  useWindowFileDrops(services);
 
   return (
     <I18nextProvider i18n={appI18n}>
       <QueryClientProvider client={queryClient}>
-        <AppServicesProvider services={services}>
-          <WindowFocusProvider>
-            <WindowChromeTitleProvider>
-              <StatusProvider>
-                <TaskSearchMemoryProvider>
-                  <ReconnectRefresh />
-                  <NativeWindowGlassTintSync nativeBridge={services.nativeBridge} />
-                  {children}
-                </TaskSearchMemoryProvider>
-              </StatusProvider>
-            </WindowChromeTitleProvider>
-          </WindowFocusProvider>
-        </AppServicesProvider>
+        <RegistryProvider>
+          <AppServicesProvider services={services}>
+            <WindowFocusProvider>
+              <WindowChromeTitleProvider>
+                <StatusProvider>
+                  <TaskSearchMemoryProvider>
+                    <ReconnectRefresh />
+                    <NativeWindowGlassTintSync nativeBridge={services.nativeBridge} />
+                    {children}
+                  </TaskSearchMemoryProvider>
+                </StatusProvider>
+              </WindowChromeTitleProvider>
+            </WindowFocusProvider>
+          </AppServicesProvider>
+        </RegistryProvider>
       </QueryClientProvider>
     </I18nextProvider>
   );
