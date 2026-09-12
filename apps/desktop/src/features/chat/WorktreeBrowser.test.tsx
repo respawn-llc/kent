@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 import {
   ChatRuntimeProvider,
   queryKeys,
+  replaceWorktreeListRead,
   SidebarHeaderActionProvider,
   SidebarHeaderActionSlot,
   SidebarRootContext,
@@ -158,10 +159,13 @@ it("reconnect refreshes the shared control and open list once", async () => {
   const runtime = runtimeApi({ reads: [Promise.resolve(mainViewRead()), Promise.resolve(mainViewRead(2))] });
   const api = { connection: services.api.connection, chat: runtime.api };
   const client = new QueryClient();
+  const onReconnected = vi.fn(() => {
+    void replaceWorktreeListRead(client, services.api, target.sessionID);
+  });
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
+        <ChatRuntimeProvider api={api} target={target} host={runtimeHost()} onReconnected={onReconnected}>
           <WorktreeControl sessionID={target.sessionID} onAction={vi.fn()} />
           <WorktreeBrowser sessionID={target.sessionID} onAction={vi.fn()} />
         </ChatRuntimeProvider>
@@ -174,6 +178,11 @@ it("reconnect refreshes the shared control and open list once", async () => {
   const before = services.transport.descriptorCalls.length;
   expect(before).toBeGreaterThan(0);
   act(() => {
+    services.transport.connection.set("connecting");
+    services.transport.connection.set("connected");
+  });
+  expect(onReconnected).not.toHaveBeenCalled();
+  act(() => {
     services.transport.connection.set("disconnected");
     services.transport.connection.set("connecting");
     services.transport.connection.set("connected");
@@ -185,6 +194,7 @@ it("reconnect refreshes the shared control and open list once", async () => {
     expect(client.isFetching()).toBe(0);
   });
   expect(runtime.getMainView).toHaveBeenCalledTimes(2);
+  expect(onReconnected).toHaveBeenCalledOnce();
 });
 
 it("refreshes after a completed typed transition without changing Chat target or invoking mutations", async () => {

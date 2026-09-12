@@ -106,7 +106,7 @@ export function WorktreeBrowser({
                   <Badge
                     className="shrink-0"
                     size="compact"
-                    tone={row.indicator === "missing" ? "warning" : "neutral"}
+                    tone={row.indicator === "missing" ? "danger" : "warning"}
                   >
                     {t(`chat.worktree.${row.indicator}`)}
                   </Badge>
