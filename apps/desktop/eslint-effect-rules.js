@@ -361,7 +361,7 @@ function subscriptionContract(type, checker) {
         .some(
           (signature) =>
             signature.parameters.some((parameter) =>
-              callable(checker.getTypeOfSymbolAtLocation(parameter, parameter.valueDeclaration)),
+              callable(checker.getTypeOfSymbol(parameter)),
             ) && unlistenHandle(checker.getReturnTypeOfSignature(signature), checker),
         ),
   );

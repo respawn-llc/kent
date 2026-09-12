@@ -42,7 +42,7 @@ Boundary enforcement is fail-closed: every desktop TypeScript file and local dep
 
 ### Installed Effect guidance
 
-Read `apps/desktop/node_modules/effect/AGENTS.md` completely before writing Effect code, follow its relevant links, and consult the installed `effect/src` for version-specific APIs. The tracked `.kent/skills/effect-ts/SKILL.md` and LICENSE are vendored from Effect-TS/skills revision `2309e6f27d9955b434c0e3f394b945c136e89fd2`. Repository Just, dependency policy, and the narrow adoption boundary override generic upstream setup and architecture recommendations. `just setup --apply` installs and prepares the supported Effect-aware TypeScript 7 compiler without changing TypeScript versions.
+Use `.kent/skills/effect-ts/SKILL.md` when building or changing Effect-backed desktop screens. It maps the installed maintainers' usage guidance to the Project Edit reference. Read `apps/desktop/node_modules/effect/AGENTS.md` completely before writing Effect code, follow its relevant links, and consult the installed `effect/src` for version-specific APIs. Repository Just, dependency policy, and the narrow adoption boundary override generic upstream architecture recommendations. `just setup --apply` installs and prepares the supported Effect-aware TypeScript 7 compiler without changing TypeScript versions.
 
 ## Checks
 
