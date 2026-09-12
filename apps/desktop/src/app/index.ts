@@ -1,1 +1,1 @@
-export { SidebarComposition } from "./sidebarComposition";
+export { AppChrome } from "./AppChrome";
