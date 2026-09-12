@@ -56,15 +56,7 @@ func (c *Remote) SetGoal(
 		value := request.StepID
 		generatedRequest.StepId = &value
 	}
-	success, err := callGeneratedBinaryWithFailureClassifier(
-		c,
-		ctx,
-		goalMethod("Set"),
-		generatedRequest,
-		&runtimepb.GoalSetResult{},
-		goalSetGeneratedError,
-		noGeneratedPlatformFailure[*runtimepb.GoalSetError],
-	)
+	success, err := callGoalSetBinary(c, ctx, generatedRequest)
 	if err != nil {
 		return serverapi.RuntimeGoalSetResponse{}, err
 	}
@@ -94,6 +86,34 @@ func (c *Remote) SetGoal(
 		response.Diagnostic = goalSetGeneratedError(diagnostic)
 	}
 	return response, nil
+}
+
+func callGoalSetBinary(
+	c *Remote,
+	ctx context.Context,
+	request *runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	method := goalMethod("Set")
+	result := &runtimepb.GoalSetResult{}
+	if err := c.callBinary(ctx, method, request, result); err != nil {
+		return nil, err
+	}
+	classified, err := protoapi.ClassifyResult(result)
+	if err != nil {
+		return nil, fmt.Errorf("classify %s result: %w", method.FullName(), err)
+	}
+	switch classified.Outcome {
+	case protoapi.OperationSuccess:
+		return result.GetSuccess(), nil
+	case protoapi.OperationKnownFailure, protoapi.OperationGenericFailure:
+		failure := result.GetError()
+		if failure == nil {
+			return nil, fmt.Errorf("%s classified a failure without an error value", method.FullName())
+		}
+		return nil, goalSetGeneratedError(failure)
+	default:
+		return nil, fmt.Errorf("classify %s result: unknown outcome %d", method.FullName(), classified.Outcome)
+	}
 }
 
 type GoalSetGeneratedError struct {
