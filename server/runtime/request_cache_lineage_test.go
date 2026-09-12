@@ -9,6 +9,7 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -186,7 +187,7 @@ func TestPromptCacheResponseAppliesLineageByCommitReceipt(t *testing.T) {
 
 	stepID := runtimeTestStepID("step-1")
 	err := runTestActiveStep(eng, stepID, func() error {
-		return eng.observePromptCacheResponse(stepID, prepared, llm.Usage{
+		return eng.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, prepared, modelcontract.ProviderUsageEvidence{}, llm.Usage{
 			CachedInputTokens: textutil.Value(7),
 		})
 	})

@@ -262,6 +262,16 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Compaction selection compares current usage with the configured thresholds.
 - Kent does not predict future token growth from earlier turns or maintain a separate adaptive compaction policy.
 
+## Historical Provider Usage
+
+- Kent must retain provider usage for successful model operations in Session history, including ordinary turns, compaction, Reviewer work, and Supervisor work.
+- Kent must retain the operation's provider, model, time, reported token categories, and available billing-relevant details, including hosted-tool usage, so external consumers can look up prices independently.
+- Kent must preserve historical usage across Session resume and compaction independently of current context usage.
+- Missing usage information must be nullable and must not mean zero consumption.
+- Recording subsequent operations must not fabricate missing historical usage. Retained observations must not certify complete Session billing history.
+- When Session history is copied, retained usage must preserve its original Session and operation identity. Copying history must not represent another provider operation.
+- Usage retention must not calculate monetary costs or fetch or maintain model prices.
+
 ## Compaction
 
 - Compaction starts a new bounded active conversation from compacted output while retaining the full durable session history. The compacted output and all new generation context are committed atomically before later model work.

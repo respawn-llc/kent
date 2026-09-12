@@ -697,22 +697,24 @@ func (u Usage) CacheHitPercent() (int, bool) {
 }
 
 type Response struct {
-	Assistant         Message          `json:"assistant"`
-	ProviderPhase     *ProviderPhase   `json:"-"`
-	ServedModel       *string          `json:"served_model,omitempty"`
-	ReasoningIncluded bool             `json:"reasoning_included,omitempty"`
-	ToolCalls         []ToolCall       `json:"tool_calls,omitempty"`
-	Reasoning         []ReasoningEntry `json:"reasoning,omitempty"`
-	ReasoningItems    []ReasoningItem  `json:"reasoning_items,omitempty"`
-	OutputItems       []ResponseItem   `json:"output_items,omitempty"`
-	Usage             Usage            `json:"usage"`
+	Assistant         Message                             `json:"assistant"`
+	ProviderPhase     *ProviderPhase                      `json:"-"`
+	ServedModel       *string                             `json:"served_model,omitempty"`
+	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
+	ReasoningIncluded bool                                `json:"reasoning_included,omitempty"`
+	ToolCalls         []ToolCall                          `json:"tool_calls,omitempty"`
+	Reasoning         []ReasoningEntry                    `json:"reasoning,omitempty"`
+	ReasoningItems    []ReasoningItem                     `json:"reasoning_items,omitempty"`
+	OutputItems       []ResponseItem                      `json:"output_items,omitempty"`
+	Usage             Usage                               `json:"usage"`
 }
 
 type CompactionRequest = Request
 
 type CompactionResponse struct {
-	Checkpoint ResponseItem
-	Usage      Usage
+	Checkpoint       ResponseItem
+	Usage            Usage
+	ProviderEvidence modelcontract.ProviderUsageEvidence
 }
 
 type CompactionClient interface {

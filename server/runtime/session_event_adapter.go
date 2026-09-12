@@ -398,14 +398,28 @@ func sessionCacheRequestRecordFromRuntime(
 func sessionCacheResponseRecordFromRuntime(
 	observation persistedCacheResponseObserved,
 ) (session.CacheResponseObservationRecord, error) {
-	record := session.CacheResponseObservationRecord{
-		DigestVersion: observation.DigestVersion,
-		CacheKey:      observation.CacheKey,
-		Scope:         session.CacheScope(observation.Scope),
-		ChunkCount:    observation.ChunkCount,
-		TerminalHash:  observation.TerminalHash,
+	record := session.CacheResponseObservationRecord{}
+	if strings.TrimSpace(observation.CacheKey) != "" {
+		digestVersion := observation.DigestVersion
+		cacheKey := observation.CacheKey
+		scope := session.CacheScope(observation.Scope)
+		chunkCount := observation.ChunkCount
+		terminalHash := observation.TerminalHash
+		record.DigestVersion = &digestVersion
+		record.CacheKey = &cacheKey
+		record.Scope = &scope
+		record.ChunkCount = &chunkCount
+		record.TerminalHash = &terminalHash
+		record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
 	}
-	record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
+	record.OperationID = textutil.Pointer(observation.OperationID)
+	record.SessionID = textutil.Pointer(observation.SessionID)
+	record.Purpose = textutil.Pointer(observation.Purpose)
+	record.ObservedAt = textutil.Pointer(observation.ObservedAt)
+	if observation.ProviderUsage != nil {
+		usage := observation.ProviderUsage.Clone()
+		record.ProviderUsage = &usage
+	}
 	normalized, err := session.NewEventRecord(1, nil, record)
 	if err != nil {
 		return session.CacheResponseObservationRecord{}, err
@@ -445,12 +459,30 @@ func persistedCacheResponseObservedFromSessionRecord(
 	record session.CacheResponseObservationRecord,
 ) persistedCacheResponseObserved {
 	observation := persistedCacheResponseObserved{
-		DigestVersion:     record.DigestVersion,
-		CacheKey:          record.CacheKey,
-		Scope:             transcript.CacheWarningScope(record.Scope),
-		ChunkCount:        record.ChunkCount,
-		TerminalHash:      record.TerminalHash,
 		CachedInputTokens: textutil.Pointer(record.CachedInputTokens),
+		OperationID:       textutil.Pointer(record.OperationID),
+		SessionID:         textutil.Pointer(record.SessionID),
+		Purpose:           textutil.Pointer(record.Purpose),
+		ObservedAt:        textutil.Pointer(record.ObservedAt),
+	}
+	if record.DigestVersion != nil {
+		observation.DigestVersion = *record.DigestVersion
+	}
+	if record.CacheKey != nil {
+		observation.CacheKey = *record.CacheKey
+	}
+	if record.Scope != nil {
+		observation.Scope = transcript.CacheWarningScope(*record.Scope)
+	}
+	if record.ChunkCount != nil {
+		observation.ChunkCount = *record.ChunkCount
+	}
+	if record.TerminalHash != nil {
+		observation.TerminalHash = *record.TerminalHash
+	}
+	if record.ProviderUsage != nil {
+		usage := record.ProviderUsage.Clone()
+		observation.ProviderUsage = &usage
 	}
 	return observation
 }
