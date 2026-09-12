@@ -78,7 +78,7 @@ type Config struct {
 	MaxTokens                       int
 	ThinkingLevel                   string
 	SupportedThinkingValues         []string
-	ModelCapabilities               session.LockedModelCapabilities
+	ModelCapabilities               *session.LockedModelCapabilities
 	FastModeEnabled                 bool
 	WebSearchMode                   string
 	PromptFacingSnapshotReloader    PromptFacingSnapshotReloader
@@ -249,6 +249,7 @@ func New(
 		cfg.AutoCompactionEnabled = &enabled
 	}
 	cfg.SupportedThinkingValues = slices.Clone(cfg.SupportedThinkingValues)
+	cfg.ModelCapabilities = textutil.Pointer(cfg.ModelCapabilities)
 	var workflowPromptContract *workflowruntime.CompletionContract
 	if cfg.WorkflowPrompt != nil {
 		prepared, err := newWorkflowPromptCompletionContract(cfg.WorkflowPrompt)
@@ -256,9 +257,6 @@ func New(
 			return nil, fmt.Errorf("prepare runtime workflow prompt completion contract: %w", err)
 		}
 		workflowPromptContract = &prepared
-	}
-	if !cfg.ModelCapabilities.SupportsReasoningEffort && !cfg.ModelCapabilities.SupportsVisionInputs {
-		cfg.ModelCapabilities = llm.LockedModelCapabilitiesForModel(cfg.Model)
 	}
 	reviewerSuggestionsContract, err := prepareReviewerSuggestionsContract(
 		jsoncontract.NewPreparer(cfg.Debug),
@@ -305,6 +303,10 @@ func New(
 		providerCapabilities.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
 	}
 	eng.cfg.ProviderCapabilitiesOverride = &providerCapabilities
+	if eng.cfg.ModelCapabilities == nil {
+		capabilities := llm.LockedModelCapabilitiesForModel(cfg.Model, providerCapabilities)
+		eng.cfg.ModelCapabilities = &capabilities
+	}
 	policySettings := config.Settings{
 		ModelContextWindow:               eng.cfg.ContextWindowTokens,
 		ContextCompactionThresholdTokens: eng.cfg.AutoCompactTokenLimit,
@@ -1027,7 +1029,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 		MaxOutputToken:    e.cfg.MaxTokens,
 		EnabledTools:      toolspec.IDStrings(e.cfg.EnabledTools),
 		WebSearchMode:     strings.TrimSpace(e.cfg.WebSearchMode),
-		ModelCapabilities: e.cfg.ModelCapabilities,
+		ModelCapabilities: *e.cfg.ModelCapabilities,
 	}
 	if prompt, configured := e.workflowPrompt(); configured {
 		mode, err := workflowruntime.ParseCompletionMode(string(prompt.CompletionMode))

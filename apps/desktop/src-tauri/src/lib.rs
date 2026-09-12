@@ -602,6 +602,16 @@ async fn set_native_window_glass_tint(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    // WebView2 native file drops disable HTML board dragging on Windows.
+    #[cfg(windows)]
+    let context = {
+        let mut context = context;
+        for window in &mut context.config_mut().app.windows {
+            window.drag_drop_enabled = false;
+        }
+        context
+    };
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -637,7 +647,7 @@ pub fn run() {
             apply_native_window_glass,
             set_native_window_glass_tint,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running the desktop application");
 }
 

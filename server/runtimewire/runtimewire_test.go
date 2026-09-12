@@ -1558,6 +1558,7 @@ func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
 	locked := lockedModelCapabilitiesForConfig(
 		"gpt-5",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
+		llm.ProviderCapabilities{},
 		map[string]string{"reviewer.model_capabilities.supports_reasoning_effort": "file"},
 		"reviewer.model_capabilities.supports_reasoning_effort",
 		"reviewer.model_capabilities.supports_vision_inputs",
@@ -1571,10 +1572,99 @@ func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
 	}
 }
 
+func TestRuntimeWiringVisionDefaults(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		providerID string
+		override   *bool
+		wantVision bool
+	}{
+		{name: "OpenAI default", providerID: "openai", wantVision: true},
+		{name: "Codex default", providerID: "chatgpt-codex", wantVision: true},
+		{name: "custom provider default", providerID: "openai-compatible", wantVision: false},
+		{name: "explicit false", providerID: "openai", override: textutil.Value(false), wantVision: false},
+		{name: "custom provider opt-in", providerID: "openai-compatible", override: textutil.Value(true), wantVision: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			store, err := session.Create(root, "ws", root, sessioncontract.SessionCategoryMain, runtimeWireTestSessionPersistence.Options()...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			caps, ok := llm.LookupProviderCapabilityContract(test.providerID)
+			if !ok {
+				t.Fatalf("unknown provider %q", test.providerID)
+			}
+			client := &runtimewireCaptureClient{
+				caps: caps,
+				responses: []llm.Response{{
+					Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
+				}},
+			}
+			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
+			active.Model = "gpt-unknown-future"
+			sources := map[string]string{}
+			if test.override != nil {
+				active.ModelCapabilities.SupportsVisionInputs = *test.override
+				sources["model_capabilities.supports_vision_inputs"] = "file"
+			}
+			wiring, err := NewRuntimeWiring(
+				store, materializedRuntimeWireEventLog(t, store), active,
+				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil,
+				requiredRuntimeWireTestOptions(RuntimeWiringOptions{
+					Client: client, Sources: sources,
+					FilesystemContext: runtimeWireFilesystemContext(t, root),
+					GlobalConfigDir:   t.TempDir(),
+				}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := wiring.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			if _, err := wiring.Engine.SubmitUserMessage(context.Background(), "inspect"); err != nil {
+				t.Fatal(err)
+			}
+			advertised := false
+			for _, tool := range client.calls[0].Tools {
+				if tool.Name == string(toolspec.ToolViewImage) {
+					advertised = true
+				}
+			}
+			if advertised != test.wantVision {
+				t.Fatalf("view_image advertised = %t, want %t", advertised, test.wantVision)
+			}
+			imagePath := filepath.Join(root, "image.pdf")
+			if err := os.WriteFile(imagePath, []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			input, err := json.Marshal(map[string]string{"path": imagePath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler, ok := wiring.LocalTools.Registry().Get(toolspec.ToolViewImage)
+			if !ok {
+				t.Fatal("missing view_image handler")
+			}
+			result, err := handler.Call(context.Background(), tools.Call{ID: "image", Name: toolspec.ToolViewImage, Input: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.IsError == test.wantVision {
+				t.Fatalf("view_image result = %+v, want vision %t", result, test.wantVision)
+			}
+		})
+	}
+}
+
 func TestReviewerModelCapabilitiesHonorInheritedExplicitFalseSources(t *testing.T) {
 	locked := lockedModelCapabilitiesForConfig(
 		"gpt-5",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
+		llm.ProviderCapabilities{},
 		map[string]string{"model_capabilities.supports_reasoning_effort": "file"},
 		"reviewer.model_capabilities.supports_reasoning_effort",
 		"reviewer.model_capabilities.supports_vision_inputs",

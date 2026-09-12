@@ -64,6 +64,8 @@ brew install --cask respawn-llc/tap/kent-desktop
 
 Homebrew installs update through `brew upgrade`, standalone installs self-update.
 
+On macOS and Linux, drag local files into Kent Desktop to insert their absolute paths into the focused text input. This inserts text, not attachments. Drops without a focused editable input, and file drops on Windows or in a browser, are ignored.
+
 :::note
 The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
 :::

@@ -4,8 +4,60 @@ import (
 	"core/shared/clientui"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
+
+func TestLongPatchPathPreservesFilenameAndCounts(t *testing.T) {
+	path := strings.Repeat("long-directory/", 12) + "workflow.json"
+	presentation := patchformat.Render("*** Begin Patch\n*** Update File: "+path+"\n-old\n+new\n*** End Patch\n", "/worktree")
+	row := patchRow(presentation)
+	status := "Mismatch between file and model-supplied content"
+	row.Tool.IsError = true
+	row.Tool.ResultSummary = &status
+	for _, width := range []int{24, 40, 80} {
+		for _, mode := range []Mode{ModeOngoing, ModeOngoingCollapsed} {
+			line := RenderCommittedRow(row, width, "dark", mode).Lines[0]
+			text, url := patchLink([]Line{line})
+			if !strings.HasSuffix(text, "workflow.json") || url != "file:///worktree/"+path {
+				t.Fatalf("lost filename or link at width %d: %q %q", width, text, url)
+			}
+			for _, role := range []StyleRole{StyleRoleToolError, StyleRoleToolSuccess} {
+				var found bool
+				for _, span := range line.Spans {
+					if spanRole, ok := span.Style.Role(); ok && spanRole == role && span.Text != "" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("lost change count at width %d: %q", width, line.Plain())
+				}
+			}
+			if lipgloss.Width(line.Plain()) > width {
+				t.Fatalf("row overflow at width %d: %q", width, line.Plain())
+			}
+			t.Logf("%d columns: %s", width, line.Plain())
+		}
+	}
+}
+
+func TestPatchFailurePreservesInputBeforeStatus(t *testing.T) {
+	presentation := patchformat.Render("*** Begin Patch\n*** Update File: dir/file.go\n-old\n+new\n*** End Patch\n", "/worktree")
+	row := patchRow(presentation)
+	status := strings.Repeat("failure ", 30)
+	row.Tool.IsError = true
+	row.Tool.ResultSummary = &status
+	for _, mode := range []Mode{ModeOngoing, ModeOngoingCollapsed} {
+		input := RenderCommittedRow(patchRow(presentation), 40, "dark", mode).Lines[0]
+		failed := RenderCommittedRow(row, 40, "dark", mode).Lines[0]
+		if !strings.HasPrefix(failed.Plain(), input.Plain()) {
+			t.Fatalf("failure displaced patch input: %q; input %q", failed.Plain(), input.Plain())
+		}
+		assertPatchLink(t, []Line{failed}, "./dir/file.go", "file:///worktree/dir/file.go")
+	}
+}
 
 func TestPatchHyperlinks(t *testing.T) {
 	patch := "*** Begin Patch\n*** Update File: dir/file.go\n-old\n+new\n*** End Patch\n"

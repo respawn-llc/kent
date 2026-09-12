@@ -72,9 +72,15 @@ func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 		if errors.Is(err, tools.ErrForeignManagedWorktreeEdit) {
 			return tools.ErrorResult(c, tools.ForeignManagedWorktreeEditDeniedMessage), nil
 		}
-		return tools.ErrorResultWith(c, err.Error(), func(any) (json.RawMessage, error) {
+		result := tools.ErrorResultWith(c, err.Error(), func(any) (json.RawMessage, error) {
 			return json.Marshal(errorPayload(err))
-		}), nil
+		})
+		var patchFailure *failure
+		if errors.As(err, &patchFailure) && patchFailure.Kind == failureKindContentMismatch {
+			summary := "Mismatch between file and model-supplied content"
+			result.Summary = &summary
+		}
+		return result, nil
 	}
 
 	body, _ := json.Marshal(map[string]any{

@@ -489,7 +489,7 @@ func attachPrefixWithFirstLineMetaAndContinuation(
 		}
 		if inlineMeta != "" {
 			if modeUsesOngoingContinuationPrefix(mode) {
-				spans = ongoingInlineMetaSpans(spans, inlineMeta, bodyWidth)
+				spans = ongoingInlineMetaSpans(spans, inlineMeta, bodyWidth, role)
 			} else {
 				gap := bodyWidth - lipgloss.Width(command) - lipgloss.Width(inlineMeta)
 				if gap < 1 {
@@ -519,10 +519,17 @@ func attachPrefixWithFirstLineMetaAndContinuation(
 	return out
 }
 
-func ongoingInlineMetaSpans(command []Span, inlineMeta string, bodyWidth int) []Span {
+func ongoingInlineMetaSpans(command []Span, inlineMeta string, bodyWidth int, role StyleRole) []Span {
 	separator := SemanticSpan("  · ", StyleRoleNotice, SpanAttributeFaint)
 	meta := SemanticSpan(inlineMeta, StyleRoleNotice, SpanAttributeFaint)
 	suffix := []Span{separator, meta}
+	if role == StyleRoleToolPatch {
+		remaining := bodyWidth - spansWidth(command)
+		if remaining <= spansWidth([]Span{separator}) {
+			return TruncateLine(Line{Spans: command}, max(1, bodyWidth), false).Spans
+		}
+		return append(command, TruncateLine(Line{Spans: suffix}, remaining, false).Spans...)
+	}
 	suffixWidth := spansWidth(suffix)
 	if suffixWidth >= bodyWidth {
 		return TruncateLine(Line{Spans: suffix}, max(1, bodyWidth), false).Spans

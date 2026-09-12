@@ -94,35 +94,6 @@ func NewRuntimeWiringWithBackground(
 		return nil, err
 	}
 	workingDirectory := filesystemContext.Access.WorkingDirectory.LexicalPath
-	var eng *runtime.Engine
-	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
-		FilesystemContext:   filesystemContext,
-		OwnerSessionID:      store.Meta().SessionID,
-		Enabled:             enabledTools,
-		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
-		ShellOutputMaxChars: active.ShellOutputMaxChars,
-		ModelContextWindow:  active.ModelContextWindow,
-		AllowNonCwdEdits:    active.AllowNonCwdEdits,
-		SupportsVision: func() bool {
-			return llm.LockedContractSupportsVisionInputs(store.Meta().Locked, active.Model)
-		},
-		Logger:                   logger,
-		Background:               background,
-		ShellPostprocessor:       shellPostprocessor,
-		GlobalConfigDir:          opts.GlobalConfigDir,
-		Debug:                    active.Debug,
-		TriggerHandoffController: func() triggerhandofftool.TriggerHandoffController { return eng },
-		QuestionsEnabledGetter: func() bool {
-			if eng == nil {
-				return true
-			}
-			return eng.QuestionsEnabled()
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	toolRegistry := localTools.Registry()
 	factoryContext := opts.Context
 	if factoryContext == nil {
 		factoryContext = context.Background()
@@ -196,6 +167,47 @@ func NewRuntimeWiringWithBackground(
 		}
 	}
 
+	providerCapabilitiesOverride := mainProvider.ProviderCapabilitiesOverride
+	if opts.ProviderCapabilitiesOverride != nil {
+		providerCapabilitiesOverride = opts.ProviderCapabilitiesOverride
+	}
+	providerCapabilities, err := runtimeClientCapabilities(factoryContext, client, providerCapabilitiesOverride)
+	if err != nil {
+		return nil, err
+	}
+	modelCapabilities := lockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities, providerCapabilities, opts.Sources, "model_capabilities.supports_reasoning_effort", "model_capabilities.supports_vision_inputs")
+	var eng *runtime.Engine
+	localTools, askBroker, background, err := NewLocalToolRegistryBinding(LocalToolRegistryOptions{
+		FilesystemContext:   filesystemContext,
+		OwnerSessionID:      store.Meta().SessionID,
+		Enabled:             enabledTools,
+		MinimumExecToBgTime: time.Duration(active.MinimumExecToBgSeconds) * time.Second,
+		ShellOutputMaxChars: active.ShellOutputMaxChars,
+		ModelContextWindow:  active.ModelContextWindow,
+		AllowNonCwdEdits:    active.AllowNonCwdEdits,
+		SupportsVision: func() bool {
+			if locked := store.Meta().Locked; locked != nil {
+				return llm.LockedContractSupportsVisionInputs(locked, active.Model)
+			}
+			return modelCapabilities.SupportsVisionInputs
+		},
+		Logger:                   logger,
+		Background:               background,
+		ShellPostprocessor:       shellPostprocessor,
+		GlobalConfigDir:          opts.GlobalConfigDir,
+		Debug:                    active.Debug,
+		TriggerHandoffController: func() triggerhandofftool.TriggerHandoffController { return eng },
+		QuestionsEnabledGetter: func() bool {
+			if eng == nil {
+				return true
+			}
+			return eng.QuestionsEnabled()
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	toolRegistry := localTools.Registry()
 	eventBridge := NewEventBridge(2048, func(total uint64, evt runtime.Event) {
 		if logger == nil {
 			return
@@ -213,10 +225,6 @@ func NewRuntimeWiringWithBackground(
 			skipContinuationAgentRoleValidation: opts.SkipContinuationAgentRoleValidation,
 		}
 	}
-	providerCapabilitiesOverride := mainProvider.ProviderCapabilitiesOverride
-	if opts.ProviderCapabilitiesOverride != nil {
-		providerCapabilitiesOverride = opts.ProviderCapabilitiesOverride
-	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
 		Model:                           active.Model,
 		Debug:                           active.Debug,
@@ -224,11 +232,11 @@ func NewRuntimeWiringWithBackground(
 		MaxTokens:                       0,
 		ThinkingLevel:                   active.ThinkingLevel,
 		SupportedThinkingValues:         launch.SupportedChatThinkingValues(active.Model, active.ThinkingLevel),
-		ModelCapabilities:               llm.LockedModelCapabilitiesForConfig(active.Model, active.ModelCapabilities),
+		ModelCapabilities:               &modelCapabilities,
 		FastModeEnabled:                 active.PriorityRequestMode,
 		WebSearchMode:                   active.WebSearch,
 		PromptFacingSnapshotReloader:    promptReloader,
-		ProviderCapabilitiesOverride:    providerCapabilitiesOverride,
+		ProviderCapabilitiesOverride:    &providerCapabilities,
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
 		SubagentCatalogSettings:         active,
@@ -253,7 +261,7 @@ func NewRuntimeWiringWithBackground(
 			Frequency:         active.Reviewer.Frequency,
 			Model:             active.Reviewer.Model,
 			ThinkingLevel:     active.Reviewer.ThinkingLevel,
-			ModelCapabilities: lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
+			ModelCapabilities: lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, llm.ProviderCapabilities{}, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
 			SystemPromptFile:  active.Reviewer.SystemPromptFile,
 			VerboseOutput:     active.Reviewer.VerboseOutput,
 			Client:            reviewerClient,
@@ -341,20 +349,28 @@ func mainProviderRuntimeSettings(active config.Settings) providerRuntimeSettings
 	}
 }
 
-func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, sources map[string]string, reasoningKey string, visionKey string) session.LockedModelCapabilities {
-	locked := llm.LockedModelCapabilitiesForModel(model)
+func runtimeClientCapabilities(ctx context.Context, client llm.Client, override *llm.ProviderCapabilities) (llm.ProviderCapabilities, error) {
+	if override != nil {
+		return *override, nil
+	}
+	provider, ok := client.(llm.ProviderCapabilitiesClient)
+	if !ok {
+		return llm.ProviderCapabilities{}, fmt.Errorf("provider capabilities are unavailable")
+	}
+	return provider.ProviderCapabilities(ctx)
+}
+
+func lockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride, provider llm.ProviderCapabilities, sources map[string]string, reasoningKey string, visionKey string) session.LockedModelCapabilities {
+	locked := llm.LockedModelCapabilitiesForModel(model, provider)
 	reasoningConfigured := inheritedModelCapabilitySourceConfigured(sources, reasoningKey)
 	visionConfigured := inheritedModelCapabilitySourceConfigured(sources, visionKey)
-	if reasoningConfigured {
+	if reasoningConfigured || override.SupportsReasoningEffort {
 		locked.SupportsReasoningEffort = override.SupportsReasoningEffort
 	}
-	if visionConfigured {
+	if visionConfigured || override.SupportsVisionInputs {
 		locked.SupportsVisionInputs = override.SupportsVisionInputs
 	}
-	if reasoningConfigured || visionConfigured {
-		return locked
-	}
-	return llm.LockedModelCapabilitiesForConfig(model, override)
+	return locked
 }
 
 func inheritedModelCapabilitySourceConfigured(sources map[string]string, key string) bool {

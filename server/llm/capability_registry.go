@@ -152,25 +152,11 @@ func IsOpenAIFirstPartyBaseURL(baseURL string) bool {
 	return strings.EqualFold(strings.TrimSpace(parsed.Hostname()), "api.openai.com")
 }
 
-func LockedModelCapabilitiesForModel(model string) session.LockedModelCapabilities {
-	contract, ok := LookupModelCapabilityContract(model)
-	if !ok {
-		return session.LockedModelCapabilities{}
-	}
+func LockedModelCapabilitiesForModel(model string, provider ProviderCapabilities) session.LockedModelCapabilities {
 	return session.LockedModelCapabilities{
-		SupportsReasoningEffort: contract.SupportsReasoningEffort,
-		SupportsVisionInputs:    contract.SupportsVisionInputs,
+		SupportsReasoningEffort: SupportsReasoningEffortModel(model),
+		SupportsVisionInputs:    SupportsVisionInputsModel(model, provider),
 	}
-}
-
-func LockedModelCapabilitiesForConfig(model string, override config.ModelCapabilitiesOverride) session.LockedModelCapabilities {
-	if override.SupportsReasoningEffort || override.SupportsVisionInputs {
-		return session.LockedModelCapabilities{
-			SupportsReasoningEffort: override.SupportsReasoningEffort,
-			SupportsVisionInputs:    override.SupportsVisionInputs,
-		}
-	}
-	return LockedModelCapabilitiesForModel(model)
 }
 
 func LockedProviderCapabilitiesFromContract(contract ProviderCapabilities) session.LockedProviderCapabilities {
@@ -260,5 +246,5 @@ func LockedContractSupportsVisionInputs(locked *session.LockedContract, model st
 	if locked != nil && (locked.ModelCapabilities.SupportsReasoningEffort || locked.ModelCapabilities.SupportsVisionInputs) {
 		return locked.ModelCapabilities.SupportsVisionInputs
 	}
-	return SupportsVisionInputsModel(model)
+	return SupportsVisionInputsModel(model, ProviderCapabilities{})
 }
