@@ -48,6 +48,9 @@ func DecodeWebSearchDetail(raw json.RawMessage) (*transcript.WebSearchDetail, er
 	if err != nil {
 		return nil, err
 	}
+	if len(queries) == 0 && payload.Action.Query != nil {
+		queries = []string{*payload.Action.Query}
+	}
 	if err := validateWebSearchStrings(payload.Action.URL, payload.Action.Pattern); err != nil {
 		return nil, err
 	}

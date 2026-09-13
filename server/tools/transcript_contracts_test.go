@@ -25,6 +25,20 @@ func TestWebSearchDetailProjection(t *testing.T) {
 	}
 }
 
+func TestWebSearchDetailUsesSuppliedSingularQueryWithoutPluralQueries(t *testing.T) {
+	for _, plural := range []string{"", `,"queries":null`, `,"queries":[]`} {
+		raw := json.RawMessage(`{"action":{"type":"search","query":"supplied query"` + plural + `},"results":[{"title":"Result"}]}`)
+		detail, err := DecodeWebSearchDetail(raw)
+		if err != nil || detail == nil {
+			t.Fatalf("decode useful detail: %+v, %v", detail, err)
+		}
+		search, ok := detail.Action.(transcript.WebSearchSearch)
+		if !ok || len(search.Queries) != 1 || search.Queries[0] != "supplied query" {
+			t.Fatalf("supplied singular query lost: %+v", detail.Action)
+		}
+	}
+}
+
 func TestWebSearchDetailOptionalAndNonTextFacts(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -33,6 +47,7 @@ func TestWebSearchDetailOptionalAndNonTextFacts(t *testing.T) {
 		sources int
 	}{
 		{"missing", `{"action":{"type":"search","queries":["query"]}}`, 0, 0},
+		{"singular query only", `{"action":{"type":"search","query":"query"}}`, 0, 0},
 		{"null", `{"action":{"type":"search","sources":null},"results":null}`, 0, 0},
 		{"metadata", `{"action":{"type":"search"},"results":[{"type":"image_result","tokens":12}]}`, 0, 0},
 		{"unrelated action fields", `{"action":{"type":"search","url":"https://example.com","pattern":"ignored"}}`, 0, 0},
