@@ -28,7 +28,7 @@ export function PromptPickerView({
   state: PickerState;
   isPending: boolean;
   disconnected: boolean;
-  dispatch(action: PickerAction): "none" | "focus-field";
+  dispatch(action: PickerAction, focusField: () => void): void;
 }>) {
   const { t } = useTranslation();
   const answerArea = useRef<HTMLDivElement | null>(null);
@@ -45,7 +45,7 @@ export function PromptPickerView({
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {
-    if (dispatch(action) === "focus-field") field.current?.focus();
+    dispatch(action, () => field.current?.focus());
   };
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     promptPickerKeyboard(event, { answerArea, field, options, selected, disabled, act });

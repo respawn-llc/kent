@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { useMemo, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage, type ChatSessionTarget } from "@/api";
 import {
   useAppServices,
@@ -9,7 +10,8 @@ import {
   usePublishChatPromptPresence,
 } from "@/app-facade";
 import { showStatusToast } from "@/ui";
-import { PromptPickerController } from "./PromptPickerController";
+import { appI18n } from "@/i18n";
+import { createPromptPickerViewModel, usePromptPickerActions } from "./PromptPickerViewModel";
 import { PromptPickerView } from "./PromptPickerView";
 
 export function ChatPromptPicker({
@@ -17,32 +19,33 @@ export function ChatPromptPicker({
   children,
 }: Readonly<{ target: ChatSessionTarget; children: ReactNode }>) {
   const { api } = useAppServices();
-  const { t } = useTranslation();
+  const client = useQueryClient();
   const owner = useChatRuntimeOwner();
   const runtime = useChatRuntimeSnapshot();
   const connection = useConnectionSnapshot();
-  const onError = useCallback(
-    (error: unknown) => {
-      showStatusToast({
-        id: `chat-prompt-send:${target.sessionID}`,
-        title: t("chat.picker.sendingFailed"),
-        body: errorMessage(error),
-        tone: "danger",
-      });
-    },
-    [t, target.sessionID],
+  const model = useMemo(
+    () =>
+      createPromptPickerViewModel({
+        owner,
+        client,
+        api: api.chat,
+        target,
+        connection: api.connection,
+        onError: (error) => {
+          showStatusToast({
+            id: `chat-prompt-send:${target.sessionID}`,
+            title: appI18n.t("chat.picker.sendingFailed"),
+            body: errorMessage(error),
+            tone: "danger",
+          });
+        },
+      }),
+    [owner, client, api, target],
   );
-  const controller = useMemo(
-    () => new PromptPickerController(owner, api.chat, target, { onError, connection: api.connection }),
-    [owner, api, target, onError],
-  );
-  useEffect(() => controller.mount(), [controller]);
-  const snapshot = useSyncExternalStore(
-    controller.subscribe,
-    () => controller.snapshot,
-    () => controller.snapshot,
-  );
-  const visible = snapshot.state.current !== null;
+  const state = useAtomValue(model.state);
+  const request = useAtomValue(model.request);
+  const actions = usePromptPickerActions(model);
+  const visible = state.current !== null;
   usePublishChatPromptPresence(target, visible);
   return (
     <>
@@ -52,10 +55,12 @@ export function ChatPromptPicker({
       {visible ? (
         <PromptPickerView
           prompts={runtime.pendingPrompts}
-          state={snapshot.state}
-          isPending={snapshot.isPending}
+          state={state}
+          isPending={request.isPending}
           disconnected={connection.phase !== "connected"}
-          dispatch={(action) => controller.dispatch(action)}
+          dispatch={(action, focusField) => {
+            actions.dispatch({ action, focusField });
+          }}
         />
       ) : null}
     </>
