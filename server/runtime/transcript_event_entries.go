@@ -219,11 +219,22 @@ type toolResultContent struct {
 }
 
 func projectToolResultContent(result tools.Result) toolResultContent {
-	if result.Name != toolspec.ToolWebSearch || result.IsError {
+	if result.Name != toolspec.ToolWebSearch {
 		return toolResultContent{
 			text:    tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),
 			isError: result.IsError,
 		}
+	}
+	if result.IsError {
+		diagnostic, err := tools.DecodeWebSearchFailure(result.Output)
+		if err != nil {
+			return toolResultContent{text: err.Error(), isError: true}
+		}
+		content := toolResultContent{isError: true}
+		if diagnostic != nil {
+			content.text = *diagnostic
+		}
+		return content
 	}
 	detail, err := tools.DecodeWebSearchDetail(result.Output)
 	if err != nil {

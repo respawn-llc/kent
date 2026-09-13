@@ -647,6 +647,7 @@ type hostedWebSearchPayload struct {
 	Status  string                `json:"status"`
 	Action  hostedWebSearchAction `json:"action"`
 	Results json.RawMessage       `json:"results"`
+	Error   json.RawMessage       `json:"error"`
 }
 
 type hostedWebSearchAction struct {

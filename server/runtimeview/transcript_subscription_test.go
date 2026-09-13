@@ -826,16 +826,19 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
+		status      string
 		details     string
 		wantDetail  bool
 		wantFailure bool
 	}{
-		{"populated", `,"results":[{"title":"Example","url":"https://example.com","snippet":"excluded"}]`, true, false},
-		{"absent", "", false, false},
-		{"malformed", `,"results":[{"url":42}]`, false, true},
+		{"populated", "completed", `,"results":[{"title":"Example","url":"https://example.com","snippet":"excluded"}]`, true, false},
+		{"absent", "completed", "", false, false},
+		{"malformed", "completed", `,"results":[{"url":42}]`, false, true},
+		{"failed", "failed", `,"results":[{"type":"text_result","title":"Example","url":"https://example.com","snippet":"excluded"}],"error":{"message":"search timed out","type":"provider_error"}`, false, true},
+		{"failed without diagnostic", "failed", `,"results":[{"type":"text_result","snippet":"excluded"}]`, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			raw := json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"example","queries":["example"]}` + tc.details + `}`)
+			raw := json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"` + tc.status + `","action":{"type":"search","query":"example","queries":["example"]}` + tc.details + `}`)
 			caps := scriptedllm.DefaultProviderCapabilities()
 			caps.SupportsNativeWebSearch = true
 			client := scriptedllm.NewClient(scriptedllm.Script{
@@ -874,6 +877,20 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			}
 			if !tc.wantFailure && live.Text != "" {
 				t.Fatalf("raw output exposed: %q", live.Text)
+			}
+			if tc.status == "failed" {
+				var payload struct {
+					Error *struct {
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.Error == nil && live.Text != "" ||
+					payload.Error != nil && live.Text != payload.Error.Message {
+					t.Fatalf("failure output must contain only the supplied diagnostic: %q", live.Text)
+				}
 			}
 			if err := engine.Close(); err != nil {
 				t.Fatal(err)

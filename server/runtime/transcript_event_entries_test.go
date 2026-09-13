@@ -170,6 +170,31 @@ func TestWebSearchCompletionContent(t *testing.T) {
 	}
 }
 
+func TestFailedWebSearchCompletionExposesOnlyDiagnostic(t *testing.T) {
+	raw := json.RawMessage(`{"type":"web_search_call","id":"search-1","status":"failed","action":{"type":"search","query":"example"},"results":[{"type":"text_result","title":"Example","url":"https://example.com","snippet":"excluded content"}],"error":"search timed out"}`)
+	result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: raw, IsError: true}
+	entries := TranscriptEntriesFromEvent(Event{Kind: EventToolCallCompleted, ToolResult: &result})
+	if len(entries) != 1 {
+		t.Fatalf("lost failed completion: %+v", entries)
+	}
+	entry := entries[0]
+	if entry.Role != "tool_result_error" || entry.WebSearch != nil || entry.Text != "search timed out" {
+		t.Fatalf("failure projection exposed non-diagnostic provider fields: %+v", entry)
+	}
+	if string(result.Output) != string(raw) {
+		t.Fatal("saved completion changed")
+	}
+}
+
+func TestFailedWebSearchCompletionPreservesStructuredDiagnosticMessage(t *testing.T) {
+	raw := json.RawMessage(`{"type":"web_search_call","status":"failed","action":{"type":"search"},"results":[{"type":"text_result","snippet":"excluded content"}],"error":{"message":"search timed out","type":"provider_error"}}`)
+	result := tools.Result{CallID: "search-1", Name: toolspec.ToolWebSearch, Output: raw, IsError: true}
+	entries := TranscriptEntriesFromEvent(Event{Kind: EventToolCallCompleted, ToolResult: &result})
+	if len(entries) != 1 || entries[0].Text != "search timed out" || entries[0].Role != "tool_result_error" {
+		t.Fatalf("supplied diagnostic was lost or excluded fields exposed: %+v", entries)
+	}
+}
+
 func TestTranscriptEntriesFromEventOmitsPrePersistCompactionStatusRows(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

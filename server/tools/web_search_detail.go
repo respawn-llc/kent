@@ -15,6 +15,28 @@ type hostedWebSearchResult struct {
 	SourceWebsiteURL *string `json:"source_website_url"`
 }
 
+// DecodeWebSearchFailure exposes diagnostics, never the hosted result envelope.
+func DecodeWebSearchFailure(raw json.RawMessage) (*string, error) {
+	var payload hostedWebSearchPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode web search failure: %w", err)
+	}
+	if len(payload.Error) == 0 {
+		return nil, nil
+	}
+	var diagnostic *string
+	if err := json.Unmarshal(payload.Error, &diagnostic); err != nil {
+		var failure struct {
+			Message *string `json:"message"`
+		}
+		if err := json.Unmarshal(payload.Error, &failure); err != nil {
+			return nil, fmt.Errorf("decode web search diagnostic: %w", err)
+		}
+		diagnostic = failure.Message
+	}
+	return diagnostic, validateWebSearchStrings(diagnostic)
+}
+
 // DecodeWebSearchDetail derives display facts without changing provider history.
 func DecodeWebSearchDetail(raw json.RawMessage) (*transcript.WebSearchDetail, error) {
 	var payload hostedWebSearchPayload
