@@ -187,7 +187,7 @@
 - A consolidated outside-workspace access request begins with `Agent wants to access a batch of files, but <count> are outside workspace dir:`, renders each path item as a bullet, and ends with `Allow this access?`.
 - When ordinary suggestions or access options exist, the show command writes `Suggestions:` and a one-based numbered list.
 - An ordinary recommended suggestion ends with ` (recommended)`.
-- Access-option labels come from the authoritative internal Approval request.
+- The server must supply typed Approval decisions in authoritative option order. The terminal must resolve their display labels locally.
 - The show command writes `No questions pending` and succeeds when no ordinary Question or access request is pending.
 - `kent question answer` requires `--option <one-based-number>`, non-blank `--commentary <text>`, or both.
 - An ordinary Question supports numbered options and freeform answers.
@@ -295,7 +295,7 @@
 - Run watch then prints a blank line and a directly targeted answer template.
 - A suggested Question uses `Answer with: kent question answer --session <session-id> --option <number> [--commentary "optional freeform answer or additions"]`.
 - A freeform Question uses `Answer with: kent question answer --session <session-id> --commentary "<answer>"`.
-- An access request always uses the numbered-option answer template. Its labels come from the authoritative live prompt.
+- An access request always uses the numbered-option answer template. The terminal must resolve labels locally from the live prompt's ordered typed Approval decisions.
 - Task watch must use the same answer templates with its Task or Session target and any required Project selector.
 - Run watch renders a Final answer and continuation hint through the same presentation as Run wait.
 - Human Run wait and watch use the no-final-result presentation and exit code 1.
@@ -367,7 +367,7 @@
 - Outcome kinds are `question`, `final_answer`, `execution_error`, `interrupted`, and `task_done`.
 - A Question outcome contains `question_id`, `text`, ordered `suggestions`, optional one-based `recommended_option_index`, and `answer_target: {"session_id":"…"}`.
 - A freeform Question uses an empty `suggestions` array.
-- An access-request Question maps its authoritative ordered option labels to `suggestions` and omits `recommended_option_index`.
+- An access-request Question must map the server's ordered typed Approval decisions to locally resolved labels in `suggestions` and omit `recommended_option_index`.
 - A Final answer outcome may contain `result`, `session_name`, `warnings`, and `duration_ms`.
 - The typed Run no-final-result fact is projected only in JSON as a successful Final answer with omitted `result`. Human output uses the no-final-result presentation and exit code 1.
 - Execution error and Interrupted outcomes contain `reason` and optional `diagnostic`.
