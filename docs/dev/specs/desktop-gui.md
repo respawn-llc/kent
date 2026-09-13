@@ -186,6 +186,8 @@
   proceed intent.
 - Every manual workflow override requires confirmation. Submitting required values confirms a move that needs them; a move without required values uses a generic manual-override confirmation.
 - When a Task has several Current Nodes, dragging any one card copy represents moving the whole Task. Dropping onto any Node that is already Current is a no-op.
+- Board card dragging must coexist with local file-path drops on macOS and Linux. A card drag must show a floating preview that follows the pointer, with lift and release motion that respects reduced-motion preferences.
+- An accepted card drop must animate from the release position into the destination immediately and stay there while server evaluation, confirmation, or execution is pending. Success must preserve that placement without returning through the source column. Cancellation or failure must animate the card back to its server-owned position.
 - A Manual Move drop asks the server to evaluate that Task and destination without changing the Task. The board does not receive or retain a per-Task list of executable Manual Move destinations, and dragging over a destination makes no server request.
 - Columns remain neutral while dragging. Red marks only destinations that available authoritative or structural facts already prove ineligible; the desktop does not predict eligible destinations before a drop.
 - An ineligible drop makes no workflow change and shows a reason-specific Toast. Unexpected failures use the generic move-failure treatment.

@@ -6,14 +6,12 @@ import {
   type TaskInitiatingAction,
   useTaskInitiatingActionController,
 } from "@/shared/execution-target";
-import type { PendingBoardCardMove } from "./BoardCardMotionModel";
 
 type BoardInitiatingActionControllerOptions = Readonly<{
   api: ApiService;
   connected: boolean;
   onActionError(id: string, title: string, error: unknown): void;
   onApplied(): void | Promise<void>;
-  onPendingMoveChange(update: (current: PendingBoardCardMove | null) => PendingBoardCardMove | null): void;
   startErrorTitle: string;
   moveErrorTitle: string;
   refreshErrorTitle: string;
@@ -24,7 +22,6 @@ export function useBoardInitiatingActionController({
   connected,
   onActionError,
   onApplied,
-  onPendingMoveChange,
   startErrorTitle,
   moveErrorTitle,
   refreshErrorTitle,
@@ -46,39 +43,22 @@ export function useBoardInitiatingActionController({
     onAppliedError,
   });
   const { pending, run, running } = initiatingAction;
-  const clearPendingMove = useCallback(
-    (pendingMove: PendingBoardCardMove) => {
-      onPendingMoveChange((current) =>
-        current?.taskID === pendingMove.taskID && current.targetColumnID === pendingMove.targetColumnID
-          ? null
-          : current,
-      );
-    },
-    [onPendingMoveChange],
-  );
   const runCardAction = useCallback(
-    (
-      action: TaskInitiatingAction,
-      pendingMove: PendingBoardCardMove,
-      selection?: WorkflowExecutionTargetSelection,
-    ): void => {
-      onPendingMoveChange(() => pendingMove);
-      void run(action, selection)
-        .catch((error: unknown) => {
-          onActionError(
-            action.kind === "start" ? "board-start-error" : "board-move-error",
-            action.kind === "start" ? startErrorTitle : moveErrorTitle,
-            error,
-          );
-        })
-        .finally(() => {
-          clearPendingMove(pendingMove);
-        });
+    (action: TaskInitiatingAction, selection?: WorkflowExecutionTargetSelection): void => {
+      void run(action, selection).catch((error: unknown) => {
+        onActionError(
+          action.kind === "start" ? "board-start-error" : "board-move-error",
+          action.kind === "start" ? startErrorTitle : moveErrorTitle,
+          error,
+        );
+      });
     },
-    [clearPendingMove, moveErrorTitle, onActionError, onPendingMoveChange, run, startErrorTitle],
+    [moveErrorTitle, onActionError, run, startErrorTitle],
   );
+  const actionPending = running || pending !== null;
   return {
-    actionsDisabled: !connected || running || pending !== null,
+    actionPending,
+    actionsDisabled: !connected || actionPending,
     initiatingAction,
     runCardAction,
   };

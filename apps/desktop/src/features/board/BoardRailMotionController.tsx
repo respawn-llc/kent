@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
 
 import type { BoardColumn, SelectedWorkflowBoard } from "@/api";
@@ -27,6 +18,7 @@ import {
   boardRailLayoutSignature,
   dirtyBoardCardCountColumnIDs,
   dirtyBoardCardColumnIDs,
+  projectPendingBoardCardMove,
   type BoardCardColumnCountSnapshot,
   type BoardCardColumnsSnapshot,
   type PendingBoardCardMove,
@@ -45,6 +37,7 @@ type ArmedTransition = Readonly<{
   namesByCardID: ReadonlyMap<string, string>;
   nextDisplayed: BoardCardColumnsSnapshot;
   revealCardIDs: ReadonlySet<string>;
+  drop: PendingBoardCardMove | null;
 }>;
 
 type DisplayedSnapshot = Readonly<{
@@ -62,10 +55,8 @@ export type BoardRailMotionControllerProps = Readonly<{
   dragDisabled: boolean;
   firstActiveID: string | undefined;
   onCardClick: (taskID: string) => void;
-  onCardDragEnd: () => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
-  onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
   onExpandColumn: (columnID: string) => void;
   onInterruptTask: (taskID: string) => void;
   onRegisterColumnScrollport: (columnID: string, element: HTMLElement | null) => void;
@@ -89,10 +80,8 @@ export function BoardRailMotionController({
   dragDisabled,
   firstActiveID,
   onCardClick,
-  onCardDragEnd,
   onCardDragStart,
   onDeleteTask,
-  onDropTask,
   onExpandColumn,
   onInterruptTask,
   onRegisterColumnScrollport,
@@ -150,10 +139,13 @@ export function BoardRailMotionController({
 
   const latestSnapshot = useCallback(
     (): BoardCardColumnsSnapshot =>
-      boardCardSnapshotFromEntries(
-        Array.from(latestColumnsRef.current, ([columnID, snapshot]) => [columnID, snapshot.cards]),
+      projectPendingBoardCardMove(
+        boardCardSnapshotFromEntries(
+          Array.from(latestColumnsRef.current, ([columnID, snapshot]) => [columnID, snapshot.cards]),
+        ),
+        pendingCardMove,
       ),
-    [],
+    [pendingCardMove],
   );
 
   const scheduleNextTransition = useCallback(
@@ -172,12 +164,17 @@ export function BoardRailMotionController({
         dirtyBoardCardColumnIDs(currentDisplayed, nextDisplayed),
         dirtyCountColumns,
       );
-      const dirtySettled = dirtyColumns.every((columnID) =>
-        columnSnapshotSettledForBoardCount(
-          latestColumnsRef.current.get(columnID),
-          nextCounts.get(columnID) ?? 0,
-          dirtyCountColumnSet.has(columnID),
-        ),
+      const dirtySettled = dirtyColumns.every(
+        (columnID) =>
+          (pendingCardMove !== null &&
+            (columnID === pendingCardMove.targetColumnID ||
+              currentDisplayed.get(columnID)?.some((card) => card.id === pendingCardMove.card.id) ===
+                true)) ||
+          columnSnapshotSettledForBoardCount(
+            latestColumnsRef.current.get(columnID),
+            nextCounts.get(columnID) ?? 0,
+            dirtyCountColumnSet.has(columnID),
+          ),
       );
       if (!dirtySettled && !fromTimeout) {
         clearStaleSnapshotTimer(timeoutRef);
@@ -214,9 +211,16 @@ export function BoardRailMotionController({
         namesByCardID: participants.namesByCardID,
         nextDisplayed,
         revealCardIDs: participants.revealCardIDs,
+        drop:
+          pendingCardMove !== null &&
+          !currentDisplayed
+            .get(pendingCardMove.targetColumnID)
+            ?.some((card) => card.id === pendingCardMove.card.id)
+            ? pendingCardMove
+            : null,
       });
     },
-    [cardVisibilityStore, latestSnapshot, layoutSignature],
+    [cardVisibilityStore, latestSnapshot, layoutSignature, pendingCardMove],
   );
 
   useLayoutEffect(() => {
@@ -289,7 +293,10 @@ export function BoardRailMotionController({
         return;
       }
       latestColumnsRef.current = new Map(current).set(columnID, data);
-      if (snapshot.cause !== "domain" || !displayedColumnsRef.current.has(columnID)) {
+      if (
+        pendingCardMove === null &&
+        (snapshot.cause !== "domain" || !displayedColumnsRef.current.has(columnID))
+      ) {
         replaceDisplayedColumnsWithoutMotion(new Map(displayedColumnsRef.current).set(columnID, data.cards));
         return;
       }
@@ -313,14 +320,12 @@ export function BoardRailMotionController({
         });
       }
     },
-    [layoutSignature],
+    [layoutSignature, pendingCardMove],
   );
 
-  useEffect(() => {
-    if (columnVersion === 0 || phaseRef.current !== "idle") {
-      if (phaseRef.current === "arming" || phaseRef.current === "running") {
-        followUpPendingRef.current = true;
-      }
+  useLayoutEffect(() => {
+    if (phaseRef.current !== "idle") {
+      followUpPendingRef.current = true;
       return;
     }
     const fromTimeout = staleTimeoutDueRef.current;
@@ -350,7 +355,7 @@ export function BoardRailMotionController({
         cardElementForTaskID: (taskID) => cardVisibilityStore.elementForUniqueTask(taskID),
         columnElementsRef,
         namesByCardID: armedTransition.namesByCardID,
-        pendingCardMove,
+        pendingCardMove: armedTransition.drop,
         update: () => {
           flushSync(() => {
             displayedColumnsRef.current = armedTransition.nextDisplayed;
@@ -382,7 +387,7 @@ export function BoardRailMotionController({
         }
       });
     });
-  }, [armedTransition, cardVisibilityStore, pendingCardMove, scheduleNextTransition]);
+  }, [armedTransition, cardVisibilityStore, scheduleNextTransition]);
 
   const registerCard = useCallback(
     (instance: Readonly<{ columnID: string; taskID: string }>, element: HTMLElement | null) => {
@@ -452,10 +457,8 @@ export function BoardRailMotionController({
                     key={`${board.projectID}:${board.selectedWorkflow.id}:${column.id}`}
                     latestIsCollapsed={effectiveColumnIsCollapsed(column)}
                     onCardClick={onCardClick}
-                    onCardDragEnd={onCardDragEnd}
                     onCardDragStart={onCardDragStart}
                     onDeleteTask={onDeleteTask}
-                    onDropTask={onDropTask}
                     onExpandColumn={onExpandColumn}
                     onInterruptTask={onInterruptTask}
                     onReportColumnSnapshot={reportColumnSnapshot}
@@ -482,10 +485,8 @@ export function BoardRailMotionController({
                 key={`${board.projectID}:${board.selectedWorkflow.id}:${section.id}`}
                 latestIsCollapsed={effectiveColumnIsCollapsed(section.column)}
                 onCardClick={onCardClick}
-                onCardDragEnd={onCardDragEnd}
                 onCardDragStart={onCardDragStart}
                 onDeleteTask={onDeleteTask}
-                onDropTask={onDropTask}
                 onExpandColumn={onExpandColumn}
                 onInterruptTask={onInterruptTask}
                 onReportColumnSnapshot={reportColumnSnapshot}

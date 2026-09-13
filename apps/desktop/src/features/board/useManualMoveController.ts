@@ -3,7 +3,6 @@ import { useCallback, useRef, useState } from "react";
 import type { ApiService, TaskMovePreviewResponse } from "@/api";
 import { moveTaskInitiatingAction, type TaskInitiatingAction } from "@/shared/execution-target";
 import type { ManualMoveDialogSubmit } from "./ManualMoveDialog";
-import type { PendingBoardCardMove } from "./BoardCardMotionModel";
 
 export type PendingManualMove = Readonly<{
   id: number;
@@ -16,7 +15,7 @@ type ManualMoveControllerOptions = Readonly<{
   api: Pick<ApiService, "previewMoveTask">;
   onPreviewBlocked(reason: string): void;
   onPreviewError(error: unknown): void;
-  runAction(action: TaskInitiatingAction, pendingMove: PendingBoardCardMove): void;
+  runAction(action: TaskInitiatingAction): void;
 }>;
 
 export function useManualMoveController({
@@ -80,7 +79,6 @@ export function useManualMoveController({
           ...(input.transitionKey === undefined ? {} : { transitionKey: input.transitionKey }),
           ...(input.values === undefined ? {} : { values: input.values }),
         }),
-        { taskID: drop.taskID, targetColumnID: drop.targetNodeID },
       );
     },
     [cancel, pending, runAction],

@@ -7,6 +7,7 @@ import { classifyDrop } from "./BoardDropActions";
 import type { BoardCardDragPayload } from "./BoardDragTypes";
 import type { BoardColumnDropState } from "./BoardDragTypes";
 import type { BoardCardInstance } from "./BoardCardInstance";
+import type { PendingBoardCardMove } from "./BoardCardMotionModel";
 
 export type ActiveBoardCardDrag = Readonly<{
   instance: BoardCardInstance;
@@ -32,43 +33,61 @@ export function classifyBoardColumnDropState({
   return classifyDrop(column, drag.payload, firstActiveID).kind === "reject" ? "blocked" : "idle";
 }
 
+type BoardDragGesture =
+  | Readonly<{ kind: "dragging"; drag: ActiveBoardCardDrag }>
+  | Readonly<{ kind: "dropped"; move: PendingBoardCardMove }>;
+
 export function useBoardDragLifecycle({
   disabled,
   rootRef,
+  actionPending,
 }: Readonly<{
   disabled: boolean;
   rootRef: RefObject<HTMLDivElement | null>;
+  actionPending: boolean;
 }>) {
-  const [candidateDrag, setCandidateDrag] = useState<ActiveBoardCardDrag | null>(null);
-  const activeDrag = disabled ? null : candidateDrag;
+  const [gesture, setGesture] = useState<BoardDragGesture | null>(null);
+  const activeDrag = !disabled && gesture?.kind === "dragging" ? gesture.drag : null;
+  const pendingCardMove = gesture?.kind === "dropped" && actionPending ? gesture.move : null;
   const autoScroll = useBoardDragAutoScroll({ active: activeDrag !== null, rootRef });
   const stopAutoScroll = autoScroll.stop;
   const cancel = useCallback(() => {
     stopAutoScroll();
-    setCandidateDrag(null);
+    setGesture(null);
   }, [stopAutoScroll]);
   const start = useCallback(
     (drag: ActiveBoardCardDrag) => {
       if (!disabled) {
-        setCandidateDrag(drag);
+        setGesture({ kind: "dragging", drag });
       }
     },
     [disabled],
   );
+  const drop = useCallback(
+    (targetColumnID: string, dropRect: DOMRectReadOnly) => {
+      stopAutoScroll();
+      setGesture((current) =>
+        current?.kind === "dragging"
+          ? { kind: "dropped", move: { card: current.drag.snapshot, targetColumnID, dropRect } }
+          : current,
+      );
+    },
+    [stopAutoScroll],
+  );
   useLayoutEffect(() => {
-    if (!disabled || candidateDrag === null) {
-      return;
-    }
+    if (gesture === null || (gesture.kind === "dragging" ? !disabled : actionPending)) return;
     stopAutoScroll();
     queueMicrotask(() => {
-      setCandidateDrag((current) => (current === candidateDrag ? null : current));
+      setGesture((current) => (current === gesture ? null : current));
     });
-  }, [candidateDrag, disabled, stopAutoScroll]);
+  }, [actionPending, disabled, gesture, stopAutoScroll]);
   return {
     activeDrag,
+    pendingCardMove,
     autoScroll,
     cancel,
-    dragBlocked: disabled && candidateDrag !== null,
+    drop,
+    dragBlocked: disabled && gesture?.kind === "dragging",
     start,
   };
 }
