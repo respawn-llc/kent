@@ -1,19 +1,18 @@
 ---
 name: kent-dogfooding
-description: How to use `kent` cli to change your behavior, environment, config, or debug issues. Read when the user asks you to use/manage a worktree, archive or delete a Session, set a goal, change Kent config.toml/settings/behavior/hooks/subagents, or to debug project/workspace/worktree/workflow errors.
+description: How to use the `kent` CLI to change your behavior, environment, or config, or to debug issues. Read when the user asks you to or you want to use/manage a worktree, archive or delete a Session, set a goal, change Kent config.toml/settings/behavior/hooks/subagents, or debug project/workspace/worktree/workflow errors.
 ---
 
-Kent is the harness you are running inside, but it's also a server that runs agentic loops, a TUI, and a CLI.
-
+Kent is the harness you are running inside, but it's also a server that runs agentic loops, a TUI, and a CLI. Users interact with the GUI/TUI, possibly remotely, and you and all other agents are managed by the server.
 Source-of-truth for commands and public docs:
 
 - Run `kent --help` and `kent <command> --help` for exact current CLI flags.
 - Full docs index: `https://kent.sh/llms.txt`.
 
-You can directly `curl -S` each of the docs pages with an `.md` postfix to get its content. Avoid using web fetch tools on those.
+You can use `curl -S` directly on each of the docs pages, adding an `.md` suffix to its URL, to get its content. Avoid using web fetch tools on those.
 
 ## Projects And Workspace Bindings
-Kent tracks projects and workspace roots so sessions can move across checkouts and remote/local server boundaries. If your subagent commands fail with errors about workspace binding or projects, simply attach a workspace folder where you want to run the subagent to the project where you are running:
+Kent tracks projects and workspace roots so sessions can move across checkouts and remote/local server boundaries. If your subagent commands fail with errors about workspace binding or projects, simply attach a workspace folder where you want to run the subagent to the project where you are running, or rebind yourself:
 
 ```bash
 $ kent attach <path/to/subagent/workspace>
@@ -22,7 +21,7 @@ $ kent attach <path/to/subagent/workspace>
 More info in `--help`.
 
 ## Worktrees
-Kent can dynamically manage your worktrees: setting it up for you, running hooks, and changing your CWD, so prefer `kent worktree` commands to plain `git worktree`. Prefer entering a worktree rather than constantly supplying paths to your edit tool or `cd`s for shell commands. Enter worktrees as needed for your coding work, for example when the user wants to make a new branch.
+Kent can dynamically manage your worktrees: setting them up for you, running hooks, and changing your CWD, so prefer `kent worktree` commands to plain `git worktree`. Prefer entering a worktree rather than constantly supplying paths to your edit tool or `cd`s for shell commands. Proactively enter worktrees as needed for your coding work, for example when the user wants to make a new branch or starts a new line of work.
 
 ```bash
 kent worktree status
@@ -36,18 +35,11 @@ kent worktree delete <selector>
 Use `--force` only when the user explicitly authorizes removing a dirty or indeterminate worktree folder.
 Worktree setup scripts prepare new checkouts with local files, credentials, symlinks, or dependencies. Read the setup contract at `https://kent.sh/worktrees.md`.
 
-## Session Removal
-
-- Archive a Session when the user asks to preserve it before removal.
-- Delete a Session when the user asks to remove it without an archive.
-- Never archive or delete the current Session.
-
 ## Config Locations
-Global config (applies to all projects) `~/.kent/config.toml` (`%USERPROFILE%\.kent\` on Windows), local config is at `<workspace-root>/.kent/config.toml`. Workspace root is usually your cwd, or your worktree's main workspace cwd. Config schema and full notes at `https://kent.sh/config.md`. The database and session logs that kent uses are colocated with the config file. Session logs are `.json` files with a full history of events, split per-project. Careful: session logs are very long and can weigh gigabytes.
+Global config (applies to all projects) is at `~/.kent/config.toml` (`%USERPROFILE%\.kent\` on Windows); local config is at `<workspace-root>/.kent/config.toml`. Workspace root is usually your cwd, or your worktree's main workspace cwd. Config schema and full notes at `https://kent.sh/config.md`. The database and session logs that kent uses are colocated with the config file. Session logs are `.json` files with a full history of events, split per-project. Careful: session logs are very long and can weigh gigabytes.
 
-- Do not write directly to the live metadata database for normal operations. Manual edits can bypass Kent's invariants and leave the database inconsistent; use first-party CLI, API, or store operations instead.
+- Do not write directly to the live metadata database for normal operations. Manual edits can bypass Kent's invariants and leave the database broken; use first-party CLI, API, or store operations instead.
 - If Kent cannot perform an operation without direct database edits, file an issue. Carefully repairing an already-corrupted database is the only valid exception.
-- Treat workflow deletion as high impact because it cascades through the workflow's links, tasks, and graph. Review the deletion preview before confirming.
 
 Runtime logs live under the persistence root (default `~/.kent`; override with `$KENT_PERSISTENCE_ROOT`):
 
@@ -65,7 +57,7 @@ Use prompt files for broad behavior changes, skills for reusable on-demand workf
 Note that you shouldn't be rewriting main agent's system prompt: the output can be biased and low-quality. System prompts need to be crafted carefully and vary strongly per LLM model family and use-case. Either the user should supply an existing prompt they want to use, or use `{{.DefaultSystemPrompt}}` for sane defaults, and add additional instructions to it.
 
 ## Subagent roles
-The user may ask you to define new "subagents" or "agent roles". Subagents are `kent run` commands you call. You can also use them for scripting of user's kent-based workflows. More info at `kent run --help` and `https://kent.sh/headless.md`.
+The user may ask you to define new "subagents" or "agent roles". Subagents are `kent run` commands you call. You can also use them to script the user's LLM-based work. More info in `kent run --help`, the prompting skill, and `https://kent.sh/headless.md`.
 
 ## Shell Postprocess Hooks
 Kent can post-process shell command output before you see it.
@@ -75,17 +67,26 @@ You can disable this feature with `raw=true` in your `exec_command` tool. This h
 
 ## Goals 
 
-The user can set you a goal, or you may set a goal for yourself at will by running `kent goal set "<objective>"`. This goal will nudge you and all future agents across handoffs to work on a shared objective until completion. You should proactively set goals for yourself for larger tasks (this is encouraged) that might take multiple handoffs to complete. Goal text is a .md-formatted clear and exhaustive description of what needs to be done. Provide paths to relevant context: plan/doc files,  checklists, etc., clear Definition of Done, and measurable explicit completion criteria, in the goal text. 
+The user can set you a goal, or you may set a goal for yourself proactively by running `kent goal set "<objective>"`. This goal will nudge you and all future agents across handoffs to work on a shared objective until completion. You should proactively set goals for yourself for larger tasks (this is encouraged) that might take multiple handoffs to complete. Goal text is a clear and exhaustive .md-formatted description of what needs to be done. In the goal text, provide paths to relevant context (plan/doc files, checklists, etc.), a clear Definition of Done, and explicit, measurable completion criteria.
 
 Assume the agents that will read your goal text will know nothing about this conversation or session. Avoid assigning subtasks, phases of a larger plan, or implementation slices, as goals - instead, assign the overall task as a goal and keep a file-based worklog or checklist. If you are blocked and unable to complete your goal, ask the user a question to summon them to help you.
 
+## Sessions
+
+Sessions are long-running logs of your actions in JSON format. They are stored by project in your persistence root (usually ~/.kent/). Sessions can weigh gigabytes, so when reading them, prefer scripts that extract the necessary data instead of loading huge chunks of text into memory. Sometimes users may ask you to clean up the ~/.kent folder. You can do that with:
+
+```bash
+kent session archive <id> # zstd-compress and hide a session
+kent session delete <id> # permanently irreversibly nuke a session
+```
+
+Prefer archiving sessions unless users say they don't need them. In both cases, the session can no longer be opened in the apps. Never archive/delete sessions that are currently needed by unfinished tasks or workflows, your own session, or any currently open sessions. The format of those session files is not a public contract, so no backward compatibility is preserved there; avoid relying on it unless no other choice exists.
+
 ## Bug Reports
-File Kent bugs in `respawn-llc/kent` with `gh issue create --repo respawn-llc/kent`.
+File Kent bugs with `gh issue create --repo respawn-llc/kent`.
 
 Include the observed and expected behavior, minimal reproduction steps, Kent version, operating system, and relevant redacted log excerpts. Do not attach full logs or secrets.
 
-Every ticket must include this exact line:
-
-`Filed by Kent on behalf of the user`
+Append this exact line at the end of every issue: `Filed by Kent on behalf of the user`
 
 For suspected security vulnerabilities, follow the repository's `SECURITY.md` instead of filing a public issue.
