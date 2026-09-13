@@ -18,9 +18,9 @@ func testApprovalRequest(id string) AskQuestionRequest {
 		Question:   "approve?",
 		Approval:   true,
 		ApprovalOptions: []AskQuestionApprovalOption{
-			{Decision: AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: AskQuestionApprovalDecisionAllowSession, Label: "Allow for this session"},
-			{Decision: AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: AskQuestionApprovalDecisionAllowOnce},
+			{Decision: AskQuestionApprovalDecisionAllowSession},
+			{Decision: AskQuestionApprovalDecisionDeny},
 		},
 	}
 }
@@ -279,8 +279,8 @@ func TestValidateAskQuestionResolutionForApprovalPrompt(t *testing.T) {
 		Question:   "approve?",
 		Approval:   true,
 		ApprovalOptions: []AskQuestionApprovalOption{
-			{Decision: AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: AskQuestionApprovalDecisionAllowOnce},
+			{Decision: AskQuestionApprovalDecisionDeny},
 		},
 	}
 	if err := ValidateAskQuestionResolution(req, testQuestionAnswer("allow")); !errors.Is(err, ErrAskQuestionApprovalRequiresResponse) {
@@ -788,7 +788,6 @@ func TestInternalRequestIsNotModelFacingJSONShape(t *testing.T) {
 		Approval:   true,
 		ApprovalOptions: []AskQuestionApprovalOption{{
 			Decision: AskQuestionApprovalDecisionAllowOnce,
-			Label:    "Allow once",
 		}},
 	})
 	if err != nil {

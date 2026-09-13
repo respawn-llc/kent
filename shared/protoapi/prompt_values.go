@@ -56,7 +56,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 		if err != nil {
 			return clientui.PendingApproval{}, err
 		}
-		result.Options = append(result.Options, clientui.ApprovalOption{Decision: decision, Label: option.Label})
+		result.Options = append(result.Options, clientui.ApprovalOption{Decision: decision})
 	}
 	return result, nil
 }
@@ -88,7 +88,7 @@ func ApprovalFromPendingApproval(value clientui.PendingApproval) (*promptpb.Appr
 		if err != nil {
 			return nil, err
 		}
-		result.Options = append(result.Options, &promptpb.ApprovalOption{Decision: decision, Label: option.Label})
+		result.Options = append(result.Options, &promptpb.ApprovalOption{Decision: decision})
 	}
 	return result, Validate(result)
 }

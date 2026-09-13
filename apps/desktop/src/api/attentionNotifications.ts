@@ -29,7 +29,8 @@ export type AttentionNotificationWorkflowTaskTarget = Readonly<{
 }>;
 
 export type AttentionNotificationTarget =
-  AttentionNotificationWorkflowTaskTarget | Readonly<{ kind: "session_prompt"; sessionID: string }>;
+  | AttentionNotificationWorkflowTaskTarget
+  | Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
 
 export type AttentionNotificationQuestionState = Readonly<{
   preparedAskIDs: readonly string[];

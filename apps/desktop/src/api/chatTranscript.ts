@@ -1,5 +1,5 @@
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
-import { ApprovalDecision } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
+import { questionPrompt, approvalPrompt } from "./promptPresentation";
 import {
   DirtyStateKind,
   SelectorErrorKind,
@@ -137,43 +137,12 @@ function background(value: T.BackgroundActivity): Payloads["background_activity"
 function prompt(value: T.Prompt): Payloads["prompt"] {
   const branch = value.prompt;
   if (branch.case === undefined) throw new ContractError("Transcript prompt is missing.");
-  const common = {
-    Kind: branch.case,
-    State: enumValue(value.status, {
-      [T.PromptStatus.PENDING]: "pending",
-      [T.PromptStatus.RESOLVED]: "resolved",
-    }),
-    ToolCallID: branch.value.toolCallId,
-    SessionID: branch.value.sessionId,
-    StepID: branch.value.stepId,
-    CreatedAt: new Date(timestampMillis(required(branch.value.createdAt))).toISOString(),
-  };
-  if (branch.case === "question")
-    return {
-      ...common,
-      Question: branch.value.question,
-      Suggestions: [...branch.value.suggestions],
-      RecommendedOptionIndex: branch.value.recommendedOptionIndex ?? null,
-      ApprovalOptions: [],
-      AccessTargets: [],
-    };
+  if (value.status === T.PromptStatus.RESOLVED) {
+    return { state: "resolved", toolCallID: branch.value.toolCallId };
+  }
   return {
-    ...common,
-    Question: branch.value.question ?? "",
-    Suggestions: [],
-    RecommendedOptionIndex: null,
-    ApprovalOptions: branch.value.options.map((option) => ({
-      Decision: enumValue(option.decision, {
-        [ApprovalDecision.ALLOW_ONCE]: "allow_once",
-        [ApprovalDecision.ALLOW_SESSION]: "allow_session",
-        [ApprovalDecision.DENY]: "deny",
-      }),
-      Label: option.label,
-    })),
-    AccessTargets: branch.value.accessTargets.map((target) => ({
-      RequestedPath: target.requestedPath,
-      ResolvedPath: target.resolvedPath,
-    })),
+    state: "pending",
+    prompt: branch.case === "question" ? questionPrompt(branch.value) : approvalPrompt(branch.value),
   };
 }
 

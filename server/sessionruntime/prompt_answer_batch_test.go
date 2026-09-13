@@ -346,8 +346,8 @@ func promptBatchApproval(id string, stepID runtimeids.StepID, createdAt time.Tim
 		Question:   id,
 		Approval:   true,
 		ApprovalOptions: []tools.AskQuestionApprovalOption{
-			{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: tools.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: tools.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: tools.AskQuestionApprovalDecisionDeny},
 		},
 	}
 	return promptBatchEntry(request, createdAt)

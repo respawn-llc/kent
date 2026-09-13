@@ -88,9 +88,6 @@ func validateObservationApproval(approval clientui.PendingApproval) error {
 		return errors.New("observation approval options are required")
 	}
 	for _, option := range approval.Options {
-		if strings.TrimSpace(option.Label) == "" {
-			return errors.New("observation approval option label is required")
-		}
 		switch option.Decision {
 		case clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionAllowSession, clientui.ApprovalDecisionDeny:
 		default:

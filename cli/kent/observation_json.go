@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"core/cli/tui"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/protoapi"
@@ -139,7 +140,7 @@ func projectObservationQuestion(question serverapi.ObservationQuestion, answerSe
 		id, text = string(question.Approval.ToolCallID), question.Approval.Question
 		suggestions = make([]string, 0, len(question.Approval.Options))
 		for _, option := range question.Approval.Options {
-			suggestions = append(suggestions, option.Label)
+			suggestions = append(suggestions, tui.ApprovalDecisionLabel(option.Decision))
 		}
 		if len(question.Approval.AccessTargets) > 0 {
 			text = clientui.FormatFileAccessApprovalMarkdown(question.Approval.AccessTargets)

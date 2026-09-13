@@ -41,7 +41,7 @@ type workflowAttentionNotificationSnapshotResult struct {
 
 type workflowAttentionNotificationSubscription struct {
 	live        serverapi.AttentionNotificationSubscription
-	source      WorkflowAttentionNotificationSnapshotSource
+	source      func(context.Context, func(clientui.AttentionNotification) error) error
 	worker      context.Context
 	cancel      context.CancelFunc
 	closed      chan struct{}
@@ -59,11 +59,8 @@ type workflowAttentionNotificationSubscription struct {
 
 func newWorkflowAttentionNotificationSubscription(
 	live serverapi.AttentionNotificationSubscription,
-	source WorkflowAttentionNotificationSnapshotSource,
+	source func(context.Context, func(clientui.AttentionNotification) error) error,
 ) serverapi.AttentionNotificationSubscription {
-	if source == nil {
-		return live
-	}
 	worker, cancel := context.WithCancel(context.Background())
 	return &workflowAttentionNotificationSubscription{
 		live:        live,
@@ -136,18 +133,9 @@ func (s *workflowAttentionNotificationSubscription) Close() error {
 }
 
 func (s *workflowAttentionNotificationSubscription) startWorkers() {
-	snapshot, err := s.source.OpenSnapshot(workflowAttentionNotificationSnapshotPageSize)
-	if err != nil {
-		s.snapshotErr = err
-		return
-	}
-	if snapshot == nil {
-		s.snapshotErr = errors.New("workflow attention notification snapshot is required")
-		return
-	}
 	s.workers.Add(2)
 	go s.pumpLive()
-	go s.pumpSnapshot(snapshot)
+	go s.pumpSnapshot()
 }
 
 func (s *workflowAttentionNotificationSubscription) pumpLive() {
@@ -165,48 +153,57 @@ func (s *workflowAttentionNotificationSubscription) pumpLive() {
 	}
 }
 
-func (s *workflowAttentionNotificationSubscription) pumpSnapshot(snapshot WorkflowAttentionNotificationSnapshot) {
+func (s *workflowAttentionNotificationSubscription) pumpSnapshot() {
 	defer s.workers.Done()
-	for {
+	err := s.source(s.worker, func(notification clientui.AttentionNotification) error {
 		acknowledged := make(chan struct{})
-		enqueued := false
-		err := snapshot.Next(s.worker, func(notification clientui.AttentionNotification) error {
-			if enqueued {
-				return errors.New("workflow attention notification snapshot emitted more than one item from Next")
-			}
-			enqueued = true
-			select {
-			case s.snapshotOut <- workflowAttentionNotificationSnapshotResult{
-				notification: notification,
-				acknowledged: acknowledged,
-			}:
-				return nil
-			case <-s.worker.Done():
-				return context.Cause(s.worker)
-			}
-		})
-		if err != nil {
-			select {
-			case s.snapshotOut <- workflowAttentionNotificationSnapshotResult{err: err}:
-			case <-s.worker.Done():
-			}
-			return
-		}
-		if !enqueued {
-			select {
-			case s.snapshotOut <- workflowAttentionNotificationSnapshotResult{
-				err: errors.New("workflow attention notification snapshot Next returned without an item"),
-			}:
-			case <-s.worker.Done():
-			}
-			return
+		select {
+		case s.snapshotOut <- workflowAttentionNotificationSnapshotResult{notification: notification, acknowledged: acknowledged}:
+		case <-s.worker.Done():
+			return context.Cause(s.worker)
 		}
 		select {
 		case <-acknowledged:
+			return nil
 		case <-s.worker.Done():
-			return
+			return context.Cause(s.worker)
+		}
+	})
+	if err == nil {
+		err = io.EOF
+	}
+	select {
+	case s.snapshotOut <- workflowAttentionNotificationSnapshotResult{err: err}:
+	case <-s.worker.Done():
+	}
+}
+
+func (r *RuntimeRegistry) visitAttentionSnapshot(ctx context.Context, emit func(clientui.AttentionNotification) error) error {
+	if r.workflowAttentionSnapshot != nil {
+		snapshot, err := r.workflowAttentionSnapshot.OpenSnapshot(workflowAttentionNotificationSnapshotPageSize)
+		if err != nil {
+			return err
+		}
+		for {
+			err := snapshot.Next(ctx, emit)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
+	return r.pendingPrompts.Visit(ctx, func(sessionID string, snapshot PendingPromptSnapshot) error {
+		if snapshot.Request.AttentionTarget != nil && snapshot.Request.AttentionTarget.Kind == clientui.AttentionNotificationTargetWorkflowTask {
+			return nil
+		}
+		event, err := r.attentionPendingEventFromPrompt(sessionID, snapshot, clientui.AttentionNotificationSourceSnapshot)
+		if err != nil {
+			return err
+		}
+		return emit(*event.Pending)
+	})
 }
 
 func (s *workflowAttentionNotificationSubscription) emitLive(result attentionNotificationStreamResult) (clientui.AttentionNotificationEvent, error) {

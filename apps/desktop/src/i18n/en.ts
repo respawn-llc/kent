@@ -1,5 +1,6 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
 import { chatToolRowsEnglish } from "./chatToolRowsEn";
+import { chatPickerEnglish } from "./chatPickerEn";
 
 export const englishResources = {
   translation: {
@@ -278,6 +279,7 @@ export const englishResources = {
       },
     },
     chat: {
+      picker: chatPickerEnglish,
       worktree: {
         title: "Worktree",
         refresh: "Refresh worktrees",

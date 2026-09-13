@@ -2935,7 +2935,7 @@ func TestCurrentTaskExecutionSnapshotExposesPendingPromptKinds(t *testing.T) {
 			ToolCallID:      "approval-a",
 			StepID:          uuid.NewString(),
 			Approval:        true,
-			ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow"}},
+			ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}},
 		},
 	}
 	handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{

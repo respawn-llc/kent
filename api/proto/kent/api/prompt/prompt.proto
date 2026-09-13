@@ -85,7 +85,8 @@ message ApprovalOption {
     defined_only: true
     not_in: [0]
   }];
-  string label = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  reserved 2;
+  reserved "label";
 }
 
 message FileAccessTarget {
