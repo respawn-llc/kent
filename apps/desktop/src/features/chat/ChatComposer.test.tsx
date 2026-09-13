@@ -277,7 +277,7 @@ it.each(["send", "queue"] as const)(
               aliases: ["/r"],
               description: null,
               preview: null,
-              execution: { kind: "prompt", catalogIdentity: "builtin:review" },
+              execution: { kind: "prompt", catalogIdentity: "prompt:review" },
             },
           ],
         }),
@@ -295,7 +295,7 @@ it.each(["send", "queue"] as const)(
     });
     expect(queue).toHaveBeenCalledWith(target, {
       kind: "command",
-      catalogIdentity: "builtin:review",
+      catalogIdentity: "prompt:review",
       token: "/review",
       separatorWhitespace: "",
       arguments: "",

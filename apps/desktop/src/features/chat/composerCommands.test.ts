@@ -8,14 +8,14 @@ it.each(["  ", "\t "])("recognizes the first command token after leading %j", (l
         aliases: ["/hidden"],
         description: null,
         preview: null,
-        execution: { kind: "prompt", catalogIdentity: "file:command" },
+        execution: { kind: "prompt", catalogIdentity: "prompt:command" },
       },
     ]),
   ).toEqual({
     kind: "input",
     activation: {
       kind: "command",
-      catalogIdentity: "file:command",
+      catalogIdentity: "prompt:command",
       token: "/hidden",
       separatorWhitespace: "\t ",
       arguments: "arguments ",
@@ -31,14 +31,14 @@ it("preserves the exact prompt alias, whitespace and arguments for typed admissi
         aliases: ["/hidden"],
         description: null,
         preview: null,
-        execution: { kind: "prompt", catalogIdentity: "file:command" },
+        execution: { kind: "prompt", catalogIdentity: "prompt:command" },
       },
     ]),
   ).toEqual({
     kind: "input",
     activation: {
       kind: "command",
-      catalogIdentity: "file:command",
+      catalogIdentity: "prompt:command",
       token: "/hidden",
       separatorWhitespace: "\t \n",
       arguments: "argument ",
@@ -67,7 +67,7 @@ it("hides aliases from discovery and ends discovery when arguments begin", () =>
       aliases: ["/hidden"],
       description: null,
       preview: null,
-      execution: { kind: "prompt", catalogIdentity: "file:command" } as const,
+      execution: { kind: "prompt", catalogIdentity: "prompt:command" } as const,
     },
   ];
   expect(composerSuggestions("/h", commands)).toEqual([]);
@@ -83,7 +83,7 @@ it("does not expand an exact hidden alias into a visible prefix match", () => {
       aliases: ["/r"],
       description: null,
       preview: null,
-      execution: { kind: "prompt", catalogIdentity: "builtin:review" } as const,
+      execution: { kind: "prompt", catalogIdentity: "prompt:review" } as const,
     },
   ];
   expect(composerSuggestions("/r", commands)).toEqual([]);
@@ -91,7 +91,7 @@ it("does not expand an exact hidden alias into a visible prefix match", () => {
     kind: "input",
     activation: {
       kind: "command",
-      catalogIdentity: "builtin:review",
+      catalogIdentity: "prompt:review",
       token: "/r",
       separatorWhitespace: "",
       arguments: "",
