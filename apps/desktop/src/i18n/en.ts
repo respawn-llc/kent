@@ -1,4 +1,5 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
+import { chatToolRowsEnglish } from "./chatToolRowsEn";
 
 export const englishResources = {
   translation: {
@@ -287,23 +288,7 @@ export const englishResources = {
         external: "External",
         missing: "Missing",
       },
-      toolRows: {
-        backgrounded: "Backgrounded",
-        collapse: "Collapse tool details",
-        copy: "Copy tool details",
-        copyFailed: "Could not copy tool details",
-        copySucceeded: "Copied tool details to clipboard",
-        editFailed: "Edit failed",
-        edited: "Edited:",
-        exitCode: "exit {{code}}",
-        expand: "Expand tool details",
-        moreLines_one: "{{count}} more line",
-        moreLines_other: "{{count}} more lines",
-        patchFailed: "Patch failed",
-        searchedWeb: 'Searched the web for "{{query}}"',
-        image: "image",
-        viewedImage: "Viewed image at {{path}}",
-      },
+      toolRows: chatToolRowsEnglish,
     },
     projectEdit: {
       title: "Project",
