@@ -283,7 +283,7 @@ func newProjectedAuthorityRuntime(
 	})
 	reads := sessionview.NewService(persistence, activity, nil)
 	controls := runtimecontrol.NewService(authority).WithRuntimeActivityResolver(activity)
-	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
 	if err != nil {
 		t.Fatalf("projected runtime snapshot: %v", err)
@@ -317,7 +317,7 @@ func newUnavailableRuntimeControlService() *runtimecontrol.Service {
 }
 
 func newTestSessionRuntimeClient(reads apicontract.SessionViewService, controls apicontract.RuntimeControlService) *sessionRuntimeClient {
-	return newUIRuntimeClientWithReads("session-1", reads, controls, nil).(*sessionRuntimeClient)
+	return newUIRuntimeClientWithReads("session-1", reads, controls, nil, nil).(*sessionRuntimeClient)
 }
 
 func newTestSessionRuntimeClientWithControls(controls apicontract.RuntimeControlService) *sessionRuntimeClient {

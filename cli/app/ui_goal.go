@@ -8,6 +8,7 @@ import (
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/tui"
+	"core/shared/client"
 	"core/shared/clientui"
 	sharedtheme "core/shared/theme"
 
@@ -232,7 +233,7 @@ func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective s
 		case goalRuntimeShow, goalRuntimeCheckSet, goalRuntimeCheckClear:
 			msg.goal, msg.err = client.ShowGoal()
 		case goalRuntimeSet:
-			msg.mutation, msg.err = client.SetGoal(objective)
+			msg.setResult, msg.err = client.SetGoal(objective)
 		case goalRuntimePause:
 			msg.mutation, msg.err = client.PauseGoal()
 		case goalRuntimeResume:
@@ -315,9 +316,21 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 		if msg.mutationSerial != m.goalRuntimeMutationSerial {
 			return followUpCmd
 		}
-		m.goal.goal = goalCoreFromMutationResult(msg.mutation)
+		m.goal.goal = goalCoreFromGoalSetResult(msg.setResult)
 		if m.goal.open && strings.TrimSpace(m.goal.confirmMode) != "" {
 			m.goal.confirmMode = ""
+		}
+		if msg.setResult != nil && msg.setResult.GetDiagnostic() != nil {
+			return sequenceCmds(
+				followUpCmd,
+				m.sendTransientStatusWithNoticeID(
+					client.GoalSetErrorAsError(msg.setResult.GetDiagnostic()).Error(),
+					uiStatusNoticeWarning,
+					transientStatusDuration,
+					uiStatusNoticeReplace,
+					"",
+				),
+			)
 		}
 		return followUpCmd
 	case goalRuntimePause, goalRuntimeResume, goalRuntimeComplete:
@@ -535,6 +548,13 @@ func (l uiViewLayout) goalConfirmContentLines(width int, titleStyle, boldStyle, 
 
 func goalCoreFromMutationResult(result clientui.GoalMutationResult) *runtimepb.Goal {
 	return cloneGoalCore(result.Goal)
+}
+
+func goalCoreFromGoalSetResult(result *runtimepb.GoalSetSuccess) *runtimepb.Goal {
+	if result == nil || result.GetMutation() == nil {
+		return nil
+	}
+	return cloneGoalCore(result.GetMutation().Goal)
 }
 
 func goalCoreFromRuntimeGoal(runtimeGoal *runtimepb.GoalView) *runtimepb.Goal {

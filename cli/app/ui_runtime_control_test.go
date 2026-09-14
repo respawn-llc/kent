@@ -12,6 +12,7 @@ import (
 
 	"core/server/llm"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -169,12 +170,18 @@ func (f *runtimeControlFakeClient) ShowGoal() (*runtimepb.GoalView, error) {
 	f.showGoalCalls++
 	return cloneRuntimeGoal(f.goal), f.err
 }
-func (f *runtimeControlFakeClient) SetGoal(objective string) (clientui.GoalMutationResult, error) {
+func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
 	f.setGoalArg = objective
 	f.goal = runtimeControlTestGoal(objective, runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
-	return clientui.GoalMutationResult{
-		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
-		Goal: f.goal.Goal}, f.err
+	return &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: "session-1"},
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{
+			Mutation: &runtimepb.GoalMutationSuccess{
+				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+				Goal: f.goal.Goal,
+			},
+		},
+	}, f.err
 }
 func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
 	f.pauseGoalCalls++

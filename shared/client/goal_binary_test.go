@@ -6,13 +6,11 @@ import (
 	"errors"
 	"testing"
 
-	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 
 	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -35,7 +33,8 @@ func TestRemoteSetGoalPreservesSuccessfulDiagnostic(t *testing.T) {
 		if call == nil || call.Correlation == nil {
 			return
 		}
-		operation, err := protoapi.OperationFromDescriptor(goalMethod("Set"))
+		method := bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "GoalService", "Set")
+		operation, err := protoapi.OperationFromDescriptor(method)
 		if err != nil {
 			t.Errorf("Goal Set operation: %v", err)
 			return
@@ -77,7 +76,7 @@ func TestRemoteSetGoalPreservesSuccessfulDiagnostic(t *testing.T) {
 				},
 			},
 		}
-		sendRemoteDescriptorResult(t, ws, goalMethod("Set"), call.Correlation, result)
+		sendRemoteDescriptorResult(t, ws, method, call.Correlation, result)
 	})
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -85,19 +84,21 @@ func TestRemoteSetGoalPreservesSuccessfulDiagnostic(t *testing.T) {
 	}
 	defer func() { _ = remote.Close() }()
 
-	response, err := remote.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
-		SessionID:       sessionID.String(),
+	response, err := remote.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+		}},
 		Objective:       "ship the feature",
 		Actor:           "user",
-		ExecutionPolicy: serverapi.RuntimeGoalExecutionPolicyStartOrContinue,
+		ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
 	})
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if response.Result.Kind != clientui.GoalMutationResultAuthoritativeGoal {
-		t.Fatalf("mutation result = %+v, want authoritative Goal", response.Result)
+	if response.GetMutation().Kind != runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL {
+		t.Fatalf("mutation result = %+v, want authoritative Goal", response.GetMutation())
 	}
-	if response.Diagnostic == nil || response.Diagnostic.Error() == "" {
+	if response.Diagnostic == nil || response.Diagnostic.GetCode() == "" {
 		t.Fatalf("diagnostic = %v, want post-commit diagnostic", response.Diagnostic)
 	}
 }

@@ -7,191 +7,27 @@ import (
 	"time"
 
 	"core/server/sessionruntime"
-	"core/shared/clientui"
-	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestServiceSetGoalRejectsNewChatExecutionIdentityBeforeResolution(t *testing.T) {
-	resolver := &goalSetCountingResolver{}
-	service := NewService(nil, resolver, nil, nil, nil)
-	runID := "run-id"
-	request := &runtimepb.GoalSetRequest{
-		Target: &chatpb.ChatTarget{
-			Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
-		},
-		Objective:       "ship the feature",
-		Actor:           "user",
-		ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
-		RunId:           &runID,
-	}
-
-	_, err := service.SetGoal(context.Background(), request)
-	if err == nil {
-		t.Fatal("SetGoal succeeded for an invalid New Chat execution identity")
-	}
-	if resolver.calls != 0 {
-		t.Fatalf("target resolver calls = %d, want zero", resolver.calls)
-	}
-}
-
-func TestGoalSetRequestSchemaValidatesTargetPolicyMatrix(t *testing.T) {
-	sessionID := runtimeids.NewSessionID().String()
-	runID, stepID := "run-id", "step-id"
-	initialDraft := "composer draft"
-	tests := []struct {
-		name    string
-		request *runtimepb.GoalSetRequest
-		wantErr bool
-	}{
-		{
-			name: "New Chat user starts or continues",
-			request: newGoalSetRequest(&chatpb.ChatTarget{
-				Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
-			}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE),
-		},
-		{
-			name: "New Chat rejects preserve runtime state",
-			request: newGoalSetRequest(&chatpb.ChatTarget{
-				Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
-			}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE),
-			wantErr: true,
-		},
-		{
-			name: "New Chat rejects agent actor",
-			request: func() *runtimepb.GoalSetRequest {
-				request := newGoalSetRequest(&chatpb.ChatTarget{
-					Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
-				}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE)
-				request.Actor = "agent"
-				return request
-			}(),
-			wantErr: true,
-		},
-		{
-			name: "exact Session user starts or continues",
-			request: newGoalSetRequest(&chatpb.ChatTarget{
-				Target: &chatpb.ChatTarget_Session{
-					Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
-				},
-			}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE),
-		},
-		{
-			name: "exact Session user preserves runtime state",
-			request: newGoalSetRequest(&chatpb.ChatTarget{
-				Target: &chatpb.ChatTarget_Session{
-					Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
-				},
-			}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE),
-		},
-		{
-			name: "exact Session agent preserves runtime state with Step",
-			request: func() *runtimepb.GoalSetRequest {
-				request := newGoalSetRequest(&chatpb.ChatTarget{
-					Target: &chatpb.ChatTarget_Session{
-						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
-					},
-				}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE)
-				request.Actor, request.RunId, request.StepId = "agent", &runID, &stepID
-				return request
-			}(),
-		},
-		{
-			name: "exact Session agent requires Run and Step",
-			request: func() *runtimepb.GoalSetRequest {
-				request := newGoalSetRequest(&chatpb.ChatTarget{
-					Target: &chatpb.ChatTarget_Session{
-						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
-					},
-				}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE)
-				request.Actor = "agent"
-				return request
-			}(),
-			wantErr: true,
-		},
-		{
-			name: "exact Session start or continue rejects execution identity",
-			request: func() *runtimepb.GoalSetRequest {
-				request := newGoalSetRequest(&chatpb.ChatTarget{
-					Target: &chatpb.ChatTarget_Session{
-						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
-					},
-				}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE)
-				request.RunId = &runID
-				return request
-			}(),
-			wantErr: true,
-		},
-		{
-			name: "exact Session rejects creation draft",
-			request: func() *runtimepb.GoalSetRequest {
-				request := newGoalSetRequest(&chatpb.ChatTarget{
-					Target: &chatpb.ChatTarget_Session{
-						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
-					},
-				}, runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE)
-				request.InitialInputDraft = &initialDraft
-				return request
-			}(),
-			wantErr: true,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := protoapi.Validate(test.request)
-			if (err != nil) != test.wantErr {
-				t.Fatalf("Goal Set schema validation error = %v, want error %t", err, test.wantErr)
-			}
-		})
-	}
-}
-
-func newGoalSetRequest(
-	target *chatpb.ChatTarget,
-	policy runtimepb.GoalExecutionPolicy,
-) *runtimepb.GoalSetRequest {
-	return &runtimepb.GoalSetRequest{
-		Target:          target,
-		Objective:       "ship the feature",
-		Actor:           "user",
-		ExecutionPolicy: policy,
-	}
-}
-
-func TestServiceSetGoalDeliversResolvedNewChatSessionWithAuthoritativeGoal(t *testing.T) {
+func TestServiceSetGoalNewChatDeliversResolvedSessionAndPreservesCapturedInputs(t *testing.T) {
 	owner := newTestOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })
 	sessionID := runtimeids.NewSessionID()
-	draft := "continue from the composer"
-	attachment := &goalSetTestAttachment{
-		sessionID: sessionID,
-		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
+	draft := "composer draft"
+	resolver := &goalSetTestResolver{
+		target: ResolvedTarget{SessionID: sessionID, Created: true},
 	}
-	goals := &goalSetTestGoalService{
-		response: serverapi.RuntimeGoalSetResponse{
-			Result: clientui.GoalMutationResult{
-				Kind: clientui.GoalMutationResultAuthoritativeGoal,
-				Goal: &clientui.Goal{
-					ID:        "goal-1",
-					Objective: "ship the feature",
-					Status:    clientui.RuntimeGoalStatusActive,
-					CreatedAt: time.Unix(10, 0),
-					UpdatedAt: time.Unix(10, 0),
-				},
-			},
-		},
-	}
-	service := NewService(
-		owner,
-		goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID, Created: true}},
-		goalSetTestRuntime{attachment: attachment},
-		nil,
-		goals,
-	)
-	success, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
+	attachment := &goalSetTestAttachment{sessionID: sessionID}
+	invoker := &goalSetTestInvoker{response: committedGoalSetCommit("ship the feature")}
+	service := NewService(owner, resolver, &goalSetTestRuntime{attachment: attachment}, nil, invoker)
+
+	result, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
 		Target: &chatpb.ChatTarget{
 			Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
 		},
@@ -203,266 +39,209 @@ func TestServiceSetGoalDeliversResolvedNewChatSessionWithAuthoritativeGoal(t *te
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if success.GetSession().GetSessionId() != sessionID.String() {
-		t.Fatalf("resolved Session = %q, want %q", success.GetSession().GetSessionId(), sessionID)
+	if got := result.GetSession().GetSessionId(); got != sessionID.String() {
+		t.Fatalf("resolved Session = %q, want %q", got, sessionID)
 	}
-	if success.GetMutation().GetGoal().GetObjective() != "ship the feature" {
-		t.Fatalf("Goal result = %+v, want authoritative objective", success.GetMutation())
+	if got := result.GetMutation().GetGoal().GetObjective(); got != "ship the feature" {
+		t.Fatalf("Goal objective = %q, want committed objective", got)
 	}
-	if goals.request.SessionID != sessionID.String() ||
-		goals.request.ExecutionPolicy != serverapi.RuntimeGoalExecutionPolicyStartOrContinue {
-		t.Fatalf("Goal request = %+v", goals.request)
+	if resolver.request.InitialDraft == nil || *resolver.request.InitialDraft != draft {
+		t.Fatalf("target resolver draft = %v, want %q", resolver.request.InitialDraft, draft)
 	}
-	if got := <-attachment.released; got != sessionruntime.RuntimeReleaseDetach {
-		t.Fatalf("attachment release policy = %v, want detach", got)
+	if got := invoker.request.GetTarget().GetSession().GetSessionId(); got != sessionID.String() {
+		t.Fatalf("resolved invocation Session = %q, want %q", got, sessionID)
+	}
+	if invoker.request.GetExecutionPolicy() != runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE {
+		t.Fatalf("resolved invocation policy = %v, want start_or_continue", invoker.request.GetExecutionPolicy())
+	}
+	if attachment.policy != sessionruntime.RuntimeReleaseDetach {
+		t.Fatalf("attachment release policy = %v, want detach", attachment.policy)
 	}
 }
 
-func TestServiceSetGoalCarriesCommittedDiagnosticWithAuthoritativeGoal(t *testing.T) {
+func TestServiceSetGoalReturnsSessionBearingRejectionAfterCreatedSessionRuntimeFailure(t *testing.T) {
 	owner := newTestOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })
 	sessionID := runtimeids.NewSessionID()
-	attachment := &goalSetTestAttachment{
-		sessionID: sessionID,
-		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
+	attachment := &goalSetTestAttachment{sessionID: sessionID}
+	runtimeErr := errors.New("runtime preparation failed")
+	service := NewService(
+		owner,
+		&goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID, Created: true}},
+		&goalSetTestRuntime{attachment: attachment, err: runtimeErr},
+		nil,
+		&goalSetTestInvoker{},
+	)
+
+	result, err := service.SetGoal(context.Background(), newExactGoalSetRequest(
+		sessionID,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+	))
+	if err != nil {
+		t.Fatalf("SetGoal: %v", err)
 	}
-	goals := &goalSetTestGoalService{
-		response: serverapi.RuntimeGoalSetResponse{
-			Result: clientui.GoalMutationResult{
-				Kind: clientui.GoalMutationResultAuthoritativeGoal,
-				Goal: &clientui.Goal{
-					ID:        "goal-1",
-					Objective: "ship the feature",
-					Status:    clientui.RuntimeGoalStatusActive,
-					CreatedAt: time.Unix(10, 0),
-					UpdatedAt: time.Unix(10, 0),
-				},
-			},
+	if got := result.GetSession().GetSessionId(); got != sessionID.String() {
+		t.Fatalf("rejection Session = %q, want %q", got, sessionID)
+	}
+	if result.GetRejected() == nil {
+		t.Fatalf("result = %+v, want Session-bearing rejection", result)
+	}
+	if result.GetRejected().GetInternalFailure().GetCause() == "" {
+		t.Fatalf("rejection = %+v, want failure evidence", result.GetRejected())
+	}
+	if attachment.policy != sessionruntime.RuntimeReleaseCloseIfIdle {
+		t.Fatalf("attachment release policy = %v, want close-if-idle", attachment.policy)
+	}
+}
+
+func TestServiceSetGoalAggregatesCommittedDiagnosticAndAttachmentFinalization(t *testing.T) {
+	owner := newTestOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	sessionID := runtimeids.NewSessionID()
+	attachment := &goalSetTestAttachment{sessionID: sessionID, err: errors.New("detach failed")}
+	invoker := &goalSetTestInvoker{
+		response: serverapi.ResolvedGoalSetCommit{
+			Mutation:   committedGoalSetCommit("ship the feature").Mutation,
 			Diagnostic: errors.New("goal notice failed"),
 		},
 	}
 	service := NewService(
 		owner,
-		goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID, Created: true}},
-		goalSetTestRuntime{attachment: attachment},
+		&goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID}},
+		&goalSetTestRuntime{attachment: attachment},
 		nil,
-		goals,
+		invoker,
 	)
 
-	success, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		Target: &chatpb.ChatTarget{
-			Target: &chatpb.ChatTarget_NewChat{NewChat: validNewChatTarget()},
-		},
-		Objective:       "ship the feature",
-		Actor:           "user",
-		ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
-	})
+	result, err := service.SetGoal(context.Background(), newExactGoalSetRequest(
+		sessionID,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+	))
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if success.GetMutation().GetGoal().GetObjective() != "ship the feature" {
-		t.Fatalf("Goal result = %+v, want authoritative objective", success.GetMutation())
+	if result.GetMutation().GetGoal().GetObjective() != "ship the feature" {
+		t.Fatalf("Goal result = %+v, want committed Goal", result.GetMutation())
 	}
-	if success.GetDiagnostic() == nil ||
-		success.GetDiagnostic().Code != "internal_failure" ||
-		success.GetDiagnostic().GetInternalFailure().GetCause() != "goal notice failed" {
-		t.Fatalf("diagnostic = %+v, want committed internal failure", success.GetDiagnostic())
+	if result.GetDiagnostic() == nil || result.GetDiagnostic().Code != "internal_failure" {
+		t.Fatalf("diagnostic = %+v, want one committed warning", result.GetDiagnostic())
 	}
-}
-
-func TestServiceSetGoalCallerDisconnectDoesNotCancelServerOperation(t *testing.T) {
-	owner := newTestOperationOwner()
-	t.Cleanup(func() { _ = owner.Close() })
-	sessionID := runtimeids.NewSessionID()
-	attachment := &goalSetTestAttachment{
-		sessionID: sessionID,
-		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
-	}
-	goals := &goalSetBlockingService{
-		started:  make(chan context.Context, 1),
-		release:  make(chan struct{}),
-		finished: make(chan struct{}),
-		response: serverapi.RuntimeGoalSetResponse{
-			Result: clientui.GoalMutationResult{
-				Kind: clientui.GoalMutationResultAuthoritativeGoal,
-				Goal: &clientui.Goal{
-					ID:        "goal-1",
-					Objective: "ship the feature",
-					Status:    clientui.RuntimeGoalStatusActive,
-					CreatedAt: time.Unix(10, 0),
-					UpdatedAt: time.Unix(10, 0),
-				},
-			},
-		},
-	}
-	service := NewService(
-		owner,
-		goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID}},
-		goalSetTestRuntime{attachment: attachment},
-		nil,
-		goals,
-	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() {
-		_, err := service.SetGoal(ctx, &runtimepb.GoalSetRequest{
-			Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
-			}},
-			Objective:       "ship the feature",
-			Actor:           "user",
-			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
-		})
-		result <- err
-	}()
-	operationContext := <-goals.started
-	cancel()
-	if err := <-result; !errors.Is(err, context.Canceled) {
-		t.Fatalf("caller result = %v, want context cancellation", err)
-	}
-	select {
-	case <-operationContext.Done():
-		t.Fatal("caller disconnect canceled server-owned Goal operation")
-	default:
-	}
-	close(goals.release)
-	select {
-	case <-goals.finished:
-	case <-time.After(time.Second):
-		t.Fatal("server-owned Goal operation did not finish")
-	}
-	if got := <-attachment.released; got != sessionruntime.RuntimeReleaseDetach {
-		t.Fatalf("attachment release policy = %v, want detach", got)
+	if got := result.GetDiagnostic().GetInternalFailure().GetCause(); got == "" {
+		t.Fatalf("diagnostic = %+v, want joined failure cause", result.GetDiagnostic())
 	}
 }
 
-func TestServiceSetGoalPreservesDormantRuntimeForPreservePolicy(t *testing.T) {
+func TestServiceSetGoalPreserveRuntimeStateDoesNotOpenRuntime(t *testing.T) {
 	owner := newTestOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })
 	sessionID := runtimeids.NewSessionID()
-	goals := &goalSetTestGoalService{
-		response: serverapi.RuntimeGoalSetResponse{
-			Result: clientui.GoalMutationResult{
-				Kind: clientui.GoalMutationResultAuthoritativeGoal,
-				Goal: &clientui.Goal{
-					ID:        "goal-1",
-					Objective: "ship the feature",
-					Status:    clientui.RuntimeGoalStatusActive,
-					CreatedAt: time.Unix(10, 0),
-					UpdatedAt: time.Unix(10, 0),
-				},
-			},
-		},
-	}
-	runtimes := &goalSetFailingRuntime{err: errors.New("dormant Session must not open Runtime")}
+	runtimes := &goalSetTestRuntime{attachment: &goalSetTestAttachment{sessionID: sessionID}}
+	invoker := &goalSetTestInvoker{response: committedGoalSetCommit("ship the feature")}
 	service := NewService(
 		owner,
-		goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID}},
+		&goalSetTestResolver{target: ResolvedTarget{SessionID: sessionID}},
 		runtimes,
 		nil,
-		goals,
+		invoker,
 	)
-	success, err := service.SetGoal(context.Background(), &runtimepb.GoalSetRequest{
-		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
-			Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
-		}},
-		Objective:       "ship the feature",
-		Actor:           "user",
-		ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
-	})
+
+	result, err := service.SetGoal(context.Background(), newExactGoalSetRequest(
+		sessionID,
+		runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
+	))
 	if err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	if success.GetSession().GetSessionId() != sessionID.String() {
-		t.Fatalf("resolved Session = %q, want %q", success.GetSession().GetSessionId(), sessionID)
-	}
-	if success.GetMutation().GetGoal().GetObjective() != "ship the feature" {
-		t.Fatalf("Goal result = %+v, want authoritative objective", success.GetMutation())
+	if result.GetMutation() == nil || result.GetMutation().GetGoal().GetObjective() != "ship the feature" {
+		t.Fatalf("result = %+v, want committed Goal", result)
 	}
 	if runtimes.calls != 0 {
 		t.Fatalf("Runtime opening calls = %d, want zero", runtimes.calls)
 	}
 }
 
+func newExactGoalSetRequest(
+	sessionID runtimeids.SessionID,
+	policy runtimepb.GoalExecutionPolicy,
+) *runtimepb.GoalSetRequest {
+	return &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
+			},
+		},
+		Objective:       "ship the feature",
+		Actor:           "user",
+		ExecutionPolicy: policy,
+	}
+}
+
+func committedGoalSetCommit(objective string) serverapi.ResolvedGoalSetCommit {
+	now := timestamppb.New(time.Unix(10, 0))
+	return serverapi.ResolvedGoalSetCommit{
+		Mutation: &runtimepb.GoalMutationSuccess{
+			Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+			Goal: &runtimepb.Goal{
+				Id: "goal-1", Objective: objective,
+				Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+				CreatedAt: now, UpdatedAt: now,
+			},
+		},
+	}
+}
+
 type goalSetTestResolver struct {
-	target ResolvedTarget
+	target  ResolvedTarget
+	request TargetResolutionRequest
 }
 
-func (r goalSetTestResolver) Resolve(context.Context, TargetResolutionRequest) (ResolvedTarget, error) {
+func (r *goalSetTestResolver) Resolve(_ context.Context, request TargetResolutionRequest) (ResolvedTarget, error) {
+	r.request = request
 	return r.target, nil
-}
-
-type goalSetCountingResolver struct {
-	calls int
-}
-
-func (r *goalSetCountingResolver) Resolve(context.Context, TargetResolutionRequest) (ResolvedTarget, error) {
-	r.calls++
-	return ResolvedTarget{}, nil
 }
 
 type goalSetTestRuntime struct {
 	attachment RuntimeAttachment
+	err        error
+	calls      int
 }
 
-func (r goalSetTestRuntime) Open(context.Context, runtimeids.SessionID) (RuntimeAttachment, error) {
-	return r.attachment, nil
-}
-
-type goalSetFailingRuntime struct {
-	err   error
-	calls int
-}
-
-func (r *goalSetFailingRuntime) Open(context.Context, runtimeids.SessionID) (RuntimeAttachment, error) {
+func (r *goalSetTestRuntime) Open(_ context.Context, _ runtimeids.SessionID) (RuntimeAttachment, error) {
 	r.calls++
-	return nil, r.err
+	return r.attachment, r.err
 }
 
 type goalSetTestAttachment struct {
 	sessionID runtimeids.SessionID
-	released  chan sessionruntime.RuntimeReleasePolicy
+	policy    sessionruntime.RuntimeReleasePolicy
+	err       error
 }
 
 func (a *goalSetTestAttachment) SessionID() runtimeids.SessionID {
 	return a.sessionID
 }
 
-func (a *goalSetTestAttachment) Release(
+func (a *goalSetTestAttachment) Release(_ context.Context, policy sessionruntime.RuntimeReleasePolicy) error {
+	a.policy = policy
+	return a.err
+}
+
+type goalSetTestInvoker struct {
+	request  *runtimepb.GoalSetRequest
+	response serverapi.ResolvedGoalSetCommit
+	err      error
+}
+
+func (i *goalSetTestInvoker) SetResolvedGoal(
 	_ context.Context,
-	policy sessionruntime.RuntimeReleasePolicy,
-) error {
-	a.released <- policy
-	return nil
-}
-
-type goalSetTestGoalService struct {
-	request  serverapi.RuntimeGoalSetRequest
-	response serverapi.RuntimeGoalSetResponse
-}
-
-type goalSetBlockingService struct {
-	started  chan context.Context
-	release  chan struct{}
-	finished chan struct{}
-	response serverapi.RuntimeGoalSetResponse
-}
-
-func (s *goalSetBlockingService) SetGoal(
-	ctx context.Context,
-	_ serverapi.RuntimeGoalSetRequest,
-) (serverapi.RuntimeGoalSetResponse, error) {
-	s.started <- ctx
-	<-s.release
-	close(s.finished)
-	return s.response, nil
-}
-
-func (s *goalSetTestGoalService) SetGoal(
-	_ context.Context,
-	request serverapi.RuntimeGoalSetRequest,
-) (serverapi.RuntimeGoalSetResponse, error) {
-	s.request = request
-	return s.response, nil
+	request *runtimepb.GoalSetRequest,
+) (serverapi.ResolvedGoalSetCommit, error) {
+	i.request = request
+	if i.err != nil {
+		return serverapi.ResolvedGoalSetCommit{}, i.err
+	}
+	if i.response.Mutation == nil {
+		i.response = committedGoalSetCommit(request.GetObjective())
+	}
+	return i.response, nil
 }

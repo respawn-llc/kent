@@ -38,8 +38,8 @@ func (c *goalRuntimeControlClient) ShowGoal(ctx context.Context, _ *runtimepb.Go
 	return &runtimepb.GoalShowSuccess{}, c.respond(ctx)
 }
 
-func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
-	return &runtimepb.GoalMutationSuccess{}, c.respond(ctx)
+func (c *goalRuntimeControlClient) SetGoal(ctx context.Context, _ *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
+	return &runtimepb.GoalSetSuccess{}, c.respond(ctx)
 }
 
 func (c *goalRuntimeControlClient) PauseGoal(ctx context.Context, _ *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
@@ -62,7 +62,7 @@ func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {
 	for _, action := range []string{"show", "set", "pause", "resume", "complete", "clear"} {
 		t.Run(action, func(t *testing.T) {
 			controls := &goalRuntimeControlClient{t: t, cause: context.DeadlineExceeded}
-			runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls, nil)
+			runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls, controls, nil)
 			var err error
 			switch action {
 			case "show":
@@ -111,7 +111,7 @@ func TestRuntimeGoalReadRecoversUnavailableConnection(t *testing.T) {
 
 func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls, nil).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls, controls, nil).(*sessionRuntimeClient)
 
 	if _, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
 		Input: runtimeinput.Text("hello"),

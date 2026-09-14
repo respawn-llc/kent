@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -63,18 +62,20 @@ function NewChatGoalSidebar({
   }, []);
   useEffect(() => {
     return binding.subscribeResolution((delivery) => {
-      const controller = new ChatGoalDestinationController(api, delivery.target);
-      if (delivery.mutation !== null && !controller.admitAuthoritativeResult(delivery.mutation)) {
-        controller.dispose();
-        throw new ContractError("New Chat Goal result could not be admitted to its destination.");
-      }
-      setHandoff({ controller, target: delivery.target });
+      setHandoff({ mutation: delivery.mutation, target: delivery.target });
     });
-  }, [api, binding]);
+  }, [binding]);
 
   if (snapshot.kind === "resolved_session") {
-    const seeded = handoff?.target.sessionID === snapshot.target.sessionID ? handoff.controller : undefined;
-    return <ExactGoalSidebar api={api} controller={seeded} initialDraft={draft} target={snapshot.target} />;
+    const seeded = handoff?.target.sessionID === snapshot.target.sessionID ? handoff : undefined;
+    return (
+      <ExactGoalSidebar
+        api={api}
+        initialDraft={draft}
+        initialMutation={seeded?.mutation}
+        target={snapshot.target}
+      />
+    );
   }
 
   const unavailable = snapshot.availability === "agent_capability_missing";
@@ -157,16 +158,16 @@ function NewChatGoalSidebar({
 }
 function ExactGoalSidebar({
   api,
-  controller,
   initialDraft = "",
+  initialMutation,
   target,
 }: Readonly<{
   api: GoalSidebarApi;
-  controller?: ChatGoalDestinationController | undefined;
   initialDraft?: string;
+  initialMutation?: ChatGoalMutationResult | null;
   target: ChatSessionTarget;
 }>) {
-  const model = useExactGoalSidebarModel(api, initialDraft, target, controller);
+  const model = useExactGoalSidebarModel(api, initialDraft, target, initialMutation);
 
   if (model.snapshot.observation.kind === "loading" && model.fact === null) {
     return <LoadingState fullPage={false} title={model.t("chat.goal.loading")} />;
@@ -214,8 +215,8 @@ type ExactGoalSidebarModel = Readonly<{
 }>;
 
 type NewChatGoalHandoff = Readonly<{
-  controller: ChatGoalDestinationController;
   target: ChatSessionTarget;
+  mutation: ChatGoalMutationResult | null;
 }>;
 
 type DraftState = Readonly<{ base: string; draft: string }>;
@@ -235,7 +236,7 @@ type GoalSidebarDerivedState = Readonly<{
 
 type GoalMutationRunnerInput = Readonly<{
   actionsDisabled: boolean;
-  controller: ChatGoalDestinationController;
+  controller: ChatGoalDestinationController | null;
   draftState: DraftState;
   editing: boolean;
   expanded: boolean;
@@ -259,7 +260,7 @@ function useGoalMutationRunner(input: GoalMutationRunnerInput) {
       action: "set" | "pause" | "resume" | "reopen" | "clear",
       operation: () => Promise<GoalMutationOperationResult>,
     ) => {
-      if (input.actionsDisabled) return;
+      if (input.actionsDisabled || input.controller === null) return;
       const previous = { draft: input.draftState.draft, editing: input.editing, expanded: input.expanded };
       input.setError(null);
       if (intent.kind === "clear") {
@@ -417,15 +418,13 @@ function useExactGoalSidebarModel(
   api: GoalSidebarApi,
   initialDraft: string,
   target: ChatSessionTarget,
-  initialController?: ChatGoalDestinationController,
+  initialMutation?: ChatGoalMutationResult | null,
 ): ExactGoalSidebarModel {
   const { t } = useTranslation();
   const [localDraft, setLocalDraft] = useState<DraftState>({ base: "", draft: initialDraft });
-  const controller = useMemo(
-    () => initialController ?? new ChatGoalDestinationController(api, target),
-    [api, initialController, target],
-  );
+  const [controller, setController] = useState<ChatGoalDestinationController | null>(null);
   const reconcileSnapshot = useCallback(() => {
+    if (controller === null) return;
     setLocalDraft((current) => {
       const snapshot = controller.snapshot;
       const next = reconcileDraftState(current, observedGoalFact(snapshot), pendingGoalIntent(snapshot));
@@ -440,11 +439,17 @@ function useExactGoalSidebarModel(
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    controller.start();
+    const resource = new ChatGoalDestinationController(api, target);
+    if (initialMutation !== undefined && initialMutation !== null && !resource.admitAuthoritativeResult(initialMutation)) {
+      resource.dispose();
+      throw new ContractError("New Chat Goal result could not be admitted to its destination.");
+    }
+    setController(resource);
+    resource.start();
     return () => {
-      controller.dispose();
+      resource.dispose();
     };
-  }, [controller]);
+  }, [api, initialMutation, target]);
 
   const derived = deriveGoalSidebarState(snapshot, localDraft);
   const {
@@ -521,7 +526,7 @@ function useExactGoalSidebarModel(
     setLocalDraft((current) => ({ ...current, draft: value }));
   }, []);
   const replaceObservation = useCallback(() => {
-    controller.replaceObservation();
+    controller?.replaceObservation();
   }, [controller]);
 
   return {
@@ -638,15 +643,30 @@ function useBindingSnapshot(binding: NewChatGoalBinding) {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-function useControllerSnapshot(controller: ChatGoalDestinationController, onSnapshot: () => void) {
-  const [snapshot, setSnapshot] = useState(controller.snapshot);
-  useEffect(
-    () =>
-      controller.subscribe(() => {
-        onSnapshot();
-        setSnapshot(controller.snapshot);
-      }),
-    [controller, onSnapshot],
-  );
+function useControllerSnapshot(
+  controller: ChatGoalDestinationController | null,
+  onSnapshot: () => void,
+) {
+  const [snapshot, setSnapshot] = useState<ChatGoalDestinationSnapshot>(() => controller?.snapshot ?? loadingSnapshot());
+  useEffect(() => {
+    if (controller === null) {
+      setSnapshot(loadingSnapshot());
+      return undefined;
+    }
+    onSnapshot();
+    setSnapshot(controller.snapshot);
+    return controller.subscribe(() => {
+      onSnapshot();
+      setSnapshot(controller.snapshot);
+    });
+  }, [controller, onSnapshot]);
   return snapshot;
+}
+
+function loadingSnapshot(): ChatGoalDestinationSnapshot {
+  return {
+    authority: { kind: "unobserved" },
+    presentation: { kind: "authority" },
+    observation: { kind: "loading" },
+  };
 }

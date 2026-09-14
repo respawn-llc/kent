@@ -4,11 +4,17 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cx } from "./classes";
 import { useOpacityExit } from "./motion";
 
-export type MarkdownHeightClamp = Readonly<{
-  maximumLines: number;
-  minimumLines: number;
-  viewportPercent: number;
-}>;
+export type MarkdownHeightClamp =
+  | Readonly<{
+      kind: "lines";
+      maximumLines: number;
+      minimumLines: number;
+      viewportPercent: number;
+    }>
+  | Readonly<{
+      kind: "pixels";
+      maximumPixels: number;
+    }>;
 
 export function CollapsibleMarkdownViewport({
   children,
@@ -55,7 +61,10 @@ export function CollapsibleMarkdownViewport({
       style={
         collapsed
           ? {
-              maxHeight: `clamp(${collapsedHeightClamp.minimumLines.toString()}lh,${collapsedHeightClamp.viewportPercent.toString()}dvh,${collapsedHeightClamp.maximumLines.toString()}lh)`,
+              maxHeight:
+                collapsedHeightClamp.kind === "pixels"
+                  ? `${collapsedHeightClamp.maximumPixels.toString()}px`
+                  : `clamp(${collapsedHeightClamp.minimumLines.toString()}lh,${collapsedHeightClamp.viewportPercent.toString()}dvh,${collapsedHeightClamp.maximumLines.toString()}lh)`,
             }
           : undefined
       }

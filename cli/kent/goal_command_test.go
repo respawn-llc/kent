@@ -28,8 +28,8 @@ func (r goalTimeoutRemote) ShowGoal(context.Context, *runtimepb.GoalShowRequest)
 	return &runtimepb.GoalShowSuccess{}, nil
 }
 
-func (goalTimeoutRemote) SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalMutationSuccess, error) {
-	return &runtimepb.GoalMutationSuccess{}, context.DeadlineExceeded
+func (goalTimeoutRemote) SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
+	return &runtimepb.GoalSetSuccess{}, context.DeadlineExceeded
 }
 
 func (goalTimeoutRemote) PauseGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {

@@ -175,11 +175,10 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 		}
 		return result, errors.Join(metadataErr, noticeBuildErr, e.startGoalLoop(false))
 	}
-	noticeReceipt, noticeAccepted, noticeErr := e.enqueueGoalNotice(
+	noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
 	)
-	result.NoticeReceipt = noticeReceipt
 	if !startLoop {
 		return result, errors.Join(metadataErr, noticeErr)
 	}
@@ -244,11 +243,10 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	if err != nil {
 		return result, err
 	}
-	noticeReceipt, noticeAccepted, noticeErr := e.enqueueGoalNotice(
+	noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
 	)
-	result.NoticeReceipt = noticeReceipt
 	if !startLoop || status != session.GoalStatusActive {
 		return result, noticeErr
 	}
@@ -327,8 +325,7 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 	if err != nil {
 		return result, err
 	}
-	noticeReceipt, _, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability))
-	result.NoticeReceipt = noticeReceipt
+	_, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability))
 	return result, noticeErr
 }
 
@@ -337,7 +334,7 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 func (e *Engine) enqueueGoalNotice(
 	message llm.Message,
 	update GoalStatusUpdate,
-) (session.CommitReceipt, bool, error) {
+) (bool, error) {
 	_, accepted := trySubmitEngineRuntimeOperation(e, func(context.Context) (struct{}, error) {
 		message = normalizeMessageForTranscript(message, e.transcriptWorkingDir())
 		_, err := e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
@@ -347,9 +344,9 @@ func (e *Engine) enqueueGoalNotice(
 		return struct{}{}, err
 	})
 	if !accepted {
-		return session.CommitReceipt{}, false, ErrEngineClosed
+		return false, ErrEngineClosed
 	}
-	return session.CommitReceipt{}, true, nil
+	return true, nil
 }
 
 func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
@@ -390,7 +387,7 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
 		reportErr(err)
 		return
 	}
-	if _, _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability)); err != nil {
+	if _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability)); err != nil {
 		reportErr(err)
 	}
 }

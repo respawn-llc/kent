@@ -185,6 +185,10 @@ func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
 	}
 }
 
+func GoalSetErrorAsError(failure *runtimepb.GoalSetError) error {
+	return goalSetGeneratedError(failure)
+}
+
 func (c *Remote) PauseGoal(ctx context.Context, request *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "GoalService", "Pause"), request, &runtimepb.GoalPauseResult{},
 		func(failure *runtimepb.GoalPauseError) error { return runtimeControlGeneratedError(failure) })

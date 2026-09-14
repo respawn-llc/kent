@@ -1,8 +1,8 @@
 import type { DescMethod, Message, MessageShape } from "@app/server-api-contract";
 import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
-import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
   GoalSetError,
   ListPendingWorkError,
@@ -18,14 +18,6 @@ import type {
 import { ContractError, RpcError } from "./errors";
 import { protobufRpcError } from "./protobufRpc";
 
-export type ChatRuntimeUnavailableError = Readonly<{ kind: "runtime_unavailable"; sessionID: string }>;
-export type ChatInternalFailureError = Readonly<{
-  kind: "internal_failure";
-  operation: string | null;
-  cause: string | null;
-}>;
-export type ChatKnownErrorDetail = ChatRuntimeUnavailableError | ChatInternalFailureError;
-
 export type ChatError =
   | Readonly<{ kind: "session_not_found"; sessionID: string }>
   | Readonly<{ kind: "workspace_not_registered" }>
@@ -36,9 +28,16 @@ export type ChatError =
     }>
   | Readonly<{ kind: "auth_required" }>
   | Readonly<{ kind: "server_not_ready" }>
-  | ChatRuntimeUnavailableError
-  | ChatInternalFailureError
-  | Readonly<{ kind: "unknown"; code: string; knownDetail: ChatKnownErrorDetail | null }>;
+  | Readonly<{ kind: "runtime_unavailable"; sessionID: string }>
+  | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
+  | Readonly<{
+      kind: "unknown";
+      code: string;
+      knownDetail: Readonly<
+        | { kind: "runtime_unavailable"; sessionID: string }
+        | { kind: "internal_failure"; operation: string | null; cause: string | null }
+      > | null;
+    }>;
 
 export class ChatOperationError extends RpcError {
   constructor(
@@ -60,7 +59,7 @@ type ChatWireError =
   | SessionInitialInputError
   | SessionPersistInputDraftError
   | SessionResolveTransitionError;
-type KnownChatError = Exclude<ChatError, Readonly<{ kind: "unknown" }>>;
+type KnownChatError = Exclude<ChatError, Readonly<{ kind: "unknown"; code: string; knownDetail: unknown }>>;
 
 type ChatRpcResult = Readonly<{
   outcome:
@@ -101,25 +100,26 @@ export function chatOperationError(method: DescMethod, failure: ChatWireError): 
 }
 
 function goalSetOperationError(generic: RpcError, failure: ChatWireError): ChatOperationError {
-  const knownDetail = chatErrorDetailFromWire(failure);
+  const detail = chatErrorDetailFromWire(failure);
   switch (failure.code) {
     case "runtime_unavailable":
-      if (knownDetail?.kind !== "runtime_unavailable") {
+      if (detail?.kind !== "runtime_unavailable") {
         throw new ContractError("Goal Set runtime-unavailable error detail is missing.");
       }
-      return new ChatOperationError(generic, knownDetail);
+      return new ChatOperationError(generic, detail);
     case "internal_failure":
-      if (knownDetail?.kind !== "internal_failure") {
+      if (detail?.kind !== "internal_failure") {
         throw new ContractError("Goal Set internal-failure error detail is missing.");
       }
-      return new ChatOperationError(generic, knownDetail);
+      return new ChatOperationError(generic, detail);
     case "":
       throw new ContractError("Chat operation returned an empty error code.");
     default:
       return new ChatOperationError(generic, {
         kind: "unknown",
         code: failure.code,
-        knownDetail: goalKnownErrorDetail(knownDetail),
+        knownDetail:
+          detail?.kind === "runtime_unavailable" || detail?.kind === "internal_failure" ? detail : null,
       });
   }
 }
@@ -135,7 +135,9 @@ function standardChatOperationError(generic: RpcError, failure: ChatWireError): 
   return new ChatOperationError(generic, { kind: "unknown", code: failure.code, knownDetail: null });
 }
 
-function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
+function chatErrorDetailFromWire(
+  failure: ChatWireError,
+): KnownChatError | null {
   switch (failure.detail.case) {
     case "sessionNotFound":
       return {
@@ -155,23 +157,20 @@ function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null 
     case "serverNotReady":
       return { kind: "server_not_ready" };
     case "runtimeUnavailable":
-      return { kind: "runtime_unavailable", sessionID: failure.detail.value.sessionId };
+      return {
+        kind: "runtime_unavailable",
+        sessionID: failure.detail.value.sessionId,
+      };
     case "internalFailure":
       return {
         kind: "internal_failure",
         operation: failure.detail.value.operation ?? null,
         cause: failure.detail.value.cause ?? null,
       };
+    case "pendingWorkNotPending":
     case undefined:
       return null;
   }
-}
-
-function goalKnownErrorDetail(detail: KnownChatError | null): ChatKnownErrorDetail | null {
-  if (detail?.kind === "runtime_unavailable" || detail?.kind === "internal_failure") {
-    return detail;
-  }
-  return null;
 }
 
 function agentPreparationCategory(
