@@ -1,6 +1,6 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useMatchRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -32,19 +32,24 @@ export function useWorkflowDeleteLauncher(
   const navigation = useAppNavigation();
   const queryClient = useQueryClient();
   const matchRoute = useMatchRoute();
-  const { push } = useStatusController();
+  const { push, dismiss } = useStatusController();
+  const previewNoticeID = useId();
   const [pending, setPending] = useState<DeleteOperation | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [committedOwner, setCommittedOwner] = useState<string | null>(null);
   const [openingOwner, setOpeningOwner] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const workflowIDRef = useRef(workflowID);
+  const workflowIDRef = useRef<string | null>(workflowID);
   const previewAdmissionRef = useRef<PreviewAdmission | null>(null);
   const submitAdmissionRef = useRef<DeleteOperation | null>(null);
   const committedOwnerRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     workflowIDRef.current = workflowID;
-  }, [workflowID]);
+    return () => {
+      workflowIDRef.current = null;
+      dismiss(previewNoticeID);
+    };
+  }, [dismiss, previewNoticeID, workflowID]);
 
   useEffect(() => {
     const stalePreview = previewAdmissionRef.current;
@@ -169,7 +174,7 @@ export function useWorkflowDeleteLauncher(
     } catch (error) {
       if (previewAdmissionRef.current === admission && workflowIDRef.current === workflowID) {
         push({
-          id: "workflow-delete-preview-error",
+          id: previewNoticeID,
           tone: "danger",
           title: t("workflowEditor.workflowDeleteTitle"),
           body: errorMessage(error),

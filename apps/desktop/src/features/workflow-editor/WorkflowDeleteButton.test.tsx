@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
     workflowID: "workflow-1",
   })),
   push: vi.fn<(notice: StatusNotice) => void>(),
+  dismiss: vi.fn<(id: string) => void>(),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
@@ -31,7 +32,7 @@ vi.mock("@/app-facade", async (importOriginal) => ({
       previewWorkflowDelete: fixture.previewWorkflowDelete,
     },
   }),
-  useStatusController: () => ({ push: fixture.push }),
+  useStatusController: () => ({ push: fixture.push, dismiss: fixture.dismiss }),
 }));
 
 describe("WorkflowDeleteButton completion", () => {
@@ -39,6 +40,7 @@ describe("WorkflowDeleteButton completion", () => {
     fixture.deleteWorkflow.mockClear();
     fixture.previewWorkflowDelete.mockClear();
     fixture.push.mockClear();
+    fixture.dismiss.mockClear();
   });
 
   it("notifies its mounted owner only after deletion invalidation finishes", async () => {
@@ -96,6 +98,29 @@ describe("WorkflowDeleteButton completion", () => {
       expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
     });
     view.unmount();
+    queryClient.clear();
+  });
+
+  it("releases a failed preview notification when its destination closes", async () => {
+    fixture.previewWorkflowDelete.mockRejectedValueOnce(new Error("preview unavailable"));
+    const queryClient = new QueryClient();
+    const user = userEvent.setup();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <WorkflowDeleteButton workflowID="workflow-1" />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
+    await waitFor(() => {
+      expect(fixture.push).toHaveBeenCalledOnce();
+    });
+    const notice = fixture.push.mock.calls[0]?.[0];
+    if (notice === undefined) throw new Error("Missing preview failure");
+    view.unmount();
+    expect(fixture.dismiss).toHaveBeenCalledWith(notice.id);
+    await act(async () => notice.onAction?.());
+    expect(fixture.previewWorkflowDelete).toHaveBeenCalledOnce();
+    expect(fixture.deleteWorkflow).not.toHaveBeenCalled();
     queryClient.clear();
   });
 });

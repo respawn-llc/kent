@@ -4,12 +4,19 @@ import { useAppServices, useWindowFocus } from "@/app-facade";
 import { advanceComposerStop, type ComposerStopEvent } from "./composerStop";
 import type { useChatComposer } from "./useChatComposer";
 
-export function useComposerKeyboard(composer: ReturnType<typeof useChatComposer>, stoppable: boolean) {
+export function useComposerKeyboard(
+  composer: ReturnType<typeof useChatComposer>,
+  stoppable: boolean,
+  observationError: Error | null,
+) {
   const { nativeBridge } = useAppServices();
   const platform = nativeBridge.capabilities.platform;
   const stopAvailable = stoppable;
   const focused = useWindowFocus();
   const deadline = useRef<number | null>(null);
+  useEffect(() => {
+    if (observationError !== null) deadline.current = null;
+  }, [observationError]);
   function advance(event: ComposerStopEvent) {
     const result = advanceComposerStop(deadline.current, event);
     deadline.current = result.deadline;
