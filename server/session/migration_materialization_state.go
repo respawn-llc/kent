@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"core/shared/textutil"
 )
 
 const (
@@ -263,7 +265,7 @@ func (s *Store) setEventLogMaterializationState(
 	s.eventLogMaterialization = &eventLogMaterializationSnapshot{
 		state:        state,
 		source:       source,
-		foundVersion: cloneEventLogSourceVersion(foundVersion),
+		foundVersion: textutil.Pointer(foundVersion),
 	}
 }
 
@@ -271,14 +273,6 @@ func (s *Store) clearEventLogMaterialization() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.eventLogMaterialization = nil
-}
-
-func cloneEventLogSourceVersion(version *int) *int {
-	if version == nil {
-		return nil
-	}
-	cloned := *version
-	return &cloned
 }
 
 func (s *Store) eventLogPreparationResultLocked() eventLogPreparationResult {
@@ -289,11 +283,8 @@ func (s *Store) eventLogPreparationResultLocked() eventLogPreparationResult {
 	result := eventLogPreparationResult{
 		State:            snapshot.state,
 		Source:           snapshot.source,
+		FoundVersion:     textutil.Pointer(snapshot.foundVersion),
 		SupportedVersion: EventLogVersionV2,
-	}
-	if snapshot.foundVersion != nil {
-		version := *snapshot.foundVersion
-		result.FoundVersion = &version
 	}
 	return result
 }
@@ -674,7 +665,7 @@ func classifyEventLogSource(
 			return classification, nil
 		case eventLogSourceCurrent:
 			return malformedEventLogSource(
-				cloneEventLogSourceVersion(classification.foundVersion),
+				textutil.Pointer(classification.foundVersion),
 				malformedEventLogHeaderUnterminated,
 			)
 		default:
