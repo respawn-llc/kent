@@ -22,17 +22,17 @@ In addition to general `prompting` rules, you MUST pay attention to these import
 - **Avoid piling on more and more "rules" and conditionals; changes should be removal-first.** Every rule distracts the agent and increases cognitive load. Ask: "Would I be able to handle all of these requirements in my head?" The more specific the agent's task is, the better. Discuss with the user how smart the model they plan to use is, and define the desired level of node granularity for the model to be able to handle the work. Prefer removing rules, reducing their number, or enforcing them, rather than adding more and more exclusions and conditions.
   - Caveat: Assume every past instruction has a historical precedent. If the user has an instruction, don't remove it just because it breaks the rules above or just because it became inconvenient. Instead, ask them why the instruction exists and what it accomplished. They have insight and memories you do not have.
 
-- Be careful with your words: agents are a monkey's paw. **Assume every instruction will be taken literally.**
+- Be careful with your words: agents are a monkey's paw. **Assume every instruction will be taken literally.** Examples:
   - The word "only" in "Read the plan file only once" will cause the agent to never re-read the file even if it changed and needs updates.
   - The wording "Address review findings" will cause the agent to keep addressing even invalid, wrong, or conflicting review results infinitely.
   - The wording "Open the PR to main" will force the agent to open a PR even if one already exists, even if no work was done, and even if main is not the correct branch for the repo the workflow is used in.
-So proactively run review agents on your prompts, eliminate ambiguity, and **never add instructions or restrictions speculatively**, only to discover that they backfire during other tasks. If you're not confident, propose edits via ask_question before making them.
+So proactively run review agents on your prompts, eliminate ambiguity, and **never add instructions or restrictions speculatively** only to discover that they backfire during other tasks. If you're not confident, propose edits via ask_question before making them.
 
 - For messy real-world work, **give the agents an escape hatch instruction** - what to do when a problem happens, e.g. to ask the user, to execute a transition backwards, or to record evidence and proceed without changes.
 
 - **Make your prompts idempotent where the graph topology involves loops**. Consider this scenario: an `implementer` builds a feature, but then a `reviewer` returns it to the `planner` to adjust the requirements. When the `planner` finishes, it sends the task back to the `implementer` **using the same prompt as before**, but the situation has changed: the worktree already contains a previously finished implementation. Because of that, the 2nd implementer will see the existing code and an adjusted plan (without knowing what edits were made and why), get confused, and throw away good code or produce a broken merged implementation. Your prompts in cycles must consider every path the task might take at every point. Carefully use reasoning and review subagents to make sure the workflow topology does not create confusing situations due to prompt reuse.
 
-These rules are a lot to take in; don't try to hold them all in your head or you'll forget some of them. Use subagents and write checklists for yourself to stay on track.
+These rules are a lot to take in; don't try to hold them all in your head or you'll forget some of them. Use subagents and write verification checklists for yourself before making edits to stay on track.
 
 ## Verification checklist
 This isn't optional for significant changes. Ask subagents to check this:
