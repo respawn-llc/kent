@@ -152,7 +152,7 @@ func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	response, err := retargetSessionWorkspaceResponse(context.Background(), remaining[0], remaining[1], targetProjectID)
 	if err != nil {
-		fmt.Fprintln(stderr, formatSessionRetargetCommandError(remaining[1], err))
+		fmt.Fprintln(stderr, formatSessionRetargetCommandError(err))
 		return 1
 	}
 	if response.Scheduled != nil {

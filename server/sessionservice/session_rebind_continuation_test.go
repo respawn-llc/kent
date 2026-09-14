@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -31,65 +32,120 @@ func (rebindContinuationClient) ProviderCapabilities(context.Context) (llm.Provi
 }
 
 func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) {
-	fixture := newRealSessionRetargetFixture(t, false)
-	retargeter := fixture.retargeter(fixture.metadata, retargetProcessSource{})
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	continued := make(chan string, 1)
-	var engine *runtime.Engine
-	calls := 0
-	engine = fixture.openRuntimeWithClient(t, rebindContinuationClient(func(ctx context.Context, req llm.Request) (llm.Response, error) {
-		calls++
-		if calls == 1 {
-			active := engine.ActiveRun()
-			if active == nil {
-				return llm.Response{}, errors.New("originating model Step is missing")
+	tests := []struct {
+		name           string
+		explicitTarget bool
+	}{
+		{name: "path-only", explicitTarget: false},
+		{name: "explicit-project", explicitTarget: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRealSessionRetargetFixture(t, false)
+			if _, err := fixture.metadata.AttachWorkspaceToProject(
+				t.Context(),
+				fixture.targetProject.ProjectID,
+				fixture.targetWorkspaceRoot,
+			); err != nil {
+				t.Fatalf("AttachWorkspaceToProject target: %v", err)
 			}
-			targetProject := fixture.targetProject.ProjectID
-			_, err := retargeter.ScheduleWorkspaceRetarget(ctx, metadata.SessionWorkspaceRetargetRequest{
-				SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetProject,
-			}, &sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID}, worktreecontract.NewOperationID())
+			retargeter := fixture.retargeter(fixture.metadata, retargetProcessSource{})
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			continued := make(chan string, 1)
+			var engine *runtime.Engine
+			calls := 0
+			engine = fixture.openRuntimeWithClient(t, rebindContinuationClient(func(ctx context.Context, req llm.Request) (llm.Response, error) {
+				calls++
+				if calls == 1 {
+					active := engine.ActiveRun()
+					if active == nil {
+						return llm.Response{}, errors.New("originating model Step is missing")
+					}
+					request := metadata.SessionWorkspaceRetargetRequest{
+						SessionID:     fixture.childID.String(),
+						WorkspaceRoot: fixture.targetWorkspaceRoot,
+					}
+					if test.explicitTarget {
+						targetProject := fixture.targetProject.ProjectID
+						request.ProjectID = &targetProject
+					}
+					sourceWorkdir := engine.TranscriptWorkingDir()
+					if canonicalRetargetTestPath(t, sourceWorkdir) != canonicalRetargetTestPath(t, fixture.sourceBinding.CanonicalRoot) {
+						return llm.Response{}, fmt.Errorf("originating model Step started outside source Project: %q", sourceWorkdir)
+					}
+					sourceBelongs, err := fixture.metadata.SessionBelongsToProject(ctx, fixture.childID.String(), fixture.sourceBinding.ProjectID)
+					if err != nil {
+						return llm.Response{}, err
+					}
+					if !sourceBelongs {
+						return llm.Response{}, errors.New("originating model Step started without source Project ownership")
+					}
+					_, err = retargeter.ScheduleWorkspaceRetarget(
+						ctx,
+						request,
+						&sessionlaunchpb.RuntimeStepOrigin{RunId: active.RunID, StepId: active.StepID},
+						worktreecontract.NewOperationID(),
+					)
+					if err != nil {
+						return llm.Response{}, err
+					}
+					if canonicalRetargetTestPath(t, engine.TranscriptWorkingDir()) != canonicalRetargetTestPath(t, sourceWorkdir) {
+						return llm.Response{}, errors.New("scheduled rebind changed the originating Step Working Directory")
+					}
+					sourceBelongs, err = fixture.metadata.SessionBelongsToProject(ctx, fixture.childID.String(), fixture.sourceBinding.ProjectID)
+					if err != nil {
+						return llm.Response{}, err
+					}
+					if !sourceBelongs {
+						return llm.Response{}, errors.New("scheduled rebind changed ownership before the originating Step ended")
+					}
+					return llm.Response{
+						Assistant: llm.Message{Role: llm.RoleAssistant},
+						ToolCalls: []llm.ToolCall{{
+							ID: "rebind-tool", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"pwd"}`),
+						}},
+						Usage: llm.Usage{WindowTokens: 200000},
+					}, nil
+				}
+				if !requestHasRebindReminder(req) {
+					t.Error("model continued without the Session move reminder")
+				}
+				targetBelongs, err := fixture.metadata.SessionBelongsToProject(ctx, fixture.childID.String(), fixture.targetProject.ProjectID)
+				if err != nil {
+					t.Error(err)
+				} else if !targetBelongs {
+					t.Error("model continued before the destination Project was applied")
+				}
+				continued <- engine.TranscriptWorkingDir()
+				return llm.Response{
+					Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("moved and continued"), Phase: textutil.Value(llm.MessagePhaseFinal)},
+					Usage:     llm.Usage{WindowTokens: 200000},
+				}, nil
+			}))
+			descriptor, err := session.NewOpenSessionDescriptor(fixture.childID)
 			if err != nil {
-				return llm.Response{}, err
+				t.Fatal(err)
 			}
-			return llm.Response{
-				Assistant: llm.Message{Role: llm.RoleAssistant},
-				ToolCalls: []llm.ToolCall{{
-					ID: "rebind-tool", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"pwd"}`),
-				}},
-				Usage: llm.Usage{WindowTokens: 200000},
-			}, nil
-		}
-		if !requestHasRebindReminder(req) {
-			t.Error("model continued without the Session move reminder")
-		}
-		continued <- engine.TranscriptWorkingDir()
-		return llm.Response{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("moved and continued"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		}, nil
-	}))
-	descriptor, err := session.NewOpenSessionDescriptor(fixture.childID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = fixture.authority.RunCurrentAgentExecution(ctx, descriptor, func(ctx context.Context, current *runtime.Engine) error {
-		_, err := current.SubmitUserMessage(ctx, "move and keep working")
-		return err
-	})
-	if err != nil {
-		t.Fatalf("rebind interrupted the originating execution: %v", err)
-	}
-	select {
-	case workdir := <-continued:
-		if canonicalRetargetTestPath(t, workdir) != canonicalRetargetTestPath(t, fixture.targetWorkspaceRoot) {
-			t.Fatalf("model continued in %q instead of destination %q", workdir, fixture.targetWorkspaceRoot)
-		}
-	case <-ctx.Done():
-		t.Fatal("rebind required another user message before the model could continue")
-	}
-	if !fixture.runtimeAvailable(t) {
-		t.Fatal("successful rebind retired the Session runtime")
+			err = fixture.authority.RunCurrentAgentExecution(ctx, descriptor, func(ctx context.Context, current *runtime.Engine) error {
+				_, err := current.SubmitUserMessage(ctx, "move and keep working")
+				return err
+			})
+			if err != nil {
+				t.Fatalf("rebind interrupted the originating execution: %v", err)
+			}
+			select {
+			case workdir := <-continued:
+				if canonicalRetargetTestPath(t, workdir) != canonicalRetargetTestPath(t, fixture.targetWorkspaceRoot) {
+					t.Fatalf("model continued in %q instead of destination %q", workdir, fixture.targetWorkspaceRoot)
+				}
+			case <-ctx.Done():
+				t.Fatal("rebind required another user message before the model could continue")
+			}
+			if !fixture.runtimeAvailable(t) {
+				t.Fatal("successful rebind retired the Session runtime")
+			}
+		})
 	}
 }
 

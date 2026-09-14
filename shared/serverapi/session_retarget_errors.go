@@ -37,7 +37,7 @@ func (e *SessionRetargetError) Error() string {
 	if e == nil {
 		return ErrSessionRetarget.Error()
 	}
-	return fmt.Sprintf("%s: %s", ErrSessionRetarget, e.Reason)
+	return fmt.Sprintf("%s: %s", ErrSessionRetarget, sessionRetargetReasonLabel(e.Reason))
 }
 
 func (e *SessionRetargetError) Is(target error) bool {
@@ -96,4 +96,21 @@ func (e *SessionRetargetError) SortedCandidateProjects() []ProjectReference {
 		return sorted[i].ID < sorted[j].ID
 	})
 	return sorted
+}
+
+func sessionRetargetReasonLabel(reason SessionRetargetErrorReason) string {
+	switch reason {
+	case SessionRetargetTargetProjectRequired:
+		return "target Project selection is ambiguous"
+	case SessionRetargetTargetProjectConflict:
+		return "target Project conflicts with an existing workspace binding"
+	case SessionRetargetWorkflowOwned:
+		return "Session is owned by a Workflow"
+	case SessionRetargetBackgroundProcess:
+		return "Session has an active background process"
+	case SessionRetargetRuntimeActive:
+		return "Session is active"
+	default:
+		return string(reason)
+	}
 }
