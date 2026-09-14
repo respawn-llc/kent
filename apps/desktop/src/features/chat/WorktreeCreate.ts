@@ -45,10 +45,11 @@ export function createWorktreeCreate({
   t: TFunction;
 }>) {
   const target = Atom.make(suggestion ?? "");
+  const trimmedTarget = Atom.make((get) => get(target).trim());
   const base = Atom.make("HEAD");
   const intent = Atom.make<string | null>(null);
   const resolver = Atom.make((get) => {
-    const value = get(target).trim();
+    const value = get(trimmedTarget);
     if (value.length === 0) return null;
     const request = createWorktreeTargetResolutionRequest(sessionID, value);
     void client.resetQueries({
@@ -96,7 +97,7 @@ export function createWorktreeCreate({
     (_, get) =>
       Effect.gen(function* () {
         if (creator.getCurrentResult().isPending) return;
-        const value = get(target).trim();
+        const value = get(trimmedTarget);
         get.set(intent, value);
         const result = get(resolver)?.observer.getCurrentResult();
         if (value.length === 0 || !result?.isSuccess) return;
@@ -120,7 +121,7 @@ export function createWorktreeCreate({
     { concurrent: true },
   );
   const resolve = Atom.make((get) => {
-    const value = get(target).trim();
+    const value = get(trimmedTarget);
     return Effect.gen(function* () {
       if (value.length === 0) return;
       const request = createWorktreeTargetResolutionRequest(sessionID, value);
