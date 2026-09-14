@@ -35,7 +35,13 @@ export function DragDropSurface({
       onDragCancel={onCancel}
       onDragEnd={({ active, over }) => {
         const rect = active.rect.current.translated;
-        if (rect === null) throw new Error("A dropped item has no measured position.");
+        if (rect === null) {
+          onCancel();
+          const error = new Error("A dropped item has no measured position.");
+          if (import.meta.env.DEV) throw error;
+          console.error(error);
+          return;
+        }
         onDrop(over?.id ?? null, new DOMRect(rect.left, rect.top, rect.width, rect.height));
       }}
       sensors={sensors}
