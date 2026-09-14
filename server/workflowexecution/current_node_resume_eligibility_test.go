@@ -8,6 +8,8 @@ import (
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowstore"
+	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 func TestCurrentNodeControllerResumeEligibilityRejectsTaskWithoutInterruptedExecutableCurrentNodes(t *testing.T) {
@@ -151,5 +153,105 @@ func TestCurrentNodeControllerResumeEligibilityRejectsUnavailableTaskBeforeStore
 	}
 	if len(store.resumed) != 0 {
 		t.Fatalf("resume mutations = %v, want none", store.resumed)
+	}
+}
+
+func TestCurrentNodeControllerReactivateWorkflowSessionRejectsPendingApprovalBeforeResume(t *testing.T) {
+	taskID := workflow.TaskID("task-reactivate-pending-approval")
+	sessionID := runtimeids.NewSessionID()
+	reference := currentNodeReferenceForControllerTest(t, string(taskID), "node-review")
+	store := &currentNodeControllerStore{
+		currentNodes: []workflow.CurrentNode{{
+			Reference: reference,
+			SessionID: &sessionID,
+		}},
+		sessionTaskID: &taskID,
+		sessionAssociation: &workflowstore.TaskSessionAssociation{
+			SessionID:   sessionID,
+			CurrentNode: reference,
+		},
+		pendingApprovals: []workflow.PendingApproval{{
+			ID:     workflow.NewApprovalID(),
+			Source: reference,
+		}},
+	}
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
+	controller := newCurrentNodeControllerForTest(t, store, &countingCurrentNodeRunner{}, authority, 1)
+	t.Cleanup(func() {
+		if err := controller.Close(); err != nil {
+			t.Errorf("close controller: %v", err)
+		}
+		if err := authority.Close(context.Background()); err != nil {
+			t.Errorf("close authority: %v", err)
+		}
+	})
+
+	_, err := controller.ReactivateWorkflowSession(context.Background(), sessionID)
+
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) ||
+		rejection.TaskID != string(taskID) ||
+		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
+		t.Fatalf("ReactivateWorkflowSession error = %T %v, want pending-Approval rejection for %q", err, err, taskID)
+	}
+	if len(store.resumed) != 0 {
+		t.Fatalf("resumed Current Nodes = %v, want none", store.resumed)
+	}
+}
+
+func TestCurrentNodeControllerValidateWorkflowSessionContinuationUsesSelectedBranch(t *testing.T) {
+	taskID := workflow.TaskID("task-selected-continuation-branch")
+	selectedBranch := workflow.TransitionBranchKey("selected")
+	selected, err := workflow.NewCurrentNodeReference(taskID, "node-review", &selectedBranch)
+	if err != nil {
+		t.Fatalf("selected Current Node reference: %v", err)
+	}
+	siblingBranch := workflow.TransitionBranchKey("sibling")
+	sibling, err := workflow.NewCurrentNodeReference(taskID, "node-review", &siblingBranch)
+	if err != nil {
+		t.Fatalf("sibling Current Node reference: %v", err)
+	}
+	sessionID := runtimeids.NewSessionID()
+	store := &currentNodeControllerStore{
+		currentNodes: []workflow.CurrentNode{
+			{Reference: selected, SessionID: &sessionID},
+			{Reference: sibling},
+		},
+		sessionTaskID: &taskID,
+		sessionAssociation: &workflowstore.TaskSessionAssociation{
+			SessionID:   sessionID,
+			CurrentNode: selected,
+		},
+		resumeClassifications: []workflowstore.CurrentNodeResumeClassification{
+			{CurrentNode: workflow.CurrentNode{Reference: selected, SessionID: &sessionID}},
+			{CurrentNode: workflow.CurrentNode{Reference: sibling}},
+		},
+		pendingApprovals: []workflow.PendingApproval{{Source: sibling}},
+	}
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
+	controller := newCurrentNodeControllerForTest(t, store, &countingCurrentNodeRunner{}, authority, 1)
+	t.Cleanup(func() {
+		if err := controller.Close(); err != nil {
+			t.Errorf("close controller: %v", err)
+		}
+		if err := authority.Close(context.Background()); err != nil {
+			t.Errorf("close authority: %v", err)
+		}
+	})
+
+	if err := controller.ValidateWorkflowSessionContinuation(context.Background(), sessionID); err != nil {
+		t.Fatalf("ValidateWorkflowSessionContinuation with pending sibling: %v", err)
+	}
+
+	store.pendingApprovals = []workflow.PendingApproval{{Source: selected}}
+	err = controller.ValidateWorkflowSessionContinuation(context.Background(), sessionID)
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) ||
+		rejection.TaskID != string(taskID) ||
+		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
+		t.Fatalf("selected pending continuation error = %T %v, want selected-branch rejection", err, err)
+	}
+	if len(store.resumed) != 0 {
+		t.Fatalf("resumed Current Nodes = %v, want none", store.resumed)
 	}
 }

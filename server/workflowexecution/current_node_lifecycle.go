@@ -11,6 +11,7 @@ import (
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
 var ErrManualMoveLifecycleConflict = errors.New("workflow task has a non-interruptible lifecycle conflict")
@@ -114,9 +115,12 @@ func (c *CurrentNodeController) ReactivateWorkflowSession(
 	if sessionID.IsZero() {
 		return nil, errors.New("session id is required")
 	}
-	input, err := c.store.ResolveCurrentSessionStartContext(ctx, sessionID)
+	taskID, input, err := c.resolveWorkflowSessionContinuation(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if taskID == nil {
+		return nil, workflowstore.ErrSessionNotCurrentWorkflowNode
 	}
 	if handle, live := c.authority.SessionExecution(sessionID); live {
 		return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
@@ -146,6 +150,81 @@ func (c *CurrentNodeController) ReactivateWorkflowSession(
 		return nil, &TaskResumeConflictError{TaskID: input.Task.ID}
 	}
 	return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+}
+
+// ValidateWorkflowSessionContinuation checks whether an existing Workflow
+// Session may be admitted for a new turn without changing lifecycle state.
+// Ordinary Sessions are not owned by a Workflow Task and remain valid for the
+// ordinary continuation path.
+func (c *CurrentNodeController) ValidateWorkflowSessionContinuation(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+) error {
+	if c == nil {
+		return errors.New("current node workflow controller is required")
+	}
+	if sessionID.IsZero() {
+		return errors.New("session id is required")
+	}
+	taskID, input, err := c.resolveWorkflowSessionContinuation(ctx, sessionID)
+	if err != nil || taskID == nil {
+		return err
+	}
+	return c.validateWorkflowSessionEligibility(ctx, *taskID, input.CurrentNode.Reference)
+}
+
+func (c *CurrentNodeController) resolveWorkflowSessionContinuation(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+) (*workflow.TaskID, workflowstore.CurrentNodeStartContext, error) {
+	taskID, err := c.store.TaskIDForSession(ctx, sessionID)
+	if err != nil {
+		return nil, workflowstore.CurrentNodeStartContext{}, err
+	}
+	if taskID == nil {
+		return nil, workflowstore.CurrentNodeStartContext{}, nil
+	}
+	input, err := c.store.ResolveCurrentSessionStartContext(ctx, sessionID)
+	if errors.Is(err, workflowstore.ErrSessionNotCurrentWorkflowNode) {
+		return taskID, workflowstore.CurrentNodeStartContext{}, &serverapi.WorkflowContinuationRejectionError{
+			TaskID: string(*taskID),
+			Reason: serverapi.WorkflowContinuationNotCurrentNode,
+		}
+	}
+	if err != nil {
+		return taskID, workflowstore.CurrentNodeStartContext{}, err
+	}
+	approvals, err := c.store.ListPendingApprovals(ctx, *taskID)
+	if err != nil {
+		return taskID, workflowstore.CurrentNodeStartContext{}, err
+	}
+	for _, approval := range approvals {
+		if approval.Source.Equal(input.CurrentNode.Reference) {
+			return taskID, workflowstore.CurrentNodeStartContext{}, &serverapi.WorkflowContinuationRejectionError{
+				TaskID: string(*taskID),
+				Reason: serverapi.WorkflowContinuationWaitingForApproval,
+			}
+		}
+	}
+	return taskID, input, nil
+}
+
+func (c *CurrentNodeController) validateWorkflowSessionEligibility(
+	ctx context.Context,
+	taskID workflow.TaskID,
+	reference workflow.CurrentNodeReference,
+) error {
+	classification, err := c.classifyTaskResume(ctx, taskID, &reference)
+	if err != nil {
+		return err
+	}
+	if len(classification.alreadyResumed) != 0 || len(classification.resumable) != 0 {
+		return nil
+	}
+	if err := classification.eligibilityError(); err != nil {
+		return err
+	}
+	return &TaskResumeConflictError{TaskID: taskID}
 }
 
 func (c *CurrentNodeController) validateReactivatedWorkflowExecution(

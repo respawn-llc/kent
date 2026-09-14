@@ -38,10 +38,15 @@ type promptHistoryStore interface {
 	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error)
 }
 
+type WorkflowSessionContinuationValidator interface {
+	ValidateWorkflowSessionContinuation(context.Context, runtimeids.SessionID) error
+}
+
 type HeadlessBootstrap struct {
-	SessionLaunch    *sessionlaunch.Service
-	PromptHistory    promptHistoryStore
-	RuntimeAuthority *sessionruntime.Authority
+	SessionLaunch                 *sessionlaunch.Service
+	PromptHistory                 promptHistoryStore
+	RuntimeAuthority              *sessionruntime.Authority
+	WorkflowContinuationValidator WorkflowSessionContinuationValidator
 	// ManagedWorktreeBaseDir is the server-owned managed Worktree namespace.
 	ManagedWorktreeBaseDir string
 }
@@ -63,6 +68,11 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	if openingExisting && l.boot.RuntimeAuthority != nil {
 		if _, active := l.boot.RuntimeAuthority.SessionExecution(selectedSessionID); active {
 			return nil, ErrSessionRunning
+		}
+	}
+	if openingExisting && l.boot.WorkflowContinuationValidator != nil {
+		if err := l.boot.WorkflowContinuationValidator.ValidateWorkflowSessionContinuation(ctx, selectedSessionID); err != nil {
+			return nil, err
 		}
 	}
 	launchReq := sessionlaunch.PlanRequest{

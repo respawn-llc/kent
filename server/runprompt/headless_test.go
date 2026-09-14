@@ -49,6 +49,15 @@ type recordingPromptHistoryStore struct {
 	entries []metadata.PromptHistoryEntry
 }
 
+type workflowContinuationValidatorFunc func(context.Context, runtimeids.SessionID) error
+
+func (fn workflowContinuationValidatorFunc) ValidateWorkflowSessionContinuation(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+) error {
+	return fn(ctx, sessionID)
+}
+
 func (s *recordingPromptHistoryStore) RecordPromptHistoryEntry(_ context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error) {
 	s.entries = append(s.entries, entry)
 	return metadata.PromptHistoryRecord{}, nil
@@ -234,6 +243,43 @@ func TestInProcessRunPromptClientRejectsInvalidRequestsBeforeLaunch(t *testing.T
 				t.Fatal("RunPrompt succeeded before validating the request")
 			}
 		})
+	}
+}
+
+func TestInProcessRunPromptClientValidatesWorkflowContinuationBeforeLaunchAndHistory(t *testing.T) {
+	sessionID := runtimeids.NewSessionID()
+	taskID := "task-headless-continuation"
+	history := &recordingPromptHistoryStore{}
+	var validated runtimeids.SessionID
+	client := NewInProcessRunPromptClient(HeadlessBootstrap{
+		SessionLaunch: &sessionlaunch.Service{},
+		PromptHistory: history,
+		WorkflowContinuationValidator: workflowContinuationValidatorFunc(func(_ context.Context, got runtimeids.SessionID) error {
+			validated = got
+			return &serverapi.WorkflowContinuationRejectionError{
+				TaskID: taskID,
+				Reason: serverapi.WorkflowContinuationWaitingForApproval,
+			}
+		}),
+	})
+
+	_, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		Intent:  serverapi.OpenExistingSessionLaunchIntent(sessionID),
+		Prompt:  "continue",
+		Timeout: time.Second,
+	}, nil)
+
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) ||
+		rejection.TaskID != taskID ||
+		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
+		t.Fatalf("RunPrompt error = %T %v, want typed continuation rejection", err, err)
+	}
+	if validated != sessionID {
+		t.Fatalf("validated Session = %s, want %s", validated, sessionID)
+	}
+	if len(history.entries) != 0 {
+		t.Fatalf("prompt history entries = %+v, want none", history.entries)
 	}
 }
 

@@ -225,10 +225,25 @@ func binaryUpdateStatusFailure(err error) proto.Message {
 }
 
 func binaryAuthFailure(err error) proto.Message {
+	if detail := binaryWorkflowContinuationFailure(err); detail != nil {
+		return detail
+	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
 		return &authpb.AuthRequiredDetails{}
 	}
 	return binaryInternalFailure(err)
+}
+
+func binaryWorkflowContinuationFailure(err error) proto.Message {
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) {
+		return nil
+	}
+	detail, conversionErr := protoapi.WorkflowContinuationRejectionToProto(rejection)
+	if conversionErr != nil {
+		return binaryInternalFailure(errors.Join(err, conversionErr))
+	}
+	return detail
 }
 
 func binaryOnboardingFinalizeFailure(err error) proto.Message {

@@ -7,6 +7,7 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -17,6 +18,11 @@ type runtimeControlFailure interface {
 }
 
 func runtimeControlGeneratedError(failure runtimeControlFailure) error {
+	if value, ok := failure.(interface {
+		GetWorkflowContinuationRejection() *sharedpb.WorkflowContinuationRejectionDetails
+	}); ok && value.GetWorkflowContinuationRejection() != nil {
+		return protoapi.WorkflowContinuationRejectionFromProto(value.GetWorkflowContinuationRejection())
+	}
 	if value, ok := failure.(interface {
 		GetRuntimeUnavailable() *runtimepb.RuntimeUnavailableDetails
 	}); ok && value.GetRuntimeUnavailable() != nil {
