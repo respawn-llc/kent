@@ -9,16 +9,8 @@ import (
 type AttentionNotificationEventType string
 
 const (
-	AttentionNotificationEventPending          AttentionNotificationEventType = "pending"
-	AttentionNotificationEventResolved         AttentionNotificationEventType = "resolved"
-	AttentionNotificationEventSnapshotComplete AttentionNotificationEventType = "snapshot_complete"
-)
-
-type AttentionNotificationSource string
-
-const (
-	AttentionNotificationSourceLive     AttentionNotificationSource = "live"
-	AttentionNotificationSourceSnapshot AttentionNotificationSource = "snapshot"
+	AttentionNotificationEventPending  AttentionNotificationEventType = "pending"
+	AttentionNotificationEventResolved AttentionNotificationEventType = "resolved"
 )
 
 type AttentionNotificationKind string
@@ -47,13 +39,11 @@ const (
 
 type AttentionNotificationEvent struct {
 	Sequence   uint64                         `json:"sequence"`
-	Source     AttentionNotificationSource    `json:"source"`
 	Type       AttentionNotificationEventType `json:"type"`
 	Pending    *AttentionNotification         `json:"pending,omitempty"`
 	ID         *AttentionNotificationID       `json:"id,omitempty"`
 	Kind       AttentionNotificationKind      `json:"kind,omitempty"`
 	OccurredAt *time.Time                     `json:"occurred_at,omitempty"`
-	SessionID  string                         `json:"session_id,omitempty"`
 }
 
 type AttentionNotificationID struct {

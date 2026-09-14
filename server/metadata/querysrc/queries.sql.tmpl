@@ -3056,13 +3056,14 @@ WHERE task_id = sqlc.arg(task_id)
   AND scheduling_state = 'interrupted'
   AND interruption_reason = 'user_interrupt';
 
--- name: RecoverExecutableCurrentNodes :many
+-- name: ReconcileTaskResume :execrows
 UPDATE task_current_nodes
 SET scheduling_state = 'interrupted',
     interruption_reason = sqlc.arg(interruption_reason),
     interruption_detail_json = sqlc.arg(interruption_detail_json),
     interrupted_at_unix_ms = sqlc.arg(interrupted_at_unix_ms)
-WHERE scheduling_state IN ('ready', 'admitted')
+WHERE task_id = sqlc.arg(task_id)
+  AND scheduling_state IN ('ready', 'admitted')
   AND NOT EXISTS (
       SELECT 1
       FROM task_pending_approvals approval
@@ -3072,8 +3073,7 @@ WHERE scheduling_state IN ('ready', 'admitted')
             (approval.source_transition_branch_key IS NULL AND task_current_nodes.transition_branch_key IS NULL)
             OR approval.source_transition_branch_key = task_current_nodes.transition_branch_key
         )
-  )
-RETURNING task_id, node_id, transition_branch_key;
+  );
 
 -- name: InsertTaskCurrentNode :exec
 INSERT INTO task_current_nodes (

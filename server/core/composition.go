@@ -275,10 +275,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: attention: %w", err)
 	}
 	workflowAttentionFinalizer := workflowattention.NewFinalizer(workflowApprovalProjection{store: workflowStore}, attentionBroker)
-	runtimeRegistry.WithWorkflowAttentionNotificationSnapshot(workflowAttentionNotificationSnapshotSource{
-		attention: workflowAttention,
-		finalizer: workflowAttentionFinalizer,
-	})
 	workflowTaskDependencyCounter, err := workflowview.NewTaskDependencyCounter(metadataStore)
 	if err != nil {
 		cleanupNewFailure()
@@ -312,10 +308,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	runtimeControlService.WithWorkflowSessionReactivator(workflowController)
 	runtimeControlService.WithWorkflowSessionPreparationReader(workflowController)
-	if _, err := workflowController.Recover(context.Background()); err != nil {
-		cleanupNewFailure()
-		return nil, fmt.Errorf("workflow bundle: current node recovery: %w", err)
-	}
 	workflowTaskStatusProjection, err := workflowview.NewTaskStatusProjection(
 		workflowStore,
 		workflowTaskProjector,

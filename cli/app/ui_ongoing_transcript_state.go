@@ -408,7 +408,9 @@ func (m *uiModel) reconcileTranscriptPrompts(prompts []*transcriptpb.Prompt) tea
 		cmds = append(cmds, m.askController().resolvePrompt(id))
 	}
 	for _, prompt := range prompts {
-		cmds = append(cmds, m.askController().acceptEvent(m.transcriptPromptEvent(prompt)))
+		event := m.transcriptPromptEvent(prompt)
+		event.origin = promptDeliveryHydration
+		cmds = append(cmds, m.askController().acceptEvent(event))
 	}
 	return batchCmds(cmds...)
 }

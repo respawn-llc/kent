@@ -58,9 +58,7 @@ function OwnedAttentionController() {
         refreshAttentionProjection();
       },
       onEvent(event) {
-        if (event.source === "live") {
-          refreshAttentionProjection();
-        }
+        refreshAttentionProjection();
         if (event.type === "pending") {
           void handlePending(event.pending);
           return;

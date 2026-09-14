@@ -384,7 +384,6 @@ function interruptedCurrentNodeFallback(notification: AttentionNotification, t: 
     workflow_script_completion_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
     workflow_script_execution_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
     workflow_script_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
-    workflow_startup_recovery: t("app.attention.interruptedCurrentNodeStartupRecovery"),
   };
   return reasonCopy[reason] ?? fallback;
 }

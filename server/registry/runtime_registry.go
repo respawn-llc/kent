@@ -40,7 +40,6 @@ type RuntimeRegistry struct {
 	attentionBroker            *attentionnotify.Broker
 	questionBatches            *attentionnotify.QuestionBatchTracker
 	workflowEventPublisher     func(context.Context, serverapi.WorkflowProjectEvent) error
-	workflowAttentionSnapshot  WorkflowAttentionNotificationSnapshotSource
 	executionTargetResolver    func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 	backgroundProcessSnapshots func() []shelltool.Snapshot
 }

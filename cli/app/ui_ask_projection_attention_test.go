@@ -39,6 +39,29 @@ func TestAskVisibleActivationUsesCompletedProjectionNotificationPreview(t *testi
 	}
 }
 
+func TestHydratedPendingPromptIsShownWithoutNotification(t *testing.T) {
+	ringer := &countRinger{}
+	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
+	model.promptAttention = newUnfocusedBellHooks(ringer)
+	model.questionProjector = func(request questionRenderRequest) questionRenderResultMsg {
+		return questionRenderResultMsg{request: request, rows: []string{"Question"}}
+	}
+
+	prompt := testQuestionAskEvent("ask-hydrated", "Proceed?", "yes").prompt
+	command := model.reconcileTranscriptPrompts([]*transcriptpb.Prompt{prompt})
+	if command == nil {
+		t.Fatal("hydrated prompt did not schedule presentation")
+	}
+	next, _ := model.Update(command())
+	ready := next.(*uiModel)
+	if ready.ask.activeProjection == nil || ready.ask.current == nil {
+		t.Fatal("hydrated pending prompt was not presented")
+	}
+	if ringer.notifications != 0 || len(ringer.messages) != 0 {
+		t.Fatalf("hydration replayed notifications: count=%d, messages=%q", ringer.notifications, ringer.messages)
+	}
+}
+
 func TestAskInitialProjectionReadinessBlocksPromptAndComposerKeys(t *testing.T) {
 	keys := []tea.KeyMsg{
 		{Type: tea.KeyRunes, Runes: []rune("typed")},
