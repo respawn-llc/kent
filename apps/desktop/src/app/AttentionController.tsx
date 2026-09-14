@@ -66,9 +66,7 @@ function OwnedAttentionController() {
           void handlePending(event.pending);
           return;
         }
-        if (event.type === "resolved") {
-          handleResolved(event.id);
-        }
+        handleResolved(event.id);
       },
       onComplete(code) {
         if (code === 0) {
