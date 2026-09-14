@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { create } from "@app/server-api-contract";
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import { StrictMode } from "react";
 
 import type {
   ApiSubscription,
@@ -117,9 +118,65 @@ function emitGoalObservation(
 }
 
 describe("Goal sidebar", () => {
+  it("creates a fresh live destination after StrictMode effect replay", async () => {
+    const services = createTestServices([]);
+    const handlers: ChatGoalObservationHandler[] = [];
+    const api = {
+      ...createGoalSidebarApi({ goal: null }),
+      subscribeGoal: vi.fn((_target: typeof target, handler: ChatGoalObservationHandler): ApiSubscription => {
+        handlers.push(handler);
+        return { close: vi.fn() };
+      }),
+    };
+    render(
+      <TestAppProviders services={services}>
+        <StrictMode>
+          <GoalSidebarPage input={{ kind: "session", api, target }} />
+        </StrictMode>
+      </TestAppProviders>,
+    );
+
+    await waitFor(() => expect(api.subscribeGoal).toHaveBeenCalled());
+    act(() => {
+      if (handlers.length > 1) {
+        handlers[0]?.onEvent({
+          sequence: 1,
+          kind: "hydration",
+          fact: {
+            goal: {
+              id: "stale-goal",
+              objective: "stale destination",
+              status: "active",
+              createdAt: "2026-09-12T10:00:00Z",
+              updatedAt: "2026-09-12T10:00:00Z",
+            },
+            availability: "available",
+          },
+        });
+      }
+      handlers.at(-1)?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        fact: {
+          goal: {
+            id: "live-goal",
+            objective: "live destination",
+            status: "active",
+            createdAt: "2026-09-12T10:00:00Z",
+            updatedAt: "2026-09-12T10:00:00Z",
+          },
+          availability: "available",
+        },
+      });
+    });
+
+    expect(await screen.findByText("live destination")).toBeInTheDocument();
+    expect(screen.queryByText("stale destination")).not.toBeInTheDocument();
+  });
+
   it("starts with Loading and then presents authoritative Goal metadata", async () => {
     const testServices = mountGoal();
-    expect(screen.getByTestId("loading-state-placeholder")).toBeInTheDocument();
+    expect(screen.getByTestId("loading-state")).toBeInTheDocument();
 
     act(() => {
       emitGoalObservation(testServices.transport, activeGoal);
