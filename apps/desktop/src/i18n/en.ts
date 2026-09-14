@@ -98,8 +98,6 @@ export const englishResources = {
         interruptedCurrentNodeScriptFailed: "The workflow script did not complete successfully.",
         interruptedCurrentNodeRuntimeFailed: "The workflow execution stopped unexpectedly.",
         interruptedCurrentNodeProtocolCap: "The workflow execution exceeded its safety limit.",
-        permissionDeniedTitle: "Native notifications are disabled",
-        permissionDeniedBody: "Kent will keep attention notifications inside the app.",
       },
     },
     chatTranscript: {

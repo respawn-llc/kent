@@ -289,13 +289,12 @@ function useAttentionSurfacePresenter() {
     void bridge.notifications
       .permissionState()
       .then(async (permission) => {
-        let resolvedPermission = permission;
         await logger.append("info", "Native notification permission state resolved.", {
           permission,
         });
         if (permission === "prompt") {
           try {
-            resolvedPermission = await bridge.notifications.requestPermission();
+            const resolvedPermission = await bridge.notifications.requestPermission();
             await logger.append("info", "Native notification permission request completed.", {
               permission: resolvedPermission,
             });
@@ -306,21 +305,13 @@ function useAttentionSurfacePresenter() {
             return;
           }
         }
-        if (resolvedPermission === "denied" || resolvedPermission === "unsupported") {
-          status.push({
-            id: `attention-native-permission-${resolvedPermission}`,
-            tone: "warning",
-            title: t("app.attention.permissionDeniedTitle"),
-            body: t("app.attention.permissionDeniedBody"),
-          });
-        }
       })
       .catch(async (error: unknown) => {
         await logger.append("warn", "Reading native notification permission failed.", {
           error: errorMessage(error),
         });
       });
-  }, [bridge.capabilities.notifications.basic, bridge.notifications, logger, status, t]);
+  }, [bridge.capabilities.notifications.basic, bridge.notifications, logger]);
 
   useEffect(() => {
     if (connection.phase !== "connected" || connection.generation === reconciledGenerationRef.current) {

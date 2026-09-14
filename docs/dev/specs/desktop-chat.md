@@ -562,6 +562,7 @@
 
 ## Failure And Recovery
 
+- Unavailable or denied native notification permission must not produce a warning toast. Desktop must keep attention notifications available inside the app.
 - Desktop's existing global connection state owns control-connection disconnection. Chat adds no banner, card, modal, or second reconnect indicator.
 - While disconnected, the existing persistent warning notice remains visible, Chat keeps its last committed authoritative content, and every server mutation is unavailable. Composer and form text remain present.
 - Reconnection dismisses the global warning, invalidates in-flight transcript-page attempts from the prior connection, reissues visible owner reads, recreates the transcript subscription, and performs Scratch Rehydration. It retains the committed transcript window and its usable loaded paging boundaries, does not replay interrupted older/newer requests, and does not start a separate newest-page read. Success adds no notification.
