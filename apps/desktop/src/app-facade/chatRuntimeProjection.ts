@@ -11,6 +11,12 @@ import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript, order
 
 export type ChatAuthorityTuple = ChatMainView["version"];
 export type ChatProjectionHostEffect =
+  | Readonly<{ kind: "pending-work-hydrated"; sessionID: string }>
+  | Readonly<{ kind: "pending-work-changed" }>
+  | Readonly<{
+      kind: "pending-work-restored";
+      restoration: ChatTranscriptPayloadByKind["pending_work_restored"];
+    }>
   | Readonly<{
       kind: "human-input-interrupted";
       items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"];
@@ -116,31 +122,16 @@ function admitHydration(
       ),
     },
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
-    effects: [],
+    effects: [{ kind: "pending-work-hydrated", sessionID: hydration.SessionIdentity.SessionID }],
   };
 }
 
 function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): ChatProjectionResult {
-  if (event.kind === "prompt") {
-    const update = event.payload;
-    if (update.state === "resolved") {
-      return result({
-        ...state,
-        pendingPrompts: state.pendingPrompts.filter((prompt) => prompt.toolCallID !== update.toolCallID),
-      });
-    }
-    const exists = state.pendingPrompts.some((prompt) => prompt.toolCallID === update.prompt.toolCallID);
-    return result({
-      ...state,
-      pendingPrompts: orderPendingPrompts(
-        exists
-          ? state.pendingPrompts.map((prompt) =>
-              prompt.toolCallID === update.prompt.toolCallID ? update.prompt : prompt,
-            )
-          : [...state.pendingPrompts, update.prompt],
-      ),
-    });
-  }
+  if (event.kind === "pending_work_changed")
+    return result(state, { effects: [{ kind: "pending-work-changed" }] });
+  if (event.kind === "pending_work_restored")
+    return result(state, { effects: [{ kind: "pending-work-restored", restoration: event.payload }] });
+  if (event.kind === "prompt") return admitPrompt(state, event.payload);
   if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
   if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
   if (event.kind === "session_status") return metadataResult(state, { sessionStatus: event.payload });
@@ -157,6 +148,29 @@ function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): C
     });
   }
   return result(state);
+}
+
+function admitPrompt(
+  state: ChatProjectionState,
+  update: ChatTranscriptPayloadByKind["prompt"],
+): ChatProjectionResult {
+  if (update.state === "resolved") {
+    return result({
+      ...state,
+      pendingPrompts: state.pendingPrompts.filter((prompt) => prompt.toolCallID !== update.toolCallID),
+    });
+  }
+  const exists = state.pendingPrompts.some((prompt) => prompt.toolCallID === update.prompt.toolCallID);
+  return result({
+    ...state,
+    pendingPrompts: orderPendingPrompts(
+      exists
+        ? state.pendingPrompts.map((prompt) =>
+            prompt.toolCallID === update.prompt.toolCallID ? update.prompt : prompt,
+          )
+        : [...state.pendingPrompts, update.prompt],
+    ),
+  });
 }
 
 function admitIncrementalRuntime(

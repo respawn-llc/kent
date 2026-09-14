@@ -32,6 +32,7 @@ export { SegmentedControl } from "./SegmentedControl";
 export type { SegmentedControlOption, SegmentedControlProps } from "./SegmentedControl";
 export { CopyableValueButton } from "./CopyableValueButton";
 export { IconTooltipButton } from "./IconTooltipButton";
+export { PeekingSurface } from "./PeekingSurface";
 export { HelpHint } from "./HelpHint";
 export type { HelpHintProps } from "./HelpHint";
 export { DisabledInteractionGuard } from "./DisabledInteractionGuard";

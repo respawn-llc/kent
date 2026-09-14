@@ -43,6 +43,7 @@ export * from "./useNativeDialogFallback";
 export * from "./useRetainedQueryData";
 export * from "./useStatusController";
 export * from "./useTaskSearch";
+export { useDebouncedText } from "./useDebouncedText";
 export * from "./viewTransitions";
 export * from "./windowChromeTitle";
 export * from "./WindowChromeTitleProvider";
