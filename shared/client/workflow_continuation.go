@@ -7,11 +7,8 @@ import (
 )
 
 func FormatWorkflowContinuationRejection(
-	rejection *serverapi.WorkflowContinuationRejectionError,
+	rejection serverapi.WorkflowContinuationRejectionError,
 ) string {
-	if rejection == nil {
-		return ""
-	}
 	switch rejection.Reason {
 	case serverapi.WorkflowContinuationWaitingForApproval:
 		return fmt.Sprintf(

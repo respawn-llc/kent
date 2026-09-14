@@ -21,8 +21,8 @@ func FormatSubmissionError(err error) string {
 		return ""
 	}
 	var rejection *serverapi.WorkflowContinuationRejectionError
-	if errors.As(err, &rejection) {
-		return client.FormatWorkflowContinuationRejection(rejection)
+	if errors.As(err, &rejection) && rejection != nil {
+		return client.FormatWorkflowContinuationRejection(*rejection)
 	}
 	if formatted := llmerrors.UserFacingError(err); strings.TrimSpace(formatted) != "" {
 		return formatted
