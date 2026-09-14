@@ -79,7 +79,6 @@ describe("open Inbox attention refresh", () => {
       expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
     });
   });
-
 });
 
 function attentionListCallCount(services: ReturnType<typeof createTestServices>): number {
