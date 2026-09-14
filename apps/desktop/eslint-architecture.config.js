@@ -42,7 +42,7 @@ export const architectureEntrypoints = Object.freeze({
   API_COMPOSITION: "composition/index.ts",
   INDEX: "index.ts",
   NATIVE_PACKAGE: "src/index.ts",
-  UI_KIT: "src/ReorderableList.tsx",
+  UI_KIT: "src/index.ts",
   VENDOR_ELK_API: "elkjs-types.ts",
   VENDOR_ELK_BUNDLED: "elkjs-bundled-types.ts",
   VENDOR_XYFLOW: "xyflow-react-types.ts",

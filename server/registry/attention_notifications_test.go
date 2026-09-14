@@ -34,7 +34,7 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 
 	projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"})
 	pending := nextRegistryAttentionEvent(t, sessionSub).GetPending()
-	if pending == nil || pending.Source != attentionpb.Source_ATTENTION_SOURCE_LIVE || pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != "ask-1" || pending.SessionId != "session-1" {
+	if pending == nil || pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != "ask-1" || pending.SessionId != "session-1" {
 		t.Fatalf("pending event = %+v", pending)
 	}
 	desktopPending := nextRegistryAttentionEvent(t, desktopSub)
@@ -92,13 +92,13 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 		pending.GetPending().GetApproval().AccessTargets[0].RequestedPath != "../outside.txt" {
 		t.Fatalf("generic approval attention = %+v", pending)
 	}
-	snapshotSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1", IncludePendingPromptSnapshot: true})
+	newSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
-		t.Fatalf("SubscribeSessionAttentionNotifications snapshot: %v", err)
+		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
-	snapshot := nextRegistryAttentionEvent(t, snapshotSub).GetPending()
-	if snapshot == nil || snapshot.Source != attentionpb.Source_ATTENTION_SOURCE_SNAPSHOT || snapshot.Id.Kind != attentionpb.Kind_ATTENTION_KIND_APPROVAL || snapshot.Id.Uuid != "approval-1" || len(snapshot.GetApproval().AccessTargets) != 1 {
-		t.Fatalf("generic approval snapshot = %+v", snapshot)
+	defer newSub.Close()
+	if event, err := newSub.Next(shortRegistryContext(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("new subscription replayed a pending approval: event=%+v, err=%v", event, err)
 	}
 }
 
@@ -238,7 +238,7 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 	}
 }
 
-func TestRuntimeRegistrySessionAttentionSnapshotOverflowReturnsStreamGap(t *testing.T) {
+func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
@@ -248,16 +248,17 @@ func TestRuntimeRegistrySessionAttentionSnapshotOverflowReturnsStreamGap(t *test
 		projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ToolCallID: fmt.Sprintf("ask-%d", i), StepID: registryTestStepID, Question: "Proceed?"})
 	}
 
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1", IncludePendingPromptSnapshot: true})
-	if !errors.Is(err, serverapi.ErrStreamGap) {
-		t.Fatalf("SubscribeSessionAttentionNotifications error = %v, want ErrStreamGap", err)
+	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if sub != nil {
-		t.Fatalf("SubscribeSessionAttentionNotifications returned subscription after snapshot overflow: %+v", sub)
+	defer sub.Close()
+	if event, err := sub.Next(shortRegistryContext(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("subscription replayed pending prompts: event=%+v, err=%v", event, err)
 	}
 }
 
-func TestRuntimeRegistrySessionAttentionSnapshotPreservesTaskQuestionBatch(t *testing.T) {
+func TestRuntimeRegistrySessionAttentionOnlyReceivesNewTaskQuestionBatchEvents(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
@@ -266,32 +267,19 @@ func TestRuntimeRegistrySessionAttentionSnapshotPreservesTaskQuestionBatch(t *te
 	req := taskBatchAskRequest("ask-1")
 	projectPendingPromptForTest(registry, "session-1", req)
 
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1", IncludePendingPromptSnapshot: true})
+	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "session-1"})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
-	pending := nextRegistryAttentionEvent(t, sub).GetPending()
-	if pending == nil || pending.Source != attentionpb.Source_ATTENTION_SOURCE_SNAPSHOT {
-		t.Fatalf("snapshot event = %+v", pending)
-	}
-	if pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != registryTestStepID || pending.SessionId != "session-1" {
-		t.Fatalf("snapshot pending = %+v", pending)
-	}
-	if len(pending.GetQuestion().PreparedAskIds) != 2 || pending.GetQuestion().PreparedAskIds[0] != "ask-1" {
-		t.Fatalf("snapshot prepared questions = %+v", pending.GetQuestion())
-	}
-	if pending.GetQuestion() == nil || pending.GetQuestion().DisplayCount != 2 || len(pending.GetQuestion().CurrentUnresolvedAskIds) != 1 || pending.GetQuestion().CurrentUnresolvedAskIds[0] != "ask-1" {
-		t.Fatalf("snapshot question state = %+v", pending.GetQuestion())
-	}
-	complete := nextRegistryAttentionEvent(t, sub).GetSnapshotComplete()
-	if complete == nil || complete.SessionId != "session-1" {
-		t.Fatalf("snapshot complete = %+v", complete)
+	defer sub.Close()
+	if event, err := sub.Next(shortRegistryContext(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("subscription replayed a question batch: event=%+v, err=%v", event, err)
 	}
 	skipped := *req.QuestionBatch
 	skipped.ToolCallID = "ask-2"
 	registry.MarkTaskQuestionSkipped(skipped)
 	if event, err := sub.Next(shortRegistryContext(t)); err == nil {
-		t.Fatalf("skip published duplicate pending snapshot attention: %+v", event)
+		t.Fatalf("skip published duplicate pending attention: %+v", event)
 	}
 	registry.MarkTaskQuestionCleared(*req.QuestionBatch, "ask-1")
 	resolved := nextRegistryAttentionEvent(t, sub).GetResolved()

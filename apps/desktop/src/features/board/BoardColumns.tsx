@@ -6,12 +6,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Maximize2 } from "lucide-react";
+import { useDragSource, useDropTarget } from "@app/ui-kit";
 
 import { formatRelativeTime } from "@/app-facade";
 import {
@@ -30,7 +30,7 @@ import {
   type VirtualizedInfiniteListBoundaryState,
 } from "@/ui";
 import { cx } from "@/ui";
-import { type BoardColumnDropState, boardCardDragPayloadType } from "./BoardDragTypes";
+import { type BoardColumnDropState } from "./BoardDragTypes";
 import type { ActiveBoardCardDrag } from "./BoardDragState";
 import { boardCardInstanceKey, type BoardCardInstance } from "./BoardCardInstance";
 import { useBoardCardInstanceVisibility } from "./BoardCardVisibilityRegistry";
@@ -59,10 +59,8 @@ export type KanbanColumnProps = Readonly<{
   columnRef?: (element: HTMLElement | null) => void;
   scrollportRef?: (element: HTMLElement | null) => void;
   onCardClick: (taskID: string) => void;
-  onCardDragEnd: () => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
-  onDropTask: (event: DragEvent<HTMLElement>) => void;
   onExpandColumn?: () => void;
   onInterruptTask: (taskID: string) => void;
   onLoadMoreCards: () => void;
@@ -123,10 +121,8 @@ export function KanbanColumn({
   columnRef,
   scrollportRef,
   onCardClick,
-  onCardDragEnd,
   onCardDragStart,
   onDeleteTask,
-  onDropTask,
   onExpandColumn,
   onInterruptTask,
   onLoadMoreCards,
@@ -137,6 +133,14 @@ export function KanbanColumn({
   pinnedItemKeys,
 }: KanbanColumnProps) {
   const { t } = useTranslation();
+  const registerDropTarget = useDropTarget(column.id);
+  const registerColumn = useCallback(
+    (element: HTMLElement | null) => {
+      columnRef?.(element);
+      registerDropTarget(element);
+    },
+    [columnRef, registerDropTarget],
+  );
   const chromeRef = useRef<HTMLDivElement | null>(null);
   const [chromeHeight, setChromeHeight] = useState(0);
   useLayoutEffect(() => {
@@ -174,18 +178,8 @@ export function KanbanColumn({
       className={columnClassName}
       data-collapsed={isCollapsed ? "true" : "false"}
       data-drop-state={dropState}
-      ref={columnRef}
+      ref={registerColumn}
       style={columnStyle}
-      onDragOver={(event) => {
-        if (dropState === "idle" && !hasBoardCardDragData(event.dataTransfer)) {
-          return;
-        }
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-      }}
-      onDrop={(event) => {
-        onDropTask(event);
-      }}
       role="listitem"
     >
       {isCollapsed ? (
@@ -245,7 +239,6 @@ export function KanbanColumn({
                   dragDisabled={dragDisabled}
                   instance={instance}
                   onCardClick={onCardClick}
-                  onCardDragEnd={onCardDragEnd}
                   onCardDragStart={onCardDragStart}
                   onDeleteTask={onDeleteTask}
                   onInterruptTask={onInterruptTask}
@@ -326,7 +319,6 @@ const TaskCard = memo(function TaskCard({
   dragDisabled,
   instance,
   onCardClick,
-  onCardDragEnd,
   onCardDragStart,
   onDeleteTask,
   onInterruptTask,
@@ -340,7 +332,6 @@ const TaskCard = memo(function TaskCard({
   actionsDisabled: boolean;
   dragDisabled: boolean;
   onCardClick: (taskID: string) => void;
-  onCardDragEnd: () => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
   onInterruptTask: (taskID: string) => void;
@@ -350,15 +341,32 @@ const TaskCard = memo(function TaskCard({
 }>) {
   const { t } = useTranslation();
   const { cardClassName, cardStyle, registerCard: registerMotionCard } = useBoardCardMotion();
+  const { listeners, setNodeRef } = useDragSource({
+    id: boardCardInstanceKey(instance),
+    disabled: dragDisabled,
+    onStart: () => {
+      onCardDragStart({
+        instance,
+        lastCardIndex: cardIndex,
+        payload: {
+          taskID: card.id,
+          canStart: card.actions.canStart,
+          activeNodeIDs: card.activeNodeIDs,
+          statusKind: card.statusKind,
+        },
+        snapshot: card,
+      });
+    },
+  });
   const instanceColumnID = instance.columnID;
   const instanceTaskID = instance.taskID;
   const registerCard = useCallback(
     (element: HTMLElement | null) => {
       registerMotionCard({ columnID: instanceColumnID, taskID: instanceTaskID }, element);
+      setNodeRef(element);
     },
-    [instanceColumnID, instanceTaskID, registerMotionCard],
+    [instanceColumnID, instanceTaskID, registerMotionCard, setNodeRef],
   );
-  const canDrag = !dragDisabled;
   const waitingForAnswer = isWaitingForAnswer(card.statusKind);
   const availableActions = {
     canInterrupt: card.actions.canInterrupt,
@@ -379,16 +387,14 @@ const TaskCard = memo(function TaskCard({
     card.labels.length > 0 ||
     availableActions.canInterrupt ||
     availableActions.canResume;
-  const dragPayload = {
-    taskID: card.id,
-    canStart: card.actions.canStart,
-    activeNodeIDs: card.activeNodeIDs,
-    statusKind: card.statusKind,
-  };
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <article
+          {...listeners}
+          onPointerDown={(event) => {
+            if (!isInteractiveEventTarget(event.target)) listeners?.onPointerDown?.(event);
+          }}
           aria-label={card.title}
           className={cx(
             "board-task-card grid cursor-pointer gap-0 rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] shadow-[var(--shadow-island-0)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
@@ -397,25 +403,8 @@ const TaskCard = memo(function TaskCard({
           data-task-card-border-tone={card.borderTone}
           data-task-card-state={waitingForAnswer ? "waiting-answer" : card.statusKind}
           data-testid="task-card"
-          draggable={canDrag}
           onClick={() => {
             onCardClick(card.id);
-          }}
-          onDragEnd={onCardDragEnd}
-          onDragStart={(event) => {
-            if (!canDrag) {
-              event.preventDefault();
-              return;
-            }
-            event.dataTransfer.setData(boardCardDragPayloadType, "board-card");
-            event.dataTransfer.effectAllowed = "move";
-            setBoardCardDragImage(event.currentTarget, event.dataTransfer);
-            onCardDragStart({
-              instance,
-              lastCardIndex: cardIndex,
-              payload: dragPayload,
-              snapshot: card,
-            });
           }}
           onKeyDown={(event) => {
             activateCardFromKeyboard(event, () => {
@@ -544,27 +533,6 @@ const TaskCardPreview = memo(function TaskCardPreview({
     </>
   );
 });
-
-function setBoardCardDragImage(cardElement: HTMLElement, dataTransfer: DataTransfer): void {
-  const rect = cardElement.getBoundingClientRect();
-  const dragImage = cardElement.cloneNode(true);
-  if (!(dragImage instanceof HTMLElement)) {
-    return;
-  }
-  dragImage.classList.add("board-card-drag-image");
-  dragImage.style.width = `${rect.width.toString()}px`;
-  dragImage.style.height = `${rect.height.toString()}px`;
-  document.body.append(dragImage);
-  dataTransfer.setDragImage(dragImage, rect.width / 2, Math.min(24, rect.height / 2));
-  window.setTimeout(() => {
-    dragImage.remove();
-  }, 0);
-}
-
-function hasBoardCardDragData(dataTransfer: DataTransfer): boolean {
-  const types = Array.from(dataTransfer.types);
-  return types.includes(boardCardDragPayloadType) || types.includes("text/task-id");
-}
 
 function activateCardFromKeyboard(event: KeyboardEvent<HTMLElement>, onClick: () => void): void {
   if (event.defaultPrevented) {

@@ -212,7 +212,8 @@ func taskActions(
 		CanResume: !done &&
 			(len(concurrencyQueued) != 0 ||
 				(!hasLiveExecution &&
-					status.Kind == serverapi.WorkflowTaskStatusKindInterrupted &&
+					(status.Kind == serverapi.WorkflowTaskStatusKindInterrupted ||
+						status.Kind == serverapi.WorkflowTaskStatusKindActive) &&
 					!currentNodesOwnSetupRecovery(currentNodes))),
 		CanDelete: canDelete,
 	}

@@ -8516,13 +8516,14 @@ func (q *Queries) ReconcileSessionEventLog(ctx context.Context, arg ReconcileSes
 	return result.RowsAffected()
 }
 
-const recoverExecutableCurrentNodes = `-- name: RecoverExecutableCurrentNodes :many
+const reconcileTaskResume = `-- name: ReconcileTaskResume :execrows
 UPDATE task_current_nodes
 SET scheduling_state = 'interrupted',
     interruption_reason = ?1,
     interruption_detail_json = ?2,
     interrupted_at_unix_ms = ?3
-WHERE scheduling_state IN ('ready', 'admitted')
+WHERE task_id = ?4
+  AND scheduling_state IN ('ready', 'admitted')
   AND NOT EXISTS (
       SELECT 1
       FROM task_pending_approvals approval
@@ -8533,43 +8534,28 @@ WHERE scheduling_state IN ('ready', 'admitted')
             OR approval.source_transition_branch_key = task_current_nodes.transition_branch_key
         )
   )
-RETURNING task_id, node_id, transition_branch_key
 `
 
-type RecoverExecutableCurrentNodesParams struct {
+type ReconcileTaskResumeParams struct {
 	InterruptionReason     sql.NullString
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
+	TaskID                 string
 }
 
-type RecoverExecutableCurrentNodesRow struct {
-	TaskID              string
-	NodeID              string
-	TransitionBranchKey sql.NullString
-}
+func (q *Queries) ReconcileTaskResume(ctx context.Context, arg ReconcileTaskResumeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, reconcileTaskResume,
+		arg.InterruptionReason,
+		arg.InterruptionDetailJson,
+		arg.InterruptedAtUnixMs,
+		arg.TaskID,
+	)
+	err = recordQueryError(ctx, err, reconcileTaskResume, 4)
 
-func (q *Queries) RecoverExecutableCurrentNodes(ctx context.Context, arg RecoverExecutableCurrentNodesParams) ([]RecoverExecutableCurrentNodesRow, error) {
-	rows, err := q.db.QueryContext(ctx, recoverExecutableCurrentNodes, arg.InterruptionReason, arg.InterruptionDetailJson, arg.InterruptedAtUnixMs)
-	err = recordQueryError(ctx, err, recoverExecutableCurrentNodes, 3)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	var items []RecoverExecutableCurrentNodesRow
-	for rows.Next() {
-		var i RecoverExecutableCurrentNodesRow
-		if err := recordQueryError(ctx, rows.Scan(&i.TaskID, &i.NodeID, &i.TransitionBranchKey), recoverExecutableCurrentNodes, 3); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), recoverExecutableCurrentNodes, 3); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), recoverExecutableCurrentNodes, 3); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected()
 }
 
 const renameProjectLabel = `-- name: RenameProjectLabel :one

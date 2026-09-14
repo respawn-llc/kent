@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState, type DragEvent as ReactDragEvent, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 
 const BOARD_DRAG_AUTOSCROLL_EDGE_ZONE_PX = 72;
 const BOARD_DRAG_AUTOSCROLL_MAX_SPEED_PX_PER_SECOND = 900;
 const BOARD_DRAG_AUTOSCROLL_MAX_FRAME_DELTA_MS = 48;
 
 type DragPointer = Readonly<{ clientX: number; clientY: number }>;
-type PointContainment = "inclusive" | "strict";
 
 type ScrollAxisMotion = Readonly<{
   element: HTMLElement;
@@ -116,6 +115,7 @@ class BoardDragAutoScrollController {
     if (!this.#active || this.#pointer === null || this.#root === null) {
       return null;
     }
+    if (!pointIsInsideElement(this.#pointer, this.#root)) return null;
     const rootRect = this.#root.getBoundingClientRect();
     const horizontalVelocity = boardDragEdgeVelocity(this.#pointer.clientX, rootRect.left, rootRect.right);
     const verticalTarget = this.#verticalTarget(this.#pointer);
@@ -143,7 +143,7 @@ class BoardDragAutoScrollController {
 
   #verticalTarget(pointer: DragPointer): HTMLElement | null {
     for (const element of this.#columns.values()) {
-      if (pointIsInsideElement(pointer, element, "inclusive")) {
+      if (pointIsInsideElement(pointer, element)) {
         return element;
       }
     }
@@ -185,33 +185,26 @@ export function useBoardDragAutoScroll({
   }, [active, controller, rootRef]);
 
   useEffect(() => {
-    const stopOutsideBoard = (event: Event) => {
-      const root = rootRef.current;
-      if (root === null || !(event.target instanceof Node) || !root.contains(event.target)) {
-        controller.stop();
-      }
+    if (!active) return;
+    const move = (event: PointerEvent) => {
+      controller.setRoot(rootRef.current);
+      controller.updatePointer(event);
     };
-    const stopDocumentExit = (event: globalThis.DragEvent) => {
-      if (event.relatedTarget === null) {
-        const root = rootRef.current;
-        if (
-          root !== null &&
-          event.target instanceof Node &&
-          root.contains(event.target) &&
-          pointIsInsideElement(event, root, "strict")
-        ) {
-          return;
-        }
-        controller.stop();
-      }
+    const stop = () => {
+      controller.stop();
     };
-    document.addEventListener("dragover", stopOutsideBoard, true);
-    document.addEventListener("dragleave", stopDocumentExit, true);
+    const leave = (event: PointerEvent) => {
+      if (event.relatedTarget === null) stop();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerout", leave);
+    window.addEventListener("blur", stop);
     return () => {
-      document.removeEventListener("dragover", stopOutsideBoard, true);
-      document.removeEventListener("dragleave", stopDocumentExit, true);
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerout", leave);
+      window.removeEventListener("blur", stop);
     };
-  }, [controller, rootRef]);
+  }, [active, controller, rootRef]);
 
   useEffect(
     () => () => {
@@ -220,26 +213,6 @@ export function useBoardDragAutoScroll({
     [controller],
   );
 
-  const onBoardDragOver = useCallback(
-    (event: ReactDragEvent<HTMLElement>) => {
-      controller.setRoot(rootRef.current);
-      controller.updatePointer({ clientX: event.clientX, clientY: event.clientY });
-    },
-    [controller, rootRef],
-  );
-  const onBoardDragLeave = useCallback(
-    (event: ReactDragEvent<HTMLElement>) => {
-      const root = rootRef.current;
-      if (root !== null && event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) {
-        return;
-      }
-      if (root !== null && event.relatedTarget === null && pointIsInsideElement(event, root, "strict")) {
-        return;
-      }
-      controller.stop();
-    },
-    [controller, rootRef],
-  );
   const registerColumnScrollport = useCallback(
     (columnID: string, element: HTMLElement | null) => {
       controller.registerColumnScrollport(columnID, element);
@@ -250,28 +223,16 @@ export function useBoardDragAutoScroll({
     controller.stop();
   }, [controller]);
 
-  return { onBoardDragLeave, onBoardDragOver, registerColumnScrollport, stop };
+  return { registerColumnScrollport, stop };
 }
 
-function pointIsInsideElement(
-  point: DragPointer,
-  element: HTMLElement,
-  containment: PointContainment,
-): boolean {
+function pointIsInsideElement(point: DragPointer, element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
-  if (containment === "inclusive") {
-    return (
-      point.clientX >= rect.left &&
-      point.clientX <= rect.right &&
-      point.clientY >= rect.top &&
-      point.clientY <= rect.bottom
-    );
-  }
   return (
-    point.clientX > rect.left &&
-    point.clientX < rect.right &&
-    point.clientY > rect.top &&
-    point.clientY < rect.bottom
+    point.clientX >= rect.left &&
+    point.clientX <= rect.right &&
+    point.clientY >= rect.top &&
+    point.clientY <= rect.bottom
   );
 }
 

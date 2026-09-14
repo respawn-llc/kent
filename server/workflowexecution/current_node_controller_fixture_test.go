@@ -533,7 +533,6 @@ type currentNodeControllerStore struct {
 	preflightResumeCalls  int
 	interruptions         map[workflow.CurrentNodeReferenceKey]currentNodeInterruptionRecord
 	interruptionCalls     map[workflow.CurrentNodeReferenceKey]int
-	recovered             []workflow.CurrentNodeReference
 	completion            workflowstore.CurrentNodeCompletionResult
 	completionDiagnostic  error
 	completions           int
@@ -750,8 +749,21 @@ func (s *currentNodeControllerStore) InterruptCurrentNodes(ctx context.Context, 
 	return interrupted, nil
 }
 
-func (s *currentNodeControllerStore) RecoverExecutableCurrentNodes(context.Context, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) ([]workflow.CurrentNodeReference, error) {
-	return append([]workflow.CurrentNodeReference(nil), s.recovered...), nil
+func (s *currentNodeControllerStore) ReconcileTaskResume(_ context.Context, taskID workflow.TaskID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index, node := range s.currentNodes {
+		if node.Reference.TaskID != taskID || node.Scheduling == nil {
+			continue
+		}
+		switch node.Scheduling.State {
+		case workflow.CurrentNodeSchedulingReady, workflow.CurrentNodeSchedulingAdmitted:
+			node.Scheduling = &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingInterrupted}
+			s.currentNodes[index] = node
+			s.interrupted = append(s.interrupted, node)
+		}
+	}
+	return nil
 }
 
 func (s *currentNodeControllerStore) ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error) {

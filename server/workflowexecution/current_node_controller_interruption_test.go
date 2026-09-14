@@ -420,11 +420,10 @@ func TestCurrentNodeControllerScopeFailurePersistsDespiteUnrelatedWorkerError(t 
 	}
 }
 
-func TestCurrentNodeControllerRecoveryOnlyMarksAdmittedCurrentNodesInterrupted(t *testing.T) {
-	store := &currentNodeControllerStore{recovered: []workflow.CurrentNodeReference{
-		currentNodeReferenceForControllerTest(t, "task-recovered-1", "node-1"),
-		currentNodeReferenceForControllerTest(t, "task-recovered-2", "node-2"),
-		currentNodeReferenceForControllerTest(t, "task-recovered-3", "node-3"),
+func TestCurrentNodeControllerExplicitResumeReconcilesStoppedTaskWithoutNotification(t *testing.T) {
+	reference := currentNodeReferenceForControllerTest(t, "task-resume", "node-1")
+	store := &currentNodeControllerStore{currentNodes: []workflow.CurrentNode{
+		{Reference: reference, Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingAdmitted}},
 	}}
 	attention := &currentNodeAttentionRecorder{}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
@@ -439,18 +438,18 @@ func TestCurrentNodeControllerRecoveryOnlyMarksAdmittedCurrentNodesInterrupted(t
 		}
 	})
 
-	recovered, err := controller.Recover(context.Background())
+	preflight, err := controller.PreflightTaskResume(context.Background(), reference.TaskID)
 	if err != nil {
-		t.Fatalf("recover: %v", err)
+		t.Fatalf("resume preflight: %v", err)
 	}
-	if recovered != 3 {
-		t.Fatalf("recovered markers = %d, want 3", recovered)
+	if preflight.Outcome != TaskResumePreflightResumable || len(preflight.CurrentNodes) != 1 {
+		t.Fatalf("resume preflight = %+v, want resumable node", preflight)
 	}
 	if runner.starts() != 0 {
-		t.Fatalf("recovery started %d current nodes, want no automatic start", runner.starts())
+		t.Fatalf("preflight started %d current nodes, want no automatic start", runner.starts())
 	}
-	if attention.pendingCount() != 3 {
-		t.Fatalf("recovery attention notifications = %d, want 3", attention.pendingCount())
+	if attention.pendingCount() != 0 {
+		t.Fatalf("resume preflight attention notifications = %d, want none", attention.pendingCount())
 	}
 }
 

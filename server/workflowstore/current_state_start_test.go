@@ -109,6 +109,27 @@ func TestTaskStartReplacesBacklogCurrentNodeWithFirstExecutableCurrentNode(t *te
 	}
 }
 
+func TestTaskStartWithRelativeScriptDoesNotRequirePreparedWorktree(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createScriptStartWorkflow(t, ctx, store, ".kent/scripts/check")
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask before worktree preparation: %v", err)
+	}
+	nodes, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListCurrentNodes: %v", err)
+	}
+	if len(nodes) != 1 ||
+		nodes[0].Reference.NodeID != testNodeID("node-script-"+workflowID.String()) ||
+		nodes[0].Scheduling == nil ||
+		nodes[0].Scheduling.State != workflow.CurrentNodeSchedulingReady {
+		t.Fatalf("current nodes = %+v, want ready Script awaiting worktree preparation", nodes)
+	}
+}
+
 func TestTaskStartPlacementFreezesSourceWorkspace(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
@@ -130,7 +151,7 @@ func TestTaskStartPlacementFreezesSourceWorkspace(t *testing.T) {
 	}
 }
 
-func TestAdmitCurrentNodeMovesReadyNodeToRestartMarker(t *testing.T) {
+func TestAdmitCurrentNodeRecordsAdmission(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -153,7 +174,7 @@ func TestAdmitCurrentNodeMovesReadyNodeToRestartMarker(t *testing.T) {
 	}
 }
 
-func TestRecoverExecutableCurrentNodesInterruptsReadyAndAdmittedButPreservesApprovalSources(t *testing.T) {
+func TestReconcileTaskResumeOnlyChangesSelectedTaskAndPreservesApprovalSources(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	readyTask := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -193,15 +214,31 @@ func TestRecoverExecutableCurrentNodesInterruptsReadyAndAdmittedButPreservesAppr
 		t.Fatal("completion did not create pending Approval")
 	}
 
-	reason := workflow.CurrentNodeInterruptionReason("workflow_startup_recovery")
-	recovered, err := store.RecoverExecutableCurrentNodes(ctx, reason, workflow.CurrentNodeInterruptionDetail{Code: string(reason)})
-	if err != nil {
-		t.Fatalf("RecoverExecutableCurrentNodes: %v", err)
+	publisher := &recordingCurrentNodeEventPublisher{}
+	store.SetWorkflowEventPublisher(publisher)
+	if err := store.ReconcileTaskResume(ctx, admittedTask.ID); err != nil {
+		t.Fatalf("ReconcileTaskResume: %v", err)
 	}
-	if len(recovered) != 2 {
-		t.Fatalf("recovered current nodes = %d, want ready and admitted nodes only", len(recovered))
+	if len(publisher.events) != 1 || publisher.events[0].PrimaryEntityID != string(admittedTask.ID) {
+		t.Fatalf("task changes after reconciliation = %+v, want selected task change", publisher.events)
+	}
+	if err := store.ReconcileTaskResume(ctx, admittedTask.ID); err != nil {
+		t.Fatalf("repeat ReconcileTaskResume: %v", err)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("task changes after repeated reconciliation = %+v, want no duplicate change", publisher.events)
+	}
+	readyNodes, err := store.ListCurrentNodes(ctx, readyTask.ID)
+	if err != nil {
+		t.Fatalf("ListCurrentNodes unrelated task: %v", err)
+	}
+	if len(readyNodes) != 1 || readyNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingReady {
+		t.Fatalf("unrelated task nodes = %+v, want untouched ready node", readyNodes)
 	}
 	for _, expected := range []workflow.CurrentNodeReference{ready.Reference, admitted.Reference} {
+		if err := store.ReconcileTaskResume(ctx, expected.TaskID); err != nil {
+			t.Fatalf("ReconcileTaskResume: %v", err)
+		}
 		nodes, err := store.ListCurrentNodes(ctx, expected.TaskID)
 		if err != nil {
 			t.Fatalf("ListCurrentNodes(%q): %v", expected.TaskID, err)
@@ -209,10 +246,12 @@ func TestRecoverExecutableCurrentNodesInterruptsReadyAndAdmittedButPreservesAppr
 		if len(nodes) != 1 ||
 			nodes[0].Scheduling == nil ||
 			nodes[0].Scheduling.State != workflow.CurrentNodeSchedulingInterrupted ||
-			nodes[0].Scheduling.Interruption == nil ||
-			nodes[0].Scheduling.Interruption.Reason != reason {
-			t.Fatalf("recovered current nodes for %q = %+v, want startup interruption", expected.TaskID, nodes)
+			nodes[0].Scheduling.Interruption == nil {
+			t.Fatalf("current nodes for %q = %+v, want explicit resume interruption", expected.TaskID, nodes)
 		}
+	}
+	if err := store.ReconcileTaskResume(ctx, approvalTask.ID); err != nil {
+		t.Fatalf("ReconcileTaskResume approval task: %v", err)
 	}
 	approvalNodes, err := store.ListCurrentNodes(ctx, approvalTask.ID)
 	if err != nil {

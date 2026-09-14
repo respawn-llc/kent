@@ -29,14 +29,16 @@ export async function runBoardCardMotionTransition(options: BoardCardMotionTrans
     }
     const newElement = options.cardElementForTaskID(cardID);
     if (newElement !== undefined) {
+      const origin =
+        options.pendingCardMove?.card.id === cardID ? options.pendingCardMove.dropRect : oldSnapshot.rect;
       return [
-        animateMovedBoardCard(newElement, oldSnapshot.rect).finally(() => {
+        animateMovedBoardCard(newElement, origin).finally(() => {
           oldSnapshot.clone.remove();
         }),
       ];
     }
     const targetRect =
-      options.pendingCardMove?.taskID === cardID
+      options.pendingCardMove?.card.id === cardID
         ? options.columnElementsRef.current
             .get(options.pendingCardMove.targetColumnID)
             ?.getBoundingClientRect()

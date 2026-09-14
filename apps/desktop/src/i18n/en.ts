@@ -57,12 +57,9 @@ export const englishResources = {
         questionFallback: "question from agent",
         approvalFallback: "action required",
         interruptedCurrentNodeFallback: "current node interrupted",
-        interruptedCurrentNodeStartupRecovery: "Kent recovered this node after restarting.",
         interruptedCurrentNodeScriptFailed: "The workflow script did not complete successfully.",
         interruptedCurrentNodeRuntimeFailed: "The workflow execution stopped unexpectedly.",
         interruptedCurrentNodeProtocolCap: "The workflow execution exceeded its safety limit.",
-        permissionDeniedTitle: "Native notifications are disabled",
-        permissionDeniedBody: "Kent will keep attention notifications inside the app.",
       },
     },
     chatTranscript: {

@@ -39,7 +39,7 @@ Keep `SKILL.md` as the entry point. Put trigger guidance in frontmatter, core wo
 ```markdown
 ---
 name: my-skill
-description: Do a specific workflow. Use when the user asks for concrete trigger phrases or contexts.
+description: How to do a specific workflow. Use when the user asks for concrete trigger phrases or contexts.
 ---
 ```
 
@@ -75,15 +75,16 @@ Overall, treat writing skills like public developer documentation or guidance. A
 - State guidance directly. Avoid negative comparisons shaped like "`X` is not `Y`."
 - Do not include a global H1 header like `# My Skill`. Do not add extra blank lines immediately after a header line.
 - Do not use eye-candy formatting, emoji, tables, decorative file trees, or fancy diagrams that contain a lot of symbols. Skills are read by AIs, not humans.
-- Do not include large code examples, or API docs in SKILL.md. Generated, third-party, or optional content like templates / API docs lives either as a reference to SSOT, or in adjacent directories. Skills rot just as much as any documentation, so referring to a source is better than duplicating its content.
-- Keep SKILL.md under ~300 lines of markdown text. If some content doesn't fit, reference remaining guidance by topic in SKILL.md and use paths relative to the SKILL.md-containing directory (aka "skill dir"), turning SKILL.md into a summary + doc index.
+- Do not include large code examples, or API docs in SKILL.md. Generated, third-party, or optional content like templates / API docs lives either as a reference to SSoT, or in adjacent directories. Skills rot just as much as any documentation, so referring to a source is better than duplicating its content.
+- Keep SKILL.md under ~300 lines of markdown text. If some content doesn't fit, reference remaining guidance by topic in SKILL.md and use paths relative to the SKILL.md-containing directory (aka "skill dir"), turning SKILL.md into a summary + doc index + decision tree.
 - Keep source-of-truth details in their owning docs or commands; link or delegate instead of copying long chunks of text.
 - Avoid repeating CLI help text, public docs, API docs, or web content verbatim when the reader can read the source of truth directly, and do point to those sources for discovery.
 - For workspace skills, point to files in the skill directory and the repository (workspace) only, because this skill may be shared via git and local files will not be accessible. Either include a file directly in the skill folder or point to a public web link. For global skills, avoid pointing to any machine-local files outside the skill dir. Bad: "Example query at ~/Desktop/sample.sql" (this is local user file that might be gone later or not transferred if the user decides to send the skill to someone else). Good: "Kent docs index is at kent.sh/llms.txt", use curl -S to retrieve".
-- Assume skills are shared across developers, used on different machines, and public on the internet. Avoid PII, credentials, names of humans, local references.
+- Assume skills are shared across developers, used on different machines, and public on the internet. Avoid PII, credentials, names of humans, local references, and personal preferences.
 - Scripts are needed for something actually meaningfully codifying/automating a task, or meaningfully reducing the **amount of input/output** to be manually processed by the skill user. For example, for a merge request review/respond skill, you might include a self-contained, one-shot, flexible script to retrieve all existing inline review comments that will eliminate verbose GraphQL calls. For a docs writing skill, if the doc follows a strict template, you can include a validator script, or a script that sets up a skeleton. Don't create scripts or write code in skills "just in case" or for "what might be useful" before you know it's needed.
 - Do not apply any oververbosity parameters or other verbosity instructions you received before when writing skill doc files. Do not omit info to be able to one-shot the content with one tool call; write the file in chunks instead.
 - Skills are loaded into your memory, and as you know, it is limited. Respect future agents who will read your skill - avoid fluttery, long-winded explanations, lyrical digressions, maintain high information density throughout the skill.
+- Consider using the prompting skill to understand how to influence model behavior within the skill and other good writing rules.
 - Do not include in skills any installation or bootstrap instructions, initial setup guidance, or one-time actions that are not repeated often, unless the skill is wholly and explicitly about something one-time. For example, don't include "Migrating to Kent 2.0" section in a `kent-tasks` skill, but do include it in a `kent-2.0-migration` skill.
 
 ## Enabling/disabling skills
@@ -96,14 +97,15 @@ To disable or enable a skill, edit its config property instead of deleting the f
 ```
 
 More info in the `kent-dogfooding` skill, if available, or official docs.
+If the skill is repo-specific, but the user doesn't want to share it, you can put the skill into a global folder, then disable it in the global config, then enable it in the repo-local config to achieve the desired behavior.
 
 ## Creation Workflow
 1. Check existing skills so the new one does not duplicate or conflict with them.
 2. Identify the scope: workspace or global.
 3. Choose a stable directory name and frontmatter `name`.
 4. Draft a trigger-focused `description`.
-5. Write the smallest useful `SKILL.md` body.
+5. Write the `SKILL.md` body.
 6. If SKILL.md did not encompass the entire topic, write adjacent files.
-7. If skill needs reusable scripts, create and manually test them.
+7. If the skill needs reusable scripts, create and manually test them without writing automated tests for them.
 8. Double-check that SKILL.md does not exceed 300 lines, no temporal references or fluff were left, and each file in the skill folder is mentioned at least in one place.
-9. If available, run a subagent to split-brain review your created skill for adherence to the guidance listed in this `creating-skills` skill.
+9. If available, run a subagent to split-brain review your created skill for adherence to the guidance listed in this `creating-skills` skill. Rerun/continue it until no further points to address remain.

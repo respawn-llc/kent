@@ -42,7 +42,6 @@ type RuntimeRegistry struct {
 	attentionNavigation        func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)
 	questionBatches            *attentionnotify.QuestionBatchTracker
 	workflowEventPublisher     func(context.Context, serverapi.WorkflowProjectEvent) error
-	workflowAttentionSnapshot  WorkflowAttentionNotificationSnapshotSource
 	executionTargetResolver    func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)
 	backgroundProcessSnapshots func() []shelltool.Snapshot
 }

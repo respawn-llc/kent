@@ -302,6 +302,8 @@ Task detail shows the task's Current Nodes, each Agent Current Node's effective 
 
 Interrupt stops exact live work. Interrupting a Task stops every live Agent Session and Script for that Task; interrupting a Session selects one live Agent Session. Kent waits for the selected work to stop before returning. Resume waits for the prior scope to retire, resolves the latest workflow definition, then resumes the retained Session or current Script.
 
+Restarting Kent leaves saved tasks untouched and does not restart their work. Resume reconciles unfinished execution only when you explicitly request it. Opening or reconnecting the app does not replay notifications for existing interruptions, approvals, or questions.
+
 Delete permanently removes a quiescent Task. Interrupt preserves the task for Resume.
 
 Task Activity is an infinite-scroll stream of durable comments and retained Session creation. It records a Session as `Session started`.

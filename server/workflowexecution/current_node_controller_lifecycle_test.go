@@ -105,6 +105,41 @@ func TestEnsureTaskQuiescentRejectsPublishedExactExecution(t *testing.T) {
 	})
 }
 
+func TestResumePreflightLeavesLiveTaskAdmissionUntouched(t *testing.T) {
+	fixture := newCurrentNodeQuestionFixture(t)
+	reference := currentNodeReferenceForControllerTest(t, "task-resume-live", "node-implementation")
+	release := make(chan struct{})
+	handle, sessionID := fixture.startQuestionExecution(
+		t,
+		reference,
+		func(context.Context, sessionruntime.ExecutionScope, sessionruntime.AgentRuntimeBridge) error {
+			<-release
+			return nil
+		},
+	)
+	t.Cleanup(func() {
+		close(release)
+		if err := handle.Close(context.Background()); err != nil {
+			t.Errorf("close live execution: %v", err)
+		}
+	})
+	fixture.store.currentNodes = []workflow.CurrentNode{{
+		Reference:  reference,
+		SessionID:  &sessionID,
+		Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingAdmitted},
+	}}
+	preflight, err := fixture.controller.PreflightTaskResume(context.Background(), reference.TaskID)
+	if err != nil {
+		t.Fatalf("PreflightTaskResume: %v", err)
+	}
+	if preflight.Outcome != TaskResumePreflightNoOp {
+		t.Fatalf("resume preflight = %+v, want no-op for live task", preflight)
+	}
+	if fixture.store.currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingAdmitted {
+		t.Fatalf("live task node = %+v, want unchanged admission", fixture.store.currentNodes[0])
+	}
+}
+
 func TestResumeTaskReturnsConflictBeforeMutationWhenRetainedSessionExecutionIsActive(t *testing.T) {
 	fixture := newCurrentNodeQuestionFixture(t)
 	reference := currentNodeReferenceForControllerTest(t, "task-resume-active-session", "node-implementation")

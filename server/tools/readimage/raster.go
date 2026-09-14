@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
 	"image/gif"
-	"image/jpeg"
+	_ "image/jpeg"
 	_ "image/png"
+	"log/slog"
 	"path/filepath"
 	"strings"
+
+	webpencoder "github.com/deepteams/webp"
+	webpdecoder "golang.org/x/image/webp"
 )
 
 func prepareFileForAttachment(path, mimeType string, data []byte, raw bool) ([]byte, string, error) {
@@ -24,7 +26,7 @@ func prepareFileForAttachment(path, mimeType string, data []byte, raw bool) ([]b
 	if _, ok := supportedImageMIMEs[mimeType]; !ok {
 		return data, mimeType, fmt.Errorf("cannot attach image at %q: unsupported image format %q", path, mimeType)
 	}
-	img, decodedMIME, err := decodeSupportedRasterImage(path, data)
+	img, decodedMIME, err := decodeSupportedRasterImage(path, mimeType, data)
 	if err != nil {
 		return data, mimeType, err
 	}
@@ -39,8 +41,16 @@ func prepareFileForAttachment(path, mimeType string, data []byte, raw bool) ([]b
 	return optimized, optimizedMIME, nil
 }
 
-func decodeSupportedRasterImage(path string, data []byte) (image.Image, string, error) {
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+func decodeSupportedRasterImage(path, mimeType string, data []byte) (image.Image, string, error) {
+	var cfg image.Config
+	var format string
+	var err error
+	if mimeType == "image/webp" {
+		cfg, err = webpdecoder.DecodeConfig(bytes.NewReader(data))
+		format = "webp"
+	} else {
+		cfg, format, err = image.DecodeConfig(bytes.NewReader(data))
+	}
 	if err != nil {
 		return nil, "", fmt.Errorf("cannot attach image at %q: unable to decode image: %v", path, err)
 	}
@@ -55,6 +65,12 @@ func decodeSupportedRasterImage(path string, data []byte) (image.Image, string, 
 		return nil, "", err
 	}
 	switch mimeType {
+	case "image/webp":
+		img, err := webpdecoder.Decode(bytes.NewReader(data))
+		if err != nil {
+			return nil, "", fmt.Errorf("cannot attach WebP at %q: %w", path, err)
+		}
+		return img, mimeType, nil
 	case "image/gif":
 		img, err := decodeStillGIF(path, data)
 		if err != nil {
@@ -107,6 +123,8 @@ func mimeTypeForImageFormat(format string) (string, bool) {
 		return "image/jpeg", true
 	case "gif":
 		return "image/gif", true
+	case "webp":
+		return "image/webp", true
 	default:
 		return "", false
 	}
@@ -120,16 +138,25 @@ func optimizeRasterImage(img image.Image) ([]byte, string, bool) {
 	if bounds.Empty() {
 		return nil, "", false
 	}
-	opaque := image.NewRGBA(bounds)
-	draw.Draw(opaque, bounds, &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	draw.Draw(opaque, bounds, img, bounds.Min, draw.Over)
-	for _, quality := range []int{85, 75, 65, 55} {
+	for _, quality := range []float32{85, 75, 65, 55} {
 		var out bytes.Buffer
-		if err := jpeg.Encode(&out, opaque, &jpeg.Options{Quality: quality}); err != nil {
+		if err := webpencoder.Encode(&out, img, webpencoder.OptionsForPreset(webpencoder.PresetPicture, quality)); err != nil {
+			slog.Warn("WebP optimization failed", "error", err)
 			return nil, "", false
 		}
 		if int64(out.Len()) <= maxFileSizeBytes {
-			return out.Bytes(), "image/jpeg", true
+			// Do not let the encoder validate its own output. Check dimensions
+			// before allocating pixels, then decode the entire alpha/colour payload.
+			cfg, err := webpdecoder.DecodeConfig(bytes.NewReader(out.Bytes()))
+			if err != nil || cfg.Width != bounds.Dx() || cfg.Height != bounds.Dy() {
+				slog.Warn("WebP optimization produced invalid dimensions", "error", err, "width", cfg.Width, "height", cfg.Height)
+				return nil, "", false
+			}
+			if _, err := webpdecoder.Decode(bytes.NewReader(out.Bytes())); err != nil {
+				slog.Warn("WebP optimization produced invalid image data", "error", err)
+				return nil, "", false
+			}
+			return out.Bytes(), "image/webp", true
 		}
 	}
 	return nil, "", false

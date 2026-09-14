@@ -250,7 +250,7 @@ File-based tool toggles merge with defaults. `KENT_TOOLS` and `kent run --tools`
 | `tools.patch`           | model-dependent    | Freeform patch grammar edit tool                                                                          |
 | `tools.edit`            | model-dependent    | JSON text replacement/create/delete edit tool. Intended for models that are not trained to apply patches. |
 | `tools.trigger_handoff` | `true`             | Tool agents can use to proactively compact their own context.                                             |
-| `tools.view_image`      | model-dependent    | Ability to view PNG, JPEG, still GIF, and PDF files (if supported)                                        |
+| `tools.view_image`      | model-dependent    | Ability to view PNG, JPEG, still WebP, still GIF, and PDF files (if supported)                            |
 | `tools.web_search`      | provider-dependent | Tool to search the web                                                                                    |
 | `tools.write_stdin`     | `true`             | Interaction with background shells.                                                                       |
 

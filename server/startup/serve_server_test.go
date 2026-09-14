@@ -20,7 +20,6 @@ import (
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
 	"core/server/workflow"
-	"core/server/workflowexecution"
 	"core/server/workflowstore"
 	"core/shared/client"
 	"core/shared/config"
@@ -261,7 +260,7 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 	}
 }
 
-func TestStartServeServerRecoversAdmittedCurrentNodeOnRestart(t *testing.T) {
+func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	server, err := StartServeServer(context.Background(), request, envAuthHandler{}, noopOnboarding)
@@ -283,7 +282,7 @@ func TestStartServeServerRecoversAdmittedCurrentNodeOnRestart(t *testing.T) {
 		t.Fatalf("GetWorkflowTask after restart: %v", err)
 	}
 	if !detail.Task.Actions.CanResume || detail.Task.Actions.CanInterrupt {
-		t.Fatalf("task actions after restart reconciliation = %+v, want resumable and not interruptible", detail.Task.Actions)
+		t.Fatalf("task actions after restart = %+v, want resumable and not interruptible", detail.Task.Actions)
 	}
 	store, err := workflowstore.New(restarted.MetadataStore(), workflowstore.WithRoleResolver(testsetup.QuestionsEnabled("coder")))
 	if err != nil {
@@ -296,13 +295,9 @@ func TestStartServeServerRecoversAdmittedCurrentNodeOnRestart(t *testing.T) {
 	if len(currentNodes) != 1 ||
 		!currentNodes[0].Reference.Equal(currentNode) ||
 		currentNodes[0].Scheduling == nil ||
-		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingInterrupted ||
-		currentNodes[0].Scheduling.Interruption == nil ||
-		currentNodes[0].Scheduling.Interruption.Reason != workflowexecution.ReasonCurrentNodeStartupRecovery ||
-		currentNodes[0].Scheduling.Interruption.Detail.Code != string(workflowexecution.ReasonCurrentNodeStartupRecovery) ||
-		currentNodes[0].Scheduling.Interruption.Detail.Fields == nil ||
-		len(currentNodes[0].Scheduling.Interruption.Detail.Fields) != 0 {
-		t.Fatalf("current nodes after startup recovery = %+v, want interrupted admitted current node %v", currentNodes, currentNode)
+		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingAdmitted ||
+		currentNodes[0].Scheduling.Interruption != nil {
+		t.Fatalf("current nodes after restart = %+v, want untouched admitted current node %v", currentNodes, currentNode)
 	}
 }
 

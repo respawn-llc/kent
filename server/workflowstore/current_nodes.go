@@ -440,7 +440,7 @@ func deleteTaskCurrentNode(ctx context.Context, q *sqlitegen.Queries, reference 
 }
 
 // AdmitCurrentNode atomically moves a ready executable Current Node into the
-// durable restart-marker state before Workflow Execution starts its
+// durable admission state before Workflow Execution starts its
 // process-local Exact Execution Scope.
 func (s *Store) AdmitCurrentNode(ctx context.Context, reference workflow.CurrentNodeReference) (session.CommitReceipt, error) {
 	if err := reference.Validate(); err != nil {
@@ -477,7 +477,7 @@ func (s *Store) AdmitCurrentNode(ctx context.Context, reference workflow.Current
 	return session.CommitReceipt{Committed: true}, nil
 }
 
-// ResumeCurrentNode clears an interrupted restart marker. Workflow Execution
+// ResumeCurrentNode clears an interruption. Workflow Execution
 // immediately follows it with AdmitCurrentNode under the same Task mutation owner;
 // it is deliberately not an automatic recovery path.
 func (s *Store) ResumeCurrentNode(ctx context.Context, reference workflow.CurrentNodeReference) (InterruptedCurrentNodeAttentionProjection, bool, error) {
@@ -678,53 +678,31 @@ func (s *Store) ReplaceUserInterruptionWithAssignmentFailure(
 	)
 }
 
-// RecoverExecutableCurrentNodes turns ready or admitted executable work left
-// by a previous process into resumable interruption state. Pending Approval
-// sources remain frozen and no Automatic Intent is reconstructed.
-func (s *Store) RecoverExecutableCurrentNodes(
-	ctx context.Context,
-	reason workflow.CurrentNodeInterruptionReason,
-	detail workflow.CurrentNodeInterruptionDetail,
-) ([]workflow.CurrentNodeReference, error) {
-	if strings.TrimSpace(string(reason)) == "" {
-		return nil, errors.New("current node interruption reason is required")
+// ReconcileTaskResume is called only by explicit Resume while Workflow
+// Execution owns the Task mutation and has verified that no work remains live
+// or queued. Pending Approval sources stay frozen.
+func (s *Store) ReconcileTaskResume(ctx context.Context, taskID workflow.TaskID) error {
+	if strings.TrimSpace(string(taskID)) == "" {
+		return errors.New("task id is required")
 	}
-	detailJSON, err := json.Marshal(detail)
+	reason := workflow.CurrentNodeInterruptionReason("workflow_execution_interrupted")
+	detailJSON, err := json.Marshal(workflow.NewCurrentNodeInterruptionDetail(string(reason), nil))
 	if err != nil {
-		return nil, fmt.Errorf("encode current node interruption detail: %w", err)
+		return fmt.Errorf("encode current node interruption detail: %w", err)
 	}
-	rows, err := s.queries.RecoverExecutableCurrentNodes(ctx, sqlitegen.RecoverExecutableCurrentNodesParams{
+	changed, err := s.queries.ReconcileTaskResume(ctx, sqlitegen.ReconcileTaskResumeParams{
+		TaskID:                 string(taskID),
 		InterruptionReason:     sql.NullString{String: string(reason), Valid: true},
 		InterruptionDetailJson: sql.NullString{String: string(detailJSON), Valid: true},
 		InterruptedAtUnixMs:    sql.NullInt64{Int64: s.now().UTC().UnixMilli(), Valid: true},
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	references := make([]workflow.CurrentNodeReference, 0, len(rows))
-	for _, row := range rows {
-		var branchKey *workflow.TransitionBranchKey
-		if row.TransitionBranchKey.Valid {
-			value := workflow.TransitionBranchKey(row.TransitionBranchKey.String)
-			branchKey = &value
-		}
-		reference, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.TaskID), workflow.NodeID(row.NodeID), branchKey)
-		if err != nil {
-			return nil, err
-		}
-		references = append(references, reference)
+	if changed == 0 {
+		return nil
 	}
-	seenTasks := make(map[workflow.TaskID]struct{}, len(references))
-	for _, reference := range references {
-		if _, seen := seenTasks[reference.TaskID]; seen {
-			continue
-		}
-		seenTasks[reference.TaskID] = struct{}{}
-		if err := s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted); err != nil {
-			return references, currentNodeInterruptionPostCommitDiagnostic(reference, err)
-		}
-	}
-	return references, nil
+	return s.publishCurrentNodeTaskEvent(ctx, taskID, serverapi.WorkflowProjectEventActionInterrupted)
 }
 
 func taskCurrentNodeInsertParams(currentNode workflow.CurrentNode) (sqlitegen.InsertTaskCurrentNodeParams, error) {

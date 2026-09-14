@@ -25,20 +25,7 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 		return nil, err
 	}
 	result := &attentionpb.NotificationEvent{Sequence: event.Sequence}
-	var source attentionpb.Source
-	switch event.Source {
-	case clientui.AttentionNotificationSourceLive:
-		source = attentionpb.Source_ATTENTION_SOURCE_LIVE
-	case clientui.AttentionNotificationSourceSnapshot:
-		source = attentionpb.Source_ATTENTION_SOURCE_SNAPSHOT
-	default:
-		return nil, fmt.Errorf("invalid attention source %q", event.Source)
-	}
 	switch event.Type {
-	case clientui.AttentionNotificationEventSnapshotComplete:
-		result.Payload = &attentionpb.NotificationEvent_SnapshotComplete{
-			SnapshotComplete: &attentionpb.SnapshotComplete{SessionId: event.SessionID},
-		}
 	case clientui.AttentionNotificationEventResolved:
 		if event.ID == nil || event.OccurredAt == nil {
 			return nil, fmt.Errorf("resolved attention identity and time are required")
@@ -48,7 +35,7 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 			return nil, err
 		}
 		result.Payload = &attentionpb.NotificationEvent_Resolved{Resolved: &attentionpb.Resolved{
-			Source: source, Id: id, OccurredAt: timestamppb.New(*event.OccurredAt),
+			Id: id, OccurredAt: timestamppb.New(*event.OccurredAt),
 		}}
 	case clientui.AttentionNotificationEventPending:
 		if event.Pending == nil {
@@ -60,7 +47,7 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 			return nil, err
 		}
 		notification := &attentionpb.Notification{
-			Id: id, Source: source, OccurredAt: timestamppb.New(pending.OccurredAt),
+			Id: id, OccurredAt: timestamppb.New(pending.OccurredAt),
 			Revision: pending.Revision, SessionId: pending.Target.SessionID,
 		}
 		switch pending.Kind {

@@ -11,10 +11,14 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"os"
 	"strings"
 	"testing"
 
 	"core/server/tools"
+
+	webpencoder "github.com/deepteams/webp"
+	webpdecoder "golang.org/x/image/webp"
 )
 
 func readImageTestResult(t *testing.T, name string, content []byte, callID string, input string) tools.Result {
@@ -32,7 +36,7 @@ func requireReadImageTestError(t *testing.T, name string, content []byte, callID
 	}
 }
 
-func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {
+func TestCall_OptimizesLargeJPEGToSmallerWebPOutput(t *testing.T) {
 	var original bytes.Buffer
 	if err := jpeg.Encode(&original, generatedPhotoLikeImage(1024), &jpeg.Options{Quality: 95}); err != nil {
 		t.Fatalf("encode jpeg: %v", err)
@@ -50,8 +54,8 @@ func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {
 	}
 
 	mimeType, payload := decodeSingleImageDataURL(t, result)
-	if mimeType != "image/jpeg" {
-		t.Fatalf("expected optimized jpeg output, got %q", mimeType)
+	if mimeType != "image/webp" {
+		t.Fatalf("expected optimized WebP output, got %q", mimeType)
 	}
 	if len(payload) >= original.Len() {
 		t.Fatalf("expected optimized output smaller than original, got optimized=%d original=%d", len(payload), original.Len())
@@ -61,37 +65,49 @@ func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {
 	}
 }
 
-func TestCall_OptimizesTransparentPNGToJPEGOutput(t *testing.T) {
+func TestCall_OptimizesTransparentPNGToValidWebPOutput(t *testing.T) {
 	var original bytes.Buffer
 	if err := png.Encode(&original, generatedTransparentHighEntropyImage(384)); err != nil {
 		t.Fatalf("encode png: %v", err)
 	}
-	if int64(original.Len()) < minOptimizationSizeBytes {
-		t.Fatalf("test image is too small for optimization path: %d", original.Len())
-	}
-
-	result := readImageTestResult(t, "screenshot.png", original.Bytes(), "call-transparent-png", `{"path":"screenshot.png"}`)
-	if result.IsError {
-		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
-	}
-
-	mimeType, payload := decodeSingleImageDataURL(t, result)
-	if mimeType != "image/jpeg" {
-		t.Fatalf("expected jpeg output, got %q", mimeType)
-	}
-	if int64(len(payload)) > maxFileSizeBytes {
-		t.Fatalf("expected optimized output under attachment cap, got %d", len(payload))
-	}
-	decoded, format, err := image.Decode(bytes.NewReader(payload))
+	reported, err := os.ReadFile("testdata/issue-308.png")
 	if err != nil {
-		t.Fatalf("decode optimized jpeg: %v", err)
+		t.Fatalf("read original regression image: %v", err)
 	}
-	if format != "jpeg" {
-		t.Fatalf("expected jpeg decode format, got %q", format)
-	}
-	r, g, b := averageRGB16(decoded, image.Rect(0, 0, 8, 8))
-	if r < 0xd000 || g < 0xd000 || b < 0xd000 {
-		t.Fatalf("expected transparent pixels to flatten against white, got rgba16=(%d,%d,%d)", r, g, b)
+	for name, input := range map[string][]byte{"generated": original.Bytes(), "issue-308": reported} {
+		t.Run(name, func(t *testing.T) {
+			if int64(len(input)) < minOptimizationSizeBytes {
+				t.Fatalf("test image is too small for optimization: %d", len(input))
+			}
+			result := readImageTestResult(t, "screenshot.png", input, "call-transparent-png", `{"path":"screenshot.png"}`)
+			if result.IsError {
+				t.Fatalf("expected success, got %s", result.Output)
+			}
+			mimeType, payload := decodeSingleImageDataURL(t, result)
+			if mimeType != "image/webp" || len(payload) >= len(input) || int64(len(payload)) > maxFileSizeBytes {
+				t.Fatalf("optimized output = %q, %d bytes; original = %d bytes", mimeType, len(payload), len(input))
+			}
+			decoded, err := webpdecoder.Decode(bytes.NewReader(payload))
+			if err != nil {
+				t.Fatalf("independently decode optimized WebP: %v", err)
+			}
+			source, err := png.Decode(bytes.NewReader(input))
+			if err != nil {
+				t.Fatalf("decode source PNG: %v", err)
+			}
+			if decoded.Bounds() != source.Bounds() {
+				t.Fatalf("optimized bounds = %v, want %v", decoded.Bounds(), source.Bounds())
+			}
+			for y := source.Bounds().Min.Y; y < source.Bounds().Max.Y; y++ {
+				for x := source.Bounds().Min.X; x < source.Bounds().Max.X; x++ {
+					_, _, _, want := source.At(x, y).RGBA()
+					_, _, _, got := decoded.At(x, y).RGBA()
+					if got != want {
+						t.Fatalf("alpha at (%d, %d) = %d, want %d", x, y, got, want)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -148,7 +164,34 @@ func TestCall_StillGIFAcceptedAndAnimatedGIFRejected(t *testing.T) {
 	}
 }
 
-func TestCall_WebPRejectedAsUnsupported(t *testing.T) {
+func TestCall_AcceptsStillWebPWithoutChangingSmallOrRawInput(t *testing.T) {
+	var original bytes.Buffer
+	if err := webpencoder.Encode(&original, generatedTransparentHighEntropyImage(16), webpencoder.OptionsForPreset(webpencoder.PresetPicture, 85)); err != nil {
+		t.Fatalf("encode WebP: %v", err)
+	}
+	for _, input := range []string{`{"path":"image.webp"}`, `{"path":"image.webp","raw":true}`} {
+		result := readImageTestResult(t, "image.webp", original.Bytes(), "call-webp", input)
+		if result.IsError {
+			t.Fatalf("expected valid WebP to be accepted: %s", result.Output)
+		}
+		mimeType, payload := decodeSingleImageDataURL(t, result)
+		if mimeType != "image/webp" || !bytes.Equal(payload, original.Bytes()) {
+			t.Fatalf("small or raw WebP was changed: MIME = %q", mimeType)
+		}
+	}
+}
+
+func TestCall_RejectsInvalidWebPAlphaEvenWhenRaw(t *testing.T) {
+	invalid, err := os.ReadFile("testdata/issue-308-invalid.webp")
+	if err != nil {
+		t.Fatalf("read original invalid WebP: %v", err)
+	}
+	for _, input := range []string{`{"path":"image.webp"}`, `{"path":"image.webp","raw":true}`} {
+		requireReadImageTestError(t, "image.webp", invalid, "call-invalid-alpha", input)
+	}
+}
+
+func TestCall_RejectsTruncatedWebP(t *testing.T) {
 	requireReadImageTestError(t, "image.webp", minimalWebPHeader(), "call-webp", `{"path":"image.webp"}`)
 }
 
@@ -193,26 +236,6 @@ func generatedTransparentHighEntropyImage(size int) image.Image {
 		}
 	}
 	return img
-}
-
-func averageRGB16(img image.Image, bounds image.Rectangle) (uint32, uint32, uint32) {
-	clipped := bounds.Intersect(img.Bounds())
-	if clipped.Empty() {
-		return 0, 0, 0
-	}
-	var rTotal uint64
-	var gTotal uint64
-	var bTotal uint64
-	count := uint64(clipped.Dx() * clipped.Dy())
-	for y := clipped.Min.Y; y < clipped.Max.Y; y++ {
-		for x := clipped.Min.X; x < clipped.Max.X; x++ {
-			r, g, b, _ := img.At(x, y).RGBA()
-			rTotal += uint64(r)
-			gTotal += uint64(g)
-			bTotal += uint64(b)
-		}
-	}
-	return uint32(rTotal / count), uint32(gTotal / count), uint32(bTotal / count)
 }
 
 func encodedGIF(t *testing.T, frames int) []byte {

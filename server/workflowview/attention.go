@@ -157,13 +157,16 @@ func (a *Attention) durableCandidateRows(ctx context.Context, cursor attentionPa
 }
 
 func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWorkflowDurableAttentionCandidatesRow) (serverapi.WorkflowAttentionItem, error) {
-	reference, err := durableAttentionNotificationReference(row)
-	if err != nil {
-		return serverapi.WorkflowAttentionItem{}, err
-	}
-	switch typed := reference.(type) {
-	case DurableApprovalAttentionReference:
-		approvalID := typed.ApprovalID.String()
+	switch row.Kind {
+	case "approval":
+		if !row.ApprovalID.Valid {
+			return serverapi.WorkflowAttentionItem{}, fmt.Errorf("approval attention candidate %q has no approval id", row.ID)
+		}
+		parsedApprovalID, err := workflow.ParseApprovalID(strings.TrimSpace(row.ApprovalID.String))
+		if err != nil {
+			return serverapi.WorkflowAttentionItem{}, err
+		}
+		approvalID := parsedApprovalID.String()
 		approval, err := a.pendingApproval(ctx, workflow.TaskID(row.TaskID), approvalID)
 		if err != nil {
 			return serverapi.WorkflowAttentionItem{}, err
@@ -181,8 +184,12 @@ func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWork
 			ApprovalSnapshot: &snapshot,
 			OccurredAtUnixMs: row.OccurredAtUnixMs,
 		}, nil
-	case DurableInterruptedCurrentNodeAttentionReference:
-		currentNode, err := currentNodeFromAttentionCandidate(row, typed.CurrentNode)
+	case "interrupted":
+		reference, err := currentNodeReferenceFromAttentionCandidate(row)
+		if err != nil {
+			return serverapi.WorkflowAttentionItem{}, err
+		}
+		currentNode, err := currentNodeFromAttentionCandidate(row, reference)
 		if err != nil {
 			return serverapi.WorkflowAttentionItem{}, err
 		}
@@ -208,7 +215,7 @@ func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWork
 			OccurredAtUnixMs: row.OccurredAtUnixMs,
 		}, nil
 	default:
-		return serverapi.WorkflowAttentionItem{}, fmt.Errorf("unsupported durable workflow attention notification reference %T", reference)
+		return serverapi.WorkflowAttentionItem{}, fmt.Errorf("unsupported durable workflow attention candidate kind %q", row.Kind)
 	}
 }
 
