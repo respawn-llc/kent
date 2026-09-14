@@ -23,3 +23,9 @@ export type ApprovalQuestionPrompt = PromptIdentity &
   }>;
 
 export type AttentionQuestionPrompt = OrdinaryQuestionPrompt | ApprovalQuestionPrompt;
+
+export type PendingPrompt = AttentionQuestionPrompt &
+  Readonly<{ question: string | null; createdAt: string }>;
+
+export type PromptUpdate =
+  Readonly<{ state: "pending"; prompt: PendingPrompt }> | Readonly<{ state: "resolved"; toolCallID: string }>;

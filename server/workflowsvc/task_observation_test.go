@@ -159,7 +159,7 @@ func TestTaskQuestionResolvesLiveAccessThroughAuthoritativePendingPromptSource(t
 		PendingPrompts: observationPendingPromptSourceStub{items: []registry.PendingPromptSnapshot{{
 			Request: tools.AskQuestionRequest{
 				ToolCallID: questionID, StepID: stepID.String(), Question: message, Approval: true,
-				ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}},
+				ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}},
 			},
 			CreatedAt: createdAt,
 		}}},
@@ -179,7 +179,7 @@ func TestTaskQuestionResolvesLiveAccessThroughAuthoritativePendingPromptSource(t
 		t.Fatalf("task question = %+v, ok=%v, err=%v", outcome, ok, err)
 	}
 	if outcome.Question == nil || outcome.Question.Approval == nil ||
-		outcome.Question.Approval.Options[0].Label != "Allow once" {
+		outcome.Question.Approval.Options[0].Decision != clientui.ApprovalDecisionAllowOnce {
 		t.Fatalf("question = %+v", outcome.Question)
 	}
 }

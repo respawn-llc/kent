@@ -20,7 +20,6 @@ const (
 
 type ApprovalOption struct {
 	Decision ApprovalDecision
-	Label    string
 }
 
 type FileAccessTarget struct {

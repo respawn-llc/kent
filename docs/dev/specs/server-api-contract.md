@@ -2,6 +2,8 @@
 
 ## Authority And Compatibility
 
+The global Desktop attention stream is the sole exception to this specification's Protobuf schema, generated-contract, and binary-transport requirements, as defined below.
+
 - Protobuf schemas are the sole editable authority for the Kent server API.
 - Generated Protobuf messages are the API-boundary contract for official Go and TypeScript clients.
 - Kent carries serialized Protobuf messages in typed binary WebSocket envelopes. It does not expose gRPC or Connect transport semantics.
@@ -15,6 +17,13 @@
 - The Protobuf schema must remain suitable for standard code generation without changing API ownership.
 - The Protobuf schema is platform-neutral. No client or server owns it.
 - Applications compile generated contract code into their artifacts and never load `.proto` files at runtime.
+
+### Global Desktop Attention Stream
+
+- The global Desktop attention stream must use its JSON-only contract.
+- Its Session prompt target must include the owning Project identity and Session identity supplied by the server.
+- Session-scoped operations, including Session attention, pending Question and Approval reads, batch answers, transcript hydration and events, and attached-Session descriptors, must use only their generated Protobuf contracts.
+- The global Desktop attention exception must not introduce a parallel transport or fallback decoding for any operation.
 
 ## Operations And Transport
 

@@ -100,7 +100,7 @@ func validLiveWaitResponse() *runtimepb.LiveWaitSuccess {
 func TestRuntimeLiveWatchResponseRejectsQuestionSessionMismatch(t *testing.T) {
 	ask := &promptpb.Question{SessionId: "session-b", ToolCallId: "ask-1", StepId: validLiveQueueItemID, Question: "Continue?", CreatedAt: timestamppb.Now()}
 	approval := &promptpb.Approval{SessionId: "session-b", ToolCallId: "approval-1", StepId: validLiveQueueItemID,
-		Question: &ask.Question, CreatedAt: timestamppb.Now(), Options: []*promptpb.ApprovalOption{{Decision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE, Label: "Allow once"}}}
+		Question: &ask.Question, CreatedAt: timestamppb.Now(), Options: []*promptpb.ApprovalOption{{Decision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE}}}
 	for _, question := range []*promptpb.ObservationQuestion{
 		{Question: &promptpb.ObservationQuestion_Ask{Ask: ask}},
 		{Question: &promptpb.ObservationQuestion_Approval{Approval: approval}},

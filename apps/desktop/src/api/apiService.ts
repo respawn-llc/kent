@@ -89,6 +89,7 @@ import type {
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import type { ChatApi } from "./chat";
+import type { PendingPrompt } from "./promptModels";
 import type { DesktopProcess } from "./processes";
 
 export type ApiConnectionSource = Readonly<{
@@ -192,6 +193,7 @@ export interface ApiService {
   deleteComment(commentID: string): Promise<void>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
   listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]>;
+  listPendingPrompts(sessionID: string): Promise<readonly PendingPrompt[]>;
   subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
   subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription;

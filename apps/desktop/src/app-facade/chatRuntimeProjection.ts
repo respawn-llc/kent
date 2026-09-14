@@ -5,8 +5,9 @@ import type {
   ChatRuntimeActivity,
   ChatTranscriptMessage,
   ChatTranscriptPayloadByKind,
+  PendingPrompt,
 } from "@/api";
-import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript } from "@/api";
+import { chatExecutionTarget, chatRuntimeActivity, goalFactFromTranscript, orderPendingPrompts } from "@/api";
 
 export type ChatAuthorityTuple = ChatMainView["version"];
 export type ChatProjectionHostEffect =
@@ -25,11 +26,14 @@ type PendingMetadata = Readonly<{
   runtime?: Readonly<{ version: ChatAuthorityTuple; activity: ChatRuntimeActivity }>;
 }>;
 export type ChatProjectionState = Readonly<{
+  pendingPrompts: readonly PendingPrompt[];
   view: ChatMainView | null;
   metadataRevision: number;
   pendingMetadata: PendingMetadata | null;
 }>;
 export type ChatProjectionInput =
+  | Readonly<{ kind: "prompts-replaced"; prompts: readonly PendingPrompt[] }>
+  | Readonly<{ kind: "prompts-resolved"; toolCallIDs: ReadonlySet<string> }>
   | Readonly<{
       kind: "authoritative-read";
       read: ChatMainViewRead;
@@ -46,7 +50,7 @@ export type ChatProjectionResult = Readonly<{
 }>;
 
 export function emptyChatProjectionState(): ChatProjectionState {
-  return { view: null, metadataRevision: 0, pendingMetadata: null };
+  return { view: null, metadataRevision: 0, pendingMetadata: null, pendingPrompts: [] };
 }
 
 export function reduceChatProjection(
@@ -54,6 +58,13 @@ export function reduceChatProjection(
   input: ChatProjectionInput,
 ): ChatProjectionResult {
   switch (input.kind) {
+    case "prompts-replaced":
+      return result({ ...state, pendingPrompts: orderPendingPrompts(input.prompts) });
+    case "prompts-resolved":
+      return result({
+        ...state,
+        pendingPrompts: state.pendingPrompts.filter((prompt) => !input.toolCallIDs.has(prompt.toolCallID)),
+      });
     case "authoritative-read":
       return admitRead(state, input);
     case "hydration":
@@ -98,13 +109,38 @@ function admitHydration(
     },
   };
   return {
-    state: admitMetadata(state, metadata),
+    state: {
+      ...admitMetadata(state, metadata),
+      pendingPrompts: orderPendingPrompts(
+        hydration.PendingPrompts.flatMap((update) => (update.state === "pending" ? [update.prompt] : [])),
+      ),
+    },
     goalFact: hydration.GoalStatus === null ? null : goalFactFromTranscript(hydration.GoalStatus),
     effects: [],
   };
 }
 
 function admitEvent(state: ChatProjectionState, event: ChatTranscriptMessage): ChatProjectionResult {
+  if (event.kind === "prompt") {
+    const update = event.payload;
+    if (update.state === "resolved") {
+      return result({
+        ...state,
+        pendingPrompts: state.pendingPrompts.filter((prompt) => prompt.toolCallID !== update.toolCallID),
+      });
+    }
+    const exists = state.pendingPrompts.some((prompt) => prompt.toolCallID === update.prompt.toolCallID);
+    return result({
+      ...state,
+      pendingPrompts: orderPendingPrompts(
+        exists
+          ? state.pendingPrompts.map((prompt) =>
+              prompt.toolCallID === update.prompt.toolCallID ? update.prompt : prompt,
+            )
+          : [...state.pendingPrompts, update.prompt],
+      ),
+    });
+  }
   if (event.kind === "runtime_read_model_update") return admitIncrementalRuntime(state, event.payload);
   if (event.kind === "session_identity") return metadataResult(state, { sessionIdentity: event.payload });
   if (event.kind === "session_status") return metadataResult(state, { sessionStatus: event.payload });
@@ -167,12 +203,14 @@ function metadataResult(state: ChatProjectionState, metadata: PendingMetadata): 
 function admitMetadata(state: ChatProjectionState, metadata: PendingMetadata): ChatProjectionState {
   if (state.view === null) {
     return {
+      ...state,
       view: null,
       metadataRevision: state.metadataRevision + 1,
       pendingMetadata: mergeMetadata(state.pendingMetadata, metadata),
     };
   }
   return {
+    ...state,
     view: applyPendingMetadata(state.view, metadata),
     metadataRevision: state.metadataRevision + 1,
     pendingMetadata: null,

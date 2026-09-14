@@ -12,14 +12,16 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 )
 
-func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker) *RuntimeRegistry {
+func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker, navigation func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)) *RuntimeRegistry {
 	if r == nil {
 		return r
 	}
 	r.attentionBroker = broker
+	r.attentionNavigation = navigation
 	if broker != nil {
 		r.questionBatches = attentionnotify.NewQuestionBatchTracker(broker)
 	}
@@ -37,7 +39,7 @@ func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	return newWorkflowAttentionNotificationSubscription(live, r.workflowAttentionSnapshot), nil
+	return newWorkflowAttentionNotificationSubscription(live, r.visitAttentionSnapshot), nil
 }
 
 func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
@@ -74,7 +76,11 @@ func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Conte
 			}
 			continue
 		}
-		event := attentionPendingEventFromPrompt(req.SessionId, item, clientui.AttentionNotificationSourceSnapshot)
+		event, err := r.attentionPendingEventFromPrompt(req.SessionId, item, clientui.AttentionNotificationSourceSnapshot)
+		if err != nil {
+			_ = sub.Close()
+			return nil, err
+		}
 		if event.Pending == nil {
 			continue
 		}
@@ -151,7 +157,11 @@ func (r *RuntimeRegistry) publishAttentionPending(sessionID string, snapshot Pen
 		}
 		return
 	}
-	event := attentionPendingEventFromPrompt(sessionID, snapshot, clientui.AttentionNotificationSourceLive)
+	event, err := r.attentionPendingEventFromPrompt(sessionID, snapshot, clientui.AttentionNotificationSourceLive)
+	if err != nil {
+		logAttentionNotificationOperationFailure("resolve prompt navigation", sessionID, req.ToolCallID, err)
+		return
+	}
 	if event.Pending != nil {
 		if err := r.attentionBroker.PublishPending(attentionScopeForRequest(sessionID, req), *event.Pending); err != nil {
 			logAttentionNotificationOperationFailure("publish pending prompt", sessionID, req.ToolCallID, err)
@@ -241,7 +251,7 @@ func logAttentionNotificationOperationFailure(operation string, sessionID string
 	slog.Warn("attention notification operation failed", "operation", operation, "session_id", sessionID, "ask_id", askID, "error", err)
 }
 
-func attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSnapshot, source clientui.AttentionNotificationSource) clientui.AttentionNotificationEvent {
+func (r *RuntimeRegistry) attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSnapshot, source clientui.AttentionNotificationSource) (clientui.AttentionNotificationEvent, error) {
 	kind := promptNotificationKind(snapshot.Request)
 	target := clientui.AttentionNotificationTarget{
 		Kind:      clientui.AttentionNotificationTargetSessionPrompt,
@@ -249,6 +259,12 @@ func attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSna
 	}
 	if snapshot.Request.IsTaskScopedApprovalQuestion() && snapshot.Request.AttentionTarget != nil {
 		target = *snapshot.Request.AttentionTarget
+	} else {
+		binding, err := r.attentionNavigation(context.Background(), sessionID)
+		if err != nil {
+			return clientui.AttentionNotificationEvent{}, err
+		}
+		target.ProjectID = binding.ProjectId
 	}
 	notification := clientui.AttentionNotification{
 		ID: clientui.AttentionNotificationID{
@@ -281,7 +297,7 @@ func attentionPendingEventFromPrompt(sessionID string, snapshot PendingPromptSna
 		Source:  source,
 		Type:    clientui.AttentionNotificationEventPending,
 		Pending: &notification,
-	}
+	}, nil
 }
 
 func attentionScopeForRequest(sessionID string, req askquestion.AskQuestionRequest) attentionnotify.RoutingScope {
