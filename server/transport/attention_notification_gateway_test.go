@@ -107,7 +107,9 @@ func TestGatewayRemoteSessionAttentionReceivesAuthorizedGenericPrompt(t *testing
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
 	beginGatewayPendingPrompt(t, broker, sessionStore.Meta().SessionID, askquestion.AskQuestionRequest{ToolCallID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
-	pending, err := sub.Next(shortGatewayAttentionContext(t))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pending, err := sub.Next(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
