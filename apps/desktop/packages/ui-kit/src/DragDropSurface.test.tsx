@@ -41,7 +41,8 @@ it.each(["development", "production"])("cancels an unmeasured drop in %s", (mode
   if (mode === "development") expect(() => onDragEnd(event)).toThrow(Error);
   else {
     expect(() => onDragEnd(event)).not.toThrow();
-    expect(diagnostic).toHaveBeenCalledWith(expect.any(Error));
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic.mock.calls[0]?.[0]).toBeInstanceOf(Error);
   }
   expect(onCancel).toHaveBeenCalledOnce();
   expect(onDrop).not.toHaveBeenCalled();
