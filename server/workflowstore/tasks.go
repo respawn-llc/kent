@@ -472,15 +472,6 @@ func (s *Store) startTask(ctx context.Context, taskID workflow.TaskID, candidate
 			return StartTaskResult{}, err
 		}
 	}
-	executionRoot, err := executionRootForLockedTaskIfPresent(ctx, s.queries, prepared.task)
-	if err != nil {
-		return StartTaskResult{}, err
-	}
-	if prepared.target.Kind() == workflow.NodeKindScript {
-		if err := s.validateScriptNodeForExecution(ctx, s.queries, workflow.NodeIDOf(prepared.target), executionRoot); err != nil {
-			return StartTaskResult{}, err
-		}
-	}
 	var targetSelection *workflow.AgentExecutionSelection
 	if prepared.target.Kind() == workflow.NodeKindAgent {
 		selectionPlan, selectionErr := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{

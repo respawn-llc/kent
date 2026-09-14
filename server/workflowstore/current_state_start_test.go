@@ -109,6 +109,27 @@ func TestTaskStartReplacesBacklogCurrentNodeWithFirstExecutableCurrentNode(t *te
 	}
 }
 
+func TestTaskStartWithRelativeScriptDoesNotRequirePreparedWorktree(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createScriptStartWorkflow(t, ctx, store, ".kent/scripts/check")
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask before worktree preparation: %v", err)
+	}
+	nodes, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListCurrentNodes: %v", err)
+	}
+	if len(nodes) != 1 ||
+		nodes[0].Reference.NodeID != testNodeID("node-script-"+workflowID.String()) ||
+		nodes[0].Scheduling == nil ||
+		nodes[0].Scheduling.State != workflow.CurrentNodeSchedulingReady {
+		t.Fatalf("current nodes = %+v, want ready Script awaiting worktree preparation", nodes)
+	}
+}
+
 func TestTaskStartPlacementFreezesSourceWorkspace(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
