@@ -54,6 +54,15 @@ function NewChatGoalSidebar({
   const [editing, setEditing] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [handoff, setHandoff] = useState<NewChatGoalHandoff | null>(null);
+  const [handoffReady, setHandoffReady] = useState(false);
+  const [pendingDiagnostic, setPendingDiagnostic] = useState<NewChatGoalDiagnostic | null>(null);
+  const pendingDiagnosticRef = useRef<NewChatGoalDiagnostic | null>(null);
+  const reportDiagnostic = useCallback(
+    (diagnostic: NewChatGoalDiagnostic) => {
+      reportGoalSetDiagnostic(push, t, diagnostic.value, diagnostic.id);
+    },
+    [push, t],
+  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -65,6 +74,22 @@ function NewChatGoalSidebar({
       setHandoff({ mutation: delivery.mutation, target: delivery.target });
     });
   }, [binding]);
+  useEffect(
+    () => () => {
+      const diagnostic = pendingDiagnosticRef.current;
+      if (diagnostic !== null) {
+        pendingDiagnosticRef.current = null;
+        reportDiagnostic(diagnostic);
+      }
+    },
+    [reportDiagnostic],
+  );
+  useEffect(() => {
+    if (!handoffReady || pendingDiagnostic === null) return;
+    pendingDiagnosticRef.current = null;
+    reportDiagnostic(pendingDiagnostic);
+    setPendingDiagnostic(null);
+  }, [handoffReady, pendingDiagnostic, reportDiagnostic]);
 
   if (snapshot.kind === "resolved_session") {
     const seeded = handoff?.target.sessionID === snapshot.target.sessionID ? handoff : undefined;
@@ -73,6 +98,9 @@ function NewChatGoalSidebar({
         api={api}
         initialDraft={draft}
         initialMutation={seeded?.mutation}
+        onInitialMutationAdmitted={() => {
+          setHandoffReady(true);
+        }}
         target={snapshot.target}
       />
     );
@@ -94,7 +122,13 @@ function NewChatGoalSidebar({
           return;
         }
         if (result.outcome.diagnostic !== null) {
-          reportGoalSetDiagnostic(push, t, result.outcome.diagnostic, diagnosticID);
+          const diagnostic = { id: diagnosticID, value: result.outcome.diagnostic };
+          if (mounted.current) {
+            pendingDiagnosticRef.current = diagnostic;
+            setPendingDiagnostic(diagnostic);
+          } else {
+            reportDiagnostic(diagnostic);
+          }
         }
       })
       .catch((cause: unknown) => {
@@ -160,14 +194,29 @@ function ExactGoalSidebar({
   api,
   initialDraft = "",
   initialMutation,
+  onInitialMutationAdmitted,
   target,
 }: Readonly<{
   api: GoalSidebarApi;
   initialDraft?: string;
   initialMutation?: ChatGoalMutationResult | null;
+  onInitialMutationAdmitted?: () => void;
   target: ChatSessionTarget;
 }>) {
   const model = useExactGoalSidebarModel(api, initialDraft, target, initialMutation);
+  const initialMutationAdmitted = useRef(false);
+  useEffect(() => {
+    if (
+      initialMutation === undefined ||
+      initialMutation === null ||
+      model.fact === null ||
+      initialMutationAdmitted.current
+    ) {
+      return;
+    }
+    initialMutationAdmitted.current = true;
+    onInitialMutationAdmitted?.();
+  }, [initialMutation, model.fact, onInitialMutationAdmitted]);
 
   if (model.snapshot.observation.kind === "loading" && model.fact === null) {
     return <LoadingState fullPage={false} title={model.t("chat.goal.loading")} />;
@@ -218,13 +267,13 @@ type NewChatGoalHandoff = Readonly<{
   target: ChatSessionTarget;
   mutation: ChatGoalMutationResult | null;
 }>;
+type NewChatGoalDiagnostic = Readonly<{ id: string; value: ChatOperationError }>;
 
 type DraftState = Readonly<{ base: string; draft: string }>;
 type GoalSidebarDerivedState = Readonly<{
   fact: ChatGoalFact | null;
   pendingIntent: ChatGoalMutationIntent | null;
   draftState: DraftState;
-  displayedFact: ChatGoalFact | null;
   displayedStatus: ChatGoalStatus | null;
   displayedCreatedAt: string | null;
   displayedObjective: string;
@@ -329,9 +378,8 @@ function deriveGoalSidebarState(
 ): GoalSidebarDerivedState {
   const fact = observedGoalFact(snapshot);
   const pendingIntent = pendingGoalIntent(snapshot);
-  const draftState = reconcileDraftState(localDraft, fact, pendingIntent);
+  const draftState = localDraft;
   const presentation = goalPresentation(fact, pendingIntent, draftState.draft);
-  const displayedFact = fact;
   const displayedStatus = presentation.status;
   const dirty = draftState.draft !== draftState.base;
   const unavailable = goalUnavailable(fact);
@@ -340,7 +388,6 @@ function deriveGoalSidebarState(
   return {
     actionsDisabled,
     dirty,
-    displayedFact,
     displayedCreatedAt: presentation.createdAt,
     displayedObjective: presentation.objective,
     displayedStatus,
@@ -456,7 +503,6 @@ function useExactGoalSidebarModel(
     actionsDisabled,
     dirty,
     displayedCreatedAt,
-    displayedFact,
     displayedObjective,
     displayedStatus,
     draftState,
@@ -466,7 +512,7 @@ function useExactGoalSidebarModel(
     unavailable,
   } = derived;
   const now = useGoalMinuteClock(fact);
-  const creationMode = displayedFact?.goal === null;
+  const creationMode = fact?.goal === null;
 
   const runMutation = useGoalMutationRunner({
     actionsDisabled,
@@ -538,7 +584,7 @@ function useExactGoalSidebarModel(
     editing: (creationMode && pendingIntent === null) || editing,
     error,
     expanded: (creationMode && pendingIntent === null) || expanded,
-    fact: displayedFact,
+    fact,
     now,
     pendingIntent,
     replaceObservation,

@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { create } from "@app/server-api-contract";
+import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 
 import type {
   ApiSubscription,
@@ -41,17 +43,27 @@ afterEach(() => {
 });
 
 function mountGoal() {
+  const createdAt = { seconds: 1789120800n, nanos: 0 };
   const services = createTestServices([
     {
-      method: "runtime.goal.pause",
-      result: {
-        result: {
-          kind: "authoritative_goal",
-          goal: { ...activeGoal, status: "paused" },
-          availability: null,
+      descriptor: R.GoalService.method.pause,
+      result: create(R.GoalService.method.pause.output, {
+        outcome: {
+          case: "success",
+          value: {
+            kind: R.GoalMutationResultKind.AUTHORITATIVE_GOAL,
+            goal: {
+              id: activeGoal.id,
+              objective: activeGoal.objective,
+              status: R.GoalStatus.RUNTIME_GOAL_STATUS_PAUSED,
+              createdAt,
+              updatedAt: createdAt,
+            },
+          },
         },
-      },
+      }),
     },
+    goalObservationRoute(),
   ]);
   render(
     <TestAppProviders services={services}>
@@ -61,19 +73,56 @@ function mountGoal() {
   return services;
 }
 
+function goalObservationRoute() {
+  return {
+    subscriptionDescriptor: R.GoalService.method.observe,
+    startResult: create(R.GoalService.method.observe.output, {
+      outcome: { case: "success", value: {} },
+    }),
+  } as const;
+}
+
+function emitGoalObservation(
+  transport: ReturnType<typeof createTestServices>["transport"],
+  goal: typeof activeGoal | null,
+) {
+  const timestamp = { seconds: 1789120800n, nanos: 0 };
+  transport.emitDescriptor(
+    R.GoalService.method.observe,
+    R.GoalService.method.observation,
+    create(R.GoalService.method.observation.input, {
+      sequence: 1n,
+      kind: R.GoalObservationKind.HYDRATION,
+      status: {
+        ...(goal === null
+          ? {}
+          : {
+              goal: {
+                id: goal.id,
+                objective: goal.objective,
+                status:
+                  goal.status === "active"
+                    ? R.GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE
+                    : goal.status === "paused"
+                      ? R.GoalStatus.RUNTIME_GOAL_STATUS_PAUSED
+                      : R.GoalStatus.RUNTIME_GOAL_STATUS_COMPLETE,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+              },
+            }),
+        availability: R.GoalAvailability.AVAILABLE,
+      },
+    }),
+  );
+}
+
 describe("Goal sidebar", () => {
   it("starts with Loading and then presents authoritative Goal metadata", async () => {
     const testServices = mountGoal();
     expect(screen.getByTestId("loading-state-placeholder")).toBeInTheDocument();
 
     act(() => {
-      testServices.transport.emit("goal.observation", {
-        observation: {
-          sequence: 1,
-          kind: "hydration",
-          status: { goal: activeGoal, availability: "available" },
-        },
-      });
+      emitGoalObservation(testServices.transport, activeGoal);
     });
 
     expect(await screen.findByText("Ship the Goal sidebar")).toBeInTheDocument();
@@ -85,13 +134,7 @@ describe("Goal sidebar", () => {
   it("routes lifecycle actions through the destination controller and updates state", async () => {
     const testServices = mountGoal();
     act(() => {
-      testServices.transport.emit("goal.observation", {
-        observation: {
-          sequence: 1,
-          kind: "hydration",
-          status: { goal: activeGoal, availability: "available" },
-        },
-      });
+      emitGoalObservation(testServices.transport, activeGoal);
     });
     expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
 
@@ -105,32 +148,29 @@ describe("Goal sidebar", () => {
     const testServices = mountGoal();
     await screen.findByTestId("loading-state");
     await waitFor(() => {
-      expect(testServices.transport.subscriptions).toHaveLength(1);
+      expect(testServices.transport.descriptorSubscriptions).toHaveLength(1);
     });
     act(() => {
-      testServices.transport.fail("goal.observe", new TransportError("Goal observation failed."));
+      testServices.transport.failDescriptor(
+        R.GoalService.method.observe,
+        new TransportError("Goal observation failed."),
+      );
     });
 
     await waitFor(() => {
-      expect(testServices.transport.subscriptions).toHaveLength(0);
+      expect(testServices.transport.descriptorSubscriptions).toHaveLength(0);
     });
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
 
     act(() => {
-      testServices.transport.emit("goal.observation", {
-        observation: {
-          sequence: 1,
-          kind: "hydration",
-          status: { goal: activeGoal, availability: "available" },
-        },
-      });
+      emitGoalObservation(testServices.transport, activeGoal);
     });
     expect(await screen.findByText("Ship the Goal sidebar")).toBeInTheDocument();
   });
 
   it("keeps a dirty New Chat draft after a Session-bearing Goal rejection", async () => {
-    const testServices = createTestServices([]);
+    const testServices = createTestServices([goalObservationRoute()]);
     const result: ChatGoalSetResult = {
       sessionID,
       outcome: {
@@ -167,13 +207,7 @@ describe("Goal sidebar", () => {
 
     await screen.findByTestId("loading-state");
     act(() => {
-      testServices.transport.emit("goal.observation", {
-        observation: {
-          sequence: 1,
-          kind: "hydration",
-          status: { goal: null, availability: "available" },
-        },
-      });
+      emitGoalObservation(testServices.transport, null);
     });
 
     expect(await screen.findByDisplayValue(objective)).toBeInTheDocument();

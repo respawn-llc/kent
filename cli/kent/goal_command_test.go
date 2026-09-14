@@ -51,6 +51,7 @@ func (goalTimeoutRemote) ClearGoal(context.Context, *runtimepb.GoalClearRequest)
 func (goalTimeoutRemote) Close() error { return nil }
 
 func TestGoalCommandsPresentTimeoutWithoutReportingSuccess(t *testing.T) {
+	unsetSessionIDEnvironmentForTest(t)
 	for _, phase := range []string{"connect", "read", "mutation"} {
 		for _, action := range []string{"show", "set", "pause", "resume", "complete", "clear"} {
 			if phase == "read" && action != "show" && action != "complete" || phase == "mutation" && action == "show" {

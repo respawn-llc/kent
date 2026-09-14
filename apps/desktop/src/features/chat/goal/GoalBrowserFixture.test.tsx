@@ -2,6 +2,7 @@ import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 
+import { ChatPromptPresenceProvider } from "@/app-facade";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { TestSidebar } from "@/test-support/sidebar";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
@@ -10,9 +11,11 @@ function renderFixture() {
   const services = createTestServices([]);
   render(
     <TestAppProviders services={services}>
-      <TestSidebar>
-        <GoalBrowserFixtureHarness />
-      </TestSidebar>
+      <ChatPromptPresenceProvider>
+        <TestSidebar>
+          <GoalBrowserFixtureHarness />
+        </TestSidebar>
+      </ChatPromptPresenceProvider>
     </TestAppProviders>,
   );
 }

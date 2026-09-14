@@ -102,56 +102,53 @@ func (s *Service) setGoal(
 ) (*runtimepb.GoalSetSuccess, error) {
 	target, err := s.resolveTarget(scope, request.Target, request.InitialInputDraft)
 	if err != nil {
-		if target.SessionID.IsZero() {
-			return nil, err
-		}
-		return goalSetSuccessRejected(target.SessionID, err), nil
+		return settleGoalSetError(target, err)
 	}
 	if request.ExecutionPolicy == runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
-		invocation, mutationErr := s.invokeGoal(scope, request, target)
-		if mutationErr != nil {
-			return nil, mutationErr
-		}
-		return goalSetSuccess(target.SessionID, invocation.mutation, invocation.diagnostic), nil
+		return s.settleGoalSet(scope, request, target, nil)
 	}
 	_, attachment, err := s.openRuntime(scope, target)
 	if err != nil {
-		if target.SessionID.IsZero() {
-			return nil, err
-		}
-		return goalSetSuccessRejected(target.SessionID, err), nil
+		return settleGoalSetError(target, err)
 	}
-	if s.goals == nil {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
+	return s.settleGoalSet(scope, request, target, attachment)
+}
+
+func (s *Service) settleGoalSet(
+	scope OperationScope,
+	request *runtimepb.GoalSetRequest,
+	target ResolvedTarget,
+	attachment RuntimeAttachment,
+) (*runtimepb.GoalSetSuccess, error) {
+	invocation, invocationErr := s.invokeGoal(scope, request, target)
+	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
+	if invocationErr == nil {
+		releasePolicy = sessionruntime.RuntimeReleaseDetach
+	}
+	var releaseErr error
+	if attachment != nil {
+		releaseErr = scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
+			return attachment.Release(finalizationCtx, releasePolicy)
 		})
-		err := errors.Join(errors.New("Goal Set service is required"), releaseErr)
-		if target.Created {
-			return goalSetSuccessRejected(target.SessionID, err), nil
-		}
+	}
+	if invocationErr != nil {
+		return settleGoalSetError(target, errors.Join(invocationErr, releaseErr))
+	}
+	return goalSetSuccess(
+		target.SessionID,
+		invocation.mutation,
+		errors.Join(invocation.diagnostic, releaseErr),
+	), nil
+}
+
+func settleGoalSetError(
+	target ResolvedTarget,
+	err error,
+) (*runtimepb.GoalSetSuccess, error) {
+	if target.SessionID.IsZero() {
 		return nil, err
 	}
-	invocation, err := s.invokeGoal(scope, request, target)
-	if err != nil {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		err = errors.Join(err, releaseErr)
-		if target.Created {
-			return goalSetSuccessRejected(target.SessionID, err), nil
-		}
-		return nil, err
-	}
-	if err := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-		return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseDetach)
-	}); err != nil {
-		return goalSetSuccess(
-			target.SessionID,
-			invocation.mutation,
-			errors.Join(invocation.diagnostic, err),
-		), nil
-	}
-	return goalSetSuccess(target.SessionID, invocation.mutation, invocation.diagnostic), nil
+	return goalSetSuccessRejected(target.SessionID, err), nil
 }
 
 type goalSetInvocation struct {

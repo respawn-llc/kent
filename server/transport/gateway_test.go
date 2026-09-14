@@ -113,6 +113,15 @@ type gatewayChatLifecycleAdmission struct {
 	queueItemID runtimeids.QueueItemID
 }
 
+type gatewayChatLifecycleGoal struct{}
+
+func (gatewayChatLifecycleGoal) SetResolvedGoal(
+	context.Context,
+	*runtimepb.GoalSetRequest,
+) (serverapi.ResolvedGoalSetCommit, error) {
+	return serverapi.ResolvedGoalSetCommit{}, errors.New("unexpected Goal Set")
+}
+
 func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
 	context.Context,
 	*runtimepb.SubmitUserTurnRequest,
@@ -167,6 +176,13 @@ func (gatewayChatAuthorizationService) Compact(
 	*chatpb.CompactRequest,
 ) (*chatpb.CompactionMutationSuccess, error) {
 	panic("unexpected Compact")
+}
+
+func (gatewayChatAuthorizationService) SetGoal(
+	context.Context,
+	*runtimepb.GoalSetRequest,
+) (*runtimepb.GoalSetSuccess, error) {
+	return nil, errors.New("unexpected Set")
 }
 
 func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
@@ -299,6 +315,7 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 		resolver,
 		gatewayChatLifecyclePlanner{attachment: attachment},
 		gatewayChatLifecycleAdmission{queueItemID: runtimeids.NewQueueItemID()},
+		gatewayChatLifecycleGoal{},
 	)
 	gateway, err := NewGateway(
 		&gatewayChatLifecycleDependencies{GatewayDependencies: appCore, chat: service},
@@ -1670,7 +1687,20 @@ func assertForeignGoalAccessRejected(t *testing.T, conn *websocket.Conn, session
 		result proto.Message
 	}{
 		{method: "Show", params: &runtimepb.GoalShowRequest{SessionId: sessionID}, result: &runtimepb.GoalShowResult{}},
-		{method: "Set", params: &runtimepb.GoalSetRequest{SessionId: sessionID, Objective: "ship", Actor: "user"}, result: &runtimepb.GoalSetResult{}},
+		{
+			method: "Set",
+			params: &runtimepb.GoalSetRequest{
+				Target: &chatpb.ChatTarget{
+					Target: &chatpb.ChatTarget_Session{
+						Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+					},
+				},
+				Objective:       "ship",
+				Actor:           "user",
+				ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+			},
+			result: &runtimepb.GoalSetResult{},
+		},
 		{method: "Pause", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalPauseResult{}},
 		{method: "Resume", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalResumeResult{}},
 		{method: "Complete", params: &runtimepb.GoalMutationRequest{SessionId: sessionID, Actor: "user"}, result: &runtimepb.GoalCompleteResult{}},

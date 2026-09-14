@@ -80,9 +80,15 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		}
 		_, err = service.ResumeGoal(t.Context(), &runtimepb.GoalMutationRequest{SessionId: sessionID.String(), Actor: "user"})
 	} else {
-		_, err = service.SetGoal(t.Context(), &runtimepb.GoalSetRequest{
-			SessionId: sessionID.String(), Objective: "ask before proceeding", Actor: "user",
-		})
+		_, err = runtimeControlSetGoal(
+			t.Context(),
+			service,
+			sessionID.String(),
+			"ask before proceeding",
+			"user",
+			nil,
+			nil,
+		)
 	}
 	if err != nil {
 		t.Fatal(err)
