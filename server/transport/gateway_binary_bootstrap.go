@@ -225,9 +225,6 @@ func binaryUpdateStatusFailure(err error) proto.Message {
 }
 
 func binaryAuthFailure(err error) proto.Message {
-	if detail := binaryWorkflowContinuationFailure(err); detail != nil {
-		return detail
-	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
 		return &authpb.AuthRequiredDetails{}
 	}

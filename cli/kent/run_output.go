@@ -80,8 +80,9 @@ func runErrorMessage(err error) string {
 			return "the subagent launch request is invalid"
 		}
 	}
-	if message := client.FormatWorkflowContinuationRejection(err); message != "" {
-		return message
+	var continuation *serverapi.WorkflowContinuationRejectionError
+	if errors.As(err, &continuation) {
+		return client.FormatWorkflowContinuationRejection(continuation)
 	}
 	if message := llmerrors.UserFacingError(err); message != "" {
 		return message

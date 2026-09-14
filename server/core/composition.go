@@ -308,6 +308,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	runtimeControlService.WithWorkflowSessionReactivator(workflowController)
 	runtimeControlService.WithWorkflowSessionPreparationReader(workflowController)
+	runtimeControlService.WithWorkflowSessionContinuationValidator(workflowController)
 	workflowTaskStatusProjection, err := workflowview.NewTaskStatusProjection(
 		workflowStore,
 		workflowTaskProjector,

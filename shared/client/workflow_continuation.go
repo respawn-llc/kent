@@ -1,15 +1,15 @@
 package client
 
 import (
-	"errors"
 	"fmt"
 
 	"core/shared/serverapi"
 )
 
-func FormatWorkflowContinuationRejection(err error) string {
-	var rejection *serverapi.WorkflowContinuationRejectionError
-	if !errors.As(err, &rejection) {
+func FormatWorkflowContinuationRejection(
+	rejection *serverapi.WorkflowContinuationRejectionError,
+) string {
+	if rejection == nil {
 		return ""
 	}
 	switch rejection.Reason {

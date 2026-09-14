@@ -19,14 +19,18 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/registry"
+	"core/server/runprompt"
 	agentruntime "core/server/runtime"
+	"core/server/runtimecontrol"
 	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/session/sessiontest"
+	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
 	"core/server/workflow"
@@ -35,9 +39,11 @@ import (
 	"core/server/workflowstore"
 	"core/server/workflowview"
 	"core/shared/config"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 
@@ -974,6 +980,310 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	meta := f.onlyProjectSessionMeta(t)
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "coder" {
 		t.Fatalf("fresh workflow Session continuation = %+v, want persisted coder identity", meta.Continuation)
+	}
+}
+
+func TestInvalidRetainedWorkflowContinuationRejectsHeadlessAndInteractiveInput(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(
+		t,
+		ScriptedFinalAnswer(`{"transition":"next","commentary":"ready for approval"}`),
+	)
+	workflowID := createCurrentNodeLinearWorkflow(
+		t,
+		f.store,
+		"Retained continuation rejection",
+		[]currentNodeWorkflowStep{
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete the first node."},
+			{kind: workflow.NodeKindAgent, role: "coder", prompt: "Continue after approval."},
+		},
+		[]currentNodeLinearTransition{{
+			id:               "next",
+			mode:             workflow.ContextModeContinueSession,
+			requiresApproval: true,
+		}},
+	)
+	task := f.createTask(t, workflowID)
+	source := f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	association, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session: %v", err)
+	}
+	sessionID := association.SessionID
+
+	beforeNodes, err := f.store.ListCurrentNodes(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list Current Nodes before rejection: %v", err)
+	}
+	beforeApprovals, err := f.store.ListPendingApprovals(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("list pending Approvals before rejection: %v", err)
+	}
+	beforeAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session before rejection: %v", err)
+	}
+	beforeSession, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve retained Session before rejection: %v", err)
+	}
+	beforeTarget, err := f.metadata.ResolveOptionalSessionExecutionTarget(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve execution target before rejection: %v", err)
+	}
+	beforeHistory, err := f.metadata.ReadPromptHistory(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("read prompt history before rejection: %v", err)
+	}
+	beforeRequests := len(f.client.Requests())
+
+	headless := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		SessionLaunch: sessionlaunch.NewService(launch.Planner{
+			Config:                   f.cfg,
+			ContainerDir:             filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
+			StoreOptions:             f.metadata.AuthoritativeSessionStoreOptions(),
+			PersistedSessions:        f.metadata,
+			ExecutionTargets:         f.metadata,
+			ProjectWorkspaceBoundary: f.metadata,
+		}),
+		PromptHistory:                 f.metadata,
+		RuntimeAuthority:              f.authority,
+		WorkflowContinuationValidator: f.controller,
+	})
+	_, err = headless.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
+		Prompt: "do not accept this headless input",
+		Overrides: serverapi.RunPromptOverrides{
+			Model: "override-model",
+		},
+	}, nil)
+	assertWaitingForApprovalContinuationRejection(t, err, task.ID)
+	assertRetainedWorkflowContinuationStateUnchanged(
+		t,
+		f,
+		task.ID,
+		source,
+		approval,
+		sessionID,
+		beforeNodes,
+		beforeApprovals,
+		beforeAssociation,
+		beforeSession,
+		beforeTarget,
+		beforeHistory,
+		beforeRequests,
+	)
+
+	runtimeControl := runtimecontrol.NewService(f.authority).
+		WithPromptHistoryStore(f.metadata).
+		WithPersistedSessionResolver(f.metadata).
+		WithWorkflowSessionReactivator(f.controller).
+		WithWorkflowSessionPreparationReader(f.controller).
+		WithWorkflowSessionContinuationValidator(f.controller)
+	_, err = runtimeControl.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+		SessionId: sessionID.String(),
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "do not accept this TUI input"}},
+	})
+	assertWaitingForApprovalContinuationRejection(t, err, task.ID)
+	assertRetainedWorkflowContinuationStateUnchanged(
+		t,
+		f,
+		task.ID,
+		source,
+		approval,
+		sessionID,
+		beforeNodes,
+		beforeApprovals,
+		beforeAssociation,
+		beforeSession,
+		beforeTarget,
+		beforeHistory,
+		beforeRequests,
+	)
+}
+
+func assertWaitingForApprovalContinuationRejection(
+	t *testing.T,
+	err error,
+	taskID workflow.TaskID,
+) {
+	t.Helper()
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) ||
+		rejection.TaskID != string(taskID) ||
+		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
+		t.Fatalf("continuation error = %T %v, want waiting-Approval rejection for Task %s", err, err, taskID)
+	}
+}
+
+func TestWorkflowContinuationUsesSelectedPersistedBranchWhenSiblingWaitsForApproval(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(t)
+	workflowID, _ := createCurrentNodeSelectedBranchApprovalWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	started, err := f.store.StartTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	source := started.Mutation.Created[0].Reference
+	sourceSessionID := createCurrentNodeRunnerSession(t, f)
+	if _, err := f.store.BindSessionToCurrentNode(context.Background(), workflowstore.CurrentNodeSessionBindingRequest{
+		Association: workflowstore.TaskSessionAssociationRequest{
+			SessionID:    sourceSessionID,
+			CurrentNode:  source,
+			AssociatedAt: time.Now().UTC(),
+		},
+	}); err != nil {
+		t.Fatalf("bind source Session: %v", err)
+	}
+	completed, err := f.store.CompleteCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+		Source:       source,
+		TransitionID: "split",
+		Commentary:   "split branches",
+	})
+	if err != nil {
+		t.Fatalf("complete fan-out source: %v", err)
+	}
+	if len(completed.Mutation.Created) != 2 {
+		t.Fatalf("fan-out Current Nodes = %+v, want two", completed.Mutation.Created)
+	}
+
+	var selected, sibling workflow.CurrentNode
+	for _, currentNode := range completed.Mutation.Created {
+		branchKey, ok := currentNode.Reference.TransitionBranchKey()
+		if !ok {
+			t.Fatalf("fan-out Current Node %v has no branch key", currentNode.Reference)
+		}
+		sessionID := createCurrentNodeRunnerSession(t, f)
+		if _, err := f.store.BindSessionToCurrentNode(context.Background(), workflowstore.CurrentNodeSessionBindingRequest{
+			Association: workflowstore.TaskSessionAssociationRequest{
+				SessionID:    sessionID,
+				CurrentNode:  currentNode.Reference,
+				AssociatedAt: time.Now().UTC(),
+			},
+			ExpectedCurrentSessionID: currentNode.SessionID,
+		}); err != nil {
+			t.Fatalf("bind %s Session: %v", branchKey, err)
+		}
+		switch branchKey {
+		case "branch_a":
+			selected = currentNode
+		case "branch_b":
+			sibling = currentNode
+		}
+	}
+	siblingApproval, err := f.store.CompleteCurrentNode(context.Background(), workflowstore.CurrentNodeCompletionRequest{
+		Source:       sibling.Reference,
+		TransitionID: "review",
+		Commentary:   "sibling waits for approval",
+	})
+	if err != nil {
+		t.Fatalf("complete sibling branch: %v", err)
+	}
+	if siblingApproval.PendingApproval == nil {
+		t.Fatalf("sibling completion = %+v, want pending Approval", siblingApproval)
+	}
+	selectedAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), selected.Reference)
+	if err != nil {
+		t.Fatalf("resolve selected branch Session: %v", err)
+	}
+	siblingAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), sibling.Reference)
+	if err != nil {
+		t.Fatalf("resolve sibling branch Session: %v", err)
+	}
+
+	if err := f.controller.ValidateWorkflowSessionContinuation(context.Background(), selectedAssociation.SessionID); err != nil {
+		t.Fatalf("selected branch continuation with sibling Approval: %v", err)
+	}
+	err = f.controller.ValidateWorkflowSessionContinuation(context.Background(), siblingAssociation.SessionID)
+	assertWaitingForApprovalContinuationRejection(t, err, task.ID)
+}
+
+func createCurrentNodeRunnerSession(t *testing.T, f *currentNodeRunnerFixture) runtimeids.SessionID {
+	t.Helper()
+	store, err := session.Create(
+		filepath.Join(f.cfg.PersistenceRoot, "projects", f.projectID, "sessions"),
+		filepath.Base(f.workspace),
+		f.workspace,
+		sessioncontract.SessionCategorySubagent,
+		f.metadata.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatalf("create retained Session: %v", err)
+	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatalf("ensure retained Session durable: %v", err)
+	}
+	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("parse retained Session id: %v", err)
+	}
+	return sessionID
+}
+
+func assertRetainedWorkflowContinuationStateUnchanged(
+	t *testing.T,
+	f *currentNodeRunnerFixture,
+	taskID workflow.TaskID,
+	source workflow.CurrentNodeReference,
+	approval workflow.PendingApproval,
+	sessionID runtimeids.SessionID,
+	beforeNodes []workflow.CurrentNode,
+	beforeApprovals []workflow.PendingApproval,
+	beforeAssociation workflowstore.TaskSessionAssociation,
+	beforeSession session.PersistedSessionRecord,
+	beforeTarget any,
+	beforeHistory []string,
+	beforeRequests int,
+) {
+	t.Helper()
+	afterNodes, err := f.store.ListCurrentNodes(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("list Current Nodes after rejection: %v", err)
+	}
+	if !reflect.DeepEqual(afterNodes, beforeNodes) {
+		t.Fatalf("Current Nodes after rejection = %+v, want unchanged %+v", afterNodes, beforeNodes)
+	}
+	afterApprovals, err := f.store.ListPendingApprovals(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("list pending Approvals after rejection: %v", err)
+	}
+	if !reflect.DeepEqual(afterApprovals, beforeApprovals) ||
+		len(afterApprovals) != 1 ||
+		afterApprovals[0].ID != approval.ID ||
+		!afterApprovals[0].Source.Equal(source) {
+		t.Fatalf("pending Approvals after rejection = %+v, want unchanged %+v", afterApprovals, beforeApprovals)
+	}
+	afterAssociation, err := f.store.LatestTaskSessionForNode(context.Background(), source)
+	if err != nil {
+		t.Fatalf("resolve retained source Session after rejection: %v", err)
+	}
+	if !reflect.DeepEqual(afterAssociation, beforeAssociation) || afterAssociation.SessionID != sessionID {
+		t.Fatalf("retained source association after rejection = %+v, want unchanged %+v", afterAssociation, beforeAssociation)
+	}
+	afterSession, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve retained Session after rejection: %v", err)
+	}
+	if !reflect.DeepEqual(afterSession, beforeSession) {
+		t.Fatalf("retained Session after rejection = %+v, want unchanged %+v", afterSession, beforeSession)
+	}
+	afterTarget, err := f.metadata.ResolveOptionalSessionExecutionTarget(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("resolve execution target after rejection: %v", err)
+	}
+	if !reflect.DeepEqual(afterTarget, beforeTarget) {
+		t.Fatalf("execution target after rejection = %+v, want unchanged %+v", afterTarget, beforeTarget)
+	}
+	afterHistory, err := f.metadata.ReadPromptHistory(context.Background(), sessionID.String())
+	if err != nil {
+		t.Fatalf("read prompt history after rejection: %v", err)
+	}
+	if !reflect.DeepEqual(afterHistory, beforeHistory) {
+		t.Fatalf("prompt history after rejection = %+v, want unchanged %+v", afterHistory, beforeHistory)
+	}
+	if got := len(f.client.Requests()); got != beforeRequests {
+		t.Fatalf("provider requests after rejection = %d, want %d", got, beforeRequests)
 	}
 }
 
@@ -3883,6 +4193,60 @@ func createCurrentNodeFanoutWorkflow(
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_b", TargetNodeID: branchNodeIDs["branch_b"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: contextMode, RequiresApproval: requiresApproval, PromptTemplate: "Branch B."},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchAGroup, Key: "join_a", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchBGroup, Key: "join_b", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: doneID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
+		)
+	})
+	return created.ID, branchNodeIDs
+}
+
+func createCurrentNodeSelectedBranchApprovalWorkflow(
+	t *testing.T,
+	store *workflowstore.Store,
+) (runtimeids.WorkflowID, map[workflow.TransitionBranchKey]workflow.NodeID) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Selected branch continuation"})
+	if err != nil {
+		t.Fatalf("create selected branch workflow: %v", err)
+	}
+	sourceID := workflow.NodeID(runtimeids.NewGraphEntityID())
+	branchNodeIDs := map[workflow.TransitionBranchKey]workflow.NodeID{
+		"branch_a": workflow.NodeID(runtimeids.NewGraphEntityID()),
+		"branch_b": workflow.NodeID(runtimeids.NewGraphEntityID()),
+	}
+	reviewID := workflow.NodeID(runtimeids.NewGraphEntityID())
+	joinID := workflow.NodeID(runtimeids.NewGraphEntityID())
+	startGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	splitGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	branchAJoinGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	branchBReviewGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	reviewJoinGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	doneGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	workflowfixture.SaveStoreGraph(t, ctx, store, created.ID, func(definition workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+		startID := workflow.NodeIDOf(nodeByKindRunnerTest(t, definition, workflow.NodeKindStart))
+		doneID := workflow.NodeIDOf(nodeByKindRunnerTest(t, definition, workflow.NodeKindTerminal))
+		request.Nodes = append(request.Nodes,
+			workflowstore.NodeRecord{ID: sourceID, WorkflowID: created.ID, Key: "source", Kind: workflow.NodeKindAgent, DisplayName: "Source", SubagentRole: "coder"},
+			workflowstore.NodeRecord{ID: branchNodeIDs["branch_a"], WorkflowID: created.ID, Key: "branch_a", Kind: workflow.NodeKindAgent, DisplayName: "Branch A", SubagentRole: "coder"},
+			workflowstore.NodeRecord{ID: branchNodeIDs["branch_b"], WorkflowID: created.ID, Key: "branch_b", Kind: workflow.NodeKindAgent, DisplayName: "Branch B", SubagentRole: "coder"},
+			workflowstore.NodeRecord{ID: reviewID, WorkflowID: created.ID, Key: "review", Kind: workflow.NodeKindAgent, DisplayName: "Review", SubagentRole: "reviewer"},
+			workflowstore.NodeRecord{ID: joinID, WorkflowID: created.ID, Key: "join", Kind: workflow.NodeKindJoin, DisplayName: "Join"},
+		)
+		request.TransitionGroups = append(request.TransitionGroups,
+			workflowstore.TransitionGroupRecord{ID: startGroup, WorkflowID: created.ID, SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"},
+			workflowstore.TransitionGroupRecord{ID: splitGroup, WorkflowID: created.ID, SourceNodeID: sourceID, TransitionID: "split", DisplayName: "Split"},
+			workflowstore.TransitionGroupRecord{ID: branchAJoinGroup, WorkflowID: created.ID, SourceNodeID: branchNodeIDs["branch_a"], TransitionID: "join_a", DisplayName: "Join"},
+			workflowstore.TransitionGroupRecord{ID: branchBReviewGroup, WorkflowID: created.ID, SourceNodeID: branchNodeIDs["branch_b"], TransitionID: "review", DisplayName: "Review"},
+			workflowstore.TransitionGroupRecord{ID: reviewJoinGroup, WorkflowID: created.ID, SourceNodeID: reviewID, TransitionID: "join_b", DisplayName: "Join"},
+			workflowstore.TransitionGroupRecord{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: joinID, TransitionID: "done", DisplayName: "Done"},
+		)
+		request.Edges = append(request.Edges,
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: sourceID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Source."},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_a", TargetNodeID: branchNodeIDs["branch_a"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeContinueSession, PromptTemplate: "Branch A."},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "branch_b", TargetNodeID: branchNodeIDs["branch_b"], AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeContinueSession, PromptTemplate: "Branch B."},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchAJoinGroup, Key: "join_a", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: branchBReviewGroup, Key: "review", TargetNodeID: reviewID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, RequiresApproval: true, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Review branch B."},
+			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: reviewJoinGroup, Key: "join_b", TargetNodeID: joinID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 			workflowstore.EdgeRecord{ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: doneID, AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured, ContextMode: workflow.ContextModeNewSession},
 		)
 	})

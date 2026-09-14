@@ -25,6 +25,9 @@ func registerRunPromptGatewayBinaryBinding(bindings map[string]gatewayBinaryBind
 		operation: operation, policy: gatewayBinaryCoreActiveOrdinary, progressEvent: &progressOperation,
 		request: func() proto.Message { return &runpromptpb.Request{} },
 		failure: func(_ *Gateway, _ *connectionState, _ proto.Message, err error) proto.Message {
+			if details := binaryWorkflowContinuationFailure(err); details != nil {
+				return gatewayBinaryFailureResult(method, details)
+			}
 			if details, ok := binaryServerNotReadyDetails(err); ok {
 				return gatewayBinaryFailureResult(method, details)
 			}
