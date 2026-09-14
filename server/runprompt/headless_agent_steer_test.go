@@ -139,8 +139,9 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 				EffectiveWorkdir: workspace,
 			}},
 		}).WithAuthStateReader(authManager),
-		RuntimeAuthority: authority,
-		PromptHistory:    history,
+		RuntimeAuthority:              authority,
+		PromptHistory:                 history,
+		WorkflowContinuationValidator: acceptingWorkflowContinuationValidator{},
 	})
 
 	var intent serverapi.SessionLaunchIntent

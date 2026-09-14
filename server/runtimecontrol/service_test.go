@@ -386,6 +386,18 @@ type runtimeControlWorkflowSessionReactivatorFunc func(
 	runtimeids.SessionID,
 ) (sessionruntime.ExecutionHandle, error)
 
+type runtimeControlWorkflowSessionContinuationValidatorFunc func(
+	context.Context,
+	runtimeids.SessionID,
+) error
+
+func (f runtimeControlWorkflowSessionContinuationValidatorFunc) ValidateWorkflowSessionContinuation(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+) error {
+	return f(ctx, sessionID)
+}
+
 func (f runtimeControlWorkflowSessionReactivatorFunc) ReactivateWorkflowSession(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
@@ -774,7 +786,12 @@ func newRuntimeControlTestServiceWithFeeds(
 	history := newRuntimeControlPromptHistoryStore(store.Meta().SessionID)
 	service := NewService(authority).
 		WithPromptHistoryStore(history).
-		WithPersistedSessionResolver(runtimeControlTestSessionPersistence)
+		WithPersistedSessionResolver(runtimeControlTestSessionPersistence).
+		WithWorkflowSessionContinuationValidator(
+			runtimeControlWorkflowSessionContinuationValidatorFunc(func(context.Context, runtimeids.SessionID) error {
+				return nil
+			}),
+		)
 	return store, engine, service
 }
 

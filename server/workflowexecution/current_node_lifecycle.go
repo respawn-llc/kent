@@ -115,22 +115,22 @@ func (c *CurrentNodeController) ReactivateWorkflowSession(
 	if sessionID.IsZero() {
 		return nil, errors.New("session id is required")
 	}
-	taskID, input, err := c.resolveWorkflowSessionContinuation(ctx, sessionID)
+	admission, err := c.workflowSessionContinuationAdmission(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	if taskID == nil {
+	if admission.taskID == nil {
 		return nil, workflowstore.ErrSessionNotCurrentWorkflowNode
 	}
-	if handle, live := c.authority.SessionExecution(sessionID); live {
-		return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+	if admission.live != nil {
+		return admission.live, nil
 	}
 	result, completion, err := c.resumeTask(
 		ctx,
-		input.Task.ID,
+		admission.input.Task.ID,
 		nil,
 		nil,
-		&input.CurrentNode.Reference,
+		&admission.input.CurrentNode.Reference,
 	)
 	if err != nil {
 		return nil, err
@@ -143,13 +143,13 @@ func (c *CurrentNodeController) ReactivateWorkflowSession(
 		if waitErr != nil {
 			return nil, fmt.Errorf("reactivate workflow Session %s: %w", sessionID, waitErr)
 		}
-		return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+		return c.validateReactivatedWorkflowExecution(handle, sessionID, admission.input.CurrentNode.Reference)
 	}
 	handle, live := c.authority.SessionExecution(sessionID)
 	if !live {
-		return nil, &TaskResumeConflictError{TaskID: input.Task.ID}
+		return nil, &TaskResumeConflictError{TaskID: admission.input.Task.ID}
 	}
-	return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+	return c.validateReactivatedWorkflowExecution(handle, sessionID, admission.input.CurrentNode.Reference)
 }
 
 // ValidateWorkflowSessionContinuation checks whether an existing Workflow
@@ -166,11 +166,49 @@ func (c *CurrentNodeController) ValidateWorkflowSessionContinuation(
 	if sessionID.IsZero() {
 		return errors.New("session id is required")
 	}
+	_, err := c.workflowSessionContinuationAdmission(ctx, sessionID)
+	return err
+}
+
+type workflowSessionContinuationAdmission struct {
+	taskID *workflow.TaskID
+	input  workflowstore.CurrentNodeStartContext
+	live   sessionruntime.ExecutionHandle
+}
+
+func (c *CurrentNodeController) workflowSessionContinuationAdmission(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+) (workflowSessionContinuationAdmission, error) {
 	taskID, input, err := c.resolveWorkflowSessionContinuation(ctx, sessionID)
 	if err != nil || taskID == nil {
-		return err
+		return workflowSessionContinuationAdmission{taskID: taskID, input: input}, err
 	}
-	return c.validateWorkflowSessionEligibility(ctx, *taskID, input.CurrentNode.Reference)
+	if handle, live := c.authority.SessionExecution(sessionID); live {
+		validated, err := c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+		if err != nil {
+			return workflowSessionContinuationAdmission{}, err
+		}
+		return workflowSessionContinuationAdmission{
+			taskID: taskID,
+			input:  input,
+			live:   validated,
+		}, nil
+	}
+	key, err := input.CurrentNode.Reference.Key()
+	if err != nil {
+		return workflowSessionContinuationAdmission{}, err
+	}
+	c.mu.Lock()
+	preparing := c.currentNodePreparingLocked(key)
+	c.mu.Unlock()
+	if preparing {
+		return workflowSessionContinuationAdmission{taskID: taskID, input: input}, nil
+	}
+	if err := c.validateWorkflowSessionEligibility(ctx, *taskID, input.CurrentNode.Reference); err != nil {
+		return workflowSessionContinuationAdmission{}, err
+	}
+	return workflowSessionContinuationAdmission{taskID: taskID, input: input}, nil
 }
 
 func (c *CurrentNodeController) resolveWorkflowSessionContinuation(

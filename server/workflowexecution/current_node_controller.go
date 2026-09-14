@@ -22,6 +22,10 @@ type CurrentNodeAssignmentSteerer interface {
 	SteerCurrentNodeAssignment(context.Context, workflow.CurrentNodeReference) (CurrentNodeAssignmentSteer, error)
 }
 
+type WorkflowSessionContinuationValidator interface {
+	ValidateWorkflowSessionContinuation(context.Context, runtimeids.SessionID) error
+}
+
 type CurrentNodeManualMoveAssignmentPreparer interface {
 	PrepareManualMoveAssignments(
 		context.Context,

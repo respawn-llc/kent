@@ -135,6 +135,12 @@ func (s *Service) submitUserTurn(
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
+	if s.continuation == nil {
+		return nil, errors.New("workflow session continuation validator is required")
+	}
+	if err := s.continuation.ValidateWorkflowSessionContinuation(attempt.Context(), sessionID); err != nil {
+		return nil, err
+	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
 		return nil, err
