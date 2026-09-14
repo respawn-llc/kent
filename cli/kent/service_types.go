@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/config"
 	"core/shared/protocol"
+	"core/shared/serverapi"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -222,14 +223,7 @@ func serviceCommand(spec serviceSpec) []string {
 }
 
 func commandString(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(args))
-	for _, arg := range args {
-		parts = append(parts, shellQuote(arg))
-	}
-	return strings.Join(parts, " ")
+	return serverapi.ShellCommand(args...)
 }
 
 func commandArgsEqual(left []string, right []string) bool {
@@ -242,16 +236,6 @@ func commandArgsEqual(left []string, right []string) bool {
 		}
 	}
 	return true
-}
-
-func shellQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	if !strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}();&|<>") {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func shellCommand(tokens ...string) string {

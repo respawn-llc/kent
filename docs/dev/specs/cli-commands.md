@@ -97,9 +97,13 @@
 - `kent attach --project <project-id> [path]` selects the Project explicitly.
 - Each omitted path means the current directory.
 - Project, attach, and rebind commands use the configured daemon and never take local ownership of persistence.
-- `kent rebind <session-id> <path>` keeps a Session in its source Project. If the target belongs to both the source and other Projects, it selects the source binding. If it belongs only to other Projects, it fails without mutation, identifies the source Session and Project, and gives complete commands to attach it to the source Project or make an explicit cross-Project move.
-- `kent rebind --project <project-id> <session-id> <path>` is required for cross-Project movement. It may attach an unbound target path to the explicit Project, but rejects a path already attached only to other Projects.
+- If the target belongs to exactly one Project, `kent rebind <session-id> <path>` must select that Project, including when it differs from the Session's source Project.
+- If the target belongs to both the source and other Projects, path-only rebind must select the source binding.
+- If the target belongs to several Projects but not the source Project, path-only rebind must fail without mutation, identify the source Session and Project, and give complete commands to attach it to the source Project or select each candidate with `--project`.
+- `kent rebind --project <project-id> <session-id> <path>` must select the explicit Project. It may attach an unbound target path to the explicit Project, but rejects a path already attached only to other Projects.
 - Failed rebinds never change bindings or Session attachment.
+- Immediate rebind errors and deferred failure notifications must explain known failure reasons in plaintext rather than expose internal error codes. They must preserve useful diagnostic details and provide complete corrective commands for ambiguous or conflicting Project selection.
+- Rebind error codes must remain available to machine consumers. Plaintext explanations need not be translatable, and their exact wording is not a fixed contract.
 - Sessions attached to Workflow Nodes cannot move across Projects.
 - For a live Session, `kent rebind` must return a scheduled acknowledgement for every caller. The move must follow the execution-target transition rules in Core Runtime Tools, preserving the running agent and queued input.
 - For a Dormant Session, `kent rebind` must complete synchronously and reject running Session-owned background commands. Its completed output must identify the Workspace and any new attachment.

@@ -6,6 +6,8 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/config"
+	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
@@ -23,7 +25,7 @@ func (e *Engine) SteerSessionRebindFailureDiagnostic(cause error) (session.Commi
 				MessageType: textutil.Value(llm.MessageTypeErrorFeedback),
 				Content: textutil.Value(fmt.Sprintf(
 					"Session move failed before its destination could be applied: %s\nThe Session remains in its previous Project and Working Directory.",
-					cause,
+					serverapi.SessionRetargetFailureText(config.Command, cause),
 				)),
 			}},
 		),

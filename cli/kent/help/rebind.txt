@@ -3,12 +3,13 @@ Usage of kent rebind:
 
 Retarget a session to an existing workspace path.
 
-Without --project, the session stays in its source project and Kent attaches an
-unbound target path to that project. If the path belongs only to another project,
-Kent prints complete commands for moving the session or attaching the path to
-the source project.
+Without --project, Kent selects a target path's only attached project. If the
+path is attached to the source project and other projects, Kent selects the
+source project. If the path is attached to multiple projects but not the source
+project, Kent prints complete commands for selecting each candidate project or
+attaching the path to the source project.
 
---project moves the session to that project. Kent attaches an unbound target
+--project selects the project explicitly. Kent attaches an unbound target
 workspace automatically.
 
 For a live session, Kent acknowledges the scheduled move immediately and applies
