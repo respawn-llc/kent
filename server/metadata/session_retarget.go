@@ -212,14 +212,31 @@ func (s *Store) CommitSessionWorkspaceRetarget(ctx context.Context, plan Session
 	); err != nil {
 		return SessionWorkspaceRetargetResult{}, err
 	}
-	if err := validateSessionWorkspaceRetargetTarget(
-		ctx,
-		q,
+	targetBindings, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, plan.TargetWorkspaceRoot)
+	if err != nil {
+		return SessionWorkspaceRetargetResult{}, fmt.Errorf("list target workspace bindings: %w", err)
+	}
+	if !plan.ExplicitProject {
+		selectedProject, err := selectSessionWorkspaceRetargetProject(
+			plan.SessionID,
+			plan.SourceProject,
+			plan.TargetWorkspaceRoot,
+			targetBindings,
+		)
+		if err != nil {
+			return SessionWorkspaceRetargetResult{}, err
+		}
+		if strings.TrimSpace(selectedProject.ID) != strings.TrimSpace(plan.TargetProject.ID) {
+			return SessionWorkspaceRetargetResult{}, errors.New("target Project selection changed while rebinding; retry")
+		}
+	}
+	if err := validateSessionWorkspaceRetargetTargetBindings(
 		plan.SessionID,
 		plan.SourceProject,
 		plan.TargetProject,
 		plan.TargetWorkspaceRoot,
 		plan.ExplicitProject,
+		targetBindings,
 	); err != nil {
 		return SessionWorkspaceRetargetResult{}, err
 	}
@@ -322,29 +339,6 @@ func validateSessionWorkspaceRetargetWorkflowOwnership(
 		TargetRoot:      targetRoot,
 		WorkflowTaskIDs: taskIDs,
 	}
-}
-
-func validateSessionWorkspaceRetargetTarget(
-	ctx context.Context,
-	q *sqlitegen.Queries,
-	sessionID string,
-	sourceProject serverapi.ProjectReference,
-	targetProject serverapi.ProjectReference,
-	targetRoot string,
-	explicitProject bool,
-) error {
-	rows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, targetRoot)
-	if err != nil {
-		return fmt.Errorf("list target workspace bindings: %w", err)
-	}
-	return validateSessionWorkspaceRetargetTargetBindings(
-		sessionID,
-		sourceProject,
-		targetProject,
-		targetRoot,
-		explicitProject,
-		rows,
-	)
 }
 
 func validateSessionWorkspaceRetargetTargetBindings(
