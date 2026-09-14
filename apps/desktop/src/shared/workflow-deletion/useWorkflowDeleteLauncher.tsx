@@ -6,13 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import type { WorkflowDeleteImpact } from "@/api";
 import { errorMessage } from "@/api";
-import {
-  queryKeys,
-  useAppNavigation,
-  useAppServices,
-  useConnectionSnapshot,
-  useStatusController,
-} from "@/app-facade";
+import { queryKeys, useAppNavigation, useAppServices, useStatusController } from "@/app-facade";
 import { Dialog } from "@/ui";
 import { WorkflowDeleteConfirmationContent } from "./WorkflowDeleteConfirmationContent";
 import {
@@ -35,7 +29,6 @@ export function useWorkflowDeleteLauncher(
 }> {
   const { t } = useTranslation();
   const { api } = useAppServices();
-  const connection = useConnectionSnapshot();
   const navigation = useAppNavigation();
   const queryClient = useQueryClient();
   const matchRoute = useMatchRoute();
@@ -193,12 +186,7 @@ export function useWorkflowDeleteLauncher(
   const currentPending = pending?.ownerWorkflowID === workflowID ? pending : null;
   const opening = openingOwner === workflowID;
   return {
-    disabled:
-      connection.phase !== "connected" ||
-      opening ||
-      submitting ||
-      currentPending !== null ||
-      committedOwner === workflowID,
+    disabled: opening || submitting || currentPending !== null || committedOwner === workflowID,
     dialog:
       currentPending === null
         ? null

@@ -6,7 +6,7 @@ import {
   ServerService,
   type Readiness,
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
-import type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
+import type { ApiService, ApiSubscription } from "./apiService";
 import type { ChatApi } from "./chat";
 import { createChatApi } from "./chat";
 import { listSessionPage as listSessionCatalogPage } from "./clientCatalog";
@@ -127,12 +127,10 @@ import * as workflowLabels from "./clientWorkflowLabels";
 export const guiTaskCommentAuthor = "user";
 
 export class ApiClient implements ApiService {
-  readonly connection: ApiConnectionSource;
   readonly #transport: DescriptorRpcTransport;
 
   constructor(transport: DescriptorRpcTransport) {
     this.#transport = transport;
-    this.connection = transport.connection;
     this.chat = createChatApi(transport);
   }
 

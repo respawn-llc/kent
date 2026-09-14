@@ -78,11 +78,8 @@ vi.mock("@/app-facade", async (importOriginal) => {
   return {
     ...actual,
     useAppServices: () => mockedServices,
-    useConnectionSnapshot: () => connectionSnapshot,
   };
 });
-
-const connectionSnapshot = { generation: 1, phase: "connected" as const };
 
 describe("Project Task-list data ownership", () => {
   afterEach(() => {
@@ -537,8 +534,8 @@ describe("Project Task-list data ownership", () => {
           projectID: "project-1",
           expanded: { active: true, backlog: false, done: false },
         }).active;
-        useProjectTaskListEvents({ enabled: true, projectID: "project-1" });
-        return active;
+        const observation = useProjectTaskListEvents({ enabled: true, projectID: "project-1" });
+        return { ...active, observation };
       },
       {
         wrapper: ({ children }) => harness.render(children),
@@ -609,14 +606,27 @@ describe("Project Task-list data ownership", () => {
     });
     expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
 
+    invalidations.length = 0;
+    const failure = new Error("subscription unavailable");
     act(() => {
-      state.handlers[0]?.onError(new Error("subscription unavailable"));
+      state.handlers[0]?.onComplete(409, "stream gap");
+    });
+    expect(invalidations).toEqual([]);
+    act(() => {
+      state.handlers[0]?.onError(failure);
     });
     await Promise.resolve();
     expect(result.current.tasks.map((task) => task.id)).toEqual(["active-0"]);
+    expect(result.current.observation.error).toBe(failure);
+    expect(state.handlers).toHaveLength(1);
+    expect(invalidations).toEqual([]);
+    act(() => {
+      result.current.observation.retry();
+    });
+    expect(state.handlers).toHaveLength(2);
 
     unmount();
-    expect(state.subscriptionCloses).toBe(1);
+    expect(state.subscriptionCloses).toBe(2);
     invalidateSpy.mockRestore();
   });
 });

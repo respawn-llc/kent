@@ -105,14 +105,14 @@ describe("TaskDetailLabels", () => {
 
   it("shows assignment loading and query Retry without enabling the chooser", () => {
     assignment.isPending = true;
-    const view = render(<TaskDetailLabels disabled={false} />);
+    const view = render(<TaskDetailLabels />);
 
     expect(screen.getByRole("status")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "labels.editAssignments" })).toBeDisabled();
 
     assignment.isPending = false;
     assignment.error = new Error("assignment unavailable");
-    view.rerender(<TaskDetailLabels disabled={false} />);
+    view.rerender(<TaskDetailLabels />);
     fireEvent.click(screen.getByRole("button", { name: "app.retry" }));
 
     expect(screen.getByText("assignment unavailable")).toBeInTheDocument();
@@ -121,7 +121,7 @@ describe("TaskDetailLabels", () => {
 
   it("renders pending chips and sends chooser changes through the direct command", () => {
     assignment.pendingLabelIDs = [ids.alpha];
-    render(<TaskDetailLabels disabled={false} />);
+    render(<TaskDetailLabels />);
 
     expect(screen.getByText("Alpha")).toHaveAttribute("aria-busy", "true");
     fireEvent.click(screen.getByRole("button", { name: "Change assignment" }));
@@ -136,7 +136,7 @@ describe("TaskDetailLabels", () => {
         labelID: ids.alpha,
       },
     ];
-    render(<TaskDetailLabels disabled={false} />);
+    render(<TaskDetailLabels />);
 
     expect(screen.getByText("save failed")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "app.retry" }));

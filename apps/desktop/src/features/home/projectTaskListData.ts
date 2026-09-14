@@ -5,7 +5,7 @@ import {
   type InfiniteData,
   type UseInfiniteQueryResult,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 
 import {
   errorMessage,
@@ -16,7 +16,7 @@ import {
   type TaskListPage,
   type WorkflowProjectEvent,
 } from "@/api";
-import { queryKeys, useAppServices, useConnectionSnapshot } from "@/app-facade";
+import { queryKeys, useAppServices } from "@/app-facade";
 import { defaultProjectTaskSort, projectTaskSortsEqual, type ProjectTaskSort } from "./projectTaskSorting";
 
 export const projectTaskGroups = ["active", "backlog", "done"] as const satisfies readonly ProjectTaskGroup[];
@@ -292,9 +292,10 @@ export function useProjectTaskListEvents({
 }: Readonly<{
   enabled: boolean;
   projectID: string;
-}>): void {
+}>) {
   const { api, logger } = useAppServices();
-  const connection = useConnectionSnapshot();
+  const [failure, setFailure] = useState<Readonly<{ projectID: string; error: Error }> | null>(null);
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const queryClient = useQueryClient();
   const reportBackgroundError = useCallback(
     (error: unknown): void => {
@@ -333,7 +334,7 @@ export function useProjectTaskListEvents({
   }, [refreshTaskLists, refreshWorkflows]);
 
   useEffect(() => {
-    if (!enabled || projectID.length === 0 || connection.phase !== "connected") {
+    if (!enabled || projectID.length === 0) {
       return;
     }
     const run = (operation: Promise<void>): void => {
@@ -359,10 +360,12 @@ export function useProjectTaskListEvents({
           run(refreshTaskLists());
         }
       },
-      onComplete() {
+      onComplete(code) {
+        if (code !== 0) return;
         run(refreshBoundary());
       },
       onError(error) {
+        setFailure({ projectID, error });
         reportBackgroundError(error);
       },
     });
@@ -371,8 +374,7 @@ export function useProjectTaskListEvents({
     };
   }, [
     api,
-    connection.generation,
-    connection.phase,
+    attempt,
     enabled,
     projectID,
     refreshBoundary,
@@ -380,6 +382,13 @@ export function useProjectTaskListEvents({
     refreshWorkflows,
     reportBackgroundError,
   ]);
+  return {
+    error: failure?.projectID === projectID ? failure.error : null,
+    retry: () => {
+      setFailure(null);
+      retry();
+    },
+  };
 }
 
 export function projectTaskListEventCanChangeRows(event: WorkflowProjectEvent): boolean {

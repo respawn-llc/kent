@@ -5,7 +5,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useEffectEvent, useReducer, useState } from "react";
 
 import { boardNodeCardsPageSize, type BoardNodeCardsPage, type WorkflowProjectEvent } from "@/api";
 import {
@@ -15,7 +15,6 @@ import {
   reportNonCancelledError,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { workflowProjectEventCanChangeTaskSearch } from "@/app-facade";
 import { workflowProjectQuestionTaskID } from "@/app-facade";
 import { useRetainedQueryData } from "@/app-facade";
@@ -123,7 +122,8 @@ export function useProjectBoardSubscription(
 ) {
   const { api } = useAppServices();
   const queryClient = useQueryClient();
-  const connection = useConnectionSnapshot();
+  const [failure, setFailure] = useState<Readonly<{ projectID: string; error: Error }> | null>(null);
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const labelEffects = useProjectLabelEffects();
   const { onBackgroundError, onSelectedTaskDeleted, selectedTaskID, selectedWorkflowID } = input;
   const consumeBackgroundError = useCallback(
@@ -133,10 +133,7 @@ export function useProjectBoardSubscription(
     [onBackgroundError],
   );
 
-  useEffect(() => {
-    if (projectID.length === 0 || connection.phase !== "connected") {
-      return;
-    }
+  const handlers = useEffectEvent(() => {
     async function refresh(): Promise<void> {
       await invalidateProjectBoardQueries(queryClient, projectID);
     }
@@ -154,12 +151,12 @@ export function useProjectBoardSubscription(
     async function refreshTaskSearch(): Promise<void> {
       await invalidateProjectTaskSearches(queryClient, projectID);
     }
-    const subscription = api.subscribeProject(projectID, {
+    return {
       onOpen() {
         void labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError);
         void refreshTaskSearch().catch(consumeBackgroundError);
       },
-      onEvent(event) {
+      onEvent(event: WorkflowProjectEvent) {
         void labelEffects.consumeProjectEvent(event).catch(consumeBackgroundError);
         if (isDeletedTaskEvent(event, selectedTaskID)) {
           onSelectedTaskDeleted?.();
@@ -172,33 +169,44 @@ export function useProjectBoardSubscription(
           void refresh().catch(consumeBackgroundError);
         }
       },
-      onComplete() {
+      onComplete(code: number) {
+        if (code !== 0) return;
         void labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError);
         void refreshTaskSearch().catch(consumeBackgroundError);
       },
-      onError(error) {
+      onError(error: Error) {
         consumeBackgroundError(error);
-        void labelEffects.refreshAfterSubscriptionBoundary().catch(consumeBackgroundError);
-        void refreshTaskSearch().catch(consumeBackgroundError);
+      },
+    };
+  });
+  useEffect(() => {
+    if (projectID.length === 0) return;
+    const subscription = api.subscribeProject(projectID, {
+      onOpen: () => {
+        handlers().onOpen();
+      },
+      onEvent: (event) => {
+        handlers().onEvent(event);
+      },
+      onComplete: (code) => {
+        handlers().onComplete(code);
+      },
+      onError: (error) => {
+        setFailure({ projectID, error });
+        handlers().onError(error);
       },
     });
     return () => {
       subscription.close();
     };
-  }, [
-    api,
-    boardQueryWorkflowID,
-    connection.generation,
-    connection.phase,
-    consumeBackgroundError,
-    labelEffects,
-    onBackgroundError,
-    onSelectedTaskDeleted,
-    projectID,
-    queryClient,
-    selectedTaskID,
-    selectedWorkflowID,
-  ]);
+  }, [api, attempt, projectID]);
+  return {
+    error: failure?.projectID === projectID ? failure.error : null,
+    retry: () => {
+      setFailure(null);
+      retry();
+    },
+  };
 }
 
 function isDeletedTaskEvent(event: WorkflowProjectEvent, taskID: string | undefined): boolean {
@@ -251,7 +259,7 @@ export function useBoardTaskActions(projectID: string) {
   );
   const interruptMutation = useMutation({
     mutationFn: async (taskID: string) => api.interruptTask(taskID),
-    onSettled: refresh,
+    onSuccess: refresh,
   });
   const interrupt = useTaskLifecycleAction();
   return {

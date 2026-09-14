@@ -382,7 +382,7 @@ describe("mounted Chat Runtime owner", () => {
     expect(owner.snapshot.transcript.opening.kind).toBe("disposed");
   });
 
-  it("keeps recovery branches independent and forwards ordered host facts", async () => {
+  it("keeps transcript failure and Retry independent and forwards ordered host facts", async () => {
     const replacementPage = deferred<ChatTranscriptPage>();
     const fixture = runtimeApi({
       reads: [
@@ -441,10 +441,10 @@ describe("mounted Chat Runtime owner", () => {
       payload: hydration().SessionStatus,
     });
     await vi.waitFor(() => {
-      expect(fixture.handlers).toHaveLength(2);
-      expect(fixture.getMainView).toHaveBeenCalledTimes(2);
+      expect(fixture.handlers).toHaveLength(1);
+      expect(fixture.getMainView).toHaveBeenCalledTimes(1);
     });
-    expect(owner.snapshot.observation.kind).toBe("recovering");
+    expect(owner.snapshot.observation.kind).toBe("error");
     expect(fixture.getTranscriptPage).toHaveBeenCalledOnce();
 
     const explicitPage = executeChatTranscriptPage(fixture.api, target, {
@@ -452,13 +452,11 @@ describe("mounted Chat Runtime owner", () => {
       cursor: 17,
     });
     expect(fixture.getTranscriptPage).toHaveBeenCalledTimes(2);
-    const replacement = requireValue(fixture.handlers[1]);
-    replacement.onError(new Error("replacement failed"));
     expect(owner.snapshot.observation.kind).toBe("error");
     owner.retryTranscriptObservation();
-    expect(fixture.handlers).toHaveLength(3);
-    expect(fixture.getMainView).toHaveBeenCalledTimes(2);
-    const retry = requireValue(fixture.handlers[2]);
+    expect(fixture.handlers).toHaveLength(2);
+    expect(fixture.getMainView).toHaveBeenCalledTimes(1);
+    const retry = requireValue(fixture.handlers[1]);
     retry.onOpen?.();
     retry.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(29) });
     expect(owner.snapshot.transcript.older).toEqual({ kind: "idle", cursor: 29 });
@@ -467,7 +465,7 @@ describe("mounted Chat Runtime owner", () => {
     await owner.dispose();
   });
 
-  it("ignores delayed failures from an invalidated observation after reconnect", async () => {
+  it("ignores delayed diagnostics from a failed observation after explicit Retry", async () => {
     const logging = deferred<undefined>();
     const fixture = runtimeApi({
       reads: [
@@ -498,19 +496,19 @@ describe("mounted Chat Runtime owner", () => {
       payload: hydration().SessionStatus,
     });
 
-    expect(owner.snapshot.observation.kind).toBe("recovering");
+    expect(owner.snapshot.observation.kind).toBe("error");
     expect(logger.append).toHaveBeenCalledOnce();
-    expect(fixture.handlers).toHaveLength(2);
+    expect(fixture.handlers).toHaveLength(1);
     await vi.waitFor(() => {
-      expect(fixture.getMainView).toHaveBeenCalledTimes(2);
+      expect(fixture.getMainView).toHaveBeenCalledTimes(1);
     });
 
-    owner.controlReconnected();
+    owner.retryTranscriptObservation();
     await vi.waitFor(() => {
-      expect(fixture.handlers).toHaveLength(3);
-      expect(fixture.getMainView).toHaveBeenCalledTimes(3);
+      expect(fixture.handlers).toHaveLength(2);
+      expect(fixture.getMainView).toHaveBeenCalledTimes(1);
     });
-    const replacement = requireValue(fixture.handlers[2]);
+    const replacement = requireValue(fixture.handlers[1]);
     replacement.onOpen?.();
     replacement.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
     expect(owner.snapshot.observation.kind).toBe("observing");
@@ -520,7 +518,7 @@ describe("mounted Chat Runtime owner", () => {
     await Promise.resolve();
 
     expect(owner.snapshot.observation.kind).toBe("observing");
-    expect(fixture.handlers).toHaveLength(3);
+    expect(fixture.handlers).toHaveLength(2);
     await owner.dispose();
   });
 
@@ -544,7 +542,7 @@ describe("mounted Chat Runtime owner", () => {
         expect(logger.append).toHaveBeenCalledOnce();
       });
 
-      expect(owner.snapshot.observation.kind).toBe("recovering");
+      expect(owner.snapshot.observation.kind).toBe("error");
       expect(fixture.handlers).toHaveLength(1);
       expect(fixture.getMainView).toHaveBeenCalledOnce();
     } finally {
@@ -553,7 +551,7 @@ describe("mounted Chat Runtime owner", () => {
     }
   });
 
-  it("keeps rejected hydration outside projection state and the replacement success budget", async () => {
+  it("keeps rejected hydration outside projection state across explicit attempts", async () => {
     const fixture = runtimeApi({
       reads: [Promise.resolve(mainViewRead()), Promise.resolve(mainViewRead(2))],
       pages: [
@@ -580,6 +578,9 @@ describe("mounted Chat Runtime owner", () => {
       kind: "hydration",
       payload: incompatibleHydration("rejected-initial", "incompatible initial"),
     });
+    expect(owner.snapshot.observation.kind).toBe("error");
+    expect(fixture.handlers).toHaveLength(1);
+    owner.retryTranscriptObservation();
     await vi.waitFor(() => {
       expect(fixture.handlers).toHaveLength(2);
     });
@@ -607,7 +608,7 @@ describe("mounted Chat Runtime owner", () => {
     await owner.dispose();
   });
 
-  it("silently discards provisional transcript state on socket loss without invalidating page work", async () => {
+  it("reports socket loss and discards provisional transcript state without invalidating page work", async () => {
     const olderPage = deferred<ChatTranscriptPage>();
     const fixture = runtimeApi({
       reads: [Promise.resolve(mainViewRead())],
@@ -663,7 +664,7 @@ describe("mounted Chat Runtime owner", () => {
 
     expect(owner.snapshot.transcript.items.every((item) => "row" in item)).toBe(true);
     expect(owner.snapshot.transcript.older).toEqual({ kind: "loading", cursor: 17 });
-    expect(owner.snapshot.observation.kind).toBe("observing");
+    expect(owner.snapshot.observation.kind).toBe("error");
     expect(fixture.handlers).toHaveLength(1);
     expect(fixture.getMainView).toHaveBeenCalledOnce();
 

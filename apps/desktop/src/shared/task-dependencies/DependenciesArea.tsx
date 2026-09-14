@@ -17,9 +17,8 @@ import { requiredTaskDependencyDirection } from "./dependencyCache";
 
 export function DependenciesArea({
   dependencies,
-  disabled,
   excludedTaskIDs,
-  navigationDisabled,
+  navigationDisabled = false,
   onAdd,
   onRemove,
   onSelectCandidate,
@@ -28,9 +27,8 @@ export function DependenciesArea({
   projectID,
 }: Readonly<{
   dependencies: TaskDependencies;
-  disabled: boolean;
   excludedTaskIDs(direction: TaskDependencyDirection): ReadonlySet<string>;
-  navigationDisabled: boolean;
+  navigationDisabled?: boolean;
   onAdd(direction: TaskDependencyDirection): void;
   onRemove(direction: TaskDependencyDirection, item: TaskDependencyItem): void;
   onSelectCandidate(direction: TaskDependencyDirection, result: TaskSearchResult): Promise<unknown>;
@@ -57,7 +55,6 @@ export function DependenciesArea({
       </header>
       <DependencyDirection
         direction={blockedBy}
-        disabled={disabled}
         excludedTaskIDs={excludedTaskIDs("blocked-by")}
         navigationDisabled={navigationDisabled}
         onAdd={onAdd}
@@ -69,7 +66,6 @@ export function DependenciesArea({
       <div className="h-px bg-[var(--color-outline)]" />
       <DependencyDirection
         direction={blocks}
-        disabled={disabled}
         excludedTaskIDs={excludedTaskIDs("blocks")}
         navigationDisabled={navigationDisabled}
         onAdd={onAdd}
@@ -84,7 +80,6 @@ export function DependenciesArea({
 
 function DependencyDirection({
   direction,
-  disabled,
   excludedTaskIDs,
   navigationDisabled,
   onAdd,
@@ -94,7 +89,6 @@ function DependencyDirection({
   projectID,
 }: Readonly<{
   direction: TaskDependencyDirectionProjection;
-  disabled: boolean;
   excludedTaskIDs: ReadonlySet<string>;
   navigationDisabled: boolean;
   onAdd(direction: TaskDependencyDirection): void;
@@ -152,7 +146,6 @@ function DependencyDirection({
         {direction.items.map((item) => (
           <DependencyRow
             direction={direction.direction}
-            disabled={disabled}
             item={item}
             key={item.taskID}
             navigationDisabled={navigationDisabled}
@@ -167,14 +160,12 @@ function DependencyDirection({
 
 function DependencyRow({
   direction,
-  disabled,
   item,
   navigationDisabled,
   onRemove,
   onSelectTask,
 }: Readonly<{
   direction: TaskDependencyDirection;
-  disabled: boolean;
   item: TaskDependencyItem;
   navigationDisabled: boolean;
   onRemove(direction: TaskDependencyDirection, item: TaskDependencyItem): void;
@@ -188,7 +179,6 @@ function DependencyRow({
           aria-label={t("task.dependenciesRemove")}
           className="grid size-7 place-items-center rounded-[var(--radius-s)] border-0 bg-transparent text-[var(--color-error)] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-error)_35%,transparent)] disabled:cursor-not-allowed disabled:opacity-45"
           data-testid={`dependency-remove-${item.taskID}`}
-          disabled={disabled}
           onClick={() => {
             onRemove(direction, item);
           }}

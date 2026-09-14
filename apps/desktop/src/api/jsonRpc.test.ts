@@ -16,7 +16,7 @@ import {
 import { z } from "zod";
 import { createChatApi } from "./chat";
 import type { ChatTranscriptCompletion } from "./chatTypes";
-import { ContractError } from "./errors";
+import { ContractError, TransportError } from "./errors";
 import { StreamService, MessageSchema } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
@@ -409,11 +409,12 @@ describe("JsonRpcWebSocketTransport", () => {
     subscription.close();
   });
 
-  it("reopens subscription socket after unexpected close", async () => {
-    const errors: string[] = [];
+  it("ends a lost subscription and permits a fresh explicit subscription", async () => {
+    vi.useFakeTimers();
+    const errors: Error[] = [];
     const { subscription, socket: firstSocket } = subscribeProject({
       onError(error) {
-        errors.push(error.message);
+        errors.push(error);
       },
     });
     await firstSocket.setup();
@@ -421,15 +422,17 @@ describe("JsonRpcWebSocketTransport", () => {
     await flushPromises();
 
     firstSocket.close();
-    await vi.waitFor(() => {
-      expect(sockets.length).toBeGreaterThanOrEqual(2);
-    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sockets).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(TransportError);
+    const next = subscribeProject({});
     const secondSocket = sockets[1] ?? failTest("resubscription socket missing");
     await secondSocket.setup();
 
     expect(frame(secondSocket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
-    expect(errors).toEqual(["Subscription socket closed."]);
     subscription.close();
+    next.subscription.close();
   });
 
   it("stops subscription retry after a definitive RPC rejection", async () => {
@@ -453,7 +456,8 @@ describe("JsonRpcWebSocketTransport", () => {
     subscription.close();
   });
 
-  it("reopens subscription socket after server complete notification", async () => {
+  it("ends a subscription after unsuccessful completion without reopening", async () => {
+    vi.useFakeTimers();
     const completions: number[] = [];
     const errors: Error[] = [];
     const { subscription, socket: firstSocket } = subscribeProject({
@@ -476,13 +480,8 @@ describe("JsonRpcWebSocketTransport", () => {
       }),
     );
 
-    await vi.waitFor(() => {
-      expect(sockets.length).toBeGreaterThanOrEqual(2);
-    });
-    const secondSocket = sockets[1] ?? failTest("resubscription socket missing");
-    await secondSocket.setup();
-
-    expect(frame(secondSocket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sockets).toHaveLength(1);
     expect(completions).toEqual([409]);
     expect(errors).toHaveLength(1);
     subscription.close();
@@ -630,22 +629,23 @@ describe("JsonRpcWebSocketTransport", () => {
     subscription.close();
   });
 
-  it("reconnects transcript transport loss and failed completion, but ends on successful completion", async () => {
+  it("ends each transcript attempt on loss or completion and permits explicit observation", async () => {
     vi.useFakeTimers();
     const sessionID = "123e4567-e89b-42d3-a456-426614174000";
     const onComplete = vi.fn<(completion: ChatTranscriptCompletion) => void>();
     const onTransportLoss = vi.fn();
     const onError = vi.fn();
-    const subscription = createChatApi(
-      createJsonRpcTransport("ws://127.0.0.1:53082/rpc"),
-    ).subscribeTranscript(
-      {
-        projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
-        sessionID,
-      },
-      { onEvent: vi.fn(), onComplete, onTransportLoss, onError },
-    );
+    const api = createChatApi(createJsonRpcTransport("ws://127.0.0.1:53082/rpc"));
+    const observe = () =>
+      api.subscribeTranscript(
+        {
+          projectID: "project-1",
+          workspace: { workspaceID: "workspace-1" },
+          sessionID,
+        },
+        { onEvent: vi.fn(), onComplete, onTransportLoss, onError },
+      );
+    const subscription = observe();
     let socket = sockets[0] ?? failTest("Transcript socket missing.");
     await prepareTranscriptSocket(socket, sessionID);
     binaryAck(socket, 2, StreamService.method.subscribe, {
@@ -654,6 +654,8 @@ describe("JsonRpcWebSocketTransport", () => {
     socket.close();
     await vi.advanceTimersByTimeAsync(1_000);
     expect(onTransportLoss).toHaveBeenCalledOnce();
+    expect(sockets).toHaveLength(1);
+    const second = observe();
     socket = sockets[1] ?? failTest("Reconnected transcript socket missing.");
     await prepareTranscriptSocket(socket, sessionID);
     binaryAck(socket, 2, StreamService.method.subscribe, {
@@ -672,6 +674,8 @@ describe("JsonRpcWebSocketTransport", () => {
     );
     await vi.advanceTimersByTimeAsync(2_000);
     expect(onTransportLoss).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(2);
+    const third = observe();
     socket = sockets[2] ?? failTest("Resubscribed transcript socket missing.");
     await prepareTranscriptSocket(socket, sessionID);
     binaryAck(socket, 2, StreamService.method.subscribe, {
@@ -687,6 +691,8 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(sockets).toHaveLength(3);
     subscription.close();
+    second.close();
+    third.close();
   });
 });
 

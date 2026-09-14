@@ -41,7 +41,6 @@ describe("Task Detail prompt primary controls", () => {
           <QuestionFormView
             answerQuestion={{ isPending: false, mutateAsync: async () => undefined }}
             attention={attention}
-            disabled={false}
             onSelectionStateChange={() => undefined}
             presentation={questionPresentation(attention)}
             registerPrimaryControl={(next) => {

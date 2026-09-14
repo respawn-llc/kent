@@ -35,7 +35,6 @@ vi.mock("@/app-facade", async (importOriginal) => ({
       validateWorkflow: async () => ({ errors: [], valid: true }),
     },
   }),
-  useConnectionSnapshot: () => ({ generation: 1, phase: "connected" }),
   useStatusController: () => ({ push: fixture.push }),
 }));
 

@@ -49,7 +49,6 @@ export type TranscriptWindowInput =
   // The external request owner has already admitted this bounded tail.
   | Readonly<{ kind: "replace-window"; page: ChatTranscriptPage }>
   | Readonly<{ kind: "observation-loss" }>
-  | Readonly<{ kind: "recovery-begin" }>
   | Readonly<{ kind: "opening-retry" }>
   | Readonly<{ kind: "retry"; direction: TranscriptDirection }>
   | Readonly<{ kind: "dispose" }>;

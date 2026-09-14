@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useReducer, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMatch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,7 @@ import type {
   AttentionNotification,
   AttentionNotificationID,
   AttentionNotificationTarget,
+  AttentionNotificationEventHandler,
 } from "@/api";
 import { errorMessage } from "@/api";
 import {
@@ -21,13 +22,11 @@ import {
   notificationTitle,
   openNativeActivation,
   readCurrentPendingSurface,
-  reconcileActiveSurfaces,
   removeActiveNotification,
   taskDetailInitialFocus,
   type SurfaceRecord,
 } from "./attentionNotificationSurfaces";
 import { useAppServices } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { queryKeys } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
@@ -46,7 +45,10 @@ export function AttentionController() {
 function OwnedAttentionController() {
   const { api, logger } = useAppServices();
   const queryClient = useQueryClient();
-  const { handlePending, handleResolved, reconcileSurfacedNotifications } = useAttentionSurfacePresenter();
+  const { handlePending, handleResolved } = useAttentionSurfacePresenter();
+  const { t } = useTranslation();
+  const { push, dismiss } = useStatusController();
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
 
   const refreshAttentionProjection = useCallback((): void => {
     void queryClient.invalidateQueries({
@@ -55,53 +57,55 @@ function OwnedAttentionController() {
     });
   }, [queryClient]);
 
+  const handlers = useEffectEvent(() => ({
+    onEvent(event: Parameters<AttentionNotificationEventHandler["onEvent"]>[0]) {
+      refreshAttentionProjection();
+      if (event.type === "pending") {
+        void handlePending(event.pending);
+        return;
+      }
+      handleResolved(event.id);
+    },
+    onError(error: Error) {
+      void logger.append("warn", "Attention notification stream failed.", {
+        error: errorMessage(error),
+      });
+      push({
+        id: "attention-listener-error",
+        tone: "danger",
+        title: t("app.attention.listenerFailed"),
+        body: errorMessage(error),
+        actionLabel: t("app.retry"),
+        onAction: retry,
+      });
+    },
+  }));
   useEffect(() => {
+    dismiss("attention-listener-error");
     let subscription: ApiSubscription | null = api.subscribeAttentionNotifications({
-      onOpen() {
-        refreshAttentionProjection();
+      onEvent: (event) => {
+        handlers().onEvent(event);
       },
-      onEvent(event) {
-        refreshAttentionProjection();
-        if (event.type === "pending") {
-          void handlePending(event.pending);
-          return;
-        }
-        handleResolved(event.id);
+      onComplete: (code) => {
+        if (code === 0) subscription = null;
       },
-      onComplete(code) {
-        if (code === 0) {
-          subscription = null;
-        }
-      },
-      onError(error) {
-        refreshAttentionProjection();
-        void logger.append("warn", "Attention notification stream failed.", {
-          error: errorMessage(error),
-        });
-        reconcileSurfacedNotifications();
+      onError: (error) => {
+        handlers().onError(error);
       },
     });
     return () => {
       subscription?.close();
     };
-  }, [
-    api,
-    handlePending,
-    handleResolved,
-    logger,
-    reconcileSurfacedNotifications,
-    refreshAttentionProjection,
-  ]);
+  }, [api, attempt, dismiss]);
 
   return null;
 }
 
 function useAttentionSurfacePresenter() {
   const { t } = useTranslation();
-  const { api, logger, nativeBridge: bridge } = useAppServices();
+  const { logger, nativeBridge: bridge } = useAppServices();
   const { open } = useOwnedSidebarRoots();
   const status = useStatusController();
-  const connection = useConnectionSnapshot();
   const windowFocused = useWindowFocus();
   const { openSessionChat } = useAppNavigation();
   const presence = useChatPromptPresence();
@@ -116,7 +120,6 @@ function useAttentionSurfacePresenter() {
       : null;
   const pickerRef = useRef(pickerTarget);
   const focusedRef = useRef<boolean | null>(windowFocused);
-  const reconciledGenerationRef = useRef(connection.generation);
   const surfacedRef = useRef(new Map<string, SurfaceRecord>());
 
   const suppressFocusedPicker = useCallback(
@@ -305,19 +308,6 @@ function useAttentionSurfacePresenter() {
     [bridge.notifications, logger, status],
   );
 
-  const reconcileSurfacedNotifications = useCallback((): void => {
-    const records = [...surfacedRef.current.entries()];
-    if (records.length === 0) {
-      return;
-    }
-    void reconcileActiveSurfaces(records, api, logger).then((staleIDs) => {
-      for (const id of staleIDs) {
-        dismissSurface(surfacedRef.current, status, id);
-        removeActiveNotification(bridge.notifications, logger, id);
-      }
-    });
-  }, [api, bridge.notifications, logger, status]);
-
   useEffect(() => {
     if (!bridge.capabilities.notifications.basic) {
       return;
@@ -350,14 +340,6 @@ function useAttentionSurfacePresenter() {
   }, [bridge.capabilities.notifications.basic, bridge.notifications, logger]);
 
   useEffect(() => {
-    if (connection.phase !== "connected" || connection.generation === reconciledGenerationRef.current) {
-      return;
-    }
-    reconciledGenerationRef.current = connection.generation;
-    reconcileSurfacedNotifications();
-  }, [connection.generation, connection.phase, reconcileSurfacedNotifications]);
-
-  useEffect(() => {
     let unlisten: (() => void) | null = null;
     let active = true;
     void bridge.notifications
@@ -382,5 +364,5 @@ function useAttentionSurfacePresenter() {
     };
   }, [bridge.notifications, logger, openTarget]);
 
-  return { handlePending, handleResolved, reconcileSurfacedNotifications };
+  return { handlePending, handleResolved };
 }

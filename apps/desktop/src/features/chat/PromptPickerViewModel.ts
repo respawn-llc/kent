@@ -3,7 +3,7 @@ import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import type { ApiConnectionSource, ChatApi, ChatSessionTarget, PromptAnswerBatchInput } from "@/api";
+import type { ChatApi, PromptAnswerBatchInput } from "@/api";
 import { queryAtom, type ChatRuntimeOwner } from "@/app-facade";
 import {
   emptyPickerState,
@@ -17,16 +17,12 @@ import { pickerAnswer } from "./pickerAnswer";
 export function createPromptPickerViewModel({
   owner,
   client,
-  target,
   api,
-  connection,
   onError,
 }: Readonly<{
   owner: ChatRuntimeOwner;
   client: QueryClient;
-  target: ChatSessionTarget;
-  api: Pick<ChatApi, "answerPromptBatch" | "listPendingPrompts">;
-  connection: ApiConnectionSource;
+  api: Pick<ChatApi, "answerPromptBatch">;
   onError(error: unknown): void;
 }>) {
   const runtime = Atom.make((get) => {
@@ -37,18 +33,10 @@ export function createPromptPickerViewModel({
     );
     return owner.snapshot;
   });
-  const connected = Atom.make((get) => {
-    get.addFinalizer(
-      connection.subscribe(() => {
-        get.setSelf(connection.snapshot().phase === "connected");
-      }),
-    );
-    return connection.snapshot().phase === "connected";
-  });
   const state = Atom.writable(
     (get): PickerState => {
       const snapshot = get(runtime);
-      if (!get(connected) || snapshot.disposed) return emptyPickerState();
+      if (snapshot.disposed) return emptyPickerState();
       return transitionPicker(
         Option.getOrElse(get.self<PickerState>(), emptyPickerState),
         snapshot.pendingPrompts,
@@ -84,22 +72,13 @@ export function createPromptPickerViewModel({
         ),
       );
     },
-    onError: async (error, request) => {
-      onError(error);
-      try {
-        const prompts = await api.listPendingPrompts(target);
-        if (!owner.snapshot.disposed && owner.snapshot.pendingPrompts[0]?.stepID === request.stepID)
-          owner.replacePendingPrompts(prompts);
-      } catch (refreshError) {
-        onError(refreshError);
-      }
-    },
+    onError,
   });
   const request = queryAtom(observer);
   const dispatch = Atom.fn<{ action: PickerAction; focusField?: () => void }>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (owner.snapshot.disposed || connection.snapshot().phase !== "connected") return;
+        if (owner.snapshot.disposed) return;
         if (
           observer.getCurrentResult().isPending &&
           input.action.kind !== "navigate" &&

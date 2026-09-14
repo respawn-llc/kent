@@ -130,7 +130,7 @@ it("replaces Open in CLI with Open Chat for every live Session", async () => {
   ]);
 });
 
-it("disables Start while its request is pending and while disconnected", async () => {
+it("disables Start while pending but permits it after an independent observation fails", async () => {
   let resolveStart: ((value: unknown) => void) | undefined;
   const services = mountTaskDetailSurface(
     taskWithActions({
@@ -171,9 +171,9 @@ it("disables Start while its request is pending and while disconnected", async (
   });
 
   act(() => {
-    services.transport.connection.set("disconnected", "offline");
+    services.transport.fail("workflow.subscribeProject", new Error("offline"));
   });
   await waitFor(() => {
-    expect(start).toBeDisabled();
+    expect(start).toBeEnabled();
   });
 });

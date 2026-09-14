@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 
@@ -33,7 +33,6 @@ const navigation = {
 };
 const connected = {
   ...navigation,
-  serverMutationAvailability: "available",
   authoritativeRefreshGeneration: Symbol("initial"),
 } as const;
 const settings: ChatSettings = {
@@ -112,26 +111,23 @@ function typedSettingsFailure() {
   );
 }
 
-function SessionSettingsChipHost({
-  availability = "available",
-}: Readonly<{ availability?: "available" | "disconnected" }>) {
+function SessionSettingsChipHost() {
   const feature = useChatSettings({
     ...connected,
     target,
-    serverMutationAvailability: availability,
     onContextChange: () => undefined,
   });
   return feature.kind === "ready-session" ? feature.settingsChip : null;
 }
 
-it("activates nested Settings controls once and suppresses disconnected Session activations", async () => {
+it("activates nested Settings controls once", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockResolvedValue(response());
   const user = userEvent.setup();
-  const view = render(
+  render(
     <TestAppProviders services={services}>
-      <SessionSettingsChipHost availability="available" />
+      <SessionSettingsChipHost />
     </TestAppProviders>,
   );
   await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
@@ -154,19 +150,6 @@ it("activates nested Settings controls once and suppresses disconnected Session 
   await user.click(within(popover).getByRole("button", { name: appI18n.t("chatSettings.commitThinking") }));
   expect(mutate).toHaveBeenCalledExactlyOnceWith(target, { kind: "thinking", value: "custom value" });
   mutate.mockClear();
-  view.rerender(
-    <TestAppProviders services={services}>
-      <SessionSettingsChipHost availability="disconnected" />
-    </TestAppProviders>,
-  );
-  for (const control of [
-    ...within(popover).getAllByRole("switch"),
-    ...within(popover).getAllByRole("radio"),
-    within(popover).getByRole("button", { name: appI18n.t("chatSettings.commitThinking") }),
-  ]) {
-    fireEvent.click(control);
-  }
-  expect(mutate).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -291,8 +274,7 @@ it("surfaces typed Chat operation diagnostics for an ordinary mutation failure",
     expect(result.current.kind).toBe("ready-session");
   });
   await act(async () => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     await result.current.activate({ kind: "questions", enabled: false }).catch(() => undefined);
   });
   const body = notice.mock.lastCall?.[0].body;
@@ -343,8 +325,7 @@ it("applies overlapping successes in delivery order and reports each mutation Co
     expect(result.current.kind).toBe("ready-session");
   });
   act(() => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     void result.current.activate({ kind: "questions", enabled: false });
     void result.current.activate({ kind: "fast", enabled: true });
   });
@@ -392,8 +373,7 @@ it("applies a late typed rejection as complete authoritative state and reports i
     expect(result.current.kind).toBe("ready-session");
   });
   act(() => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     void result.current.activate({ kind: "thinking", value: "unsupported request" });
     void result.current.activate({ kind: "questions", enabled: false });
   });
@@ -440,11 +420,7 @@ it.each(["applied", "rejected"] as const)(
       expect(result.current.kind).toBe("ready-session");
     });
     act(() => {
-      if (
-        result.current.kind !== "ready-session" ||
-        result.current.serverMutationAvailability !== "available"
-      )
-        throw new Error("Expected available Session.");
+      if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
       void result.current.activate({ kind: "thinking", value: "will fail" }).catch(() => undefined);
       void result.current.activate({ kind: "questions", enabled: false });
     });
@@ -460,11 +436,7 @@ it.each(["applied", "rejected"] as const)(
       await second.promise;
     });
     act(() => {
-      if (
-        result.current.kind !== "ready-session" ||
-        result.current.serverMutationAvailability !== "available"
-      )
-        throw new Error("Expected available Session.");
+      if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
       void result.current.activate({ kind: "questions", enabled: false });
     });
     expect(result.current).toMatchObject({ settings: { questions: { enabled: false } } });
@@ -509,8 +481,7 @@ it("drops old Session completions after target replacement and installs the newl
     expect(result.current.kind).toBe("ready-session");
   });
   act(() => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     void result.current.activate({ kind: "questions", enabled: false });
   });
   rerender({ ...connected, target: { ...target, sessionID: newSessionID }, onContextChange });
@@ -662,8 +633,7 @@ it("preserves exact custom Thinking input and returns distinct completions for t
     expect(result.current.kind).toBe("ready-session");
   });
   const activate = async (value: string) => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     return result.current.activate({ kind: "thinking", value });
   };
   let completion: Promise<ChatSettingsMutationResponse>;
@@ -712,57 +682,7 @@ it("preserves exact custom Thinking input and returns distinct completions for t
   notice.mockRestore();
 });
 
-it("exposes no Session activation while the host reports disconnected", async () => {
-  const services = createTestServices([]);
-  const getSettings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
-  const mutate = vi.spyOn(services.api.chat, "mutateSettings");
-  const generation = Symbol("initial");
-  const { result, rerender } = renderHook<ChatSettingsFeature, ChatSettingsOptions>(
-    (options) => useChatSettings(options),
-    {
-      initialProps: {
-        target,
-        onContextChange: vi.fn(),
-        serverMutationAvailability: "available",
-        ...navigation,
-        authoritativeRefreshGeneration: generation,
-      },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
-    },
-  );
-  await waitFor(() => {
-    expect(result.current.kind).toBe("ready-session");
-  });
-  rerender({
-    target,
-    onContextChange: vi.fn(),
-    serverMutationAvailability: "disconnected",
-    ...navigation,
-    authoritativeRefreshGeneration: generation,
-  });
-  expect(result.current).toMatchObject({
-    kind: "ready-session",
-    settings,
-    session: initialRead.session,
-    serverMutationAvailability: "disconnected",
-  });
-  expect(result.current).not.toHaveProperty("activate");
-  expect(getSettings).toHaveBeenCalledOnce();
-  expect(mutate).not.toHaveBeenCalled();
-  rerender({
-    target,
-    onContextChange: vi.fn(),
-    serverMutationAvailability: "available",
-    ...navigation,
-    authoritativeRefreshGeneration: generation,
-  });
-  expect(result.current).toMatchObject({ kind: "ready-session", serverMutationAvailability: "available" });
-  expect(getSettings).toHaveBeenCalledOnce();
-});
-
-it("starts one refresh per changed host generation and re-enables mutations before refresh delivery", async () => {
+it("starts one read per changed host input and keeps mutations available during delivery", async () => {
   const services = createTestServices([]);
   const refresh = deferred<ChatSettingsRead>();
   const getSettings = vi
@@ -778,7 +698,6 @@ it("starts one refresh per changed host generation and re-enables mutations befo
       initialProps: {
         target,
         onContextChange: vi.fn(),
-        serverMutationAvailability: "disconnected",
         ...navigation,
         authoritativeRefreshGeneration: initialGeneration,
       },
@@ -793,7 +712,6 @@ it("starts one refresh per changed host generation and re-enables mutations befo
   const available: ChatSettingsOptions = {
     target,
     onContextChange: vi.fn(),
-    serverMutationAvailability: "available",
     ...navigation,
     authoritativeRefreshGeneration: nextGeneration,
   };
@@ -802,13 +720,11 @@ it("starts one refresh per changed host generation and re-enables mutations befo
   expect(result.current).toMatchObject({
     kind: "ready-session",
     settings,
-    serverMutationAvailability: "available",
   });
   rerender({ ...available, onContextChange: vi.fn() });
   expect(getSettings).toHaveBeenCalledTimes(2);
   await act(async () => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     await result.current.activate({ kind: "questions", enabled: false });
   });
   expect(mutate).toHaveBeenCalledOnce();
@@ -848,8 +764,7 @@ it("preserves whichever authoritative projection is current when a refresh fails
     authoritativeRefreshGeneration: Symbol("next"),
   });
   act(() => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     void result.current.activate({ kind: "questions", enabled: false });
   });
   const delivered = response({ ...settings, questions: { ...settings.questions, enabled: false } });
@@ -895,11 +810,7 @@ it.each(["refresh-first", "mutation-first"] as const)(
     });
     rerender({ ...connected, target, onContextChange, authoritativeRefreshGeneration: Symbol("next") });
     act(() => {
-      if (
-        result.current.kind !== "ready-session" ||
-        result.current.serverMutationAvailability !== "available"
-      )
-        throw new Error("Expected available Session.");
+      if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
       void result.current.activate({ kind: "questions", enabled: false });
     });
     const refreshValue: ChatSettingsRead = {
@@ -960,8 +871,7 @@ it("discards old reads and mutations through A to B to A target replacement", as
   const generation = Symbol("refresh");
   rerender({ ...connected, target, onContextChange, authoritativeRefreshGeneration: generation });
   act(() => {
-    if (result.current.kind !== "ready-session" || result.current.serverMutationAvailability !== "available")
-      throw new Error("Expected available Session.");
+    if (result.current.kind !== "ready-session") throw new Error("Expected available Session.");
     void result.current.activate({ kind: "questions", enabled: false });
   });
   rerender({

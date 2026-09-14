@@ -4,7 +4,7 @@ import type { QuestionSelectionState } from "./TaskDetailQuestionState";
 
 export type PromptAnswerFailure = Readonly<{
   cause: unknown;
-  kind: "delivery" | "reconciliation";
+  kind: "delivery" | "refresh";
   promptKey: ReturnType<typeof promptAnswerKey>;
   taskID: string;
   taskShortID: string;
@@ -15,7 +15,7 @@ type PromptAnswerCoordinatorDependencies = Readonly<{
   invalidateAttention(): Promise<void>;
   isMounted(): boolean;
   notifyFailure(failure: PromptAnswerFailure): void;
-  readAttention(): Promise<readonly QuestionAttentionItem[]>;
+  currentAttention(): readonly QuestionAttentionItem[] | undefined;
   task: Readonly<{ id: string; shortID: string; title: string }>;
   updateState(update: (state: PromptAnswerState) => PromptAnswerState): void;
 }>;
@@ -37,37 +37,27 @@ export class PromptAnswerCoordinator {
       state.withSelection(key, selection).beginSubmission(key, attention),
     );
 
-    let deliveryFailed = false;
-    let deliveryFailure: unknown;
     try {
       await send();
     } catch (error: unknown) {
-      deliveryFailed = true;
-      deliveryFailure = error;
+      if (this.dependencies.isMounted()) {
+        const latest = this.dependencies.currentAttention();
+        const resolved =
+          latest !== undefined && !latest.some((item) => samePromptAnswerKey(promptAnswerKey(item), key));
+        this.dependencies.updateState((state) =>
+          resolved ? state.discardSubmission(key) : state.restoreSubmission(key),
+        );
+      }
+      this.notify("delivery", error, key);
+      return;
     }
-
+    if (this.dependencies.isMounted()) {
+      this.dependencies.updateState((state) => state.discardSubmission(key));
+    }
     try {
       await this.dependencies.invalidateAttention();
-      const freshAttention = await this.dependencies.readAttention();
-      if (!this.dependencies.isMounted()) {
-        if (deliveryFailed) {
-          this.notify("delivery", deliveryFailure, key);
-        }
-        return;
-      }
-      if (freshAttention.some((item) => samePromptAnswerKey(promptAnswerKey(item), key))) {
-        this.dependencies.updateState((state) => state.restoreSubmission(key));
-        if (deliveryFailed) {
-          this.notify("delivery", deliveryFailure, key);
-        }
-        return;
-      }
-      this.dependencies.updateState((state) => state.discardSubmission(key));
     } catch (error: unknown) {
-      if (this.dependencies.isMounted()) {
-        this.dependencies.updateState((state) => state.restoreSubmission(key));
-      }
-      this.notify("reconciliation", error, key);
+      this.notify("refresh", error, key);
     }
   }
 

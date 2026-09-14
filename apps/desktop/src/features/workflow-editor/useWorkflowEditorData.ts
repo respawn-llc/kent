@@ -1,11 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useEffectEvent, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { type WorkflowProjectEvent } from "@/api";
+import { errorMessage, type WorkflowProjectEvent } from "@/api";
 import { queryKeys } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 
 export type WorkflowEditorData = ReturnType<typeof useWorkflowEditorData>;
@@ -13,7 +12,6 @@ export type WorkflowEditorData = ReturnType<typeof useWorkflowEditorData>;
 export function useWorkflowEditorData(rawProjectID: string, workflowID: string) {
   const { t } = useTranslation();
   const { api } = useAppServices();
-  const connection = useConnectionSnapshot();
   const queryClient = useQueryClient();
   const { push } = useStatusController();
   // A blank or whitespace-only project id is not a real project context (e.g. the
@@ -42,72 +40,32 @@ export function useWorkflowEditorData(rawProjectID: string, workflowID: string) 
     enabled: linked,
   });
 
-  useEffect(() => {
-    if (workflowID.length === 0 || connection.phase !== "connected") {
-      return;
-    }
-    async function refresh(notify: boolean): Promise<void> {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkflowLinks(projectID) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.boardWorkflowRoot(projectID, workflowID) }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.boardNodeCardsWorkflowRoot(projectID, workflowID),
-        }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.workflowDefinition(workflowID) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.workflowValidation(workflowID, "execution") }),
-      ]);
-      if (notify) {
-        push({
-          id: "workflow-editor-updated",
-          tone: "neutral",
-          title: t("workflowEditor.updated"),
-        });
-      }
-    }
-    const subscriptions = [
-      api.subscribeWorkflow(workflowID, {
-        onOpen() {
-          void refresh(false);
-        },
-        onEvent(event) {
-          if (shouldRefreshWorkflowDefinition(event, workflowID)) {
-            void refresh(shouldNotifyWorkflowEditorRefresh(event, projectID, workflowID));
-          }
-        },
-        onComplete() {
-          return;
-        },
-        onError() {
-          void refresh(false);
-        },
+  async function refresh(notify: boolean): Promise<void> {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkflowLinks(projectID) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.boardWorkflowRoot(projectID, workflowID) }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.boardNodeCardsWorkflowRoot(projectID, workflowID),
       }),
-    ];
-    if (projectID.length > 0) {
-      subscriptions.push(
-        api.subscribeProject(projectID, {
-          onOpen() {
-            void refresh(false);
-          },
-          onEvent(event) {
-            if (shouldRefreshWorkflowLink(event, projectID, workflowID)) {
-              void refresh(shouldNotifyWorkflowEditorRefresh(event, projectID, workflowID));
-            }
-          },
-          onComplete() {
-            return;
-          },
-          onError() {
-            void refresh(false);
-          },
-        }),
-      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowDefinition(workflowID) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowValidation(workflowID, "execution") }),
+    ]);
+    if (notify) {
+      push({
+        id: "workflow-editor-updated",
+        tone: "neutral",
+        title: t("workflowEditor.updated"),
+      });
     }
-    return () => {
-      for (const subscription of subscriptions) {
-        subscription.close();
-      }
-    };
-  }, [api, connection.generation, connection.phase, projectID, push, queryClient, t, workflowID]);
+  }
+  const workflowObservation = useWorkflowEditorSubscription("workflow", workflowID, refresh, {
+    affectsEditor: (event) => shouldRefreshWorkflowDefinition(event, workflowID),
+    shouldNotify: (event) => shouldNotifyWorkflowEditorRefresh(event, projectID, workflowID),
+  });
+  const projectObservation = useWorkflowEditorSubscription("project", projectID, refresh, {
+    affectsEditor: (event) => shouldRefreshWorkflowLink(event, projectID, workflowID),
+    shouldNotify: (event) => shouldNotifyWorkflowEditorRefresh(event, projectID, workflowID),
+  });
 
   return {
     activeLink,
@@ -116,6 +74,60 @@ export function useWorkflowEditorData(rawProjectID: string, workflowID: string) 
     projectContext,
     validationQuery,
     workflowQuery,
+    workflowObservation,
+    projectObservation,
+  };
+}
+
+function useWorkflowEditorSubscription(
+  scope: "workflow" | "project",
+  id: string,
+  refresh: (notify: boolean) => Promise<void>,
+  {
+    affectsEditor,
+    shouldNotify,
+  }: Readonly<{
+    affectsEditor(event: WorkflowProjectEvent): boolean;
+    shouldNotify(event: WorkflowProjectEvent): boolean;
+  }>,
+) {
+  const { api } = useAppServices();
+  const [failure, setFailure] = useState<Readonly<{ id: string; error: Error }> | null>(null);
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
+  const refreshOrFail = useEffectEvent((notify: boolean) => {
+    void refresh(notify).catch((cause: unknown) => {
+      setFailure({ id, error: cause instanceof Error ? cause : new Error(errorMessage(cause)) });
+    });
+  });
+  const onEvent = useEffectEvent((event: WorkflowProjectEvent) => {
+    if (affectsEditor(event)) refreshOrFail(shouldNotify(event));
+  });
+  useEffect(() => {
+    if (id.length === 0) return;
+    const handler = {
+      onOpen: () => {
+        refreshOrFail(false);
+      },
+      onEvent: (event: WorkflowProjectEvent) => {
+        onEvent(event);
+      },
+      onComplete: () => undefined,
+      onError: (error: Error) => {
+        setFailure({ id, error });
+      },
+    };
+    const subscription =
+      scope === "workflow" ? api.subscribeWorkflow(id, handler) : api.subscribeProject(id, handler);
+    return () => {
+      subscription.close();
+    };
+  }, [api, attempt, id, scope]);
+  return {
+    error: failure?.id === id ? failure.error : null,
+    retry: () => {
+      setFailure(null);
+      retry();
+    },
   };
 }
 

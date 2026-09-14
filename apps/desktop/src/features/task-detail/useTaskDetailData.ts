@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import type { OffsetPage, TaskDetail } from "@/api";
 import { errorMessage } from "@/api";
@@ -10,7 +10,6 @@ import {
   reportNonCancelledError,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import {
   dependencyRelatedTaskIDs,
   optimisticTaskDependencyRemoval,
@@ -29,9 +28,8 @@ import {
 export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
   const { api, logger } = useAppServices();
   const queryClient = useQueryClient();
-  const connection = useConnectionSnapshot();
-  const connectionPhase = connection.phase;
-  const connectionGeneration = connection.generation;
+  const [failure, setFailure] = useState<Readonly<{ taskID: string; error: Error }> | null>(null);
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const taskID = detail.id;
   const projectID = detail.projectID;
   const relatedTaskIDs = useMemo(() => dependencyRelatedTaskIDs(detail.dependencies), [detail.dependencies]);
@@ -42,7 +40,7 @@ export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
   }, [relatedTaskIDs]);
 
   useEffect(() => {
-    if (!enabled || taskID.length === 0 || projectID.length === 0 || connectionPhase !== "connected") {
+    if (!enabled || taskID.length === 0 || projectID.length === 0) {
       return;
     }
     const refresh = async (): Promise<void> => {
@@ -88,13 +86,21 @@ export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
         return;
       },
       onError(error) {
+        setFailure({ taskID, error });
         void logger.append("warn", "Task detail subscription failed.", { error: errorMessage(error) });
       },
     });
     return () => {
       subscription.close();
     };
-  }, [api, connectionGeneration, connectionPhase, enabled, logger, projectID, queryClient, taskID]);
+  }, [api, attempt, enabled, logger, projectID, queryClient, taskID]);
+  return {
+    error: failure?.taskID === taskID ? failure.error : null,
+    retry: () => {
+      setFailure(null);
+      retry();
+    },
+  };
 }
 
 export function useTaskDetail(taskID: string, enabled: boolean) {
@@ -249,7 +255,7 @@ export function useTaskMutations(
       onError: (error) => {
         onActionError?.("interrupt", error);
       },
-      onSettled: refresh,
+      onSuccess: refresh,
     }),
     approveApproval: useMutation({
       mutationFn: async (approvalID: string) => api.approveApproval(approvalID),

@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { queryKeys, reportNonCancelledError, useAppServices, useConnectionSnapshot } from "@/app-facade";
-import { useStableCallback } from "@/ui";
+import { queryKeys, reportNonCancelledError, useAppServices } from "@/app-facade";
+import { ErrorState, useStableCallback } from "@/ui";
 import { createProjectLabelEffects } from "./labelEventEffects";
 import { ProjectLabelDataContext } from "./projectLabelContext";
 import { useManagedProjectLabelFilter } from "./projectLabelFilter";
@@ -23,7 +24,10 @@ export function ProjectLabelsProvider({
 }>) {
   const { api, logger } = useAppServices();
   const queryClient = useQueryClient();
-  const connection = useConnectionSnapshot();
+  const { t } = useTranslation();
+  const [failure, setFailure] = useState<Readonly<{ projectID: string; error: Error }> | null>(null);
+  const error = failure?.projectID === projectID ? failure.error : null;
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const catalog = useQuery({
     queryKey: queryKeys.projectLabels(projectID),
     queryFn: async () => api.listProjectLabels(projectID),
@@ -67,7 +71,7 @@ export function ProjectLabelsProvider({
     [filter.dispatch, projectID, queryClient, reportBackgroundError],
   );
   useEffect(() => {
-    if (!subscribeToProject || projectID.length === 0 || connection.phase !== "connected") {
+    if (!subscribeToProject || projectID.length === 0) {
       return;
     }
     const run = (operation: Promise<void>): void => {
@@ -80,26 +84,19 @@ export function ProjectLabelsProvider({
       onEvent(event) {
         run(effects.consumeProjectEvent(event));
       },
-      onComplete() {
+      onComplete(code) {
+        if (code !== 0) return;
         run(effects.refreshAfterSubscriptionBoundary());
       },
       onError(error) {
+        setFailure({ projectID, error });
         reportBackgroundError(error);
-        run(effects.refreshAfterSubscriptionBoundary());
       },
     });
     return () => {
       subscription.close();
     };
-  }, [
-    api,
-    connection.generation,
-    connection.phase,
-    effects,
-    projectID,
-    reportBackgroundError,
-    subscribeToProject,
-  ]);
+  }, [api, attempt, effects, projectID, reportBackgroundError, subscribeToProject]);
   const value = useMemo(
     () => ({
       catalog,
@@ -109,5 +106,21 @@ export function ProjectLabelsProvider({
     }),
     [catalog, effects, filter, projectID],
   );
-  return <ProjectLabelDataContext.Provider value={value}>{children}</ProjectLabelDataContext.Provider>;
+  return (
+    <ProjectLabelDataContext.Provider value={value}>
+      {error === null ? null : (
+        <ErrorState
+          fullPage={false}
+          body={errorMessage(error)}
+          title={t("labels.loadFailed")}
+          onRetry={() => {
+            setFailure(null);
+            retry();
+          }}
+          retryLabel={t("app.retry")}
+        />
+      )}
+      {children}
+    </ProjectLabelDataContext.Provider>
+  );
 }

@@ -37,7 +37,6 @@ vi.mock("@/app-facade", async (importOriginal) => ({
   ...(await importOriginal()),
   queryKeys: { allBoards: [], allProjectWorkflowLinks: [], allWorkflows: [], projectWorkflowLinks: () => [] },
   useAppServices: () => ({ api: {} }),
-  useConnectionSnapshot: () => ({ phase: "connected" }),
   projectWorkspaceQueryOptions: () => ({}),
   useStatusController: () => ({ push: vi.fn() }),
   useTextFieldSubmitShortcut: () => undefined,

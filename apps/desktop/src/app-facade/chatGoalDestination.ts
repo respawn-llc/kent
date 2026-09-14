@@ -73,7 +73,6 @@ export class ChatGoalDestinationController {
   #nextSequence = 0;
   #observation: ChatGoalObservationState = { kind: "loading" };
   #mutation: ActiveMutation | null = null;
-  #automaticReplacementAvailable = false;
   #started = false;
   #disposed = false;
 
@@ -108,7 +107,6 @@ export class ChatGoalDestinationController {
     if (this.#disposed) return;
     this.#subscription?.close();
     this.#subscription = null;
-    this.#automaticReplacementAvailable = false;
     this.#openObservation();
   }
 
@@ -180,14 +178,13 @@ export class ChatGoalDestinationController {
           return;
         }
         this.#nextSequence = observation.sequence;
-        this.#automaticReplacementAvailable = true;
         this.#observation = { kind: "observed" };
         this.source.admit(observation.fact);
         this.#notify();
       },
       onComplete: (code, message) => {
         if (!this.#accepts(generation)) return;
-        this.#handleObservationFailure(
+        this.#failObservation(
           new ContractError(
             code === 0
               ? "Goal observation completed unexpectedly."
@@ -196,20 +193,9 @@ export class ChatGoalDestinationController {
         );
       },
       onError: (error) => {
-        if (this.#accepts(generation)) this.#handleObservationFailure(error);
+        if (this.#accepts(generation)) this.#failObservation(error);
       },
     });
-  }
-
-  #handleObservationFailure(error: Error): void {
-    if (this.source.snapshot.kind === "observed" && this.#automaticReplacementAvailable) {
-      this.#automaticReplacementAvailable = false;
-      this.#subscription?.close();
-      this.#subscription = null;
-      this.#openObservation();
-      return;
-    }
-    this.#failObservation(error);
   }
 
   #failObservation(error: Error): void {

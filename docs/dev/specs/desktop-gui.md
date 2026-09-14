@@ -10,8 +10,14 @@
 - A compatible, ready server is required before feature content opens. If protocols are incompatible, show `Update Kent`, the client and server protocol values, instructions to update the service and desktop from the same build, and Retry. Use the same blocker whichever side is newer.
 - If the server is unavailable or authentication is not ready, show a concise failure and next action, including instructions to run the server when unreachable.
 - A safe application shell remains available when startup fails. Home omits endpoint, version, authentication mode, and other runtime identity.
-- Except for Project Settings, on connection loss, disable mutations while retaining cached content where available. Show persistent disconnected status until reconnection; closing that notice does not change connection state.
-- Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Do not queue or replay mutations. Each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes. Except for Project Settings, after reconnection, reissue server reads and let the operator submit preserved drafts manually.
+- Every Desktop request or observation must make one independent attempt and complete or fail. Desktop must not automatically retry, replace a failed observation, replay an operation, or issue a repair read after failure.
+- Desktop must permit otherwise valid subsequent actions and destination/input-driven reads without a global connectivity gate. Desktop must not pause operations for online status or resume them when connectivity changes. Internal transport reuse and required authentication remain supported.
+- Desktop must retain available content and required drafts after failure and show the failure in the owning operation or destination. Read failures must offer Retry in their failure state, which may be shared by the screen. Retrying a write must use its ordinary action path. Desktop must not show a global recovery banner.
+- Desktop must not refresh reads because of generic window-focus, online, or reconnection changes. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
+- The Processes area's focused 1.5-second polling schedule, continued polling after an individual failure, and immediate refresh when focus returns must remain active as an exception to generic focus-driven refresh restrictions.
+- After a Kill attempt fails, Processes must retain its immediate refresh and keep that Kill pending until a later successful Processes read. This is an exception to failure-triggered repair restrictions and ordinary immediate action resubmission.
+- The Workflow editor must retain its five-second Script-path validation schedule after a failed check. Each check must make one attempt. This scheduled observation must not enable generic focus, online, or reconnection-driven recovery.
+- Keep unsent local drafts for new Tasks, comments, and editable Task or Project text while the window stays open. Do not queue or replay mutations. Each mutation revalidates its safety-critical facts, and an accepted save overwrites remote changes.
 - Local capabilities such as clipboard, directory selection, separate windows, window controls, and notifications are distinct from server readiness. When unavailable, explain the unavailable action; cosmetic shell behavior may be absent in a browser presentation.
 - Text input is plain multiline Markdown. Rich Markdown preserves every source newline as a visible line break. Rich Markdown remains within its available surface width; only a code block may scroll horizontally inside its own block. Task Detail and Workflow Editor content use the shared rich Markdown presentation with sanitized raw-HTML and link behavior. Board previews are flattened text previews: they strip Markdown formatting and raw HTML without rendering rich structure or controls, preserve readable text labels, and remain bounded for dense boards. Completed supported code is syntax-highlighted and selectable in rich content; incomplete code remains selectable plain text.
 - Task Description and Goal objective use one shared large Markdown field. Desktop does not maintain feature-specific copies of its read or edit presentation.
@@ -69,7 +75,7 @@
 - A workspace row shows the shared shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its row or gives equivalent feedback.
 - Choosing an already attached path outside the retained pages keeps the current list and scroll position and shows success-style feedback without adding or finding its row.
 - Project Settings loads Project metadata and the Workspace catalog independently.
-- Project Settings must attempt otherwise valid explicit requests without blocking them based on connection status. Project Settings must show request failures without automatic retry or reconnection-triggered recovery.
+- Project Settings must follow the shared independent-request and local-failure behavior.
 - Project Settings must show workspace-observation failures through an ordinary temporary error notification.
 - While a Workspace-change refresh is in progress, Project Settings may combine further change notifications for that Project into one subsequent refresh. Project Settings must not combine mutation requests or confirmation choices.
 - Leaving Project Settings must stop its screen observations without canceling accepted server work. While the window remains open, leaving Project Settings must not suppress a started mutation's failure feedback or ordinary content refresh.
@@ -459,6 +465,7 @@
 
 ## Inbox, Questions, Approvals, And Notifications
 
+- If the attention-notification observation fails, Desktop must show an ordinary temporary error notification with Retry. Retry must restart only that observation without disabling actions or refreshing unrelated screens.
 - Inbox lists the global infinite-scrolling attention feed. Task Detail owns Question and Approval actions through its bounded Task attention view.
 - Inbox-opened Task Detail can move through the live Inbox order with Previous and Next. After resolution removes the open Task, Next advances to the replacement item. These controls are unavailable outside Inbox.
 - The top Task Detail action opens or focuses the highest-priority unresolved attention. Every unresolved item not awaiting an answer result retains its applicable inline controls; sibling setup interruptions represented by a canonical recovery item are informational as defined by [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
@@ -469,9 +476,9 @@
 - Selecting `Submit answer` removes that prompt from local attention before Kent reports the result.
 - Task Detail moves focus to the next unresolved prompt's first answer control.
 - The next prompt accepts edits and submission while earlier answer deliveries are in progress. Answer deliveries may finish in a different order.
-- After every answer attempt settles, Task Detail refetches Task attention. It restores the submitted selection and commentary only if refreshed attention still contains the exact Session, Step, and Tool Call ID; otherwise it discards that answer state.
-- If delivery fails while the same Task Detail is present and refreshed attention still contains the prompt, Task Detail restores it in server order, surfaces the failure, and permits manual retry without moving focus away from another prompt being edited.
-- If the attention refetch fails, Task Detail restores the prompt from cached attention with its submitted selection and commentary, surfaces the reconciliation failure, and permits manual retry. A retry may report that the prompt was already resolved.
+- Task Detail must apply ordinary server broadcasts and answer results to its available attention state. Successful answers may refresh attention through the ordinary domain refresh path.
+- If delivery fails while the same Task Detail is present, Task Detail must restore the submitted selection and commentary for the exact Session, Step, and Tool Call ID in its latest available server order unless that state identifies the prompt as resolved. It must surface the failure and permit resubmission without moving focus away from another prompt being edited.
+- A failed answer must not trigger an additional pending-prompt read. If delivery and observation both fail, an already-resolved prompt may remain visible until a later broadcast, independent read, or explicit resubmission supplies its authoritative outcome.
 - Task Detail does not replay a failed answer automatically.
 - If delivery fails after the operator leaves the originating Task Detail, Desktop discards the submitted answer state and identifies the Task in the failure notification. Reopening the Task uses server-provided defaults for an unresolved prompt.
 - Leaving Task Detail discards unsubmitted Question and runtime Approval answer state.

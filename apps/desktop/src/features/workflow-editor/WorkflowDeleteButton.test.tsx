@@ -30,7 +30,6 @@ vi.mock("@/app-facade", async (importOriginal) => ({
       previewWorkflowDelete: fixture.previewWorkflowDelete,
     },
   }),
-  useConnectionSnapshot: () => ({ phase: "connected" }),
   useStatusController: () => ({ push: fixture.push }),
 }));
 

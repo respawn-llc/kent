@@ -162,7 +162,7 @@ describe("Chat Goal destination controller", () => {
     expect(controller.snapshot.observation.kind).toBe("disposed");
   });
 
-  it("replaces a failed observed transport once while retaining authority and mutation", () => {
+  it("retains authority and mutation on observation failure until explicit Retry", () => {
     const { api, handlers } = observationApi();
     const controller = new ChatGoalDestinationController(api, target);
     controller.start();
@@ -174,12 +174,15 @@ describe("Chat Goal destination controller", () => {
     controller.begin(intent);
     handlers[0]?.onError(new Error("socket lost"));
 
-    expect(handlers).toHaveLength(2);
+    expect(handlers).toHaveLength(1);
     expect(controller.snapshot.authority).toMatchObject({
       kind: "observed",
       value: { availability: "available" },
     });
     expect(controller.snapshot.presentation.kind).toBe("unresolved");
+    expect(controller.snapshot.observation.kind).toBe("error");
+    controller.replaceObservation();
+    expect(handlers).toHaveLength(2);
     handlers[1]?.onError(new Error("replacement failed"));
     expect(controller.snapshot.observation.kind).toBe("error");
     expect(handlers).toHaveLength(2);

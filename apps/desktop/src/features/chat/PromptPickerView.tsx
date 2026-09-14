@@ -21,13 +21,11 @@ export function PromptPickerView({
   prompts,
   state,
   isPending,
-  disconnected,
   dispatch,
 }: Readonly<{
   prompts: readonly PendingPrompt[];
   state: PickerState;
   isPending: boolean;
-  disconnected: boolean;
   dispatch(action: PickerAction, focusField: () => void): void;
 }>) {
   const { t } = useTranslation();
@@ -41,7 +39,7 @@ export function PromptPickerView({
   const prompt = batch[index];
   const draft = state.current === null ? undefined : state.drafts.get(state.current);
   if (prompt === undefined || draft === undefined) return null;
-  const disabled = isPending || disconnected || draft.status === "declined";
+  const disabled = isPending || draft.status === "declined";
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {

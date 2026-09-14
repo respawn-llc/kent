@@ -111,10 +111,7 @@ export function TaskInitiatingActionProvider({
   );
 }
 
-export function TaskResumeButton({
-  disabled,
-  recovery,
-}: Readonly<{ disabled: boolean; recovery?: TaskSetupRecovery | undefined }>) {
+export function TaskResumeButton({ recovery }: Readonly<{ recovery?: TaskSetupRecovery | undefined }>) {
   const { t } = useTranslation();
   const controller = useContext(TaskInitiatingActionContext);
   if (controller === null) {
@@ -123,7 +120,7 @@ export function TaskResumeButton({
   return (
     <Button
       data-testid="task-detail-resume"
-      disabled={disabled || controller.running}
+      disabled={controller.running}
       onClick={() => {
         controller.resume(recovery);
       }}
@@ -134,7 +131,7 @@ export function TaskResumeButton({
   );
 }
 
-export function TaskStartButton({ disabled }: Readonly<{ disabled: boolean }>) {
+export function TaskStartButton() {
   const { t } = useTranslation();
   const controller = useContext(TaskInitiatingActionContext);
   if (controller === null) {
@@ -143,7 +140,7 @@ export function TaskStartButton({ disabled }: Readonly<{ disabled: boolean }>) {
   return (
     <Button
       data-testid="task-detail-start"
-      disabled={disabled || controller.running}
+      disabled={controller.running}
       onClick={controller.start}
       variant="primary"
     >
