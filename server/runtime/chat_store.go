@@ -35,6 +35,7 @@ type ChatEntry struct {
 	ToolResultSummary     string
 	ToolCallID            string
 	QuestionAnswer        *tools.AskQuestionAnswer
+	WebSearch             *transcript.WebSearchDetail
 	NoticeID              string
 	BackgroundActivityID  string
 	BackgroundProcessID   string

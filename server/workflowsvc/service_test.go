@@ -1444,7 +1444,7 @@ func TestServiceConcurrentTaskResumeReturnsAppliedThenNoOp(t *testing.T) {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
 	controller, err := workflowexecution.NewCurrentNodeController(
 		service.store,
-		initialBranchControllerRunner{},
+		pendingAgentControllerRunner{},
 		authority,
 		service.taskMutations,
 		workflowexecution.CurrentNodeControllerConfig{

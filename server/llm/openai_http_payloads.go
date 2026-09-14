@@ -88,6 +88,11 @@ func (b openAIRequestPayloadBuilder) BuildResponse(request OpenAIRequest, mode O
 		out.Tools = toolControls.tools
 		out.ParallelToolCalls = openai.Bool(true)
 	}
+	if request.EnableNativeWebSearch {
+		out.Include = append(out.Include,
+			responses.ResponseIncludableWebSearchCallResults,
+			responses.ResponseIncludableWebSearchCallActionSources)
+	}
 	if shouldApplyReasoningEffort(request.SupportsReasoningEffort, request.Model, request.ReasoningEffort) {
 		out.Reasoning = buildReasoningParam(request.Model, request.ReasoningEffort)
 		out.Include = append(out.Include, responses.ResponseIncludableReasoningEncryptedContent)

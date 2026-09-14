@@ -257,6 +257,7 @@ File-based tool toggles merge with defaults. `KENT_TOOLS` and `kent run --tools`
 Notes:
 
 - `tools.web_search = true` does not force web search on. Native search still depends on `web_search = "native"` and provider support.
+- Completed Web Search rows expand in Desktop Chat and terminal Detail when the provider supplies useful results or sources. Details show supplied queries, linked results, and sources in provider order, without snippets. Saved searches retain the same detail when reopened; searches without useful saved results remain compact.
 - `tools.patch` and `tools.edit` are mutually exclusive. If both are left at their defaults, Kent chooses `patch` for models that are trained on freeform patch syntax, otherwise `edit`. To force `edit`, set `edit = true` and `patch = false`.
 
 ## Ripgrep config

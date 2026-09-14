@@ -57,7 +57,7 @@ export const appArchitecture = {
               return;
             }
 
-            if (isIndexLikeExpression(node.value.expression)) {
+            if (isIndexLikeExpression(node.value.expression) && !isImmutableWebSearchList(context, node)) {
               context.report({ node, messageId: "indexKey" });
             }
           },
@@ -185,6 +185,21 @@ export const appArchitecture = {
     },
   },
 };
+
+// These completed provider lists are immutable, preserve duplicates, and have
+// no result identities. The User approved positional keys for this renderer.
+function isImmutableWebSearchList(context, node) {
+  const filename = "/" + context.filename.replaceAll("\\", "/");
+  if (!filename.endsWith("/src/features/chat/toolRows/TranscriptToolSlot.tsx")) {
+    return false;
+  }
+  for (let parent = node.parent; parent !== null && parent !== undefined; parent = parent.parent) {
+    if (parent.type === "FunctionDeclaration") {
+      return parent.id?.name === "WebSearchDetails";
+    }
+  }
+  return false;
+}
 
 function isEslintDisableDirective(comment) {
   return eslintDisableDirectiveKeywords.has(firstWhitespaceDelimitedToken(comment.value.trim()));

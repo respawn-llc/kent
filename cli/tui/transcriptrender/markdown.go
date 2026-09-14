@@ -433,10 +433,7 @@ func renderMarkdownInlineChildren(builder *markdownLineBuilder, node ast.Node, s
 			next.Underline = true
 			next.Hyperlink = markdownHyperlink(string(typed.Destination))
 			renderMarkdownInlineChildren(builder, typed, source, next, preserveSoftBreaks)
-			if next.Hyperlink != nil && builder.linkPresentation == MarkdownLinkLabelAndDestination {
-				builder.append(" ", style)
-				builder.append(next.Hyperlink.URL, next)
-			}
+			appendMarkdownLinkDestination(builder, style, next)
 		case *ast.AutoLink:
 			next := style
 			next.Underline = true
@@ -447,6 +444,13 @@ func renderMarkdownInlineChildren(builder *markdownLineBuilder, node ast.Node, s
 				renderMarkdownInlineChildren(builder, child, source, style, preserveSoftBreaks)
 			}
 		}
+	}
+}
+
+func appendMarkdownLinkDestination(builder *markdownLineBuilder, base, link markdownInlineStyle) {
+	if link.Hyperlink != nil && builder.linkPresentation == MarkdownLinkLabelAndDestination {
+		builder.append(" ", base)
+		builder.append(link.Hyperlink.URL, link)
 	}
 }
 
