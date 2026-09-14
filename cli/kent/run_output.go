@@ -81,8 +81,8 @@ func runErrorMessage(err error) string {
 		}
 	}
 	var continuation *serverapi.WorkflowContinuationRejectionError
-	if errors.As(err, &continuation) {
-		return client.FormatWorkflowContinuationRejection(continuation)
+	if errors.As(err, &continuation) && continuation != nil {
+		return client.FormatWorkflowContinuationRejection(*continuation)
 	}
 	if message := llmerrors.UserFacingError(err); message != "" {
 		return message

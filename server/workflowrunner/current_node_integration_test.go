@@ -893,7 +893,8 @@ func TestInvalidRetainedWorkflowContinuationRejectsHeadlessAndInteractiveInput(t
 		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
 		Prompt: "do not accept this headless input",
 		Overrides: serverapi.RunPromptOverrides{
-			Model: "override-model",
+			Model:         "override-model",
+			OpenAIBaseURL: "http://override.example/v1",
 		},
 	}, nil)
 	assertWaitingForApprovalContinuationRejection(t, err, task.ID)
