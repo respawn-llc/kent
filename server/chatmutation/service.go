@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"core/server/sessionruntime"
-	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
@@ -17,8 +16,8 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type TargetResolutionService interface {
@@ -44,8 +43,8 @@ type RuntimeAdmissionService interface {
 	) (bool, error)
 }
 
-type GoalSetService interface {
-	SetGoal(context.Context, serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalSetResponse, error)
+type ResolvedGoalSetInvoker interface {
+	SetResolvedGoal(context.Context, *runtimepb.GoalSetRequest) (serverapi.ResolvedGoalSetCommit, error)
 }
 
 type Service struct {
@@ -53,7 +52,7 @@ type Service struct {
 	targets    TargetResolutionService
 	runtimes   RuntimeOpeningService
 	admissions RuntimeAdmissionService
-	goals      GoalSetService
+	goals      ResolvedGoalSetInvoker
 }
 
 func NewService(
@@ -61,7 +60,7 @@ func NewService(
 	targets TargetResolutionService,
 	runtimes RuntimeOpeningService,
 	admissions RuntimeAdmissionService,
-	goals GoalSetService,
+	goals ResolvedGoalSetInvoker,
 ) *Service {
 	return &Service{
 		operations: operations,
@@ -168,26 +167,38 @@ func (s *Service) invokeGoal(
 	if s.goals == nil {
 		return goalSetInvocation{}, errors.New("Goal Set service is required")
 	}
-	executionPolicy, err := runtimeGoalExecutionPolicy(request.ExecutionPolicy)
-	if err != nil {
-		return goalSetInvocation{}, err
-	}
-	response, err := s.goals.SetGoal(scope.Context(), serverapi.RuntimeGoalSetRequest{
-		SessionID:       target.SessionID.String(),
+	resolvedRequest := &runtimepb.GoalSetRequest{
+		Target: &chatpb.ChatTarget{
+			Target: &chatpb.ChatTarget_Session{
+				Session: &chatpb.ExistingSessionTarget{SessionId: target.SessionID.String()},
+			},
+		},
 		Objective:       strings.TrimSpace(request.Objective),
 		Actor:           strings.TrimSpace(request.Actor),
-		RunID:           strings.TrimSpace(request.GetRunId()),
-		StepID:          strings.TrimSpace(request.GetStepId()),
-		ExecutionPolicy: executionPolicy,
-	})
+		ExecutionPolicy: request.ExecutionPolicy,
+	}
+	if request.RunId != nil {
+		value := strings.TrimSpace(request.GetRunId())
+		resolvedRequest.RunId = &value
+	}
+	if request.StepId != nil {
+		value := strings.TrimSpace(request.GetStepId())
+		resolvedRequest.StepId = &value
+	}
+	response, err := s.goals.SetResolvedGoal(scope.Context(), resolvedRequest)
 	if err != nil {
 		return goalSetInvocation{}, err
 	}
-	mutation, err := goalMutationSuccess(response)
-	if err != nil {
-		return goalSetInvocation{}, err
+	if response.Mutation == nil {
+		return goalSetInvocation{}, errors.New("resolved Goal Set commit requires a mutation")
 	}
-	return goalSetInvocation{mutation: mutation, diagnostic: response.Diagnostic}, nil
+	if err := protoapi.Validate(response.Mutation); err != nil {
+		return goalSetInvocation{}, fmt.Errorf("validate resolved Goal Set mutation: %w", err)
+	}
+	return goalSetInvocation{
+		mutation:   proto.Clone(response.Mutation).(*runtimepb.GoalMutationSuccess),
+		diagnostic: response.Diagnostic,
+	}, nil
 }
 
 func goalSetSuccess(
@@ -265,84 +276,6 @@ func (s *Service) openRuntime(
 		)
 	}
 	return target, attachment, nil
-}
-
-func runtimeGoalExecutionPolicy(
-	policy runtimepb.GoalExecutionPolicy,
-) (serverapi.RuntimeGoalExecutionPolicy, error) {
-	switch policy {
-	case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE:
-		return serverapi.RuntimeGoalExecutionPolicyPreserveRuntimeState, nil
-	case runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE:
-		return serverapi.RuntimeGoalExecutionPolicyStartOrContinue, nil
-	default:
-		return "", errors.New("execution_policy is required")
-	}
-}
-
-func goalMutationSuccess(response serverapi.RuntimeGoalSetResponse) (*runtimepb.GoalMutationSuccess, error) {
-	result := response.Result
-	if err := result.Validate(); err != nil {
-		return nil, err
-	}
-	converted := &runtimepb.GoalMutationSuccess{}
-	switch result.Kind {
-	case clientui.GoalMutationResultAuthoritativeGoal:
-		if result.Goal == nil {
-			return nil, errors.New("authoritative Goal result requires Goal")
-		}
-		status, err := goalStatusToProto(result.Goal.Status)
-		if err != nil {
-			return nil, err
-		}
-		converted.Kind = runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL
-		converted.Goal = &runtimepb.Goal{
-			Id:        result.Goal.ID,
-			Objective: result.Goal.Objective,
-			Status:    status,
-			CreatedAt: timestamppb.New(result.Goal.CreatedAt),
-			UpdatedAt: timestamppb.New(result.Goal.UpdatedAt),
-		}
-	case clientui.GoalMutationResultAuthoritativeClear:
-		converted.Kind = runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR
-	default:
-		return nil, fmt.Errorf("unsupported Goal mutation result %q", result.Kind)
-	}
-	if result.Availability != nil {
-		availability, err := goalAvailabilityToProto(*result.Availability)
-		if err != nil {
-			return nil, err
-		}
-		converted.Availability = &availability
-	}
-	if err := protoapi.Validate(converted); err != nil {
-		return nil, err
-	}
-	return converted, nil
-}
-
-func goalStatusToProto(status clientui.RuntimeGoalStatus) (runtimepb.GoalStatus, error) {
-	switch status {
-	case clientui.RuntimeGoalStatusActive:
-		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE, nil
-	case clientui.RuntimeGoalStatusPaused:
-		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED, nil
-	case clientui.RuntimeGoalStatusComplete:
-		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE, nil
-	default:
-		return runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_UNSPECIFIED, fmt.Errorf("unknown Goal status %q", status)
-	}
-}
-
-func goalAvailabilityToProto(availability clientui.GoalAvailability) (runtimepb.GoalAvailability, error) {
-	switch availability {
-	case clientui.GoalAvailabilityAvailable:
-		return runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE, nil
-	case clientui.GoalAvailabilityAgentCapabilityMissing:
-		return runtimepb.GoalAvailability_GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING, nil
-	default:
-		return runtimepb.GoalAvailability_GOAL_AVAILABILITY_UNSPECIFIED, fmt.Errorf("unknown Goal availability %q", availability)
-	}
 }
 
 func goalSetSuccessRejected(
