@@ -339,18 +339,13 @@ func testQuestionPrompt(id, question string, suggestions ...string) *transcriptp
 }
 
 func testApprovalPrompt(id, question string, decisions ...clientui.ApprovalDecision) *transcriptpb.Prompt {
-	labels := map[clientui.ApprovalDecision]string{
-		clientui.ApprovalDecisionAllowOnce:    outsideWorkspaceAllowOnceSuggestion,
-		clientui.ApprovalDecisionAllowSession: outsideWorkspaceAllowSessionSuggestion,
-		clientui.ApprovalDecisionDeny:         outsideWorkspaceDenySuggestion,
-	}
 	options := make([]*promptpb.ApprovalOption, 0, len(decisions))
 	for _, decision := range decisions {
 		generated, err := protoapi.ApprovalDecisionToProto(decision)
 		if err != nil {
 			panic(err)
 		}
-		options = append(options, &promptpb.ApprovalOption{Decision: generated, Label: labels[decision]})
+		options = append(options, &promptpb.ApprovalOption{Decision: generated})
 	}
 	return &transcriptpb.Prompt{
 		Status: transcriptpb.PromptStatus_PROMPT_STATUS_PENDING,

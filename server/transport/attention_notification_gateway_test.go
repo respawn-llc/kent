@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
 	"core/server/core"
 	"core/server/registry"
@@ -52,8 +53,8 @@ func TestGatewayRemoteAttentionDesktopRouteIsRootGlobalAndKeepsQuestionsLiveOnly
 	}
 
 	beginGatewayPendingPrompt(t, broker, sessionOne.Meta().SessionID, askquestion.AskQuestionRequest{ToolCallID: "generic-ask", StepID: gatewayAttentionStepID, Question: "Generic?"})
-	if event, err := desktop.Next(shortGatewayAttentionContext(t)); err == nil {
-		t.Fatalf("desktop received generic session prompt: %+v", event)
+	if event := nextGatewayAttentionEvent(t, desktop); event.Pending == nil || event.Pending.Target.ProjectID != "project-1" || event.Pending.Target.SessionID != sessionOne.Meta().SessionID {
+		t.Fatalf("desktop generic session prompt = %+v", event)
 	}
 }
 
@@ -131,7 +132,7 @@ func newGatewayAttentionTestServer(t *testing.T) (*core.Core, *registry.RuntimeR
 	t.Helper()
 	appCore, _ := newGatewayTestCore(t, true, true)
 	broker := attentionnotify.NewBroker()
-	prompts := registry.NewRuntimeRegistry().WithAttentionNotifications(broker)
+	prompts := registry.NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	gateway, err := NewGateway(
 		&gatewayAttentionDependencies{Core: appCore, attention: prompts},
 		gatewayTestIdentity(),
@@ -148,7 +149,7 @@ func beginGatewayPendingPrompt(t *testing.T, broker *attentionnotify.Broker, ses
 	if request.Approval && !request.IsTaskScopedApprovalQuestion() {
 		kind = clientui.AttentionNotificationKindApproval
 	}
-	target := clientui.AttentionNotificationTarget{Kind: clientui.AttentionNotificationTargetSessionPrompt, SessionID: sessionID}
+	target := clientui.AttentionNotificationTarget{Kind: clientui.AttentionNotificationTargetSessionPrompt, ProjectID: "project-1", SessionID: sessionID}
 	scope := attentionnotify.RoutingScope{Kind: attentionnotify.RoutingSessionPrompt, SessionID: sessionID}
 	if request.AttentionTarget != nil && request.AttentionTarget.Kind == clientui.AttentionNotificationTargetWorkflowTask {
 		target = *request.AttentionTarget

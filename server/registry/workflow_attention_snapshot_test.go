@@ -8,6 +8,8 @@ import (
 
 	testharness "core/internal/testharness/testsetup"
 	"core/server/attentionnotify"
+	"core/server/runtime"
+	askquestion "core/server/tools"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -27,8 +29,12 @@ func TestRuntimeRegistryRootAttentionLazilyMergesDurableSnapshotAndBufferedLiveE
 	})
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry().
-		WithAttentionNotifications(broker).
+		WithAttentionNotifications(broker, testharness.SessionNavigationBinding).
 		WithWorkflowAttentionNotificationSnapshot(source)
+	engine := &runtime.Engine{}
+	registerReady(t, registry, "session-1", engine)
+	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
+	projectPendingPromptForTest(registry, "session-1", askquestion.AskQuestionRequest{ToolCallID: "session-snapshot", StepID: registryTestStepID, Question: "Pending?"})
 
 	sub, err := registry.SubscribeAttentionNotifications(context.Background(), serverapi.AttentionNotificationSubscribeRequest{})
 	if err != nil {
@@ -45,19 +51,23 @@ func TestRuntimeRegistryRootAttentionLazilyMergesDurableSnapshotAndBufferedLiveE
 	}
 
 	seen := map[string]clientui.AttentionNotificationSource{}
-	for index := range 3 {
+	for index := range 4 {
 		event := nextRegistryAttentionEvent(t, sub)
 		if event.Sequence != uint64(index+1) || event.Pending == nil {
 			t.Fatalf("root attention event %d = %+v", index, event)
 		}
 		seen[event.Pending.ID.UUID] = event.Source
+		if event.Pending.ID.UUID == "session-snapshot" && event.Pending.Target.ProjectID != "project-1" {
+			t.Fatalf("Session target = %+v", event.Pending.Target)
+		}
 	}
 	if !opened {
 		t.Fatal("root attention snapshot did not open on first Next")
 	}
 	if seen["snapshot-1"] != clientui.AttentionNotificationSourceSnapshot ||
 		seen["snapshot-2"] != clientui.AttentionNotificationSourceSnapshot ||
-		seen["live-1"] != clientui.AttentionNotificationSourceLive {
+		seen["live-1"] != clientui.AttentionNotificationSourceLive ||
+		seen["session-snapshot"] != clientui.AttentionNotificationSourceSnapshot {
 		t.Fatalf("merged root attention events = %+v", seen)
 	}
 }

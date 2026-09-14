@@ -17,9 +17,9 @@ import (
 	"core/shared/serverapi"
 )
 
-func TestRuntimeRegistryKeepsGenericPromptAttentionOffDesktopRootStream(t *testing.T) {
+func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -37,22 +37,30 @@ func TestRuntimeRegistryKeepsGenericPromptAttentionOffDesktopRootStream(t *testi
 	if pending == nil || pending.Source != attentionpb.Source_ATTENTION_SOURCE_LIVE || pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != "ask-1" || pending.SessionId != "session-1" {
 		t.Fatalf("pending event = %+v", pending)
 	}
-	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
-		t.Fatalf("desktop received generic pending event: %+v", event)
+	desktopPending := nextRegistryAttentionEvent(t, desktopSub)
+	if desktopPending.Pending == nil || desktopPending.Pending.Target.ProjectID != "project-1" ||
+		desktopPending.Pending.Target.SessionID != "session-1" {
+		t.Fatalf("desktop pending = %+v", desktopPending)
 	}
 	resolvePendingPromptForTest(registry, "session-1", "ask-1")
 	resolved := nextRegistryAttentionEvent(t, sessionSub).GetResolved()
 	if resolved == nil || resolved.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || resolved.Id.Uuid != "ask-1" {
 		t.Fatalf("resolved event = %+v", resolved)
 	}
-	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
-		t.Fatalf("desktop received generic resolved event: %+v", event)
+	for {
+		event := nextRegistryAttentionEvent(t, desktopSub)
+		if event.Type == clientui.AttentionNotificationEventResolved {
+			if event.ID == nil || event.ID.UUID != "ask-1" {
+				t.Fatalf("desktop resolved = %+v", event)
+			}
+			break
+		}
 	}
 }
 
 func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -67,8 +75,8 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 		Approval:      true,
 		AccessTargets: []askquestion.FileAccessTarget{{RequestedPath: "../outside.txt", ResolvedPath: "/outside.txt"}},
 		ApprovalOptions: []askquestion.AskQuestionApprovalOption{
-			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: askquestion.AskQuestionApprovalDecisionDeny},
 		},
 	})
 
@@ -96,7 +104,7 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 
 func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -134,7 +142,7 @@ func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testi
 
 func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -160,8 +168,8 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 		Approval:        true,
 		AttentionTarget: &target,
 		ApprovalOptions: []askquestion.AskQuestionApprovalOption{
-			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: askquestion.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: askquestion.AskQuestionApprovalDecisionDeny},
 		},
 	}
 	projectPendingPromptForTest(registry, "session-1", req)
@@ -198,7 +206,7 @@ func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context
 
 func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterialization(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -232,7 +240,7 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 
 func TestRuntimeRegistrySessionAttentionSnapshotOverflowReturnsStreamGap(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })
@@ -251,7 +259,7 @@ func TestRuntimeRegistrySessionAttentionSnapshotOverflowReturnsStreamGap(t *test
 
 func TestRuntimeRegistrySessionAttentionSnapshotPreservesTaskQuestionBatch(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker)
+	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := &runtime.Engine{}
 	registerReady(t, registry, "session-1", engine)
 	t.Cleanup(func() { closeRuntime(registry, "session-1", engine) })

@@ -8,6 +8,7 @@ import type {
   ChatSessionTarget,
   ChatTranscriptMessage,
   ChatTranscriptPayloadByKind,
+  PendingPrompt,
 } from "@/api";
 import { ChatGoalProjectionSource } from "./chatGoalDestination";
 import type { AppLogger } from "./logging";
@@ -46,6 +47,7 @@ export type ChatRuntimeHost = Readonly<{
   onTranscriptError?(error: Error): void;
 }>;
 export type ChatRuntimeOwnerSnapshot = Readonly<{
+  pendingPrompts: readonly PendingPrompt[];
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
   transcript: ChatTranscriptHost["snapshot"];
@@ -207,6 +209,14 @@ export class ChatRuntimeOwner {
     this.#observation?.replaceForReconnect();
   }
 
+  replacePendingPrompts(prompts: readonly PendingPrompt[]): void {
+    if (!this.#disposed) this.#admitProjection({ kind: "prompts-replaced", prompts });
+  }
+
+  resolvePendingPrompts(toolCallIDs: ReadonlySet<string>): void {
+    if (!this.#disposed) this.#admitProjection({ kind: "prompts-resolved", toolCallIDs });
+  }
+
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -275,6 +285,7 @@ export class ChatRuntimeOwner {
       this.#notify();
     }
     this.#applyHostEffects(admitted.effects);
+    if (admitted.state.pendingPrompts !== current.pendingPrompts) this.#notify();
   }
 
   #currentProjection(): ChatProjectionState {
@@ -289,6 +300,7 @@ export class ChatRuntimeOwner {
       view: null,
       metadataRevision: state.metadataRevision,
       pendingMetadata: state.pendingMetadata,
+      pendingPrompts: state.pendingPrompts,
     };
   }
 
@@ -315,6 +327,7 @@ export class ChatRuntimeOwner {
 
   #projectSnapshot(): ChatRuntimeOwnerSnapshot {
     return {
+      pendingPrompts: this.#projection.pendingPrompts,
       goal: this.goal.snapshot,
       observation: this.#observation?.state ?? { kind: "loading" },
       transcript: this.transcript.snapshot,

@@ -34,7 +34,9 @@ export type NativeNotificationTaskDetailTarget = Readonly<{
     | NativeNotificationInterruptedCurrentNodeFocus;
 }>;
 
-export type NativeNotificationTarget = NativeNotificationTaskDetailTarget;
+export type NativeNotificationTarget =
+  | NativeNotificationTaskDetailTarget
+  | Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
 
 export type NativeNotification = Readonly<{
   id: string;
@@ -263,23 +265,30 @@ const nonEmptyID = z.string().min(1);
 
 const nativeNotificationActivationSchema = z.object({
   id: nonEmptyID,
-  target: z.object({
-    kind: z.literal("task_detail"),
-    taskID: nonEmptyID,
-    focus: z.discriminatedUnion("kind", [
-      z.object({
-        kind: z.literal("question"),
-        askIDs: z.tuple([nonEmptyID]).rest(nonEmptyID),
-      }),
-      z.object({
-        kind: z.literal("approval"),
-        approvalID: nonEmptyID,
-      }),
-      z.object({
-        kind: z.literal("interrupted_current_node"),
-      }),
-    ]),
-  }),
+  target: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("task_detail"),
+      taskID: nonEmptyID,
+      focus: z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("question"),
+          askIDs: z.tuple([nonEmptyID]).rest(nonEmptyID),
+        }),
+        z.object({
+          kind: z.literal("approval"),
+          approvalID: nonEmptyID,
+        }),
+        z.object({
+          kind: z.literal("interrupted_current_node"),
+        }),
+      ]),
+    }),
+    z.object({
+      kind: z.literal("session_prompt"),
+      projectID: nonEmptyID,
+      sessionID: nonEmptyID,
+    }),
+  ]),
 });
 
 function nativeNotificationActivation(value: unknown): NativeNotificationActivation {

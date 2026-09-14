@@ -15,6 +15,7 @@ import * as taskLifecycle from "./clientTaskLifecycle";
 import * as taskDependencies from "./clientTaskDependencies";
 import * as taskDetail from "./clientTaskDetail";
 import * as promptAnswers from "./clientPromptAnswers";
+import { listPendingPrompts } from "./clientPendingPrompts";
 import * as taskSearch from "./clientTaskSearch";
 import * as worktree from "./clientWorktree";
 import * as project from "./clientProject";
@@ -563,6 +564,10 @@ export class ApiClient implements ApiService {
 
   async listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]> {
     return taskDetail.listPendingAsks(this.#transport, sessionID);
+  }
+
+  async listPendingPrompts(sessionID: string) {
+    return listPendingPrompts(this.#transport, sessionID);
   }
 
   subscribeProject(projectID: string, handler: WorkflowProjectEventHandler): ApiSubscription {

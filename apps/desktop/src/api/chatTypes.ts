@@ -1,4 +1,6 @@
 import type { ApiSubscription } from "./apiService";
+import type { PendingPrompt } from "./promptModels";
+import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
 import type { ChatGoalFact, ChatGoalMutationResult, ChatGoalObservation } from "./chatGoal";
 import type {
   ChatSettingsRead,
@@ -195,6 +197,8 @@ export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }
 export type ChatApi = Readonly<{
   getDraft(target: ChatSessionTarget): Promise<string>;
   persistDraft(target: ChatSessionTarget, input: string): Promise<void>;
+  listPendingPrompts(target: ChatSessionTarget): Promise<readonly PendingPrompt[]>;
+  answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
   steer(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
   queue(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
   compact(target: ChatMutationTarget, invocation: ChatCompactionInvocation): Promise<ChatCompactionResult>;

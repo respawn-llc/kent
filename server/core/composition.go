@@ -105,7 +105,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	attentionBroker := attentionnotify.NewBroker()
-	runtimeRegistry := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionBroker)
+	runtimeRegistry := registry.NewRuntimeRegistry().WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
