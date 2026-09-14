@@ -10,14 +10,45 @@ import {
   checkEffectPolicy,
   effectPolicyConfig,
 } from "./check-effect-policy.mjs";
+import { appArchitecture } from "../desktop/eslint-app-plugin.js";
 
 const desktopRequire = createRequire(
   new URL("../desktop/package.json", import.meta.url),
 );
 const { ESLint } = desktopRequire("eslint");
+const { Linter } = desktopRequire("eslint");
 const fixtureRoot = fileURLToPath(
   new URL("../desktop/eslint-fixtures/architecture", import.meta.url),
 );
+
+test("position keys are allowed only in the immutable Web Search detail renderer", () => {
+  const linter = new Linter();
+  const config = [
+    {
+      files: ["**/*.tsx"],
+      languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } },
+      plugins: { app: appArchitecture },
+      rules: { "app/no-array-index-key": "error" },
+    },
+  ];
+  const filename = "src/features/chat/toolRows/TranscriptToolSlot.tsx";
+  const fixture = (name) =>
+    `function ${name}() { return items.map((item, index) => <li key={index}>{item}</li>); }`;
+  assert.equal(
+    linter.verify(fixture("WebSearchDetails"), config, { filename }).length,
+    0,
+  );
+  assert.equal(
+    linter.verify(fixture("MutableRows"), config, { filename })[0].ruleId,
+    "app/no-array-index-key",
+  );
+  assert.equal(
+    linter.verify(fixture("WebSearchDetails"), config, {
+      filename: "src/ui/Other.tsx",
+    })[0].ruleId,
+    "app/no-array-index-key",
+  );
+});
 
 const allowedPaths = Object.freeze([
   "packages/native-bridge/src/allowed-owner-local.ts",

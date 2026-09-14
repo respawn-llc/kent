@@ -66,6 +66,7 @@ type TranscriptToolRowFact struct {
 	CondensedText  string
 	Presentation   *transcript.ToolCallMeta
 	QuestionAnswer *tools.AskQuestionAnswer
+	WebSearch      *transcript.WebSearchDetail
 }
 
 type TranscriptReasoningTraceRowFact struct {
@@ -517,6 +518,7 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 				CondensedText:  strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
 				Presentation:   cloneTranscriptToolCallMeta(entry.ToolCall),
 				QuestionAnswer: cloneAskQuestionAnswer(entry.QuestionAnswer),
+				WebSearch:      entry.WebSearch,
 			},
 		}, true
 	default:
@@ -815,11 +817,13 @@ func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRow
 	}
 	resultSummary, _ := textutil.OptionalTrimmed(result.Summary)
 	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
+	content := projectToolResultContent(result)
 	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactTool, Visibility: transcript.EntryVisibilityOngoingCollapsed, Tool: &TranscriptToolRowFact{
 		ToolCallID:     strings.TrimSpace(result.CallID),
 		ToolName:       strings.TrimSpace(string(result.Name)),
-		Text:           tools.FormatToolResultByName(string(result.Name), result.Output, result.IsError),
-		IsError:        result.IsError,
+		Text:           content.text,
+		IsError:        content.isError,
+		WebSearch:      content.webSearch,
 		ResultSummary:  resultSummary,
 		CondensedText:  condensedText,
 		Presentation:   cloneTranscriptToolCallMeta(result.Presentation),

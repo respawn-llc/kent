@@ -3,12 +3,13 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { useAppServices } from "@/app-facade";
+import { useAppServices, useOpenExternalLink } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import {
   cx,
   IconTooltipButton,
   showStatusToast,
+  safeExternalUrl,
   Spinner,
   SyntaxHighlightedCode,
   TranscriptDisclosure,
@@ -45,20 +46,94 @@ export function TranscriptToolSlot({ item }: Readonly<{ item: TranscriptToolSlot
     case "patch-invalid-input":
       return <PatchInvalidInputRow presentation={presentation} />;
     case "web-search":
-      return (
-        <StaticToolRow
-          compact={presentation.compact}
-          icon={
-            presentation.running ? (
-              <Spinner size="sm" />
-            ) : (
-              <Globe aria-hidden="true" className="size-4" strokeWidth={1.8} />
-            )
-          }
-          iconTone={presentation.iconTone}
-        />
-      );
+      return <WebSearchRow presentation={presentation} />;
   }
+}
+
+function WebSearchRow({
+  presentation,
+}: Readonly<{ presentation: Extract<ToolPresentation, Readonly<{ kind: "web-search" }>> }>) {
+  const { t } = useTranslation();
+  const icon = presentation.running ? <Spinner size="sm" /> : <Globe className="size-4" strokeWidth={1.8} />;
+  const detail = presentation.detail;
+  if (detail == null && presentation.failure === undefined) {
+    return <StaticToolRow compact={presentation.compact} icon={icon} iconTone={presentation.iconTone} />;
+  }
+  return (
+    <TranscriptDisclosure
+      body={
+        presentation.failure !== undefined ? (
+          <pre className="transcript-tool-plain-text">{presentation.failure}</pre>
+        ) : detail != null ? (
+          <WebSearchDetails detail={detail} />
+        ) : null
+      }
+      collapseLabel={t("chat.toolRows.collapse")}
+      defaultExpanded={false}
+      expandLabel={t("chat.toolRows.expand")}
+      icon={icon}
+      iconTone={presentation.iconTone}
+      summary={presentation.compact}
+    />
+  );
+}
+
+function WebSearchDetails({
+  detail,
+}: Readonly<{
+  detail: NonNullable<Extract<ToolPresentation, { kind: "web-search" }>["detail"]>;
+}>) {
+  const { t } = useTranslation();
+  const action = detail.action;
+  return (
+    <ul className="m-0 list-disc space-y-1 pl-4 select-text text-sm break-words">
+      {action.kind === "search" && action.queries.map((query, index) => <li key={index}>{query}</li>)}
+      {action.kind !== "search" && action.url !== null && (
+        <li>
+          <WebSearchLink label={action.url} destination={action.url} />
+        </li>
+      )}
+      {action.kind === "find-in-page" && action.pattern !== null && <li>{action.pattern}</li>}
+      {detail.results.map((result, index) => (
+        <li key={index}>
+          <WebSearchLink
+            label={result.kind === "image" ? t("chat.toolRows.image") : (result.title ?? result.destination)}
+            destination={result.destination}
+          />
+        </li>
+      ))}
+      {detail.sources.map((source, index) => (
+        <li key={index}>
+          <WebSearchLink label={source} destination={source} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function WebSearchLink({
+  label,
+  destination,
+}: Readonly<{ label: string | null; destination: string | null }>) {
+  const openExternalLink = useOpenExternalLink();
+  const href = safeExternalUrl(destination ?? undefined);
+  return href === undefined ? (
+    <span>
+      {label}
+      {destination !== null && destination !== label ? ` (${destination})` : ""}
+    </span>
+  ) : (
+    <a
+      className="text-[var(--color-primary)] underline"
+      href={href}
+      onClick={(event) => {
+        event.preventDefault();
+        openExternalLink(href);
+      }}
+    >
+      {label}
+    </a>
+  );
 }
 
 type ExpandableToolPresentation = Exclude<

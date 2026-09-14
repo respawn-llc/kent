@@ -281,6 +281,7 @@ message ToolRow {
   optional string condensed_text = 7 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional ToolPresentation presentation = 8;
   optional kent.api.prompt.QuestionAnswer question_answer = 9;
+  optional WebSearchDetail web_search = 10;
   option (buf.validate.message).cel = {
     id: "kent.transcript.ask_result"
     message: "errored Ask Question results require nonblank failure text"
@@ -290,6 +291,57 @@ message ToolRow {
     id: "kent.transcript.tool_row_patch_owner"
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "has(this.tool_name) && this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+}
+
+// Provider-supplied display text is validated nonempty text, not a URL policy.
+// Sources and results preserve provider order, including repeated destinations.
+message WebSearchDetail {
+  oneof action {
+    option (buf.validate.oneof).required = true;
+    WebSearchSearch search = 1;
+    WebSearchOpenPage open_page = 2;
+    WebSearchFindInPage find_in_page = 3;
+  }
+  repeated WebSearchResult results = 4;
+  repeated string sources = 5 [(buf.validate.field).repeated.items.string.min_len = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.web_search_useful"
+    message: "web search detail requires useful results, sources, or page facts"
+    expression: "size(this.results) > 0 || size(this.sources) > 0 || (has(this.open_page) && has(this.open_page.url)) || (has(this.find_in_page) && (has(this.find_in_page.url) || has(this.find_in_page.pattern)))"
+  };
+}
+
+message WebSearchSearch {
+  repeated string queries = 1 [(buf.validate.field).repeated.items.string.min_len = 1];
+}
+
+message WebSearchOpenPage {
+  optional string url = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message WebSearchFindInPage {
+  optional string url = 1 [(buf.validate.field).string.min_len = 1];
+  optional string pattern = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+enum WebSearchResultKind {
+  WEB_SEARCH_RESULT_KIND_UNSPECIFIED = 0;
+  WEB_SEARCH_RESULT_KIND_LINK = 1;
+  WEB_SEARCH_RESULT_KIND_IMAGE = 2;
+}
+
+message WebSearchResult {
+  WebSearchResultKind kind = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional string title = 2 [(buf.validate.field).string.min_len = 1];
+  optional string destination = 3 [(buf.validate.field).string.min_len = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.web_search_result_useful"
+    message: "web search result requires a title or destination"
+    expression: "has(this.title) || has(this.destination)"
   };
 }
 

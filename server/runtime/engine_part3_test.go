@@ -140,7 +140,7 @@ func TestHostedWebSearchExecutionFromOutputItem(t *testing.T) {
 			"type":"web_search_call",
 			"id":"ws_1",
 			"status":"completed",
-			"action":{"type":"search","query":"kent cli"}
+			"action":{"type":"search","queries":["kent cli","kent docs"]}
 		}`),
 	}
 

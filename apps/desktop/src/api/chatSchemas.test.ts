@@ -70,6 +70,34 @@ function thinkingRow(effort: string | undefined) {
   });
 }
 
+it("carries hosted search facts through the generated boundary and Chat adaptation", () => {
+  for (const webSearch of [
+    undefined,
+    {
+      action: { case: "search" as const, value: { queries: ["first", "second"] } },
+      results: [{ kind: T.WebSearchResultKind.IMAGE, destination: "https://example.com/image" }],
+      sources: ["https://example.com", "https://example.com"],
+    },
+  ]) {
+    const row = create(T.CommittedRowSchema, {
+      visibility: T.EntryVisibility.ONGOING_COLLAPSED,
+      integrity: T.RowIntegrity.VALID,
+      locator: { eventSequence: 1n, rowOrdinal: 1 },
+      row: { case: "tool", value: { toolCallId: "search-1", toolName: "web_search", webSearch } },
+    });
+    const adapted = committedRow(decode(T.CommittedRowSchema, encode(T.CommittedRowSchema, row)));
+    expect(adapted.Tool?.WebSearch).toEqual(
+      webSearch === undefined
+        ? null
+        : {
+            action: { kind: "search", queries: ["first", "second"] },
+            results: [{ kind: "image", title: null, destination: "https://example.com/image" }],
+            sources: ["https://example.com", "https://example.com"],
+          },
+    );
+  }
+});
+
 describe("committed Ask Question rows", () => {
   it("preserves typed answers and absent or one-based recommendations", () => {
     for (const recommendedOptionIndex of [undefined, 1, 2]) {

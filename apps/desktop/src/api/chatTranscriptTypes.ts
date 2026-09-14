@@ -1,3 +1,12 @@
+export type ChatWebSearchDetail = Readonly<{
+  action:
+    | Readonly<{ kind: "search"; queries: readonly string[] }>
+    | Readonly<{ kind: "open-page"; url: string | null }>
+    | Readonly<{ kind: "find-in-page"; url: string | null; pattern: string | null }>;
+  results: readonly Readonly<{ kind: "link" | "image"; title: string | null; destination: string | null }>[];
+  sources: readonly string[];
+}>;
+
 export type ChatDiagnostic = Readonly<{ Code: string; Detail: string }>;
 export type ChatExecutionFacts = Readonly<{
   WorkspaceID: string | null;
@@ -159,6 +168,7 @@ export type ChatCommittedRow = Readonly<{
     CondensedText?: string | null;
     Presentation?: ChatToolPresentation | null;
     QuestionAnswer?: Readonly<{ SelectedOptionNumber?: number | null; Freeform?: string | null }> | null;
+    WebSearch?: ChatWebSearchDetail | null;
   }> | null;
   ReasoningTrace: Readonly<{
     StepID: string;

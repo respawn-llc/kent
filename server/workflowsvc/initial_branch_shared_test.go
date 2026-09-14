@@ -13,6 +13,24 @@ import (
 
 type initialBranchControllerRunner struct{}
 
+type pendingAgentControllerRunner struct {
+	initialBranchControllerRunner
+}
+
+func (pendingAgentControllerRunner) StartAgentCurrentNode(
+	ctx context.Context,
+	_ workflow.CurrentNodeReference,
+	_ workflowruntime.TaskPromptDelivery,
+	_ workflowexecution.CurrentNodeAssignmentSteer,
+	_ func(),
+	_ workflowruntime.Controller,
+) (sessionruntime.ExecutionHandle, error) {
+	// Keep the admitted start pending until controller cleanup. A failed start
+	// would re-interrupt the node and make a later Resume legitimately apply.
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (initialBranchControllerRunner) StartAgentCurrentNode(
 	context.Context,
 	workflow.CurrentNodeReference,

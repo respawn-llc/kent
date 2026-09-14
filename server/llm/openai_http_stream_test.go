@@ -1260,9 +1260,10 @@ func TestGenerate_RepairsMissingAssistantOutputItemAtNonZeroOutputIndex(t *testi
 
 func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
-		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli"},"usage":{"searches":1}}}`,
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"in_progress","results":null,"action":{"type":"search","query":"kent cli"}}}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli","queries":["kent cli","kent docs"],"sources":[{"type":"url","url":"https://kent.sh"}]},"results":[{"type":"text_result","title":"Kent","url":"https://kent.sh","snippet":"excluded snippet"}],"usage":{"searches":1}}}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
-		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[]}}`,
 		`[DONE]`,
 	)
 
@@ -1285,8 +1286,17 @@ func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 		if item.Type != ResponseItemTypeOther {
 			continue
 		}
-		if !strings.Contains(string(item.Raw), "\"type\":\"web_search_call\"") {
-			t.Fatalf("unexpected passthrough raw item: %+v", item)
+		var hosted struct {
+			Status  string `json:"status"`
+			Results []struct {
+				Title string `json:"title"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(item.Raw, &hosted); err != nil {
+			t.Fatal(err)
+		}
+		if hosted.Status != "completed" || len(hosted.Results) != 1 || hosted.Results[0].Title != "Kent" {
+			t.Fatalf("completed search facts were lost: %+v", hosted)
 		}
 		foundHosted = true
 	}

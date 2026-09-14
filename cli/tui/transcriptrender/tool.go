@@ -55,6 +55,10 @@ func renderToolRowWithLinkPresentation(
 	}
 	if mode == ModeDetailExpanded {
 		input := detailedToolText(meta, row.Text)
+		if row.WebSearch != nil && !meta.IsError {
+			return renderDetailedToolWithOutputLines(role, input,
+				webSearchDetailLines(row.WebSearch, contentWidth(role, width), linkPresentation), width, meta)
+		}
 		if display.kind == toolDisplaySourceResult {
 			return renderDetailedToolWithOutputLines(
 				role,
