@@ -544,6 +544,7 @@ type currentNodeControllerStore struct {
 	completionOnce        sync.Once
 	sessionTaskID         *workflow.TaskID
 	sessionAssociation    *workflowstore.TaskSessionAssociation
+	pendingApprovals      []workflow.PendingApproval
 	bindingErr            error
 	bindings              []currentNodeSessionBindingCall
 	interruptStarted      chan struct{}
@@ -645,6 +646,20 @@ func (s *currentNodeControllerStore) PreflightTaskResume(_ context.Context, _ wo
 
 func (s *currentNodeControllerStore) PendingApproval(context.Context, workflow.ApprovalID) (workflow.PendingApproval, error) {
 	return s.pendingApproval, nil
+}
+
+func (s *currentNodeControllerStore) TaskIDForSession(_ context.Context, sessionID runtimeids.SessionID) (*workflow.TaskID, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessionTaskID == nil || s.sessionAssociation == nil || s.sessionAssociation.SessionID != sessionID {
+		return nil, nil
+	}
+	taskID := *s.sessionTaskID
+	return &taskID, nil
+}
+
+func (s *currentNodeControllerStore) ListPendingApprovals(context.Context, workflow.TaskID) ([]workflow.PendingApproval, error) {
+	return append([]workflow.PendingApproval(nil), s.pendingApprovals...), nil
 }
 
 func (s *currentNodeControllerStore) ApplyPendingApproval(context.Context, workflow.ApprovalID) (workflowstore.PendingApprovalApplyResult, error) {

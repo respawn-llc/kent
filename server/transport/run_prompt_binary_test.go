@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -37,6 +39,38 @@ func (s controlledRunPrompt) RunPrompt(ctx context.Context, _ serverapi.RunPromp
 type runPromptTestDependencies struct {
 	GatewayDependencies
 	run apicontract.RunPromptService
+}
+
+type runtimeControlTestDependencies struct {
+	GatewayDependencies
+	runtime apicontract.RuntimeControlService
+}
+
+func (d runtimeControlTestDependencies) RuntimeControlClient() apicontract.RuntimeControlService {
+	return d.runtime
+}
+
+type rejectedRunPrompt struct {
+	taskID string
+}
+
+func (r rejectedRunPrompt) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	return nil, &serverapi.WorkflowContinuationRejectionError{
+		TaskID: r.taskID,
+		Reason: serverapi.WorkflowContinuationWaitingForApproval,
+	}
+}
+
+type rejectedRuntimeControl struct {
+	apicontract.RuntimeControlService
+	taskID string
+}
+
+func (r rejectedRuntimeControl) SubmitUserTurn(context.Context, *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
+	return nil, serverapi.NewRuntimeCommandNotAcceptedError(&serverapi.WorkflowContinuationRejectionError{
+		TaskID: r.taskID,
+		Reason: serverapi.WorkflowContinuationWaitingForApproval,
+	})
 }
 
 func (d runPromptTestDependencies) RunPromptClientForProjectWorkspace(context.Context, string, string) (apicontract.RunPromptService, error) {
@@ -179,5 +213,79 @@ func TestRunPromptBinaryDeliversProgressBeforeFinalAnswer(t *testing.T) {
 	}
 	if finalResult.GetSuccess().GetResult() != "final answer" {
 		t.Fatalf("generated final result = %v", finalResult)
+	}
+}
+
+func TestRunPromptBinaryDeliversWorkflowContinuationRejection(t *testing.T) {
+	core, _ := newGatewayTestCore(t, true, true)
+	defer core.Close()
+	const taskID = "task-run-prompt-binary-rejection"
+	gateway, err := NewGateway(runPromptTestDependencies{
+		GatewayDependencies: core,
+		run:                 rejectedRunPrompt{taskID: taskID},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gateway.handleConn))
+	defer server.Close()
+	client, err := remoteclient.DialRemoteURLForProject(
+		context.Background(),
+		"ws"+server.URL[len("http"):],
+		core.ProjectID(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Prompt: "continue",
+	}, nil)
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) ||
+		rejection.TaskID != taskID ||
+		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
+		t.Fatalf("RunPrompt error = %T %v, want typed continuation rejection", err, err)
+	}
+}
+
+func TestSubmitUserTurnBinaryDeliversWorkflowContinuationRejection(t *testing.T) {
+	core, _ := newGatewayTestCore(t, true, true)
+	defer core.Close()
+	const taskID = "task-submit-user-turn-binary-rejection"
+	store := createGatewayAuthoritativeSession(t, core)
+	gateway, err := NewGateway(runtimeControlTestDependencies{
+		GatewayDependencies: core,
+		runtime: rejectedRuntimeControl{
+			RuntimeControlService: core.RuntimeControlClient(),
+			taskID:                taskID,
+		},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gateway.handleConn))
+	defer server.Close()
+	client, err := remoteclient.DialRemoteURLForProject(
+		context.Background(),
+		"ws"+server.URL[len("http"):],
+		core.ProjectID(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
+		SessionId: store.Meta().SessionID,
+		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "continue"}},
+	})
+	var rejection *serverapi.WorkflowContinuationRejectionError
+	if !errors.As(err, &rejection) ||
+		rejection.TaskID != taskID ||
+		rejection.Reason != serverapi.WorkflowContinuationWaitingForApproval {
+		t.Fatalf("SubmitUserTurn error = %T %v, want typed continuation rejection", err, err)
 	}
 }

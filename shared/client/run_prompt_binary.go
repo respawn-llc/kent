@@ -65,6 +65,9 @@ func (c *Remote) RunPrompt(ctx context.Context, request serverapi.RunPromptReque
 				return nil, err
 			}
 			return decodeGeneratedResult(method, result, func(failure *runpromptpb.Error) error {
+				if detail := failure.GetWorkflowContinuationRejection(); detail != nil {
+					return protoapi.WorkflowContinuationRejectionFromProto(detail)
+				}
 				return projectInternalGeneratedError(failure.Code, failure.GetInternalFailure())
 			})
 		default:

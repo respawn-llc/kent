@@ -992,6 +992,10 @@ message SubmitUserTurnError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
     }];
+    kent.api.shared.WorkflowContinuationRejectionDetails workflow_continuation_rejection = 10 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workflow_continuation_rejected"
+    }];
   }
 }
 
