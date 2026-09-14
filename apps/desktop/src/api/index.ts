@@ -18,6 +18,8 @@ export type {
 } from "./chatSettingsTypes";
 export { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 export { goalFactFromTranscript } from "./chatGoal";
+export { orderPendingPrompts } from "./promptPresentation";
+export { promptAnswerEntry } from "./promptAnswerEntry";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -65,6 +67,7 @@ export type {
   PromptAnswerBatchInput,
   PromptAnswerBatchResponse,
   QuestionAnswerInput,
+  PromptAnswerBatchEntryInput,
   TaskEditInput,
   TaskMoveInput,
   TaskResumeInput,
@@ -288,6 +291,8 @@ export type {
   FileAccessTarget,
   OrdinaryQuestionPrompt,
   PromptIdentity,
+  PendingPrompt,
+  PromptUpdate,
 } from "./promptModels";
 export type { SessionCatalogPage, SessionCatalogSummary, SessionCategory } from "./models";
 export type {

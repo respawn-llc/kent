@@ -637,7 +637,6 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 	sessionID := uuid.NewString()
 	toolCallID := "approval-1"
 	successorQuestion := "Next?"
-	approvalLabel := "Grant this workspace once"
 	attention := taskQuestionAttention(taskID, sessionID, "Implementer", toolCallID, "Allow access?", 1)
 	attention.Question.Kind = serverapi.WorkflowAttentionQuestionKindApproval
 	attention.Question.ApprovalDecisions = []clientui.ApprovalDecision{clientui.ApprovalDecisionAllowOnce}
@@ -645,7 +644,7 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 		CreatedAt:  time.Unix(1, 0),
 		ToolCallID: clientui.ToolCallID(toolCallID), SessionID: mustQuestionCommandSessionID(sessionID),
 		StepID:  questionCommandStepID(),
-		Options: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: approvalLabel}},
+		Options: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce}},
 		AccessTargets: []clientui.FileAccessTarget{
 			{RequestedPath: "/alias/a", ResolvedPath: "/real/file"},
 			{RequestedPath: "/alias/b", ResolvedPath: "/real/file"},
@@ -689,7 +688,7 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 	}
 	output := stdout.String()
 	previous := -1
-	for _, text := range []string{"/alias/a → /real/file", "/alias/b → /real/file", "/real/other", approvalLabel} {
+	for _, text := range []string{"/alias/a → /real/file", "/alias/b → /real/file", "/real/other"} {
 		index := strings.Index(output, text)
 		if index <= previous {
 			t.Fatalf("access targets are missing or out of order at %q:\n%s", text, output)

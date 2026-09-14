@@ -1,4 +1,5 @@
 import type { PromptAnswerBatchInput, QuestionAnswerInput, QuestionAttentionItem } from "@/api";
+import { promptAnswerEntry } from "@/api";
 import type { QuestionSelectionState } from "./TaskDetailQuestionState";
 
 export type QuestionAnswerMutation = Readonly<{
@@ -16,27 +17,6 @@ export function questionAnswerBatchInput(input: QuestionAnswerInput): PromptAnsw
   return {
     sessionID: input.sessionID,
     stepID: input.stepID,
-    entries:
-      input.kind === "approval"
-        ? [
-            {
-              kind: "approval",
-              toolCallID: input.toolCallID,
-              decision: input.decision,
-              commentary: optionalText(input.commentary),
-            },
-          ]
-        : [
-            {
-              kind: "question",
-              toolCallID: input.toolCallID,
-              selectedOptionNumber: input.selectedOptionNumber,
-              freeform: optionalText(input.freeformAnswer),
-            },
-          ],
+    entries: [promptAnswerEntry(input)],
   };
-}
-
-function optionalText(value: string): string | null {
-  return value.trim().length === 0 ? null : value;
 }

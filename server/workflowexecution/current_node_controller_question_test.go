@@ -200,7 +200,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 			reference := currentNodeReferenceForControllerTest(t, test.id, "node-approval")
 			request := askquestion.AskQuestionRequest{
 				ToolCallID: "approval-" + test.id, StepID: uuid.NewString(), Question: "Allow access?", Approval: true,
-				ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}},
+				ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}},
 			}
 			stepID, err := runtimeids.ParseStepID(request.StepID)
 			if err != nil {

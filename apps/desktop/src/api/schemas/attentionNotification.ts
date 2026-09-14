@@ -63,9 +63,13 @@ const targetSchema = z.discriminatedUnion("kind", [
       focus: focus(value.focus),
     })),
   z
-    .object({ kind: z.literal("session_prompt"), session_id: id })
+    .object({ kind: z.literal("session_prompt"), project_id: id, session_id: id })
     .strict()
-    .transform((value): AttentionNotificationTarget => ({ kind: value.kind, sessionID: value.session_id })),
+    .transform((value): AttentionNotificationTarget => ({
+      kind: value.kind,
+      projectID: value.project_id,
+      sessionID: value.session_id,
+    })),
 ]);
 
 const questionStateSchema = z

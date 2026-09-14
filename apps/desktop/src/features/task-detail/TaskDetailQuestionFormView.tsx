@@ -1,12 +1,4 @@
-import {
-  type MouseEvent,
-  type ReactNode,
-  type RefCallback,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-} from "react";
+import { type ReactNode, type RefCallback, useCallback, useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -17,8 +9,16 @@ import {
 } from "@/api";
 import type { QuestionAnswerInput } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, RadioGroup, RadioGroupItem, showStatusToast, StaticMarkdown } from "@/ui";
+import {
+  Button,
+  RadioGroup,
+  PromptOptionRow as QuestionOption,
+  PromptAccessTargets,
+  showStatusToast,
+  StaticMarkdown,
+} from "@/ui";
 import { cx, fieldInputClassNameForRadius } from "@/ui";
+import { approvalDecisionLabel } from "@/shared/prompt-presentation";
 import type { QuestionAnswerMutation } from "./TaskDetailQuestionAnswer";
 import type { PromptPrimaryControl } from "./PromptPrimaryControlRegistry";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
@@ -326,17 +326,7 @@ function QuestionFormFrame({
         }
       }}
     >
-      {hasAccessTargets ? <div>{t("task.accessApprovalIntro", { count: accessTargets.length })}</div> : null}
-      {accessTargets?.map((target, index) => (
-        <div
-          className="min-w-0 text-[var(--color-on-island)]"
-          key={`${String(index)}:${target.requestedPath}`}
-        >
-          - {target.requestedPath}
-          {target.requestedPath === target.resolvedPath ? null : ` → ${target.resolvedPath}`}
-        </div>
-      ))}
-      {hasAccessTargets ? <div>{t("task.accessApprovalQuestion")}</div> : null}
+      {accessTargets === undefined ? null : <PromptAccessTargets targets={accessTargets} />}
       {!hasAccessTargets && question !== undefined && question.length > 0 ? (
         <div className="min-w-0 text-[var(--color-on-island)]">
           <StaticMarkdown value={question} />
@@ -375,60 +365,6 @@ function QuestionFormFrame({
   );
 }
 
-function QuestionOption({
-  disabled,
-  primaryControlRef,
-  recommended,
-  text,
-  value,
-}: Readonly<{
-  disabled: boolean;
-  primaryControlRef?: RefCallback<HTMLButtonElement> | undefined;
-  recommended: boolean;
-  text: string;
-  value: string;
-}>) {
-  const { t } = useTranslation();
-  const id = useId();
-  const radioRef = useRef<HTMLButtonElement | null>(null);
-  const labelID = `${id}-label`;
-  return (
-    <div
-      className={cx(
-        "flex items-start gap-[var(--space-2)] text-left text-[var(--color-on-island)]",
-        disabled && "opacity-60",
-      )}
-      onClick={(event) => {
-        if (!disabled) activateRadioFromOption(event, radioRef);
-      }}
-    >
-      <RadioGroupItem
-        aria-labelledby={labelID}
-        className="mt-1"
-        disabled={disabled}
-        id={id}
-        ref={(element) => {
-          radioRef.current = element;
-          primaryControlRef?.(element);
-        }}
-        value={value}
-      />
-      <div
-        className={cx(
-          "min-w-0 flex-1 cursor-pointer",
-          recommended && "font-bold text-[var(--color-primary)]",
-        )}
-        id={labelID}
-      >
-        <StaticMarkdown value={text} />
-        {recommended ? (
-          <span className="ml-[var(--space-2)] text-xs font-bold">({t("task.recommended")})</span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function usePrimaryControlRef(
   register: ((control: PromptPrimaryControl) => () => void) | undefined,
 ): RefCallback<HTMLElement> {
@@ -454,24 +390,6 @@ function usePrimaryControlRef(
     },
     [register],
   );
-}
-
-function activateRadioFromOption(
-  event: MouseEvent<HTMLDivElement>,
-  radioRef: Readonly<{ current: HTMLButtonElement | null }>,
-): void {
-  let element = event.target instanceof Element ? event.target : null;
-  while (element !== null && element !== event.currentTarget) {
-    if (
-      element instanceof HTMLAnchorElement ||
-      element instanceof HTMLButtonElement ||
-      element.getAttribute("role") === "link"
-    ) {
-      return;
-    }
-    element = element.parentElement;
-  }
-  radioRef.current?.click();
 }
 
 async function submitQuestionAnswer({
@@ -514,19 +432,4 @@ function approvalDecisionForValue(
     return null;
   }
   return decisions.find((decision) => decision === value) ?? null;
-}
-
-function approvalDecisionLabel(
-  decision: ApprovalDecision,
-  t: ReturnType<typeof useTranslation>["t"],
-): string {
-  switch (decision) {
-    case "allow_once":
-      return t("task.approvalDecisionAllowOnce");
-    case "allow_session":
-      return t("task.approvalDecisionAllowSession");
-    case "deny":
-      return t("task.approvalDecisionDeny");
-  }
-  return decision;
 }

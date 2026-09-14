@@ -106,7 +106,7 @@ func TestExecutionPromptStoreCloseFinalizesEveryApprovalOnce(t *testing.T) {
 	waiters := []chan error{make(chan error, 1), make(chan error, 1)}
 	for index, id := range ids {
 		go func() {
-			_, err := store.Await(context.Background(), tools.AskQuestionRequest{ToolCallID: id, StepID: stepID.String(), Question: "Allow access?", Approval: true, ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}}})
+			_, err := store.Await(context.Background(), tools.AskQuestionRequest{ToolCallID: id, StepID: stepID.String(), Question: "Allow access?", Approval: true, ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}}})
 			waiters[index] <- err
 		}()
 	}

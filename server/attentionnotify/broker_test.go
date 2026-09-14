@@ -46,13 +46,15 @@ func TestBrokerDeliversSameIDHigherRevisionPendingUpdates(t *testing.T) {
 	}
 }
 
-func TestBrokerKeepsSessionPromptOffDesktopRoot(t *testing.T) {
+func TestBrokerDeliversSessionPromptToDesktopRoot(t *testing.T) {
 	fixture := newBrokerFixture(t)
 	desktop := fixture.subscribeDesktop()
 	session := fixture.subscribeSession("session-1")
 	scope := RoutingScope{Kind: RoutingSessionPrompt, SessionID: "session-1"}
 	fixture.publishPending(scope, testSessionPromptNotification("prompt-1"))
-	fixture.requireNoEvent(desktop, "desktop received session prompt event")
+	if event := fixture.next(desktop); event.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt {
+		t.Fatalf("desktop target = %+v", event.Pending.Target)
+	}
 	if event := fixture.next(session); event.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt {
 		t.Fatalf("session target = %+v", event.Pending.Target)
 	}
@@ -256,6 +258,7 @@ func testSessionPromptNotification(id string) clientui.AttentionNotification {
 		Revision:   1,
 		Target: clientui.AttentionNotificationTarget{
 			Kind:      clientui.AttentionNotificationTargetSessionPrompt,
+			ProjectID: "project-1",
 			SessionID: "session-1",
 		},
 		Question: &clientui.AttentionNotificationQuestionState{

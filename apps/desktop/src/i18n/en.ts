@@ -1,5 +1,5 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
-import { chatToolRowsEnglish } from "./chatToolRowsEn";
+import { chatEnglish } from "./chatEn";
 
 export const englishResources = {
   translation: {
@@ -274,19 +274,7 @@ export const englishResources = {
         noPromptPreview: "No prompt preview",
       },
     },
-    chat: {
-      worktree: {
-        title: "Worktree",
-        refresh: "Refresh worktrees",
-        create: "Create worktree",
-        switch: "Switch",
-        delete: "Delete worktree",
-        empty: "No worktrees",
-        external: "External",
-        missing: "Missing",
-      },
-      toolRows: chatToolRowsEnglish,
-    },
+    chat: chatEnglish,
     projectEdit: {
       title: "Project",
       loadingTitle: "Loading project",

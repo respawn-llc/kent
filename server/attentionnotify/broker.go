@@ -191,7 +191,7 @@ func (b *Broker) Close(err error) {
 
 func deliveryMatches(filter deliveryFilter, scope RoutingScope) bool {
 	if filter.desktopRoot {
-		return scope.Kind == RoutingWorkflowTask
+		return scope.Kind == RoutingWorkflowTask || scope.Kind == RoutingSessionPrompt
 	}
 	if filter.sessionID == "" {
 		return false

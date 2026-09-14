@@ -543,7 +543,6 @@ func newPersistedEffectFixture(
 			ToolCallID: string(identity.ToolCallID),
 			ApprovalOptions: []tools.AskQuestionApprovalOption{{
 				Decision: tools.AskQuestionApprovalDecisionAllowOnce,
-				Label:    "Allow once",
 			}},
 		})
 		if err != nil {

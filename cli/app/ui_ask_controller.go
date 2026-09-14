@@ -481,8 +481,8 @@ func (c uiAskController) applyDeliveryResult(result promptAnswerDeliveryResultMs
 func askVisibleOptions(req *transcriptpb.Prompt) []string {
 	if approval := req.GetApproval(); approval != nil {
 		out := make([]string, len(approval.Options))
-		for index, option := range approval.Options {
-			out[index] = option.Label
+		for index, decision := range transcriptPromptApprovalOptions(req) {
+			out[index] = tui.ApprovalDecisionLabel(decision)
 		}
 		return out
 	}
@@ -530,7 +530,7 @@ func approvalCommentaryLabel(req *transcriptpb.Prompt, cursor int) string {
 	if cursor < 0 || cursor >= len(options) {
 		return "Commentary:"
 	}
-	return fmt.Sprintf("Commentary for %s:", options[cursor].Label)
+	return fmt.Sprintf("Commentary for %s:", tui.ApprovalDecisionLabel(transcriptPromptApprovalOptions(req)[cursor]))
 }
 
 func selectedAskOptionNumber(req *transcriptpb.Prompt, cursor int) (int, bool) {

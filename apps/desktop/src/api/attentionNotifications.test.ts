@@ -163,6 +163,7 @@ describe("attention notification API", () => {
           approval: { access_targets: [{ requested_path: "../outside.txt", resolved_path: "/outside.txt" }] },
           target: {
             kind: "session_prompt",
+            project_id: "project-1",
             session_id: "session-1",
           },
         },
@@ -196,6 +197,11 @@ describe("attention notification API", () => {
       { requestedPath: "../outside.txt", resolvedPath: "/outside.txt" },
     ]);
     expect(genericApproval.pending.workflowApproval).toBeNull();
+    expect(genericApproval.pending.target).toEqual({
+      kind: "session_prompt",
+      projectID: "project-1",
+      sessionID: "session-1",
+    });
 
     const workflowApproval = events[1];
     if (workflowApproval?.type !== "pending" || workflowApproval.pending.target.kind !== "workflow_task") {

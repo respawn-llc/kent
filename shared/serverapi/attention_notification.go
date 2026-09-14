@@ -160,6 +160,9 @@ func validateWorkflowTaskAttentionTarget(target clientui.AttentionNotificationTa
 }
 
 func validateSessionPromptAttentionTarget(target clientui.AttentionNotificationTarget) error {
+	if strings.TrimSpace(target.ProjectID) == "" {
+		return errors.New("session-prompt attention notification target project_id is required")
+	}
 	if target.SessionID == "" {
 		return errors.New("session-prompt attention notification target session_id is required")
 	}

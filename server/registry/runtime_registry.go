@@ -22,6 +22,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -38,6 +39,7 @@ type RuntimeRegistry struct {
 	blockingActivitySessions   map[string]bool
 	pendingPrompts             *pendingPromptStore
 	attentionBroker            *attentionnotify.Broker
+	attentionNavigation        func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)
 	questionBatches            *attentionnotify.QuestionBatchTracker
 	workflowEventPublisher     func(context.Context, serverapi.WorkflowProjectEvent) error
 	executionTargetResolver    func(context.Context, string) (*worktreepb.SessionExecutionTarget, error)

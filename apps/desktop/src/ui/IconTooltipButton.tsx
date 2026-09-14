@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radi
 
 export type IconTooltipButtonProps = Readonly<{
   label: string;
+  tooltip?: string;
   onClick: MouseEventHandler<HTMLButtonElement>;
   children: ReactNode;
   disabled?: boolean | undefined;
@@ -22,6 +23,7 @@ export function IconTooltipButton({
   children,
   disabled,
   label,
+  tooltip = label,
   onClick,
   size = "icon",
   variant = "ghost",
@@ -36,7 +38,7 @@ export function IconTooltipButton({
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
+        <TooltipContent>{tooltip}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

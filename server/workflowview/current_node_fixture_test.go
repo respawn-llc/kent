@@ -95,8 +95,8 @@ func workflowViewApprovalRequest() tools.AskQuestionRequest {
 		Question:   "Approve this workflow action?",
 		Approval:   true,
 		ApprovalOptions: []tools.AskQuestionApprovalOption{
-			{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"},
-			{Decision: tools.AskQuestionApprovalDecisionDeny, Label: "Deny"},
+			{Decision: tools.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: tools.AskQuestionApprovalDecisionDeny},
 		},
 	}
 }

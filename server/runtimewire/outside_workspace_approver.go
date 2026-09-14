@@ -9,12 +9,6 @@ import (
 	"core/server/tools"
 )
 
-const (
-	OutsideWorkspaceAllowOnceSuggestion    = "Allow once"
-	OutsideWorkspaceAllowSessionSuggestion = "Allow for this session"
-	OutsideWorkspaceDenySuggestion         = "Deny"
-)
-
 type OutsideWorkspaceApprover struct {
 	broker         *tools.AskQuestionBroker
 	mu             sync.Mutex
@@ -50,9 +44,9 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAc
 		StepID:        identity.StepID,
 		ToolCallID:    string(identity.ToolCallID),
 		ApprovalOptions: []tools.AskQuestionApprovalOption{
-			{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: OutsideWorkspaceAllowOnceSuggestion},
-			{Decision: tools.AskQuestionApprovalDecisionAllowSession, Label: OutsideWorkspaceAllowSessionSuggestion},
-			{Decision: tools.AskQuestionApprovalDecisionDeny, Label: OutsideWorkspaceDenySuggestion},
+			{Decision: tools.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: tools.AskQuestionApprovalDecisionAllowSession},
+			{Decision: tools.AskQuestionApprovalDecisionDeny},
 		},
 		ApprovalConsumer: func(answer tools.AskQuestionApproval) error {
 			consumerOnce.Do(func() {
