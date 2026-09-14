@@ -1,5 +1,5 @@
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
-import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import { MutationObserver, QueryObserver, type QueryClient } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import type { TFunction } from "i18next";
@@ -17,6 +17,7 @@ import {
   createWorktreeTargetResolutionRequest,
   disposeWorktreeCreateTargetResolution,
   freshFetchWorktreeCreateTargetResolution,
+  worktreeCreateTargetResolutionQueryOptions,
   queryAtom,
   type SidebarPageNavigator,
   type StatusController,
@@ -46,17 +47,28 @@ export function createWorktreeCreate({
   const target = Atom.make(suggestion ?? "");
   const base = Atom.make("HEAD");
   const intent = Atom.make<string | null>(null);
-  const resolver = new MutationObserver(client, {
-    mutationFn: async (value: string) =>
-      freshFetchWorktreeCreateTargetResolution(
-        client,
-        api,
-        createWorktreeTargetResolutionRequest(sessionID, value),
-      ),
-    retry: false,
-    networkMode: "always",
+  const resolver = Atom.make((get) => {
+    const value = get(target).trim();
+    if (value.length === 0) return null;
+    const request = createWorktreeTargetResolutionRequest(sessionID, value);
+    void client.resetQueries({
+      queryKey: worktreeCreateTargetResolutionQueryOptions(api, request).queryKey,
+      exact: true,
+    });
+    const observer = new QueryObserver(client, {
+      ...worktreeCreateTargetResolutionQueryOptions(api, request),
+      enabled: false,
+    });
+    return { observer, snapshot: queryAtom(observer) };
   });
-  const resolution = queryAtom(resolver);
+  const resolution = Atom.make((get) => {
+    const request = get(resolver);
+    return request === null ? null : get(request.snapshot);
+  });
+  const resolvedAuthority = Atom.make((get) => {
+    const result = get(resolution);
+    return result?.isSuccess ? result.data.resolution : undefined;
+  });
   const creator = new MutationObserver(client, {
     mutationFn: async (input: WorktreeCreateInput) => api.createWorktree(input),
     retry: false,
@@ -86,8 +98,8 @@ export function createWorktreeCreate({
         if (creator.getCurrentResult().isPending) return;
         const value = get(target).trim();
         get.set(intent, value);
-        const result = resolver.getCurrentResult();
-        if (value.length === 0 || !result.isSuccess || result.variables !== value) return;
+        const result = get(resolver)?.observer.getCurrentResult();
+        if (value.length === 0 || !result?.isSuccess) return;
         const authority = result.data.resolution;
         if (authority === undefined) throw new Error("Create resolution is required");
         const baseRef =
@@ -116,7 +128,7 @@ export function createWorktreeCreate({
         Effect.promise(async () => disposeWorktreeCreateTargetResolution(client, request)),
       );
       yield* Effect.sleep(150);
-      yield* Effect.tryPromise(async () => resolver.mutate(value));
+      yield* Effect.tryPromise(async () => freshFetchWorktreeCreateTargetResolution(client, api, request));
       if (get.once(intent) === value) get.set(submit, undefined);
     }).pipe(Effect.ignore);
   });
@@ -125,7 +137,6 @@ export function createWorktreeCreate({
       Effect.sync(() => {
         if (creator.getCurrentResult().isPending) return;
         get.set(intent, null);
-        resolver.reset();
         creator.reset();
         get.set(target, value);
       }),
@@ -146,8 +157,7 @@ export function createWorktreeCreate({
     const baseRef = get(base);
     const result = get(resolution);
     const created = get(creation);
-    const authority =
-      result.isSuccess && result.variables === value.trim() ? result.data.resolution : undefined;
+    const authority = get(resolvedAuthority);
     const isNew =
       authority?.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH;
     const errors = creationErrors(
@@ -161,9 +171,9 @@ export function createWorktreeCreate({
       base: baseRef,
       classification: authority?.kind,
       pending: created.isPending,
-      resolving: value.trim().length > 0 && authority === undefined && !result.isError,
+      resolving: value.trim().length > 0 && authority === undefined && !result?.isError,
       ...errors,
-      targetError: errors.targetError ?? (result.isError ? errorMessage(result.error) : undefined),
+      targetError: errors.targetError ?? (result?.isError ? errorMessage(result.error) : undefined),
     };
   });
   return { state, resolution, creation, resolve, submit, editTarget, editBase };

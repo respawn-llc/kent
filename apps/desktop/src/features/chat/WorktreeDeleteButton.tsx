@@ -75,7 +75,7 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
   const inlineError = immediateDeleteError(deletion.error);
   return (
     <>
-      {preview.isIdle || preview.isPending || deletion.isPending ? <Spinner size="sm" /> : null}
+      {preview.isPending || deletion.isPending ? <Spinner size="sm" /> : null}
       {preview.isError ? (
         <p className="break-words text-sm text-[var(--color-error)]">{errorMessage(preview.error)}</p>
       ) : null}

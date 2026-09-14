@@ -51,10 +51,6 @@ test("position keys are allowed only in the immutable Web Search detail renderer
 });
 
 const allowedPaths = Object.freeze([
-  "src/dev-showcase/fixtures/index.ts",
-  "src/dev-showcase/fixtures/api.ts",
-  "src/dev-showcase/allowed-development-fixtures.ts",
-  "src/test-support/harness/allowed-development-fixtures.ts",
   "packages/native-bridge/src/allowed-owner-local.ts",
   "packages/native-bridge/src/allowed-tauri.ts",
   "src/api/allowed-owner-local.ts",
@@ -80,8 +76,6 @@ const allowedPaths = Object.freeze([
 ]);
 
 const forbiddenDependencyPaths = Object.freeze([
-  "src/features/alpha/forbidden-development-fixtures.test.ts",
-  "src/app/forbidden-deep-development-fixtures.ts",
   "packages/native-bridge/src/forbidden-ui.ts",
   "src/api/forbidden-ui.ts",
   "src/app-facade/forbidden-api-composition.ts",

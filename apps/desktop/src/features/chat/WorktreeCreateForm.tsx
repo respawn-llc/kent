@@ -10,6 +10,7 @@ import {
   useAppServices,
   usePublishSidebarHeaderAction,
   useStatusController,
+  useTextFieldSubmitShortcut,
   worktreeListQueryOptions,
   type SidebarPageNavigator,
 } from "@/app-facade";
@@ -110,6 +111,7 @@ function CreateFields({
   const state = useAtomValue(model.state);
   const switching = useAtomValue(actions.switching).isPending;
   const pending = state.pending || switching;
+  const submitShortcut = useTextFieldSubmitShortcut({ kind: "form", available: !pending });
   const isNew =
     state.classification === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH;
   return (
@@ -117,6 +119,7 @@ function CreateFields({
       <Tooltip {...(pending ? {} : { open: false })}>
         <TooltipTrigger asChild>
           <form
+            onKeyDown={submitShortcut}
             className="grid min-w-0 gap-[var(--space-3)]"
             onSubmit={(event) => {
               event.preventDefault();

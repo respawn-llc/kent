@@ -1,5 +1,5 @@
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
-import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import { MutationObserver, QueryObserver, type QueryClient } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import type { TFunction } from "i18next";
@@ -15,6 +15,7 @@ import {
   createWorktreeSelectorRequest,
   disposeWorktreeDeletePreview,
   freshFetchWorktreeDeletePreview,
+  worktreeDeletePreviewQueryOptions,
   queryAtom,
   type StatusController,
 } from "@/app-facade";
@@ -39,10 +40,9 @@ export function createWorktreeDelete({
   t: TFunction;
 }>) {
   const request = createWorktreeSelectorRequest(sessionID, selector);
-  const previewObserver = new MutationObserver(client, {
-    mutationFn: async () => freshFetchWorktreeDeletePreview(client, api, request),
-    retry: false,
-    networkMode: "always",
+  const previewObserver = new QueryObserver(client, {
+    ...worktreeDeletePreviewQueryOptions(api, request),
+    enabled: false,
   });
   const preview = queryAtom(previewObserver);
   const load = Atom.make(
@@ -50,7 +50,9 @@ export function createWorktreeDelete({
       yield* Effect.addFinalizer(() =>
         Effect.promise(async () => disposeWorktreeDeletePreview(client, request)),
       );
-      yield* Effect.tryPromise(async () => previewObserver.mutate()).pipe(Effect.ignore);
+      yield* Effect.tryPromise(async () => freshFetchWorktreeDeletePreview(client, api, request)).pipe(
+        Effect.ignore,
+      );
     }),
   );
   const observer = new MutationObserver(client, {
@@ -92,7 +94,7 @@ export function createWorktreeDelete({
           body: errorMessage(error),
         });
       } else if (error instanceof WorktreeError && error.detail.kind === "delete_precondition") {
-        await previewObserver.mutate().catch(() => undefined);
+        await freshFetchWorktreeDeletePreview(client, api, request).catch(() => undefined);
       }
     },
   });
