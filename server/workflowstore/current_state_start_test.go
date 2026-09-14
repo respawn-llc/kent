@@ -215,7 +215,7 @@ func TestReconcileTaskResumeOnlyChangesSelectedTaskAndPreservesApprovalSources(t
 	}
 
 	publisher := &recordingCurrentNodeEventPublisher{}
-	store.SetEventPublisher(publisher)
+	store.SetWorkflowEventPublisher(publisher)
 	if err := store.ReconcileTaskResume(ctx, admittedTask.ID); err != nil {
 		t.Fatalf("ReconcileTaskResume: %v", err)
 	}
