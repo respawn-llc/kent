@@ -214,7 +214,7 @@ func TestAskVisibleActivationOwnsNotificationTiming(t *testing.T) {
 	}
 }
 
-func TestAskHydrationAdmissionEmitsNoAttentionBeforeProjection(t *testing.T) {
+func TestAskHydrationAdmissionEmitsNoAttentionBeforeOrAfterProjection(t *testing.T) {
 	ringer := &countRinger{}
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
 	model.promptAttention = newUnfocusedBellHooks(ringer)
@@ -229,7 +229,10 @@ func TestAskHydrationAdmissionEmitsNoAttentionBeforeProjection(t *testing.T) {
 	}
 	next, _ := model.Update(command())
 	ready := next.(*uiModel)
-	if ready.ask.activeProjection == nil || ringer.total() != 1 {
-		t.Fatalf("hydrated visible activation notifications = %d, want 1", ringer.total())
+	if ready.ask.activeProjection == nil {
+		t.Fatal("hydrated prompt did not become visible")
+	}
+	if ringer.total() != 0 {
+		t.Fatalf("hydrated visible activation notifications = %d, want 0", ringer.total())
 	}
 }
