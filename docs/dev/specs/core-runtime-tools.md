@@ -126,7 +126,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Approved outside-workspace image reads appear in run logs with the requested and resolved paths.
 - `view_image` opens and reads each local file in an isolated worker. Kent terminates the worker and returns a recoverable tool error when opening or reading takes longer than 10 seconds or the Agent Step is interrupted.
 - When a successful patch cannot accurately describe its whole-file deletion count, Kent never invents a count or reverses the filesystem change. Debug mode fails fast with diagnostics. Production preserves the successful path-only result, records an operator diagnostic excluded from model context, and continues.
-- For supported non-raw raster images of at least 100 KiB, `view_image` attempts JPEG or WEBP re-encoding after validation. Kent keeps the validated original when optimization fails or is not smaller, and always enforces the attachment-size limit.
+- `view_image` must support still WebP input and preserve transparency when optimizing images to WebP.
+- For supported non-raw raster images of at least 100 KiB, `view_image` must attempt WebP re-encoding after validation. Kent must validate the generated image with an independent decoder before accepting it as provider-bound output. Kent keeps the validated original when optimization fails or is not smaller, and always enforces the attachment-size limit.
 
 ## Tool Output And Failure Behavior
 
