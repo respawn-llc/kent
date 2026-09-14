@@ -65,12 +65,14 @@ export function ChatComposer({ settingsChip, availableHeight, onHeightChange }: 
   }, [onHeightChange, composer.draft.kind]);
   if (composer.draft.kind === "failed")
     return (
-      <ErrorState
-        title={t("states.error")}
-        body={errorMessage(composer.draft.error)}
-        onRetry={composer.retryDraft}
-        retryLabel={t("app.retry")}
-      />
+      <div className="chat-composer" ref={root}>
+        <ErrorState
+          title={t("states.error")}
+          body={errorMessage(composer.draft.error)}
+          onRetry={composer.retryDraft}
+          retryLabel={t("app.retry")}
+        />
+      </div>
     );
   return (
     <div className="chat-composer" ref={root}>
