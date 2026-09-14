@@ -3,6 +3,7 @@ import tseslint from "typescript-eslint";
 
 export const architectureOwners = Object.freeze({
   API: "api",
+  DEVELOPMENT_FIXTURES: "development-fixtures",
   APP_FACADE: "app-facade",
   FEATURE: "feature",
   I18N: "i18n",
@@ -19,6 +20,7 @@ export const architectureOwners = Object.freeze({
 });
 
 export const architectureElements = Object.freeze([
+  architectureElement(architectureOwners.DEVELOPMENT_FIXTURES, "src/dev-showcase/fixtures"),
   architectureElement(architectureOwners.SHELL, "src/app"),
   architectureElement(architectureOwners.SHELL, "src/dev-showcase"),
   architectureElement(architectureOwners.APP_FACADE, "src/app-facade"),
@@ -76,6 +78,7 @@ export const architectureAdditionalDependencyNodes = Object.freeze(
 );
 
 const dependencyTargets = {
+  DEVELOPMENT_FIXTURES: dependencyTarget(architectureOwners.DEVELOPMENT_FIXTURES, "@/dev-showcase/fixtures"),
   API: dependencyTarget(architectureOwners.API, "@/api"),
   API_COMPOSITION: dependencyTarget(
     architectureOwners.API,
@@ -135,6 +138,16 @@ const compositionDependencies = [
 ];
 
 const ownerDependencyMatrix = [
+  // Browser showcases and test harnesses share fake transport/data; features never consume fixtures.
+  ownerDependencies(
+    architectureOwners.DEVELOPMENT_FIXTURES,
+    dependencyTargets.API_COMPOSITION,
+    dependencyTargets.SERVER_API_CONTRACT,
+    dependencyTargets.API,
+    dependencyTargets.APP_FACADE,
+  ),
+  ownerDependencies(architectureOwners.SHELL, dependencyTargets.DEVELOPMENT_FIXTURES),
+  ownerDependencies(architectureOwners.TEST_SUPPORT, dependencyTargets.DEVELOPMENT_FIXTURES),
   ownerDependencies(architectureOwners.API, dependencyTargets.SERVER_API_CONTRACT),
   ownerDependencies(architectureOwners.TEST_SUPPORT, dependencyTargets.SERVER_API_CONTRACT),
   ownerDependencies(

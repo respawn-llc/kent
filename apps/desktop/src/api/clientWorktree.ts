@@ -184,7 +184,7 @@ export async function deleteWorktree(
   confirmation: WorktreeDeleteConfirmationChoice,
 ): Promise<DeleteSuccess> {
   const authority = requireWorktreeAuthority(preview, "delete");
-  if (confirmation === "confirm_and_branch" && !hasDeletableBranch(authority)) {
+  if (confirmation === "confirm_and_branch" && !hasDeletableWorktreeBranch(authority)) {
     throw new TypeError("Worktree Delete confirmation is invalid for this preview.");
   }
   const method = TransitionService.method.delete;
@@ -291,7 +291,7 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
   return generic;
 }
 
-function hasDeletableBranch(preview: WorktreeDeletePreview): boolean {
+export function hasDeletableWorktreeBranch(preview: WorktreeDeletePreview): boolean {
   const topology = required(preview.worktree).topology;
   switch (topology.case) {
     case "mainWorkspace":

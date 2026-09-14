@@ -22,6 +22,7 @@ GUI workspace for Kent desktop/web client surfaces.
 - `desktop/src/ui/**` owns generic visual primitives and presentation utilities and does not depend on other desktop production owners.
 - `desktop/src/api/**` owns adapted models, raw schemas, transport, sockets, and client implementation. `@/api` is feature-safe; `@/api/composition` is restricted to shell startup and test support.
 - `desktop/src/test-support/**` owns reusable test-only harnesses through capability entrypoints. Only categorized tests may import it, and feature-internal fixtures remain with their feature.
+- `desktop/src/dev-showcase/fixtures/**` owns browser-safe fake transport and fixture data shared by shell showcases and test-support through its entrypoint. Ordinary features must not import these fixtures.
 - `desktop/packages/native-bridge/**`, `desktop/src/i18n/**`, `desktop/src/vendor/**`, `desktop/src/types/**`, `desktop/test/**`, and `desktop/tooling/**` are explicit leaf owners.
 
 Cross-owner imports use the target owner's public `@/…` entrypoint. Relative imports stay within one owner. The native package uses `@app/native-bridge`; vendor aliases must match their declared adapter paths exactly. Entrypoints remain narrow, declarative, and side-effect free.

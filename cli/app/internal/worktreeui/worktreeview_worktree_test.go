@@ -90,12 +90,6 @@ func TestResolveCurrentDeletionTargetFallsBackToNotFound(t *testing.T) {
 	}
 }
 
-func TestSanitizeBranchSuggestion(t *testing.T) {
-	if got := SanitizeBranchSuggestion(" Fix: My Feature!! "); got != "fix-my-feature" {
-		t.Fatalf("suggestion = %q, want fix-my-feature", got)
-	}
-}
-
 func testWorktreeItem(t *testing.T, id, name, root, branch string, main, current bool) Item {
 	t.Helper()
 	branchValue := branch

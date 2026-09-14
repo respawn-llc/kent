@@ -1,26 +1,38 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type {
-  ApiService,
-  ChatTranscriptPayloadByKind,
-  WorktreeDeletePreviewOperation,
-  WorktreeSwitch,
-} from "@/api";
+import type { ApiService, ChatTranscriptPayloadByKind } from "@/api";
 import { replaceWorktreeListRead } from "./worktreeQueries";
+import type { SidebarShellController } from "./sidebarContext";
+import type { StatusController } from "./statusContextValue";
+import type { TFunction } from "i18next";
 
-export type WorktreeBrowserAction = Readonly<{
-  sessionID: string;
-  returnFocus: HTMLElement;
-}> &
-  (
-    | Readonly<{ kind: "create" }>
-    | Readonly<{ kind: "switch"; operation: WorktreeSwitch }>
-    | Readonly<{ kind: "delete"; operation: Readonly<WorktreeDeletePreviewOperation> }>
-  );
+export function createRefreshOpenWorktreeList(
+  client: QueryClient,
+  api: ApiService,
+  currentSurface: SidebarShellController["currentSurface"],
+) {
+  return (sessionID: string) => {
+    const surface = currentSurface();
+    if (surface?.kind === "worktree" && surface.page === "list" && surface.sessionID === sessionID) {
+      void replaceWorktreeListRead(client, api, sessionID);
+    }
+  };
+}
 
-export type WorktreeBrowserActions = (action: WorktreeBrowserAction) => void;
-
-export function worktreeTransitionOutcomeHandler(client: QueryClient, api: ApiService, sessionID: string) {
+export function worktreeTransitionOutcomeHandler(
+  refreshOpenWorktreeList: (sessionID: string) => void,
+  sessionID: string,
+  push: StatusController["push"],
+  t: TFunction,
+) {
   return (outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]) => {
-    if (outcome.State === "completed") void replaceWorktreeListRead(client, api, sessionID);
+    refreshOpenWorktreeList(sessionID);
+    if (outcome.State === "failed" && outcome.Failure != null) {
+      push({
+        id: outcome.OperationID,
+        tone: "danger",
+        title: t("chat.worktree.title"),
+        body: outcome.Failure.Detail,
+      });
+    }
   };
 }

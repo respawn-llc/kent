@@ -1,0 +1,1 @@
+export { fixtureValue } from "./api";

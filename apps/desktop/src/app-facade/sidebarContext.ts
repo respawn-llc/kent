@@ -10,7 +10,6 @@ import {
 } from "react";
 import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
-import type { WorktreeBrowserActions } from "./worktreeBrowser";
 
 export type SidebarMode = "overlay" | "shift";
 export type SidebarPhase = "closing" | "open";
@@ -55,7 +54,7 @@ export type SidebarDestination =
       kind: "worktree";
       mode?: SidebarMode;
       sessionID: string;
-      onAction: WorktreeBrowserActions;
+      page: "list" | "create";
     }>
   | (Readonly<{
       kind: "newTask";
@@ -158,6 +157,7 @@ export type SidebarRootController = Readonly<{
 }>;
 
 export type SidebarShellController = Readonly<{
+  currentSurface(): SidebarDestination | null;
   activeDestination: SidebarDestination | null;
   back(): SidebarNavigationOutcome;
   backAvailable: boolean;

@@ -454,8 +454,8 @@ func (m *uiModel) suggestedWorktreeBranchFromEntries() string {
 	if m == nil {
 		return ""
 	}
-	if sessionBranch := worktreeui.SanitizeBranchSuggestion(m.suggestedWorktreeSessionName()); sessionBranch != "" {
-		return sessionBranch
+	if sessionBranch := worktreecontract.SanitizeBranchSuggestion(m.suggestedWorktreeSessionName()); sessionBranch != nil {
+		return *sessionBranch
 	}
 	return ""
 }

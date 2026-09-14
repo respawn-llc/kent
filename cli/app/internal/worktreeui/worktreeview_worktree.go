@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
-	"unicode"
 
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/textutil"
@@ -104,39 +102,6 @@ func BranchName(item Item) string {
 
 func DisplayName(item Item) string {
 	return item.DisplayName
-}
-
-func SanitizeBranchSuggestion(raw string) string {
-	trimmed := strings.TrimSpace(strings.ToLower(raw))
-	if trimmed == "" {
-		return ""
-	}
-	var builder strings.Builder
-	lastDash := false
-	for _, r := range trimmed {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			builder.WriteRune(r)
-			lastDash = false
-		case r == '/' || r == '-' || r == '_':
-			if builder.Len() == 0 || lastDash {
-				continue
-			}
-			builder.WriteRune('-')
-			lastDash = true
-		default:
-			if builder.Len() == 0 || lastDash {
-				continue
-			}
-			builder.WriteRune('-')
-			lastDash = true
-		}
-	}
-	result := strings.Trim(builder.String(), "-/")
-	for strings.Contains(result, "--") {
-		result = strings.ReplaceAll(result, "--", "-")
-	}
-	return result
 }
 
 func DeleteCanAutoDeleteBranch(item Item) bool {

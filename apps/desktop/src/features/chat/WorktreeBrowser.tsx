@@ -1,13 +1,9 @@
-import { ArrowRightLeft, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { ArrowRightLeft, Plus, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "@/api";
-import {
-  usePublishSidebarHeaderAction,
-  type SidebarPageNavigator,
-  type WorktreeBrowserActions,
-} from "@/app-facade";
+import { errorMessage, type WorktreeDeletePreviewOperation, type WorktreeSwitch } from "@/api";
+import { usePublishSidebarHeaderAction, type SidebarPageNavigator } from "@/app-facade";
 import {
   ActionableListRow,
   Badge,
@@ -22,31 +18,53 @@ import { worktreeRow } from "./worktreePresentation";
 
 export function WorktreeBrowser({
   sessionID,
-  onAction,
+  onCreate,
+  onSwitch,
   navigator,
-}: Readonly<{ sessionID: string; onAction: WorktreeBrowserActions; navigator: SidebarPageNavigator }>) {
+  switchPending = false,
+  renderDelete,
+}: Readonly<{
+  sessionID: string;
+  onCreate(): void;
+  onSwitch(operation: WorktreeSwitch): void;
+  navigator: SidebarPageNavigator;
+  switchPending?: boolean;
+  renderDelete(operation: WorktreeDeletePreviewOperation): ReactNode;
+}>) {
   const { t } = useTranslation();
   const query = useWorktreeList(sessionID);
   const rows = useRef<HTMLDivElement>(null);
+  const headerElement = useRef<HTMLDivElement | null>(null);
+  const lastFocused = useRef<HTMLElement | null>(null);
   const entered = useRef(false);
-  const enter = useCallback((header: HTMLDivElement | null) => {
-    if (header === null || entered.current) return;
-    entered.current = true;
+  const focusFirst = useCallback(() => {
     const action =
       rows.current?.querySelector<HTMLButtonElement>("button:not(:disabled)") ??
-      header.querySelector<HTMLButtonElement>("button:not(:disabled)");
+      headerElement.current?.querySelector<HTMLButtonElement>("button:not(:disabled)");
     action?.focus();
   }, []);
+  const enter = useCallback(
+    (header: HTMLDivElement | null) => {
+      headerElement.current = header;
+      if (header === null || entered.current) return;
+      entered.current = true;
+      focusFirst();
+    },
+    [focusFirst],
+  );
+  useEffect(() => {
+    if (
+      lastFocused.current !== null &&
+      !lastFocused.current.isConnected &&
+      document.activeElement === document.body
+    )
+      focusFirst();
+  }, [query.data, focusFirst]);
   const { refresh, isFetching } = query;
   const header = useMemo(
     () => (
       <div className="flex items-center gap-[var(--space-1)]" ref={enter}>
-        <IconTooltipButton
-          label={t("chat.worktree.create")}
-          onClick={(event) => {
-            onAction({ kind: "create", sessionID, returnFocus: event.currentTarget });
-          }}
-        >
+        <IconTooltipButton label={t("chat.worktree.create")} onClick={onCreate}>
           <Plus size={16} />
         </IconTooltipButton>
         <IconTooltipButton label={t("chat.worktree.refresh")} onClick={refresh}>
@@ -54,7 +72,7 @@ export function WorktreeBrowser({
         </IconTooltipButton>
       </div>
     ),
-    [enter, isFetching, onAction, refresh, sessionID, t],
+    [enter, isFetching, onCreate, refresh, t],
   );
   usePublishSidebarHeaderAction(header);
   useEffect(() => {
@@ -69,7 +87,13 @@ export function WorktreeBrowser({
     };
   }, [navigator]);
   return (
-    <div className="grid min-w-0 gap-[var(--space-2)]" ref={rows}>
+    <div
+      className="grid min-w-0 gap-[var(--space-2)]"
+      ref={rows}
+      onFocusCapture={(event) => {
+        lastFocused.current = event.target;
+      }}
+    >
       {query.data === undefined && !query.isError ? (
         <LoadingState fullPage={false} appearanceDelayMs={0} />
       ) : null}
@@ -117,36 +141,16 @@ export function WorktreeBrowser({
               <>
                 {row.switch === undefined ? null : (
                   <IconTooltipButton
-                    label={t("chat.worktree.switch")}
-                    onClick={(event) => {
-                      if (row.switch !== undefined)
-                        onAction({
-                          kind: "switch",
-                          sessionID,
-                          operation: row.switch,
-                          returnFocus: event.currentTarget,
-                        });
+                    label={t(switchPending ? "chat.worktree.switchPending" : "chat.worktree.switch")}
+                    disabled={switchPending}
+                    onClick={() => {
+                      if (row.switch !== undefined) onSwitch(row.switch);
                     }}
                   >
-                    <ArrowRightLeft size={16} />
+                    {switchPending ? <Spinner size="sm" /> : <ArrowRightLeft size={16} />}
                   </IconTooltipButton>
                 )}
-                {row.delete === undefined ? null : (
-                  <IconTooltipButton
-                    label={t("chat.worktree.delete")}
-                    onClick={(event) => {
-                      if (row.delete !== undefined)
-                        onAction({
-                          kind: "delete",
-                          sessionID,
-                          operation: row.delete,
-                          returnFocus: event.currentTarget,
-                        });
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </IconTooltipButton>
-                )}
+                {row.delete === undefined ? null : renderDelete(row.delete)}
               </>
             }
           />
