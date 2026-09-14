@@ -1,9 +1,10 @@
-import { useEffect, useEffectEvent, useReducer, useState } from "react";
+import { useMemo } from "react";
+import { useStableCallback } from "@/ui";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { errorMessage, type WorkflowProjectEvent } from "@/api";
-import { queryKeys } from "@/app-facade";
+import { queryKeys, useLocalSubscription } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 
@@ -92,43 +93,30 @@ function useWorkflowEditorSubscription(
   }>,
 ) {
   const { api } = useAppServices();
-  const [failure, setFailure] = useState<Readonly<{ id: string; error: Error }> | null>(null);
-  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
-  const refreshOrFail = useEffectEvent((notify: boolean) => {
+  const identity = useMemo(() => ({ scope, id }), [scope, id]);
+  const refreshOrFail = useStableCallback((notify: boolean, reportFailure: (error: Error) => void) => {
     void refresh(notify).catch((cause: unknown) => {
-      setFailure({ id, error: cause instanceof Error ? cause : new Error(errorMessage(cause)) });
+      reportFailure(cause instanceof Error ? cause : new Error(errorMessage(cause)));
     });
   });
-  const onEvent = useEffectEvent((event: WorkflowProjectEvent) => {
-    if (affectsEditor(event)) refreshOrFail(shouldNotify(event));
+  const onEvent = useStableCallback((event: WorkflowProjectEvent, reportFailure: (error: Error) => void) => {
+    if (affectsEditor(event)) refreshOrFail(shouldNotify(event), reportFailure);
   });
-  useEffect(() => {
-    if (id.length === 0) return;
+  return useLocalSubscription(id.length > 0 ? identity : null, (reportFailure, isActive) => {
     const handler = {
       onOpen: () => {
-        refreshOrFail(false);
+        if (isActive()) refreshOrFail(false, reportFailure);
       },
       onEvent: (event: WorkflowProjectEvent) => {
-        onEvent(event);
+        if (isActive()) onEvent(event, reportFailure);
       },
       onComplete: () => undefined,
       onError: (error: Error) => {
-        setFailure({ id, error });
+        reportFailure(error);
       },
     };
-    const subscription =
-      scope === "workflow" ? api.subscribeWorkflow(id, handler) : api.subscribeProject(id, handler);
-    return () => {
-      subscription.close();
-    };
-  }, [api, attempt, id, scope]);
-  return {
-    error: failure?.id === id ? failure.error : null,
-    retry: () => {
-      setFailure(null);
-      retry();
-    },
-  };
+    return scope === "workflow" ? api.subscribeWorkflow(id, handler) : api.subscribeProject(id, handler);
+  });
 }
 
 export function shouldRefreshWorkflowEditor(

@@ -163,7 +163,6 @@ describe("KanbanColumn retained replacement boundary", () => {
       const { result } = renderHook(() => {
         const action = useBoardInitiatingActionController({
           api: services.api,
-          connected: true,
           onActionError,
           onApplied: async () => refresh.promise,
           startErrorTitle: "start",

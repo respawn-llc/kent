@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/app-facade";
 import type { QuestionAttentionItem } from "@/api";
 import { parsedQuestionAttention } from "@/test-support/task-detail";
 import { PromptAnswerCoordinator } from "./PromptAnswerCoordinator";
@@ -9,6 +11,35 @@ import { emptyQuestionSelection, withQuestionCommentary } from "./TaskDetailQues
 type CoordinatorOptions = ConstructorParameters<typeof PromptAnswerCoordinator>[0];
 
 describe("Task Detail prompt answers", () => {
+  it("keeps acknowledged attention absent while success refresh waits and fails", async () => {
+    const answered = question("step-1", "prompt-1");
+    const sibling = question("step-2", "prompt-1");
+    const client = new QueryClient();
+    const key = queryKeys.taskAttention("task-1");
+    const projection = { items: [answered, sibling], generatedAt: 1 };
+    client.setQueryData(key, projection);
+    const refresh = deferred<undefined>();
+    const harness = coordinatorHarness(
+      [
+        [answered, draft("answer")],
+        [sibling, draft("sibling")],
+      ],
+      {
+        queryClient: client,
+        invalidateAttention: async () => refresh.promise,
+      },
+    );
+    const attempt = submit(harness.coordinator, answered, "answer", async () => undefined);
+    await vi.waitFor(() => {
+      expect(harness.state.isMasked(promptAnswerKey(answered))).toBe(false);
+    });
+    expect(client.getQueryData(key)).toEqual({ ...projection, items: [sibling] });
+    refresh.reject(new Error("refresh failed"));
+    await attempt;
+    expect(client.getQueryData(key)).toEqual({ ...projection, items: [sibling] });
+    expect(harness.state.selection(promptAnswerKey(sibling))?.answer).toBe("sibling");
+    client.clear();
+  });
   it("restores an ambiguous failed answer without a follow-up read", async () => {
     const attention = question("step-1", "prompt-1");
     const invalidate = vi.fn(async () => undefined);
@@ -89,13 +120,13 @@ describe("Task Detail prompt answers", () => {
 
   it("does not restore a prompt resolved by the latest available projection", async () => {
     const attention = question("step-1", "prompt-1");
-    let latest: readonly QuestionAttentionItem[] = [attention];
+    const queryClient = new QueryClient();
     const answer = deferred<undefined>();
     const harness = coordinatorHarness([[attention, draft("discard")]], {
-      currentAttention: () => latest,
+      queryClient,
     });
     const attempt = submit(harness.coordinator, attention, "discard", async () => answer.promise);
-    latest = [];
+    queryClient.setQueryData(queryKeys.taskAttention("task-1"), { items: [], generatedAt: 2 });
     answer.reject(new Error("delivery lost"));
     await attempt;
     expect(harness.state.selection(promptAnswerKey(attention))).toBeUndefined();
@@ -132,13 +163,19 @@ function coordinatorHarness(
     emptyPromptAnswerState(),
   );
   const failures: unknown[] = [];
+  const queryClient = options.queryClient ?? new QueryClient();
+  const task = options.task ?? { id: "task-1", shortID: "TASK-1", title: "Task" };
+  queryClient.setQueryData(queryKeys.taskAttention(task.id), {
+    items: selections.map(([attention]) => attention),
+    generatedAt: 1,
+  });
   return {
     coordinator: new PromptAnswerCoordinator({
+      queryClient,
       invalidateAttention: options.invalidateAttention ?? (async () => undefined),
       isMounted: options.isMounted ?? (() => true),
       notifyFailure: (failure) => failures.push(failure),
-      currentAttention: options.currentAttention ?? (() => selections.map(([attention]) => attention)),
-      task: options.task ?? { id: "task-1", shortID: "TASK-1", title: "Task" },
+      task,
       updateState: (update) => {
         state = update(state);
       },
@@ -156,7 +193,14 @@ async function submit(
   answer: string,
   send: () => Promise<void>,
 ) {
-  return coordinator.submit({ attention, selection: draft(answer), send });
+  return coordinator.submit({
+    attention,
+    selection: draft(answer),
+    send: async () => {
+      await send();
+      return { results: [{ toolCallID: attention.question.toolCallID, outcome: "resolved" }] };
+    },
+  });
 }
 const baseQuestion = parsedQuestionAttention();
 const question = (stepID: string, toolCallID: string, sessionID = "session-1"): QuestionAttentionItem => ({

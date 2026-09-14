@@ -5,7 +5,8 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useEffectEvent, useReducer, useState } from "react";
+import { useCallback } from "react";
+import { useStableCallback } from "@/ui";
 
 import { boardNodeCardsPageSize, type BoardNodeCardsPage, type WorkflowProjectEvent } from "@/api";
 import {
@@ -13,6 +14,7 @@ import {
   invalidateProjectTaskSearches,
   queryKeys,
   reportNonCancelledError,
+  useLocalSubscription,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { workflowProjectEventCanChangeTaskSearch } from "@/app-facade";
@@ -122,8 +124,6 @@ export function useProjectBoardSubscription(
 ) {
   const { api } = useAppServices();
   const queryClient = useQueryClient();
-  const [failure, setFailure] = useState<Readonly<{ projectID: string; error: Error }> | null>(null);
-  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const labelEffects = useProjectLabelEffects();
   const { onBackgroundError, onSelectedTaskDeleted, selectedTaskID, selectedWorkflowID } = input;
   const consumeBackgroundError = useCallback(
@@ -133,7 +133,7 @@ export function useProjectBoardSubscription(
     [onBackgroundError],
   );
 
-  const handlers = useEffectEvent(() => {
+  const handlers = useStableCallback(() => {
     async function refresh(): Promise<void> {
       await invalidateProjectBoardQueries(queryClient, projectID);
     }
@@ -179,34 +179,27 @@ export function useProjectBoardSubscription(
       },
     };
   });
-  useEffect(() => {
-    if (projectID.length === 0) return;
-    const subscription = api.subscribeProject(projectID, {
+  return useLocalSubscription(projectID.length > 0 ? projectID : null, (reportFailure, isActive) => {
+    return api.subscribeProject(projectID, {
       onOpen: () => {
+        if (!isActive()) return;
         handlers().onOpen();
       },
       onEvent: (event) => {
+        if (!isActive()) return;
         handlers().onEvent(event);
       },
       onComplete: (code) => {
+        if (!isActive()) return;
         handlers().onComplete(code);
       },
       onError: (error) => {
-        setFailure({ projectID, error });
+        if (!isActive()) return;
+        reportFailure(error);
         handlers().onError(error);
       },
     });
-    return () => {
-      subscription.close();
-    };
-  }, [api, attempt, projectID]);
-  return {
-    error: failure?.projectID === projectID ? failure.error : null,
-    retry: () => {
-      setFailure(null);
-      retry();
-    },
-  };
+  });
 }
 
 function isDeletedTaskEvent(event: WorkflowProjectEvent, taskID: string | undefined): boolean {

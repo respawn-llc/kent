@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "@/api";
-import { queryKeys, reportNonCancelledError, useAppServices } from "@/app-facade";
+import { errorMessage, type WorkflowProjectEvent } from "@/api";
+import { queryKeys, reportNonCancelledError, useAppServices, useLocalSubscription } from "@/app-facade";
 import { ErrorState, useStableCallback } from "@/ui";
 import { createProjectLabelEffects } from "./labelEventEffects";
 import { ProjectLabelDataContext } from "./projectLabelContext";
@@ -25,9 +25,6 @@ export function ProjectLabelsProvider({
   const { api, logger } = useAppServices();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
-  const [failure, setFailure] = useState<Readonly<{ projectID: string; error: Error }> | null>(null);
-  const error = failure?.projectID === projectID ? failure.error : null;
-  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const catalog = useQuery({
     queryKey: queryKeys.projectLabels(projectID),
     queryFn: async () => api.listProjectLabels(projectID),
@@ -70,33 +67,46 @@ export function ProjectLabelsProvider({
       }),
     [filter.dispatch, projectID, queryClient, reportBackgroundError],
   );
-  useEffect(() => {
-    if (!subscribeToProject || projectID.length === 0) {
-      return;
-    }
+  const handlers = useStableCallback(() => {
     const run = (operation: Promise<void>): void => {
       void operation.catch(reportBackgroundError);
     };
-    const subscription = api.subscribeProject(projectID, {
+    return {
       onOpen() {
         run(effects.refreshAfterSubscriptionBoundary());
       },
-      onEvent(event) {
+      onEvent(event: WorkflowProjectEvent) {
         run(effects.consumeProjectEvent(event));
       },
-      onComplete(code) {
+      onComplete(code: number) {
         if (code !== 0) return;
         run(effects.refreshAfterSubscriptionBoundary());
       },
-      onError(error) {
-        setFailure({ projectID, error });
+      onError(error: Error) {
         reportBackgroundError(error);
       },
-    });
-    return () => {
-      subscription.close();
     };
-  }, [api, attempt, effects, projectID, reportBackgroundError, subscribeToProject]);
+  });
+  const { error, retry } = useLocalSubscription(
+    subscribeToProject && projectID.length > 0 ? projectID : null,
+    (reportFailure, isActive) =>
+      api.subscribeProject(projectID, {
+        onOpen: () => {
+          if (isActive()) handlers().onOpen();
+        },
+        onEvent: (event) => {
+          if (isActive()) handlers().onEvent(event);
+        },
+        onComplete: (code) => {
+          if (isActive()) handlers().onComplete(code);
+        },
+        onError: (error) => {
+          if (!isActive()) return;
+          reportFailure(error);
+          handlers().onError(error);
+        },
+      }),
+  );
   const value = useMemo(
     () => ({
       catalog,
@@ -113,10 +123,7 @@ export function ProjectLabelsProvider({
           fullPage={false}
           body={errorMessage(error)}
           title={t("labels.loadFailed")}
-          onRetry={() => {
-            setFailure(null);
-            retry();
-          }}
+          onRetry={retry}
           retryLabel={t("app.retry")}
         />
       )}

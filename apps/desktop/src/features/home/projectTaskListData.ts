@@ -5,7 +5,8 @@ import {
   type InfiniteData,
   type UseInfiniteQueryResult,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer } from "react";
+import { useStableCallback } from "@/ui";
 
 import {
   errorMessage,
@@ -16,7 +17,7 @@ import {
   type TaskListPage,
   type WorkflowProjectEvent,
 } from "@/api";
-import { queryKeys, useAppServices } from "@/app-facade";
+import { queryKeys, useAppServices, useLocalSubscription } from "@/app-facade";
 import { defaultProjectTaskSort, projectTaskSortsEqual, type ProjectTaskSort } from "./projectTaskSorting";
 
 export const projectTaskGroups = ["active", "backlog", "done"] as const satisfies readonly ProjectTaskGroup[];
@@ -294,8 +295,6 @@ export function useProjectTaskListEvents({
   projectID: string;
 }>) {
   const { api, logger } = useAppServices();
-  const [failure, setFailure] = useState<Readonly<{ projectID: string; error: Error }> | null>(null);
-  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const queryClient = useQueryClient();
   const reportBackgroundError = useCallback(
     (error: unknown): void => {
@@ -333,18 +332,15 @@ export function useProjectTaskListEvents({
     await Promise.all([refreshWorkflows(), refreshTaskLists()]);
   }, [refreshTaskLists, refreshWorkflows]);
 
-  useEffect(() => {
-    if (!enabled || projectID.length === 0) {
-      return;
-    }
+  const handle = useStableCallback(() => {
     const run = (operation: Promise<void>): void => {
       void operation.catch(reportBackgroundError);
     };
-    const subscription = api.subscribeProject(projectID, {
+    return {
       onOpen() {
         run(refreshBoundary());
       },
-      onEvent(event) {
+      onEvent(event: WorkflowProjectEvent) {
         if (event.projectID !== null && event.projectID !== projectID) {
           return;
         }
@@ -360,35 +356,36 @@ export function useProjectTaskListEvents({
           run(refreshTaskLists());
         }
       },
-      onComplete(code) {
+      onComplete(code: number) {
         if (code !== 0) return;
         run(refreshBoundary());
       },
-      onError(error) {
-        setFailure({ projectID, error });
+      onError(error: Error) {
         reportBackgroundError(error);
       },
-    });
-    return () => {
-      subscription.close();
     };
-  }, [
-    api,
-    attempt,
-    enabled,
-    projectID,
-    refreshBoundary,
-    refreshTaskLists,
-    refreshWorkflows,
-    reportBackgroundError,
-  ]);
-  return {
-    error: failure?.projectID === projectID ? failure.error : null,
-    retry: () => {
-      setFailure(null);
-      retry();
+  });
+  return useLocalSubscription(
+    enabled && projectID.length > 0 ? projectID : null,
+    (reportFailure, isActive) => {
+      return api.subscribeProject(projectID, {
+        onOpen: () => {
+          if (isActive()) handle().onOpen();
+        },
+        onEvent: (event) => {
+          if (isActive()) handle().onEvent(event);
+        },
+        onComplete: (code) => {
+          if (isActive()) handle().onComplete(code);
+        },
+        onError: (error) => {
+          if (!isActive()) return;
+          reportFailure(error);
+          handle().onError(error);
+        },
+      });
     },
-  };
+  );
 }
 
 export function projectTaskListEventCanChangeRows(event: WorkflowProjectEvent): boolean {

@@ -37,7 +37,7 @@ const accepted: ChatInputMutationResult = {
   },
 };
 
-it("retains disconnected Session edits without admitting a background draft write", async () => {
+it("persists subsequent Session edits through their ordinary independent request", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("saved");
   const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
@@ -56,13 +56,12 @@ it("retains disconnected Session edits without admitting a background draft writ
     });
     persist.mockClear();
     act(() => {
-      services.transport.connection.set("disconnected");
       result.current.edit("offline edits");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
-    expect(persist).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledOnce();
     expect(result.current.text).toBe("offline edits");
   } finally {
     vi.useRealTimers();

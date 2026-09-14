@@ -1,13 +1,15 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useMemo } from "react";
+import { useStableCallback } from "@/ui";
 
-import type { OffsetPage, TaskDetail } from "@/api";
+import type { OffsetPage, TaskDetail, WorkflowProjectEvent } from "@/api";
 import { errorMessage } from "@/api";
 import {
   invalidateProjectBoardQueries,
   invalidateProjectTaskSearches,
   queryKeys,
   reportNonCancelledError,
+  useLocalSubscription,
 } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import {
@@ -28,21 +30,11 @@ import {
 export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
   const { api, logger } = useAppServices();
   const queryClient = useQueryClient();
-  const [failure, setFailure] = useState<Readonly<{ taskID: string; error: Error }> | null>(null);
-  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const taskID = detail.id;
   const projectID = detail.projectID;
   const relatedTaskIDs = useMemo(() => dependencyRelatedTaskIDs(detail.dependencies), [detail.dependencies]);
-  const relatedTaskIDsRef = useRef(relatedTaskIDs);
-
-  useEffect(() => {
-    relatedTaskIDsRef.current = relatedTaskIDs;
-  }, [relatedTaskIDs]);
-
-  useEffect(() => {
-    if (!enabled || taskID.length === 0 || projectID.length === 0) {
-      return;
-    }
+  const identity = useMemo(() => ({ taskID, projectID }), [taskID, projectID]);
+  const handlers = useStableCallback(() => {
     const refresh = async (): Promise<void> => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -72,12 +64,12 @@ export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
         });
       });
     };
-    const subscription = api.subscribeProject(projectID, {
+    return {
       onOpen() {
         refreshOrReport();
       },
-      onEvent(event) {
-        if (!workflowProjectEventAffectsDependencyDetail(event, taskID, relatedTaskIDsRef.current)) {
+      onEvent(event: WorkflowProjectEvent) {
+        if (!workflowProjectEventAffectsDependencyDetail(event, taskID, relatedTaskIDs)) {
           return;
         }
         refreshOrReport();
@@ -85,22 +77,29 @@ export function useTaskDetailLiveRefresh(detail: TaskDetail, enabled: boolean) {
       onComplete() {
         return;
       },
-      onError(error) {
-        setFailure({ taskID, error });
+      onError(error: Error) {
         void logger.append("warn", "Task detail subscription failed.", { error: errorMessage(error) });
       },
-    });
-    return () => {
-      subscription.close();
     };
-  }, [api, attempt, enabled, logger, projectID, queryClient, taskID]);
-  return {
-    error: failure?.taskID === taskID ? failure.error : null,
-    retry: () => {
-      setFailure(null);
-      retry();
-    },
-  };
+  });
+  return useLocalSubscription(
+    enabled && taskID.length > 0 && projectID.length > 0 ? identity : null,
+    (reportFailure, isActive) =>
+      api.subscribeProject(projectID, {
+        onOpen: () => {
+          if (isActive()) handlers().onOpen();
+        },
+        onEvent: (event) => {
+          if (isActive()) handlers().onEvent(event);
+        },
+        onComplete: () => undefined,
+        onError: (error) => {
+          if (!isActive()) return;
+          reportFailure(error);
+          handlers().onError(error);
+        },
+      }),
+  );
 }
 
 export function useTaskDetail(taskID: string, enabled: boolean) {

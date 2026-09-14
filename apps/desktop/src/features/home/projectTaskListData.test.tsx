@@ -520,6 +520,44 @@ describe("Project Task-list data ownership", () => {
     expect(edgeResult.current.active.tasks).toHaveLength(1);
   });
 
+  it("isolates retries and ignores failures delivered after destination cleanup", () => {
+    const harness = createHarness();
+    const { result, rerender, unmount } = renderHook(
+      ({ projectID }) => ({
+        first: useProjectTaskListEvents({ enabled: true, projectID }),
+        second: useProjectTaskListEvents({ enabled: true, projectID: "project-2" }),
+      }),
+      { initialProps: { projectID: "project-1" }, wrapper: ({ children }) => harness.render(children) },
+    );
+    const first = state.handlers[0];
+    const second = state.handlers[1];
+    if (first === undefined || second === undefined) throw new Error("Observations did not open");
+    const failure = new Error("lost observation");
+    act(() => {
+      first.onError(failure);
+      second.onError(failure);
+    });
+    act(() => {
+      result.current.first.retry();
+    });
+    expect(state.handlers).toHaveLength(3);
+    expect(result.current.first.error).toBeNull();
+    expect(result.current.second.error).toBe(failure);
+    act(() => {
+      first.onError(failure);
+    });
+    expect(result.current.first.error).toBeNull();
+    rerender({ projectID: "project-3" });
+    expect(state.handlers).toHaveLength(4);
+    expect(result.current.first.error).toBeNull();
+    expect(result.current.second.error).toBe(failure);
+    act(() => state.handlers[3]?.onError(failure));
+    rerender({ projectID: "project-1" });
+    rerender({ projectID: "project-3" });
+    expect(result.current.first.error).toBeNull();
+    unmount();
+  });
+
   it("owns one typed Project subscription and refreshes only the affected roots", async () => {
     const harness = createHarness();
     const invalidations: (readonly unknown[])[] = [];

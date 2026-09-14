@@ -444,7 +444,7 @@
 - Every deletable row has an icon-only trash action. Activating it opens the delete popup in a loading state and requests an authoritative typed deletion preview for that target.
 - The deletion preview reports Clean, Dirty with the modified-or-untracked file count, or Unknown with an authoritative diagnostic.
 - If the deletion preview request fails, the popup stays open and replaces loading with the authoritative error in error-colored plain text.
-- A preview-request failure shows ordinary Close but no Retry action, deletion action, or Sonner.
+- A preview-request failure must offer Close and Retry for that preview read, without a deletion action or Sonner.
 - Closing and reopening the delete popup starts a fresh preview request.
 - A Missing target previews as Clean because deleting it preserves any leftover recorded directory.
 - The popup shows a Dirty or Unknown warning before its action items. Worktree List and Worktree Status remain lightweight and do not add dirty state.
@@ -454,7 +454,7 @@
 - Only a branch-backed target offers both `Confirm` and `Confirm + Branch`.
 - Confirming after a Dirty or Unknown preview authorizes force folder removal in the same click. Confirming after a Clean preview does not authorize force folder removal.
 - Deletion rechecks current state. The preview does not reserve the target, lock its state, or guarantee later deletion.
-- If a Clean preview races with the target becoming Dirty or Unknown, the server rejects that deletion. Desktop refreshes the preview in the same popup and requires a new informed confirmation.
+- If a Clean preview races with the target becoming Dirty or Unknown, the server rejects that deletion. Desktop must not automatically refresh the preview or infer permission for force removal. Closing and reopening the popup obtains an independent preview; force removal still requires informed confirmation of Dirty or Unknown state.
 - If deletion fails before returning Completed or Scheduled for another reason, the popup stays open and shows the authoritative diagnostic in error-colored plain text.
 - After an immediate deletion failure, the confirmation actions become available again. Repeating Confirm is the retry after the operator addresses the failure.
 - Immediate deletion failure shows no separate Retry action and no Sonner while the popup remains open.
@@ -556,7 +556,7 @@
 - Pointer activation of `Neither` with nonblank freeform confirms immediately. With blank freeform, it selects `Neither` and focuses the field without confirming.
 - Enter while `Neither` is selected follows the same rule: nonblank freeform confirms; blank freeform only focuses the field.
 - Approvals use the same picker, navigation, selection, commentary, confirmation, and batch-submission behavior. They render only their server-provided approval decisions.
-- The answer-selection drafts and unresolved/answered/declined markers are transient UI form state. They survive navigation only while the picker remains open. Leaving the Chat destination, losing the server connection, refreshing the browser, or relaunching Desktop discards them. Pending prompt identity and final resolution remain server-authoritative.
+- The answer-selection drafts and unresolved/answered/declined markers are transient UI form state. They survive navigation only while the picker remains open. Connection loss must preserve drafts while the picker remains open. Leaving the Chat destination, refreshing the browser, or relaunching Desktop discards them. Pending prompt identity and final resolution remain server-authoritative.
 - One picker batch contains the pending prompts with the same server-provided Step identity. Desktop introduces no second batch identifier. Desktop shows ordinary Questions in the order the model invoked their tool calls. Approval order has no product guarantee. If more than one Step has pending prompts, the earliest batch is shown first.
 - A resolved-prompt broadcast discards that prompt's local answer draft and removes the prompt from the picker sequence. If the current prompt resolves elsewhere, the picker moves to the next remaining prompt. If none remain, it closes.
 - Externally resolved prompts disappear silently as though they were never members of the local picker. Desktop does not show Sonner feedback, a disabled item, or another residual picker state.

@@ -1,3 +1,4 @@
+export { useLocalSubscription } from "./useLocalSubscription";
 export type { AppLogger, AppLogLevel } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";

@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { WorkflowDeleteImpact } from "@/api";
 import { errorMessage } from "@/api";
 import { queryKeys, useAppNavigation, useAppServices, useStatusController } from "@/app-facade";
-import { Dialog } from "@/ui";
+import { Dialog, useStableCallback } from "@/ui";
 import { WorkflowDeleteConfirmationContent } from "./WorkflowDeleteConfirmationContent";
 import {
   workflowDeleteBlockersMessage,
@@ -146,7 +146,10 @@ export function useWorkflowDeleteLauncher(
     [api, matchRoute, navigation, onDeleted, push, queryClient, t],
   );
 
-  const openWorkflowDelete = useCallback(async (): Promise<void> => {
+  const retryPreview = useStableCallback((ownerWorkflowID: string) => {
+    if (workflowIDRef.current === ownerWorkflowID) void openWorkflowDelete();
+  });
+  async function openWorkflowDelete(): Promise<void> {
     if (
       previewAdmissionRef.current !== null ||
       submitAdmissionRef.current !== null ||
@@ -170,13 +173,17 @@ export function useWorkflowDeleteLauncher(
           tone: "danger",
           title: t("workflowEditor.workflowDeleteTitle"),
           body: errorMessage(error),
+          actionLabel: t("app.retry"),
+          onAction: () => {
+            retryPreview(workflowID);
+          },
         });
       }
     } finally {
       if (previewAdmissionRef.current === admission) previewAdmissionRef.current = null;
       setOpeningOwner((current) => (current === workflowID ? null : current));
     }
-  }, [api, pending, push, t, workflowID]);
+  }
 
   const cancelPending = useCallback(() => {
     if (submitAdmissionRef.current !== null) return;

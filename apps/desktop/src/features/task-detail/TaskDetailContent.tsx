@@ -3,13 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
-import {
-  errorMessage,
-  type QuestionAnswerInput,
-  type TaskAttention,
-  type TaskDependencyDirection,
-  type TaskDetail,
-} from "@/api";
+import { errorMessage, type QuestionAnswerInput, type TaskDependencyDirection, type TaskDetail } from "@/api";
 import type {
   SidebarPageNavigator,
   SidebarMode,
@@ -274,6 +268,7 @@ function useTaskPromptAnswers({
   );
   const coordinator = useMemo(() => {
     return new PromptAnswerCoordinator({
+      queryClient,
       invalidateAttention: async () => {
         await queryClient.invalidateQueries({
           exact: true,
@@ -297,10 +292,6 @@ function useTaskPromptAnswers({
           tone: "danger",
         });
       },
-      currentAttention: () =>
-        queryClient
-          .getQueryData<TaskAttention>(queryKeys.taskAttention(detail.id))
-          ?.items.filter((item) => item.kind === "question"),
       task: { id: detail.id, shortID: detail.shortID, title: detail.title },
       updateState: setState,
     });

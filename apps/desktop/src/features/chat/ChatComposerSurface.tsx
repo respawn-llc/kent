@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 
 import type { ChatRuntimeActivity } from "@/api";
-import { useChatRuntimeActivity, useConnectionSnapshot } from "@/app-facade";
+import { useChatRuntimeActivity } from "@/app-facade";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import type { useChatComposer } from "./useChatComposer";
 
@@ -10,7 +10,6 @@ type SurfaceProps = Readonly<{ composer: Composer; children: ReactNode }>;
 type SurfaceState = Readonly<{
   composer: Composer;
   activity: ChatRuntimeActivity | null;
-  connected: boolean;
   stoppable: boolean;
   onEditorKeyDown: ReturnType<typeof useComposerKeyboard>["onEditorKeyDown"];
 }>;
@@ -34,13 +33,11 @@ function ComposerSurface({
   children,
   activity,
 }: SurfaceProps & Readonly<{ activity: ChatRuntimeActivity | null }>) {
-  const connection = useConnectionSnapshot();
-  const connected = connection.phase === "connected";
   const stoppable = activity?.activeStep !== null && activity?.activeStep !== undefined;
-  const keyboard = useComposerKeyboard(composer, connected, stoppable);
+  const keyboard = useComposerKeyboard(composer, stoppable);
   return (
     <ComposerSurfaceContext.Provider
-      value={{ composer, activity, connected, stoppable, onEditorKeyDown: keyboard.onEditorKeyDown }}
+      value={{ composer, activity, stoppable, onEditorKeyDown: keyboard.onEditorKeyDown }}
     >
       <div className="h-full min-h-0" {...keyboard.surface}>
         {children}

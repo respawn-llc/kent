@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { StatusNotice } from "@/ui";
 
 import { WorkflowDeleteButton } from "./WorkflowDeleteButton";
 
@@ -13,7 +14,7 @@ const fixture = vi.hoisted(() => ({
     version: 7,
     workflowID: "workflow-1",
   })),
-  push: vi.fn(),
+  push: vi.fn<(notice: StatusNotice) => void>(),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
@@ -68,6 +69,33 @@ describe("WorkflowDeleteButton completion", () => {
     await waitFor(() => {
       expect(onDeleted).toHaveBeenCalledOnce();
     });
+    queryClient.clear();
+  });
+
+  it("retries a failed preview without deleting before confirmation", async () => {
+    fixture.previewWorkflowDelete.mockRejectedValueOnce(new Error("preview unavailable"));
+    const queryClient = new QueryClient();
+    const user = userEvent.setup();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <WorkflowDeleteButton workflowID="workflow-1" />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
+    await waitFor(() => {
+      expect(fixture.push).toHaveBeenCalledOnce();
+    });
+    const notice = fixture.push.mock.calls[0]?.[0];
+    if (notice === undefined) throw new Error("Missing preview failure");
+    expect(notice.onAction).toBeTypeOf("function");
+    await act(async () => notice.onAction?.());
+    expect(fixture.previewWorkflowDelete).toHaveBeenCalledTimes(2);
+    expect(fixture.deleteWorkflow).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "workflowEditor.workflowDeleteConfirm" }));
+    await waitFor(() => {
+      expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
+    });
+    view.unmount();
     queryClient.clear();
   });
 });
