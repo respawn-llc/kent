@@ -15,6 +15,7 @@ import {
   type CreateError,
   type CreateSuccess,
   type CreateTargetResolveSuccess,
+  type CreateTargetResolveError,
   type DeleteError,
   type DeletePreviewError,
   type DeleteSuccess,
@@ -86,7 +87,7 @@ export async function resolveWorktreeCreateTarget(
   target: string,
 ): Promise<CreateTargetResolveSuccess> {
   const method = CreateTargetService.method.resolve;
-  const success = requireUnarySuccess(
+  const success = requireWorktreeSuccess(
     method,
     await transport.callDescriptor(
       method,
@@ -184,7 +185,7 @@ export async function deleteWorktree(
   confirmation: WorktreeDeleteConfirmationChoice,
 ): Promise<DeleteSuccess> {
   const authority = requireWorktreeAuthority(preview, "delete");
-  if (confirmation === "confirm_and_branch" && !hasDeletableBranch(authority)) {
+  if (confirmation === "confirm_and_branch" && !hasDeletableWorktreeBranch(authority)) {
     throw new TypeError("Worktree Delete confirmation is invalid for this preview.");
   }
   const method = TransitionService.method.delete;
@@ -207,6 +208,7 @@ export async function deleteWorktree(
 
 export type WorktreeFailure =
   | SelectorResolveError
+  | CreateTargetResolveError
   | DeletePreviewError
   | CreateError
   | EnterError
@@ -215,6 +217,7 @@ export type WorktreeFailure =
   | SetupStartError;
 
 export type WorktreeErrorDetail =
+  | Readonly<{ kind: "internal"; cause: string | null }>
   | Readonly<{
       kind: "selector";
       details: Extract<WorktreeFailure["detail"], { case: "selectorError" }>["value"];
@@ -265,6 +268,9 @@ export function requireWorktreeSuccess<Success, Failure extends WorktreeFailure>
 function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): RpcError {
   const generic = protobufRpcError(method, failure);
   const detail = failure.detail;
+  if (detail.case === "internalFailure") {
+    return new WorktreeError(generic, { kind: "internal", cause: detail.value.cause ?? null });
+  }
   if (detail.case === "selectorError") {
     return new WorktreeError(generic, { kind: "selector", details: detail.value });
   }
@@ -291,7 +297,7 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
   return generic;
 }
 
-function hasDeletableBranch(preview: WorktreeDeletePreview): boolean {
+export function hasDeletableWorktreeBranch(preview: WorktreeDeletePreview): boolean {
   const topology = required(preview.worktree).topology;
   switch (topology.case) {
     case "mainWorkspace":

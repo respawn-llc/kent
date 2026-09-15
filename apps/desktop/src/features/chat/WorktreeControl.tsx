@@ -2,17 +2,15 @@ import { AlertTriangle, GitBranch } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { useChatExecutionTarget, useOwnedSidebarRoots, type WorktreeBrowserActions } from "@/app-facade";
+import { useChatExecutionTarget, useOwnedSidebarRoots } from "@/app-facade";
 import { Button, ErrorState, Spinner } from "@/ui";
 import { useWorktreeList } from "./useWorktreeList";
 import { worktreeTarget } from "./worktreePresentation";
 
 export function WorktreeControl({
   sessionID,
-  onAction,
 }: Readonly<{
   sessionID: string;
-  onAction: WorktreeBrowserActions;
 }>) {
   const { t } = useTranslation();
   const roots = useOwnedSidebarRoots();
@@ -25,7 +23,7 @@ export function WorktreeControl({
         className="flex max-w-full items-center gap-[var(--space-2)] text-sm"
         onClick={(event) => {
           const returnFocus = event.currentTarget;
-          const handle = roots.open({ kind: "worktree", sessionID, onAction });
+          const handle = roots.open({ kind: "worktree", sessionID, page: "list" });
           void handle.lifecycle.then((outcome) => {
             if (outcome === "closed" && returnFocus.isConnected) returnFocus.focus();
           });

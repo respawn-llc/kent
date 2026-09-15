@@ -448,6 +448,7 @@ message ListRequest {
 message ListSuccess {
   SessionExecutionTarget target = 1 [(buf.validate.field).required = true];
   repeated ListEntry worktrees = 2;
+  optional string branch_suggestion = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.session_list_projection"

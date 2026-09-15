@@ -1,4 +1,5 @@
 import { chatToolRowsEnglish } from "./chatToolRowsEn";
+import { chatWorktreeEnglish } from "./chatWorktreeEn";
 
 const chatPickerEnglish = {
   position: "Question {{current}} of {{count}}",
@@ -11,15 +12,6 @@ const chatPickerEnglish = {
 
 export const chatEnglish = {
   picker: chatPickerEnglish,
-  worktree: {
-    title: "Worktree",
-    refresh: "Refresh worktrees",
-    create: "Create worktree",
-    switch: "Switch",
-    delete: "Delete worktree",
-    empty: "No worktrees",
-    external: "External",
-    missing: "Missing",
-  },
+  worktree: chatWorktreeEnglish,
   toolRows: chatToolRowsEnglish,
 };

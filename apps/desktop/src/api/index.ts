@@ -159,8 +159,14 @@ export type {
   SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
+export {
+  DirtyStateKind,
+  BranchCleanupOutcomeKind,
+  CreateTargetResolutionKind,
+  SelectorErrorKind,
+} from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 export { rpcErrorCodes } from "./rpcErrorCodes";
-export { WorktreeError } from "./clientWorktree";
+export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
 export { nonBlankString } from "./schemas/common";
