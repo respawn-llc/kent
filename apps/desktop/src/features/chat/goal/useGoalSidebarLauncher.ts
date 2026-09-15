@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { useOwnedSidebarRoots } from "@/app-facade";
-import { createNewChatGoalResource } from "./goalBinding";
 import { goalSidebarDestination } from "./goalSidebarDestination";
 import type { GoalSidebarInput } from "./GoalSidebar";
 
@@ -29,28 +28,11 @@ export function useGoalSidebarLauncher(input: GoalSidebarInput): () => void {
     }
     current?.close();
     const generation = (current?.generation ?? 0) + 1;
-    const resource = input.kind === "new_chat" ? createNewChatGoalResource() : undefined;
-    const unregister =
-      input.kind === "new_chat" && resource !== undefined
-        ? input.binding.registerResource(resource)
-        : undefined;
-    const destination = input.kind === "new_chat" && resource !== undefined ? { ...input, resource } : input;
-    const handle = (() => {
-      try {
-        return open(goalSidebarDestination(destination));
-      } catch (error) {
-        unregister?.();
-        resource?.close();
-        throw error;
-      }
-    })();
+    const handle = open(goalSidebarDestination(input));
     active.current = {
       key,
       generation,
-      close: () => {
-        unregister?.();
-        resource?.close();
-      },
+      close: () => undefined,
     };
     void handle.lifecycle.then(
       () => {

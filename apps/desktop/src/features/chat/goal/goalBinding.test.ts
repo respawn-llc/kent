@@ -1,9 +1,25 @@
-import type { ChatGoalSetResult } from "@/api";
-import { ChatOperationError, RpcError } from "@/api";
-import { createNewChatGoalResource, NewChatGoalBinding } from "./goalBinding";
+import type { ChatGoalSetResult, ChatSessionTarget } from "@/api";
+import { ChatOperationError, ContractError, RpcError } from "@/api";
+import { NewChatGoalBinding, type NewChatGoalHostDelivery } from "./goalBinding";
 
-const result: ChatGoalSetResult = {
-  sessionID: "123e4567-e89b-42d3-a456-426614174000",
+const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+const target = {
+  kind: "new_chat" as const,
+  projectID: "project-1",
+  workspaceID: "workspace-1",
+  initialSettings: {
+    agentRole: "default" as const,
+    supervisor: "off" as const,
+    thinking: null,
+    fast: null,
+    questionsEnabled: true,
+    autoCompactionEnabled: true,
+  },
+  initialInputDraft: "composer draft",
+};
+
+const committedResult: ChatGoalSetResult = {
+  sessionID,
   outcome: {
     kind: "mutation",
     mutation: {
@@ -24,179 +40,98 @@ const result: ChatGoalSetResult = {
 };
 
 describe("New Chat Goal binding", () => {
-  it("captures the target once, delivers the result, then publishes the exact Session", async () => {
-    const setGoal = vi.fn(async () => result);
-    const resource = createNewChatGoalResource();
-    const admitted: string[] = [];
+  it("captures the target and delivers Session/Goal before resolving the binding", async () => {
+    const setGoal = vi.fn(async () => committedResult);
+    const delivery = vi.fn<(value: NewChatGoalHostDelivery) => void>();
     const binding = new NewChatGoalBinding({
       api: { setGoal },
-      captureTarget: () => ({
-        kind: "new_chat",
-        projectID: "project-1",
-        workspaceID: "workspace-1",
-        initialSettings: {
-          agentRole: "default",
-          supervisor: "off",
-          thinking: null,
-          fast: null,
-          questionsEnabled: true,
-          autoCompactionEnabled: true,
-        },
-        initialInputDraft: "draft",
-      }),
-    });
-    binding.registerResource(resource);
-    resource.registerMutationAdmission((mutation) => {
-      admitted.push(mutation.fact.goal?.objective ?? "cleared");
-      return true;
+      captureTarget: () => target,
+      onHostDelivery: delivery,
     });
     const snapshots: string[] = [];
     binding.subscribe(() => snapshots.push(binding.snapshot.kind));
 
-    const completion = await binding.setGoal("ship");
-    expect(completion.result).toEqual(result);
-    expect(completion.delivery).toEqual({
-      target: {
-        projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
-        sessionID: result.sessionID,
-      },
-      mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
+    await expect(binding.setGoal("ship")).resolves.toEqual(committedResult);
+
+    const expectedTarget: ChatSessionTarget = {
+      projectID: target.projectID,
+      workspace: { workspaceID: target.workspaceID },
+      sessionID,
+    };
+    expect(delivery).toHaveBeenCalledExactlyOnceWith({
+      target: expectedTarget,
+      goal: committedResult.outcome.kind === "mutation" ? committedResult.outcome.mutation.fact.goal : null,
     });
-    await expect(completion.admission).resolves.toEqual({ kind: "acknowledged" });
-    expect(admitted).toEqual(["ship"]);
-    expect(setGoal).toHaveBeenCalledExactlyOnceWith(
-      {
-        kind: "new_chat",
-        projectID: "project-1",
-        workspaceID: "workspace-1",
-        initialSettings: {
-          agentRole: "default",
-          supervisor: "off",
-          thinking: null,
-          fast: null,
-          questionsEnabled: true,
-          autoCompactionEnabled: true,
-        },
-        initialInputDraft: "draft",
-      },
-      "ship",
-    );
-    expect(binding.snapshot).toEqual({
-      kind: "resolved_session",
-      target: {
-        projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
-        sessionID: result.sessionID,
-      },
-    });
+    expect(binding.snapshot).toEqual({ kind: "resolved_session", target: expectedTarget });
     expect(snapshots).toEqual(["unresolved", "resolved_session"]);
+    expect(setGoal).toHaveBeenCalledExactlyOnceWith(target, "ship");
   });
 
-  it("delivers a Session-bearing rejection without a Goal handoff", async () => {
+  it("delivers a Session-bearing rejection without a Goal", async () => {
     const rejected: ChatGoalSetResult = {
-      sessionID: result.sessionID,
+      sessionID,
       outcome: {
         kind: "rejected",
         error: new ChatOperationError(
           new RpcError({ code: 500, message: "Goal Set failed", method: "runtime.goal.set" }),
-          { kind: "runtime_unavailable", sessionID: result.sessionID },
+          { kind: "runtime_unavailable", sessionID },
         ),
       },
     };
+    const delivery = vi.fn<(value: NewChatGoalHostDelivery) => void>();
     const binding = new NewChatGoalBinding({
       api: { setGoal: vi.fn(async () => rejected) },
-      captureTarget: () => ({
-        kind: "new_chat",
-        projectID: "project-1",
-        workspaceID: "workspace-1",
-        initialSettings: {
-          agentRole: "default",
-          supervisor: "off",
-          thinking: null,
-          fast: null,
-          questionsEnabled: true,
-          autoCompactionEnabled: true,
-        },
-      }),
+      captureTarget: () => target,
+      onHostDelivery: delivery,
     });
 
-    const completion = await binding.setGoal("ship");
-    expect(completion.result).toEqual(rejected);
-    expect(completion.delivery).toEqual({
+    await expect(binding.setGoal("ship")).resolves.toEqual(rejected);
+
+    expect(delivery).toHaveBeenCalledExactlyOnceWith({
       target: {
-        projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
-        sessionID: result.sessionID,
+        projectID: target.projectID,
+        workspace: { workspaceID: target.workspaceID },
+        sessionID,
       },
-      mutation: null,
+      goal: null,
     });
-    await expect(completion.admission).resolves.toEqual({ kind: "skipped" });
-    expect(binding.snapshot).toEqual({
-      kind: "resolved_session",
-      target: {
-        projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
-        sessionID: result.sessionID,
-      },
-    });
+    expect(binding.snapshot.kind).toBe("resolved_session");
   });
 
-  it("does not let a discarded destination resource consume a staged handoff", async () => {
-    const resource = createNewChatGoalResource();
-    const firstAdmit = vi.fn(() => true);
-    const removeFirst = resource.registerMutationAdmission(firstAdmit);
-    const admission = resource.stage({
-      target: {
-        projectID: "project-1",
-        workspace: { workspaceID: "workspace-1" },
-        sessionID: result.sessionID,
-      },
-      mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
+  it("does not deliver or resolve a malformed Goal result", async () => {
+    const delivery = vi.fn<(value: NewChatGoalHostDelivery) => void>();
+    const malformed: ChatGoalSetResult = {
+      ...committedResult,
+      sessionID: "",
+    };
+    const binding = new NewChatGoalBinding({
+      api: { setGoal: vi.fn(async () => malformed) },
+      captureTarget: () => target,
+      onHostDelivery: delivery,
     });
-    removeFirst();
-    const secondAdmit = vi.fn(() => true);
-    resource.registerMutationAdmission(secondAdmit);
 
-    await expect(admission).resolves.toEqual({ kind: "acknowledged" });
-    expect(firstAdmit).not.toHaveBeenCalled();
-    expect(secondAdmit).toHaveBeenCalledOnce();
+    await expect(binding.setGoal("ship")).rejects.toBeInstanceOf(ContractError);
+    expect(delivery).not.toHaveBeenCalled();
+    expect(binding.snapshot).toEqual({ kind: "unresolved", pending: false });
   });
 
-  it("does not stage a late result into a replacement active root", async () => {
-    let resolveResult!: (value: ChatGoalSetResult) => void;
-    const setGoal = vi.fn(async () => {
-      return new Promise<ChatGoalSetResult>((resolve) => {
-        resolveResult = resolve;
-      });
+  it("waits for asynchronous host delivery before publishing the terminal Session", async () => {
+    let resolveDelivery!: () => void;
+    const hostDelivery = new Promise<void>((resolve) => {
+      resolveDelivery = resolve;
     });
     const binding = new NewChatGoalBinding({
-      api: { setGoal },
-      captureTarget: () => ({
-        kind: "new_chat",
-        projectID: "project-1",
-        workspaceID: "workspace-1",
-        initialSettings: {
-          agentRole: "default",
-          supervisor: "off",
-          thinking: null,
-          fast: null,
-          questionsEnabled: true,
-          autoCompactionEnabled: true,
-        },
-      }),
+      api: { setGoal: vi.fn(async () => committedResult) },
+      captureTarget: () => target,
+      onHostDelivery: async () => hostDelivery,
     });
-    const firstResource = createNewChatGoalResource();
-    binding.registerResource(firstResource);
-    const completionPromise = binding.setGoal("ship");
-    const secondResource = createNewChatGoalResource();
-    const secondAdmit = vi.fn(() => true);
-    secondResource.registerMutationAdmission(secondAdmit);
-    binding.registerResource(secondResource);
-    resolveResult(result);
+    const completion = binding.setGoal("ship");
 
-    const completion = await completionPromise;
-    await expect(completion.admission).resolves.toEqual({ kind: "skipped" });
-    expect(secondAdmit).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(binding.snapshot).toEqual({ kind: "unresolved", pending: true });
+    });
+    resolveDelivery();
+    await expect(completion).resolves.toEqual(committedResult);
+    expect(binding.snapshot.kind).toBe("resolved_session");
   });
 });

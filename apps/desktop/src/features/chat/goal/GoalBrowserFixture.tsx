@@ -87,6 +87,7 @@ export function GoalBrowserFixture({
             autoCompactionEnabled: true,
           },
         }),
+        onHostDelivery: () => undefined,
       });
       return { kind: "new_chat", api: runtime.api, binding };
     }
@@ -235,7 +236,8 @@ function createFixtureRuntime(
   let currentFact = goalFixtureFact(state);
   let observationAttempt = 0;
   let pending: PendingMutation | null = null;
-  const subscribers = new Set<Parameters<GoalSidebarApi["subscribeGoal"]>[1]>();
+  type GoalSubscriber = Parameters<GoalSidebarApi["subscribeGoal"]>[1];
+  const subscribers = new Map<GoalSubscriber, number>();
   const activeGoal = {
     id: "goal-fixture",
     objective: "Deterministic Goal fixture",
@@ -244,9 +246,15 @@ function createFixtureRuntime(
     updatedAt: "2026-09-11T10:00:00.000Z",
   } as const satisfies NonNullable<ChatGoalFact["goal"]>;
   const emit = () => {
-    subscribers.forEach((subscriber) => {
-      subscriber.onEvent({ sequence: 1, kind: "hydration", fact: currentFact });
-    });
+    for (const [subscriber, previousSequence] of subscribers) {
+      const sequence = previousSequence + 1;
+      subscribers.set(subscriber, sequence);
+      subscriber.onEvent({
+        sequence,
+        kind: previousSequence === 0 ? "hydration" : "update",
+        fact: currentFact,
+      });
+    }
   };
   const resultFor = (
     kind: "goal" | "clear",
@@ -275,8 +283,10 @@ function createFixtureRuntime(
         pending = {
           resolve: () => {
             pending = null;
+            const result = resultFor(kind, status);
+            emit();
             notify();
-            resolve(resultFor(kind, status));
+            resolve(result);
           },
           reject: () => {
             pending = null;
@@ -317,6 +327,7 @@ function createFixtureRuntime(
         goal,
       };
       currentFact = fact;
+      emit();
       return {
         sessionID: target.kind === "new_chat" ? fixtureSessionID : target.sessionID,
         outcome: {
@@ -334,15 +345,16 @@ function createFixtureRuntime(
     },
     subscribeGoal: (_target, handler): ApiSubscription => {
       const close = () => subscribers.delete(handler);
-      subscribers.add(handler);
+      subscribers.set(handler, 0);
       observationAttempt += 1;
       if (state === "loading" || (state === "error-retry" && observationAttempt > 1)) return { close };
       queueMicrotask(() => {
         if (!subscribers.has(handler)) return;
         if (state === "error-retry") {
+          subscribers.delete(handler);
           handler.onError(new TransportError("Fixture Goal observation failed."));
         } else {
-          handler.onEvent({ sequence: 1, kind: "hydration", fact: currentFact });
+          emit();
         }
       });
       return { close };

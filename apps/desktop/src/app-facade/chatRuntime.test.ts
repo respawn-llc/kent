@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ChatGoalObservationHandler, ChatMainView, ChatMainViewRead, ChatTranscriptPage } from "@/api";
+import type { ChatMainView, ChatMainViewRead, ChatTranscriptPage } from "@/api";
 import {
   changedIdentity,
   deferred,
@@ -28,7 +28,6 @@ import {
   emptyChatProjectionState,
   reduceChatProjection,
 } from "./chatRuntime";
-import { ChatGoalDestinationController } from "./chatGoalDestination";
 import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
 
@@ -255,54 +254,6 @@ describe("Chat Main View query and page execution", () => {
 });
 
 describe("mounted Chat Runtime owner", () => {
-  it("keeps Chat and mounted Goal destination projections independent", async () => {
-    const goalHandlers: ChatGoalObservationHandler[] = [];
-    const destination = new ChatGoalDestinationController(
-      {
-        subscribeGoal(_target, handler) {
-          goalHandlers.push(handler);
-          return { close: vi.fn() };
-        },
-      },
-      target,
-    );
-    const fixture = runtimeApi();
-    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());
-    owner.start();
-    destination.start();
-    await vi.waitFor(() => {
-      expect(owner.snapshot.goal).toMatchObject({
-        kind: "observed",
-        value: { availability: "available" },
-      });
-      expect(fixture.handlers).toHaveLength(1);
-    });
-    goalHandlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "agent_capability_missing" },
-    });
-    const handle = destination.begin({ kind: "clear" });
-    destination.succeed(handle, {
-      kind: "authoritative_clear",
-      fact: { goal: null, availability: null },
-    });
-
-    expect(owner.snapshot.goal).toMatchObject({
-      kind: "observed",
-      value: { availability: "available" },
-    });
-    fixture.handlers[0]?.onOpen?.();
-    fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
-    expect(destination.snapshot).toMatchObject({
-      authority: { kind: "observed", value: { availability: null } },
-      presentation: { kind: "authority" },
-    });
-
-    destination.dispose();
-    await owner.dispose();
-  });
-
   it("retries only failed opening-page work while observation remains dormant", async () => {
     const opening = deferred<ChatTranscriptPage>();
     const fixture = runtimeApi({

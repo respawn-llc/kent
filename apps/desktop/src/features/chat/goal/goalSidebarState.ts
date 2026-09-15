@@ -1,10 +1,17 @@
 import type { ChatGoalFact, ChatGoalStatus } from "@/api";
-import type { ChatGoalDestinationSnapshot, ChatGoalMutationIntent } from "@/app-facade";
+
+export type GoalMutationIntent =
+  | Readonly<{ kind: "goal"; preview: Readonly<{ objective: string; status: ChatGoalStatus }> }>
+  | Readonly<{ kind: "clear" }>;
+
+export type GoalObservationState =
+  | Readonly<{ kind: "loading" | "observed"; fact: ChatGoalFact | null }>
+  | Readonly<{ kind: "error"; error: Error; fact: ChatGoalFact | null }>;
 
 export type DraftState = Readonly<{ base: string; draft: string }>;
 export type GoalSidebarDerivedState = Readonly<{
   fact: ChatGoalFact | null;
-  pendingIntent: ChatGoalMutationIntent | null;
+  pendingIntent: GoalMutationIntent | null;
   draftState: DraftState;
   displayedStatus: ChatGoalStatus | null;
   displayedCreatedAt: string | null;
@@ -16,11 +23,11 @@ export type GoalSidebarDerivedState = Readonly<{
 }>;
 
 export function deriveGoalSidebarState(
-  snapshot: ChatGoalDestinationSnapshot,
+  observation: GoalObservationState,
+  pendingIntent: GoalMutationIntent | null,
   localDraft: DraftState,
 ): GoalSidebarDerivedState {
-  const fact = observedGoalFact(snapshot);
-  const pendingIntent = pendingGoalIntent(snapshot);
+  const fact = observation.fact;
   const presentation = goalPresentation(fact, pendingIntent, localDraft.draft);
   return {
     actionsDisabled: pendingIntent !== null,
@@ -37,18 +44,10 @@ export function deriveGoalSidebarState(
   };
 }
 
-export function observedGoalFact(snapshot: ChatGoalDestinationSnapshot): ChatGoalFact | null {
-  return snapshot.authority.kind === "observed" ? snapshot.authority.value : null;
-}
-
-export function pendingGoalIntent(snapshot: ChatGoalDestinationSnapshot): ChatGoalMutationIntent | null {
-  return snapshot.presentation.kind === "unresolved" ? snapshot.presentation.intent : null;
-}
-
 export function reconcileDraftState(
   localDraft: DraftState,
   fact: ChatGoalFact | null,
-  pendingIntent: ChatGoalMutationIntent | null,
+  pendingIntent: GoalMutationIntent | null,
 ): DraftState {
   if (pendingIntent?.kind === "clear") return { base: "", draft: "" };
   if (pendingIntent?.kind === "goal" && fact?.goal === null) return localDraft;
@@ -61,9 +60,14 @@ export function reconcileDraftState(
     : { ...localDraft, base: nextBase };
 }
 
+export function localDraftForFact(fact: ChatGoalFact | null): DraftState {
+  const objective = fact?.goal?.objective ?? "";
+  return { base: objective, draft: objective };
+}
+
 function goalPresentation(
   fact: ChatGoalFact | null,
-  pendingIntent: ChatGoalMutationIntent | null,
+  pendingIntent: GoalMutationIntent | null,
   draft: string,
 ): Readonly<{ objective: string; status: ChatGoalStatus | null; createdAt: string | null }> {
   if (pendingIntent?.kind === "clear") return { objective: "", status: null, createdAt: null };
@@ -73,7 +77,7 @@ function goalPresentation(
 
 function pendingGoalPresentation(
   fact: ChatGoalFact | null,
-  pendingIntent: Extract<ChatGoalMutationIntent, { kind: "goal" }>,
+  pendingIntent: Extract<GoalMutationIntent, { kind: "goal" }>,
   draft: string,
 ): Readonly<{ objective: string; status: ChatGoalStatus; createdAt: string | null }> {
   const authoritativeGoal = fact?.goal;
