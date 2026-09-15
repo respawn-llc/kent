@@ -100,7 +100,7 @@ A state in a Workflow. Start, Agent, Script, and Terminal Nodes can appear as wo
 
 ### Current Nodes
 
-The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. Leaving a Node removes its current execution state.
+The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. A Terminal Current Node must not retain its incoming Transition Branch reference. Pending Approvals must retain their captured branch dependencies until applied, including branches targeting Terminal Nodes. Leaving a Node removes its current execution state.
 
 ### Node Group
 

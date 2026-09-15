@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { decodeJson } from "@app/server-api-contract";
+import {
+  LockedExecutionTargetCause,
+  SelectionRequiredSchema,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 
 import type {
   ActivityPage,
@@ -96,6 +101,15 @@ const unavailableCauseSchema = z.enum([
   "git_failure",
 ]);
 
+const originalTargetCauses = {
+  detached_head: LockedExecutionTargetCause.DETACHED_HEAD,
+  invalid_root: LockedExecutionTargetCause.INVALID_ROOT,
+  root_inaccessible: LockedExecutionTargetCause.ROOT_INACCESSIBLE,
+  missing_branch: LockedExecutionTargetCause.MISSING_BRANCH,
+  conflict: LockedExecutionTargetCause.CONFLICT,
+  git_failure: LockedExecutionTargetCause.GIT_FAILURE,
+} as const;
+
 const configuredTargetSchema = z
   .discriminatedUnion("mode", [
     z.object({ mode: z.literal("head") }).strict(),
@@ -136,6 +150,9 @@ const selectionRequirementSchema: z.ZodType<WorkflowExecutionTargetSelectionRequ
       return { reason: value.reason };
     }
     if (value.reason === "original_target_unavailable") {
+      decodeJson(SelectionRequiredSchema, {
+        original_target_unavailable: { cause: originalTargetCauses[value.original_target_cause] },
+      });
       return { reason: value.reason, originalTargetCause: value.original_target_cause };
     }
     return {

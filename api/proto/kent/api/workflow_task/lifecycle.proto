@@ -221,6 +221,7 @@ message SelectionRequired {
     option (buf.validate.oneof).required = true;
     google.protobuf.Empty policy_requires_selection = 1;
     ConfiguredExecutionTargetUnavailableDetails configured_target_unavailable = 2;
+    LockedExecutionTargetDetails original_target_unavailable = 3;
   }
 }
 

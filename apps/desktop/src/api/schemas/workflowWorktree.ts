@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { decodeJson } from "@app/server-api-contract";
+import {
+  SetupRecoveryDisposition as ProtoSetupRecoveryDisposition,
+  SetupRetainedDetailsSchema,
+} from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import { ContractError, RpcError } from "../errors";
 import { rpcErrorCodes } from "../rpcErrorCodes";
@@ -31,7 +36,7 @@ const workflowKentFactsSchema = z
     origin_session_id: nullableNonBlank,
   })
   .strict();
-const workflowRegisteredWorktreeSchema = z
+const registeredWorktreeWireSchema = z
   .object({
     variant: z.literal("registered"),
     registered: z.object({ git: workflowGitFactsSchema, kent: workflowKentFactsSchema }).strict(),
@@ -41,13 +46,13 @@ const workflowRegisteredWorktreeSchema = z
     if (value.registered.git.canonical_root !== value.registered.kent.canonical_root) {
       context.addIssue({ code: "custom", message: "Registered Worktree roots must match." });
     }
-  })
-  .transform((value) => ({
-    kent: {
-      canonicalRoot: value.registered.kent.canonical_root,
-      worktreeID: value.registered.kent.worktree_id,
-    },
-  }));
+  });
+const workflowRegisteredWorktreeSchema = registeredWorktreeWireSchema.transform((value) => ({
+  kent: {
+    canonicalRoot: value.registered.kent.canonical_root,
+    worktreeID: value.registered.kent.worktree_id,
+  },
+}));
 export type WorkflowRegisteredWorktree = z.output<typeof workflowRegisteredWorktreeSchema>;
 export const retainedPreviousWorktreeSchema = z
   .object({ worktree: workflowRegisteredWorktreeSchema })
@@ -151,25 +156,52 @@ const retainedErrorSchema = z
   .object({
     type: z.literal("worktree_setup_retained"),
     recovery_disposition: z.enum(["retry_existing", "fresh_replacement"]),
-    worktree: workflowRegisteredWorktreeSchema,
+    worktree: registeredWorktreeWireSchema,
     script_path: nonBlankString,
     diagnostic: nonBlankString,
-    retained_previous_worktree: retainedPreviousWorktreeSchema.nullable(),
+    retained_previous_worktree: z.object({ worktree: registeredWorktreeWireSchema }).strict().nullable(),
   })
   .strict();
+
+const recoveryDispositions = {
+  retry_existing: ProtoSetupRecoveryDisposition.RETRY_EXISTING,
+  fresh_replacement: ProtoSetupRecoveryDisposition.FRESH_REPLACEMENT,
+} as const;
 
 export function decodeWorktreeSetupRetainedError(error: unknown): WorktreeSetupRetainedError | null {
   if (!(error instanceof RpcError) || error.code !== rpcErrorCodes.workflowWorktreeSetupRetained) {
     return null;
   }
   const parsed = retainedErrorSchema.safeParse(error.data);
+  if (parsed.success) {
+    const raw = parsed.data;
+    try {
+      decodeJson(SetupRetainedDetailsSchema, {
+        worktree: raw.worktree.registered,
+        script_path: parsed.data.script_path,
+        diagnostic: parsed.data.diagnostic,
+        recovery_disposition: recoveryDispositions[parsed.data.recovery_disposition],
+        retained_previous_worktree:
+          raw.retained_previous_worktree === null
+            ? null
+            : {
+                worktree: raw.retained_previous_worktree.worktree.registered,
+              },
+      });
+    } catch {
+      return null;
+    }
+  }
   return parsed.success
     ? new WorktreeSetupRetainedError(error, {
         recoveryDisposition: parsed.data.recovery_disposition,
-        worktree: parsed.data.worktree,
+        worktree: workflowRegisteredWorktreeSchema.parse(parsed.data.worktree),
         scriptPath: parsed.data.script_path,
         diagnostic: parsed.data.diagnostic,
-        retainedPreviousWorktree: parsed.data.retained_previous_worktree,
+        retainedPreviousWorktree:
+          parsed.data.retained_previous_worktree === null
+            ? null
+            : retainedPreviousWorktreeSchema.parse(parsed.data.retained_previous_worktree),
       })
     : null;
 }

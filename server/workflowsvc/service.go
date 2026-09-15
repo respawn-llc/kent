@@ -1065,8 +1065,12 @@ func workflowSetupRetainedError(err error) error {
 	if !errors.As(err, &retained) || retained == nil || retained.Details == nil {
 		return err
 	}
+	disposition, conversionErr := serverapi.WorkflowSetupRecoveryFromProto(retained.Details.RecoveryDisposition)
+	if conversionErr != nil {
+		return errors.Join(err, conversionErr)
+	}
 	return &serverapi.WorkflowSetupRetainedError{
-		RecoveryDisposition:      serverapi.WorkflowSetupRecoveryRetryExisting,
+		RecoveryDisposition:      disposition,
 		Worktree:                 workflowRegisteredWorktree(retained.Details.Worktree),
 		ScriptPath:               retained.Details.ScriptPath,
 		Diagnostic:               retained.Details.Diagnostic,
@@ -1245,12 +1249,11 @@ func (s *Service) resolveAndMaterializeInitiatingActionTarget(ctx context.Contex
 	}
 	prepared, err := s.materializeInitiatingActionTarget(ctx, taskID, setupOperationID, preflight, snapshot, worktreecontract.SetupRequirementRequired)
 	if preflight.purpose == worktree.TaskExecutionRootCompletedReplacement {
-		converted := workflowSetupRetainedError(err)
-		var retained *serverapi.WorkflowSetupRetainedError
-		if errors.As(converted, &retained) {
-			retained.RecoveryDisposition = serverapi.WorkflowSetupRecoveryFreshReplacement
+		var retained *worktreecontract.SetupRetainedError
+		if errors.As(err, &retained) {
+			retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 		}
-		err = converted
+		err = workflowSetupRetainedError(err)
 	}
 	return initiatingActionTargetDecision{prepared: &prepared}, err
 }

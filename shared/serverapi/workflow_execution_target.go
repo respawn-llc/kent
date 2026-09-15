@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"buf.build/go/protovalidate"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 )
 
@@ -280,13 +282,27 @@ func (r WorkflowExecutionTargetSelectionRequirement) Validate() error {
 			return errors.New("configured non-custom requirement cannot include requested ref")
 		}
 	case WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable:
-		if r.ConfiguredTarget != nil || r.UnavailableCause != "" || r.OriginalTargetCause == nil || !validWorkflowLockedExecutionTargetCause(*r.OriginalTargetCause) {
+		if r.ConfiguredTarget != nil || r.UnavailableCause != "" || r.OriginalTargetCause == nil {
 			return errors.New("original target requirement requires only an original target cause")
 		}
+		return protovalidate.Validate(&taskpb.SelectionRequired{
+			Reason: &taskpb.SelectionRequired_OriginalTargetUnavailable{
+				OriginalTargetUnavailable: &taskpb.LockedExecutionTargetDetails{Cause: originalTargetCauses[*r.OriginalTargetCause]},
+			},
+		})
 	default:
 		return errors.New("execution target selection requirement reason is invalid")
 	}
 	return nil
+}
+
+var originalTargetCauses = map[WorkflowLockedExecutionTargetCause]taskpb.LockedExecutionTargetCause{
+	WorkflowLockedExecutionTargetCauseDetachedHead:     taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD,
+	WorkflowLockedExecutionTargetCauseInvalidRoot:      taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT,
+	WorkflowLockedExecutionTargetCauseRootInaccessible: taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE,
+	WorkflowLockedExecutionTargetCauseMissingBranch:    taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH,
+	WorkflowLockedExecutionTargetCauseConflict:         taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT,
+	WorkflowLockedExecutionTargetCauseGitFailure:       taskpb.LockedExecutionTargetCause_LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE,
 }
 
 func validWorkflowExecutionTargetUnavailableCause(cause WorkflowExecutionTargetUnavailableCause) bool {
@@ -339,17 +355,8 @@ func validWorkflowExecutionTargetResolutionErrorCode(code WorkflowExecutionTarge
 }
 
 func validWorkflowLockedExecutionTargetCause(cause WorkflowLockedExecutionTargetCause) bool {
-	switch cause {
-	case WorkflowLockedExecutionTargetCauseDetachedHead,
-		WorkflowLockedExecutionTargetCauseInvalidRoot,
-		WorkflowLockedExecutionTargetCauseRootInaccessible,
-		WorkflowLockedExecutionTargetCauseMissingBranch,
-		WorkflowLockedExecutionTargetCauseConflict,
-		WorkflowLockedExecutionTargetCauseGitFailure:
-		return true
-	default:
-		return false
-	}
+	_, ok := originalTargetCauses[cause]
+	return ok
 }
 
 func (r WorkflowTaskStartResponse) Validate() error {

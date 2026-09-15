@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	"buf.build/go/protovalidate"
 	"core/shared/clientui"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -1090,6 +1092,17 @@ const (
 	WorkflowSetupRecoveryFreshReplacement WorkflowSetupRecoveryDisposition = "fresh_replacement"
 )
 
+func WorkflowSetupRecoveryFromProto(value worktreepb.SetupRecoveryDisposition) (WorkflowSetupRecoveryDisposition, error) {
+	switch value {
+	case worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING:
+		return WorkflowSetupRecoveryRetryExisting, nil
+	case worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT:
+		return WorkflowSetupRecoveryFreshReplacement, nil
+	default:
+		return "", errors.New("invalid setup recovery disposition")
+	}
+}
+
 type WorkflowSetupRetainedError struct {
 	RecoveryDisposition      WorkflowSetupRecoveryDisposition   `json:"recovery_disposition"`
 	Worktree                 WorkflowRegisteredWorktreeTopology `json:"worktree"`
@@ -1127,9 +1140,6 @@ func (e *WorkflowSetupRetainedError) Validate() error {
 	if e == nil {
 		return errors.New("retained setup error is required")
 	}
-	if e.RecoveryDisposition != WorkflowSetupRecoveryRetryExisting && e.RecoveryDisposition != WorkflowSetupRecoveryFreshReplacement {
-		return errors.New("retained setup error recovery disposition is invalid")
-	}
 	if err := e.Worktree.Validate(); err != nil {
 		return err
 	}
@@ -1141,7 +1151,7 @@ func (e *WorkflowSetupRetainedError) Validate() error {
 	if strings.TrimSpace(e.ScriptPath) == "" || strings.TrimSpace(e.Diagnostic) == "" {
 		return errors.New("retained setup error script_path and diagnostic are required")
 	}
-	return nil
+	return protovalidate.Validate(e.protoDetails())
 }
 
 func DecodeWorkflowSetupRetainedError(data json.RawMessage, message string) error {
