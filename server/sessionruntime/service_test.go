@@ -23,6 +23,7 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
+	"core/shared/protoapi"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -348,7 +349,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 		QuestionsEnabled:      textutil.Value(false),
 		AutoCompactionEnabled: textutil.Value(false),
 		AgentSelection: &serverapi.SessionRuntimeAgentSelection{
-			Agent: "worker",
+			AgentRole: textutil.Value("worker"),
 			Baseline: serverapi.SessionRuntimeChatSettings{
 				Supervisor:     "all",
 				Thinking:       "high",
@@ -370,7 +371,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve persisted Chat settings: %v", err)
 	}
-	if state.Agent != "worker" ||
+	if state.AgentSelector() != "worker" ||
 		state.Settings == nil ||
 		state.Settings.Supervisor == nil || *state.Settings.Supervisor != "all" ||
 		state.Settings.Thinking == nil || *state.Settings.Thinking != "high" ||
@@ -380,6 +381,50 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 		t.Fatalf("persisted Chat settings = %+v, want complete worker selection", state)
 	}
 	releaseSessionRuntimeForFastTest(t, fixture.api, response, "planned-agent-selection")
+}
+
+func TestActivateSessionRuntimePreservesDefaultRoleIdentityAcrossTransport(t *testing.T) {
+	for _, role := range []*string{nil, textutil.Value(config.DefaultSubagentRole)} {
+		fixture := newSessionRuntimeFixture(t)
+		fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
+			RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
+				return &sessionRuntimeTestLLMClient{}, nil
+			}),
+		})
+		if err := fixture.store.SetContinuationContext(session.ContinuationContext{
+			AgentRole: textutil.Value(config.DefaultSubagentRole),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		settings := sessionRuntimeFastSettings(false)
+		state := sessiontest.CompleteChatSettingsState(t, config.DefaultSubagentRole, settings.Reviewer.Frequency, settings.ThinkingLevel, false, true, true)
+		state.AgentRole = role
+		selection, err := AgentSelectionFromState(&state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selection, err = protoapi.SessionRuntimeAgentSelectionFromProto(protoapi.SessionRuntimeAgentSelectionToProto(selection))
+		if err != nil {
+			t.Fatal(err)
+		}
+		attachment, err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+			SessionID: fixture.store.Meta().SessionID, OwnerID: "default-role-identity",
+			ActiveSettings: settings, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+			AgentSelection: selection, Source: config.SourceReport{Sources: map[string]string{}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := fixture.metadata.ResolvePersistedSession(t.Context(), fixture.store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actualRole := session.ContinuationAgentRole(*persisted.Meta)
+		if !textutil.EqualOptional(actualRole, role) {
+			t.Fatalf("activated role=%v, want exact role=%v", actualRole, role)
+		}
+		releaseSessionRuntimeForFastTest(t, fixture.api, attachment, "default-role-identity")
+	}
 }
 
 func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testing.T) {
@@ -405,7 +450,7 @@ func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testin
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		AgentSelection: &serverapi.SessionRuntimeAgentSelection{
-			Agent: "worker",
+			AgentRole: textutil.Value("worker"),
 			Baseline: serverapi.SessionRuntimeChatSettings{
 				Supervisor:     settings.Reviewer.Frequency,
 				Thinking:       settings.ThinkingLevel,

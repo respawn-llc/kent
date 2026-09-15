@@ -369,11 +369,11 @@ message SessionRuntimeChatSettings {
 }
 
 message SessionRuntimeAgentSelection {
-  string agent = 1 [
+  optional string agent_role = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.session_launch.runtime_agent_selection_nonblank"
-      message: "agent must be non-blank"
+      message: "agent_role must be non-blank when present"
       expression: "this.trim() != ''"
     }
   ];

@@ -8,6 +8,28 @@ import (
 	"core/shared/textutil"
 )
 
+func TestChatSettingsMutationPreservesHeadlessDefaultRole(t *testing.T) {
+	store := newSessionTestStore(t)
+	if err := store.SetContinuationContext(ContinuationContext{AgentRole: textutil.Value(config.DefaultSubagentRole)}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := ChatSettingsStateFromCompleteSettings(config.DefaultSubagentRole, ChatSettings{
+		Supervisor: "all", Thinking: "low",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.AgentRole = textutil.Value(config.DefaultSubagentRole)
+	_, err = store.CommitChatSettingsState(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := ContinuationAgentRole(store.Meta())
+	if role == nil || *role != config.DefaultSubagentRole {
+		t.Fatalf("changing Thinking cleared headless role: %v", role)
+	}
+}
+
 func TestThinkingSurvivesPreparationRestore(t *testing.T) {
 	store := newSessionTestStore(t)
 	if err := store.SetThinkingOverride(textutil.Value("medium")); err != nil {

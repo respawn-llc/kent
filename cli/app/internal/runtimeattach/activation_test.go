@@ -9,6 +9,7 @@ import (
 	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
 
@@ -51,7 +52,7 @@ func TestSessionRuntimeAttachmentValidation(t *testing.T) {
 func TestActivateBuildsRequest(t *testing.T) {
 	service := &fakeRuntimeService{}
 	selection := &serverapi.SessionRuntimeAgentSelection{
-		Agent: "worker",
+		AgentRole: textutil.Value("worker"),
 		Baseline: serverapi.SessionRuntimeChatSettings{
 			Supervisor:     "all",
 			Thinking:       "high",

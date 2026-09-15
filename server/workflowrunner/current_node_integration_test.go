@@ -797,7 +797,6 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	}
 	assignments := workflowAssignments(modelRequests[0])
 	wantBaseContextTypes := []llm.MessageType{
-		llm.MessageTypeSubagents,
 		llm.MessageTypeSkills,
 		llm.MessageTypeAgentsMD,
 		llm.MessageTypeAgentsMD,
@@ -1391,7 +1390,7 @@ func TestAutomaticFreshSessionBindsOnlyAfterAssignmentCommit(t *testing.T) {
 	task := f.createTask(t, workflowID)
 	assignmentPending, releaseAssignment := f.persistenceGate.BlockWhen(
 		func(snapshot session.PersistedStoreSnapshot) bool {
-			return snapshot.Meta.LastSequence >= 2
+			return snapshot.Meta.ActiveWorkflowAssignment != nil
 		},
 	)
 	t.Cleanup(releaseAssignment)
@@ -1433,7 +1432,7 @@ func TestAutomaticUncommittedFreshAssignmentDoesNotBindSessionToCurrentNode(t *t
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
 	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.LastSequence >= 2
+		return snapshot.Meta.LastSequence > 0 && snapshot.Meta.ActiveWorkflowAssignment == nil
 	}, cause)
 
 	currentNode := f.startTask(t, task)
@@ -1525,7 +1524,7 @@ func TestManualMoveUncommittedFreshAssignmentCleansSessionAndLeavesOriginCurrent
 		t.Fatal("workflow has no Agent target")
 	}
 	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.LastSequence >= 2
+		return snapshot.Meta.LastSequence > 0 && snapshot.Meta.ActiveWorkflowAssignment == nil
 	}, cause)
 	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
 		TaskID:       task.ID,
@@ -2324,7 +2323,7 @@ func TestInitialStartCommittedAssignmentDiagnosticInterruptsWithoutStartingRunti
 		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true},
 	))
 	f.persistenceGate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		if snapshot.Meta.LastSequence < 2 {
+		if snapshot.Meta.ActiveWorkflowAssignment == nil {
 			return false
 		}
 		return !diagnosticMatched.Swap(true)

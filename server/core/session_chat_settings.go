@@ -49,5 +49,5 @@ func (r sessionChatSettingsPreparationResolver) PrepareSessionChatSettings(
 	if err != nil {
 		return launch.PreparedChatSettings{}, err
 	}
-	return launch.PrepareSessionChatSettingsForAgent(cfg, authState, agent, promptFacing)
+	return launch.PrepareSessionChatSettingsForAgent(cfg, authState, store.Meta(), agent, promptFacing)
 }

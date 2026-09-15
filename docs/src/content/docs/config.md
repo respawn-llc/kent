@@ -72,7 +72,7 @@ concurrency = 5 # Agent Node scheduling capacity; Script Nodes do not use it
 max_invalid_completion_attempts = 5
 pre_compaction_tokens = 247380 # defaults to 70% of context_compaction_threshold_tokens
 use_required_tool_calls = true
-subagents = false # TOML-only; workflow agents cannot launch custom roles unless enabled
+subagents = false # TOML-only; disables all workflow-agent delegation
 
 [skills]
 "skill name" = true
@@ -89,20 +89,22 @@ timeout_seconds = 120
 verbose_output = false # set true to show complete supervisor suggestions in ongoing transcript
 # system_prompt_file = "~/.kent/reviewer_system_prompt.md"
 
-# custom subagent roles config, fast is the default one, always provided
-[subagents.fast]
-# agent_callable = true
-# description = ""
-# model = "gpt-5.6-terra"
-# thinking_level = "low"
-# priority_request_mode = true
+# Headless default role; new interactive TUI and Desktop Sessions use the top-level settings.
+[subagents.default]
+model = "gpt-5-mini"
+thinking_level = "low"
+description = "Low-cost role for headless runs."
+agent_callable = false # model agents cannot delegate to this role
+workflow_subagent = false # Workflow agents cannot delegate to this role
 ```
 
 ### Workflow subagent delegation
 
-`[workflow] subagents` defaults to `false` and has no environment override. Set it to `true` to let workflow agents delegate to eligible custom roles. This setting does not affect direct workflow-node assignment.
+`[workflow] subagents` defaults to `false` and has no environment override. Set it to `true` to let Workflow agents delegate to roles whose effective `agent_callable` and `workflow_subagent` values allow it. This setting does not affect direct Workflow Node assignment, including an assignment to `default`.
 
-`workflow_subagent` is optional role metadata and defaults to `true`. A custom role is callable by a workflow agent only when `agent_callable`, `[workflow] subagents`, and its effective `workflow_subagent` value all permit it. The global workflow setting remains authoritative.
+`agent_callable` is optional role metadata and defaults to `true`. It controls whether model-originated child delegation may target the role, including the `default` role; humans can launch the role with `kent run` regardless of this value.
+
+`workflow_subagent` is optional role metadata and defaults to `true`. Every role, including `default` and `fast`, is callable by a Workflow agent only when its effective `agent_callable` and `workflow_subagent` values and `[workflow] subagents = true` all permit it.
 
 ## Thinking
 
@@ -170,7 +172,7 @@ A Session's Thinking override takes precedence over its Agent configuration and 
 | `workflow.max_invalid_completion_attempts` | int    | `5`                                                          | `KENT_WORKFLOW_MAX_INVALID_COMPLETION_ATTEMPTS` | Number of invalid workflow completion attempts allowed before Kent interrupts the run. Must be `> 0`.                                                                                                  |
 | `workflow.pre_compaction_tokens`           | int    | `70%` of `context_compaction_threshold_tokens`, rounded down |                                                 | Workflow Session pre-compaction threshold. Must be positive and no greater than `context_compaction_threshold_tokens`. File-only; not available in subagent role settings.                             |
 | `workflow.use_required_tool_calls`         | bool   | `true`                                                       |                                                 | Uses provider-required tool selection for `tool` and `shell_command` workflow completion modes. Set to `false` to use automatic tool selection while preserving Kent's workflow completion validation. |
-| `workflow.subagents`                       | bool   | `false`                                                      |                                                 | Allows workflow agents to launch eligible custom roles.                                                                                                                                                |
+| `workflow.subagents`                       | bool   | `false`                                                      |                                                 | Allows workflow agents to delegate to eligible roles, including `default` and `fast`.                                                                                                                  |
 
 ### Supervisor
 
@@ -272,7 +274,8 @@ Kent creates `rg.conf` in the config+data root when missing and exports it to sh
 
 ### Subagents
 
-`[subagents.<role>]` is a file-only table for named headless subagent roles. Fast is always-present, but you can add custom agents here.
+`[subagents.<role>]` is a file-only table for headless role settings. `default` is always available and is selected for a new headless `kent run` when no other role is selected and `--agent` is omitted or set to `default`; `fast` is also built in, and other roles are user-defined.
+Role tables inherit the base settings and override only keys set in that role, including model and provider settings, Thinking, model verbosity, priority mode, system prompt, tools, Skills, and role description.
 `max_subagent_depth` is a root-level TOML setting rather than a role setting. It has no environment-variable or `kent run` flag override.
 
 More info on the [Subagents page](../headless/).

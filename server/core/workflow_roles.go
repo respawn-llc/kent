@@ -22,9 +22,6 @@ func (r configTargetAgentCatalog) ResolveConfiguredRole(role string) (workflow.T
 	if trimmed == "" {
 		return workflow.TargetAgentRole{}, false
 	}
-	if workflow.IsDefaultAgentRole(trimmed) {
-		return targetAgentRoleFromSettings(workflow.DefaultAgentRole, r.settings, false), true
-	}
 	lookup := config.LookupSubagentRole(r.settings, trimmed)
 	if lookup.Status != config.SubagentRoleLookupPresent || lookup.NormalizedSelector == nil {
 		return workflow.TargetAgentRole{}, false

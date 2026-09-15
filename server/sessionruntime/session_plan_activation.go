@@ -52,7 +52,7 @@ func AgentSelectionFromState(state *session.ChatSettingsState) (*serverapi.Sessi
 			return nil, errors.New("complete Runtime Agent selection is required")
 		}
 		return &serverapi.SessionRuntimeAgentSelection{
-			Agent: state.Agent,
+			AgentRole: textutil.Pointer(state.AgentRole),
 			Baseline: serverapi.SessionRuntimeChatSettings{
 				Supervisor:     *settings.Supervisor,
 				Thinking:       *settings.Thinking,
