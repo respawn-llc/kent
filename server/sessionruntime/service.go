@@ -102,8 +102,8 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		}
 		agentSelectionChanged := false
 		if req.AgentSelection != nil {
-			target, targetErr := session.ChatSettingsStateFromCompleteSettings(
-				req.AgentSelection.Agent,
+			target, targetErr := session.ChatSettingsStateFromRole(
+				req.AgentSelection.AgentRole,
 				session.ChatSettings{
 					Supervisor:     req.AgentSelection.Baseline.Supervisor,
 					Thinking:       req.AgentSelection.Baseline.Thinking,

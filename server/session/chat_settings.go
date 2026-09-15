@@ -97,8 +97,16 @@ type ChatDraftState struct {
 }
 
 type ChatSettingsState struct {
-	Agent    string
-	Settings *ChatSettingsOverrides
+	// A nil role selects interactive base settings; "default" is the headless role.
+	AgentRole *string
+	Settings  *ChatSettingsOverrides
+}
+
+func (s ChatSettingsState) AgentSelector() string {
+	if s.AgentRole == nil {
+		return config.DefaultSubagentRole
+	}
+	return *s.AgentRole
 }
 
 func ChatSettingsStateFromCompleteSettings(agent string, settings ChatSettings) (ChatSettingsState, error) {
@@ -106,11 +114,27 @@ func ChatSettingsStateFromCompleteSettings(agent string, settings ChatSettings) 
 	if err != nil {
 		return ChatSettingsState{}, err
 	}
+	var role *string
+	if normalizedAgent != config.DefaultSubagentRole {
+		role = &normalizedAgent
+	}
+	return ChatSettingsStateFromRole(role, settings)
+}
+
+func ChatSettingsStateFromRole(role *string, settings ChatSettings) (ChatSettingsState, error) {
+	selection, err := NormalizeContinuationContext(ContinuationContext{AgentRole: role})
+	if err != nil {
+		return ChatSettingsState{}, err
+	}
 	normalizedSettings, err := normalizeCompleteChatSettings(settings)
 	if err != nil {
 		return ChatSettingsState{}, err
 	}
-	return ChatSettingsState{Agent: normalizedAgent, Settings: &ChatSettingsOverrides{Supervisor: textutil.Value(normalizedSettings.Supervisor), Thinking: textutil.Value(normalizedSettings.Thinking), Fast: textutil.Value(normalizedSettings.Fast), Questions: textutil.Value(normalizedSettings.Questions), AutoCompaction: textutil.Value(normalizedSettings.AutoCompaction)}}, nil
+	state := ChatSettingsState{Settings: &ChatSettingsOverrides{Supervisor: textutil.Value(normalizedSettings.Supervisor), Thinking: textutil.Value(normalizedSettings.Thinking), Fast: textutil.Value(normalizedSettings.Fast), Questions: textutil.Value(normalizedSettings.Questions), AutoCompaction: textutil.Value(normalizedSettings.AutoCompaction)}}
+	if selection != nil {
+		state.AgentRole = selection.AgentRole
+	}
+	return state, nil
 }
 
 type ChatSettingsCommitResult struct {
@@ -126,7 +150,7 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	if err := normalizeMetaChatSettings(&currentMeta); err != nil {
 		return Meta{}, false, err
 	}
-	agent, err := normalizeChatAgent(target.Agent)
+	selection, err := NormalizeContinuationContext(ContinuationContext{AgentRole: target.AgentRole})
 	if err != nil {
 		return Meta{}, false, err
 	}
@@ -139,14 +163,17 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	}
 	current := chatSettingsStateFromNormalizedMeta(currentMeta)
 	next := ChatSettingsState{
-		Agent:    agent,
 		Settings: cloneChatSettingsOverrides(settings),
+	}
+	if selection != nil {
+		next.AgentRole = selection.AgentRole
 	}
 	changed := !chatSettingsStatesEqual(current, next)
 	if !changed {
 		return currentMeta, false, nil
 	}
-	if currentMeta.Locked != nil && current.Agent != next.Agent {
+	agentChanged := !textutil.EqualOptional(current.AgentRole, next.AgentRole)
+	if currentMeta.Locked != nil && agentChanged {
 		return Meta{}, false, ErrChatAgentLocked
 	}
 	currentMeta.ChatSettings = cloneChatSettingsOverrides(next.Settings)
@@ -154,13 +181,8 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	if continuation == nil {
 		continuation = &ContinuationContext{}
 	}
-	agentChanged := current.Agent != next.Agent
-	if next.Agent == config.DefaultSubagentRole {
-		continuation.AgentRole = nil
-	} else {
-		continuation.AgentRole = textutil.Value(next.Agent)
-	}
 	if agentChanged {
+		continuation.AgentRole = textutil.Pointer(next.AgentRole)
 		continuation.OpenAIBaseURL = nil
 	}
 	currentMeta.Continuation, err = NormalizeContinuationContext(*continuation)
@@ -315,7 +337,7 @@ func ChatDraftStateFromMeta(meta Meta) (ChatDraftState, error) {
 	}
 	return ChatDraftState{
 		Message:  meta.InputDraft,
-		Agent:    settings.Agent,
+		Agent:    settings.AgentSelector(),
 		Settings: settings.Settings,
 	}, nil
 }
@@ -343,18 +365,14 @@ func normalizeMetaChatSettings(meta *Meta) error {
 }
 
 func chatSettingsStateFromNormalizedMeta(meta Meta) ChatSettingsState {
-	agent := config.DefaultSubagentRole
-	if role := ContinuationAgentRole(meta); role != nil {
-		agent = *role
-	}
 	return ChatSettingsState{
-		Agent:    agent,
-		Settings: cloneChatSettingsOverrides(meta.ChatSettings),
+		AgentRole: ContinuationAgentRole(meta),
+		Settings:  cloneChatSettingsOverrides(meta.ChatSettings),
 	}
 }
 
 func chatSettingsStatesEqual(left ChatSettingsState, right ChatSettingsState) bool {
-	return left.Agent == right.Agent && chatSettingsOverridesEqual(left.Settings, right.Settings)
+	return textutil.EqualOptional(left.AgentRole, right.AgentRole) && chatSettingsOverridesEqual(left.Settings, right.Settings)
 }
 
 func chatSettingsOverridesEqual(left *ChatSettingsOverrides, right *ChatSettingsOverrides) bool {

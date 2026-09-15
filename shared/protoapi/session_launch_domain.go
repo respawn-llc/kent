@@ -293,7 +293,7 @@ func SessionRuntimeAgentSelectionFromProto(
 		return nil, err
 	}
 	return &serverapi.SessionRuntimeAgentSelection{
-		Agent: message.Agent,
+		AgentRole: clonePointer(message.AgentRole),
 		Baseline: serverapi.SessionRuntimeChatSettings{
 			Supervisor:     message.Baseline.Supervisor,
 			Thinking:       message.Baseline.Thinking,
@@ -309,7 +309,7 @@ func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgen
 		return nil
 	}
 	return &sessionlaunchpb.SessionRuntimeAgentSelection{
-		Agent: selection.Agent,
+		AgentRole: clonePointer(selection.AgentRole),
 		Baseline: &sessionlaunchpb.SessionRuntimeChatSettings{
 			Supervisor:     selection.Baseline.Supervisor,
 			Thinking:       selection.Baseline.Thinking,

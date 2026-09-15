@@ -33,7 +33,7 @@ func TestMutateChatSettingsUpdatesOneControlWithoutChangingTheAggregate(t *testi
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			observer.called = false
-			result, err := store.CommitChatSettingsState(ChatSettingsState{Agent: "worker", Settings: test.settings})
+			result, err := store.CommitChatSettingsState(ChatSettingsState{AgentRole: textutil.Value("worker"), Settings: test.settings})
 			if err != nil {
 				t.Fatalf("CommitChatSettingsState: %v", err)
 			}
@@ -58,7 +58,7 @@ func TestMutateChatSettingsSelectsDifferentAgentWithCompleteBaselineAtomically(t
 		t.Fatalf("seed continuation: %v", err)
 	}
 	observer.called = false
-	target := ChatSettingsState{Agent: "reviewer", Settings: completeChatSettingsOverrides("all", "  provider-specific-depth  ", true, false, false)}
+	target := ChatSettingsState{AgentRole: textutil.Value("reviewer"), Settings: completeChatSettingsOverrides("all", "  provider-specific-depth  ", true, false, false)}
 	result, err := store.CommitChatSettingsState(target)
 	if err != nil {
 		t.Fatalf("CommitChatSettingsState: %v", err)
@@ -85,7 +85,7 @@ func TestMutateChatSettingsSelectingCurrentAgentIsNoWriteNoOp(t *testing.T) {
 	})
 	before := store.Meta()
 	observer.called = false
-	result, err := store.CommitChatSettingsState(ChatSettingsState{Agent: "worker", Settings: completeChatSettingsOverrides("edits", "medium", false, true, true)})
+	result, err := store.CommitChatSettingsState(ChatSettingsState{AgentRole: textutil.Value("worker"), Settings: completeChatSettingsOverrides("edits", "medium", false, true, true)})
 	if err != nil {
 		t.Fatalf("CommitChatSettingsState: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestMutateChatSettingsRepairsUnavailableUnlockedAgentToDefaultBaseline(t *t
 		Agent:    "removed-agent",
 		Settings: completeChatSettingsOverrides("all", "custom-depth", true, false, false),
 	})
-	_, err := store.CommitChatSettingsState(ChatSettingsState{Agent: "default", Settings: completeChatSettingsOverrides("edits", "provider-default", false, true, true)})
+	_, err := store.CommitChatSettingsState(ChatSettingsState{Settings: completeChatSettingsOverrides("edits", "provider-default", false, true, true)})
 	if err != nil {
 		t.Fatalf("repair unavailable Agent: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestMutateChatSettingsPreservesLockedUnavailableAgent(t *testing.T) {
 	}
 	before := store.Meta()
 	observer.called = false
-	result, err := store.CommitChatSettingsState(ChatSettingsState{Agent: "default", Settings: completeChatSettingsOverrides("edits", "medium", false, true, true)})
+	result, err := store.CommitChatSettingsState(ChatSettingsState{Settings: completeChatSettingsOverrides("edits", "medium", false, true, true)})
 	if !errors.Is(err, ErrChatAgentLocked) {
 		t.Fatalf("locked Agent mutation error = %v, want ErrChatAgentLocked", err)
 	}
@@ -139,7 +139,7 @@ func TestMutateChatSettingsObserverFailurePublishesOnlyCompleteAggregate(t *test
 	})
 	observer.called = false
 	observer.err = os.ErrPermission
-	result, err := store.CommitChatSettingsState(ChatSettingsState{Agent: "reviewer", Settings: completeChatSettingsOverrides("all", "provider-specific", true, false, false)})
+	result, err := store.CommitChatSettingsState(ChatSettingsState{AgentRole: textutil.Value("reviewer"), Settings: completeChatSettingsOverrides("all", "provider-specific", true, false, false)})
 	if err == nil || !errors.Is(err, os.ErrPermission) || !result.Committed || !result.Changed {
 		t.Fatalf("observer failure result = %+v, err=%v", result, err)
 	}
@@ -189,7 +189,7 @@ func assertChatSettingsStateFromMeta(t *testing.T, meta Meta, agent string, sett
 
 func assertChatSettingsState(t *testing.T, state ChatSettingsState, agent string, settings *ChatSettingsOverrides) {
 	t.Helper()
-	if state.Agent != agent || state.Settings == nil {
+	if state.AgentSelector() != agent || state.Settings == nil {
 		t.Fatalf("Chat settings state = %+v, want Agent %q with settings", state, agent)
 	}
 	if *state.Settings.Supervisor != *settings.Supervisor ||

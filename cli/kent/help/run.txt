@@ -22,7 +22,7 @@ Active-run controls:
   `watch` observes the next outcome of an active run.
 
 Subagents:
-  `--agent <role>` selects a named role from `[subagents.<role>]` section of the user configuration. For agents, available agents are the default (no flag), fast, and any listed in the developer reminder you received.
+  `--agent <role>` selects a role from `[subagents.<role>]`. For a new run without another role selection, omission or `--agent default` uses the headless default role; when resuming, omission preserves the recorded role. Interactive `--agent default` uses base settings.
   `--fast` is shorthand for the built-in `fast` role.
 
 Examples:

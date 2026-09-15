@@ -13,9 +13,8 @@ const DefaultSubagentRole = "default"
 const MaxSubagentDescriptionChars = 5000
 
 var reservedSubagentRoleNames = map[string]bool{
-	DefaultSubagentRole: true,
-	"none":              true,
-	"self":              true,
+	"none": true,
+	"self": true,
 }
 
 func NormalizeSubagentRole(raw string) string {
@@ -114,7 +113,7 @@ func LookupSubagentRole(settings Settings, rawSelector string) SubagentRoleLooku
 	if normalized == "" {
 		return SubagentRoleLookup{Status: SubagentRoleLookupInvalid}
 	}
-	if normalized == BuiltInSubagentRoleFast {
+	if normalized == BuiltInSubagentRoleFast || normalized == DefaultSubagentRole {
 		return SubagentRoleLookup{
 			Role:               settings.Subagents[normalized],
 			NormalizedSelector: subagentRoleLookupSelector(normalized),
@@ -214,8 +213,9 @@ func subagentRoleLookupSelector(selector string) *string {
 }
 
 // AvailableSubagentRoleNames returns presentation-ready role names. It filters
-// out configured roles that have no runtime diff from the base settings and can
-// optionally filter non-callable roles. Use LookupSubagentRole for existence.
+// out the separately presented default role and configured roles that have no
+// runtime diff from the base settings, and can optionally filter non-callable
+// roles. Use LookupSubagentRole for existence.
 func AvailableSubagentRoleNames(settings Settings, agentCallableOnly bool) []string {
 	return availableSubagentRoleNames(settings, func(name string, _ SubagentRole) bool {
 		if !agentCallableOnly {
@@ -233,7 +233,7 @@ func availableSubagentRoleNames(settings Settings, include func(string, Subagent
 	}
 	for name, role := range settings.Subagents {
 		normalized := NormalizeSubagentRole(name)
-		if normalized == "" || normalized == BuiltInSubagentRoleFast {
+		if normalized == "" || normalized == BuiltInSubagentRoleFast || normalized == DefaultSubagentRole {
 			continue
 		}
 		if !SubagentRoleHasMeaningfulDiff(settings, role) {

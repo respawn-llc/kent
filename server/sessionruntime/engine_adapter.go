@@ -70,6 +70,7 @@ func NewAgentRuntimePlan(options AgentRuntimePlanOptions) (AgentRuntimePlan, err
 	options.AutoCompactionEnabled = textutil.Pointer(options.AutoCompactionEnabled)
 	if options.AgentSelection != nil {
 		selection := *options.AgentSelection
+		selection.AgentRole = textutil.Pointer(selection.AgentRole)
 		options.AgentSelection = &selection
 	}
 	if options.ProviderCapabilitiesOverride != nil {

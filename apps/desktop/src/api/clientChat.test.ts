@@ -286,10 +286,18 @@ describe("Desktop Chat read client", () => {
     });
     for (const selection of [
       undefined,
-      create(SessionRuntimeAgentSelectionSchema, {
-        agent: "worker",
-        baseline: { supervisor: "off", thinking: "high", fast: true, questions: false, autoCompaction: true },
-      }),
+      ...["worker", "default", undefined].map((agentRole) =>
+        create(SessionRuntimeAgentSelectionSchema, {
+          agentRole,
+          baseline: {
+            supervisor: "off",
+            thinking: "high",
+            fast: true,
+            questions: false,
+            autoCompaction: true,
+          },
+        }),
+      ),
     ]) {
       const planned = runtimePlanResult(sessionID);
       if (planned.outcome.case !== "success" || planned.outcome.value.plan === undefined)

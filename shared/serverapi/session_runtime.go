@@ -22,8 +22,8 @@ type SessionRuntimeActivateRequest struct {
 }
 
 type SessionRuntimeAgentSelection struct {
-	Agent    string
-	Baseline SessionRuntimeChatSettings
+	AgentRole *string
+	Baseline  SessionRuntimeChatSettings
 }
 
 type SessionRuntimeChatSettings struct {
@@ -64,8 +64,8 @@ func (r SessionRuntimeActivateRequest) Validate() error {
 		return errors.New("auto_compaction_enabled is required")
 	}
 	if r.AgentSelection != nil {
-		if strings.TrimSpace(r.AgentSelection.Agent) == "" {
-			return errors.New("agent_selection.agent is required")
+		if r.AgentSelection.AgentRole != nil && config.NormalizeSubagentSelector(*r.AgentSelection.AgentRole) == "" {
+			return errors.New("agent_selection.agent_role must be a valid role when present")
 		}
 		if strings.TrimSpace(r.AgentSelection.Baseline.Supervisor) == "" {
 			return errors.New("agent_selection.baseline.supervisor is required")

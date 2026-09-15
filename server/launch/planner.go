@@ -162,6 +162,17 @@ type PreparedRunPromptOverrides struct {
 	ProviderCapabilities *llm.ProviderCapabilities
 }
 
+func (p PreparedRunPromptOverrides) PromptFacingTarget() *PreparedBaseTarget {
+	if p.NamedTarget != nil {
+		return &PreparedBaseTarget{
+			Settings:     p.NamedTarget.Settings,
+			Source:       p.NamedTarget.Source,
+			EnabledTools: p.NamedTarget.EnabledTools,
+		}
+	}
+	return p.BaseTarget
+}
+
 type PreparedBaseTarget struct {
 	Settings     config.Settings
 	Source       config.SourceReport
@@ -171,6 +182,7 @@ type PreparedBaseTarget struct {
 // RunPromptPreparationContext carries a selected session's immutable,
 // prompt-facing contract into pre-materialization target preparation.
 type RunPromptPreparationContext struct {
+	Mode                            Mode
 	ModelLock                       *session.LockedContract
 	ToolLock                        *session.LockedContract
 	OmittedTarget                   *PreparedBaseTarget
@@ -711,6 +723,7 @@ func (p Planner) applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, stor
 		effectiveOverrides.AgentRole = nil
 	}
 	prepared, err := prepareRunPromptOverridesWithBudget(baseConfigForPlan(plan), effectiveOverrides, authState, RunPromptPreparationContext{
+		Mode:      ModeInteractive,
 		ModelLock: locked,
 		ToolLock:  locked,
 		OmittedTarget: &PreparedBaseTarget{
@@ -747,11 +760,12 @@ type modelContextBudgetApplier func(settings *config.Settings, explicitSources m
 // target from one loaded application snapshot. It intentionally performs no
 // store mutation, config reload, or session materialization.
 func PrepareRunPromptOverrides(app config.App, overrides serverapi.RunPromptOverrides, authState auth.State) (PreparedRunPromptOverrides, error) {
-	return PrepareRunPromptOverridesWithContext(app, overrides, authState, RunPromptPreparationContext{})
+	return PrepareRunPromptOverridesWithContext(app, overrides, authState, RunPromptPreparationContext{Mode: ModeInteractive})
 }
 
 func PrepareRunPromptOverridesForLockedSession(app config.App, overrides serverapi.RunPromptOverrides, authState auth.State, locked *session.LockedContract) (PreparedRunPromptOverrides, error) {
 	return PrepareRunPromptOverridesWithContext(app, overrides, authState, RunPromptPreparationContext{
+		Mode:      ModeInteractive,
 		ModelLock: locked,
 		ToolLock:  locked,
 	})
@@ -762,9 +776,18 @@ func PrepareRunPromptOverridesWithContext(app config.App, overrides serverapi.Ru
 }
 
 func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.RunPromptOverrides, authState auth.State, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (PreparedRunPromptOverrides, error) {
+	switch preparation.Mode {
+	case ModeInteractive, ModeHeadless:
+	default:
+		return PreparedRunPromptOverrides{}, fmt.Errorf("invalid launch mode %q", preparation.Mode)
+	}
 	roleOverride, err := overrides.AgentRoleOverride()
 	if err != nil {
 		return PreparedRunPromptOverrides{}, fmt.Errorf("%w: %v", errInvalidAgentRole, err)
+	}
+	if preparation.Mode == ModeHeadless &&
+		(roleOverride.Default || (!roleOverride.Present && preparation.OmittedTarget == nil)) {
+		roleOverride = serverapi.RunPromptAgentRoleOverride{Present: true, Role: config.DefaultSubagentRole}
 	}
 	overrideConfig := app
 	if overrides.HasConfigOverrides() {
@@ -1031,7 +1054,7 @@ func applySessionChatSettingsWithRunOverrides(
 }
 
 func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPlan, meta session.Meta, persistContinuation func(session.ContinuationContext) error, overrides serverapi.RunPromptOverrides, prepared PreparedRunPromptOverrides, options RunPromptOverrideOptions, applyBudget modelContextBudgetApplier) (SessionPlan, []string, error) {
-	if !overrides.HasAny() && prepared.BaseTarget == nil {
+	if !overrides.HasAny() && !prepared.AgentRole.Present && prepared.BaseTarget == nil {
 		return sessionPlanWithMeta(plan, meta, p.ContainerDir), nil, nil
 	}
 	var warnings []string

@@ -11,6 +11,7 @@ import (
 func TestContinuationRolePersistence(t *testing.T) {
 	worker := "worker"
 	fast := "fast"
+	defaultRole := "default"
 	tests := []struct {
 		name     string
 		payload  string
@@ -21,6 +22,7 @@ func TestContinuationRolePersistence(t *testing.T) {
 		{name: "null default role", payload: `{"agent_role":null}`},
 		{name: "custom role", payload: `{"agent_role":" Worker "}`, wantRole: &worker},
 		{name: "fast role", payload: `{"agent_role":"fast"}`, wantRole: &fast},
+		{name: "headless default role", payload: `{"agent_role":"default"}`, wantRole: &defaultRole},
 		{name: "empty role", payload: `{"agent_role":""}`, wantErr: true},
 		{name: "whitespace role", payload: `{"agent_role":" \t "}`, wantErr: true},
 	}

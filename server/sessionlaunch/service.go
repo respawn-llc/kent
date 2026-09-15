@@ -119,7 +119,7 @@ func (s *Service) prepareSessionChatSettings(
 			return PreparedChatSettingsOperationInput{}, nil, err
 		}
 	}
-	catalog, err := launch.PrepareChatAgentCatalog(planner.Config, authState, false)
+	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, authState, meta)
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
@@ -127,7 +127,7 @@ func (s *Service) prepareSessionChatSettings(
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
-	entry, selectedAvailable := catalog.Lookup(raw.Agent)
+	entry, selectedAvailable := catalog.Lookup(raw.AgentSelector())
 	if !selectedAvailable {
 		var defaultAvailable bool
 		entry, defaultAvailable = catalog.Lookup(config.DefaultSubagentRole)
@@ -221,7 +221,7 @@ func (s *Service) SessionChatSettings(
 	}
 	settings, err := ProjectChatSettings(ChatSettingsProjectionInput{
 		Catalog:        input.Catalog,
-		Agent:          input.Raw.Agent,
+		Agent:          input.Raw.AgentSelector(),
 		Settings:       input.Effective,
 		WorkflowLocked: input.WorkflowLocked,
 		CompactionMode: input.CompactionMode,
@@ -353,14 +353,14 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		return PlanResult{}, err
 	}
 	authState := auth.EmptyState()
-	if req.Overrides.NeedsAuthState() && s.authStates != nil {
+	if (req.Overrides.NeedsAuthState() || req.Mode == launch.ModeHeadless) && s.authStates != nil {
 		var authErr error
 		authState, authErr = s.authStates.CurrentState(ctx)
 		if authErr != nil {
 			return PlanResult{}, authErr
 		}
 	}
-	preparation := launch.RunPromptPreparationContext{}
+	preparation := launch.RunPromptPreparationContext{Mode: req.Mode}
 	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, authState, preparation)
 	if err != nil {
 		return PlanResult{}, err
@@ -394,13 +394,13 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 		return PlanResult{}, err
 	}
 	authState := auth.EmptyState()
-	if req.Overrides.NeedsAuthState() && s.authStates != nil {
+	if (req.Overrides.NeedsAuthState() || (req.Mode == launch.ModeHeadless && roleOverride.Default)) && s.authStates != nil {
 		authState, err = s.authStates.CurrentState(ctx)
 		if err != nil {
 			return PlanResult{}, err
 		}
 	}
-	preparation := launch.RunPromptPreparationContext{ModelLock: meta.Locked, ToolLock: meta.Locked}
+	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked}
 	if !roleOverride.Present {
 		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(meta)
 		if err != nil {
@@ -444,8 +444,11 @@ func authorizePersistedHeadlessRole(
 	if req.Mode != launch.ModeHeadless {
 		return nil
 	}
-	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || caller == nil {
+	if caller == nil {
 		return nil
+	}
+	if meta.Continuation == nil || meta.Continuation.AgentRole == nil {
+		return subagentpolicy.Authorize(planner.Config.Settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetOmittedBase})
 	}
 	persistedRole := strings.TrimSpace(*meta.Continuation.AgentRole)
 	lookup := config.LookupSubagentRole(planner.Config.Settings, persistedRole)
@@ -470,15 +473,15 @@ func applyPreparedAgentChatSettings(
 	if err != nil {
 		return session.Meta{}, false, nil, err
 	}
-	targetAgent := state.Agent
+	targetAgent := state.AgentSelector()
 	selectAgent := roleOverride.Present
 	if roleOverride.Present {
 		targetAgent = config.DefaultSubagentRole
 		if !roleOverride.Default {
 			targetAgent = roleOverride.Role
 		}
-	} else if meta.Locked == nil && state.Agent != config.DefaultSubagentRole {
-		lookup := config.LookupSubagentRole(app.Settings, state.Agent)
+	} else if meta.Locked == nil && state.AgentSelector() != config.DefaultSubagentRole {
+		lookup := config.LookupSubagentRole(app.Settings, state.AgentSelector())
 		selectAgent = lookup.Status != config.SubagentRoleLookupPresent
 		if selectAgent {
 			targetAgent = config.DefaultSubagentRole
@@ -492,17 +495,7 @@ func applyPreparedAgentChatSettings(
 	}
 	var prepared launch.PreparedChatSettings
 	if roleOverride.Present {
-		target := preparedOverrides.BaseTarget
-		if targetAgent != config.DefaultSubagentRole {
-			target = nil
-			if preparedOverrides.NamedTarget != nil && preparedOverrides.NamedTarget.Selector == targetAgent {
-				target = &launch.PreparedBaseTarget{
-					Settings:     preparedOverrides.NamedTarget.Settings,
-					Source:       preparedOverrides.NamedTarget.Source,
-					EnabledTools: preparedOverrides.NamedTarget.EnabledTools,
-				}
-			}
-		}
+		target := preparedOverrides.PromptFacingTarget()
 		if target == nil {
 			return session.Meta{}, false, nil, fmt.Errorf("prepared Chat Agent %q target is required", targetAgent)
 		}
@@ -519,12 +512,16 @@ func applyPreparedAgentChatSettings(
 	if err != nil {
 		return session.Meta{}, false, nil, err
 	}
-	if targetAgent == state.Agent {
-		return meta, true, nil, nil
+	var targetRole *string
+	if preparedOverrides.NamedTarget != nil {
+		targetRole = textutil.Value(preparedOverrides.NamedTarget.Selector)
 	}
-	target, err := session.ChatSettingsStateFromCompleteSettings(targetAgent, prepared.Baseline)
+	target, err := session.ChatSettingsStateFromRole(targetRole, prepared.Baseline)
 	if err != nil {
 		return session.Meta{}, false, nil, err
+	}
+	if textutil.EqualOptional(target.AgentRole, state.AgentRole) {
+		return meta, true, nil, nil
 	}
 	projected, changed, err := session.ProjectChatSettingsState(meta, target)
 	if errors.Is(err, session.ErrChatAgentLocked) {
@@ -550,18 +547,7 @@ func preparePromptFacingTarget(
 		}
 		return nil
 	}
-	if preparedOverrides.BaseTarget != nil {
-		target := *preparedOverrides.BaseTarget
-		return &target
-	}
-	if preparedOverrides.NamedTarget == nil {
-		return nil
-	}
-	return &launch.PreparedBaseTarget{
-		Settings:     preparedOverrides.NamedTarget.Settings,
-		Source:       preparedOverrides.NamedTarget.Source,
-		EnabledTools: preparedOverrides.NamedTarget.EnabledTools,
-	}
+	return preparedOverrides.PromptFacingTarget()
 }
 
 func (s *Service) finalizeLaunchPlan(ctx context.Context, plan launch.SessionPlan, warnings []string, err error) (PlanResult, error) {
