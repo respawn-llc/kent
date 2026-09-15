@@ -62,7 +62,6 @@ func TestFinalizerPublishesCurrentNodeApprovalNotification(t *testing.T) {
 	}
 	if err := serverapi.ValidateAttentionNotificationEvent(clientui.AttentionNotificationEvent{
 		Sequence: 1,
-		Source:   clientui.AttentionNotificationSourceLive,
 		Type:     clientui.AttentionNotificationEventPending,
 		Pending:  &got,
 	}); err != nil {
@@ -177,7 +176,6 @@ func TestFinalizerPublishesAndResolvesInterruptedCurrentNode(t *testing.T) {
 	}
 	if err := serverapi.ValidateAttentionNotificationEvent(clientui.AttentionNotificationEvent{
 		Sequence: 1,
-		Source:   clientui.AttentionNotificationSourceLive,
 		Type:     clientui.AttentionNotificationEventPending,
 		Pending:  &pending,
 	}); err != nil {
@@ -198,7 +196,6 @@ func TestFinalizerPublishesAndResolvesInterruptedCurrentNode(t *testing.T) {
 	}
 	if err := serverapi.ValidateAttentionNotificationEvent(clientui.AttentionNotificationEvent{
 		Sequence:   2,
-		Source:     clientui.AttentionNotificationSourceLive,
 		Type:       clientui.AttentionNotificationEventResolved,
 		ID:         &resolved.id,
 		Kind:       resolved.kind,

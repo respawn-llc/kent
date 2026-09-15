@@ -158,7 +158,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	stepID := *currentNodeCompletionStepID(t)
 	request := tools.AskQuestionRequest{
 		ToolCallID: "force-complete-pending-approval", StepID: stepID.String(), Question: "Allow access?", Approval: true,
-		ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce, Label: "Allow once"}},
+		ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}},
 	}
 	promptDone := make(chan approvalCompletionAsync[tools.AskQuestionResolution], 1)
 	handle, err := authority.StartAgentExecution(ctx, sessionruntime.AgentExecutionRequest{

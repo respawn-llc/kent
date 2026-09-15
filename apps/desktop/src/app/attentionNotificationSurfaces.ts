@@ -104,13 +104,14 @@ export async function reconcileActiveSurfaces(
 ): Promise<readonly string[]> {
   const staleIDs: string[] = [];
   for (const [id, record] of records) {
-    if (record.notification.target.kind !== "workflow_task") {
-      continue;
-    }
     try {
-      const attention = await api.listTaskAttention(record.notification.target.taskID);
-      if (!attentionTargetIsActive(attention.items, record.notification.target)) {
-        staleIDs.push(id);
+      const target = record.notification.target;
+      if (target.kind === "session_prompt") {
+        const prompts = await api.listPendingPrompts(target.sessionID);
+        if (!prompts.some((prompt) => prompt.toolCallID === record.notification.id.uuid)) staleIDs.push(id);
+      } else {
+        const attention = await api.listTaskAttention(target.taskID);
+        if (!attentionTargetIsActive(attention.items, target)) staleIDs.push(id);
       }
     } catch (error) {
       if (isTaskMissingError(error)) {
@@ -347,9 +348,7 @@ function nativeNotification(notification: AttentionNotification, t: Translate): 
 }
 
 function nativeTarget(target: AttentionNotification["target"]): NativeNotificationTarget | null {
-  if (target.kind !== "workflow_task") {
-    return null;
-  }
+  if (target.kind === "session_prompt") return target;
   const focus = taskDetailInitialFocus(target.focus);
   if (focus.kind === "question" && focus.askIDs.length === 0) {
     return null;
@@ -384,7 +383,6 @@ function interruptedCurrentNodeFallback(notification: AttentionNotification, t: 
     workflow_script_completion_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
     workflow_script_execution_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
     workflow_script_failed: t("app.attention.interruptedCurrentNodeScriptFailed"),
-    workflow_startup_recovery: t("app.attention.interruptedCurrentNodeStartupRecovery"),
   };
   return reasonCopy[reason] ?? fallback;
 }

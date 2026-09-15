@@ -105,7 +105,7 @@ function operation<Request, Result extends NonNullable<unknown>>(
 const transient = <T>(queryKey: readonly unknown[], queryFn: () => Promise<T>) =>
   queryOptions({ queryKey, queryFn, refetchOnReconnect: false, retry: false });
 async function fresh<T>(queryClient: QueryClient, options: ReturnType<typeof queryOptions<T>>) {
-  await dispose(queryClient, options.queryKey);
+  await queryClient.resetQueries({ queryKey: options.queryKey, exact: true });
   return queryClient.fetchQuery(options);
 }
 async function dispose(queryClient: QueryClient, queryKey: readonly unknown[]) {

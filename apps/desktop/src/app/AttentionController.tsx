@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useMatch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { NativeNotificationActivation, NativeNotificationTarget } from "@app/native-bridge";
 
@@ -7,7 +8,7 @@ import type {
   ApiSubscription,
   AttentionNotification,
   AttentionNotificationID,
-  AttentionNotificationWorkflowTaskTarget,
+  AttentionNotificationTarget,
 } from "@/api";
 import { errorMessage } from "@/api";
 import {
@@ -31,6 +32,8 @@ import { queryKeys } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { useWindowFocus } from "@/app-facade";
+import { useAppNavigation, useChatPromptPresence, useSidebarShell, sessionChatRoutePath } from "@/app-facade";
+import { desktopChatEnabled } from "@/shared/feature-flags";
 
 export function AttentionController() {
   return (
@@ -58,16 +61,12 @@ function OwnedAttentionController() {
         refreshAttentionProjection();
       },
       onEvent(event) {
-        if (event.source === "live") {
-          refreshAttentionProjection();
-        }
+        refreshAttentionProjection();
         if (event.type === "pending") {
           void handlePending(event.pending);
           return;
         }
-        if (event.type === "resolved") {
-          handleResolved(event.id);
-        }
+        handleResolved(event.id);
       },
       onComplete(code) {
         if (code === 0) {
@@ -104,16 +103,50 @@ function useAttentionSurfacePresenter() {
   const status = useStatusController();
   const connection = useConnectionSnapshot();
   const windowFocused = useWindowFocus();
+  const { openSessionChat } = useAppNavigation();
+  const presence = useChatPromptPresence();
+  const { activeDestination } = useSidebarShell();
+  const chatMatch = useMatch({ from: sessionChatRoutePath, shouldThrow: false });
+  const pickerTarget =
+    activeDestination === null &&
+    presence.target !== null &&
+    chatMatch?.params.projectId === presence.target.projectID &&
+    chatMatch.params.sessionId === presence.target.sessionID
+      ? presence.target
+      : null;
+  const pickerRef = useRef(pickerTarget);
   const focusedRef = useRef<boolean | null>(windowFocused);
   const reconciledGenerationRef = useRef(connection.generation);
   const surfacedRef = useRef(new Map<string, SurfaceRecord>());
 
+  const suppressFocusedPicker = useCallback(
+    (notification: AttentionNotification): boolean => {
+      if (
+        notification.target.kind !== "session_prompt" ||
+        focusedRef.current !== true ||
+        pickerRef.current?.projectID !== notification.target.projectID ||
+        pickerRef.current.sessionID !== notification.target.sessionID
+      )
+        return false;
+      const id = attentionNotificationIDKey(notification.id);
+      if (surfacedRef.current.get(id)?.state === "toast") status.dismiss(attentionToastID(id));
+      removeActiveNotification(bridge.notifications, logger, id);
+      surfacedRef.current.set(id, { notification, state: "dismissed" });
+      return true;
+    },
+    [status, bridge.notifications, logger],
+  );
+
   useEffect(() => {
     focusedRef.current = windowFocused;
-  }, [windowFocused]);
+    pickerRef.current = pickerTarget;
+    if (windowFocused !== true || pickerTarget === null) return;
+    for (const record of surfacedRef.current.values()) suppressFocusedPicker(record.notification);
+  }, [windowFocused, pickerTarget, suppressFocusedPicker]);
 
   const openTarget = useCallback(
-    async (target: AttentionNotificationWorkflowTaskTarget | NativeNotificationTarget): Promise<void> => {
+    async (target: AttentionNotificationTarget | NativeNotificationTarget): Promise<void> => {
+      if (target.kind === "session_prompt" && !desktopChatEnabled) return;
       try {
         await bridge.window.focusMain();
       } catch (error) {
@@ -122,6 +155,10 @@ function useAttentionSurfacePresenter() {
         });
       }
       try {
+        if (target.kind === "session_prompt") {
+          await openSessionChat({ projectID: target.projectID, sessionID: target.sessionID });
+          return;
+        }
         await open({
           kind: "taskDetail",
           initialFocus: taskDetailInitialFocus(target.focus),
@@ -132,19 +169,18 @@ function useAttentionSurfacePresenter() {
       } catch (error) {
         await logger.append("warn", "Opening attention notification target failed.", {
           error: errorMessage(error),
-          taskID: target.taskID,
+          targetKind: target.kind,
+          targetID: target.kind === "session_prompt" ? target.sessionID : target.taskID,
         });
         throw error;
       }
     },
-    [bridge.window, logger, open],
+    [bridge.window, logger, open, openSessionChat],
   );
 
   const showAttentionToast = useCallback(
     (notification: AttentionNotification): void => {
-      if (notification.target.kind !== "workflow_task") {
-        return;
-      }
+      if (suppressFocusedPicker(notification)) return;
       const target = notification.target;
       const notificationKey = attentionNotificationIDKey(notification.id);
       const toastID = attentionToastID(notificationKey);
@@ -191,7 +227,7 @@ function useAttentionSurfacePresenter() {
       });
       surfacedRef.current.set(notificationKey, { notification, state: "toast" });
     },
-    [openTarget, status, t],
+    [openTarget, status, t, suppressFocusedPicker],
   );
 
   const surfaceCurrentPending = useCallback(
@@ -234,7 +270,7 @@ function useAttentionSurfacePresenter() {
 
   const handlePending = useCallback(
     async (notification: AttentionNotification): Promise<void> => {
-      if (notification.target.kind !== "workflow_task") {
+      if (notification.target.kind === "session_prompt" && !desktopChatEnabled) {
         return;
       }
       const notificationKey = attentionNotificationIDKey(notification.id);
@@ -289,13 +325,12 @@ function useAttentionSurfacePresenter() {
     void bridge.notifications
       .permissionState()
       .then(async (permission) => {
-        let resolvedPermission = permission;
         await logger.append("info", "Native notification permission state resolved.", {
           permission,
         });
         if (permission === "prompt") {
           try {
-            resolvedPermission = await bridge.notifications.requestPermission();
+            const resolvedPermission = await bridge.notifications.requestPermission();
             await logger.append("info", "Native notification permission request completed.", {
               permission: resolvedPermission,
             });
@@ -306,21 +341,13 @@ function useAttentionSurfacePresenter() {
             return;
           }
         }
-        if (resolvedPermission === "denied" || resolvedPermission === "unsupported") {
-          status.push({
-            id: `attention-native-permission-${resolvedPermission}`,
-            tone: "warning",
-            title: t("app.attention.permissionDeniedTitle"),
-            body: t("app.attention.permissionDeniedBody"),
-          });
-        }
       })
       .catch(async (error: unknown) => {
         await logger.append("warn", "Reading native notification permission failed.", {
           error: errorMessage(error),
         });
       });
-  }, [bridge.capabilities.notifications.basic, bridge.notifications, logger, status, t]);
+  }, [bridge.capabilities.notifications.basic, bridge.notifications, logger]);
 
   useEffect(() => {
     if (connection.phase !== "connected" || connection.generation === reconciledGenerationRef.current) {

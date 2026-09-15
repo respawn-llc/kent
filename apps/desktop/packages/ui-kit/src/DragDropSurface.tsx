@@ -24,7 +24,7 @@ export function DragDropSurface({
 }: Readonly<{
   children: ReactNode;
   onDrop: (targetID: UniqueIdentifier | null, rect: DOMRectReadOnly) => void;
-  onCancel: () => void;
+  onCancel: (cause?: Error) => void;
   dropAnimation?: DropAnimation | null | undefined;
 }>) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -32,10 +32,17 @@ export function DragDropSurface({
     <DndContext
       autoScroll={false}
       collisionDetection={pointerWithin}
-      onDragCancel={onCancel}
+      onDragCancel={() => {
+        onCancel();
+      }}
       onDragEnd={({ active, over }) => {
         const rect = active.rect.current.translated;
-        if (rect === null) throw new Error("A dropped item has no measured position.");
+        if (rect === null) {
+          const error = new Error("A dropped item has no measured position.");
+          onCancel(error);
+          if (import.meta.env.DEV) throw error;
+          return;
+        }
         onDrop(over?.id ?? null, new DOMRect(rect.left, rect.top, rect.width, rect.height));
       }}
       sensors={sensors}

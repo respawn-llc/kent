@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RegistryProvider } from "@effect/atom-react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ReactNode } from "react";
 
 import {
   ChatRuntimeProvider,
+  createRefreshOpenWorktreeList,
   queryKeys,
   replaceWorktreeListRead,
   SidebarHeaderActionProvider,
@@ -12,8 +14,6 @@ import {
   SidebarRootContext,
   SidebarRootOwner,
   worktreeTransitionOutcomeHandler,
-  type WorktreeBrowserActions,
-  type WorktreeBrowserAction,
 } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { worktreeBrowserFixtureEntry, worktreeBrowserFixtureRoute } from "@/test-support/api";
@@ -29,6 +29,7 @@ import {
 } from "@/test-support/chat-runtime";
 import { WorktreeBrowser as Browser } from "./WorktreeBrowser";
 import { WorktreeControl } from "./WorktreeControl";
+import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
 function BrowserProviders({
   services,
@@ -37,26 +38,37 @@ function BrowserProviders({
   const [roots] = useState(() => createTestSidebarController());
   return (
     <TestAppProviders services={services}>
-      <SidebarRootContext.Provider value={roots}>
-        <SidebarRootOwner>
-          <SidebarHeaderActionProvider>
-            <SidebarHeaderActionSlot />
-            {children}
-          </SidebarHeaderActionProvider>
-        </SidebarRootOwner>
-      </SidebarRootContext.Provider>
+      <RegistryProvider>
+        <SidebarRootContext.Provider value={roots}>
+          <SidebarRootOwner>
+            <SidebarHeaderActionProvider>
+              <SidebarHeaderActionSlot />
+              {children}
+            </SidebarHeaderActionProvider>
+          </SidebarRootOwner>
+        </SidebarRootContext.Provider>
+      </RegistryProvider>
     </TestAppProviders>
   );
 }
 
-function WorktreeBrowser(props: Omit<Parameters<typeof Browser>[0], "navigator">) {
+function WorktreeBrowser(props: Readonly<{ sessionID: string }>) {
   const [navigator] = useState(() => createTestSidebarNavigator());
-  return <Browser {...props} navigator={navigator} />;
-}
-
-function operationOf(action: WorktreeBrowserAction | undefined) {
-  if (action === undefined || action.kind === "create") throw new Error("Expected a row action");
-  return action.operation;
+  return (
+    <Browser
+      {...props}
+      navigator={navigator}
+      onCreate={vi.fn()}
+      onSwitch={vi.fn()}
+      renderDelete={(operation) => (
+        <WorktreeDeleteButton
+          sessionID={props.sessionID}
+          selector={operation.selector}
+          refreshOpenWorktreeList={vi.fn()}
+        />
+      )}
+    />
+  );
 }
 
 it("opens with a fresh read even when the Session list is cached", async () => {
@@ -67,7 +79,7 @@ it("opens with a fresh read even when the Session list is cached", async () => {
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID="session-1" onAction={vi.fn()} />
+        <WorktreeBrowser sessionID="session-1" />
       </QueryClientProvider>
     </BrowserProviders>,
   );
@@ -94,7 +106,7 @@ it("isolates late list delivery after changing Session", async () => {
   const surface = (sessionID: string) => (
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID={sessionID} onAction={vi.fn()} />
+        <WorktreeBrowser sessionID={sessionID} />
       </QueryClientProvider>
     </BrowserProviders>
   );
@@ -129,7 +141,7 @@ it("reopening replaces an unfinished read without accepting its late delivery", 
   const surface = (open: boolean) => (
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        {open ? <WorktreeBrowser sessionID="session-1" onAction={vi.fn()} /> : null}
+        {open ? <WorktreeBrowser sessionID="session-1" /> : null}
       </QueryClientProvider>
     </BrowserProviders>
   );
@@ -166,8 +178,8 @@ it("reconnect refreshes the shared control and open list once", async () => {
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
         <ChatRuntimeProvider api={api} target={target} host={runtimeHost()} onReconnected={onReconnected}>
-          <WorktreeControl sessionID={target.sessionID} onAction={vi.fn()} />
-          <WorktreeBrowser sessionID={target.sessionID} onAction={vi.fn()} />
+          <WorktreeControl sessionID={target.sessionID} />
+          <WorktreeBrowser sessionID={target.sessionID} />
         </ChatRuntimeProvider>
       </QueryClientProvider>
     </BrowserProviders>,
@@ -203,13 +215,22 @@ it("refreshes after a completed typed transition without changing Chat target or
   const api = { connection: services.api.connection, chat: runtime.api };
   const client = new QueryClient();
   const host = runtimeHost({
-    onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(client, services.api, target.sessionID),
+    onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(
+      createRefreshOpenWorktreeList(client, services.api, () => ({
+        kind: "worktree",
+        sessionID: target.sessionID,
+        page: "list",
+      })),
+      target.sessionID,
+      vi.fn(),
+      appI18n.t,
+    ),
   });
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
         <ChatRuntimeProvider api={api} target={target} host={host}>
-          <WorktreeBrowser sessionID={target.sessionID} onAction={vi.fn()} />
+          <WorktreeBrowser sessionID={target.sessionID} />
         </ChatRuntimeProvider>
       </QueryClientProvider>
     </BrowserProviders>,
@@ -261,7 +282,9 @@ it("refreshes after a completed typed transition without changing Chat target or
   await act(async () => {
     await Promise.resolve();
   });
-  expect(services.transport.descriptorCalls).toHaveLength(before + 1);
+  await waitFor(() => {
+    expect(services.transport.descriptorCalls).toHaveLength(before + 2);
+  });
   expect(
     services.transport.descriptorCalls.every(
       (call) => call.descriptor === services.transport.descriptorCalls[0]?.descriptor,
@@ -286,7 +309,7 @@ it("Refresh retains the completed list on failure and Retry replaces it", async 
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID="session-1" onAction={vi.fn()} />
+        <WorktreeBrowser sessionID="session-1" />
       </QueryClientProvider>
     </BrowserProviders>,
   );
@@ -324,47 +347,26 @@ it.each([
   ["registered", false, 1, 1],
   ["missing", false, 0, 1],
 ] as const)(
-  "dispatches only server-projected actions for %s current=%s",
+  "offers only server-projected actions for %s current=%s",
   async (kind, current, switches, deletes) => {
     const services = createTestServices([
       worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry(kind, current)]),
     ]);
     const client = new QueryClient();
-    const onAction = vi.fn<WorktreeBrowserActions>();
     render(
       <BrowserProviders services={services}>
         <QueryClientProvider client={client}>
-          <WorktreeBrowser sessionID="session-1" onAction={onAction} />
+          <WorktreeBrowser sessionID="session-1" />
         </QueryClientProvider>
       </BrowserProviders>,
     );
     await waitFor(() => {
       expect(client.getQueryState(queryKeys.worktreeList("session-1"))?.status).toBe("success");
     });
-    const list = client.getQueryData<Awaited<ReturnType<typeof services.api.listWorktrees>>>(
-      queryKeys.worktreeList("session-1"),
-    );
-    const projection = list?.worktrees[0]?.projection;
-    if (projection === undefined) throw new Error("Missing fixture projection");
-    const user = userEvent.setup();
-    await user.click(screen.getByText(kind === "mainWorkspace" ? "Workspace" : "Feature"));
-    expect(onAction).not.toHaveBeenCalled();
     const switchButtons = screen.queryAllByRole("button", { name: appI18n.t("chat.worktree.switch") });
     const deleteButtons = screen.queryAllByRole("button", { name: appI18n.t("chat.worktree.delete") });
     expect(switchButtons).toHaveLength(switches);
     expect(deleteButtons).toHaveLength(deletes);
-    for (const button of switchButtons) {
-      await user.click(button);
-      expect(onAction.mock.lastCall?.[0]).toMatchObject({ kind: "switch", sessionID: "session-1" });
-      expect(operationOf(onAction.mock.lastCall?.[0])).toBe(projection.switch);
-    }
-    for (const button of deleteButtons) {
-      await user.click(button);
-      expect(onAction.mock.lastCall?.[0]).toMatchObject({ kind: "delete", sessionID: "session-1" });
-      expect(operationOf(onAction.mock.lastCall?.[0])).toBe(projection.deletePreview);
-    }
-    await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.create") }));
-    expect(onAction.mock.lastCall?.[0]).toMatchObject({ kind: "create", sessionID: "session-1" });
     expect(services.transport.descriptorCalls).toHaveLength(1);
   },
 );

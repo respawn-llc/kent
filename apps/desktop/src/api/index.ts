@@ -18,6 +18,8 @@ export type {
 } from "./chatSettingsTypes";
 export { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 export { goalFactFromTranscript } from "./chatGoal";
+export { orderPendingPrompts } from "./promptPresentation";
+export { promptAnswerEntry } from "./promptAnswerEntry";
 export type {
   ChatApi,
   ChatAcceptedDiagnostic,
@@ -65,6 +67,7 @@ export type {
   PromptAnswerBatchInput,
   PromptAnswerBatchResponse,
   QuestionAnswerInput,
+  PromptAnswerBatchEntryInput,
   TaskEditInput,
   TaskMoveInput,
   TaskResumeInput,
@@ -156,8 +159,14 @@ export type {
   SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
+export {
+  DirtyStateKind,
+  BranchCleanupOutcomeKind,
+  CreateTargetResolutionKind,
+  SelectorErrorKind,
+} from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 export { rpcErrorCodes } from "./rpcErrorCodes";
-export { WorktreeError } from "./clientWorktree";
+export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
 export { nonBlankString } from "./schemas/common";
@@ -288,6 +297,8 @@ export type {
   FileAccessTarget,
   OrdinaryQuestionPrompt,
   PromptIdentity,
+  PendingPrompt,
+  PromptUpdate,
 } from "./promptModels";
 export type { SessionCatalogPage, SessionCatalogSummary, SessionCategory } from "./models";
 export type {

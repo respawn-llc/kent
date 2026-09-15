@@ -27,7 +27,7 @@ func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 	question := serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
 		ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("session-1"),
 		StepID:  questionCommandStepID(),
-		Options: []clientui.ApprovalOption{{Label: "dynamic allow", Decision: clientui.ApprovalDecisionAllowOnce}},
+		Options: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce}},
 		AccessTargets: []clientui.FileAccessTarget{{
 			RequestedPath: "/alias/file", ResolvedPath: "/real/file",
 		}},
@@ -36,7 +36,6 @@ func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 	writeObservedQuestion(&output, question, "kent question answer --session session-dynamic --option <number>")
 	for _, value := range []string{
 		clientui.FormatFileAccessApprovalMarkdown(question.Approval.AccessTargets),
-		"dynamic allow",
 		"session-dynamic",
 	} {
 		if !strings.Contains(output.String(), value) {
@@ -56,7 +55,7 @@ func TestRunWatchApprovalHintTargetsSession(t *testing.T) {
 					ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("session-1"),
 					StepID: questionCommandStepID(), Question: "Allow access?", CreatedAt: time.Unix(1, 0),
 					Options: []clientui.ApprovalOption{{
-						Label: "Allow once", Decision: clientui.ApprovalDecisionAllowOnce,
+						Decision: clientui.ApprovalDecisionAllowOnce,
 					}},
 				}}),
 			},

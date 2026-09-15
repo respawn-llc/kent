@@ -30,13 +30,7 @@ enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
   ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
-  ATTENTION_NOTIFICATION_EVENT_SNAPSHOT_COMPLETE = 3;
-}
-
-enum AttentionNotificationSource {
-  ATTENTION_NOTIFICATION_SOURCE_UNSPECIFIED = 0;
-  ATTENTION_NOTIFICATION_SOURCE_LIVE = 1;
-  ATTENTION_NOTIFICATION_SOURCE_SNAPSHOT = 2;
+  reserved 3;
 }
 
 enum AttentionNotificationKind {
@@ -773,18 +767,11 @@ message ResolvedAttentionNotification {
   };
 }
 
-message AttentionSnapshotComplete {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-}
-
 message AttentionNotificationEvent {
+  reserved 2, 6;
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
-  }];
-  AttentionNotificationSource source = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
   }];
   AttentionNotificationEventType type = 3 [(buf.validate.field).enum = {
     defined_only: true
@@ -794,7 +781,6 @@ message AttentionNotificationEvent {
     option (buf.validate.oneof).required = true;
     AttentionNotification pending = 4;
     ResolvedAttentionNotification resolved = 5;
-    AttentionSnapshotComplete snapshot_complete = 6;
   }
 
   option (buf.validate.message).cel = {
@@ -802,13 +788,7 @@ message AttentionNotificationEvent {
     message: "attention event type must match its payload"
     expression:
       "(this.type == 1 && has(this.pending)) || "
-      "(this.type == 2 && has(this.resolved)) || "
-      "(this.type == 3 && has(this.snapshot_complete))"
-  };
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.notification_snapshot_source"
-    message: "snapshot-complete events must have snapshot source"
-    expression: "!has(this.snapshot_complete) || this.source == 2"
+      "(this.type == 2 && has(this.resolved))"
   };
 }
 

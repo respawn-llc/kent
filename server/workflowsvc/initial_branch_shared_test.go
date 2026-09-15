@@ -13,8 +13,14 @@ import (
 
 type initialBranchControllerRunner struct{}
 
-type pendingAgentControllerRunner struct {
-	initialBranchControllerRunner
+type pendingAgentControllerRunner struct{}
+
+func (pendingAgentControllerRunner) PrepareScriptPublication(
+	context.Context,
+	workflow.CurrentNodeReference,
+	workflowruntime.Controller,
+) (workflowexecution.CurrentNodeScriptPublication, error) {
+	return nil, nil
 }
 
 func (pendingAgentControllerRunner) StartAgentCurrentNode(

@@ -1,4 +1,8 @@
 export { Badge } from "./Badge";
+export { PromptOptionRow } from "./PromptOptionRow";
+export { PromptAccessTargets } from "./PromptAccessTargets";
+export { ScrollRegion } from "./ScrollRegion";
+export { GrowingTextArea } from "./GrowingTextArea";
 export type { BadgeTone } from "./Badge";
 export { AdaptiveLineClamp } from "./AdaptiveLineClamp";
 export type { AdaptiveLineClampProps } from "./AdaptiveLineClamp";
@@ -28,6 +32,7 @@ export { SegmentedControl } from "./SegmentedControl";
 export type { SegmentedControlOption, SegmentedControlProps } from "./SegmentedControl";
 export { CopyableValueButton } from "./CopyableValueButton";
 export { IconTooltipButton } from "./IconTooltipButton";
+export { PeekingSurface } from "./PeekingSurface";
 export { HelpHint } from "./HelpHint";
 export type { HelpHintProps } from "./HelpHint";
 export { DisabledInteractionGuard } from "./DisabledInteractionGuard";

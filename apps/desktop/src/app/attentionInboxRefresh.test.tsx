@@ -3,7 +3,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 
 import { removeBrowserStorage } from "@/app-facade";
 import { createTestServices, startupRoutes } from "@/test-support/app-services";
-import { flushQueuedWork, installAnimationFrameTestSupport } from "@/test-support/scheduling";
+import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { AppRoot } from "./AppRoot";
 
 describe("open Inbox attention refresh", () => {
@@ -67,7 +67,6 @@ describe("open Inbox attention refresh", () => {
         event: {
           type: "resolved",
           sequence: 1,
-          source: "live",
           id: { kind: "question", uuid: "step-1" },
           kind: "question",
           occurred_at: "2026-08-28T20:01:00Z",
@@ -79,34 +78,6 @@ describe("open Inbox attention refresh", () => {
       expect(attentionListCallCount(services)).toBe(2);
       expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
     });
-  });
-
-  it("does not refetch the authoritative projection for each replayed snapshot item", async () => {
-    const services = createTestServices([
-      ...startupRoutes,
-      {
-        method: "workflow.attention.list",
-        handler: () => attentionResponse([]),
-      },
-    ]);
-
-    render(<AppRoot services={services} />);
-
-    await waitFor(() => {
-      expect(attentionListCallCount(services)).toBe(1);
-    });
-
-    await act(async () => {
-      services.transport.emit("attention.notification", {
-        event: {
-          ...pendingQuestionEvent.event,
-          source: "snapshot",
-        },
-      });
-      await flushQueuedWork();
-    });
-
-    expect(attentionListCallCount(services)).toBe(1);
   });
 });
 
@@ -133,7 +104,6 @@ const pendingQuestionEvent = {
   event: {
     type: "pending",
     sequence: 1,
-    source: "live",
     pending: {
       id: { kind: "question", uuid: "step-1" },
       kind: "question",

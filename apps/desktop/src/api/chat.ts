@@ -19,6 +19,9 @@ import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
 import { context, createChatSettingsApi } from "./chatSettings";
 import { createChatGoalApi } from "./chatGoal";
+import { createChatDraftApi } from "./chatDrafts";
+import { listPendingPrompts } from "./clientPendingPrompts";
+import { answerPromptBatch } from "./clientPromptAnswers";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
@@ -77,7 +80,10 @@ export type {
 
 export function createChatApi(transport: DescriptorRpcTransport): ChatApi {
   return {
+    listPendingPrompts: async (target) => listPendingPrompts(transport, requireChatSessionID(target)),
+    answerPromptBatch: async (input) => answerPromptBatch(transport, input),
     ...createChatMutationApi(transport),
+    ...createChatDraftApi(transport),
     ...createChatSettingsApi(transport),
     ...createChatGoalApi(transport),
     async getMainView(target) {

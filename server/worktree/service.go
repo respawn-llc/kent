@@ -1671,7 +1671,15 @@ func (s *Service) ListWorktrees(ctx context.Context, req *worktreepb.ListRequest
 	if err != nil {
 		return nil, err
 	}
-	return &worktreepb.ListSuccess{Target: workspaceCtx.target, Worktrees: worktrees}, nil
+	record, err := s.metadata.ResolvePersistedSession(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	return &worktreepb.ListSuccess{
+		Target:           workspaceCtx.target,
+		Worktrees:        worktrees,
+		BranchSuggestion: worktreecontract.SanitizeBranchSuggestion(record.Meta.Name),
+	}, nil
 }
 
 func (s *Service) ListWorkspaceWorktrees(ctx context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {

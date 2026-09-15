@@ -151,8 +151,8 @@ func (m *uiModel) applyQuestionRenderResult(result questionRenderResultMsg) (tea
 		return m.handleQuestionProjectionError(result), false
 	}
 	initialActivation := m.ask.activeProjection == nil
-	activationPending := initialActivation ||
-		m.ask.activeProjection != nil && m.ask.activeProjection.pendingActivationPreview != nil
+	activationPending := desired.candidate.origin == promptDeliveryLive &&
+		(initialActivation || m.ask.activeProjection != nil && m.ask.activeProjection.pendingActivationPreview != nil)
 	candidate := cloneAskEventForProjection(desired.candidate)
 	m.ask.current = &candidate
 	var pendingActivationPreview *string

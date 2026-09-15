@@ -20,7 +20,7 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "jsx": "react-jsx",
-    "types": ["react", "react-dom", "vitest/globals", "@testing-library/jest-dom/vitest"]
+    "types": ["react", "react-dom", "vite/client", "vitest/globals", "@testing-library/jest-dom/vitest"]
   },
   "include": ["src"]
 }

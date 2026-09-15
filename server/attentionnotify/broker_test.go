@@ -46,13 +46,15 @@ func TestBrokerDeliversSameIDHigherRevisionPendingUpdates(t *testing.T) {
 	}
 }
 
-func TestBrokerKeepsSessionPromptOffDesktopRoot(t *testing.T) {
+func TestBrokerDeliversSessionPromptToDesktopRoot(t *testing.T) {
 	fixture := newBrokerFixture(t)
 	desktop := fixture.subscribeDesktop()
 	session := fixture.subscribeSession("session-1")
 	scope := RoutingScope{Kind: RoutingSessionPrompt, SessionID: "session-1"}
 	fixture.publishPending(scope, testSessionPromptNotification("prompt-1"))
-	fixture.requireNoEvent(desktop, "desktop received session prompt event")
+	if event := fixture.next(desktop); event.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt {
+		t.Fatalf("desktop target = %+v", event.Pending.Target)
+	}
 	if event := fixture.next(session); event.Pending.Target.Kind != clientui.AttentionNotificationTargetSessionPrompt {
 		t.Fatalf("session target = %+v", event.Pending.Target)
 	}
@@ -81,37 +83,11 @@ func TestBrokerDeliversScopedResolvedWithoutActiveID(t *testing.T) {
 	}
 }
 
-func TestBrokerEnqueuesInitialEventsOnlyForRegisteredSubscriber(t *testing.T) {
+func TestBrokerDoesNotReplayEventsToNewSubscriber(t *testing.T) {
 	fixture := newBrokerFixture(t)
 	fixture.publishPending(RoutingScope{Kind: RoutingWorkflowTask}, testQuestionNotification("batch-1", 1))
 	sub := fixture.subscribeDesktop()
 	fixture.requireNoEvent(sub, "default subscription replayed old event")
-	initial := clientui.AttentionNotificationEvent{
-		Source:    clientui.AttentionNotificationSourceSnapshot,
-		Type:      clientui.AttentionNotificationEventSnapshotComplete,
-		SessionID: "session-1",
-	}
-	fixture.enqueueInitial(sub, RoutingScope{Kind: RoutingWorkflowTask}, initial)
-	if event := fixture.next(sub); event.Type != clientui.AttentionNotificationEventSnapshotComplete {
-		t.Fatalf("initial event = %+v", event)
-	}
-}
-
-func TestBrokerSnapshotPendingActivatesLaterResolvedEvent(t *testing.T) {
-	fixture := newBrokerFixture(t)
-	sub := fixture.subscribeSession("session-1")
-	scope := RoutingScope{Kind: RoutingSessionPrompt, SessionID: "session-1"}
-	notification := testSessionPromptNotification("ask-1")
-	initial := snapshotPending(notification)
-	fixture.enqueueInitial(sub, scope, initial)
-	if event := fixture.next(sub); event.Type != clientui.AttentionNotificationEventPending || event.Pending.ID != notification.ID {
-		t.Fatalf("initial pending event = %+v", event)
-	}
-	fixture.publishResolved(scope, notification.ID, notification.Kind, testTime().Add(time.Second))
-	resolved := fixture.next(sub)
-	if resolved.Type != clientui.AttentionNotificationEventResolved || !attentionNotificationEventIDMatches(resolved, notification.ID) {
-		t.Fatalf("resolved event = %+v", resolved)
-	}
 }
 
 func TestBrokerClosesLaggingSubscriberWithStreamGap(t *testing.T) {
@@ -120,19 +96,6 @@ func TestBrokerClosesLaggingSubscriberWithStreamGap(t *testing.T) {
 	scope := RoutingScope{Kind: RoutingWorkflowTask}
 	fixture.publishPending(scope, testQuestionNotification("batch-1", 1))
 	fixture.publishPending(scope, testQuestionNotification("batch-2", 1))
-	_ = fixture.next(sub)
-	_, err := sub.Next(context.Background())
-	fixture.requireStreamGap("Next", err)
-}
-
-func TestBrokerInitialEnqueueOverflowReturnsStreamGap(t *testing.T) {
-	fixture := newBrokerFixture(t, WithBufferSize(1))
-	sub := fixture.subscribeSession("session-1")
-	scope := RoutingScope{Kind: RoutingSessionPrompt, SessionID: "session-1"}
-	first := snapshotPending(testSessionPromptNotification("ask-1"))
-	second := snapshotPending(testSessionPromptNotification("ask-2"))
-	fixture.enqueueInitial(sub, scope, first)
-	fixture.requireStreamGap("EnqueueInitial overflow", fixture.EnqueueInitial(sub, scope, second))
 	_ = fixture.next(sub)
 	_, err := sub.Next(context.Background())
 	fixture.requireStreamGap("Next", err)
@@ -216,11 +179,6 @@ func (f brokerFixture) publishResolved(scope RoutingScope, id clientui.Attention
 	f.noError("PublishResolved", f.PublishResolved(scope, id, kind, occurredAt))
 }
 
-func (f brokerFixture) enqueueInitial(sub *Subscription, scope RoutingScope, event clientui.AttentionNotificationEvent) {
-	f.Helper()
-	f.noError("EnqueueInitial", f.EnqueueInitial(sub, scope, event))
-}
-
 func (f brokerFixture) next(sub *Subscription) clientui.AttentionNotificationEvent {
 	f.Helper()
 	event, err := sub.Next(context.Background())
@@ -266,14 +224,6 @@ func (f brokerFixture) questionBatch() (*QuestionBatchTracker, QuestionBatch) {
 	}
 }
 
-func snapshotPending(notification clientui.AttentionNotification) clientui.AttentionNotificationEvent {
-	return clientui.AttentionNotificationEvent{
-		Source:  clientui.AttentionNotificationSourceSnapshot,
-		Type:    clientui.AttentionNotificationEventPending,
-		Pending: &notification,
-	}
-}
-
 func attentionNotificationID(kind clientui.AttentionNotificationKind, uuid string) clientui.AttentionNotificationID {
 	return clientui.AttentionNotificationID{Kind: kind, UUID: uuid}
 }
@@ -308,6 +258,7 @@ func testSessionPromptNotification(id string) clientui.AttentionNotification {
 		Revision:   1,
 		Target: clientui.AttentionNotificationTarget{
 			Kind:      clientui.AttentionNotificationTargetSessionPrompt,
+			ProjectID: "project-1",
 			SessionID: "session-1",
 		},
 		Question: &clientui.AttentionNotificationQuestionState{

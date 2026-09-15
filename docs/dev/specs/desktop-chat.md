@@ -234,6 +234,12 @@
 
 ## Composer And Pending Work
 
+- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear immediately to the left of Send/Steer. The microphone control must remain absent.
+- Slash-command suggestions must use the same peeking island as Pending Work, replacing its content while command selection is active. Selecting a command, entering arguments, or pressing Escape must restore the Pending Work presentation when items remain.
+- The command picker must show command tokens and available descriptions or previews. Up and Down must select a suggestion, and Enter must activate it. Whitespace must hide the picker for argument entry. Escape must dismiss the picker before Stop handling. Tab must retain ordinary focus navigation.
+- Ctrl+Enter on a selected command must use its server-supported Queue operation when available. A command without a supported Queue operation must execute immediately through its ordinary action. Desktop must not add a client-local command queue.
+- Send and Queue must clear the submitted draft immediately and keep editing available. Rejection or failure must append the submitted text after any current composer text, separated by one newline when both are nonempty. Acceptance must preserve text entered after submission.
+- If a saved Session draft arrives after editing begins, the composer must place the saved draft before the newly typed text, separated by one newline when both are nonempty. Submission and draft persistence must wait for that initial draft read to complete.
 - Send starts a user turn while idle and Steers the active turn while work is running. A Steer takes effect at the next safe step boundary. Queue is a separate action that starts after active work completes; when idle, queued work starts immediately.
 - `Enter` sends or Steers, `Ctrl+Enter` Queues, and `Shift+Enter` inserts a newline. Tab keeps normal focus navigation.
 - `chat.steer` reuses ordinary submission admission after the server resolves the Chat target and prepares any required runtime. It maps that admission into a Chat-specific result without changing the ordinary Submit User Turn response. Its accepted result identifies the queued input without waiting for later provider, model, tool, or Runtime execution. A synchronous post-acceptance diagnostic preserves that identity. Later execution failure arrives through ordinary Runtime or transcript feedback and never rewrites the delivered mutation result. `chat.queue` delegates to the server-owned post-turn Queue operation through the same server-owned target and runtime preparation. `chat.compact` resolves the same target and then delegates to ordinary manual-compaction admission. Desktop never creates a client-local Queue.
@@ -247,7 +253,7 @@
 - On Windows and Linux, an Escape handled by the current temporary surface performs only that surface's local action. The first otherwise-unhandled Escape arms Stop for two seconds. A second otherwise-unhandled Escape within that window stops the current Session's stoppable active work.
 - The Windows/Linux Stop arm has no visual or notification feedback. Timeout, any non-Escape keyboard or pointer action, route or focus change, disconnection, or work completion clears it.
 - Queue has no visible button. While work is running and an empty composer can queue work, its placeholder is `Ctrl+Enter to queue`.
-- While work runs, an icon-only Stop action is visible beside Send/Steer. Stop clears all Queue and Steer items.
+- While work runs, an icon-only Stop action is visible beside Send/Steer. Stop must remove only human input associated with the stopped execution, following the Runtime Steering specification. Non-message mutations and input accepted after Stop admission must remain accepted.
 - The composer grows to one-third of available Chat height, then scrolls internally. Up and Down recall prompt history only at whole-buffer boundaries; returning below the newest history item restores the pre-history draft, and editing recalled text detaches it from history.
 - Pending Work appears behind the composer's top edge only while Queue or Steer items remain. It is an unlabeled, scrollable sheet no taller than about five two-line items, with Queue items first in Queue order, then Steer items in server acceptance order across human messages, manual compaction, and Worktree transitions. Each item shows no more than two lines and has an accessible Discard action.
 - Normal human-message, manual-compaction, and Active-Runtime Worktree-transition admission rejects with a typed capacity failure when the server independently observes at least 100 combined pending Queue and Steer items. Rejection changes no Pending Work membership and leaves the initiating input unchanged.
@@ -259,6 +265,7 @@
 - Discarding a pending Worktree transition restores canonical `/wt switch <selector>` or `/wt leave` to the discarding composer and emits no Worktree outcome.
 - Pending Work has no edit, reorder, submit-now, clear-all, full-text preview, or secondary detail view. On successful discard, text returns only to the discarding client's composer: verbatim into an empty composer, otherwise after one newline. Failed discard leaves both item and composer unchanged and shows notification feedback.
 - The Pending Work sheet preserves its position while inspecting older items and follows additions only at its newest edge.
+- Pending Work must use the server's whole-collection read without client-side pagination. Desktop must preserve every returned accepted item, including temporary overflow beyond 100. This collection is an exception to the GUI bounded-page requirement.
 - When Desktop observes the source-agnostic interruption event defined by the Runtime Steering specification, it restores the listed removed human message text in server order and then appends its current composer text. Every observing live Desktop does this independently; a disconnected, closed, or otherwise non-observing Desktop loses the stopped pending text.
 - When Desktop observes a definitely-unapplied technical restoration, it restores the canonical presentation through the same composer merge behavior. Every observing live Desktop restores the same broadcast independently; the restoration is not replayed after reconnect.
 - Desktop does not support the user Shell command. `$` remains ordinary text and follows Send, Steer, or Queue behavior.
@@ -454,8 +461,9 @@
 - Immediate deletion failure shows no separate Retry action and no Sonner while the popup remains open.
 - The delete popup remains dismissible while a Delete request is pending.
 - Dismissing the popup does not cancel the Delete request.
-- If a Delete request fails after its popup was dismissed, Desktop shows the authoritative diagnostic through Sonner and does not reopen the popup.
-- A clean-to-dirty rejection received after dismissal also uses Sonner. Reopening the delete flow starts a new preview.
+- If a Delete request fails after its popup's observation lifetime ends, Desktop must show the authoritative diagnostic through Sonner and must not reopen the popup.
+- Popup dismissal must release observation through the ordinary destination lifecycle. The popup must retain inline failure ownership until that disposal completes.
+- A clean-to-dirty rejection received after observation disposal must also use Sonner. Reopening the delete flow starts a new preview.
 - Delete copies the TUI's two typed outcomes. The delete popup shows its ordinary request-scoped loading state only until the server returns Completed or Scheduled.
 - A Completed result closes the popup and refreshes the list.
 - A Scheduled result closes the popup back to the refreshed list. Desktop does not wait for current-Session retargeting or Git removal to finish.
@@ -468,6 +476,7 @@
 - Worktree creation uses a focused child state within the same Worktree sidebar destination.
 - The creation state places `Branch or ref` before `Base ref`.
 - `Branch or ref` starts focused and is prefilled only from the sanitized Session title. When the Session has no usable title, the field starts empty.
+- The server must provide the title-derived branch suggestion. Desktop and TUI must use the same normalization: lowercase the title, retain Unicode letters and digits, and replace other character runs with interior hyphens. The suggestion must be absent when normalization leaves no usable name.
 - Desktop never falls back to the current branch, `main`, or a generated generic Worktree name.
 - Desktop resolves `Branch or ref` asynchronously and presents the typed result as `New branch`, `Existing branch`, or `Detached ref`. It has no explicit new/existing target selector.
 - Desktop briefly debounces `Branch or ref` changes. A response applies only when it matches the latest trimmed field value.
@@ -487,12 +496,14 @@
 - An empty Base ref sends no creation request and shows `Base ref is required`.
 - The creation state has no custom filesystem-path field. Kent uses the configured worktree base directory.
 - The primary creation action is `Create`. Back returns to the Worktree list without creating anything.
+- Leaving the creation state must discard its draft. Opening creation again must initialize Branch or ref from the sanitized Session title and Base ref from `HEAD`. Creation draft state must remain local to the destination without persistence.
 - While creation and optional setup run, the creation child state shows one simple spinner for the complete operation.
 - Desktop does not expose setup phases, phase labels, percentage progress, or a progress bar.
 - If creation fails before a worktree exists, Desktop must stop the spinner. Desktop must preserve every entered value. Desktop must show the authoritative diagnostic inline at its typed owner.
 - If optional setup fails, Desktop returns immediately to the refreshed Worktree list and shows the authoritative diagnostic through Sonner.
 - If creation fails before Kent retains a worktree, Desktop keeps the creation state open with every entered value preserved.
 - A pre-retention creation failure not owned by one field shows the authoritative diagnostic as error-colored form-level plain text below the fields. It shows no Sonner.
+- If the creation form has closed before a pre-retention failure arrives, Desktop must not present that failure or reopen the form. This does not change automatic Switch or setup, Switch, and Delete failure notifications after dismissal.
 - The Worktree sidebar remains dismissible while creation and optional setup run.
 - Dismissing the Worktree sidebar does not cancel the submitted creation operation. The operation continues without its spinner after the destination closes.
 - Reopening Worktree while that creation operation remains in flight opens the ordinary list and performs its ordinary server-owned read.
@@ -504,7 +515,7 @@
 - If the Worktree sidebar was dismissed, setup failure does not reopen it. Desktop shows the authoritative diagnostic through Sonner, and the next Worktree-sidebar open performs its ordinary server-owned list read.
 - Setup failure preserves the created worktree and does not offer an inline Error state, Retry action, or automatic deletion.
 - Successful creation waits for optional setup to finish and then applies the ordinary Switch operation for the new worktree.
-- If creation succeeds but the automatic Switch fails, Desktop preserves the created worktree, refreshes the list, leaves the Session on its previous target, and surfaces the Switch failure.
+- If creation succeeds but the automatic Switch fails, Desktop must preserve the created worktree, leave the Session on its previous target, and surface the Switch failure. Desktop must keep the originating creation page open if it remains current. Desktop must refresh the Worktree list only if a matching list is open.
 - Desktop does not delete or otherwise roll back a successfully created worktree because its automatic Switch failed.
 - Worktree remains fully available in the bottom control row while a Question or Approval picker replaces the editor.
 - Opening or mutating Worktree does not answer, dismiss, hide, or otherwise change the pending prompt.
@@ -542,6 +553,7 @@
 - Escape never declines a prompt. The explicit `×` and its Ctrl+D shortcut are the only per-prompt decline actions. On Windows and Linux, otherwise-unhandled Escape follows the whole-Session Stop arming contract.
 - Decline follows the shared prompt-cancellation transcript contract. An ordinary Question remains an error/canceled Ask Question tool row instead of becoming a completed answered Question. A canceled or interrupted Ask Question starts collapsed with an explicit error leading icon and the original question in its header. Expansion keeps the Markdown question and every offered option with none selected, omits commentary presentation, and then shows the backend-supplied tool error text. Desktop adds no synthetic user message, and a declined Approval adds no separate decision row.
 - When the final unresolved prompt becomes answered or declined, Desktop sends the complete typed answer batch to the server.
+- While a batch submission is pending, Desktop must keep the picker visible with a loading indicator and disable answer confirmation, selection changes, commentary editing, and decline. Prompt navigation and Stop must remain available.
 - Ordinary Questions with at least one suggested answer include the same `Neither` freeform option used by Task Detail. A Question with no suggestions has only the freeform response and does not offer `Neither`. The freeform/commentary field is always visible below the options and is preserved independently for each prompt.
 - The freeform/commentary field is pinned below the main picker scroll region. It has a three-line minimum, grows through seven lines, and then scrolls internally.
 - For a suggested answer, freeform text is optional commentary. For `Neither`, at least one non-whitespace character is required.
@@ -562,6 +574,7 @@
 
 ## Failure And Recovery
 
+- Unavailable or denied native notification permission must not produce a warning toast. Desktop must keep attention notifications available inside the app.
 - Desktop's existing global connection state owns control-connection disconnection. Chat adds no banner, card, modal, or second reconnect indicator.
 - While disconnected, the existing persistent warning notice remains visible, Chat keeps its last committed authoritative content, and every server mutation is unavailable. Composer and form text remain present.
 - Reconnection dismisses the global warning, invalidates in-flight transcript-page attempts from the prior connection, reissues visible owner reads, recreates the transcript subscription, and performs Scratch Rehydration. It retains the committed transcript window and its usable loaded paging boundaries, does not replay interrupted older/newer requests, and does not start a separate newest-page read. Success adds no notification.
@@ -594,6 +607,8 @@
 - Opening a native Chat pop-out failure leaves Chat in the main window and uses the native-window failure notice. Desktop does not create a fallback duplicate window or partially navigate the main window.
 - Prompt-answer races follow the Question/Approval contract: externally resolved prompts disappear, stale results cannot replace current prompt state, and a failed still-pending submission preserves its local answer draft.
 - After a batch failure, Desktop reads the latest completed pending-prompt projection and preserves local drafts only for prompts that appear pending in that response. Desktop does not retry or replay the failed batch automatically.
+- Desktop must report a failed batch submission through Sonner without adding a retry button or another picker control. Questions that remain pending must retain their selections and commentary and become editable again; declined prompts must remain read-only.
+- After a failed submission, Enter must explicitly resubmit when every remaining prompt is answered or declined, including when all remaining prompts are declined. Activating a previously selected answer must also allow resubmission through the normal confirmation behavior. Editing an answer must require its normal reconfirmation. Desktop must not add composer Send-button submission for prompt batches.
 - Impossible typed payloads, transcript integrity violations, and reducer/lifecycle states fail immediately in development. Production uses the owning transcript or operation failure path without placeholder rows, swallowed errors, or fake successful state.
 
 ## Desktop Exceptions

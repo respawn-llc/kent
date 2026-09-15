@@ -7,7 +7,11 @@ import type {
   LiveStopError,
   RemovePendingWorkError,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
-import type { SessionResolveTransitionError } from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
+import type {
+  SessionResolveTransitionError,
+  SessionInitialInputError,
+  SessionPersistInputDraftError,
+} from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
 
 import { ContractError, RpcError } from "./errors";
 import { protobufRpcError } from "./protobufRpc";
@@ -42,6 +46,8 @@ type ChatWireError =
   | ListPendingWorkError
   | LiveStopError
   | RemovePendingWorkError
+  | SessionInitialInputError
+  | SessionPersistInputDraftError
   | SessionResolveTransitionError;
 
 type ChatRpcResult = Readonly<{

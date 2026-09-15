@@ -235,9 +235,17 @@ type clipboardTextCopyDoneMsg struct {
 	Err            error
 }
 
+type promptDeliveryOrigin uint8
+
+const (
+	promptDeliveryLive promptDeliveryOrigin = iota
+	promptDeliveryHydration
+)
+
 type askEvent struct {
 	prompt             *transcriptpb.Prompt
 	resolvedToolCallID clientui.ToolCallID
+	origin             promptDeliveryOrigin
 }
 
 func (e askEvent) toolCallID() string {

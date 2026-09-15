@@ -12,12 +12,6 @@ import (
 	"core/shared/textutil"
 )
 
-const (
-	outsideWorkspaceAllowOnceSuggestion    = runtimewire.OutsideWorkspaceAllowOnceSuggestion
-	outsideWorkspaceAllowSessionSuggestion = runtimewire.OutsideWorkspaceAllowSessionSuggestion
-	outsideWorkspaceDenySuggestion         = runtimewire.OutsideWorkspaceDenySuggestion
-)
-
 func testOutsideWorkspaceApprovalResolution(
 	decision askquestion.AskQuestionApprovalDecision,
 	commentary *string,
@@ -112,9 +106,6 @@ func TestOutsideWorkspaceApproverCachesSessionDecision(t *testing.T) {
 		}
 		if len(req.ApprovalOptions) != 3 {
 			t.Fatalf("expected 3 approval options, got %+v", req.ApprovalOptions)
-		}
-		if req.ApprovalOptions[0].Label != "Allow once" || req.ApprovalOptions[1].Label != "Allow for this session" || req.ApprovalOptions[2].Label != "Deny" {
-			t.Fatalf("expected fixed built-in approval labels, got %+v", req.ApprovalOptions)
 		}
 		return testOutsideWorkspaceApprovalResolution(askquestion.AskQuestionApprovalDecisionAllowSession, nil), nil
 	})

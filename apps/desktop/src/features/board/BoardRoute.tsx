@@ -208,7 +208,7 @@ function BoardContent({
     Readonly<{ ids: ReadonlySet<string>; scope: string }>
   >(() => ({ ids: new Set(), scope: "" }));
   const { push } = useStatusController();
-  const { api, nativeBridge } = useAppServices();
+  const { api, nativeBridge, logger } = useAppServices();
   const navigation = useAppNavigation();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
   const { open } = useOwnedSidebarRoots();
@@ -520,7 +520,14 @@ function BoardContent({
       </div>
       <div className="relative min-h-0 min-w-0 flex-1">
         <DragDropSurface
-          onCancel={cancelActiveDrag}
+          onCancel={(cause) => {
+            cancelActiveDrag();
+            if (cause) {
+              void logger.append("warn", "Board drag cancelled without a measured position.", {
+                error: errorMessage(cause),
+              });
+            }
+          }}
           onDrop={dropTask}
           dropAnimation={pendingCardMove === null ? undefined : null}
         >

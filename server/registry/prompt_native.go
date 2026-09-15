@@ -30,7 +30,7 @@ func PendingApprovalFromSnapshot(sessionID runtimeids.SessionID, item PendingPro
 	}
 	var options []clientui.ApprovalOption
 	for _, option := range item.Request.ApprovalOptions {
-		options = append(options, clientui.ApprovalOption{Decision: clientui.ApprovalDecision(option.Decision), Label: option.Label})
+		options = append(options, clientui.ApprovalOption{Decision: clientui.ApprovalDecision(option.Decision)})
 	}
 	return clientui.PendingApproval{
 		ToolCallID: toolCallID, SessionID: sessionID, StepID: stepID,

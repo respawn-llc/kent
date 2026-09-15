@@ -1,49 +1,12 @@
 import { workflowEditorEnglish } from "./workflowEditorEn";
-import { chatToolRowsEnglish } from "./chatToolRowsEn";
+import { chatComposerEnglish } from "./chatComposerEn";
+import { chatSettingsEnglish } from "./chatSettingsEn";
+import { chatEnglish } from "./chatEn";
 
 export const englishResources = {
   translation: {
-    chatSettings: {
-      toParentChat: "To parent chat",
-      copied: "Copied to clipboard",
-      copyFailed: "Could not copy Session ID",
-      errors: {
-        sessionNotFound: "This Session no longer exists.",
-        workspaceNotRegistered: "This workspace is no longer registered.",
-        agentInvalidConfiguration: "The {{agent}} Agent configuration is invalid.",
-        agentProviderUnavailable: "The provider for the {{agent}} Agent is unavailable.",
-        agentInternalPreparation: "Kent could not prepare the {{agent}} Agent.",
-        authRequired: "Sign in before changing Chat settings.",
-        serverNotReady: "Kent is not ready to change Chat settings yet.",
-        runtimeUnavailable: "This Session is not available right now.",
-        internalFailure: "Kent could not change Chat settings.",
-        operation: "Operation: {{operation}}",
-        cause: "Cause: {{cause}}",
-        unknown: "Kent could not change Chat settings ({{code}}).",
-      },
-      open: "Chat settings",
-      supervisor: "Supervisor",
-      supervisorEdits: "Edits",
-      supervisorAlways: "Always",
-      supervisorOff: "Off",
-      fast: "Fast mode",
-      questions: "Questions",
-      autoCompaction: "Auto-compaction",
-      commitThinking: "Save Thinking",
-      workflowLock: "Locked by workflow",
-      cachingLock: "Locked by caching policy",
-      required: "Required by workflow",
-      policyDisabled: "Disabled by Session policy",
-      thinking: "Thinking",
-      operationFailed: "Could not change Chat settings",
-      rejections: {
-        agent_locked: "The Agent is locked for this Session.",
-        agent_unavailable: "This Agent is no longer available.",
-        thinking_unavailable: "This Thinking value is unavailable.",
-        fast_unavailable: "Fast mode is unavailable for this Agent.",
-        auto_compaction_policy_locked: "The Session policy controls Auto-compaction.",
-      },
-    },
+    chatComposer: chatComposerEnglish,
+    chatSettings: chatSettingsEnglish,
     app: {
       title: "Kent",
       subtitle: "Workflow remote control",
@@ -94,12 +57,9 @@ export const englishResources = {
         questionFallback: "question from agent",
         approvalFallback: "action required",
         interruptedCurrentNodeFallback: "current node interrupted",
-        interruptedCurrentNodeStartupRecovery: "Kent recovered this node after restarting.",
         interruptedCurrentNodeScriptFailed: "The workflow script did not complete successfully.",
         interruptedCurrentNodeRuntimeFailed: "The workflow execution stopped unexpectedly.",
         interruptedCurrentNodeProtocolCap: "The workflow execution exceeded its safety limit.",
-        permissionDeniedTitle: "Native notifications are disabled",
-        permissionDeniedBody: "Kent will keep attention notifications inside the app.",
       },
     },
     chatTranscript: {
@@ -277,19 +237,7 @@ export const englishResources = {
         noPromptPreview: "No prompt preview",
       },
     },
-    chat: {
-      worktree: {
-        title: "Worktree",
-        refresh: "Refresh worktrees",
-        create: "Create worktree",
-        switch: "Switch",
-        delete: "Delete worktree",
-        empty: "No worktrees",
-        external: "External",
-        missing: "Missing",
-      },
-      toolRows: chatToolRowsEnglish,
-    },
+    chat: chatEnglish,
     projectEdit: {
       title: "Project",
       loadingTitle: "Loading project",

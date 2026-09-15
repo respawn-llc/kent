@@ -111,34 +111,8 @@ func (b *Broker) subscribe(filter deliveryFilter) (*Subscription, error) {
 	return sub, nil
 }
 
-func (b *Broker) EnqueueInitial(sub *Subscription, scope RoutingScope, event clientui.AttentionNotificationEvent) error {
-	if b == nil || sub == nil {
-		return fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
-	}
-	if !deliveryMatches(sub.filter, scope) {
-		return nil
-	}
-	if err := serverapi.ValidateAttentionNotificationEvent(withSequenceForValidation(event)); err != nil {
-		return err
-	}
-	b.mu.Lock()
-	if b.closed {
-		b.mu.Unlock()
-		return io.EOF
-	}
-	b.nextSeq++
-	event.Sequence = b.nextSeq
-	b.mu.Unlock()
-	if !sub.publish(event) {
-		sub.closeWithError(serverapi.ErrStreamGap)
-		return serverapi.ErrStreamGap
-	}
-	return nil
-}
-
 func (b *Broker) PublishPending(scope RoutingScope, notification clientui.AttentionNotification) error {
 	event := clientui.AttentionNotificationEvent{
-		Source:  clientui.AttentionNotificationSourceLive,
 		Type:    clientui.AttentionNotificationEventPending,
 		Pending: &notification,
 	}
@@ -152,7 +126,6 @@ func (b *Broker) PublishResolved(scope RoutingScope, id clientui.AttentionNotifi
 	resolvedID := id
 	resolvedAt := occurredAt
 	event := clientui.AttentionNotificationEvent{
-		Source:     clientui.AttentionNotificationSourceLive,
 		Type:       clientui.AttentionNotificationEventResolved,
 		ID:         &resolvedID,
 		Kind:       kind,
@@ -218,7 +191,7 @@ func (b *Broker) Close(err error) {
 
 func deliveryMatches(filter deliveryFilter, scope RoutingScope) bool {
 	if filter.desktopRoot {
-		return scope.Kind == RoutingWorkflowTask
+		return scope.Kind == RoutingWorkflowTask || scope.Kind == RoutingSessionPrompt
 	}
 	if filter.sessionID == "" {
 		return false

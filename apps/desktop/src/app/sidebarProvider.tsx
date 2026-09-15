@@ -58,6 +58,7 @@ export function SidebarProvider({
   const rootValue = useMemo(() => ({ open: stack.open }), [stack]);
   const shellValue = useMemo(
     () => ({
+      currentSurface: stack.currentSurface,
       activeDestination: current?.destination ?? null,
       back: (): SidebarNavigationOutcome =>
         current === undefined || view.entries.length === 1 || availability?.back === false
@@ -75,7 +76,7 @@ export function SidebarProvider({
         defaultSidebarWidth(current?.destination),
       transitionDirection: view.transitionDirection,
     }),
-    [activeWidthProfile, availability, current, resize, sidebarWidths, view],
+    [activeWidthProfile, availability, current, resize, sidebarWidths, stack, view],
   );
   const pageValue = useMemo<SidebarCurrentPage | null>(() => {
     if (current === undefined) {

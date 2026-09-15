@@ -1,3 +1,4 @@
+import type { PromptUpdate } from "./promptModels";
 export type ChatWebSearchDetail = Readonly<{
   action:
     | Readonly<{ kind: "search"; queries: readonly string[] }>
@@ -315,22 +316,7 @@ export interface ChatTranscriptPayloadByKind {
     NoticeSuppressed: boolean;
     Diagnostic?: ChatDiagnostic | null;
   }>;
-  prompt: Readonly<{
-    Kind: "question" | "approval";
-    State: "pending" | "resolved";
-    ToolCallID: string;
-    SessionID: string;
-    StepID: string;
-    Question: string;
-    CreatedAt: string;
-    Suggestions: readonly string[];
-    RecommendedOptionIndex?: number | null;
-    ApprovalOptions: readonly Readonly<{
-      Decision: "allow_once" | "allow_session" | "deny";
-      Label: string;
-    }>[];
-    AccessTargets: readonly Readonly<{ RequestedPath: string; ResolvedPath: string }>[];
-  }>;
+  prompt: PromptUpdate;
   worktree_transition_outcome: Readonly<{
     OperationID: string;
     Transition: "enter" | "leave" | "delete";

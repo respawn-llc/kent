@@ -28,6 +28,7 @@ var supportedImageMIMEs = map[string]struct{}{
 	"image/png":  {},
 	"image/jpeg": {},
 	"image/gif":  {},
+	"image/webp": {},
 }
 
 type Tool struct {
@@ -71,7 +72,7 @@ func WithOutsideWorkspaceAuditLogger(logger OutsideWorkspaceAuditLogger) Option 
 }
 
 type input struct {
-	Path string `json:"path" jsonschema_description:"Local filesystem path to a PNG, JPEG, still GIF, or PDF file. Relative paths resolve from the workspace root."`
+	Path string `json:"path" jsonschema_description:"Local filesystem path to a PNG, JPEG, still WebP, still GIF, or PDF file. Relative paths resolve from the workspace root."`
 	Raw  bool   `json:"raw,omitempty" jsonschema_description:"Whether to disable image optimization, keep on unless facing issues. Defaults to false."`
 }
 

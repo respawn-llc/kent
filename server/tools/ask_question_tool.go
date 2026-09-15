@@ -123,7 +123,6 @@ const (
 
 type AskQuestionApprovalOption struct {
 	Decision AskQuestionApprovalDecision `json:"decision"`
-	Label    string                      `json:"label"`
 }
 
 type AskQuestionBroker struct {
@@ -262,9 +261,6 @@ func validateRequest(req AskQuestionRequest) error {
 	for _, option := range req.ApprovalOptions {
 		if err := sessioncontract.ValidatePromptApprovalDecision(option.Decision); err != nil {
 			return fmt.Errorf("invalid approval option: %w", err)
-		}
-		if option.Label == "" {
-			return fmt.Errorf("approval option %q requires a label", option.Decision)
 		}
 		if _, ok := seen[option.Decision]; ok {
 			return fmt.Errorf("duplicate approval option %q", option.Decision)

@@ -352,7 +352,7 @@
 - Session Runtime Authority owns exact start exclusion from publication through retirement.
 - Existing explicit Resume durably requeues interrupted Current Nodes and queues their fresh explicit starts.
 - Abrupt process death may occur before startup finishes.
-- On the next startup, Kent marks affected executable Current Nodes interrupted.
+- Server startup must leave saved Current Nodes untouched. Explicit Resume owns reconciliation of saved executable work that has no live execution or queued start.
 - A direct Transition that continues the same Session without an Approval, pause, Session change, or intervening Node keeps that Active Session Runtime and Steers exactly one next assignment. Kent does not close and reopen the Runtime for that continuation.
 - Context-Preservation Mode selects the target Session and assignment template. It does not change the Transition's ownership of assignment delivery.
 - When a Node Transition continues a Session during an active model or tool turn, the target assignment must follow the source turn's durable tool result.
@@ -543,7 +543,11 @@
 - A Workflow-completed Agent Step and a finalizing Agent are not interruptible while their Exact Execution Scope remains only for Step closure or retirement.
 - Start and Resume admit selected parallel branches independently. A failed branch does not undo or block a sibling that started successfully.
 - Resume starts a fresh Exact Execution Scope only after the previous scope has fully stopped. Steering remains within the current scope.
-- Restart does not restore live Questions, live Approvals, Automatic Intents, or Exact Execution Scopes. Kent marks each affected executable Current Node interrupted with a restart reason.
+- Restart must not restore live Questions, live Approvals, Automatic Intents, or Exact Execution Scopes.
+- Restart must not repair Current Nodes, recover execution, or emit interruption notifications.
+- A Task with executable Current Nodes and no live or queued execution must offer Resume unless a pending Transition Approval or setup-recovery decision owns its next action.
+- When the operator explicitly resumes a Task, Workflow Execution must verify that its execution is quiescent before reconciling saved executable Current Nodes to interrupted state and continuing Resume. Reconciliation must preserve pending Transition Approvals and must not emit interruption notifications.
+- Opening or reconnecting a client must not reconstruct or replay attention notifications from saved Workflow state or pending prompts. Notification subscriptions must deliver live events only and must not retain notifications for disconnected clients.
 - A pending Transition Approval survives restart with the exact frozen Transition that the operator saw.
 - Resume does not replay answers or apply a Workflow effect blocked by a prior durability failure.
 - Kent never retries an interrupted Current Node automatically.

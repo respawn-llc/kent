@@ -218,7 +218,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sub, err := s.attention.SubscribeSessionAttentionNotifications(ctx, &attentionpb.SubscribeRequest{
-		SessionId: id.String(), IncludePendingPromptSnapshot: true,
+		SessionId: id.String(),
 	})
 	if err != nil {
 		return nil, err

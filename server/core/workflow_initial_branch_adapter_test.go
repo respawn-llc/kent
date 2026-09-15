@@ -5,7 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowfixture"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/metadata"
@@ -40,7 +43,7 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
-	taskID, _ := createCoreStartupRecoveryTask(t, store, binding.ProjectID)
+	taskID := createCoreInitialBranchTask(t, store, binding.ProjectID)
 	git := worktree.NewGitInspector(nil)
 	worktreeService := appCore.bundles.Worktrees.worktrees.(*worktree.Service)
 	infrastructure := taskExecutionTargetInfrastructure{service: worktreeService, git: git}
@@ -115,4 +118,65 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 		*mismatch.ExistingBranchName != branchA {
 		t.Fatalf("MaterializeExecutionTarget error = %T %+v, want %q versus %q mismatch", err, err, branchB, branchA)
 	}
+}
+
+func createCoreInitialBranchTask(t *testing.T, store *workflowstore.Store, projectID string) workflow.TaskID {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Initial branch"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	agentID := workflow.NodeID(uuid.NewString())
+	startGroupID := workflow.TransitionGroupID(uuid.NewString())
+	doneGroupID := workflow.TransitionGroupID(uuid.NewString())
+	workflowfixture.SaveStoreGraph(t, ctx, store, created.ID, func(definition workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+		nodeID := func(kind workflow.NodeKind) workflow.NodeID {
+			for _, node := range definition.Nodes {
+				if node.Kind() == kind {
+					return workflow.NodeIDOf(node)
+				}
+			}
+			t.Fatalf("workflow has no %q node", kind)
+			panic("unreachable")
+		}
+		request.Nodes = append(request.Nodes, workflowstore.NodeRecord{
+			ID: agentID, WorkflowID: created.ID, Key: "agent",
+			Kind: workflow.NodeKindAgent, DisplayName: "Agent", SubagentRole: "default",
+		})
+		request.TransitionGroups = append(request.TransitionGroups,
+			workflowstore.TransitionGroupRecord{ID: startGroupID, WorkflowID: created.ID, SourceNodeID: nodeID(workflow.NodeKindStart), TransitionID: "start", DisplayName: "Start"},
+			workflowstore.TransitionGroupRecord{ID: doneGroupID, WorkflowID: created.ID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"},
+		)
+		request.Edges = append(request.Edges,
+			workflowstore.EdgeRecord{
+				ID: workflow.EdgeID(uuid.NewString()), WorkflowID: created.ID,
+				TransitionGroupID: startGroupID, Key: "start", TargetNodeID: agentID,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession, PromptTemplate: "Do work.",
+			},
+			workflowstore.EdgeRecord{
+				ID: workflow.EdgeID(uuid.NewString()), WorkflowID: created.ID,
+				TransitionGroupID: doneGroupID, Key: "done", TargetNodeID: nodeID(workflow.NodeKindTerminal),
+				AssigneeSelection: workflow.AssigneeSelectionConfigured,
+				ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode:       workflow.ContextModeNewSession,
+			},
+		)
+	})
+	if _, err := store.LinkWorkflow(ctx, projectID, created.ID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, workflowstore.CreateTaskRequest{
+		ProjectID: projectID, WorkflowID: &created.ID,
+		Title: "Initial branch assertion", Body: "Prepare a managed task worktree.",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	return task.ID
 }

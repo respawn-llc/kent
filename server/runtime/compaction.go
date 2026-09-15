@@ -848,8 +848,9 @@ func (e *Engine) emitLocalCompactionToolCallFeedback(stepID string, count int) e
 	var err error
 	for range count {
 		err = errors.Join(err, e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
-			Role: string(transcript.EntryRoleDeveloperErrorFeedback),
-			Text: localCompactionToolsDisabledMessage,
+			Role:          string(transcript.EntryRoleDeveloperErrorFeedback),
+			Text:          localCompactionToolsDisabledMessage,
+			CondensedText: textutil.OptionalExactString("Model attempted to call tools during compaction"),
 		})))
 	}
 	return err

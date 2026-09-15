@@ -490,7 +490,7 @@ func rebindFailureReminder(
 	workingDirectory string,
 	cause error,
 ) session.SessionRebindReminder {
-	diagnostic := cause.Error()
+	diagnostic := serverapi.SessionRetargetFailureText(config.Command, cause)
 	return session.SessionRebindReminder{
 		Kind:              session.SessionRebindReminderFailed,
 		SourceProject:     plan.SourceProject,

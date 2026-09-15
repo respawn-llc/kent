@@ -33,6 +33,63 @@ import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
 
 describe("Chat Main View admission", () => {
+  it("publishes pending prompt hydration through the mounted owner", async () => {
+    const fixture = runtimeApi();
+    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());
+    owner.start();
+    const prompt = {
+      kind: "ordinary" as const,
+      toolCallID: "question-one",
+      sessionID: target.sessionID,
+      stepID: "323e4567-e89b-42d3-a456-426614174000",
+      question: "Choose?",
+      suggestions: ["one", "two"],
+      recommendedOptionIndex: 2,
+      createdAt: "2026-09-12T00:00:00.000Z",
+    };
+    const notified = vi.fn();
+    owner.subscribe(notified);
+    fixture.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    });
+    expect(owner.snapshot.pendingPrompts).toEqual([prompt]);
+    expect(notified).toHaveBeenCalled();
+    const later = { ...prompt, toolCallID: "question-two", createdAt: "2026-09-12T00:00:01.000Z" };
+    fixture.handlers[0]?.onEvent({
+      sequence: 2,
+      kind: "prompt",
+      payload: { state: "pending", prompt: later },
+    });
+    fixture.handlers[0]?.onEvent({
+      sequence: 3,
+      kind: "prompt",
+      payload: { state: "pending", prompt: { ...prompt, question: "Updated?" } },
+    });
+    expect(owner.snapshot.pendingPrompts.map((item) => item.toolCallID)).toEqual([
+      "question-one",
+      "question-two",
+    ]);
+    expect(owner.snapshot.pendingPrompts[0]?.question).toBe("Updated?");
+    fixture.handlers[0]?.onEvent({
+      sequence: 4,
+      kind: "prompt",
+      payload: { state: "resolved", toolCallID: "question-one" },
+    });
+    expect(owner.snapshot.pendingPrompts).toEqual([later]);
+    fixture.handlers[0]?.onEvent({
+      sequence: 5,
+      kind: "prompt",
+      payload: { state: "pending", prompt },
+    });
+    expect(owner.snapshot.pendingPrompts.map((item) => item.toolCallID)).toEqual([
+      "question-one",
+      "question-two",
+    ]);
+    await owner.dispose();
+  });
+
   it("splits Goal facts from the goal-free Main View cache and applies hydration replacement rules", () => {
     const read = mainViewRead();
     const authoritative = reduceChatProjection(emptyChatProjectionState(), {

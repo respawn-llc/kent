@@ -13,8 +13,6 @@ import (
 	"core/shared/runtimeids"
 )
 
-const ReasonCurrentNodeStartupRecovery workflow.CurrentNodeInterruptionReason = "workflow_startup_recovery"
-
 var ErrManualMoveLifecycleConflict = errors.New("workflow task has a non-interruptible lifecycle conflict")
 
 type TaskStartPreparation struct {
@@ -30,26 +28,6 @@ func (p TaskStartPreparation) validate() error {
 		return errors.New("task preparation commit is required")
 	}
 	return nil
-}
-
-// Recover marks any executable Current Nodes found at process startup as
-// interrupted before a new execution lifecycle is admitted.
-func (c *CurrentNodeController) Recover(ctx context.Context) (int64, error) {
-	if c == nil {
-		return 0, errors.New("current node workflow controller is required")
-	}
-	recovered, err := c.store.RecoverExecutableCurrentNodes(
-		ctx,
-		ReasonCurrentNodeStartupRecovery,
-		workflow.NewCurrentNodeInterruptionDetail(string(ReasonCurrentNodeStartupRecovery), nil),
-	)
-	if err != nil {
-		return 0, err
-	}
-	for _, reference := range recovered {
-		c.publishPendingInterruptedCurrentNode(ctx, reference, ReasonCurrentNodeStartupRecovery)
-	}
-	return int64(len(recovered)), nil
 }
 
 func (c *CurrentNodeController) StartTask(
@@ -375,6 +353,15 @@ func (c *CurrentNodeController) classifyTaskResume(
 		return taskResumeClassification{}, err
 	}
 	c.mu.Unlock()
+	// Explicit Resume owns reconciliation. Reads and server startup leave saved
+	// admission state untouched; live or queued work must never be reconciled.
+	if err := c.EnsureTaskQuiescent(taskID); err == nil {
+		if err := c.store.ReconcileTaskResume(ctx, taskID); err != nil {
+			return taskResumeClassification{}, err
+		}
+	} else if !errors.Is(err, ErrTaskExecutionNotQuiescent) {
+		return taskResumeClassification{}, err
+	}
 	classifications, err := c.store.PreflightTaskResume(ctx, taskID)
 	if err != nil {
 		return taskResumeClassification{}, err

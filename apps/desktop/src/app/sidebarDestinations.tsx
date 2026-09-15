@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { WorktreeBrowser } from "@/features/chat";
+import { WorktreeDestination } from "@/features/chat";
 import { ProjectEditRoute } from "@/features/project-edit";
 import { ProcessesSidebar } from "@/features/processes";
 import { SidebarInboxNav } from "@/features/home";
@@ -39,14 +39,7 @@ export function SidebarDestinationView({
   retainedState?: unknown;
 }>): ReactElement {
   if (destination.kind === "worktree") {
-    return (
-      <WorktreeBrowser
-        key={destination.sessionID}
-        sessionID={destination.sessionID}
-        onAction={destination.onAction}
-        navigator={navigator}
-      />
-    );
+    return <WorktreeDestination destination={destination} navigator={navigator} />;
   }
   if (destination.kind === "newTask")
     return (

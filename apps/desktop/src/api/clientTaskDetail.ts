@@ -1,7 +1,6 @@
 import { create } from "@app/server-api-contract";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
-import { timestampMillis } from "./clientTime";
-import { required } from "./chatWire";
+import { pendingQuestion } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
 import { parseRpcResponse } from "./clientParse";
 import { requireTaskBoundItems } from "./clientParse";
@@ -97,13 +96,5 @@ export async function listPendingAsks(
       create(method.input, { sessionId: sessionID }),
     ),
   );
-  return result.questions.map((question) => ({
-    toolCallID: question.toolCallId,
-    sessionID: question.sessionId,
-    stepID: question.stepId,
-    question: question.question,
-    suggestions: question.suggestions,
-    recommendedOptionIndex: question.recommendedOptionIndex ?? null,
-    createdAt: new Date(timestampMillis(required(question.createdAt))).toISOString(),
-  }));
+  return result.questions.map(pendingQuestion);
 }

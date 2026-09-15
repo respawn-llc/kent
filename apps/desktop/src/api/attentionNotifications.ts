@@ -3,8 +3,6 @@ import type { FileAccessTarget } from "./promptModels";
 export type AttentionNotificationKind =
   "question" | "approval" | "workflow_approval" | "interrupted_current_node";
 
-export type AttentionNotificationSource = "live" | "snapshot";
-
 export type AttentionNotificationID = Readonly<{
   kind: AttentionNotificationKind;
   uuid: string;
@@ -29,7 +27,8 @@ export type AttentionNotificationWorkflowTaskTarget = Readonly<{
 }>;
 
 export type AttentionNotificationTarget =
-  AttentionNotificationWorkflowTaskTarget | Readonly<{ kind: "session_prompt"; sessionID: string }>;
+  | AttentionNotificationWorkflowTaskTarget
+  | Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
 
 export type AttentionNotificationQuestionState = Readonly<{
   preparedAskIDs: readonly string[];
@@ -73,18 +72,15 @@ export type AttentionNotificationEvent =
   | Readonly<{
       type: "pending";
       sequence: number;
-      source: AttentionNotificationSource;
       pending: AttentionNotification;
     }>
   | Readonly<{
       type: "resolved";
       sequence: number;
-      source: AttentionNotificationSource;
       id: AttentionNotificationID;
       kind: AttentionNotificationKind;
       occurredAt: string;
-    }>
-  | Readonly<{ type: "snapshot_complete"; sequence: number; source: "snapshot"; sessionID: string }>;
+    }>;
 
 export type AttentionNotificationEventParams = Readonly<{ event: AttentionNotificationEvent }>;
 

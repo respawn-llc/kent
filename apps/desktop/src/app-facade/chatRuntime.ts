@@ -8,6 +8,7 @@ import type {
   ChatSessionTarget,
   ChatTranscriptMessage,
   ChatTranscriptPayloadByKind,
+  PendingPrompt,
 } from "@/api";
 import { ChatGoalProjectionSource } from "./chatGoalDestination";
 import type { AppLogger } from "./logging";
@@ -39,10 +40,14 @@ export type ChatRuntimeApi = Pick<ChatApi, "getMainView" | "getTranscriptPage" |
 export type ChatRuntimeHost = Readonly<{
   logger: AppLogger;
   onHumanInputInterrupted?(items: ChatTranscriptPayloadByKind["human_input_interrupted"]["Items"]): void;
+  onPendingWorkHydrated?(sessionID: string): void;
+  onPendingWorkChanged?(): void;
+  onPendingWorkRestored?(restoration: ChatTranscriptPayloadByKind["pending_work_restored"]): void;
   onWorktreeTransitionOutcome?(outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]): void;
   onTranscriptError?(error: Error): void;
 }>;
 export type ChatRuntimeOwnerSnapshot = Readonly<{
+  pendingPrompts: readonly PendingPrompt[];
   goal: ChatGoalProjection;
   observation: ChatTranscriptObservationState;
   transcript: ChatTranscriptHost["snapshot"];
@@ -204,6 +209,14 @@ export class ChatRuntimeOwner {
     this.#observation?.replaceForReconnect();
   }
 
+  replacePendingPrompts(prompts: readonly PendingPrompt[]): void {
+    if (!this.#disposed) this.#admitProjection({ kind: "prompts-replaced", prompts });
+  }
+
+  resolvePendingPrompts(toolCallIDs: ReadonlySet<string>): void {
+    if (!this.#disposed) this.#admitProjection({ kind: "prompts-resolved", toolCallIDs });
+  }
+
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -272,6 +285,7 @@ export class ChatRuntimeOwner {
       this.#notify();
     }
     this.#applyHostEffects(admitted.effects);
+    if (admitted.state.pendingPrompts !== current.pendingPrompts) this.#notify();
   }
 
   #currentProjection(): ChatProjectionState {
@@ -286,6 +300,7 @@ export class ChatRuntimeOwner {
       view: null,
       metadataRevision: state.metadataRevision,
       pendingMetadata: state.pendingMetadata,
+      pendingPrompts: state.pendingPrompts,
     };
   }
 
@@ -293,8 +308,14 @@ export class ChatRuntimeOwner {
     for (const effect of effects) {
       if (effect.kind === "human-input-interrupted") {
         this.#host.onHumanInputInterrupted?.(effect.items);
-      } else {
+      } else if (effect.kind === "worktree-transition-outcome") {
         this.#host.onWorktreeTransitionOutcome?.(effect.outcome);
+      } else if (effect.kind === "pending-work-hydrated") {
+        this.#host.onPendingWorkHydrated?.(effect.sessionID);
+      } else if (effect.kind === "pending-work-changed") {
+        this.#host.onPendingWorkChanged?.();
+      } else {
+        this.#host.onPendingWorkRestored?.(effect.restoration);
       }
     }
   }
@@ -306,6 +327,7 @@ export class ChatRuntimeOwner {
 
   #projectSnapshot(): ChatRuntimeOwnerSnapshot {
     return {
+      pendingPrompts: this.#projection.pendingPrompts,
       goal: this.goal.snapshot,
       observation: this.#observation?.state ?? { kind: "loading" },
       transcript: this.transcript.snapshot,

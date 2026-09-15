@@ -156,7 +156,6 @@ func (p approvalBarrierProbe) Call(
 		Approval:   true,
 		ApprovalOptions: []tools.AskQuestionApprovalOption{{
 			Decision: tools.AskQuestionApprovalDecisionAllowOnce,
-			Label:    "Allow once",
 		}},
 	})
 	if err != nil {

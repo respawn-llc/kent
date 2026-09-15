@@ -19,12 +19,6 @@ enum Kind {
   ATTENTION_KIND_APPROVAL = 2;
 }
 
-enum Source {
-  ATTENTION_SOURCE_UNSPECIFIED = 0;
-  ATTENTION_SOURCE_LIVE = 1;
-  ATTENTION_SOURCE_SNAPSHOT = 2;
-}
-
 message NotificationID {
   Kind kind = 1 [(buf.validate.field).enum = {
     defined_only: true
@@ -83,10 +77,7 @@ message ApprovalState {
 
 message Notification {
   NotificationID id = 1 [(buf.validate.field).required = true];
-  Source source = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
+  reserved 2;
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
@@ -112,10 +103,7 @@ message Notification {
 }
 
 message Resolved {
-  Source source = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
+  reserved 1;
   NotificationID id = 2 [(buf.validate.field).required = true];
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
@@ -123,11 +111,8 @@ message Resolved {
   ];
 }
 
-message SnapshotComplete {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-}
-
 message NotificationEvent {
+  reserved 4;
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
@@ -136,7 +121,6 @@ message NotificationEvent {
     option (buf.validate.oneof).required = true;
     Notification pending = 2;
     Resolved resolved = 3;
-    SnapshotComplete snapshot_complete = 4;
   }
 }
 
@@ -149,7 +133,7 @@ message SubscribeRequest {
       expression: "this.trim() != ''"
     }
   ];
-  bool include_pending_prompt_snapshot = 2;
+  reserved 2;
 }
 
 message StartError {

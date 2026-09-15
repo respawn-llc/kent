@@ -525,6 +525,9 @@ func (m *Manager) allocateProcessSlot() (string, string, error) {
 	if m.closed {
 		return "", "", errors.New("background shell manager is closed")
 	}
+	if err := os.MkdirAll(m.tempDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("prepare background shell temp dir: %w", err)
+	}
 	id := strconv.Itoa(m.nextID)
 	m.nextID++
 	return id, filepath.Join(m.tempDir, id+".log"), nil
