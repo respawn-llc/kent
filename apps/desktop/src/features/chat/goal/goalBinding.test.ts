@@ -1,6 +1,6 @@
 import type { ChatGoalSetResult } from "@/api";
 import { ChatOperationError, RpcError } from "@/api";
-import { NewChatGoalBinding, type NewChatGoalBindingSnapshot, type NewChatGoalDelivery } from "./goalBinding";
+import { createNewChatGoalResource, NewChatGoalBinding } from "./goalBinding";
 
 const result: ChatGoalSetResult = {
   sessionID: "123e4567-e89b-42d3-a456-426614174000",
@@ -26,10 +26,8 @@ const result: ChatGoalSetResult = {
 describe("New Chat Goal binding", () => {
   it("captures the target once, delivers the result, then publishes the exact Session", async () => {
     const setGoal = vi.fn(async () => result);
-    const deliveries: {
-      delivery: NewChatGoalDelivery;
-      snapshot: NewChatGoalBindingSnapshot;
-    }[] = [];
+    const resource = createNewChatGoalResource();
+    const admitted: string[] = [];
     const binding = new NewChatGoalBinding({
       api: { setGoal },
       captureTarget: () => ({
@@ -46,28 +44,27 @@ describe("New Chat Goal binding", () => {
         },
         initialInputDraft: "draft",
       }),
-      onResolved: (delivery) => {
-        deliveries.push({ delivery, snapshot: binding.snapshot });
-      },
+    });
+    binding.registerResource(resource);
+    resource.registerMutationAdmission((mutation) => {
+      admitted.push(mutation.fact.goal?.objective ?? "cleared");
+      return true;
     });
     const snapshots: string[] = [];
     binding.subscribe(() => snapshots.push(binding.snapshot.kind));
 
-    await expect(binding.setGoal("ship")).resolves.toEqual(result);
-
-    expect(deliveries).toEqual([
-      {
-        delivery: {
-          target: {
-            projectID: "project-1",
-            workspace: { workspaceID: "workspace-1" },
-            sessionID: result.sessionID,
-          },
-          mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
-        },
-        snapshot: { kind: "unresolved", availability: null, pending: true },
+    const completion = await binding.setGoal("ship");
+    expect(completion.result).toEqual(result);
+    expect(completion.delivery).toEqual({
+      target: {
+        projectID: "project-1",
+        workspace: { workspaceID: "workspace-1" },
+        sessionID: result.sessionID,
       },
-    ]);
+      mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
+    });
+    await expect(completion.admission).resolves.toEqual({ kind: "acknowledged" });
+    expect(admitted).toEqual(["ship"]);
     expect(setGoal).toHaveBeenCalledExactlyOnceWith(
       {
         kind: "new_chat",
@@ -107,7 +104,6 @@ describe("New Chat Goal binding", () => {
         ),
       },
     };
-    const deliveries: NewChatGoalDelivery[] = [];
     const binding = new NewChatGoalBinding({
       api: { setGoal: vi.fn(async () => rejected) },
       captureTarget: () => ({
@@ -123,21 +119,19 @@ describe("New Chat Goal binding", () => {
           autoCompactionEnabled: true,
         },
       }),
-      onResolved: (delivery) => deliveries.push(delivery),
     });
 
-    await expect(binding.setGoal("ship")).resolves.toEqual(rejected);
-
-    expect(deliveries).toEqual([
-      {
-        target: {
-          projectID: "project-1",
-          workspace: { workspaceID: "workspace-1" },
-          sessionID: result.sessionID,
-        },
-        mutation: null,
+    const completion = await binding.setGoal("ship");
+    expect(completion.result).toEqual(rejected);
+    expect(completion.delivery).toEqual({
+      target: {
+        projectID: "project-1",
+        workspace: { workspaceID: "workspace-1" },
+        sessionID: result.sessionID,
       },
-    ]);
+      mutation: null,
+    });
+    await expect(completion.admission).resolves.toEqual({ kind: "skipped" });
     expect(binding.snapshot).toEqual({
       kind: "resolved_session",
       target: {
@@ -146,5 +140,63 @@ describe("New Chat Goal binding", () => {
         sessionID: result.sessionID,
       },
     });
+  });
+
+  it("does not let a discarded destination resource consume a staged handoff", async () => {
+    const resource = createNewChatGoalResource();
+    const firstAdmit = vi.fn(() => true);
+    const removeFirst = resource.registerMutationAdmission(firstAdmit);
+    const admission = resource.stage({
+      target: {
+        projectID: "project-1",
+        workspace: { workspaceID: "workspace-1" },
+        sessionID: result.sessionID,
+      },
+      mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
+    });
+    removeFirst();
+    const secondAdmit = vi.fn(() => true);
+    resource.registerMutationAdmission(secondAdmit);
+
+    await expect(admission).resolves.toEqual({ kind: "acknowledged" });
+    expect(firstAdmit).not.toHaveBeenCalled();
+    expect(secondAdmit).toHaveBeenCalledOnce();
+  });
+
+  it("does not stage a late result into a replacement active root", async () => {
+    let resolveResult!: (value: ChatGoalSetResult) => void;
+    const setGoal = vi.fn(async () => {
+      return new Promise<ChatGoalSetResult>((resolve) => {
+        resolveResult = resolve;
+      });
+    });
+    const binding = new NewChatGoalBinding({
+      api: { setGoal },
+      captureTarget: () => ({
+        kind: "new_chat",
+        projectID: "project-1",
+        workspaceID: "workspace-1",
+        initialSettings: {
+          agentRole: "default",
+          supervisor: "off",
+          thinking: null,
+          fast: null,
+          questionsEnabled: true,
+          autoCompactionEnabled: true,
+        },
+      }),
+    });
+    const firstResource = createNewChatGoalResource();
+    binding.registerResource(firstResource);
+    const completionPromise = binding.setGoal("ship");
+    const secondResource = createNewChatGoalResource();
+    const secondAdmit = vi.fn(() => true);
+    secondResource.registerMutationAdmission(secondAdmit);
+    binding.registerResource(secondResource);
+    resolveResult(result);
+
+    const completion = await completionPromise;
+    await expect(completion.admission).resolves.toEqual({ kind: "skipped" });
+    expect(secondAdmit).not.toHaveBeenCalled();
   });
 });

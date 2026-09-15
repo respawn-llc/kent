@@ -8,18 +8,12 @@ import type {
   ChatGoalSetTarget,
   ChatSessionTarget,
 } from "@/api";
-import { TransportError } from "@/api";
+import { ChatOperationError, RpcError, TransportError } from "@/api";
 import { Button } from "@/ui";
 import { GoalAffordance } from "./GoalAffordance";
 import { type GoalSidebarApi, type GoalSidebarInput } from "./GoalSidebar";
 import { NewChatGoalBinding } from "./goalBinding";
 import { useGoalSidebarLauncher } from "./useGoalSidebarLauncher";
-import {
-  goalFixtureConfigs,
-  goalFixtureFact,
-  goalFixtureStates,
-  type GoalFixtureState,
-} from "./goalFixtureState";
 
 const fixtureSessionID = "123e4567-e89b-42d3-a456-426614174000";
 const fixtureTarget: ChatSessionTarget = {
@@ -28,19 +22,32 @@ const fixtureTarget: ChatSessionTarget = {
   sessionID: fixtureSessionID,
 };
 
-type PendingMutation = Readonly<{
+export const goalFixtureStates = [
+  "absent",
+  "active",
+  "paused",
+  "complete",
+  "unsupported-agent",
+  "workflow-session",
+  "questions-off",
+  "new-chat",
+  "loading",
+  "error-retry",
+] as const;
+export type GoalFixtureState = (typeof goalFixtureStates)[number];
+type FixtureMutationMode = "success" | "pending" | "failure";
+type FixtureSetMode = "success" | "rejection" | "diagnostic";
+interface PendingMutation {
   resolve(): void;
-  reject(error: Error): void;
-}>;
-
-type GoalFixtureRuntime = Readonly<{
+  reject(): void;
+}
+interface GoalFixtureRuntime {
   api: GoalSidebarApi;
-  broadcast(): void;
   hydrate(): void;
   pending: PendingMutation | null;
   resolvePending(): void;
   failPending(): void;
-}>;
+}
 
 export type GoalBrowserPendingPrompt = Readonly<{
   kind: "question" | "approval";
@@ -53,17 +60,18 @@ export function GoalBrowserFixture({
   onPromptOpen?: ((prompt: GoalBrowserPendingPrompt) => void) | undefined;
 }> = {}) {
   const [state, setState] = useState<GoalFixtureState>("absent");
+  const [mutationMode, setMutationMode] = useState<FixtureMutationMode>("success");
+  const [setMode, setSetMode] = useState<FixtureSetMode>("success");
   const [, rerender] = useState(0);
-  const config = goalFixtureConfigs[state];
   const runtime = useMemo(
     () =>
-      createFixtureRuntime(state, () => {
+      createFixtureRuntime(state, mutationMode, setMode, () => {
         rerender((value) => value + 1);
       }),
-    [rerender, state],
+    [mutationMode, rerender, setMode, state],
   );
   const input = useMemo<GoalSidebarInput>(() => {
-    if (config.mode === "new_chat") {
+    if (state === "new-chat" || state === "questions-off") {
       const binding = new NewChatGoalBinding({
         api: { setGoal: runtime.api.setGoal },
         captureTarget: () => ({
@@ -83,33 +91,43 @@ export function GoalBrowserFixture({
       return { kind: "new_chat", api: runtime.api, binding };
     }
     return { kind: "session", api: runtime.api, target: fixtureTarget };
-  }, [config.mode, runtime.api, state]);
+  }, [runtime.api, state]);
+
   return (
     <GoalBrowserFixtureControls
-      key={state}
-      config={config}
+      key={`${state}:${mutationMode}:${setMode}`}
       input={input}
+      mutationMode={mutationMode}
+      onMutationModeChange={setMutationMode}
+      onPromptOpen={onPromptOpen}
+      onSetModeChange={setSetMode}
       runtime={runtime}
+      setMode={setMode}
       setState={setState}
       state={state}
-      onPromptOpen={onPromptOpen}
     />
   );
 }
 
 function GoalBrowserFixtureControls({
-  config,
   input,
+  mutationMode,
+  onMutationModeChange,
+  onPromptOpen,
+  onSetModeChange,
   runtime,
+  setMode,
   setState,
   state,
-  onPromptOpen,
 }: Readonly<{
-  config: (typeof goalFixtureConfigs)[GoalFixtureState];
   input: GoalSidebarInput;
+  mutationMode: FixtureMutationMode;
+  onMutationModeChange(mode: FixtureMutationMode): void;
   onPromptOpen?: ((prompt: GoalBrowserPendingPrompt) => void) | undefined;
+  onSetModeChange(mode: FixtureSetMode): void;
   runtime: GoalFixtureRuntime;
-  setState: (state: GoalFixtureState) => void;
+  setMode: FixtureSetMode;
+  setState(state: GoalFixtureState): void;
   state: GoalFixtureState;
 }>) {
   const activate = useGoalSidebarLauncher(input);
@@ -117,129 +135,153 @@ function GoalBrowserFixtureControls({
     activate();
   }, [activate]);
 
-  const openPicker = (prompt: GoalBrowserPendingPrompt) => {
-    onPromptOpen?.(prompt);
-  };
-
   return (
     <div
       className="grid min-h-full gap-[var(--space-3)] p-[var(--space-4)]"
       data-testid="goal-browser-fixture"
     >
-      <label className="grid gap-[var(--space-1)] text-sm">
-        Goal fixture state
+      <select
+        aria-label="Goal fixture state"
+        onChange={(event) => {
+          const nextState = goalFixtureStates.find((candidate) => candidate === event.target.value);
+          if (nextState !== undefined) setState(nextState);
+        }}
+        value={state}
+      >
+        {goalFixtureStates.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Goal mutation outcome"
+        onChange={(event) => {
+          onMutationModeChange(parseFixtureMutationMode(event.target.value));
+        }}
+        value={mutationMode}
+      >
+        <option value="success">success</option>
+        <option value="pending">pending</option>
+        <option value="failure">failure</option>
+      </select>
+      {state === "new-chat" || state === "questions-off" ? (
         <select
-          aria-label="Goal fixture state"
+          aria-label="New Chat Set outcome"
           onChange={(event) => {
-            const nextState = goalFixtureStates.find((candidate) => candidate === event.target.value);
-            if (nextState !== undefined) {
-              setState(nextState);
-            }
+            onSetModeChange(parseFixtureSetMode(event.target.value));
           }}
-          value={state}
+          value={setMode}
         >
-          {goalFixtureStates.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
+          <option value="success">success</option>
+          <option value="rejection">rejection</option>
+          <option value="diagnostic">diagnostic</option>
         </select>
-      </label>
+      ) : null}
       <GoalAffordance goal={goalFixtureFact(state)} onActivate={activate} />
-      <p className="m-0 text-sm text-[var(--color-muted)]" data-testid="goal-browser-fixture-description">
-        {config.description}
-      </p>
-      {config.picker === "question" ? (
+      {state === "loading" ? (
         <Button
           onClick={() => {
-            openPicker({ kind: "question", promptID: "question-1" });
+            runtime.hydrate();
           }}
         >
-          Open pending Question
-        </Button>
-      ) : config.picker === "approval" ? (
-        <Button
-          onClick={() => {
-            openPicker({ kind: "approval", promptID: "approval-1" });
-          }}
-        >
-          Open pending Approval
+          Hydrate Goal
         </Button>
       ) : null}
-      {config.observation === "loading" ? <Button onClick={runtime.hydrate}>Hydrate Goal</Button> : null}
+      {state === "error-retry" ? (
+        <Button
+          onClick={() => {
+            runtime.hydrate();
+          }}
+        >
+          Hydrate Goal
+        </Button>
+      ) : null}
       {runtime.pending === null ? null : (
         <div className="flex flex-wrap gap-[var(--space-2)]">
-          <Button onClick={runtime.resolvePending}>Resolve pending Goal action</Button>
-          <Button onClick={runtime.failPending} variant="danger">
+          <Button
+            onClick={() => {
+              runtime.resolvePending();
+            }}
+          >
+            Resolve pending Goal action
+          </Button>
+          <Button
+            onClick={() => {
+              runtime.failPending();
+            }}
+            variant="danger"
+          >
             Fail pending Goal action
           </Button>
         </div>
       )}
-      {state === "dirty-broadcast" || state === "overlapping-read" ? (
-        <Button onClick={runtime.broadcast}>Broadcast authoritative Goal update</Button>
-      ) : null}
+      <Button onClick={() => onPromptOpen?.({ kind: "question", promptID: "question-1" })}>
+        Open pending Question
+      </Button>
+      <Button onClick={() => onPromptOpen?.({ kind: "approval", promptID: "approval-1" })}>
+        Open pending Approval
+      </Button>
     </div>
   );
 }
 
-function createFixtureRuntime(state: GoalFixtureState, notify: () => void): GoalFixtureRuntime {
-  const config = goalFixtureConfigs[state];
+function createFixtureRuntime(
+  state: GoalFixtureState,
+  mutationMode: FixtureMutationMode,
+  setMode: FixtureSetMode,
+  notify: () => void,
+): GoalFixtureRuntime {
   let currentFact = goalFixtureFact(state);
-  let nextSequence = 1;
   let observationAttempt = 0;
   let pending: PendingMutation | null = null;
   const subscribers = new Set<Parameters<GoalSidebarApi["subscribeGoal"]>[1]>();
-  const activeGoal = (): NonNullable<ChatGoalFact["goal"]> => ({
+  const activeGoal = {
     id: "goal-fixture",
     objective: "Deterministic Goal fixture",
     status: "active",
     createdAt: "2026-09-11T10:00:00.000Z",
     updatedAt: "2026-09-11T10:00:00.000Z",
-  });
+  } as const satisfies NonNullable<ChatGoalFact["goal"]>;
   const emit = () => {
-    for (const subscriber of subscribers) {
-      subscriber.onEvent({
-        sequence: nextSequence,
-        kind: nextSequence === 1 ? "hydration" : "update",
-        fact: currentFact,
-      });
-    }
+    subscribers.forEach((subscriber) => {
+      subscriber.onEvent({ sequence: 1, kind: "hydration", fact: currentFact });
+    });
   };
   const resultFor = (
     kind: "goal" | "clear",
     status: "active" | "paused" | "complete" = "active",
   ): ChatGoalMutationResult => {
     if (kind === "clear") {
-      currentFact = { ...currentFact, goal: null };
-      return {
-        kind: "authoritative_clear" as const,
-        fact: { ...currentFact, goal: null },
-      };
+      const fact: ChatGoalFact & Readonly<{ goal: null }> = { ...currentFact, goal: null };
+      currentFact = fact;
+      return { kind: "authoritative_clear", fact };
     }
-    const goal = { ...(currentFact.goal ?? activeGoal()), status };
-    currentFact = { ...currentFact, goal };
-    return { kind: "authoritative_goal", fact: { ...currentFact, goal } };
+    const goal: NonNullable<ChatGoalFact["goal"]> = { ...(currentFact.goal ?? activeGoal), status };
+    const fact: ChatGoalFact & Readonly<{ goal: NonNullable<ChatGoalFact["goal"]> }> = {
+      ...currentFact,
+      goal,
+    };
+    currentFact = fact;
+    return { kind: "authoritative_goal", fact };
   };
   const mutation = async (
     kind: "goal" | "clear",
     status: "active" | "paused" | "complete" = "active",
   ): Promise<ChatGoalMutationResult> => {
-    if (config.mutation === "error") {
-      return Promise.reject(new Error("Fixture Goal mutation failed."));
-    }
-    if (config.mutation === "pending") {
+    if (mutationMode === "failure") return Promise.reject(new Error("Fixture Goal mutation failed."));
+    if (mutationMode === "pending") {
       return new Promise<ChatGoalMutationResult>((resolve, reject) => {
         pending = {
           resolve: () => {
-            const result = resultFor(kind, status);
             pending = null;
             notify();
-            resolve(result);
+            resolve(resultFor(kind, status));
           },
-          reject: (error) => {
+          reject: () => {
             pending = null;
             notify();
-            reject(error);
+            reject(new Error("Fixture Goal mutation failed."));
           },
         };
         notify();
@@ -252,13 +294,25 @@ function createFixtureRuntime(state: GoalFixtureState, notify: () => void): Goal
     pauseGoal: async () => mutation("goal", "paused"),
     resumeGoal: async () => mutation("goal", "active"),
     setGoal: async (target: ChatGoalSetTarget, objective: string): Promise<ChatGoalSetResult> => {
-      if (state === "new-chat-loss") {
-        await mutation("goal", "active");
-        throw new TransportError("Fixture connection loss.");
+      if ((state === "new-chat" || state === "questions-off") && setMode === "rejection") {
+        return {
+          sessionID: fixtureSessionID,
+          outcome: {
+            kind: "rejected",
+            error: new ChatOperationError(
+              new RpcError({ code: 500, message: "Fixture Goal Set failed", method: "runtime.goal.set" }),
+              { kind: "runtime_unavailable", sessionID: fixtureSessionID },
+            ),
+          },
+        };
       }
       await mutation("goal", "active");
-      const goal = { ...(currentFact.goal ?? activeGoal()), objective, status: "active" as const };
-      const fact: Extract<ChatGoalMutationResult, { kind: "authoritative_goal" }>["fact"] = {
+      const goal: NonNullable<ChatGoalFact["goal"]> = {
+        ...(currentFact.goal ?? activeGoal),
+        objective,
+        status: "active",
+      };
+      const fact: ChatGoalFact & Readonly<{ goal: NonNullable<ChatGoalFact["goal"]> }> = {
         ...currentFact,
         goal,
       };
@@ -268,46 +322,36 @@ function createFixtureRuntime(state: GoalFixtureState, notify: () => void): Goal
         outcome: {
           kind: "mutation",
           mutation: { kind: "authoritative_goal", fact },
-          diagnostic: null,
+          diagnostic:
+            (state === "new-chat" || state === "questions-off") && setMode === "diagnostic"
+              ? new ChatOperationError(
+                  new RpcError({ code: 500, message: "Fixture warning", method: "runtime.detach" }),
+                  { kind: "internal_failure", operation: "runtime.detach", cause: "fixture warning" },
+                )
+              : null,
         },
       };
     },
     subscribeGoal: (_target, handler): ApiSubscription => {
+      const close = () => subscribers.delete(handler);
       subscribers.add(handler);
       observationAttempt += 1;
-      if (config.observation === "ready" || (config.observation === "error" && observationAttempt > 1)) {
-        queueMicrotask(() => {
-          if (!subscribers.has(handler)) return;
-          nextSequence = 1;
+      if (state === "loading" || (state === "error-retry" && observationAttempt > 1)) return { close };
+      queueMicrotask(() => {
+        if (!subscribers.has(handler)) return;
+        if (state === "error-retry") {
+          handler.onError(new TransportError("Fixture Goal observation failed."));
+        } else {
           handler.onEvent({ sequence: 1, kind: "hydration", fact: currentFact });
-        });
-      } else if (config.observation === "error") {
-        queueMicrotask(() => {
-          if (subscribers.has(handler))
-            handler.onError(new TransportError("Fixture Goal observation failed."));
-        });
-      }
-      return {
-        close: () => {
-          subscribers.delete(handler);
-        },
-      };
+        }
+      });
+      return { close };
     },
   };
   return {
     api,
-    broadcast: () => {
-      nextSequence += 1;
-      currentFact = {
-        ...currentFact,
-        goal:
-          currentFact.goal === null ? null : { ...currentFact.goal, objective: "Authoritative broadcast" },
-      };
-      emit();
-    },
     hydrate: () => {
-      nextSequence = 1;
-      currentFact = currentFact.goal === null ? { ...currentFact, goal: activeGoal() } : currentFact;
+      currentFact = currentFact.goal === null ? { ...currentFact, goal: activeGoal } : currentFact;
       emit();
     },
     get pending() {
@@ -317,7 +361,34 @@ function createFixtureRuntime(state: GoalFixtureState, notify: () => void): Goal
       pending?.resolve();
     },
     failPending: () => {
-      pending?.reject(new Error("Fixture Goal mutation failed."));
+      pending?.reject();
     },
+  };
+}
+
+function parseFixtureMutationMode(value: string): FixtureMutationMode {
+  if (value === "success" || value === "pending" || value === "failure") return value;
+  throw new Error(`Unknown fixture mutation mode: ${value}`);
+}
+
+function parseFixtureSetMode(value: string): FixtureSetMode {
+  if (value === "success" || value === "rejection" || value === "diagnostic") return value;
+  throw new Error(`Unknown fixture Set mode: ${value}`);
+}
+
+function goalFixtureFact(state: GoalFixtureState): ChatGoalFact {
+  const goal: NonNullable<ChatGoalFact["goal"]> | null =
+    state === "absent" || state === "questions-off" || state === "new-chat" || state === "loading"
+      ? null
+      : {
+          id: "goal-fixture",
+          objective: "Deterministic Goal fixture",
+          status: state === "paused" ? "paused" : state === "complete" ? "complete" : "active",
+          createdAt: "2026-09-11T10:00:00.000Z",
+          updatedAt: "2026-09-11T10:00:00.000Z",
+        };
+  return {
+    goal,
+    availability: state === "unsupported-agent" ? "agent_capability_missing" : "available",
   };
 }

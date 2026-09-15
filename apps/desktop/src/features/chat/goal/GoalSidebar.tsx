@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactElement,
-} from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ChatApi, ChatGoalFact, ChatGoalMutationResult, ChatGoalStatus, ChatSessionTarget } from "@/api";
@@ -19,7 +12,14 @@ import {
   type ChatGoalMutationIntent,
 } from "@/app-facade";
 import { ErrorState, LoadingState } from "@/ui";
-import { type NewChatGoalBinding } from "./goalBinding";
+import { type NewChatGoalBinding, type NewChatGoalResource } from "./goalBinding";
+import {
+  deriveGoalSidebarState,
+  observedGoalFact,
+  pendingGoalIntent,
+  reconcileDraftState,
+  type DraftState,
+} from "./goalSidebarState";
 import { GoalMarkdownField } from "./GoalMarkdownField";
 import { GoalActions, GoalMetadata, GoalSaveButton, goalLifecycleAction } from "./GoalSidebarParts";
 import {
@@ -33,18 +33,28 @@ export type GoalSidebarApi = Pick<
 >;
 export type GoalSidebarInput =
   | Readonly<{ kind: "session"; api: GoalSidebarApi; target: ChatSessionTarget }>
-  | Readonly<{ kind: "new_chat"; api: GoalSidebarApi; binding: NewChatGoalBinding }>;
+  | Readonly<{
+      kind: "new_chat";
+      api: GoalSidebarApi;
+      binding: NewChatGoalBinding;
+      resource?: NewChatGoalResource | undefined;
+    }>;
 
 export function GoalSidebarPage({ input }: Readonly<{ input: GoalSidebarInput }>) {
   if (input.kind === "new_chat") {
-    return <NewChatGoalSidebar api={input.api} binding={input.binding} />;
+    return <NewChatGoalSidebar api={input.api} binding={input.binding} resource={input.resource} />;
   }
   return <ExactGoalSidebar api={input.api} target={input.target} />;
 }
 function NewChatGoalSidebar({
   api,
   binding,
-}: Readonly<{ api: GoalSidebarApi; binding: NewChatGoalBinding }>) {
+  resource,
+}: Readonly<{
+  api: GoalSidebarApi;
+  binding: NewChatGoalBinding;
+  resource?: NewChatGoalResource | undefined;
+}>) {
   const snapshot = useBindingSnapshot(binding);
   const { t } = useTranslation();
   const { push } = useStatusController();
@@ -54,8 +64,7 @@ function NewChatGoalSidebar({
   const [editing, setEditing] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [handoff, setHandoff] = useState<NewChatGoalHandoff | null>(null);
-  const [handoffReady, setHandoffReady] = useState(false);
-  const [pendingDiagnostic, setPendingDiagnostic] = useState<NewChatGoalDiagnostic | null>(null);
+  const handoffReady = useRef(false);
   const pendingDiagnosticRef = useRef<NewChatGoalDiagnostic | null>(null);
   const reportDiagnostic = useCallback(
     (diagnostic: NewChatGoalDiagnostic) => {
@@ -69,27 +78,13 @@ function NewChatGoalSidebar({
       mounted.current = false;
     };
   }, []);
-  useEffect(() => {
-    return binding.subscribeResolution((delivery) => {
-      setHandoff({ mutation: delivery.mutation, target: delivery.target });
-    });
-  }, [binding]);
-  useEffect(
-    () => () => {
-      const diagnostic = pendingDiagnosticRef.current;
-      if (diagnostic !== null) {
-        pendingDiagnosticRef.current = null;
-        reportDiagnostic(diagnostic);
-      }
-    },
-    [reportDiagnostic],
-  );
-  useEffect(() => {
-    if (!handoffReady || pendingDiagnostic === null) return;
+  const reportPendingDiagnostic = useCallback(() => {
+    const diagnostic = pendingDiagnosticRef.current;
+    if (diagnostic === null) return;
     pendingDiagnosticRef.current = null;
-    reportDiagnostic(pendingDiagnostic);
-    setPendingDiagnostic(null);
-  }, [handoffReady, pendingDiagnostic, reportDiagnostic]);
+    reportDiagnostic(diagnostic);
+  }, [reportDiagnostic]);
+  useEffect(() => reportPendingDiagnostic, [reportPendingDiagnostic]);
 
   if (snapshot.kind === "resolved_session") {
     const seeded = handoff?.target.sessionID === snapshot.target.sessionID ? handoff : undefined;
@@ -98,8 +93,10 @@ function NewChatGoalSidebar({
         api={api}
         initialDraft={draft}
         initialMutation={seeded?.mutation}
+        resource={resource}
         onInitialMutationAdmitted={() => {
-          setHandoffReady(true);
+          handoffReady.current = true;
+          reportPendingDiagnostic();
         }}
         target={snapshot.target}
       />
@@ -115,17 +112,20 @@ function NewChatGoalSidebar({
     const diagnosticID = goalSetDiagnosticNotificationID();
     void binding
       .setGoal(draft)
-      .then((result) => {
+      .then(async (completion) => {
+        const { result } = completion;
         if (result.outcome.kind === "rejected") {
           const message = goalErrorMessage(result.outcome.error.detail, t);
           push({ id: "goal-set-rejected", title: t("chat.goal.setFailed"), body: message, tone: "danger" });
           return;
         }
+        setHandoff({ mutation: completion.delivery.mutation, target: completion.delivery.target });
+        await completion.admission;
         if (result.outcome.diagnostic !== null) {
           const diagnostic = { id: diagnosticID, value: result.outcome.diagnostic };
           if (mounted.current) {
             pendingDiagnosticRef.current = diagnostic;
-            setPendingDiagnostic(diagnostic);
+            if (handoffReady.current) reportPendingDiagnostic();
           } else {
             reportDiagnostic(diagnostic);
           }
@@ -195,15 +195,23 @@ function ExactGoalSidebar({
   initialDraft = "",
   initialMutation,
   onInitialMutationAdmitted,
+  resource,
   target,
 }: Readonly<{
   api: GoalSidebarApi;
-  initialDraft?: string;
-  initialMutation?: ChatGoalMutationResult | null;
-  onInitialMutationAdmitted?: () => void;
+  initialDraft?: string | undefined;
+  initialMutation?: ChatGoalMutationResult | null | undefined;
+  onInitialMutationAdmitted?: (() => void) | undefined;
+  resource?: NewChatGoalResource | undefined;
   target: ChatSessionTarget;
 }>) {
-  const model = useExactGoalSidebarModel(api, initialDraft, target, initialMutation);
+  const model = useExactGoalSidebarModel({
+    admissionResource: resource,
+    api,
+    initialDraft,
+    initialMutation,
+    target,
+  });
   const initialMutationAdmitted = useRef(false);
   useEffect(() => {
     if (
@@ -268,20 +276,6 @@ type NewChatGoalHandoff = Readonly<{
   mutation: ChatGoalMutationResult | null;
 }>;
 type NewChatGoalDiagnostic = Readonly<{ id: string; value: ChatOperationError }>;
-
-type DraftState = Readonly<{ base: string; draft: string }>;
-type GoalSidebarDerivedState = Readonly<{
-  fact: ChatGoalFact | null;
-  pendingIntent: ChatGoalMutationIntent | null;
-  draftState: DraftState;
-  displayedStatus: ChatGoalStatus | null;
-  displayedCreatedAt: string | null;
-  displayedObjective: string;
-  dirty: boolean;
-  unavailable: boolean;
-  saveAvailable: boolean;
-  actionsDisabled: boolean;
-}>;
 
 type GoalMutationRunnerInput = Readonly<{
   actionsDisabled: boolean;
@@ -372,81 +366,6 @@ function goalMutationFailure(cause: unknown, t: ReturnType<typeof useTranslation
   return new Error(errorMessage(cause));
 }
 
-function deriveGoalSidebarState(
-  snapshot: ChatGoalDestinationSnapshot,
-  localDraft: DraftState,
-): GoalSidebarDerivedState {
-  const fact = observedGoalFact(snapshot);
-  const pendingIntent = pendingGoalIntent(snapshot);
-  const draftState = localDraft;
-  const presentation = goalPresentation(fact, pendingIntent, draftState.draft);
-  const displayedStatus = presentation.status;
-  const dirty = draftState.draft !== draftState.base;
-  const unavailable = goalUnavailable(fact);
-  const saveAvailable = dirty && nonBlank(draftState.draft) && pendingIntent === null;
-  const actionsDisabled = pendingIntent !== null;
-  return {
-    actionsDisabled,
-    dirty,
-    displayedCreatedAt: presentation.createdAt,
-    displayedObjective: presentation.objective,
-    displayedStatus,
-    draftState,
-    fact,
-    pendingIntent,
-    saveAvailable,
-    unavailable,
-  };
-}
-
-function observedGoalFact(snapshot: ChatGoalDestinationSnapshot): ChatGoalFact | null {
-  return snapshot.authority.kind === "observed" ? snapshot.authority.value : null;
-}
-
-function pendingGoalIntent(snapshot: ChatGoalDestinationSnapshot): ChatGoalMutationIntent | null {
-  return snapshot.presentation.kind === "unresolved" ? snapshot.presentation.intent : null;
-}
-
-function goalPresentation(
-  fact: ChatGoalFact | null,
-  pendingIntent: ChatGoalMutationIntent | null,
-  draft: string,
-): Readonly<{ objective: string; status: ChatGoalStatus | null; createdAt: string | null }> {
-  if (pendingIntent?.kind === "clear") {
-    return { objective: "", status: null, createdAt: null };
-  }
-  if (pendingIntent?.kind === "goal") {
-    return pendingGoalPresentation(fact, pendingIntent, draft);
-  }
-  return { objective: draft, status: fact?.goal?.status ?? null, createdAt: fact?.goal?.createdAt ?? null };
-}
-
-function pendingGoalPresentation(
-  fact: ChatGoalFact | null,
-  pendingIntent: Extract<ChatGoalMutationIntent, { kind: "goal" }>,
-  draft: string,
-): Readonly<{ objective: string; status: ChatGoalStatus; createdAt: string | null }> {
-  const authoritativeGoal = fact?.goal;
-  const objective = pendingIntent.preview.objective === draft ? pendingIntent.preview.objective : draft;
-  if (authoritativeGoal === undefined || authoritativeGoal === null) {
-    return { objective, status: pendingIntent.preview.status, createdAt: null };
-  }
-  return {
-    objective,
-    status: pendingIntent.preview.status,
-    createdAt:
-      authoritativeGoal.objective === pendingIntent.preview.objective ? authoritativeGoal.createdAt : null,
-  };
-}
-
-function goalUnavailable(fact: ChatGoalFact | null): boolean {
-  return fact?.availability === "agent_capability_missing";
-}
-
-function nonBlank(value: string): boolean {
-  return value.trim().length > 0;
-}
-
 function useGoalMinuteClock(fact: ChatGoalFact | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -461,24 +380,29 @@ function useGoalMinuteClock(fact: ChatGoalFact | null): number {
   return now;
 }
 
-function useExactGoalSidebarModel(
-  api: GoalSidebarApi,
-  initialDraft: string,
-  target: ChatSessionTarget,
-  initialMutation?: ChatGoalMutationResult | null,
-): ExactGoalSidebarModel {
+type ExactGoalSidebarModelInput = Readonly<{
+  admissionResource?: NewChatGoalResource | undefined;
+  api: GoalSidebarApi;
+  initialDraft: string;
+  initialMutation?: ChatGoalMutationResult | null | undefined;
+  target: ChatSessionTarget;
+}>;
+
+function useExactGoalSidebarModel(input: ExactGoalSidebarModelInput): ExactGoalSidebarModel {
+  const { admissionResource, api, initialDraft, initialMutation, target } = input;
   const { t } = useTranslation();
   const [localDraft, setLocalDraft] = useState<DraftState>({ base: "", draft: initialDraft });
-  const [controller, setController] = useState<ChatGoalDestinationController | null>(null);
-  const reconcileSnapshot = useCallback(() => {
-    if (controller === null) return;
-    setLocalDraft((current) => {
-      const snapshot = controller.snapshot;
-      const next = reconcileDraftState(current, observedGoalFact(snapshot), pendingGoalIntent(snapshot));
-      return next.base === current.base && next.draft === current.draft ? current : next;
-    });
-  }, [controller]);
-  const snapshot = useControllerSnapshot(controller, reconcileSnapshot);
+  const [resourceState, setResourceState] = useState<
+    Readonly<{
+      controller: ChatGoalDestinationController | null;
+      snapshot: ChatGoalDestinationSnapshot;
+    }>
+  >({
+    controller: null,
+    snapshot: loadingSnapshot(),
+  });
+  const controller = resourceState.controller;
+  const snapshot = resourceState.snapshot;
   const { push } = useStatusController();
   const { logger } = useAppServices();
   const [editing, setEditing] = useState(false);
@@ -486,17 +410,51 @@ function useExactGoalSidebarModel(
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    const resource = new ChatGoalDestinationController(api, target);
-    if (initialMutation !== undefined && initialMutation !== null && !resource.admitAuthoritativeResult(initialMutation)) {
-      resource.dispose();
+    let live = true;
+    const controller = new ChatGoalDestinationController(api, target);
+    const publish = () => {
+      if (!live) return;
+      const nextSnapshot = controller.snapshot;
+      setLocalDraft((current) => {
+        const next = reconcileDraftState(
+          current,
+          observedGoalFact(nextSnapshot),
+          pendingGoalIntent(nextSnapshot),
+        );
+        return next.base === current.base && next.draft === current.draft ? current : next;
+      });
+      setResourceState({ controller, snapshot: nextSnapshot });
+    };
+    const removeAdmission = admissionResource?.registerMutationAdmission((mutation) =>
+      controller.admitAuthoritativeResult(mutation),
+    );
+    const unsubscribe = controller.subscribe(publish);
+    publish();
+    controller.start();
+    return () => {
+      live = false;
+      unsubscribe();
+      removeAdmission?.();
+      controller.dispose();
+    };
+  }, [admissionResource, api, target]);
+
+  const admittedInitialMutation = useRef<ChatGoalMutationResult | null>(null);
+  useEffect(() => {
+    if (
+      admissionResource !== undefined ||
+      initialMutation === undefined ||
+      initialMutation === null ||
+      controller === null ||
+      admittedInitialMutation.current === initialMutation
+    ) {
+      return;
+    }
+    if (!controller.admitAuthoritativeResult(initialMutation)) {
       throw new ContractError("New Chat Goal result could not be admitted to its destination.");
     }
-    setController(resource);
-    resource.start();
-    return () => {
-      resource.dispose();
-    };
-  }, [api, initialMutation, target]);
+    admittedInitialMutation.current = initialMutation;
+  }, [admissionResource, controller, initialMutation]);
 
   const derived = deriveGoalSidebarState(snapshot, localDraft);
   const {
@@ -602,26 +560,6 @@ function useExactGoalSidebarModel(
   };
 }
 
-function reconcileDraftState(
-  localDraft: DraftState,
-  fact: ChatGoalFact | null,
-  pendingIntent: ChatGoalMutationIntent | null,
-): DraftState {
-  if (pendingIntent?.kind === "clear") {
-    return { base: "", draft: "" };
-  }
-  if (pendingIntent?.kind === "goal" && fact?.goal === null) {
-    return localDraft;
-  }
-  if (fact === null) {
-    return localDraft.draft === localDraft.base ? { base: "", draft: "" } : { ...localDraft, base: "" };
-  }
-  const nextBase = fact.goal?.objective ?? "";
-  return localDraft.draft === localDraft.base
-    ? { base: nextBase, draft: nextBase }
-    : { ...localDraft, base: nextBase };
-}
-
 function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>) {
   const { fact } = model;
   if (fact === null) return null;
@@ -687,26 +625,6 @@ function useBindingSnapshot(binding: NewChatGoalBinding) {
   const subscribe = useCallback((listener: () => void) => binding.subscribe(listener), [binding]);
   const getSnapshot = useCallback(() => binding.snapshot, [binding]);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-function useControllerSnapshot(
-  controller: ChatGoalDestinationController | null,
-  onSnapshot: () => void,
-) {
-  const [snapshot, setSnapshot] = useState<ChatGoalDestinationSnapshot>(() => controller?.snapshot ?? loadingSnapshot());
-  useEffect(() => {
-    if (controller === null) {
-      setSnapshot(loadingSnapshot());
-      return undefined;
-    }
-    onSnapshot();
-    setSnapshot(controller.snapshot);
-    return controller.subscribe(() => {
-      onSnapshot();
-      setSnapshot(controller.snapshot);
-    });
-  }, [controller, onSnapshot]);
-  return snapshot;
 }
 
 function loadingSnapshot(): ChatGoalDestinationSnapshot {

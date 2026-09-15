@@ -183,9 +183,7 @@ function MarkdownFieldCore({
 
 type MarkdownFloatingAction = Awaited<ReactNode>;
 
-function MarkdownFieldFloatingAction({
-  action,
-}: Readonly<{ action: MarkdownFloatingAction | undefined }>) {
+function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloatingAction | undefined }>) {
   const phase = useOpacityExit(action !== undefined);
   const [retainedAction, setRetainedAction] = useState<MarkdownFloatingAction | undefined>(action);
   const actionRef = useRef<HTMLDivElement | null>(null);

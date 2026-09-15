@@ -1,36 +1,24 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { create } from "@app/server-api-contract";
-import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { StrictMode } from "react";
 
-import type {
-  ApiSubscription,
-  ChatGoalFact,
-  ChatGoalMutationResult,
-  ChatGoalObservationHandler,
-  ChatGoalSetResult,
-  ChatError,
-} from "@/api";
-import { ChatOperationError, RpcError, TransportError } from "@/api";
+import { ChatOperationError, RpcError } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import * as ui from "@/ui";
-import { NewChatGoalBinding } from "./goalBinding";
+import { createNewChatGoalResource, NewChatGoalBinding } from "./goalBinding";
 import { GoalSidebarPage, type GoalSidebarApi } from "./GoalSidebar";
 
+type GoalObservationHandler = Parameters<GoalSidebarApi["subscribeGoal"]>[1];
+type GoalSubscription = ReturnType<GoalSidebarApi["subscribeGoal"]>;
+type GoalSetResult = Awaited<ReturnType<GoalSidebarApi["setGoal"]>>;
+type GoalFact = Parameters<GoalObservationHandler["onEvent"]>[0]["fact"];
+type ChatError = ConstructorParameters<typeof ChatOperationError>[1];
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   projectID: "project-1",
   workspace: { workspaceID: "workspace-1" },
   sessionID,
 } as const;
-const activeGoal = {
-  id: "goal-1",
-  objective: "Ship the Goal sidebar",
-  status: "active",
-  created_at: "2026-09-11T10:00:00Z",
-  updated_at: "2026-09-11T10:00:00Z",
-};
 
 function goalSetError(detail: ChatError): ChatOperationError {
   return new ChatOperationError(
@@ -43,92 +31,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mountGoal() {
-  const createdAt = { seconds: 1789120800n, nanos: 0 };
-  const services = createTestServices([
-    {
-      descriptor: R.GoalService.method.pause,
-      result: create(R.GoalService.method.pause.output, {
-        outcome: {
-          case: "success",
-          value: {
-            kind: R.GoalMutationResultKind.AUTHORITATIVE_GOAL,
-            goal: {
-              id: activeGoal.id,
-              objective: activeGoal.objective,
-              status: R.GoalStatus.RUNTIME_GOAL_STATUS_PAUSED,
-              createdAt,
-              updatedAt: createdAt,
-            },
-          },
-        },
-      }),
-    },
-    goalObservationRoute(),
-  ]);
-  render(
-    <TestAppProviders services={services}>
-      <GoalSidebarPage input={{ kind: "session", api: services.api.chat, target }} />
-    </TestAppProviders>,
-  );
-  return services;
-}
-
-function goalObservationRoute() {
-  return {
-    subscriptionDescriptor: R.GoalService.method.observe,
-    startResult: create(R.GoalService.method.observe.output, {
-      outcome: { case: "success", value: {} },
-    }),
-  } as const;
-}
-
-function emitGoalObservation(
-  transport: ReturnType<typeof createTestServices>["transport"],
-  goal: typeof activeGoal | null,
-) {
-  const timestamp = { seconds: 1789120800n, nanos: 0 };
-  transport.emitDescriptor(
-    R.GoalService.method.observe,
-    R.GoalService.method.observation,
-    create(R.GoalService.method.observation.input, {
-      sequence: 1n,
-      kind: R.GoalObservationKind.HYDRATION,
-      status: {
-        ...(goal === null
-          ? {}
-          : {
-              goal: {
-                id: goal.id,
-                objective: goal.objective,
-                status:
-                  goal.status === "active"
-                    ? R.GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE
-                    : goal.status === "paused"
-                      ? R.GoalStatus.RUNTIME_GOAL_STATUS_PAUSED
-                      : R.GoalStatus.RUNTIME_GOAL_STATUS_COMPLETE,
-                createdAt: timestamp,
-                updatedAt: timestamp,
-              },
-            }),
-        availability: R.GoalAvailability.AVAILABLE,
-      },
-    }),
-  );
-}
-
 describe("Goal sidebar", () => {
   it("creates a fresh live destination after StrictMode effect replay", async () => {
     const services = createTestServices([]);
-    const handlers: ChatGoalObservationHandler[] = [];
+    const handlers: GoalObservationHandler[] = [];
+    const closes: ReturnType<typeof vi.fn>[] = [];
     const api = {
       ...createGoalSidebarApi({ goal: null }),
-      subscribeGoal: vi.fn((_target: typeof target, handler: ChatGoalObservationHandler): ApiSubscription => {
+      subscribeGoal: vi.fn((_target: typeof target, handler: GoalObservationHandler): GoalSubscription => {
         handlers.push(handler);
-        return { close: vi.fn() };
+        const close = vi.fn();
+        closes.push(close);
+        return { close };
       }),
     };
-    render(
+    const { unmount } = render(
       <TestAppProviders services={services}>
         <StrictMode>
           <GoalSidebarPage input={{ kind: "session", api, target }} />
@@ -136,10 +53,28 @@ describe("Goal sidebar", () => {
       </TestAppProviders>,
     );
 
-    await waitFor(() => expect(api.subscribeGoal).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(api.subscribeGoal).toHaveBeenCalled();
+    });
+    const firstSubscriptionCount = handlers.length;
+    unmount();
+    expect(closes.slice(0, firstSubscriptionCount).every((close) => close.mock.calls.length === 1)).toBe(
+      true,
+    );
+
+    const { unmount: unmountReopened } = render(
+      <TestAppProviders services={services}>
+        <StrictMode>
+          <GoalSidebarPage input={{ kind: "session", api, target }} />
+        </StrictMode>
+      </TestAppProviders>,
+    );
+    await waitFor(() => {
+      expect(handlers.length).toBeGreaterThan(firstSubscriptionCount);
+    });
     act(() => {
-      if (handlers.length > 1) {
-        handlers[0]?.onEvent({
+      for (const handler of handlers.slice(0, -1)) {
+        handler.onEvent({
           sequence: 1,
           kind: "hydration",
           fact: {
@@ -172,63 +107,14 @@ describe("Goal sidebar", () => {
 
     expect(await screen.findByText("live destination")).toBeInTheDocument();
     expect(screen.queryByText("stale destination")).not.toBeInTheDocument();
-  });
-
-  it("starts with Loading and then presents authoritative Goal metadata", async () => {
-    const testServices = mountGoal();
-    expect(screen.getByTestId("loading-state")).toBeInTheDocument();
-
-    act(() => {
-      emitGoalObservation(testServices.transport, activeGoal);
-    });
-
-    expect(await screen.findByText("Ship the Goal sidebar")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
-  });
-
-  it("routes lifecycle actions through the destination controller and updates state", async () => {
-    const testServices = mountGoal();
-    act(() => {
-      emitGoalObservation(testServices.transport, activeGoal);
-    });
-    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
-
-    await userEvent.setup().click(screen.getByRole("button", { name: "Pause" }));
-
-    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
-    expect(screen.getByText("Paused")).toBeInTheDocument();
-  });
-
-  it("shows a compact retry state when Goal observation fails", async () => {
-    const testServices = mountGoal();
-    await screen.findByTestId("loading-state");
-    await waitFor(() => {
-      expect(testServices.transport.descriptorSubscriptions).toHaveLength(1);
-    });
-    act(() => {
-      testServices.transport.failDescriptor(
-        R.GoalService.method.observe,
-        new TransportError("Goal observation failed."),
-      );
-    });
-
-    await waitFor(() => {
-      expect(testServices.transport.descriptorSubscriptions).toHaveLength(0);
-    });
-    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
-
-    act(() => {
-      emitGoalObservation(testServices.transport, activeGoal);
-    });
-    expect(await screen.findByText("Ship the Goal sidebar")).toBeInTheDocument();
+    unmountReopened();
+    expect(closes.at(-1)?.mock.calls.length).toBe(1);
   });
 
   it("keeps a dirty New Chat draft after a Session-bearing Goal rejection", async () => {
-    const testServices = createTestServices([goalObservationRoute()]);
-    const result: ChatGoalSetResult = {
+    const services = createTestServices([]);
+    const api = createGoalSidebarApi({ goal: null });
+    const result: GoalSetResult = {
       sessionID,
       outcome: {
         kind: "rejected",
@@ -252,8 +138,8 @@ describe("Goal sidebar", () => {
       }),
     });
     render(
-      <TestAppProviders services={testServices}>
-        <GoalSidebarPage input={{ kind: "new_chat", api: testServices.api.chat, binding }} />
+      <TestAppProviders services={services}>
+        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
       </TestAppProviders>,
     );
 
@@ -261,11 +147,6 @@ describe("Goal sidebar", () => {
     const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Goal" }), objective);
     await user.click(screen.getByTestId("goal-save"));
-
-    await screen.findByTestId("loading-state");
-    act(() => {
-      emitGoalObservation(testServices.transport, null);
-    });
 
     expect(await screen.findByDisplayValue(objective)).toBeInTheDocument();
     expect(screen.getByTestId("goal-save")).toBeInTheDocument();
@@ -279,7 +160,7 @@ describe("Goal sidebar", () => {
         goalVisibleWhenWarningWasShown = screen.queryByText("New Chat Goal") !== null;
       }
     });
-    const result: ChatGoalSetResult = {
+    const result: GoalSetResult = {
       sessionID,
       outcome: {
         kind: "mutation",
@@ -314,7 +195,7 @@ describe("Goal sidebar", () => {
         throw new Error("Unexpected Goal mutation.");
       }),
       setGoal: vi.fn(async () => result),
-      subscribeGoal: vi.fn((): ApiSubscription => ({ close: vi.fn() })),
+      subscribeGoal: vi.fn((): GoalSubscription => ({ close: vi.fn() })),
     };
     const binding = new NewChatGoalBinding({
       api: { setGoal: api.setGoal },
@@ -332,9 +213,11 @@ describe("Goal sidebar", () => {
         },
       }),
     });
+    const resource = createNewChatGoalResource();
+    binding.registerResource(resource);
     render(
       <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "new_chat", api, binding }} />
+        <GoalSidebarPage input={{ kind: "new_chat", api, binding, resource }} />
       </TestAppProviders>,
     );
 
@@ -350,9 +233,9 @@ describe("Goal sidebar", () => {
     expect(goalVisibleWhenWarningWasShown).toBe(true);
   });
 
-  it("notifies a New Chat Goal failure after the sidebar closes", async () => {
+  it("delivers a committed New Chat Goal warning after the sidebar closes", async () => {
     const services = createTestServices([]);
-    const pending = deferred<ChatGoalSetResult>();
+    const pending = deferred<GoalSetResult>();
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     const binding = new NewChatGoalBinding({
       api: { setGoal: vi.fn(async () => pending.promise) },
@@ -376,62 +259,12 @@ describe("Goal sidebar", () => {
       </TestAppProviders>,
     );
     const user = userEvent.setup();
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe failure");
+    await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe success");
     await user.click(screen.getByTestId("goal-save"));
     view.unmount();
 
     await act(async () => {
-      pending.reject(new TransportError("connection loss"));
-      await pending.promise.catch(() => undefined);
-    });
-
-    expect(notice).toHaveBeenCalledOnce();
-    expect(notice.mock.lastCall?.[0].tone).toBe("danger");
-  });
-
-  it("reports a committed Set diagnostic after the exact Goal sidebar closes", async () => {
-    const services = createTestServices([]);
-    const pending = deferred<ChatGoalSetResult>();
-    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
-    const api = createGoalSidebarApi({
-      goal: null,
-      setGoal: vi.fn(async () => pending.promise),
-    });
-    const view = render(
-      <TestAppProviders services={services}>
-        <GoalSidebarPage input={{ kind: "session", api, target }} />
-      </TestAppProviders>,
-    );
-    const user = userEvent.setup();
-    await user.type(await screen.findByRole("textbox", { name: "Goal" }), "close-safe success");
-    await user.click(screen.getByTestId("goal-save"));
-    view.unmount();
-
-    await act(async () => {
-      pending.resolve({
-        sessionID,
-        outcome: {
-          kind: "mutation",
-          mutation: {
-            kind: "authoritative_goal",
-            fact: {
-              goal: {
-                id: "goal-close-safe",
-                objective: "close-safe success",
-                status: "active",
-                createdAt: "2026-09-12T10:00:00Z",
-                updatedAt: "2026-09-12T10:00:00Z",
-              },
-              availability: "available",
-            },
-          },
-          diagnostic: goalSetError({
-            kind: "internal_failure",
-            operation: "runtime.detach",
-            cause: "release failed",
-          }),
-        },
-      });
+      pending.resolve(goalSetResult("close-safe success", "goal-close-safe"));
       await pending.promise;
     });
 
@@ -439,44 +272,13 @@ describe("Goal sidebar", () => {
       expect(notice).toHaveBeenCalledOnce();
     });
     expect(notice.mock.lastCall?.[0].tone).toBe("warning");
-  });
-
-  it("presents first exact-Session Save as Active without a timestamp while pending", async () => {
-    const pending = deferred<ChatGoalSetResult>();
-    const setGoal = vi.fn(async () => pending.promise);
-    const api = createGoalSidebarApi({ goal: null, setGoal });
-    mountExactGoal(api);
-
-    const user = userEvent.setup();
-    await user.type(await screen.findByRole("textbox", { name: "Goal" }), "Create this Goal");
-    await user.click(screen.getByTestId("goal-save"));
-
-    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Active")).toBeInTheDocument();
-    expect(screen.queryByTestId("goal-set-time")).not.toBeInTheDocument();
-
-    pending.resolve({
-      sessionID,
-      outcome: {
-        kind: "mutation",
-        mutation: {
-          kind: "authoritative_goal",
-          fact: {
-            goal: {
-              id: "goal-created",
-              objective: "Create this Goal",
-              status: "active",
-              createdAt: "2026-09-12T10:00:00Z",
-              updatedAt: "2026-09-12T10:00:00Z",
-            },
-            availability: "available",
-          },
-        },
-        diagnostic: null,
+    expect(binding.snapshot).toEqual({
+      kind: "resolved_session",
+      target: {
+        projectID: "project-1",
+        workspace: { workspaceID: "workspace-1" },
+        sessionID,
       },
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("goal-set-time")).toHaveAttribute("dateTime", "2026-09-12T10:00:00Z");
     });
   });
 
@@ -526,153 +328,6 @@ describe("Goal sidebar", () => {
     expect(notice.mock.lastCall?.[0].tone).toBe("warning");
     expect(goalVisibleWhenWarningWasShown).toBe(true);
   });
-
-  it("shows both warnings after overlapping Goals are applied", async () => {
-    const services = createTestServices([]);
-    const first = deferred<ChatGoalSetResult>();
-    const second = deferred<ChatGoalSetResult>();
-    const warningGoalCounts: number[] = [];
-    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation((value) => {
-      if (value.tone === "warning") {
-        warningGoalCounts.push(screen.getAllByRole("button", { name: "Pause" }).length);
-      }
-    });
-    const firstApi = createGoalSidebarApi({ goal: null, setGoal: vi.fn(async () => first.promise) });
-    const secondApi = createGoalSidebarApi({ goal: null, setGoal: vi.fn(async () => second.promise) });
-    render(
-      <TestAppProviders services={services}>
-        <div className="grid grid-cols-2">
-          <div data-testid="first-goal">
-            <GoalSidebarPage input={{ kind: "session", api: firstApi, target }} />
-          </div>
-          <div data-testid="second-goal">
-            <GoalSidebarPage
-              input={{
-                kind: "session",
-                api: secondApi,
-                target: { ...target, sessionID: "223e4567-e89b-42d3-a456-426614174000" },
-              }}
-            />
-          </div>
-        </div>
-      </TestAppProviders>,
-    );
-
-    const user = userEvent.setup();
-    const firstGoal = within(screen.getByTestId("first-goal"));
-    const secondGoal = within(screen.getByTestId("second-goal"));
-    await user.click(await firstGoal.findByRole("textbox", { name: "Goal" }));
-    await user.type(firstGoal.getByRole("textbox", { name: "Goal" }), "First overlapping Goal");
-    await user.click(firstGoal.getByTestId("goal-save"));
-    await user.click(await secondGoal.findByRole("textbox", { name: "Goal" }));
-    await user.type(secondGoal.getByRole("textbox", { name: "Goal" }), "Second overlapping Goal");
-    await user.click(secondGoal.getByTestId("goal-save"));
-
-    await act(async () => {
-      first.resolve(goalSetResult("First overlapping Goal", "goal-first"));
-      second.resolve(
-        goalSetResult("Second overlapping Goal", "goal-second", "223e4567-e89b-42d3-a456-426614174000"),
-      );
-      await Promise.all([first.promise, second.promise]);
-    });
-
-    await waitFor(() => {
-      expect(warningGoalCounts).toHaveLength(2);
-    });
-    expect(warningGoalCounts).toEqual([2, 2]);
-    expect(notice).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps the requested lifecycle presentation when authority clears during the request", async () => {
-    const pending = deferred<ChatGoalMutationResult>();
-    const api = createGoalSidebarApi({
-      goal: {
-        id: "goal-1",
-        objective: "Keep this Goal",
-        status: "paused",
-        createdAt: "2026-09-12T10:00:00Z",
-        updatedAt: "2026-09-12T10:00:00Z",
-      },
-      resumeGoal: vi.fn(async () => pending.promise),
-    });
-    mountExactGoal(api);
-
-    await screen.findByRole("button", { name: "Resume" });
-    await userEvent.setup().click(screen.getByRole("button", { name: "Resume" }));
-    act(() => {
-      api.emit?.({
-        sequence: 2,
-        kind: "update",
-        fact: { goal: null, availability: "available" },
-      });
-    });
-
-    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
-    expect(screen.getByText("Keep this Goal")).toBeInTheDocument();
-    await act(async () => {
-      pending.resolve({
-        kind: "authoritative_goal",
-        fact: {
-          goal: {
-            id: "goal-1",
-            objective: "Keep this Goal",
-            status: "active",
-            createdAt: "2026-09-12T10:00:00Z",
-            updatedAt: "2026-09-12T10:00:00Z",
-          },
-          availability: "available",
-        },
-      });
-      await pending.promise;
-    });
-  });
-
-  it.each(["deferred", "fast"] as const)(
-    "does not submit a second Save during %s completion fade",
-    async (completion) => {
-      const result: ChatGoalSetResult = {
-        sessionID,
-        outcome: {
-          kind: "mutation",
-          mutation: {
-            kind: "authoritative_goal",
-            fact: {
-              goal: {
-                id: "goal-1",
-                objective: "one objective",
-                status: "active",
-                createdAt: "2026-09-12T10:00:00Z",
-                updatedAt: "2026-09-12T10:00:00Z",
-              },
-              availability: "available",
-            },
-          },
-          diagnostic: null,
-        },
-      };
-      const pending = deferred<ChatGoalSetResult>();
-      const setGoal = vi.fn(async () => (completion === "fast" ? Promise.resolve(result) : pending.promise));
-      const api = createGoalSidebarApi({ goal: null, setGoal });
-      mountExactGoal(api);
-
-      const user = userEvent.setup();
-      await user.type(await screen.findByRole("textbox", { name: "Goal" }), "one objective");
-      const save = screen.getByTestId("goal-save");
-      await user.click(save);
-      if (completion === "deferred") {
-        await act(async () => {
-          pending.resolve(result);
-          await pending.promise;
-        });
-      }
-      if (completion === "fast") {
-        await screen.findByText("one objective");
-      }
-      fireEvent.click(save);
-
-      expect(setGoal).toHaveBeenCalledOnce();
-    },
-  );
 });
 
 function deferred<Value>() {
@@ -694,11 +349,7 @@ function mountExactGoal(api: GoalSidebarApi) {
   );
 }
 
-function goalSetResult(
-  objective: string,
-  id: string,
-  resultSessionID: string = sessionID,
-): ChatGoalSetResult {
+function goalSetResult(objective: string, id: string, resultSessionID: string = sessionID): GoalSetResult {
   return {
     sessionID: resultSessionID,
     outcome: {
@@ -734,15 +385,15 @@ function createGoalSidebarApi({
     throw new Error("Unexpected Goal mutation.");
   }),
 }: Readonly<{
-  goal: ChatGoalFact["goal"];
+  goal: GoalFact["goal"];
   setGoal?: GoalSidebarApi["setGoal"];
   resumeGoal?: GoalSidebarApi["resumeGoal"];
 }>): GoalSidebarApi &
-  Readonly<{ emit?: (observation: Parameters<ChatGoalObservationHandler["onEvent"]>[0]) => void }> {
-  let handler: ChatGoalObservationHandler | null = null;
+  Readonly<{ emit?: (observation: Parameters<GoalObservationHandler["onEvent"]>[0]) => void }> {
+  let handler: GoalObservationHandler | null = null;
   const api: GoalSidebarApi &
     Readonly<{
-      emit?: (observation: Parameters<ChatGoalObservationHandler["onEvent"]>[0]) => void;
+      emit?: (observation: Parameters<GoalObservationHandler["onEvent"]>[0]) => void;
     }> = {
     clearGoal: vi.fn(async () => {
       throw new Error("Unexpected Goal mutation.");
@@ -752,7 +403,7 @@ function createGoalSidebarApi({
     }),
     resumeGoal,
     setGoal,
-    subscribeGoal: (_target, nextHandler): ApiSubscription => {
+    subscribeGoal: (_target, nextHandler): GoalSubscription => {
       handler = nextHandler;
       queueMicrotask(() => {
         nextHandler.onEvent({

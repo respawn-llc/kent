@@ -24,7 +24,9 @@ import {
 } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
   GoalAvailability,
+  GoalClearResultSchema,
   GoalMutationResultKind,
+  GoalPauseResultSchema,
   GoalService,
   GoalSetResultSchema,
   GoalStatus,
@@ -332,24 +334,31 @@ describe("Desktop Chat read client", () => {
         }),
       },
       {
-        method: "runtime.goal.pause",
-        result: { result: { kind: "authoritative_clear", availability: null } },
+        descriptor: GoalService.method.pause,
+        result: create(GoalPauseResultSchema, {
+          outcome: {
+            case: "success",
+            value: { kind: GoalMutationResultKind.AUTHORITATIVE_CLEAR },
+          },
+        }),
       },
       {
-        method: "runtime.goal.clear",
-        result: {
-          result: {
-            kind: "authoritative_goal",
-            goal: {
-              id: "goal-1",
-              objective: "ship",
-              status: "active",
-              created_at: "2026-09-11T10:00:00Z",
-              updated_at: "2026-09-11T10:00:00Z",
+        descriptor: GoalService.method.clear,
+        result: create(GoalClearResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              kind: GoalMutationResultKind.AUTHORITATIVE_GOAL,
+              goal: {
+                id: "goal-1",
+                objective: "ship",
+                status: GoalStatus.RUNTIME_GOAL_STATUS_ACTIVE,
+                createdAt: { seconds: 1n, nanos: 0 },
+                updatedAt: { seconds: 1n, nanos: 0 },
+              },
             },
-            availability: null,
           },
-        },
+        }),
       },
     ]);
     const client = new ApiClient(transport);

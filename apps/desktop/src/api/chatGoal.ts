@@ -224,23 +224,25 @@ export function createChatGoalApi(
   const mutate = async (
     target: ChatSessionTarget,
     method:
-      | typeof R.GoalService.method.set
       | typeof R.GoalService.method.pause
       | typeof R.GoalService.method.resume
       | typeof R.GoalService.method.complete
       | typeof R.GoalService.method.clear,
-    objective?: string,
   ) => {
     const sessionId = requireChatSessionID(target);
     const call = await transport.callDescriptorAttachedProject({
       projectID: target.projectID,
       selector: target.workspace,
       method,
-      createRequest: () =>
-        create(method.input, { sessionId, actor: "user", ...(objective === undefined ? {} : { objective }) }),
+      createRequest: () => create(method.input, { sessionId, actor: "user" }),
     });
     requireProjectAttachment(call.attachment, target);
-    return goalMutationFromGenerated(requireUnarySuccess(method, call.result));
+    const mutation = goalMutationFromGenerated(requireUnarySuccess(method, call.result));
+    const expectedKind = method === R.GoalService.method.clear ? "authoritative_clear" : "authoritative_goal";
+    if (mutation.kind !== expectedKind) {
+      throw new ContractError("Goal mutation response returned an illegal result.");
+    }
+    return mutation;
   };
   return {
     async getGoal(target) {
@@ -295,7 +297,9 @@ export function createChatGoalApi(
             objective,
             actor: "user",
             executionPolicy: R.GoalExecutionPolicy.START_OR_CONTINUE,
-            ...(target.initialInputDraft === undefined ? {} : { initialInputDraft: target.initialInputDraft }),
+            ...(target.initialInputDraft === undefined
+              ? {}
+              : { initialInputDraft: target.initialInputDraft }),
           }),
       });
       requireProjectAttachment(call.attachment, {

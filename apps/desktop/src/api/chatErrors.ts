@@ -135,9 +135,7 @@ function standardChatOperationError(generic: RpcError, failure: ChatWireError): 
   return new ChatOperationError(generic, { kind: "unknown", code: failure.code, knownDetail: null });
 }
 
-function chatErrorDetailFromWire(
-  failure: ChatWireError,
-): KnownChatError | null {
+function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
   switch (failure.detail.case) {
     case "sessionNotFound":
       return {

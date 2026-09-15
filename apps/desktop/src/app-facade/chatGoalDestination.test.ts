@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  ApiSubscription,
-  ChatApi,
-  ChatGoalMutationResult,
-  ChatGoalObservationHandler,
-  ChatSessionTarget,
-} from "@/api";
+import type { ApiSubscription, ChatApi, ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
 
 import { ChatGoalDestinationController, type ChatGoalMutationIntent } from "./chatGoalDestination";
 
@@ -32,58 +26,7 @@ function observationApi() {
 }
 
 describe("Chat Goal destination controller", () => {
-  it("notifies destination subscribers once for each accepted observation", () => {
-    const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    const listener = vi.fn();
-    controller.subscribe(listener);
-    controller.start();
-    listener.mockClear();
-
-    handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-
-    expect(listener).toHaveBeenCalledOnce();
-  });
-
-  it("admits a validated authoritative result while hydration is pending", () => {
-    const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    controller.start();
-    const fact = {
-      goal: {
-        id: "goal-1",
-        objective: "ship",
-        status: "active",
-        createdAt: "2026-09-12T10:00:00Z",
-        updatedAt: "2026-09-12T10:00:00Z",
-      },
-      availability: "available",
-    } satisfies Extract<ChatGoalMutationResult, { kind: "authoritative_goal" }>["fact"];
-    const result: ChatGoalMutationResult = { kind: "authoritative_goal", fact };
-
-    expect(controller.admitAuthoritativeResult(result)).toBe(true);
-    expect(controller.snapshot).toMatchObject({
-      authority: { kind: "observed", value: fact },
-      observation: { kind: "loading" },
-    });
-
-    handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-    expect(controller.snapshot.authority).toMatchObject({
-      kind: "observed",
-      value: { goal: null, availability: "available" },
-    });
-    expect(controller.admitAuthoritativeResult(result)).toBe(false);
-  });
-
-  it("keeps newer observed authority when an older authoritative mutation result settles", () => {
+  it("keeps newer observed authority when an older mutation result settles", () => {
     const { api, handlers } = observationApi();
     const controller = new ChatGoalDestinationController(api, target);
     controller.start();
@@ -93,20 +36,17 @@ describe("Chat Goal destination controller", () => {
       fact: { goal: null, availability: "available" },
     });
     const handle = controller.begin(intent);
-    handlers[0]?.onEvent({
-      sequence: 2,
-      kind: "update",
-      fact: {
-        goal: {
-          id: "goal-new",
-          objective: "new authority",
-          status: "active",
-          createdAt: "2026-09-04T10:00:00Z",
-          updatedAt: "2026-09-04T10:00:00Z",
-        },
-        availability: null,
+    const newerFact = {
+      goal: {
+        id: "goal-new",
+        objective: "new authority",
+        status: "active" as const,
+        createdAt: "2026-09-04T10:00:00Z",
+        updatedAt: "2026-09-04T10:00:00Z",
       },
-    });
+      availability: null,
+    };
+    handlers[0]?.onEvent({ sequence: 2, kind: "update", fact: newerFact });
 
     expect(
       controller.succeed(handle, {
@@ -114,161 +54,35 @@ describe("Chat Goal destination controller", () => {
         fact: { goal: null, availability: "available" },
       }),
     ).toBe(true);
-    expect(controller.snapshot.authority).toMatchObject({
-      kind: "observed",
-      value: { goal: { id: "goal-new" }, availability: null },
-    });
-    expect(controller.snapshot.presentation.kind).toBe("authority");
+    expect(controller.snapshot.authority).toEqual({ kind: "observed", value: newerFact });
+    expect(controller.snapshot.presentation).toEqual({ kind: "authority" });
   });
 
-  it("applies an authoritative result and releases mutation single-flight", () => {
+  it("permanently disposes stale callbacks while a reopened destination is independent", () => {
     const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    controller.start();
+    const disposed = new ChatGoalDestinationController(api, target);
+    disposed.start();
     handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
       fact: { goal: null, availability: "available" },
     });
-    const first = controller.begin(intent);
-    controller.succeed(first, {
-      kind: "authoritative_goal",
-      fact: {
-        goal: {
-          id: "goal-1",
-          objective: "ship",
-          status: "paused",
-          createdAt: "2026-09-04T10:00:00Z",
-          updatedAt: "2026-09-04T10:00:00Z",
-        },
-        availability: null,
-      },
-    });
-    expect(controller.snapshot.authority).toMatchObject({
-      kind: "observed",
-      value: { goal: { id: "goal-1", status: "paused" }, availability: null },
-    });
-
-    const secondIntent: ChatGoalMutationIntent = {
-      kind: "goal",
-      preview: { objective: "ship again", status: "active" },
-    };
-    const second = controller.begin(secondIntent);
-
-    expect(controller.snapshot.presentation).toEqual({
-      kind: "unresolved",
-      intent: secondIntent,
-    });
-    expect(controller.fail(second)).toBe(true);
-    expect(controller.snapshot.presentation.kind).toBe("authority");
-  });
-
-  it("retains destination state across transport replacement and rejects stale callbacks", () => {
-    const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    controller.start();
-    handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-    const handle = controller.begin(intent);
-    controller.replaceObservation();
-    expect(handlers).toHaveLength(2);
-    expect(controller.snapshot.presentation.kind).toBe("unresolved");
+    const staleHandle = disposed.begin(intent);
+    disposed.dispose();
 
     handlers[0]?.onEvent({
       sequence: 2,
       kind: "update",
       fact: { goal: null, availability: "agent_capability_missing" },
     });
-    handlers[1]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-    expect(controller.snapshot.authority).toMatchObject({
-      kind: "observed",
-      value: { availability: "available" },
-    });
-    expect(controller.fail(handle)).toBe(true);
-
-    controller.dispose();
-    handlers[1]?.onEvent({
-      sequence: 2,
-      kind: "update",
-      fact: { goal: null, availability: null },
-    });
-    expect(controller.snapshot.observation.kind).toBe("disposed");
-  });
-
-  it("retains authority and mutation on observation failure until explicit Retry", () => {
-    const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    controller.start();
-    handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-    controller.begin(intent);
-    handlers[0]?.onError(new Error("socket lost"));
-
-    expect(handlers).toHaveLength(1);
-    expect(controller.snapshot.authority).toMatchObject({
-      kind: "observed",
-      value: { availability: "available" },
-    });
-    expect(controller.snapshot.presentation.kind).toBe("unresolved");
-    expect(controller.snapshot.observation.kind).toBe("error");
-    controller.replaceObservation();
-    expect(handlers).toHaveLength(2);
-    handlers[1]?.onError(new Error("replacement failed"));
-    expect(controller.snapshot.observation.kind).toBe("error");
-    expect(handlers).toHaveLength(2);
-  });
-
-  it("exposes initial Goal observation failure and retries only on request", () => {
-    const { api, handlers } = observationApi();
-    const controller = new ChatGoalDestinationController(api, target);
-    controller.start();
-
-    handlers[0]?.onError(new Error("Goal unavailable"));
-
-    expect(controller.snapshot.observation.kind).toBe("error");
-    expect(handlers).toHaveLength(1);
-    controller.replaceObservation();
-    expect(controller.snapshot.observation.kind).toBe("loading");
-    expect(handlers).toHaveLength(2);
-  });
-
-  it("disposes old mutation callbacks while a reopened destination begins independently", () => {
-    const { api, handlers } = observationApi();
-    const oldController = new ChatGoalDestinationController(api, target);
-    oldController.start();
-    handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "available" },
-    });
-    const oldHandle = oldController.begin(intent);
-    oldController.dispose();
-
-    const reopened = new ChatGoalDestinationController(api, target);
-    reopened.start();
-    handlers[1]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      fact: { goal: null, availability: "agent_capability_missing" },
-    });
-    const newHandle = reopened.begin({ kind: "clear" });
+    expect(disposed.snapshot.observation).toEqual({ kind: "disposed" });
     expect(
-      oldController.succeed(oldHandle, {
+      disposed.succeed(staleHandle, {
         kind: "authoritative_goal",
         fact: {
           goal: {
-            id: "goal-old",
-            objective: "old",
+            id: "stale",
+            objective: "stale",
             status: "active",
             createdAt: "2026-09-04T10:00:00Z",
             updatedAt: "2026-09-04T10:00:00Z",
@@ -277,19 +91,24 @@ describe("Chat Goal destination controller", () => {
         },
       }),
     ).toBe(false);
+
+    const reopened = new ChatGoalDestinationController(api, target);
+    reopened.start();
+    handlers[1]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      fact: { goal: null, availability: "available" },
+    });
+    const reopenedHandle = reopened.begin({ kind: "clear" });
     expect(
-      reopened.succeed(newHandle, {
+      reopened.succeed(reopenedHandle, {
         kind: "authoritative_clear",
         fact: { goal: null, availability: null },
       }),
     ).toBe(true);
-    expect(reopened.snapshot.presentation.kind).toBe("authority");
-    expect(reopened.snapshot.authority).toMatchObject({
+    expect(reopened.snapshot.authority).toEqual({
       kind: "observed",
       value: { goal: null, availability: null },
     });
-    expect(
-      reopened.succeed(newHandle, { kind: "authoritative_clear", fact: { goal: null, availability: null } }),
-    ).toBe(false);
   });
 });

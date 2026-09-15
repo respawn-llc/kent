@@ -22,21 +22,103 @@ export type NewChatGoalBindingSnapshot =
 export type NewChatGoalBindingOptions = Readonly<{
   api: Pick<ChatApi, "setGoal">;
   captureTarget: () => Extract<ChatGoalSetTarget, { kind: "new_chat" }>;
-  onResolved?: (delivery: NewChatGoalDelivery) => void;
 }>;
 
 export type NewChatGoalDelivery = Readonly<{
   target: ChatSessionTarget;
   mutation: ChatGoalMutationResult | null;
 }>;
-export type NewChatGoalResolutionListener = (delivery: NewChatGoalDelivery) => void;
+
+export type NewChatGoalAdmission = Readonly<{ kind: "acknowledged" }> | Readonly<{ kind: "skipped" }>;
+
+export type NewChatGoalCompletion = Readonly<{
+  result: ChatGoalSetResult;
+  delivery: NewChatGoalDelivery;
+  admission: Promise<NewChatGoalAdmission>;
+}>;
+
+export type NewChatGoalResource = Readonly<{
+  registerMutationAdmission(admit: (mutation: ChatGoalMutationResult) => boolean): () => void;
+  stage(delivery: NewChatGoalDelivery): NewChatGoalCompletion["admission"];
+  close(): void;
+}>;
+
+export function createNewChatGoalResource(): NewChatGoalResource {
+  let closed = false;
+  let resource: Readonly<{ token: symbol; admit: (mutation: ChatGoalMutationResult) => boolean }> | null =
+    null;
+  let pending: Readonly<{
+    resolve(outcome: NewChatGoalAdmission): void;
+    delivery: NewChatGoalDelivery;
+  }> | null = null;
+  let checkScheduled = false;
+
+  const settle = (outcome: NewChatGoalAdmission) => {
+    const current = pending;
+    if (current === null) return;
+    pending = null;
+    current.resolve(outcome);
+  };
+  const check = () => {
+    checkScheduled = false;
+    if (closed || pending === null || resource === null || pending.delivery.mutation === null) {
+      return;
+    }
+    if (resource.admit(pending.delivery.mutation)) {
+      settle({ kind: "acknowledged" });
+    }
+  };
+  const scheduleCheck = () => {
+    if (checkScheduled) return;
+    checkScheduled = true;
+    queueMicrotask(check);
+  };
+
+  return {
+    registerMutationAdmission: (admit) => {
+      if (closed) return () => undefined;
+      const current = { token: Symbol("Goal destination resource"), admit };
+      resource = current;
+      scheduleCheck();
+      return () => {
+        if (resource?.token === current.token) {
+          resource = null;
+          scheduleCheck();
+        }
+      };
+    },
+    stage: async (delivery) => {
+      if (closed || delivery.mutation === null) {
+        return Promise.resolve({ kind: "skipped" });
+      }
+      if (pending !== null) {
+        throw new ContractError("New Chat Goal has more than one staged destination handoff.");
+      }
+      let resolveAdmission: ((outcome: NewChatGoalAdmission) => void) | undefined;
+      const admission = new Promise<NewChatGoalAdmission>((resolve) => {
+        resolveAdmission = resolve;
+      });
+      if (resolveAdmission === undefined) {
+        throw new Error("New Chat Goal admission did not initialize.");
+      }
+      pending = { delivery, resolve: resolveAdmission };
+      scheduleCheck();
+      return admission;
+    },
+    close: () => {
+      if (closed) return;
+      closed = true;
+      resource = null;
+      settle({ kind: "skipped" });
+    },
+  };
+}
 
 export class NewChatGoalBinding {
   readonly #api: Pick<ChatApi, "setGoal">;
   readonly #captureTarget: NewChatGoalBindingOptions["captureTarget"];
-  readonly #onResolved: NewChatGoalBindingOptions["onResolved"];
   readonly #listeners = new Set<() => void>();
-  readonly #resolutionListeners = new Set<NewChatGoalResolutionListener>();
+  #resource: NewChatGoalResource | null = null;
   #snapshot: NewChatGoalBindingSnapshot = {
     kind: "unresolved",
     availability: null,
@@ -46,7 +128,6 @@ export class NewChatGoalBinding {
   constructor(options: NewChatGoalBindingOptions) {
     this.#api = options.api;
     this.#captureTarget = options.captureTarget;
-    this.#onResolved = options.onResolved;
   }
 
   get snapshot(): NewChatGoalBindingSnapshot {
@@ -58,9 +139,16 @@ export class NewChatGoalBinding {
     return () => this.#listeners.delete(listener);
   }
 
-  subscribeResolution(listener: NewChatGoalResolutionListener): () => void {
-    this.#resolutionListeners.add(listener);
-    return () => this.#resolutionListeners.delete(listener);
+  registerResource(resource: NewChatGoalResource): () => void {
+    const previous = this.#resource;
+    previous?.close();
+    this.#resource = resource;
+    return () => {
+      if (this.#resource === resource) {
+        this.#resource = null;
+        resource.close();
+      }
+    };
   }
 
   setAvailability(availability: ChatGoalAvailability | null): void {
@@ -71,7 +159,7 @@ export class NewChatGoalBinding {
     this.#notify();
   }
 
-  async setGoal(objective: string): Promise<ChatGoalSetResult> {
+  async setGoal(objective: string): Promise<NewChatGoalCompletion> {
     if (this.#snapshot.kind !== "unresolved") {
       throw new ContractError("New Chat Goal creation has already resolved.");
     }
@@ -79,6 +167,7 @@ export class NewChatGoalBinding {
       throw new ContractError("New Chat Goal creation is already pending.");
     }
     const target = this.#captureTarget();
+    const resource = this.#resource;
     this.#snapshot = { ...this.#snapshot, pending: true };
     this.#notify();
     try {
@@ -92,13 +181,10 @@ export class NewChatGoalBinding {
         target: exactTarget,
         mutation: result.outcome.kind === "mutation" ? result.outcome.mutation : null,
       } satisfies NewChatGoalDelivery;
-      this.#onResolved?.(delivery);
-      for (const listener of this.#resolutionListeners) {
-        listener(delivery);
-      }
+      const admission = resource?.stage(delivery) ?? Promise.resolve({ kind: "skipped" as const });
       this.#snapshot = { kind: "resolved_session", target: exactTarget };
       this.#notify();
-      return result;
+      return { admission, delivery, result };
     } catch (error) {
       if (this.#snapshot.kind === "unresolved") {
         this.#snapshot = { ...this.#snapshot, pending: false };

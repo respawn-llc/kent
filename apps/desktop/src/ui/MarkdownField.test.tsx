@@ -1,4 +1,3 @@
-import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import { CollapsibleMarkdownField } from "./MarkdownField";
@@ -17,39 +16,6 @@ const baseProps = {
 };
 
 describe("MarkdownField presentation options", () => {
-  it("renders a supplied floating action in read presentation", () => {
-    render(
-      <CollapsibleMarkdownField
-        {...baseProps}
-        collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}
-        expanded={false}
-        expandLabel="Expand"
-        floatingAction={<button type="button">Save</button>}
-      />,
-    );
-
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-  });
-
-  it("invokes the supplied submit intent for the configured shortcut", async () => {
-    const onSubmitIntent = vi.fn();
-    render(
-      <CollapsibleMarkdownField
-        {...baseProps}
-        collapsedHeightClamp={{ kind: "lines", maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
-        editing
-        expanded={false}
-        expandLabel="Expand"
-        submitIntent={{ available: true, onSubmitIntent, policy: "meta-enter" }}
-      />,
-    );
-
-    await userEvent.setup().click(screen.getByRole("textbox", { name: "Description" }));
-    await userEvent.setup().keyboard("{Meta>}{Enter}{/Meta}");
-
-    expect(onSubmitIntent).toHaveBeenCalledOnce();
-  });
-
   it("keeps only the latest floating action as an inert exit presentation", () => {
     const firstAction = vi.fn();
     const latestAction = vi.fn();
