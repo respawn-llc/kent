@@ -460,8 +460,9 @@
 - Immediate deletion failure shows no separate Retry action and no Sonner while the popup remains open.
 - The delete popup remains dismissible while a Delete request is pending.
 - Dismissing the popup does not cancel the Delete request.
-- If a Delete request fails after its popup was dismissed, Desktop shows the authoritative diagnostic through Sonner and does not reopen the popup.
-- A clean-to-dirty rejection received after dismissal also uses Sonner. Reopening the delete flow starts a new preview.
+- If a Delete request fails after its popup's observation lifetime ends, Desktop must show the authoritative diagnostic through Sonner and must not reopen the popup.
+- Popup dismissal must release observation through the ordinary destination lifecycle. The popup must retain inline failure ownership until that disposal completes.
+- A clean-to-dirty rejection received after observation disposal must also use Sonner. Reopening the delete flow starts a new preview.
 - Delete copies the TUI's two typed outcomes. The delete popup shows its ordinary request-scoped loading state only until the server returns Completed or Scheduled.
 - A Completed result closes the popup and refreshes the list.
 - A Scheduled result closes the popup back to the refreshed list. Desktop does not wait for current-Session retargeting or Git removal to finish.
@@ -474,6 +475,7 @@
 - Worktree creation uses a focused child state within the same Worktree sidebar destination.
 - The creation state places `Branch or ref` before `Base ref`.
 - `Branch or ref` starts focused and is prefilled only from the sanitized Session title. When the Session has no usable title, the field starts empty.
+- The server must provide the title-derived branch suggestion. Desktop and TUI must use the same normalization: lowercase the title, retain Unicode letters and digits, and replace other character runs with interior hyphens. The suggestion must be absent when normalization leaves no usable name.
 - Desktop never falls back to the current branch, `main`, or a generated generic Worktree name.
 - Desktop resolves `Branch or ref` asynchronously and presents the typed result as `New branch`, `Existing branch`, or `Detached ref`. It has no explicit new/existing target selector.
 - Desktop briefly debounces `Branch or ref` changes. A response applies only when it matches the latest trimmed field value.
@@ -493,12 +495,14 @@
 - An empty Base ref sends no creation request and shows `Base ref is required`.
 - The creation state has no custom filesystem-path field. Kent uses the configured worktree base directory.
 - The primary creation action is `Create`. Back returns to the Worktree list without creating anything.
+- Leaving the creation state must discard its draft. Opening creation again must initialize Branch or ref from the sanitized Session title and Base ref from `HEAD`. Creation draft state must remain local to the destination without persistence.
 - While creation and optional setup run, the creation child state shows one simple spinner for the complete operation.
 - Desktop does not expose setup phases, phase labels, percentage progress, or a progress bar.
 - If creation fails before a worktree exists, Desktop must stop the spinner. Desktop must preserve every entered value. Desktop must show the authoritative diagnostic inline at its typed owner.
 - If optional setup fails, Desktop returns immediately to the refreshed Worktree list and shows the authoritative diagnostic through Sonner.
 - If creation fails before Kent retains a worktree, Desktop keeps the creation state open with every entered value preserved.
 - A pre-retention creation failure not owned by one field shows the authoritative diagnostic as error-colored form-level plain text below the fields. It shows no Sonner.
+- If the creation form has closed before a pre-retention failure arrives, Desktop must not present that failure or reopen the form. This does not change automatic Switch or setup, Switch, and Delete failure notifications after dismissal.
 - The Worktree sidebar remains dismissible while creation and optional setup run.
 - Dismissing the Worktree sidebar does not cancel the submitted creation operation. The operation continues without its spinner after the destination closes.
 - Reopening Worktree while that creation operation remains in flight opens the ordinary list and performs its ordinary server-owned read.
@@ -510,7 +514,7 @@
 - If the Worktree sidebar was dismissed, setup failure does not reopen it. Desktop shows the authoritative diagnostic through Sonner, and the next Worktree-sidebar open performs its ordinary server-owned list read.
 - Setup failure preserves the created worktree and does not offer an inline Error state, Retry action, or automatic deletion.
 - Successful creation waits for optional setup to finish and then applies the ordinary Switch operation for the new worktree.
-- If creation succeeds but the automatic Switch fails, Desktop preserves the created worktree, refreshes the list, leaves the Session on its previous target, and surfaces the Switch failure.
+- If creation succeeds but the automatic Switch fails, Desktop must preserve the created worktree, leave the Session on its previous target, and surface the Switch failure. Desktop must keep the originating creation page open if it remains current. Desktop must refresh the Worktree list only if a matching list is open.
 - Desktop does not delete or otherwise roll back a successfully created worktree because its automatic Switch failed.
 - Worktree remains fully available in the bottom control row while a Question or Approval picker replaces the editor.
 - Opening or mutating Worktree does not answer, dismiss, hide, or otherwise change the pending prompt.

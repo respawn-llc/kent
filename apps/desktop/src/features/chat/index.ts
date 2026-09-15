@@ -1,3 +1,4 @@
+export { WorktreeDestination } from "./WorktreeDestination";
 export { ChatShell } from "./ChatShell";
 export { ChatUserMessage } from "./messageRows/ChatUserMessage";
 export type { ChatUserMessageItem, ChatMessageEditControl } from "./messageRows/ChatUserMessage";
@@ -14,7 +15,6 @@ export type {
   ChatMessageEditHandoff,
 } from "./messageRows/ChatMessageEditViewModel";
 export { ChatPromptPicker } from "./ChatPromptPicker";
-export { WorktreeBrowser } from "./WorktreeBrowser";
 export { WorktreeControl } from "./WorktreeControl";
 export type { ChatShellProps, ChatShellState, SelectedSession } from "./ChatShell";
 export { useChatSettings } from "./useChatSettings";

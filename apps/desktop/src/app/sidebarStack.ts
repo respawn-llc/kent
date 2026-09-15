@@ -251,6 +251,7 @@ export function createSidebarStack(
     };
   };
   return {
+    currentSurface: () => (view.phase === "closing" ? null : (current()?.destination ?? null)),
     dispose: () => {
       clearCloseTimeout();
       revokeCurrent();
