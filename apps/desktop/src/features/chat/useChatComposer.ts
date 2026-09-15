@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import type { ChatSettingsTarget } from "@/api";
-import { useAppServices, useConnectionSnapshot, useDebouncedText } from "@/app-facade";
+import { useAppServices, useDebouncedText } from "@/app-facade";
 import { composerSuggestions, type ComposerCommand, type ComposerCommandResult } from "./composerCommands";
 import { useComposerPendingWork } from "./useComposerPendingWork";
 import { createComposerDraftViewModel, useComposerDraftActions } from "./ComposerDraftViewModel";
@@ -33,7 +33,6 @@ export function useChatComposer(options: ChatComposerOptions) {
   const services = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
-  const connection = useConnectionSnapshot();
   const [model] = useState(() => {
     const { projectID, workspace } = options;
     const target: ChatSettingsTarget =
@@ -79,11 +78,7 @@ export function useChatComposer(options: ChatComposerOptions) {
   useEffect(() => {
     if (draft.kind === "ready" && debounced === text) saveDraft(debounced);
   }, [saveDraft, draft.kind, debounced, text]);
-  const canSubmit =
-    connection.phase === "connected" &&
-    draft.kind === "ready" &&
-    submission.kind === "ready" &&
-    text.trim().length > 0;
+  const canSubmit = draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
   function submit(intent: "send" | "queue") {
     inputActions.submit({
       intent,

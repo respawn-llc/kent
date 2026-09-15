@@ -68,6 +68,8 @@ On macOS and Linux, drag local files into Kent Desktop to insert their absolute 
 
 :::note
 The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
+
+If a request fails, Desktop retains available content and drafts. Use Retry for the failed read or submit the action again; restoring connectivity does not replay the failed operation.
 :::
 
 # First Use

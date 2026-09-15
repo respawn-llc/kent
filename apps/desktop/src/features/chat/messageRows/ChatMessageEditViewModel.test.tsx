@@ -35,7 +35,7 @@ function setup() {
   const view = renderHook(
     () => ({
       request: useAtomValue(model.request),
-      ...useChatMessageEditActions(model, "available"),
+      ...useChatMessageEditActions(model),
     }),
     { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
   );

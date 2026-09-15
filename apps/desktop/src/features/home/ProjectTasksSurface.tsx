@@ -18,7 +18,6 @@ import {
   queryKeys,
   reportNonCancelledError,
   useAppServices,
-  useConnectionSnapshot,
   useOwnedSidebarRoots,
   useSidebarShell,
   useStatusController,
@@ -37,6 +36,7 @@ import {
   createVirtualizedPixelOffsetRequest,
   directionalBoundary,
   EmptyState,
+  ErrorState,
   InfiniteListBoundary,
   Spinner,
   VirtualizedInfiniteList,
@@ -95,7 +95,6 @@ export function ProjectTasksSurface({
 }>) {
   const { t } = useTranslation();
   const { api } = useAppServices();
-  const connection = useConnectionSnapshot();
   const { push } = useStatusController();
   const queryClient = useQueryClient();
   const { open } = useOwnedSidebarRoots();
@@ -168,7 +167,7 @@ export function ProjectTasksSurface({
   });
   const resumeAction = useTaskResumeAction(initiatingAction);
   const { layout: columnLayout, retainRenderedWidths } = useProjectTaskColumnLayout(data);
-  useProjectTaskListEvents({ enabled: true, projectID });
+  const observation = useProjectTaskListEvents({ enabled: true, projectID });
   const workflowsInitialState = projectTaskWorkflowInitialState(
     workflowsQuery.data !== undefined,
     workflowsQuery.isError,
@@ -264,8 +263,7 @@ export function ProjectTasksSurface({
     onToggle: toggleGroup,
     pendingResumeTaskIDs: resumeAction.pendingTaskIDs,
     projectID,
-    resumeDisabled:
-      connection.phase !== "connected" || initiatingAction.pending !== null || initiatingAction.running,
+    resumeDisabled: initiatingAction.pending !== null || initiatingAction.running,
     taskDetailID,
     t,
   });
@@ -321,6 +319,15 @@ export function ProjectTasksSurface({
 
   return (
     <>
+      {observation.error === null ? null : (
+        <ErrorState
+          fullPage={false}
+          title={t("states.error")}
+          body={errorMessage(observation.error)}
+          onRetry={observation.retry}
+          retryLabel={t("app.retry")}
+        />
+      )}
       <ProjectTaskColumnMeasurements data={data} onMeasure={retainRenderedWidths} />
       <ProjectTasksContent
         countsBoundary={countsBoundary}
@@ -415,19 +422,27 @@ function ProjectTasksContent({
   return (
     <TasksShell workflowStrip={workflowStrip}>
       {workflowsResolved && workflowCount === 0 ? (
-        <ProjectTasksEmpty
-          actionLabel={t("workflowLibrary.linkWorkflow")}
+        <EmptyState
+          action={
+            <Button onClick={onLinkWorkflow} variant="primary">
+              {t("workflowLibrary.linkWorkflow")}
+            </Button>
+          }
           body={t("home.prototype.noLinkedWorkflowsBody")}
-          onAction={onLinkWorkflow}
+          fullPage={false}
           title={t("home.prototype.noLinkedWorkflowsTitle")}
         />
       ) : countsBoundary?.state === "error" && taskCount === null ? (
         <InfiniteListBoundary direction="initial" state={countsBoundary} />
       ) : taskCount === 0 ? (
-        <ProjectTasksEmpty
-          actionLabel={newTaskAvailable ? t("board.newTask") : t("workflowLibrary.linkWorkflow")}
+        <EmptyState
+          action={
+            <Button onClick={newTaskAvailable ? onNewTask : onLinkWorkflow} variant="primary">
+              {newTaskAvailable ? t("board.newTask") : t("workflowLibrary.linkWorkflow")}
+            </Button>
+          }
           body={t("home.prototype.noTasksBody")}
-          onAction={newTaskAvailable ? onNewTask : onLinkWorkflow}
+          fullPage={false}
           title={t("home.prototype.noTasksTitle")}
         />
       ) : (
@@ -630,30 +645,5 @@ function TasksShell({
         {children}
       </div>
     </div>
-  );
-}
-
-function ProjectTasksEmpty({
-  actionLabel,
-  body,
-  onAction,
-  title,
-}: Readonly<{
-  actionLabel: string;
-  body: string;
-  onAction?: () => void;
-  title: string;
-}>) {
-  return (
-    <EmptyState
-      action={
-        <Button onClick={onAction} variant="primary">
-          {actionLabel}
-        </Button>
-      }
-      body={body}
-      fullPage={false}
-      title={title}
-    />
   );
 }

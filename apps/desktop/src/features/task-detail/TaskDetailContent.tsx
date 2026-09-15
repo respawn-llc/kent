@@ -3,13 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
-import {
-  errorMessage,
-  type QuestionAnswerInput,
-  type TaskAttention,
-  type TaskDependencyDirection,
-  type TaskDetail,
-} from "@/api";
+import { errorMessage, type QuestionAnswerInput, type TaskDependencyDirection, type TaskDetail } from "@/api";
 import type {
   SidebarPageNavigator,
   SidebarMode,
@@ -17,14 +11,9 @@ import type {
   SidebarDestination,
   TaskDetailInitialFocus,
 } from "@/app-facade";
-import {
-  queryKeys,
-  useAppNavigation,
-  useAppServices,
-  useConnectionSnapshot,
-  useStatusController,
-} from "@/app-facade";
+import { queryKeys, useAppNavigation, useAppServices, useStatusController } from "@/app-facade";
 import { useUpdateTask } from "@/shared/task-mutations";
+import { ErrorState } from "@/ui";
 import {
   initialDescriptionPresentationState,
   type DescriptionPresentationState,
@@ -59,59 +48,6 @@ type TaskDraftState = Readonly<{
   base: TaskDraft;
   draft: TaskDraft;
 }>;
-
-interface PromptAttentionReconciliationIdentity {
-  readonly generatedAt: number;
-  readonly requestSequence: number;
-}
-
-interface PromptAttentionReconciliationRequest {
-  readonly cacheAtStart: TaskAttention | undefined;
-  readonly requestSequence: number;
-}
-
-interface AcceptedPromptAttentionReconciliation extends PromptAttentionReconciliationIdentity {
-  readonly snapshot: TaskAttention;
-}
-
-function newPromptAttentionReconciliationOrder() {
-  let nextRequestSequence = 0;
-  let lastAccepted: AcceptedPromptAttentionReconciliation | undefined;
-  return {
-    accept(
-      request: PromptAttentionReconciliationRequest,
-      candidate: TaskAttention,
-      current: TaskAttention | undefined,
-    ): boolean {
-      const olderThanAccepted =
-        lastAccepted !== undefined &&
-        (candidate.generatedAt < lastAccepted.generatedAt ||
-          (candidate.generatedAt === lastAccepted.generatedAt &&
-            request.requestSequence < lastAccepted.requestSequence));
-      const unsequencedEqualTimestampWrite =
-        current?.generatedAt === candidate.generatedAt &&
-        current !== request.cacheAtStart &&
-        current !== lastAccepted?.snapshot;
-      if (
-        olderThanAccepted ||
-        unsequencedEqualTimestampWrite ||
-        (current !== undefined && current.generatedAt > candidate.generatedAt)
-      ) {
-        return false;
-      }
-      lastAccepted = {
-        generatedAt: candidate.generatedAt,
-        requestSequence: request.requestSequence,
-        snapshot: candidate,
-      };
-      return true;
-    },
-    beginRequest(cacheAtStart: TaskAttention | undefined): PromptAttentionReconciliationRequest {
-      nextRequestSequence += 1;
-      return { cacheAtStart, requestSequence: nextRequestSequence };
-    },
-  };
-}
 
 export function TaskDetailContent({
   activity,
@@ -201,8 +137,7 @@ export function TaskDetailContent({
     onActionError: reportActionError,
     onChanged: onMutated,
   });
-  const connection = useConnectionSnapshot();
-  useTaskDetailLiveRefresh(detail, true);
+  const observation = useTaskDetailLiveRefresh(detail, true);
   // Reconcile the draft with the latest server snapshot during render (the
   // React "adjust state on prop change" pattern). A clean surface follows live
   // server updates; a surface with unsaved edits keeps the user's draft so a
@@ -245,13 +180,21 @@ export function TaskDetailContent({
       taskID={detail.id}
     >
       <TaskDeleteProvider onDismiss={onDeleteDismiss} taskID={detail.id}>
+        {observation.error === null ? null : (
+          <ErrorState
+            fullPage={false}
+            body={errorMessage(observation.error)}
+            title={t("states.error")}
+            onRetry={observation.retry}
+            retryLabel={t("app.retry")}
+          />
+        )}
         <TaskDetailList
           activity={activity}
           answerQuestion={promptAnswers.answerQuestion}
           attention={attention}
           comments={comments}
           detail={detail}
-          disabled={connection.phase !== "connected"}
           draft={draft}
           descriptionPresentation={descriptionPresentation}
           editingComment={editingComment}
@@ -324,17 +267,12 @@ function useTaskPromptAnswers({
     [taskScope],
   );
   const coordinator = useMemo(() => {
-    const reconciliationOrder = newPromptAttentionReconciliationOrder();
     return new PromptAnswerCoordinator({
+      queryClient,
       invalidateAttention: async () => {
-        await queryClient.cancelQueries({
-          exact: true,
-          queryKey: queryKeys.taskAttention(detail.id),
-        });
         await queryClient.invalidateQueries({
           exact: true,
           queryKey: queryKeys.taskAttention(detail.id),
-          refetchType: "none",
         });
       },
       isMounted: () => taskScope.mounted,
@@ -353,23 +291,6 @@ function useTaskPromptAnswers({
           title: t("states.error"),
           tone: "danger",
         });
-      },
-      readAttention: async () => {
-        const attentionKey = queryKeys.taskAttention(detail.id);
-        const request = reconciliationOrder.beginRequest(
-          queryClient.getQueryData<TaskAttention>(attentionKey),
-        );
-        const fresh = await api.listTaskAttention(detail.id);
-        const accepted = queryClient.setQueryData<TaskAttention>(attentionKey, (current) =>
-          reconciliationOrder.accept(request, fresh, current) ? fresh : current,
-        );
-        if (accepted === undefined) {
-          throw new Error("accepted Task attention reconciliation snapshot is unavailable");
-        }
-        return accepted.items.filter(
-          (item): item is Extract<(typeof accepted.items)[number], { kind: "question" }> =>
-            item.kind === "question",
-        );
       },
       task: { id: detail.id, shortID: detail.shortID, title: detail.title },
       updateState: setState,

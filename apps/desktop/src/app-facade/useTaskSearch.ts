@@ -57,7 +57,6 @@ export function useTaskSearch(projectID: string | null, open: boolean, debounced
     enabled: open && searchable,
     getNextPageParam: (lastPage) => lastPage.response.nextOffset ?? undefined,
     maxPages: retainedTaskSearchPages,
-    retry: (failureCount, error) => !(error instanceof TaskSearchError) && failureCount < 1,
   });
   const retainedData = useRetainedQueryData({ projectID }, request.data, sameTaskSearchProject);
   const normalizedTooShort = request.error instanceof TaskSearchError;

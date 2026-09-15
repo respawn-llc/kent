@@ -76,19 +76,15 @@ it("reopens one physical subscription after terminal Runtime unavailable and nor
   expect(events).toHaveLength(1);
 });
 
-it("starts one bounded recovery on a sequence gap and exposes Error after replacement failure", () => {
+it("ends a sequence gap locally and opens one observation on explicit Retry", () => {
   const hydrationKinds: string[] = [];
-  const recoveryBegin = vi.fn();
-  const forceMainView = vi.fn();
   const integrityFailures = vi.fn();
   const errors: Error[] = [];
   const { handlers, observation } = logicalObservationFixture({
     onHydration: (kind) => hydrationKinds.push(kind),
-    onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: forceMainView,
-    onIntegrityFailure: (error, recover) => {
+    onIntegrityFailure: (error) => {
       integrityFailures(error);
-      recover();
+      errors.push(error);
     },
     onError: (error) => errors.push(error),
   });
@@ -96,67 +92,56 @@ it("starts one bounded recovery on a sequence gap and exposes Error after replac
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
-  expect(handlers).toHaveLength(2);
-  expect(recoveryBegin).toHaveBeenCalledOnce();
-  expect(forceMainView).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(1);
   expect(integrityFailures).toHaveBeenCalledOnce();
-  expect(observation.state.kind).toBe("recovering");
+  expect(observation.state.kind).toBe("error");
   handlers[0]?.onEvent(unavailableActivity());
   handlers[0]?.onComplete({ code: 0, message: "", reason: null });
-  expect(handlers).toHaveLength(2);
-
-  handlers[1]?.onError(new Error("replacement failed"));
-  expect(observation.state.kind).toBe("error");
+  expect(handlers).toHaveLength(1);
   expect(errors).toHaveLength(1);
   expect(integrityFailures).toHaveBeenCalledOnce();
   observation.retry();
-  expect(handlers).toHaveLength(3);
-  expect(recoveryBegin).toHaveBeenCalledTimes(2);
-  expect(forceMainView).toHaveBeenCalledOnce();
-  handlers[2]?.onOpen?.();
-  handlers[2]?.onEvent(hydrationMessage());
+  expect(handlers).toHaveLength(2);
+  handlers[1]?.onOpen?.();
+  handlers[1]?.onEvent(hydrationMessage());
   expect(hydrationKinds).toEqual(["initial", "scratch"]);
   expect(observation.state.kind).toBe("observing");
 });
 
-it("closes malformed-event observation before replacement and closes replacement on disposal", () => {
+it("closes malformed-event observation and closes an explicit Retry on disposal", () => {
   const { closes, handlers, observation } = logicalObservationFixture();
 
   handlers[0]?.onError(new ContractError("Malformed transcript event."));
 
   expect(closes[0]).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(1);
+  observation.retry();
   expect(handlers).toHaveLength(2);
   observation.close();
   expect(closes[1]).toHaveBeenCalledOnce();
 });
 
-it("replaces a waiting recovery and forces fresh authority on confirmed reconnect", () => {
-  const recoveryBegin = vi.fn();
-  const forceMainView = vi.fn();
-  const { closes, handlers, observation } = logicalObservationFixture({
-    onTransportLoss: () => undefined,
-    onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: forceMainView,
-  });
+it("does not replace a pending explicit Retry", () => {
+  const { closes, handlers, observation } = logicalObservationFixture();
 
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
-  expect(observation.state.kind).toBe("recovering");
+  expect(observation.state.kind).toBe("error");
 
-  observation.replaceForReconnect();
+  observation.retry();
+  observation.retry();
 
-  expect(closes[1]).toHaveBeenCalledOnce();
-  expect(handlers).toHaveLength(3);
-  expect(recoveryBegin).toHaveBeenCalledTimes(2);
-  expect(forceMainView).toHaveBeenCalledTimes(2);
-  expect(observation.state.kind).toBe("recovering");
+  expect(closes[0]).toHaveBeenCalledOnce();
+  expect(closes[1]).not.toHaveBeenCalled();
+  expect(handlers).toHaveLength(2);
+  expect(observation.state.kind).toBe("loading");
 });
 
 it("rejects a live committed event that does not advance beyond hydration", () => {
-  const recoveryBegin = vi.fn();
+  const failure = vi.fn();
   const { handlers, observation } = logicalObservationFixture({
-    onRecoveryBegin: recoveryBegin,
+    onError: failure,
   });
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationWithRows([row(10)]));
@@ -169,9 +154,9 @@ it("rejects a live committed event that does not advance beyond hydration", () =
     },
   });
 
-  expect(recoveryBegin).toHaveBeenCalledOnce();
-  expect(handlers).toHaveLength(2);
-  expect(observation.state.kind).toBe("recovering");
+  expect(failure).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(1);
+  expect(observation.state.kind).toBe("error");
 });
 
 it.each([
@@ -201,9 +186,9 @@ it.each([
     ],
   },
 ])("rejects $name in live committed-row progression", ({ locators }) => {
-  const recoveryBegin = vi.fn();
+  const failure = vi.fn();
   const { handlers } = logicalObservationFixture({
-    onRecoveryBegin: recoveryBegin,
+    onError: failure,
   });
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationWithRows([row(10)]));
@@ -221,20 +206,16 @@ it.each([
     });
   });
 
-  expect(recoveryBegin).toHaveBeenCalledOnce();
-  expect(handlers).toHaveLength(2);
+  expect(failure).toHaveBeenCalledOnce();
+  expect(handlers).toHaveLength(1);
 });
 
-it("admits sequence-1 reattachment after socket retry or normal Runtime stop without recovery", () => {
+it("admits sequence-1 reattachment after normal Runtime stop", () => {
   const hydrationKinds: string[] = [];
-  const recoveryBegin = vi.fn();
   const { handlers, observation } = logicalObservationFixture({
     onHydration: (kind) => hydrationKinds.push(kind),
-    onRecoveryBegin: recoveryBegin,
   });
 
-  handlers[0]?.onOpen?.();
-  handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent(unavailableActivity());
@@ -242,27 +223,25 @@ it("admits sequence-1 reattachment after socket retry or normal Runtime stop wit
   handlers[1]?.onOpen?.();
   handlers[1]?.onEvent(hydrationMessage());
 
-  expect(hydrationKinds).toEqual(["initial", "reattachment", "reattachment"]);
-  expect(recoveryBegin).not.toHaveBeenCalled();
+  expect(hydrationKinds).toEqual(["initial", "reattachment"]);
   expect(observation.state.kind).toBe("observing");
 });
 
 it("resets committed-row progression from replacement hydration", () => {
   const admitted = vi.fn();
-  const recoveryBegin = vi.fn();
   const { handlers, observation } = logicalObservationFixture({
     onEvent: admitted,
-    onRecoveryBegin: recoveryBegin,
   });
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationWithRows([row(10)]));
   handlers[0]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(11) });
-  handlers[0]?.onOpen?.();
-  handlers[0]?.onEvent(hydrationWithRows([row(5)]));
-  handlers[0]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(6) });
+  handlers[0]?.onTransportLoss?.();
+  observation.retry();
+  handlers[1]?.onOpen?.();
+  handlers[1]?.onEvent(hydrationWithRows([row(5)]));
+  handlers[1]?.onEvent({ sequence: 2, kind: "committed_row", payload: row(6) });
 
   expect(admitted).toHaveBeenCalledTimes(2);
-  expect(recoveryBegin).not.toHaveBeenCalled();
   expect(observation.state.kind).toBe("observing");
 });
 
@@ -285,12 +264,10 @@ it.each([
       handler.onComplete({ code: 17, message: "overflow", reason: "subscriber_overflow" });
     },
   },
-])("starts one replacement for $name", (testCase) => {
-  const recoveryBegin = vi.fn();
-  const forceMainView = vi.fn();
+])("ends the observation for $name", (testCase) => {
+  const failure = vi.fn();
   const { handlers, observation } = logicalObservationFixture({
-    onRecoveryBegin: recoveryBegin,
-    onForceMainViewRead: forceMainView,
+    onError: failure,
   });
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
@@ -298,10 +275,9 @@ it.each([
   if (first === undefined) throw new Error("Transcript handler missing.");
   testCase.trigger(first);
 
-  expect(handlers).toHaveLength(2);
-  expect(recoveryBegin).toHaveBeenCalledOnce();
-  expect(forceMainView).toHaveBeenCalledOnce();
-  expect(observation.state.kind).toBe("recovering");
+  expect(handlers).toHaveLength(1);
+  expect(failure).toHaveBeenCalledOnce();
+  expect(observation.state.kind).toBe("error");
 });
 
 function hydrationMessage(): Extract<ChatTranscriptMessage, { kind: "hydration" }> {
@@ -361,8 +337,6 @@ function logicalObservationFixture(overrides: Partial<ChatTranscriptObservationH
   const host = {
     onHydration: vi.fn(),
     onEvent: vi.fn(),
-    onRecoveryBegin: vi.fn(),
-    onForceMainViewRead: vi.fn(),
     onError: vi.fn(),
     ...overrides,
   } satisfies ChatTranscriptObservationHost;

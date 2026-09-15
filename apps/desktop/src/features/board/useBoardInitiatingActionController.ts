@@ -9,7 +9,6 @@ import {
 
 type BoardInitiatingActionControllerOptions = Readonly<{
   api: ApiService;
-  connected: boolean;
   onActionError(id: string, title: string, error: unknown): void;
   onApplied(): void | Promise<void>;
   startErrorTitle: string;
@@ -19,7 +18,6 @@ type BoardInitiatingActionControllerOptions = Readonly<{
 
 export function useBoardInitiatingActionController({
   api,
-  connected,
   onActionError,
   onApplied,
   startErrorTitle,
@@ -58,7 +56,7 @@ export function useBoardInitiatingActionController({
   const actionPending = running || pending !== null;
   return {
     actionPending,
-    actionsDisabled: !connected || actionPending,
+    actionsDisabled: actionPending,
     initiatingAction,
     runCardAction,
   };

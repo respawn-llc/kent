@@ -16,7 +16,6 @@ import {
   projectWorkspaceQueryOptions,
   queryKeys,
   useAppServices,
-  useConnectionSnapshot,
   useStatusController,
   useTextFieldSubmitShortcut,
   workspaceCatalogInfiniteQueryOptions,
@@ -173,7 +172,6 @@ function NewTaskFormContent({
   const { t } = useTranslation();
   const { api, logger } = useAppServices();
   const { dismiss, push } = useStatusController();
-  const connection = useConnectionSnapshot();
   const restored = useMemo(() => decodeNewTaskRetainedState(retainedState), [retainedState]);
   const authoredSourceWorkspaceID = restored?.formValues.sourceWorkspaceID ?? initialSourceWorkspaceID;
   const workspaceCatalog = useNewTaskWorkspaceCatalog(api, projectID, authoredSourceWorkspaceID, t);
@@ -233,7 +231,6 @@ function NewTaskFormContent({
     [effectiveSelectedLabelIDs, form, navigator, preparedDependencies],
   );
   const canSubmit = [
-    connection.phase === "connected",
     !createTask.isPending,
     !labelCreatePending,
     catalog.data !== undefined,
@@ -318,7 +315,6 @@ function NewTaskFormContent({
         {...form.register("body")}
       />
       <NewTaskLabels
-        disabled={connection.phase !== "connected"}
         onCreatePendingChange={setLabelCreatePending}
         onSelectionChange={(labelID, selected) => {
           setSelectedLabelIDs((current) => {
@@ -332,7 +328,6 @@ function NewTaskFormContent({
       />
       <DependenciesArea
         dependencies={preparedTaskDependenciesProjection(preparedDependencies)}
-        disabled={connection.phase !== "connected"}
         excludedTaskIDs={(direction) =>
           new Set(
             preparedDependencies
@@ -340,7 +335,6 @@ function NewTaskFormContent({
               .map((dependency) => dependency.taskID),
           )
         }
-        navigationDisabled={connection.phase !== "connected"}
         onAdd={(direction) => {
           const destination = {
             ...(selectedWorkspace === undefined ? {} : { initialSourceWorkspaceID: selectedWorkspace.id }),
@@ -570,12 +564,10 @@ function useNewTaskWorkspaceQuery(api: ApiService, projectID: string) {
 }
 
 function NewTaskLabels({
-  disabled,
   onCreatePendingChange,
   onSelectionChange,
   selectedLabelIDs,
 }: Readonly<{
-  disabled: boolean;
   onCreatePendingChange(pending: boolean): void;
   onSelectionChange(labelID: string, selected: boolean): void;
   selectedLabelIDs: readonly string[];
@@ -602,7 +594,6 @@ function NewTaskLabels({
           <Button
             aria-label={t("labels.editAssignments")}
             className="min-h-11 h-auto w-full min-w-0 justify-start text-left"
-            disabled={disabled}
             id={inputID}
             variant="secondary"
           >

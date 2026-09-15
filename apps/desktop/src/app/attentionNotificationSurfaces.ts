@@ -6,13 +6,11 @@ import type {
 } from "@app/native-bridge";
 
 import type {
-  AttentionItem,
   AttentionNotification,
   AttentionNotificationID,
   AttentionNotificationTaskDetailFocus,
-  AttentionNotificationWorkflowTaskTarget,
 } from "@/api";
-import { errorMessage, isTaskMissingError } from "@/api";
+import { errorMessage } from "@/api";
 import type { AppServices } from "@/app-facade";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import type { StatusController } from "@/app-facade";
@@ -35,7 +33,6 @@ const attentionToastIDPrefix = "attention-";
 type NativeNotifications = AppServices["nativeBridge"]["notifications"];
 type NativeWindow = AppServices["nativeBridge"]["window"];
 type Logger = AppServices["logger"];
-type Api = AppServices["api"];
 type Translate = (key: string) => string;
 type SurfaceOutcome = Readonly<{ status: "done" }> | Readonly<{ status: "retry" }>;
 
@@ -95,36 +92,6 @@ export async function deliverPendingSurface({
     return { status: "done" };
   }
   return deliverNativePendingSurface({ logger, notification, notifications, surfaced, t });
-}
-
-export async function reconcileActiveSurfaces(
-  records: readonly (readonly [string, SurfaceRecord])[],
-  api: Api,
-  logger: Logger,
-): Promise<readonly string[]> {
-  const staleIDs: string[] = [];
-  for (const [id, record] of records) {
-    try {
-      const target = record.notification.target;
-      if (target.kind === "session_prompt") {
-        const prompts = await api.listPendingPrompts(target.sessionID);
-        if (!prompts.some((prompt) => prompt.toolCallID === record.notification.id.uuid)) staleIDs.push(id);
-      } else {
-        const attention = await api.listTaskAttention(target.taskID);
-        if (!attentionTargetIsActive(attention.items, target)) staleIDs.push(id);
-      }
-    } catch (error) {
-      if (isTaskMissingError(error)) {
-        staleIDs.push(id);
-        continue;
-      }
-      await logger.append("warn", "Reconciling attention notification state failed.", {
-        error: errorMessage(error),
-        notificationID: id,
-      });
-    }
-  }
-  return staleIDs;
 }
 
 export function dismissSurface(
@@ -304,34 +271,6 @@ async function handleNativeDeliveryError({
       surfaced.set(id, { notification: latest.notification, state: "dismissed" });
     },
   });
-}
-
-function attentionTargetIsActive(
-  attention: readonly AttentionItem[],
-  target: AttentionNotificationWorkflowTaskTarget,
-): boolean {
-  const { focus } = target;
-  if (focus.kind === "question") {
-    const askIDs = new Set(focus.askIDs);
-    return attention.some(
-      (item) =>
-        item.kind === "question" &&
-        item.currentNode.nodeID === target.currentNodeID &&
-        item.currentNode.transitionBranchKey === (target.currentNodeBranchKey ?? null) &&
-        item.question.sessionID === (target.sessionID ?? null) &&
-        askIDs.has(item.question.toolCallID),
-    );
-  }
-  if (focus.kind === "approval") {
-    return attention.some((item) => item.kind === "approval" && item.approvalID === focus.approvalID);
-  }
-  return attention.some(
-    (item) =>
-      item.kind === "interrupted_current_node" &&
-      item.currentNode.nodeID === target.currentNodeID &&
-      item.currentNode.transitionBranchKey === (target.currentNodeBranchKey ?? null) &&
-      item.sessionID === (target.sessionID ?? null),
-  );
 }
 
 function nativeNotification(notification: AttentionNotification, t: Translate): NativeNotification {

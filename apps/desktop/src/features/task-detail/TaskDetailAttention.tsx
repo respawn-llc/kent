@@ -16,12 +16,10 @@ export { QuestionBox } from "./TaskDetailQuestionForm";
 export function ApprovalBox({
   attention,
   currentVersion,
-  disabled,
   mutations,
 }: Readonly<{
   attention: ApprovalAttentionItem;
   currentVersion: number;
-  disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
 }>) {
   const { t } = useTranslation();
@@ -62,7 +60,7 @@ export function ApprovalBox({
             <span className="min-w-0 flex-1" />
             <Button
               className="shrink-0"
-              disabled={disabled || mutations.approveApproval.isPending}
+              disabled={mutations.approveApproval.isPending}
               onClick={approve}
               variant="primary"
             >
@@ -87,11 +85,9 @@ export function ApprovalBox({
 export function InterruptedCurrentNodeBox({
   attention,
   canResume,
-  disabled,
 }: Readonly<{
   attention: InterruptedCurrentNodeAttentionItem;
   canResume: boolean;
-  disabled: boolean;
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
@@ -123,7 +119,6 @@ export function InterruptedCurrentNodeBox({
       )}
       {detailJSON !== null ? (
         <Button
-          disabled={disabled}
           onClick={() => {
             void writeClipboardText(detailJSON, nativeBridge)
               .then(() => {
@@ -148,7 +143,7 @@ export function InterruptedCurrentNodeBox({
         </Button>
       ) : null}
       {recovery !== null || canResume ? (
-        <TaskResumeButton disabled={disabled} {...(recovery === null ? {} : { recovery })} />
+        <TaskResumeButton {...(recovery === null ? {} : { recovery })} />
       ) : null}
     </Island>
   );

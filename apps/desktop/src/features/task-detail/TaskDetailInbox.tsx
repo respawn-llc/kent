@@ -16,7 +16,6 @@ export function TaskInbox({
   attentionItems,
   currentVersion,
   detail,
-  disabled,
   initialFocus,
   mutations,
   primaryFocusRequest,
@@ -27,7 +26,6 @@ export function TaskInbox({
   attentionItems: readonly AttentionItem[];
   currentVersion: number;
   detail: TaskDetail;
-  disabled: boolean;
   initialFocus?: TaskDetailInitialFocus | undefined;
   mutations: ReturnType<typeof useTaskMutations>;
   primaryFocusRequest?: PromptPrimaryFocusRequest | undefined;
@@ -66,7 +64,6 @@ export function TaskInbox({
           answerQuestion={answerQuestion}
           attention={item}
           currentVersion={currentVersion}
-          disabled={disabled}
           focusOnMount={item.id === focusedAttentionID}
           key={taskDetailAttentionRowKey(item)}
           mutations={mutations}
@@ -133,7 +130,6 @@ function InboxItem({
   answerQuestion,
   attention,
   currentVersion,
-  disabled,
   focusOnMount,
   mutations,
   onQuestionSelectionChange,
@@ -144,7 +140,6 @@ function InboxItem({
   answerQuestion: QuestionAnswerMutation;
   attention: AttentionItem;
   currentVersion: number;
-  disabled: boolean;
   focusOnMount: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
@@ -180,7 +175,6 @@ function InboxItem({
         <QuestionBox
           attention={attention}
           answerQuestion={answerQuestion}
-          disabled={disabled}
           onSelectionStateChange={(selection) => {
             onQuestionSelectionChange(key, selection);
           }}
@@ -193,22 +187,13 @@ function InboxItem({
   if (attention.kind === "approval") {
     return (
       <div ref={focusTargetRef}>
-        <ApprovalBox
-          attention={attention}
-          currentVersion={currentVersion}
-          disabled={disabled}
-          mutations={mutations}
-        />
+        <ApprovalBox attention={attention} currentVersion={currentVersion} mutations={mutations} />
       </div>
     );
   }
   return (
     <div ref={focusTargetRef}>
-      <InterruptedCurrentNodeBox
-        attention={attention}
-        canResume={task.actions.canResume}
-        disabled={disabled}
-      />
+      <InterruptedCurrentNodeBox attention={attention} canResume={task.actions.canResume} />
     </div>
   );
 }

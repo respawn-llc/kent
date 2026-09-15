@@ -1,6 +1,5 @@
 import type { PendingPrompt } from "@/api";
 import { target } from "@/test-support/chat-runtime";
-import { ConnectionStore } from "@/api/composition";
 import { create } from "@app/server-api-contract";
 import {
   AnswerService,
@@ -41,12 +40,6 @@ export function failedBatchWithFreeform(freeform: PendingPrompt) {
       },
     ]),
   ).chat;
-}
-
-export function connectedConnection(): ConnectionStore {
-  const connection = new ConnectionStore();
-  connection.set("connected");
-  return connection;
 }
 
 export function question(

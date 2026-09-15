@@ -21,7 +21,6 @@ import type {
   WorkflowProjectLinkInput,
   WorkflowScriptPathValidateInput,
 } from "./clientInputs";
-import type { ConnectionSnapshot } from "./connectionStore";
 import type {
   ActivityPage,
   AttentionPage,
@@ -92,17 +91,11 @@ import type { ChatApi } from "./chat";
 import type { PendingPrompt } from "./promptModels";
 import type { DesktopProcess } from "./processes";
 
-export type ApiConnectionSource = Readonly<{
-  snapshot(): ConnectionSnapshot;
-  subscribe(listener: () => void): () => void;
-}>;
-
 export type ApiSubscription = Readonly<{
   close(): void;
 }>;
 
 export interface ApiService {
-  readonly connection: ApiConnectionSource;
   readonly chat: ChatApi;
 
   listProcesses(projectID: string): Promise<readonly DesktopProcess[]>;

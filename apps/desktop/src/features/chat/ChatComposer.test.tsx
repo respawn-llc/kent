@@ -1,7 +1,10 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { RegistryProvider } from "@effect/atom-react";
-import type { ChatInputMutationResult, InitialChatSettings } from "@/api";
+import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
+import { ChatRuntimeProvider } from "@/app-facade";
+import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
+import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
 import { parsePendingWorkItemID } from "@/api";
 
 import {
@@ -37,7 +40,69 @@ const accepted: ChatInputMutationResult = {
   },
 };
 
-it("retains disconnected Session edits without admitting a background draft write", async () => {
+it("clears an armed Stop on transcript loss while allowing a subsequent independent Stop", async () => {
+  const services = createTestServices([], undefined, { platform: "linux" });
+  const mainView = mainViewRead();
+  vi.spyOn(services.api.chat, "getMainView").mockResolvedValue({
+    ...mainView,
+    mainView: {
+      ...mainView.mainView,
+      activity: {
+        ...mainView.mainView.activity,
+        state: "running",
+        activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+      },
+    },
+  });
+  vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("");
+  const handlers: ChatTranscriptHandler[] = [];
+  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation((_target, handler) => {
+    handlers.push(handler);
+    return { close: () => undefined };
+  });
+  const stop = vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
+  function Probe() {
+    const { stoppable } = useComposerSurface();
+    return (
+      <button data-testid="keyboard" disabled={!stoppable}>
+        Keyboard
+      </button>
+    );
+  }
+  function Composer() {
+    const composer = useChatComposer(target);
+    return (
+      <ChatComposerSurface composer={composer}>
+        <Probe />
+      </ChatComposerSurface>
+    );
+  }
+  const view = render(
+    <TestAppProviders services={services}>
+      <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
+        <Composer />
+      </ChatRuntimeProvider>
+    </TestAppProviders>,
+  );
+  const keyboard = screen.getByTestId("keyboard");
+  await waitFor(() => expect(keyboard).not.toBeDisabled());
+  fireEvent.keyDown(keyboard, { key: "Escape" });
+  act(() => handlers[0]?.onTransportLoss?.());
+  fireEvent.keyDown(keyboard, { key: "Escape" });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(stop).not.toHaveBeenCalled();
+  fireEvent.keyDown(keyboard, { key: "Escape" });
+  await waitFor(() => {
+    expect(stop).toHaveBeenCalledOnce();
+  });
+  expect(handlers).toHaveLength(1);
+  view.unmount();
+});
+
+it("persists subsequent Session edits through their ordinary independent request", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue("saved");
   const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
@@ -56,13 +121,12 @@ it("retains disconnected Session edits without admitting a background draft writ
     });
     persist.mockClear();
     act(() => {
-      services.transport.connection.set("disconnected");
       result.current.edit("offline edits");
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
-    expect(persist).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledOnce();
     expect(result.current.text).toBe("offline edits");
   } finally {
     vi.useRealTimers();

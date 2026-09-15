@@ -5,7 +5,6 @@ import { useMemo } from "react";
 import { I18nextProvider } from "react-i18next";
 
 import { appI18n, initializeI18n } from "@/i18n";
-import { useReconnectRefresh } from "./connectionRefresh";
 import { useWindowFileDrops } from "./fileDrops";
 import { useNativeWindowGlassTintSync } from "./nativeWindowGlassTint";
 import { createAppQueryClient } from "./queryClient";
@@ -38,7 +37,6 @@ export function AppProviders({ services, children }: AppProvidersProps) {
                 <StatusProvider>
                   <TaskSearchMemoryProvider>
                     <ChatPromptPresenceProvider>
-                      <ReconnectRefresh />
                       <NativeWindowGlassTintSync nativeBridge={services.nativeBridge} />
                       {children}
                     </ChatPromptPresenceProvider>
@@ -57,10 +55,5 @@ function NativeWindowGlassTintSync({
   nativeBridge,
 }: Readonly<{ nativeBridge: AppServices["nativeBridge"] }>) {
   useNativeWindowGlassTintSync(nativeBridge);
-  return null;
-}
-
-function ReconnectRefresh() {
-  useReconnectRefresh();
   return null;
 }

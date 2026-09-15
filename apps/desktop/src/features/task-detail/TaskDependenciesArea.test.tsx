@@ -101,7 +101,6 @@ describe("TaskDependenciesArea", () => {
             items: [],
           })),
         }}
-        disabled={false}
         navigationDisabled={false}
         onAdd={vi.fn()}
         onAddExisting={vi.fn().mockResolvedValue(undefined)}
@@ -131,7 +130,6 @@ describe("TaskDependenciesArea", () => {
               : direction,
           ),
         }}
-        disabled={false}
         navigationDisabled={false}
         onAdd={vi.fn()}
         onAddExisting={vi.fn().mockResolvedValue(undefined)}
@@ -147,11 +145,10 @@ describe("TaskDependenciesArea", () => {
     expect(add).toHaveAttribute("aria-describedby");
   });
 
-  it("disables every mutation while the surface is disconnected", () => {
+  it("blocks navigation while retaining independent relationship removal", () => {
     render(
       <TaskDependenciesArea
         dependencies={dependencies}
-        disabled
         navigationDisabled
         onAdd={vi.fn()}
         onAddExisting={vi.fn().mockResolvedValue(undefined)}
@@ -163,7 +160,7 @@ describe("TaskDependenciesArea", () => {
     );
 
     expect(screen.getByTestId("dependency-add-blocked-by")).toBeDisabled();
-    expect(screen.getByTestId("dependency-remove-task-2")).toBeDisabled();
+    expect(screen.getByTestId("dependency-remove-task-2")).toBeEnabled();
   });
 
   it("renders both typed directions and delegates relationship actions", async () => {
@@ -175,7 +172,6 @@ describe("TaskDependenciesArea", () => {
     render(
       <TaskDependenciesArea
         dependencies={dependencies}
-        disabled={false}
         navigationDisabled={false}
         onAdd={onAdd}
         onAddExisting={vi.fn().mockResolvedValue(undefined)}
@@ -265,7 +261,6 @@ describe("TaskDependenciesArea", () => {
             items: [],
           })),
         }}
-        disabled={false}
         navigationDisabled={false}
         onAdd={vi.fn()}
         onAddExisting={onAddExisting}
@@ -298,7 +293,6 @@ describe("TaskDependenciesArea", () => {
     render(
       <TaskDependenciesArea
         dependencies={dependencies}
-        disabled={false}
         navigationDisabled
         onAdd={onAdd}
         onAddExisting={vi.fn().mockResolvedValue(undefined)}

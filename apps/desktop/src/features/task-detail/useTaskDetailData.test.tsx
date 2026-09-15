@@ -207,7 +207,7 @@ describe("Task Detail live refresh", () => {
   it("does not move focus when the intended next prompt disappears and the earlier prompt restores", async () => {
     let attention = taskAttentionWithOneOption("ask-1", "ask-2", "ask-3");
     const answer = deferred<PromptAnswerBatchResponse>();
-    mountTaskDetailSurface(taskDetailResponse, {
+    const services = mountTaskDetailSurface(taskDetailResponse, {
       routes: [
         { method: "workflow.task.attention.list", handler: () => attention },
         promptAnswerBatchRoute(async () => answer.promise),
@@ -225,6 +225,11 @@ describe("Task Detail live refresh", () => {
       expect(screen.getAllByRole("radio")[0]).toHaveFocus();
     });
     attention = taskAttentionWithOneOption("ask-1", "ask-3");
+    act(() => {
+      services.transport.emit("workflow.project", taskQuestionWaitingEvent);
+    });
+    await waitFor(() => expect(screen.queryByText("ask-2")).not.toBeInTheDocument());
+    const beforeFailure = services.transport.calls.length;
     answer.reject(new Error("delivery failed"));
     await waitFor(() => {
       expect(screen.getByText("ask-1")).toBeInTheDocument();
@@ -234,6 +239,7 @@ describe("Task Detail live refresh", () => {
       expect(radios[0]).not.toHaveFocus();
       expect(radios[2]).not.toHaveFocus();
     });
+    expect(services.transport.calls).toHaveLength(beforeFailure);
   });
 
   it("shows the next batch question when its waiting event arrives after an answer", async () => {
@@ -276,7 +282,7 @@ describe("Task Detail live refresh", () => {
     expect(projectSubscriptionStartCount(services.transport.subscriptionStarts)).toBe(subscriptionStarts);
   });
 
-  it("revalidates an open Task Detail when a reconnected project subscription opens", async () => {
+  it("retains prompts after observation failure until explicit Retry opens that observation", async () => {
     let attention = taskAttention("ask-1", 1);
     const services = mountTaskDetailSurface(taskDetailResponse, {
       routes: [
@@ -289,19 +295,16 @@ describe("Task Detail live refresh", () => {
 
     await waitForQuestionOptionCount(1);
     await waitForProjectSubscription(() => services.transport.subscriptions);
+    const starts = projectSubscriptionStartCount(services.transport.subscriptionStarts);
     act(() => {
-      services.transport.connection.set("disconnected", "offline");
+      services.transport.fail("workflow.subscribeProject", new Error("offline"));
     });
-    await waitFor(() => {
-      expect(services.transport.subscriptions).not.toContainEqual({
-        method: "workflow.subscribeProject",
-        params: { project_id: "project-1" },
-      });
-    });
-
     attention = taskAttention("ask-2", 2);
+    await waitForQuestionOptionCount(1);
+    expect(projectSubscriptionStartCount(services.transport.subscriptionStarts)).toBe(starts);
+    const retry = await screen.findAllByRole("button", { name: appI18n.t("app.retry") });
     act(() => {
-      services.transport.connection.set("connected");
+      retry[0]?.click();
     });
     await waitForProjectSubscription(() => services.transport.subscriptions);
     act(() => {

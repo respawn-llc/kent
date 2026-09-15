@@ -723,7 +723,7 @@
 - Each Task belongs to one Project through one Project Workflow Link.
 - A Project's default Workflow link and primary workspace must belong to that Project.
 - Kent derives workspace and worktree display facts from their authoritative roots and Project choices. It does not maintain duplicate editable copies.
-- After reconnect or a live-update error, clients reissue Workflow and Task reads and subscriptions. The resulting projections retain the stale-tolerant read contract.
+- After reconnect or a live-update error, Desktop must follow [Desktop's independent-operation contract](desktop-gui.md#authority-connection-and-shared-behavior); other clients reissue Workflow and Task reads and subscriptions. The resulting projections retain the stale-tolerant read contract.
 - A Workflow deletion preview reports counts only.
 - Workflow deletion requires Quiescence across every affected Task. It also requires a replacement when deleting the Project's default Workflow would leave an invalid default state.
 - Confirmed Workflow deletion removes the Workflow, its Project Workflow Links, its Tasks, and its graph as one atomic change.

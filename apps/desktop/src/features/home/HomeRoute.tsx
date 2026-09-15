@@ -11,7 +11,6 @@ import { SidebarRootOwner, useOwnedSidebarRoots, type SidebarMode } from "@/app-
 import { useAppServices } from "@/app-facade";
 import { useNativeDialogFallback } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
-import { useConnectionSnapshot } from "@/app-facade";
 import { desktopChatEnabled } from "@/shared/feature-flags";
 import { ErrorState, homeListCardListMaxWidthClassName, LoadingState, VirtualizedInfiniteList } from "@/ui";
 import { HomeSidebar, type HomeSidebarCategory } from "./HomeSidebar";
@@ -40,7 +39,6 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
   const { t } = useTranslation();
   const { api, nativeBridge } = useAppServices();
   const { push } = useStatusController();
-  const connection = useConnectionSnapshot();
   const { mainPaneRef, sidebarMode } = useHomeSidebarMode();
   const navigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
@@ -51,7 +49,6 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
   const [category, setCategory] = useState<HomeSidebarCategory>("projects");
   const projectItems = projects.data?.pages.flatMap((page) => page.projects) ?? [];
   const attentionItems = attention.data?.pages.flatMap((page) => page.items) ?? [];
-  const disabled = connection.phase !== "connected";
   const projectCreationDialog = useNativeDialogFallback<ProjectDraft>({
     errorNoticeID: "project-create-window-error",
     errorTitle: t("home.projectCreateWindowError"),
@@ -168,7 +165,6 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
       {projectCreationDialog.fallback}
       <div className="grid h-full min-h-0 grid-cols-[350px_minmax(0,1fr)]" data-testid="home-pane-grid">
         <HomeSidebar
-          disabled={disabled}
           onChooseWorkspace={() => void chooseWorkspace()}
           onCreateWorkflow={() => {
             open({ kind: "workflowCreate", mode: sidebarMode });

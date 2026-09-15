@@ -4,7 +4,6 @@ import { z } from "zod";
 import { StartupConfigurationError } from "@/api";
 import {
   ApiClient,
-  ConnectionStore,
   createJsonRpcTransport,
   protocolVersion,
   type DescriptorRpcTransport,
@@ -225,12 +224,10 @@ export function installProductionContextMenuGuard(isProduction: boolean): void {
 }
 
 class BootstrapErrorTransport implements DescriptorRpcTransport {
-  readonly connection = new ConnectionStore();
   readonly #error: Error;
 
   constructor(error: Error) {
     this.#error = error;
-    this.connection.set("disconnected", error.message);
   }
 
   async call(): Promise<unknown> {

@@ -117,7 +117,6 @@ export function TaskHeaderIsland({
 }
 
 export function DescriptionIsland({
-  disabled,
   draft,
   draftDirty,
   error,
@@ -127,7 +126,6 @@ export function DescriptionIsland({
   presentation,
   submitting,
 }: Readonly<{
-  disabled: boolean;
   draft: TaskDraft;
   draftDirty: boolean;
   error: unknown;
@@ -141,7 +139,7 @@ export function DescriptionIsland({
   const descriptionError = error == null ? undefined : errorMessage(error);
   const submitPolicy = useTextFieldSubmitShortcutPolicy();
   const submitIntent = {
-    available: !disabled && !submitting && draft.title.trim().length > 0 && presentation.editing,
+    available: !submitting && draft.title.trim().length > 0 && presentation.editing,
     onSubmitIntent: () => {
       if (!draftDirty) {
         onPresentationChange({ ...presentation, editing: false });
@@ -165,7 +163,6 @@ export function DescriptionIsland({
     >
       <CollapsibleMarkdownField
         collapsedHeightClamp={{ maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
-        disabled={disabled}
         editorMinHeight={220}
         error={descriptionError}
         editing={presentation.editing}
@@ -199,12 +196,10 @@ export function DescriptionIsland({
 
 export function PropertiesIsland({
   detail,
-  disabled,
   mutations,
   openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
@@ -223,7 +218,7 @@ export function PropertiesIsland({
           label={t("task.identifier", { defaultValue: "ID" })}
           value={<span className="font-mono">{detail.shortID}</span>}
         />
-        <TaskDetailLabels disabled={disabled} />
+        <TaskDetailLabels />
         <TaskPropertyLine label={t("task.project")} value={detail.projectName} />
         <TaskPropertyLine
           label={t("task.status")}
@@ -242,12 +237,7 @@ export function PropertiesIsland({
           <TaskCurrentNodeSelectionProperties key={node.nodeID} node={node} />
         ))}
       </dl>
-      <TaskActionPanel
-        detail={detail}
-        disabled={disabled}
-        mutations={mutations}
-        openSessionChat={openSessionChat}
-      />
+      <TaskActionPanel detail={detail} mutations={mutations} openSessionChat={openSessionChat} />
     </Island>
   );
 }
@@ -274,12 +264,10 @@ export function TaskCurrentNodeSelectionProperties({ node }: Readonly<{ node: Ta
 
 function TaskActionPanel({
   detail,
-  disabled,
   mutations,
   openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
@@ -298,15 +286,15 @@ function TaskActionPanel({
         data-testid="task-detail-action-flow"
       >
         {detail.actions.canStart ? (
-          <TaskStartButton disabled={disabled} />
+          <TaskStartButton />
         ) : detail.actions.canResume ? (
-          <TaskResumeButton disabled={disabled} />
+          <TaskResumeButton />
         ) : null}
-        <TaskOpenButtons detail={detail} disabled={disabled} openSessionChat={openSessionChat} />
+        <TaskOpenButtons detail={detail} openSessionChat={openSessionChat} />
         {detail.actions.canInterrupt ? (
           <Button
             aria-label={interruptFullLabel}
-            disabled={disabled || mutations.interrupt.isPending}
+            disabled={mutations.interrupt.isPending}
             onClick={() => {
               mutations.interrupt.mutate(undefined);
             }}
@@ -323,11 +311,9 @@ function TaskActionPanel({
 
 function TaskOpenButtons({
   detail,
-  disabled,
   openSessionChat,
 }: Readonly<{
   detail: TaskDetail;
-  disabled: boolean;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
 }>) {
   const { t } = useTranslation();
@@ -360,7 +346,6 @@ function TaskOpenButtons({
             {openSessionChat === undefined ? null : (
               <Button
                 aria-label={chatLabel}
-                disabled={disabled}
                 onClick={() => {
                   setOpenError("");
                   void openSessionChat({ projectID: detail.projectID, sessionID: session.sessionID }).catch(
@@ -378,7 +363,6 @@ function TaskOpenButtons({
             {openSessionChat === undefined ? (
               <Button
                 aria-label={fullLabel}
-                disabled={disabled}
                 onClick={() => {
                   setOpenError("");
                   void openInCli(session.sessionID).catch((cause: unknown) => {
@@ -397,7 +381,6 @@ function TaskOpenButtons({
       {canOpenScript
         ? detail.currentScripts.map((script) => (
             <Button
-              disabled={disabled}
               key={`${script.currentNode.nodeID}:${script.currentNode.transitionBranchKey ?? "serial"}`}
               onClick={() => {
                 setOpenError("");

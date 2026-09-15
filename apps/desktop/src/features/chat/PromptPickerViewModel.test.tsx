@@ -5,12 +5,7 @@ import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
 import { ChatRuntimeOwner } from "@/app-facade";
 import { runtimeApi, runtimeHost, target, deferred, hydration } from "@/test-support/chat-runtime";
-import {
-  question,
-  approval,
-  connectedConnection,
-  failedBatchWithFreeform,
-} from "@/test-support/chat-prompts";
+import { question, approval, failedBatchWithFreeform } from "@/test-support/chat-prompts";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "@/api";
 import { createPromptPickerViewModel, usePromptPickerActions } from "./PromptPickerViewModel";
 
@@ -36,20 +31,17 @@ function setupOwner() {
   return { fixture, client, owner };
 }
 
-it("discards drafts on disconnect and departure without stopping or replaying an in-flight answer", async () => {
-  const { owner, client } = setupOwner();
+it("retains drafts on observation loss and discards them on departure without replaying an answer", async () => {
+  const { owner, client, fixture } = setupOwner();
   const prompt = question();
   owner.replacePendingPrompts([prompt]);
-  const connection = connectedConnection();
   const response = deferred<PromptAnswerBatchResponse>();
   const send = vi.fn(async () => response.promise);
   const options = {
     owner,
     client,
-    target,
-    connection,
     onError: vi.fn(),
-    api: { answerPromptBatch: send, listPendingPrompts: vi.fn() },
+    api: { answerPromptBatch: send },
   };
   const view = mountPicker(options);
   await act(async () => {
@@ -60,16 +52,13 @@ it("discards drafts on disconnect and departure without stopping or replaying an
   });
   expect(send).toHaveBeenCalledOnce();
   act(() => {
-    connection.set("disconnected");
+    fixture.handlers[0]?.onTransportLoss?.();
   });
-  expect(view.result.current.state.drafts.size).toBe(0);
+  expect(view.result.current.state.drafts.size).toBe(1);
   expect(view.result.current.request.isPending).toBe(true);
-  act(() => {
-    connection.set("connected");
-  });
   expect(view.result.current.state.drafts.get(prompt.toolCallID)).toMatchObject({
-    status: "tentative",
-    commentary: "",
+    status: "answered",
+    commentary: "Transient",
   });
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "confirm" } });
@@ -95,7 +84,7 @@ it("discards drafts on disconnect and departure without stopping or replaying an
   await owner.dispose();
 });
 
-it("retains declines and pending facts after refresh failure, then explicitly resends all-declined entries", async () => {
+it("retains declines and pending facts after delivery failure, then explicitly resends all-declined entries", async () => {
   const { owner, client } = setupOwner();
   const prompt = question();
   owner.replacePendingPrompts([prompt]);
@@ -103,15 +92,12 @@ it("retains declines and pending facts after refresh failure, then explicitly re
     .fn<() => Promise<PromptAnswerBatchResponse>>()
     .mockRejectedValueOnce(new Error("Failed"))
     .mockResolvedValueOnce({ results: [{ toolCallID: prompt.toolCallID, outcome: "skipped" }] });
-  const refresh = vi.fn().mockRejectedValue(new Error("Read failed"));
   const onError = vi.fn();
   const view = mountPicker({
     owner,
     client,
-    target,
     onError,
-    connection: connectedConnection(),
-    api: { answerPromptBatch: send, listPendingPrompts: refresh },
+    api: { answerPromptBatch: send },
   });
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "decline" } });
@@ -119,8 +105,7 @@ it("retains declines and pending facts after refresh failure, then explicitly re
   await vi.waitFor(() => {
     expect(view.result.current.request.isError).toBe(true);
   });
-  expect(onError).toHaveBeenCalledTimes(2);
-  expect(refresh).toHaveBeenCalledOnce();
+  expect(onError).toHaveBeenCalledTimes(1);
   expect(owner.snapshot.pendingPrompts).toEqual([prompt]);
   expect(view.result.current.state.drafts.get(prompt.toolCallID)?.status).toBe("declined");
   expect(send).toHaveBeenCalledOnce();
@@ -153,10 +138,8 @@ it("removes externally resolved drafts and ignores an earlier successful respons
   const view = mountPicker({
     owner,
     client,
-    target,
     onError: vi.fn(),
-    connection: connectedConnection(),
-    api: { answerPromptBatch: send, listPendingPrompts: vi.fn() },
+    api: { answerPromptBatch: send },
   });
   await act(async () => {
     view.result.current.dispatch({
@@ -200,7 +183,7 @@ it("removes externally resolved drafts and ignores an earlier successful respons
   await owner.dispose();
 });
 
-it("does not replace a later Step with an earlier failed request's delayed refresh", async () => {
+it("keeps later Step authority when an earlier request fails", async () => {
   const { owner, client, fixture } = setupOwner();
   const first = question();
   const later = question("later", { stepID: "423e4567-e89b-42d3-a456-426614174000" });
@@ -209,22 +192,19 @@ it("does not replace a later Step with an earlier failed request's delayed refre
     kind: "hydration",
     payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt: first }] },
   });
-  const read = deferred<readonly (typeof first)[]>();
-  const refresh = vi.fn(async () => read.promise);
-  const send = vi.fn().mockRejectedValue(new Error("Failed"));
+  const response = deferred<PromptAnswerBatchResponse>();
+  const send = vi.fn(async () => response.promise);
   const view = mountPicker({
     owner,
     client,
-    target,
     onError: vi.fn(),
-    connection: connectedConnection(),
-    api: { answerPromptBatch: send, listPendingPrompts: refresh },
+    api: { answerPromptBatch: send },
   });
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "decline" } });
   });
   await vi.waitFor(() => {
-    expect(refresh).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
   });
   await act(async () => {
     fixture.handlers[0]?.onEvent({
@@ -237,8 +217,7 @@ it("does not replace a later Step with an earlier failed request's delayed refre
       kind: "prompt",
       payload: { state: "pending", prompt: later },
     });
-    read.resolve([first]);
-    await read.promise;
+    response.reject(new Error("delivery failed"));
   });
   await vi.waitFor(() => {
     expect(view.result.current.request.isError).toBe(true);
@@ -250,7 +229,7 @@ it("does not replace a later Step with an earlier failed request's delayed refre
   await owner.dispose();
 });
 
-it("refreshes partial acceptance through generated freeform reads without replay and preserves editable drafts", async () => {
+it("uses received partial acceptance after failed delivery without a repair read and preserves drafts", async () => {
   const { owner, client } = setupOwner();
   const freeform = question("freeform", { suggestions: [] });
   owner.replacePendingPrompts([question(), freeform]);
@@ -261,10 +240,8 @@ it("refreshes partial acceptance through generated freeform reads without replay
   const view = mountPicker({
     owner,
     client,
-    target,
     api,
     onError,
-    connection: connectedConnection(),
   });
   await act(async () => {
     view.result.current.dispatch({
@@ -277,7 +254,11 @@ it("refreshes partial acceptance through generated freeform reads without replay
     expect(view.result.current.request.isError).toBe(true);
   });
   expect(onError).toHaveBeenCalledOnce();
-  expect(refresh).toHaveBeenCalledOnce();
+  expect(refresh).not.toHaveBeenCalled();
+  expect(owner.snapshot.pendingPrompts).toHaveLength(2);
+  act(() => {
+    owner.resolvePendingPrompts(new Set(["question-1"]));
+  });
   expect(owner.snapshot.pendingPrompts.map((prompt) => prompt.toolCallID)).toEqual(["freeform"]);
   expect(view.result.current.state.drafts.get("freeform")).toMatchObject({
     commentary: "My explanation",
@@ -315,14 +296,11 @@ it("sends one immutable batch only after every pending member is confirmed and r
   const answerPromptBatch = vi.fn<(input: PromptAnswerBatchInput) => Promise<PromptAnswerBatchResponse>>(
     async () => response.promise,
   );
-  const listPendingPrompts = vi.fn(async () => []);
   const view = mountPicker({
     owner,
     client,
-    target,
     onError: vi.fn(),
-    connection: connectedConnection(),
-    api: { answerPromptBatch, listPendingPrompts },
+    api: { answerPromptBatch },
   });
   act(() => {
     view.result.current.dispatch({
@@ -373,7 +351,6 @@ it("sends one immutable batch only after every pending member is confirmed and r
   });
   expect(view.result.current.request.isPending).toBe(false);
   expect(view.result.current.state.current).toBeNull();
-  expect(listPendingPrompts).not.toHaveBeenCalled();
   view.unmount();
   await owner.dispose();
 });
@@ -383,14 +360,11 @@ it("reports a failed answer after navigation without restoring a disposed owner'
   owner.replacePendingPrompts([question()]);
   const response = deferred<PromptAnswerBatchResponse>();
   const send = vi.fn(async () => response.promise);
-  const refresh = vi.fn(async () => [question()]);
   const onError = vi.fn();
   const view = mountPicker({
     owner,
     client,
-    target,
-    api: { answerPromptBatch: send, listPendingPrompts: refresh },
-    connection: connectedConnection(),
+    api: { answerPromptBatch: send },
     onError,
   });
   await act(async () => {
@@ -404,8 +378,5 @@ it("reports a failed answer after navigation without restoring a disposed owner'
     expect(onError).toHaveBeenCalledOnce();
   });
   expect(send).toHaveBeenCalledOnce();
-  await vi.waitFor(() => {
-    expect(refresh).toHaveBeenCalledOnce();
-  });
   expect(owner.snapshot.disposed).toBe(true);
 });

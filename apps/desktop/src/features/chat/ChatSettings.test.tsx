@@ -194,22 +194,13 @@ it("reports exactly InitialChatSettings to the host without catalog or display m
   expect(report).toHaveBeenLastCalledWith(defaultBaseline);
 });
 
-it("keeps loaded New Chat edits available through connection loss and host refresh changes", async () => {
+it("keeps loaded New Chat edits available across unrelated renders", async () => {
   const services = createTestServices([]);
   const read = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(catalogRead);
   const report = vi.fn<(value: InitialChatSettings) => void>();
   const { result, rerender } = renderHook(
-    (
-      host: Readonly<{
-        serverMutationAvailability: "available" | "disconnected";
-        authoritativeRefreshGeneration: symbol;
-      }>,
-    ) => useChatSettings({ ...host, target, onInitialSettingsChange: report }),
+    () => useChatSettings({ target, onInitialSettingsChange: report }),
     {
-      initialProps: {
-        serverMutationAvailability: "available",
-        authoritativeRefreshGeneration: Symbol("initial"),
-      },
       wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
         <TestAppProviders services={services}>{children}</TestAppProviders>
       ),
@@ -221,9 +212,8 @@ it("keeps loaded New Chat edits available through connection loss and host refre
   act(() => {
     if (result.current.kind !== "ready-new-chat") throw new Error("Expected New Chat.");
     result.current.activate({ kind: "supervisor", value: "all" });
-    services.transport.connection.set("disconnected");
   });
-  rerender({ serverMutationAvailability: "disconnected", authoritativeRefreshGeneration: Symbol("refresh") });
+  rerender();
   act(() => {
     if (result.current.kind !== "ready-new-chat") throw new Error("Expected New Chat.");
     result.current.activate({ kind: "thinking", value: "offline edit" });

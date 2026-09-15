@@ -162,7 +162,7 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - Transient TUI status-line notices/errors map to Sonner; no per-feature error surfaces are invented.
 - Worktree-transition outcomes create no transcript row; initiating controls update and transient feedback uses Sonner.
 - Sleep-guard and prompt-history persistence failures are Sonner-only. Input reconciliation enum states appear nowhere.
-- Malformed row integrity branches are impossible contract violations, not UI item types. No fallback/placeholder rows are designed; debug fails fast and release contract-failure recovery remains to be designed.
+- Malformed rows are impossible contract violations, not UI item types. Handling follows the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery).
 - Empty known developer context creates no row. Empty unknown developer content creates one expanded Diagnostic row with type/source metadata. Legacy explicit Hidden entries remain omitted.
 - Expandable flat rows use a full-width semantic disclosure header with localized label/summary, independent trailing actions/status, and right/down chevron. Header space toggles reversibly.
 - Flat-row expansion is row-local and resets to the audited type default after virtualizer unmount. No expansion registry or persistence exists.
@@ -401,8 +401,8 @@ Questions are resolved in dependency order. Later branches should not be specifi
 - The sidebar opens directly to a simple complete authoritative topology list. A primary icon-only `+` action in the header opens worktree creation; creation is not a list row.
 - A secondary icon-only Refresh action sits beside `+`. Open performs one fresh list read, successful mutations refresh, and manual Refresh catches out-of-band Git changes. No poll or timer exists.
 - Initial list loading/error uses standard compact Loading and Error + Retry.
-- Reconnection refreshes the authoritative current target and any open Worktree list. Desktop retains no pending Worktree operation to reconstruct or retry and shows no speculative lost-operation warning.
-- Connection loss during Create/setup stops waiting for that request and never retries it. After reconnection, an open Worktree surface returns to a fresh list; retained worktrees appear there, and automatic Switch requires an actual successful Create result.
+- Worktree reads and failures follow the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery). Desktop retains no pending Worktree operation to reconstruct or retry and shows no speculative lost-operation warning.
+- Connection loss during Create/setup stops waiting for that request and never retries it. Automatic Switch requires an actual successful Create result.
 - The current row uses the shared UI kit's established selected-list-row treatment, with no bespoke Current badge or marker.
 - Every switchable row has an explicit primary `Switch` action; row activation itself does not switch.
 - Switch copies TUI lifecycle: request-scoped pending only until scheduling acknowledgement, then close the sidebar immediately. Never wait through the Agent Step, never optimistically move selection, and let authoritative target/outcome updates refresh state.
@@ -457,10 +457,8 @@ Questions are resolved in dependency order. Later branches should not be specifi
 
 ## 11. Failure And Recovery
 
-- Reuse the existing persistent global disconnect/reconnect notice; Chat adds no connection surface. Server mutations are unavailable while disconnected and visible input remains.
-- Reconnect refreshes visible authoritative state, recreates the subscription, and Scratch Rehydrates without replaying ambiguous mutations or showing success feedback.
-- Sequence/subscription continuity loss discards provisional live state and Scratch Rehydrates. Committed content never becomes fake empty/idle state.
-- Initial Retry repeats the complete ordinary Session open path. Missing/inaccessible targets receive no Desktop-specific repair path.
+- Request, observation, and Retry behavior follows the [Desktop Chat failure contract](../specs/desktop-chat.md#failure-and-recovery).
+- Missing/inaccessible targets receive no Desktop-specific repair path.
 - A hydrated refresh failure preserves the last authoritative visible state.
 - Transcript edge failure owns only its boundary Retry for the same cursor.
 - Mutation failures preserve the operation's initiating state and use shared status/Sonner feedback without optimistic transcript rows or client replay.

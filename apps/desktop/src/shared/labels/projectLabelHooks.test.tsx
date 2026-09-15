@@ -155,7 +155,7 @@ describe("project label mutations", () => {
     });
 
     expect(catalog(view.queryClient)).toEqual(newerCatalog);
-    expect(view.effects.scheduleCatalogRefresh).toHaveBeenCalledOnce();
+    expect(view.effects.scheduleCatalogRefresh).not.toHaveBeenCalled();
     expect(view.effects.scheduleReorderRefresh).not.toHaveBeenCalled();
   });
 
@@ -193,7 +193,7 @@ describe("project label mutations", () => {
     });
 
     expect(catalog(view.queryClient)).toEqual(original);
-    expect(view.effects.scheduleCatalogRefresh).toHaveBeenCalledOnce();
+    expect(view.effects.scheduleCatalogRefresh).not.toHaveBeenCalled();
     expect(view.effects.scheduleReorderRefresh).not.toHaveBeenCalled();
   });
 });

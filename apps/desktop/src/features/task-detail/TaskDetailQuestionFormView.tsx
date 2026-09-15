@@ -35,7 +35,6 @@ const neitherRadioValue = "neither";
 export function QuestionFormView({
   answerQuestion,
   attention,
-  disabled,
   onSelectionStateChange,
   presentation,
   registerPrimaryControl,
@@ -43,7 +42,6 @@ export function QuestionFormView({
 }: Readonly<{
   answerQuestion: QuestionAnswerMutation;
   attention: QuestionAttentionItem;
-  disabled: boolean;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   presentation: QuestionPresentation;
   registerPrimaryControl?: ((control: PromptPrimaryControl) => () => void) | undefined;
@@ -56,7 +54,6 @@ export function QuestionFormView({
         answerQuestion={answerQuestion}
         approvalDecisions={attention.question.approvalDecisions}
         attention={attention}
-        disabled={disabled}
         onSelectionStateChange={onSelectionStateChange}
         question={presentation.question}
         registerPrimaryControl={registerPrimaryControl}
@@ -68,7 +65,6 @@ export function QuestionFormView({
     <OrdinaryQuestionForm
       answerQuestion={answerQuestion}
       attention={attention}
-      disabled={disabled}
       onSelectionStateChange={onSelectionStateChange}
       question={presentation.question}
       recommendedOption={presentation.recommendedOption}
@@ -82,7 +78,6 @@ export function QuestionFormView({
 function OrdinaryQuestionForm({
   answerQuestion,
   attention,
-  disabled,
   onSelectionStateChange,
   question,
   recommendedOption,
@@ -92,7 +87,6 @@ function OrdinaryQuestionForm({
 }: Readonly<{
   answerQuestion: QuestionAnswerMutation;
   attention: QuestionAttentionItem;
-  disabled: boolean;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   question: string | undefined;
   recommendedOption: number | null;
@@ -109,7 +103,7 @@ function OrdinaryQuestionForm({
   // A real option can submit on its own; otherwise any typed freeform answer is
   // submittable, including freeform-only asks where no option is selected.
   const canSubmit = (selectedOption !== null && selectedOption > 0) || answer.trim().length > 0;
-  const interactionDisabled = disabled || answerQuestion.isPending;
+  const interactionDisabled = answerQuestion.isPending;
   const selectedNeither = selection.provenance === "explicit" && selectedOption === null;
   const radioValue = selectedNeither
     ? neitherRadioValue
@@ -201,7 +195,6 @@ function ApprovalQuestionForm({
   answerQuestion,
   approvalDecisions,
   attention,
-  disabled,
   onSelectionStateChange,
   question,
   registerPrimaryControl,
@@ -211,7 +204,6 @@ function ApprovalQuestionForm({
   answerQuestion: QuestionAnswerMutation;
   approvalDecisions: readonly ApprovalDecision[];
   attention: QuestionAttentionItem;
-  disabled: boolean;
   onSelectionStateChange: (selection: QuestionSelectionState) => void;
   question: string | undefined;
   registerPrimaryControl?: ((control: PromptPrimaryControl) => () => void) | undefined;
@@ -224,7 +216,7 @@ function ApprovalQuestionForm({
   const answerID = useId();
   const primaryControlRef = usePrimaryControlRef(registerPrimaryControl);
   const canSubmit = selectedDecision !== null && (selectedDecision !== "deny" || answer.trim().length > 0);
-  const interactionDisabled = disabled || answerQuestion.isPending;
+  const interactionDisabled = answerQuestion.isPending;
 
   async function submit(): Promise<void> {
     if (selectedDecision === null) {

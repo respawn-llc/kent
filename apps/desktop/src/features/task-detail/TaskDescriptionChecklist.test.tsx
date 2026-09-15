@@ -229,31 +229,29 @@ describe("Task description checklist", () => {
     expect(screen.getByTestId("task-detail-save")).toBeInTheDocument();
   });
 
-  it("does not edit or toggle a disabled description", async () => {
+  it("retains description editing after an observation fails", async () => {
     const services = mountTaskDetailSurface({
       task: {
         ...taskDetailResponse.task,
         body: "- [ ] Keep the Markdown source",
       },
     });
-    act(() => {
-      services.transport.connection.set("disconnected", "offline");
-    });
     const description = await screen.findByRole("textbox", { name: appI18n.t("task.description") });
     const checkbox = await screen.findByRole("checkbox");
+    act(() => {
+      services.transport.fail("workflow.subscribeProject", new Error("offline"));
+    });
 
     await waitFor(() => {
-      expect(checkbox).toBeDisabled();
+      expect(checkbox).toBeEnabled();
     });
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
     fireEvent.focus(description);
     fireEvent.keyDown(description, { key: "Enter" });
-    fireEvent.click(checkbox);
-
-    expect(screen.getByRole("textbox", { name: appI18n.t("task.description") })).not.toBeInstanceOf(
+    expect(screen.getByRole("textbox", { name: appI18n.t("task.description") })).toBeInstanceOf(
       HTMLTextAreaElement,
     );
-    expect(checkbox).not.toBeChecked();
-    expect(screen.queryByTestId("task-detail-save")).not.toBeInTheDocument();
   });
 
   it("closes clean editing from the native submit shortcut without updating the Task", async () => {

@@ -1,4 +1,4 @@
-export type { ApiConnectionSource, ApiService, ApiSubscription } from "./apiService";
+export type { ApiService, ApiSubscription } from "./apiService";
 export type { DesktopProcess } from "./processes";
 export type {
   ChatSettingsAgent,
@@ -179,7 +179,6 @@ export {
 } from "./schemas/workflowBoard";
 export type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "./workflowProjectEvents";
 export { workflowLabelMaxIDs } from "./workflowLabelContract";
-export type { ConnectionPhase, ConnectionSnapshot } from "./connectionStore";
 export type {
   ApprovalAttentionItem,
   AttentionItem,
