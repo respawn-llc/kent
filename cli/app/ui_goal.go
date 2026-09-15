@@ -164,13 +164,14 @@ func (m *uiModel) nextGoalRuntimeToken() uint64 {
 }
 
 type goalRuntimePendingState struct {
-	token             uint64
-	sessionID         string
-	inFlight          bool
-	inFlightOperation goalRuntimeOperation
-	inFlightObjective string
-	desiredOperation  goalRuntimeOperation
-	desiredObjective  string
+	token                  uint64
+	sessionID              string
+	inFlight               bool
+	inFlightMutationSerial uint64
+	inFlightOperation      goalRuntimeOperation
+	inFlightObjective      string
+	desiredOperation       goalRuntimeOperation
+	desiredObjective       string
 }
 
 func goalRuntimeOperationMutates(operation goalRuntimeOperation) bool {
@@ -191,21 +192,23 @@ func (m *uiModel) beginGoalRuntimeMutation(operation goalRuntimeOperation, sessi
 	if !goalRuntimeOperationMutates(operation) {
 		return m.nextGoalRuntimeToken(), true
 	}
-	m.goalRuntimeMutationSerial = nextNonZeroToken(m.goalRuntimeMutationSerial)
 	if m.goalRuntimePending.inFlight && m.goalRuntimePending.sessionID == sessionID {
+		m.goalRuntimeMutationSerial = nextNonZeroToken(m.goalRuntimeMutationSerial)
 		m.goalRuntimePending.desiredOperation = operation
 		m.goalRuntimePending.desiredObjective = objective
 		return 0, false
 	}
+	m.goalRuntimeMutationSerial = nextNonZeroToken(m.goalRuntimeMutationSerial)
 	token := m.nextGoalRuntimeToken()
 	m.goalRuntimePending = goalRuntimePendingState{
-		token:             token,
-		sessionID:         sessionID,
-		inFlight:          true,
-		inFlightOperation: operation,
-		inFlightObjective: objective,
-		desiredOperation:  operation,
-		desiredObjective:  objective,
+		token:                  token,
+		sessionID:              sessionID,
+		inFlight:               true,
+		inFlightMutationSerial: m.goalRuntimeMutationSerial,
+		inFlightOperation:      operation,
+		inFlightObjective:      objective,
+		desiredOperation:       operation,
+		desiredObjective:       objective,
 	}
 	return token, true
 }
@@ -255,6 +258,9 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 		if msg.token != m.goalRuntimePending.token {
 			return nil
 		}
+		if msg.mutationSerial != m.goalRuntimePending.inFlightMutationSerial {
+			return nil
+		}
 	} else if msg.token != m.goalRuntimeToken {
 		return nil
 	}
@@ -278,13 +284,7 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	}
 	var followUpCmd tea.Cmd
 	if goalRuntimeOperationMutates(msg.operation) {
-		pending := m.goalRuntimePending
-		if pending.inFlight && (pending.desiredOperation != pending.inFlightOperation || pending.desiredObjective != pending.inFlightObjective) {
-			m.goalRuntimePending.inFlight = false
-			followUpCmd = m.goalRuntimeCommand(pending.desiredOperation, pending.desiredObjective)
-		} else {
-			m.goalRuntimePending = goalRuntimePendingState{}
-		}
+		followUpCmd = m.takeGoalRuntimeFollowUp()
 	}
 	switch msg.operation {
 	case goalRuntimeShow:
@@ -313,16 +313,12 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 		}
 		return sequenceCmds(m.goalRuntimeCommand(goalRuntimeClear, ""), followUpCmd)
 	case goalRuntimeSet:
-		if msg.mutationSerial != m.goalRuntimeMutationSerial {
-			return followUpCmd
-		}
 		m.goal.goal = goalCoreFromGoalSetResult(msg.setResult)
 		if m.goal.open && strings.TrimSpace(m.goal.confirmMode) != "" {
 			m.goal.confirmMode = ""
 		}
 		if msg.setResult != nil && msg.setResult.GetDiagnostic() != nil {
 			return sequenceCmds(
-				followUpCmd,
 				m.sendTransientStatusWithNoticeID(
 					client.GoalSetErrorAsError(msg.setResult.GetDiagnostic()).Error(),
 					uiStatusNoticeWarning,
@@ -330,13 +326,11 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 					uiStatusNoticeReplace,
 					"",
 				),
+				followUpCmd,
 			)
 		}
 		return followUpCmd
 	case goalRuntimePause, goalRuntimeResume, goalRuntimeComplete:
-		if msg.mutationSerial != m.goalRuntimeMutationSerial {
-			return followUpCmd
-		}
 		if goal := goalCoreFromMutationResult(msg.mutation); goal != nil {
 			m.goal.goal = goal
 		}
@@ -349,6 +343,28 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 		return sequenceCmds(overlayCmd, followUpCmd)
 	default:
 		return followUpCmd
+	}
+}
+
+func (m *uiModel) takeGoalRuntimeFollowUp() tea.Cmd {
+	pending := m.goalRuntimePending
+	if !pending.inFlight {
+		return nil
+	}
+	if pending.desiredOperation == pending.inFlightOperation &&
+		pending.desiredObjective == pending.inFlightObjective {
+		m.goalRuntimePending = goalRuntimePendingState{}
+		return nil
+	}
+	m.goalRuntimePending.inFlight = false
+	operation := pending.desiredOperation
+	objective := pending.desiredObjective
+	return func() tea.Msg {
+		cmd := m.goalRuntimeCommand(operation, objective)
+		if cmd == nil {
+			return nil
+		}
+		return cmd()
 	}
 }
 

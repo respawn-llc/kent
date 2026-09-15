@@ -16,12 +16,14 @@ import (
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -39,6 +41,7 @@ type runtimeControlFakeClient struct {
 	pauseGoalCalls        int
 	resumeGoalCalls       int
 	clearGoalCalls        int
+	goalCallEvents        *[]string
 	appendCalls           int
 	appendedRole          string
 	appendedText          string
@@ -185,6 +188,9 @@ func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSet
 }
 func (f *runtimeControlFakeClient) PauseGoal() (clientui.GoalMutationResult, error) {
 	f.pauseGoalCalls++
+	if f.goalCallEvents != nil {
+		*f.goalCallEvents = append(*f.goalCallEvents, "pause-started")
+	}
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
@@ -318,7 +324,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 	m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          mutationToken,
 		sessionID:      m.sessionID,
-		mutationSerial: m.goalRuntimeMutationSerial,
+		mutationSerial: m.goalRuntimePending.inFlightMutationSerial,
 		operation:      goalRuntimePause,
 		mutation: clientui.GoalMutationResult{
 			Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
@@ -336,6 +342,72 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		m.goal.goal.Objective != "latest" ||
 		m.goal.goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED {
 		t.Fatalf("Goal projection = %+v, want latest paused mutation result", m.goal.goal)
+	}
+}
+
+func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
+	var events []string
+	previousSchedule := scheduleTransientStatusClear
+	scheduleTransientStatusClear = func(time.Duration, uint64) tea.Cmd {
+		return nil
+	}
+	t.Cleanup(func() { scheduleTransientStatusClear = previousSchedule })
+
+	client := &runtimeControlFakeClient{goalCallEvents: &events}
+	m := newProjectedClosedUIModel(client)
+	m.sessionID = "session-1"
+	if cmd := m.goalRuntimeCommand(goalRuntimeSet, "first"); cmd == nil {
+		t.Fatal("initial Goal Set did not start")
+	}
+	pending := m.goalRuntimePending
+	mutationSerial := m.goalRuntimeMutationSerial
+	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd != nil {
+		t.Fatal("pending follow-up started before the first Goal Set settled")
+	}
+	setResult := &runtimepb.GoalSetSuccess{
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{
+			Mutation: &runtimepb.GoalMutationSuccess{
+				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+				Goal: &runtimepb.Goal{
+					Id:        "goal-1",
+					Objective: "first",
+					Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+				},
+			},
+		},
+		Diagnostic: &runtimepb.GoalSetError{
+			Code: "internal_failure",
+			Detail: &runtimepb.GoalSetError_InternalFailure{
+				InternalFailure: &sharedpb.InternalFailureDetails{
+					Operation: proto.String("runtime.detach"),
+					Cause:     proto.String("release failed"),
+				},
+			},
+		},
+	}
+	cmd := m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
+		token:          pending.token,
+		sessionID:      m.sessionID,
+		mutationSerial: mutationSerial,
+		operation:      goalRuntimeSet,
+		objective:      "first",
+		setResult:      setResult,
+	})
+	if m.goal.goal == nil || m.goal.goal.Objective != "first" {
+		t.Fatalf("committed Goal was not applied before warning: %+v", m.goal.goal)
+	}
+	if m.transientStatusKind != uiStatusNoticeWarning {
+		t.Fatalf("warning status kind = %v, want warning", m.transientStatusKind)
+	}
+	if cmd == nil || m.goalRuntimePending.inFlight {
+		t.Fatal("follow-up was constructed or started before warning settlement")
+	}
+	events = append(events, "warning-visible")
+	if message := cmd(); message == nil {
+		t.Fatal("pending Goal follow-up did not start after warning")
+	}
+	if got, want := strings.Join(events, ","), "warning-visible,pause-started"; got != want {
+		t.Fatalf("Goal follow-up order = %q, want %q", got, want)
 	}
 }
 
