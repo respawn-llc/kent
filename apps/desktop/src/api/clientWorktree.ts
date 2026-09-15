@@ -231,7 +231,10 @@ export type WorktreeErrorDetail =
       kind: "delete_precondition";
       details: Extract<DeleteError["detail"], { case: "deletePrecondition" }>["value"];
     }>
-  | Readonly<{ kind: "blocked" }>
+  | Readonly<{
+      kind: "blocked";
+      details: Extract<DeleteError["detail"], { case: "worktreeBlocked" }>["value"];
+    }>
   | Readonly<{ kind: "capacity" }>;
 
 export class WorktreeError extends RpcError {
@@ -289,7 +292,7 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
     return new WorktreeError(generic, { kind: "delete_precondition", details: detail.value });
   }
   if (detail.case === "worktreeBlocked") {
-    return new WorktreeError(generic, { kind: "blocked" });
+    return new WorktreeError(generic, { kind: "blocked", details: detail.value });
   }
   if (detail.case === "pendingWorkCapacity") {
     return new WorktreeError(generic, { kind: "capacity" });

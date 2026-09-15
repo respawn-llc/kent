@@ -14,8 +14,17 @@ export function worktreeErrorMessage(error: unknown, t: TFunction): string {
       return detail.details.diagnostic;
     case "selector":
       return selectorMessage(detail.details, t);
-    case "blocked":
-      return t("chat.worktree.operationBlocked");
+    case "blocked": {
+      const blockers = detail.details.activeSessions;
+      if (blockers === undefined) return t("chat.worktree.operationBlocked");
+      return [
+        t("chat.worktree.activeSessionsBlocked"),
+        ...blockers.sessions.map((session) =>
+          session.name === undefined ? session.sessionId : `${session.name} (${session.sessionId})`,
+        ),
+        ...(blockers.hasMore ? [t("chat.worktree.moreBlockingSessions")] : []),
+      ].join("\n");
+    }
     case "capacity":
       return t("chat.worktree.pendingCapacity");
     case "delete_precondition":

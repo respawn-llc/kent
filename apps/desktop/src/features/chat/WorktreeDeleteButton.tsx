@@ -73,13 +73,13 @@ function WorktreeDeleteContent({ close, ...props }: Props & Readonly<{ close(): 
     <>
       {preview.isPending || deletion.isPending ? <Spinner size="sm" /> : null}
       {preview.isError ? (
-        <p className="break-words text-sm text-[var(--color-error)]">
+        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-error)]">
           {worktreeErrorMessage(preview.error, t)}
         </p>
       ) : null}
       {cleanliness === undefined ? null : <CleanlinessFacts value={cleanliness} />}
       {inlineError !== undefined ? (
-        <p className="break-words text-sm text-[var(--color-error)]">{inlineError}</p>
+        <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-error)]">{inlineError}</p>
       ) : null}
       {preview.isSuccess ? (
         <TooltipProvider>

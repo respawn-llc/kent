@@ -31,6 +31,9 @@ export const chatWorktreeEnglish = {
   selectorAmbiguous: "“{{target}}” matches multiple worktrees: {{candidates}}. Choose a specific worktree.",
   selectorUnavailable: "Worktree “{{target}}” is unavailable. Refresh the list before trying again.",
   operationBlocked: "This worktree operation is blocked.",
+  activeSessionsBlocked:
+    "Can't delete a worktree that is used by other agents! First, ask the Sessions to leave that worktree or finish their work, then retry.",
+  moreBlockingSessions: "More Sessions are using this worktree; only the first 50 are shown.",
   pendingCapacity: "Pending Work capacity has been reached. Try again when capacity is available.",
   deleteChanged: "The worktree changed after confirmation. Open Delete again to review its current state.",
 };

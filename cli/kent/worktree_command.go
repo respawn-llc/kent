@@ -405,7 +405,7 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		BranchCleanupPolicy: policy,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		writeWorktreeDeleteError(stderr, err)
 		return 1
 	}
 	if *jsonOut {
@@ -423,6 +423,26 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintf(stdout, "Left folder untouched: %s\n", result.GetLeftoverRoot())
 	}
 	return 0
+}
+
+func writeWorktreeDeleteError(stderr io.Writer, err error) {
+	var blocked *worktreecontract.BlockedError
+	if !errors.As(err, &blocked) || blocked.Details.GetActiveSessions() == nil {
+		fmt.Fprintln(stderr, err)
+		return
+	}
+	details := blocked.Details.ActiveSessions
+	fmt.Fprintln(stderr, "Can't delete a worktree that is used by other agents! First, ask the Sessions to leave that worktree or finish their work, then retry.")
+	for _, session := range details.Sessions {
+		name := "Unnamed session"
+		if session.Name != nil {
+			name = *session.Name
+		}
+		fmt.Fprintf(stderr, "- %s (%s)\n", name, session.SessionId)
+	}
+	if details.HasMore {
+		fmt.Fprintln(stderr, "More Sessions are using this worktree; only the first 50 are shown.")
+	}
 }
 
 func worktreeBranchCleanupPolicy(deleteBranch bool, forceDeleteBranch bool) (worktreepb.BranchCleanupMode, error) {
