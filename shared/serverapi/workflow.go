@@ -2971,7 +2971,10 @@ type workflowAttentionInterruptionDetailSchema struct {
 		RequestedRef *string                                 `json:"requested_ref,omitempty"`
 		Cause        WorkflowExecutionTargetUnavailableCause `json:"cause"`
 	} `json:"configured_execution_target_unavailable,omitempty"`
-	SetupRecovery *workflowSetupRecoveryDetailSchema `json:"setup_recovery,omitempty"`
+	SetupRecovery          *workflowSetupRecoveryDetailSchema `json:"setup_recovery,omitempty"`
+	MissingManagedWorktree *struct {
+		SuggestedSelection *WorkflowExecutionTargetSelection `json:"suggested_selection,omitempty"`
+	} `json:"missing_managed_worktree,omitempty"`
 }
 
 type workflowSetupRecoveryDetailSchema struct {
@@ -3041,6 +3044,15 @@ func validateOptionalAttentionInterruptionDetailJSON(field string, value *string
 	if recovery := detail.SetupRecovery; recovery != nil {
 		if err := recovery.domain().Validate(); err != nil {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" setup recovery facts are invalid")
+		}
+	}
+	if missing := detail.MissingManagedWorktree; missing != nil {
+		requirement := WorkflowExecutionTargetSelectionRequirement{
+			Reason:             WorkflowExecutionTargetSelectionReasonMissingManagedWorktree,
+			SuggestedSelection: missing.SuggestedSelection,
+		}
+		if detail.SetupRecovery != nil || detail.ConfiguredExecutionTargetUnavailable != nil || requirement.Validate() != nil {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, field, field+" missing Worktree metadata is invalid")
 		}
 	}
 	return nil

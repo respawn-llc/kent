@@ -135,6 +135,7 @@ type CurrentNodeInterruptionDetail struct {
 	Code                                 string
 	Fields                               map[string]string
 	ConfiguredExecutionTargetUnavailable *ConfiguredExecutionTargetUnavailable `json:"configured_execution_target_unavailable,omitempty"`
+	MissingManagedWorktree               *MissingManagedWorktree               `json:"missing_managed_worktree,omitempty"`
 	SetupRecovery                        *CurrentNodeSetupRecoveryDetail       `json:"setup_recovery,omitempty"`
 }
 
@@ -166,6 +167,12 @@ func (d CurrentNodeInterruptionDetail) Validate() error {
 		if err := d.ConfiguredExecutionTargetUnavailable.Validate(); err != nil {
 			return err
 		}
+	}
+	if d.MissingManagedWorktree != nil {
+		if d.SetupRecovery != nil || d.ConfiguredExecutionTargetUnavailable != nil {
+			return errors.New("missing Worktree selection cannot be a setup or configured-target failure")
+		}
+		return d.MissingManagedWorktree.Validate()
 	}
 	if d.SetupRecovery != nil {
 		if _, duplicated := d.Fields[CurrentNodeInterruptionDiagnosticField]; duplicated {
@@ -464,12 +471,7 @@ func validateCurrentNodeScheduling(scheduling *CurrentNodeScheduling) error {
 		if scheduling.Interruption.OccurredAt.IsZero() {
 			return fmt.Errorf("current node interruption occurrence time is required")
 		}
-		if unavailable := scheduling.Interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
-			if err := unavailable.Validate(); err != nil {
-				return fmt.Errorf("current node configured execution target interruption: %w", err)
-			}
-		}
-		return nil
+		return scheduling.Interruption.Detail.Validate()
 	}
 	if scheduling.Interruption != nil {
 		return fmt.Errorf("only interrupted current nodes may carry interruption details")
@@ -493,6 +495,18 @@ func cloneCurrentNodeScheduling(scheduling *CurrentNodeScheduling) *CurrentNodeS
 	if scheduling.Interruption != nil {
 		interruption := *scheduling.Interruption
 		interruption.Detail.Fields = cloneStringMap(interruption.Detail.Fields)
+		if missing := interruption.Detail.MissingManagedWorktree; missing != nil {
+			clonedMissing := *missing
+			if missing.SuggestedSelection != nil {
+				selection := *missing.SuggestedSelection
+				if selection.CustomRef != nil {
+					ref := *selection.CustomRef
+					selection.CustomRef = &ref
+				}
+				clonedMissing.SuggestedSelection = &selection
+			}
+			interruption.Detail.MissingManagedWorktree = &clonedMissing
+		}
 		if unavailable := interruption.Detail.ConfiguredExecutionTargetUnavailable; unavailable != nil {
 			clonedUnavailable := *unavailable
 			if unavailable.RequestedRef != nil {

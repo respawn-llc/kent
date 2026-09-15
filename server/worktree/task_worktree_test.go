@@ -147,7 +147,7 @@ func TestMaterializeInitialTaskWorktreeRejectsExistingOutsideNamespaceRoot(t *te
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRejectsExplicitRootOverlappingSourceWorkspace(t *testing.T) {
+func TestValidateLockedTaskWorktreeRejectsExplicitRootOverlappingSourceWorkspace(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	worktreeID := taskWorktreeID(materialized.Worktree)
@@ -170,9 +170,9 @@ func TestRestoreLockedTaskWorktreeRejectsExplicitRootOverlappingSourceWorkspace(
 		t.Fatalf("UpdateWorktreeCanonicalRoot overlapping root: %v", err)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	if err == nil {
-		t.Fatal("RestoreLockedTaskWorktree accepted an explicit root overlapping the source Workspace")
+		t.Fatal("ValidateLockedTaskWorktree accepted an explicit root overlapping the source Workspace")
 	}
 	if _, err := os.Stat(record.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("overlapping root was materialized: %v", err)
@@ -193,7 +193,7 @@ func TestRestoreLockedTaskWorktreeRejectsExplicitRootOverlappingSourceWorkspace(
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRejectsExistingOutsideNamespaceRoot(t *testing.T) {
+func TestValidateLockedTaskWorktreeRejectsExistingOutsideNamespaceRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	originalRoot := taskWorktreeRoot(materialized.Worktree)
@@ -216,9 +216,9 @@ func TestRestoreLockedTaskWorktreeRejectsExistingOutsideNamespaceRoot(t *testing
 		t.Fatalf("UpdateWorktreeCanonicalRoot: %v", err)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	if err == nil {
-		t.Fatal("RestoreLockedTaskWorktree accepted an existing root outside the server namespace")
+		t.Fatal("ValidateLockedTaskWorktree accepted an existing root outside the server namespace")
 	}
 	registered, err := env.service.git.List(env.ctx, env.workspaceRoot)
 	if err != nil {
@@ -232,7 +232,7 @@ func TestRestoreLockedTaskWorktreeRejectsExistingOutsideNamespaceRoot(t *testing
 	t.Fatalf("legacy root %q disappeared after rejected restore", legacyRoot)
 }
 
-func TestRestoreLockedTaskWorktreeRejectsLegacyRootOutsideNamespace(t *testing.T) {
+func TestValidateLockedTaskWorktreeRejectsLegacyRootOutsideNamespace(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	worktreeID := taskWorktreeID(materialized.Worktree)
@@ -254,9 +254,9 @@ func TestRestoreLockedTaskWorktreeRejectsLegacyRootOutsideNamespace(t *testing.T
 		t.Fatalf("UpdateWorktreeCanonicalRoot legacy root: %v", err)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	if err == nil {
-		t.Fatal("RestoreLockedTaskWorktree accepted a legacy root outside the server namespace")
+		t.Fatal("ValidateLockedTaskWorktree accepted a legacy root outside the server namespace")
 	}
 	if _, err := os.Stat(legacyRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("legacy root was materialized: %v", err)
@@ -282,16 +282,16 @@ func TestRestoreLockedTaskWorktreeRejectsLegacyRootOutsideNamespace(t *testing.T
 	}
 }
 
-func TestRestoreLockedTaskWorktreeAcceptsHealthyChangedNamedBranch(t *testing.T) {
+func TestValidateLockedTaskWorktreeAcceptsHealthyChangedNamedBranch(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	runGit(t, taskWorktreeRoot(materialized.Worktree), "branch", "-m", "operator-renamed")
 
-	restored, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{
+	restored, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{
 		TaskID: task.ID,
 	})
 	if err != nil {
-		t.Fatalf("RestoreLockedTaskWorktree: %v", err)
+		t.Fatalf("ValidateLockedTaskWorktree: %v", err)
 	}
 	if restored.Created ||
 		taskWorktreeID(restored.Worktree) != taskWorktreeID(materialized.Worktree) ||
@@ -301,7 +301,7 @@ func TestRestoreLockedTaskWorktreeAcceptsHealthyChangedNamedBranch(t *testing.T)
 	}
 }
 
-func TestRestoreLockedTaskWorktreeReusesDetachedHeadWithoutErasingBranchAuthority(t *testing.T) {
+func TestValidateLockedTaskWorktreeReusesDetachedHeadWithoutErasingBranchAuthority(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	worktreeID := taskWorktreeID(materialized.Worktree)
@@ -313,12 +313,11 @@ func TestRestoreLockedTaskWorktreeReusesDetachedHeadWithoutErasingBranchAuthorit
 	writeExecutableFile(t, setupScript, fmt.Sprintf("#!/bin/sh\ntouch %q\n", setupMarker))
 	env.service.setupScript = setupScript
 
-	restored, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{
-		TaskID:           task.ID,
-		SetupOperationID: newWorktreeSetupOperationIDPointer(),
+	restored, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{
+		TaskID: task.ID,
 	})
 	if err != nil {
-		t.Fatalf("RestoreLockedTaskWorktree: %v", err)
+		t.Fatalf("ValidateLockedTaskWorktree: %v", err)
 	}
 	if restored.Created ||
 		taskWorktreeID(restored.Worktree) != worktreeID ||
@@ -360,13 +359,12 @@ func TestRestoreLockedTaskWorktreeReusesDetachedHeadWithoutErasingBranchAuthorit
 		t.Fatalf("AssertInitialTaskBranch mismatch after detached reuse = %+v, want existing branch %q", err, task.ShortID)
 	}
 
-	repeated, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{
-		TaskID:           task.ID,
-		SetupOperationID: newWorktreeSetupOperationIDPointer(),
-		BranchName:       &task.ShortID,
+	repeated, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{
+		TaskID:     task.ID,
+		BranchName: &task.ShortID,
 	})
 	if err != nil {
-		t.Fatalf("RestoreLockedTaskWorktree repeated: %v", err)
+		t.Fatalf("ValidateLockedTaskWorktree repeated: %v", err)
 	}
 	if repeated.Created ||
 		taskWorktreeID(repeated.Worktree) != worktreeID ||
@@ -457,7 +455,7 @@ func TestPrepareTaskExecutionRootSettingsFailureSurfacesOnceWithoutSetup(t *test
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRejectsDifferentRepository(t *testing.T) {
+func TestValidateLockedTaskWorktreeRejectsDifferentRepository(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	if err := env.service.git.Remove(env.ctx, env.workspaceRoot, taskWorktreeRoot(materialized.Worktree), true); err != nil {
@@ -468,14 +466,14 @@ func TestRestoreLockedTaskWorktreeRejectsDifferentRepository(t *testing.T) {
 	}
 	initGitRepo(t, taskWorktreeRoot(materialized.Worktree))
 
-	_, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseInvalidRoot {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want invalid-root locked target error", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want invalid-root locked target error", err)
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRejectsNonGitRoot(t *testing.T) {
+func TestValidateLockedTaskWorktreeRejectsNonGitRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	if err := env.service.git.Remove(env.ctx, env.workspaceRoot, taskWorktreeRoot(materialized.Worktree), true); err != nil {
@@ -485,14 +483,14 @@ func TestRestoreLockedTaskWorktreeRejectsNonGitRoot(t *testing.T) {
 		t.Fatalf("MkdirAll non-Git root: %v", err)
 	}
 
-	_, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseInvalidRoot {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want invalid-root locked target error", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want invalid-root locked target error", err)
 	}
 }
 
-func TestRestoreLockedTaskWorktreeReportsInaccessibleRoot(t *testing.T) {
+func TestValidateLockedTaskWorktreeReportsInaccessibleRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	root := taskWorktreeRoot(materialized.Worktree)
@@ -503,14 +501,14 @@ func TestRestoreLockedTaskWorktreeReportsInaccessibleRoot(t *testing.T) {
 		t.Fatalf("create self-referential root symlink: %v", err)
 	}
 
-	_, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseRootInaccessible {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want root-inaccessible locked target error", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want root-inaccessible locked target error", err)
 	}
 }
 
-func TestRestoreLockedTaskWorktreeMapsGitFailure(t *testing.T) {
+func TestValidateLockedTaskWorktreeMapsGitFailure(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	if err := env.service.git.Remove(env.ctx, env.workspaceRoot, taskWorktreeRoot(materialized.Worktree), true); err != nil {
@@ -522,14 +520,14 @@ func TestRestoreLockedTaskWorktreeMapsGitFailure(t *testing.T) {
 		arguments: []string{"rev-parse", "--verify", "--quiet", "refs/heads/" + task.ShortID + "^{object}"},
 	})
 
-	_, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseGitFailure {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want Git-failure locked target error", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want Git-failure locked target error", err)
 	}
 }
 
-func TestRestoreLockedTaskWorktreeReportsConflictForRegisteredMissingRoot(t *testing.T) {
+func TestValidateLockedTaskWorktreeRequiresSelectionForRegisteredMissingRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	record, err := env.store.GetWorktreeRecordByID(env.ctx, taskWorktreeID(materialized.Worktree))
@@ -548,13 +546,12 @@ func TestRestoreLockedTaskWorktreeReportsConflictForRegisteredMissingRoot(t *tes
 		t.Fatalf("remove worktree root: %v", err)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{
-		TaskID:           task.ID,
-		SetupOperationID: newWorktreeSetupOperationIDPointer(),
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{
+		TaskID: task.ID,
 	})
-	var lockedErr *LockedTaskWorktreeError
-	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseConflict {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want conflict without registration deletion", err)
+	var missing *workflow.MissingManagedWorktree
+	if !errors.As(err, &missing) || missing.SuggestedSelection == nil {
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want selection without registration deletion", err)
 	}
 	if _, statErr := os.Stat(oldRoot); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("registered missing root = %q was mutated: %v", oldRoot, statErr)
@@ -566,7 +563,7 @@ func TestRestoreLockedTaskWorktreeReportsConflictForRegisteredMissingRoot(t *tes
 	}
 }
 
-func TestRestoreLockedTaskWorktreeReportsMissingBranchWithoutRecreatingFromSnapshot(t *testing.T) {
+func TestValidateLockedTaskWorktreeReportsMissingBranchWithoutRecreatingFromSnapshot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	oldRoot := taskWorktreeRoot(materialized.Worktree)
@@ -577,10 +574,10 @@ func TestRestoreLockedTaskWorktreeReportsMissingBranchWithoutRecreatingFromSnaps
 		t.Fatalf("delete branch: %v", err)
 	}
 
-	_, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
-	var lockedErr *LockedTaskWorktreeError
-	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseMissingBranch {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want missing-branch locked target error", err)
+	_, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
+	var missing *workflow.MissingManagedWorktree
+	if !errors.As(err, &missing) || missing.SuggestedSelection != nil {
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want selection without a deleted-branch suggestion", err)
 	}
 	if exists, branchErr := env.service.git.BranchExists(env.ctx, env.workspaceRoot, task.ShortID); branchErr != nil {
 		t.Fatalf("BranchExists: %v", branchErr)
@@ -592,7 +589,7 @@ func TestRestoreLockedTaskWorktreeReportsMissingBranchWithoutRecreatingFromSnaps
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRebindsHealthyDeterministicRoot(t *testing.T) {
+func TestValidateLockedTaskWorktreeRebindsHealthyDeterministicRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	updated, err := env.store.Queries().UpdateTaskManagedWorktree(env.ctx, sqlitegen.UpdateTaskManagedWorktreeParams{
@@ -617,10 +614,10 @@ func TestRestoreLockedTaskWorktreeRebindsHealthyDeterministicRoot(t *testing.T) 
 		t.Fatalf("task source workspace = %+v, stale worktree workspace = %q", taskRow.SourceWorkspaceID, staleRecord.WorkspaceID)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseConflict {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want conflict without Task ownership evidence", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want conflict without Task ownership evidence", err)
 	}
 	row, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
 	if err != nil {
@@ -631,7 +628,7 @@ func TestRestoreLockedTaskWorktreeRebindsHealthyDeterministicRoot(t *testing.T) 
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRejectsDetachedUnboundExistingRoot(t *testing.T) {
+func TestValidateLockedTaskWorktreeRejectsDetachedUnboundExistingRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	worktreeRoot := taskWorktreeRoot(materialized.Worktree)
@@ -651,13 +648,12 @@ func TestRestoreLockedTaskWorktreeRejectsDetachedUnboundExistingRoot(t *testing.
 	writeExecutableFile(t, setupScript, fmt.Sprintf("#!/bin/sh\ntouch %q\n", setupMarker))
 	env.service.setupScript = setupScript
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{
-		TaskID:           task.ID,
-		SetupOperationID: newWorktreeSetupOperationIDPointer(),
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{
+		TaskID: task.ID,
 	})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseConflict {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want conflict for unclaimed occupied root", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want conflict for unclaimed occupied root", err)
 	}
 	row, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
 	if err != nil {
@@ -681,11 +677,11 @@ func TestRestoreLockedTaskWorktreeRejectsDetachedUnboundExistingRoot(t *testing.
 	}
 }
 
-func TestRestoreLockedTaskWorktreeRecreatesMissingUnboundRootFromRecordedNamedBranch(t *testing.T) {
+func TestValidateLockedTaskWorktreeDoesNotInferUnboundBranchFromOldRecord(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	runGit(t, taskWorktreeRoot(materialized.Worktree), "branch", "-m", "operator-renamed")
-	if _, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID}); err != nil {
+	if _, err := env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID}); err != nil {
 		t.Fatalf("refresh locked worktree metadata: %v", err)
 	}
 	if err := env.service.git.Remove(env.ctx, env.workspaceRoot, taskWorktreeRoot(materialized.Worktree), true); err != nil {
@@ -714,10 +710,10 @@ func TestRestoreLockedTaskWorktreeRecreatesMissingUnboundRootFromRecordedNamedBr
 		t.Fatalf("task managed worktree id = %+v, want missing binding", taskRow.ManagedWorktreeID)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
-	var lockedErr *LockedTaskWorktreeError
-	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseMissingBranch {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want missing-branch without Task ownership evidence", err)
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
+	var missing *workflow.MissingManagedWorktree
+	if !errors.As(err, &missing) || missing.SuggestedSelection != nil {
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want selection without inferred Task ownership", err)
 	}
 	if exists, branchErr := env.service.git.BranchExists(env.ctx, env.workspaceRoot, "operator-renamed"); branchErr != nil {
 		t.Fatalf("BranchExists: %v", branchErr)
@@ -726,7 +722,7 @@ func TestRestoreLockedTaskWorktreeRecreatesMissingUnboundRootFromRecordedNamedBr
 	}
 }
 
-func TestRestoreLockedTaskWorktreeDoesNotInferUnboundBranchFromTaskShortID(t *testing.T) {
+func TestValidateLockedTaskWorktreeDoesNotInferUnboundBranchFromTaskShortID(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	if err := env.service.git.Remove(env.ctx, env.workspaceRoot, taskWorktreeRoot(materialized.Worktree), true); err != nil {
@@ -746,10 +742,10 @@ func TestRestoreLockedTaskWorktreeDoesNotInferUnboundBranchFromTaskShortID(t *te
 		t.Fatalf("DeleteWorktreeRecordByID: %v", err)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
-	var lockedErr *LockedTaskWorktreeError
-	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseMissingBranch {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want missing-branch without short-id inference", err)
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
+	var missing *workflow.MissingManagedWorktree
+	if !errors.As(err, &missing) || missing.SuggestedSelection != nil {
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want selection without short-id inference", err)
 	}
 	if exists, branchErr := env.service.git.BranchExists(env.ctx, env.workspaceRoot, task.ShortID); branchErr != nil {
 		t.Fatalf("BranchExists: %v", branchErr)
@@ -761,7 +757,7 @@ func TestRestoreLockedTaskWorktreeDoesNotInferUnboundBranchFromTaskShortID(t *te
 	}
 }
 
-func TestRestoreLockedTaskWorktreeReportsConflictingDeterministicRootRecord(t *testing.T) {
+func TestValidateLockedTaskWorktreeReportsConflictingDeterministicRootRecord(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, materialized, _ := materializeAndLockTaskWorktree(t, env)
 	updated, err := env.store.Queries().UpdateTaskManagedWorktree(env.ctx, sqlitegen.UpdateTaskManagedWorktreeParams{
@@ -812,10 +808,10 @@ func TestRestoreLockedTaskWorktreeReportsConflictingDeterministicRootRecord(t *t
 		t.Fatalf("deterministic root unavailable before restore: info=%v err=%v", info, statErr)
 	}
 
-	_, err = env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{TaskID: task.ID})
 	var lockedErr *LockedTaskWorktreeError
 	if !errors.As(err, &lockedErr) || lockedErr.Cause != LockedTaskWorktreeCauseConflict {
-		t.Fatalf("RestoreLockedTaskWorktree error = %v, want conflict locked target error", err)
+		t.Fatalf("ValidateLockedTaskWorktree error = %v, want conflict locked target error", err)
 	}
 }
 
@@ -1647,7 +1643,7 @@ func TestMaterializeInitialTaskWorktreeHandlesRootCollisionAndReportsBranchColli
 	}
 }
 
-func TestDeleteWorktreeRecreatesNonTerminalTaskManagedWorktreeOnRestore(t *testing.T) {
+func TestDeleteWorktreeRequiresExplicitTargetSelectionForNonTerminalTask(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, created, _ := materializeAndLockTaskWorktree(t, env)
 
@@ -1670,14 +1666,21 @@ func TestDeleteWorktreeRecreatesNonTerminalTaskManagedWorktreeOnRestore(t *testi
 		t.Fatalf("managed worktree id after deletion = %+v, want retained %q", taskAfterDelete.ManagedWorktreeID, taskWorktreeID(created.Worktree))
 	}
 
-	restored, err := env.service.RestoreLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{
+	_, err = env.service.ValidateLockedTaskWorktree(env.ctx, LockedTaskWorktreeValidationRequest{
 		TaskID: task.ID,
 	})
-	if err != nil {
-		t.Fatalf("RestoreLockedTaskWorktree: %v", err)
+	var missing *workflow.MissingManagedWorktree
+	if !errors.As(err, &missing) {
+		t.Fatalf("locked target validation = %v, want missing Worktree selection", err)
 	}
-	if !restored.Created || taskWorktreeRoot(restored.Worktree) != taskWorktreeRoot(created.Worktree) {
-		t.Fatalf("restored worktree = %+v, want recreated worktree at %q", restored, taskWorktreeRoot(created.Worktree))
+	if missing.SuggestedSelection == nil ||
+		missing.SuggestedSelection.Mode != workflow.ExecutionTargetModeCustomRef ||
+		missing.SuggestedSelection.CustomRef == nil ||
+		*missing.SuggestedSelection.CustomRef != "refs/heads/"+task.ShortID {
+		t.Fatalf("missing retained branch suggestion: %+v", missing.SuggestedSelection)
+	}
+	if _, statErr := os.Stat(taskWorktreeRoot(created.Worktree)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("missing Worktree was recreated: %v", statErr)
 	}
 	taskAfterRestore, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
 	if err != nil {

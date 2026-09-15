@@ -17,7 +17,6 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
-	"core/server/worktree"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 )
@@ -298,7 +297,7 @@ func TestServiceTaskResumeReturnsAppliedBeforeFinalBranchCollisionInterruptsCurr
 	}
 }
 
-func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t *testing.T) {
+func TestServiceTaskResumeRequiresSelectionForMissingLockedWorktree(t *testing.T) {
 	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	setWorkflowServiceExecutionTargetPolicy(t, ctx, service, workflowID, serverapi.WorkflowExecutionTargetConfiguration{
@@ -384,11 +383,14 @@ func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t 
 		}
 	})
 	service.currentNodeExecution = controller
-	restoreRequests := make(chan ExecutionTargetRestoreRequest, 1)
+	restoreRequests := make(chan ExecutionTargetValidationRequest, 1)
 	targets := &recordingExecutionTargetInfrastructure{
 		restoreRequests: restoreRequests,
-		restoreErr: &worktree.LockedTaskWorktreeError{
-			Cause: worktree.LockedTaskWorktreeCauseMissingBranch,
+		restoreErr: &workflow.MissingManagedWorktree{
+			SuggestedSelection: &workflow.ExecutionTargetSelection{
+				Mode:      workflow.ExecutionTargetModeCustomRef,
+				CustomRef: textutil.Value("refs/heads/" + task.Task.ShortID),
+			},
 		},
 	}
 	service.executionTargets = targets
@@ -446,11 +448,14 @@ func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t 
 	if err != nil {
 		t.Fatalf("ResumeWorkflowTask: %v", err)
 	}
-	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeApplied ||
-		response.Applied == nil ||
-		len(response.Applied.CurrentNodes) != 1 ||
-		response.Applied.CurrentNodes[0].NodeID != string(reference.NodeID) {
-		t.Fatalf("Resume response = %+v, want applied before restoration", response)
+	if response.Outcome != serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired ||
+		response.Applied != nil ||
+		response.SelectionRequired == nil ||
+		response.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonMissingManagedWorktree ||
+		response.SelectionRequired.SuggestedSelection == nil ||
+		response.SelectionRequired.SuggestedSelection.CustomRef == nil ||
+		*response.SelectionRequired.SuggestedSelection.CustomRef != existingBranchRef {
+		t.Fatalf("Resume response = %+v, want retained-branch selection", response)
 	}
 	select {
 	case restored := <-restoreRequests:
@@ -458,15 +463,12 @@ func TestServiceTaskResumePreflightsLockedBranchBeforeAsynchronousRestoration(t 
 			t.Fatalf("restored Task = %q, want %q", restored.TaskID, taskID)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("locked-target restoration was not queued")
+		t.Fatal("locked target was not validated")
 	}
-	var currentNodes []workflow.CurrentNode
-	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 20*time.Millisecond, func() bool {
-		var listErr error
-		currentNodes, listErr = service.store.ListCurrentNodes(ctx, taskID)
-		return listErr == nil &&
-			len(currentNodes) == 1 &&
-			currentNodes[0].Scheduling != nil &&
-			currentNodes[0].Scheduling.State == workflow.CurrentNodeSchedulingInterrupted
-	}, "locked-target restoration failure did not interrupt the requeued Current Node")
+	currentNodes, err := service.store.ListCurrentNodes(ctx, taskID)
+	if err != nil || len(currentNodes) != 1 || currentNodes[0].Scheduling == nil ||
+		currentNodes[0].Scheduling.State != workflow.CurrentNodeSchedulingInterrupted ||
+		currentNodes[0].Reference != reference {
+		t.Fatalf("missing-target Resume changed Current Node: %v, %v", currentNodes, err)
+	}
 }

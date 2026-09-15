@@ -64,6 +64,10 @@ func (o *taskSetupObservation) finalize(finalization workflowexecution.TaskPrepa
 	preparationErr := o.preparationErr
 	o.mu.Unlock()
 
+	var missing *workflow.MissingManagedWorktree
+	if errors.As(preparationErr, &missing) {
+		return
+	}
 	event := &worktreepb.SetupEvent{SetupOperationId: o.setupOperationID.String()}
 	switch finalization.Kind {
 	case workflowexecution.TaskPreparationHandedOff:
@@ -199,7 +203,7 @@ func taskPreparationError(
 	}
 	if errors.As(err, &typed) {
 		detail = typed.InterruptionDetail()
-		if detail.SetupRecovery != nil {
+		if detail.SetupRecovery != nil || detail.MissingManagedWorktree != nil {
 			return err
 		}
 	}

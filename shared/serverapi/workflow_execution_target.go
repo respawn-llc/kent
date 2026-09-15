@@ -110,7 +110,6 @@ const (
 	WorkflowLockedExecutionTargetCauseDetachedHead     WorkflowLockedExecutionTargetCause = "detached_head"
 	WorkflowLockedExecutionTargetCauseInvalidRoot      WorkflowLockedExecutionTargetCause = "invalid_root"
 	WorkflowLockedExecutionTargetCauseRootInaccessible WorkflowLockedExecutionTargetCause = "root_inaccessible"
-	WorkflowLockedExecutionTargetCauseMissingBranch    WorkflowLockedExecutionTargetCause = "missing_branch"
 	WorkflowLockedExecutionTargetCauseConflict         WorkflowLockedExecutionTargetCause = "conflict"
 	WorkflowLockedExecutionTargetCauseGitFailure       WorkflowLockedExecutionTargetCause = "git_failure"
 )

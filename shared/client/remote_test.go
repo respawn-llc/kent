@@ -1603,7 +1603,7 @@ func TestProtocolErrorDecodesWorkflowExecutionTargetResolutionError(t *testing.T
 
 func TestProtocolErrorDecodesWorkflowLockedExecutionTargetError(t *testing.T) {
 	source := &serverapi.WorkflowLockedExecutionTargetError{
-		Cause: serverapi.WorkflowLockedExecutionTargetCauseMissingBranch,
+		Cause: serverapi.WorkflowLockedExecutionTargetCauseInvalidRoot,
 	}
 	err := protocolError(&protocol.ResponseError{
 		Code:    protocol.ErrCodeWorkflowLockedExecutionTarget,

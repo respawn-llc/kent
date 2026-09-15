@@ -69,6 +69,7 @@ type initiatingActionTargetPreflight struct {
 	initialBranchAssertion *string
 	pendingBranchReplaced  bool
 	unavailable            initiatingActionTargetUnavailable
+	missingManagedWorktree *workflow.MissingManagedWorktree
 }
 
 type initiatingActionTargetUnavailable uint8
@@ -116,7 +117,7 @@ type executionTargetInfrastructure interface {
 	AssertInitialTaskBranch(context.Context, InitialTaskBranchAssertionRequest) error
 	ResolveExecutionTarget(context.Context, ExecutionTargetResolveRequest) (workflowstore.ExecutionTargetSnapshot, error)
 	MaterializeExecutionTarget(context.Context, ExecutionTargetMaterializeRequest) (ExecutionTargetMaterialization, error)
-	RestoreExecutionTarget(context.Context, ExecutionTargetRestoreRequest) error
+	ValidateExecutionTarget(context.Context, ExecutionTargetValidationRequest) error
 }
 
 type InitialTaskBranchInspectionRequest struct {
@@ -150,9 +151,8 @@ type ExecutionTargetMaterialization struct {
 	RetainedPreviousWorktree *worktreepb.RetainedPreviousWorktree
 }
 
-type ExecutionTargetRestoreRequest struct {
+type ExecutionTargetValidationRequest struct {
 	TaskID                 workflow.TaskID
-	SetupOperationID       *worktreecontract.SetupOperationID
 	InitialBranchAssertion *string
 }
 
@@ -987,6 +987,10 @@ func coordinateInitiatingAction[T any](ctx context.Context, service *Service, re
 	if req.requiresExecutionTarget {
 		targetDecision, err := service.initiatingActionTarget(ctx, req.taskID, req.setupOperationID, req.targetPreflight)
 		if err != nil {
+			var missing *workflow.MissingManagedWorktree
+			if errors.As(err, &missing) {
+				return initiatingActionResult[T]{selectionRequired: missingWorktreeSelectionRequirement(missing)}, nil
+			}
 			if targetDecision.prepared != nil {
 				retainedPreviousWorktree = targetDecision.prepared.retainedPreviousWorktree
 			}
@@ -1063,12 +1067,21 @@ func (s *Service) preflightInitiatingActionTarget(
 		if err != nil {
 			return initiatingActionTargetPreflight{}, err
 		}
-		return initiatingActionTargetPreflight{
+		preflight := initiatingActionTargetPreflight{
 			context:                targetContext,
 			selection:              selection,
 			initialBranchAssertion: branchAssertion,
 			pendingBranchReplaced:  pendingBranchReplaced,
-		}, nil
+		}
+		if selection.Mode != workflow.ExecutionTargetModeNone {
+			err := s.executionTargets.ValidateExecutionTarget(ctx, ExecutionTargetValidationRequest{
+				TaskID: taskID, InitialBranchAssertion: branchAssertion,
+			})
+			if err != nil && !errors.As(err, &preflight.missingManagedWorktree) {
+				return initiatingActionTargetPreflight{}, workflowLockedExecutionTargetError(err)
+			}
+		}
+		return preflight, nil
 	}
 	selection := workflow.ExecutionTargetSelection{
 		Mode:      targetContext.Policy.Mode,
@@ -1167,6 +1180,9 @@ func operationCannotCreateInitialWorktreeError(branchName string) *serverapi.Wor
 
 func (s *Service) initiatingActionTarget(ctx context.Context, taskID workflow.TaskID, setupOperationID *worktreecontract.SetupOperationID, preflight initiatingActionTargetPreflight) (initiatingActionTargetDecision, error) {
 	targetContext := preflight.context
+	if preflight.missingManagedWorktree != nil {
+		return initiatingActionTargetDecision{selectionRequired: missingWorktreeSelectionRequirement(preflight.missingManagedWorktree)}, nil
+	}
 	if targetContext.Task.ExecutionTarget != nil {
 		if targetContext.Task.ExecutionTarget.Mode != workflow.ExecutionTargetModeNone {
 			branchAssertion := preflight.initialBranchAssertion
@@ -1429,6 +1445,19 @@ func configuredTargetResumeSelection(nodes []workflow.CurrentNode) (*serverapi.W
 	return nil, nil
 }
 
+func missingWorktreeSelectionRequirement(missing *workflow.MissingManagedWorktree) *serverapi.WorkflowExecutionTargetSelectionRequirement {
+	requirement := &serverapi.WorkflowExecutionTargetSelectionRequirement{
+		Reason: serverapi.WorkflowExecutionTargetSelectionReasonMissingManagedWorktree,
+	}
+	if missing.SuggestedSelection != nil {
+		requirement.SuggestedSelection = &serverapi.WorkflowExecutionTargetSelection{
+			Mode:      serverapi.WorkflowExecutionTargetMode(missing.SuggestedSelection.Mode),
+			CustomRef: missing.SuggestedSelection.CustomRef,
+		}
+	}
+	return requirement
+}
+
 func resumeSetupRequirement(nodes []workflow.CurrentNode, selection workflow.ExecutionTargetSelection) (worktreecontract.SetupRequirement, error) {
 	for _, node := range nodes {
 		if node.Scheduling == nil || node.Scheduling.Interruption == nil {
@@ -1611,6 +1640,12 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	if err != nil {
 		return serverapi.WorkflowTaskResumeResponse{}, err
 	}
+	if target.missingManagedWorktree != nil {
+		return serverapi.WorkflowTaskResumeResponse{
+			Outcome:           serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired,
+			SelectionRequired: missingWorktreeSelectionRequirement(target.missingManagedWorktree),
+		}, nil
+	}
 	setupOperationID := req.SetupOperationID.Domain()
 	observation, err := newTaskSetupObservation(setupOperationID, target.selection, s.setupEvents)
 	if err != nil {
@@ -1650,19 +1685,6 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 			},
 		)
 		preparation = &prepared
-	} else if target.context.Task.ExecutionTarget.Mode != workflow.ExecutionTargetModeNone {
-		prepared := s.initiatingActionPreparation(
-			taskID,
-			setupOperationID,
-			target,
-			observation,
-			func(preparationCtx context.Context) (preparedInitiatingActionTarget, error) {
-				return s.prepareInitiatingActionTarget(
-					preparationCtx, taskID, &setupOperationID, target,
-				)
-			},
-		)
-		preparation = &prepared
 	}
 	var resumeResult workflowexecution.TaskResumeResult
 	if preparation == nil {
@@ -1671,6 +1693,13 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 		resumeResult, err = s.currentNodeExecution.ResumeTaskWithPreparation(ctx, taskID, *preparation, observation.finalize)
 	}
 	if err != nil {
+		var missing *workflow.MissingManagedWorktree
+		if errors.As(err, &missing) {
+			return serverapi.WorkflowTaskResumeResponse{
+				Outcome:           serverapi.WorkflowExecutionTargetActionOutcomeSelectionRequired,
+				SelectionRequired: missingWorktreeSelectionRequirement(missing),
+			}, nil
+		}
 		return serverapi.WorkflowTaskResumeResponse{}, err
 	}
 	if resumeResult.Outcome == workflowexecution.TaskResumeNoOp {

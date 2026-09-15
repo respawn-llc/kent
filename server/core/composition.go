@@ -569,15 +569,21 @@ func (i taskExecutionTargetInfrastructure) MaterializeExecutionTarget(ctx contex
 	}, err
 }
 
-func (i taskExecutionTargetInfrastructure) RestoreExecutionTarget(ctx context.Context, req workflowsvc.ExecutionTargetRestoreRequest) error {
+func (i taskExecutionTargetInfrastructure) ValidateExecutionTarget(ctx context.Context, req workflowsvc.ExecutionTargetValidationRequest) error {
 	if i.service == nil {
 		return errors.New("worktree service is required")
 	}
-	_, err := i.service.RestoreLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeRestoreRequest{
-		TaskID:           req.TaskID,
-		SetupOperationID: req.SetupOperationID,
-		BranchName:       req.InitialBranchAssertion,
+	_, err := i.service.ValidateLockedTaskWorktree(ctx, worktree.LockedTaskWorktreeValidationRequest{
+		TaskID:     req.TaskID,
+		BranchName: req.InitialBranchAssertion,
 	})
+	var missing *workflow.MissingManagedWorktree
+	if errors.As(err, &missing) {
+		return workflowexecution.NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
+			Code:                   "workflow_managed_worktree_missing",
+			MissingManagedWorktree: missing,
+		})
+	}
 	return err
 }
 

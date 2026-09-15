@@ -2210,8 +2210,8 @@ type recordingExecutionTargetInfrastructure struct {
 	materializeTaskID         workflow.TaskID
 	materializeRequest        ExecutionTargetMaterializeRequest
 	restoreTaskID             workflow.TaskID
-	restoreRequest            ExecutionTargetRestoreRequest
-	restoreRequests           chan<- ExecutionTargetRestoreRequest
+	restoreRequest            ExecutionTargetValidationRequest
+	restoreRequests           chan<- ExecutionTargetValidationRequest
 	setupOperationID          *worktreecontract.SetupOperationID
 	setupRequirements         []worktreecontract.SetupRequirement
 	materialize               func(workflow.TaskID) (ExecutionTargetMaterialization, error)
@@ -2407,10 +2407,9 @@ func waitForTaskMutationLane(
 	}
 }
 
-func (i *recordingExecutionTargetInfrastructure) RestoreExecutionTarget(_ context.Context, req ExecutionTargetRestoreRequest) error {
+func (i *recordingExecutionTargetInfrastructure) ValidateExecutionTarget(_ context.Context, req ExecutionTargetValidationRequest) error {
 	i.restoreTaskID = req.TaskID
 	i.restoreRequest = req
-	i.setupOperationID = req.SetupOperationID
 	if i.restoreRequests != nil {
 		i.restoreRequests <- req
 	}

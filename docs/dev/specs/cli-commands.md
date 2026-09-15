@@ -483,13 +483,13 @@
 - Task move selects the Transition automatically when exactly one is usable.
 - Flat `name=value` Task move input is unavailable because it cannot distinguish same-named outputs from different Nodes.
 - Task start, resume, and move may select a concrete target for an unlocked Task even when the Workflow has a fixed policy.
-- Task move must also accept a replacement target when reopening a completed Task whose original Execution Target cannot be reused, as defined in [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
+- Task move and resume must also accept a replacement target when the original Execution Target cannot be safely restored, as defined in [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - Task creation has no target override.
 - Execution Target selection uses `--execution-target none|head|default-branch|ref:<revision>`.
 - Custom Git revisions require the explicit `ref:` namespace.
 - Task start, move, and resume accept `--branch-name <name>` for initial managed-branch selection or an exact assertion against an existing managed Worktree. The flag is rejected when the operation selects no managed Worktree or when Manual Move is a no-op or does not require Execution Target preparation.
-- During completed-Task Execution Target replacement, Task move must accept `--branch-name <name>` for the new branch without renaming the original branch.
-- When a completed Task's original Execution Target is reusable, Task move must reject an explicit replacement target or branch name with the locked-target error. Supplying only `--branch-name` must not bypass this rejection.
+- During Execution Target replacement, Task move and resume must accept `--branch-name <name>` for the new branch without renaming the original branch.
+- When a locked original Execution Target is reusable, an explicit replacement must be rejected. Supplying only `--branch-name` must not bypass this restriction or rename the existing branch.
 - Task start, resume, approve, and move never prompt interactively.
 - Selection-required output identifies the reason and concrete rerun flags.
 - Task start exposes the same typed outcome in JSON.
