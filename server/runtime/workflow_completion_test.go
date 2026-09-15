@@ -14,6 +14,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
@@ -751,38 +752,135 @@ func TestWorkflowModePromptResumedCurrentNodeMessageSkipsTaskAwarenessQueryAndRe
 	}
 }
 
-func TestWorkflowModePromptResumeRejectsMissingCurrentNodeAssignmentBeforeModelRequest(t *testing.T) {
+func TestWorkflowModePromptResumeRestoresMissingCurrentNodeAssignmentBeforeModelRequest(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
+	if _, _, err := appendTestEvent(t, store, "seed", llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeAgentsMD),
+		Content:     textutil.Value("existing base context"),
+	}); err != nil {
+		t.Fatalf("seed base context: %v", err)
+	}
 	counter := &fakeTaskAwarenessSource{
 		awareness: workflowruntime.TaskAwareness{CommentCount: 2},
 	}
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
 	workflowCfg.TaskAwarenessSource = counter
 	workflowCfg.TaskPromptDelivery = workflowruntime.TaskPromptDeliveryResume
-	client := &fakeClient{responses: []llm.Response{commentaryResponse(
-		"complete",
-		completeNodeCall(
-			"call_complete",
-			json.RawMessage(`{"commentary":"complete","summary":"done"}`),
+	providerSawAssignment := false
+	client := &hookClient{
+		response: commentaryResponse(
+			"complete",
+			completeNodeCall(
+				"call_complete",
+				json.RawMessage(`{"commentary":"complete","summary":"done"}`),
+			),
 		),
-	)}}
+		beforeReturn: func() error {
+			assignment, err := store.ActiveWorkflowAssignmentProjection()
+			if err != nil {
+				return err
+			}
+			if assignment == nil || assignment.SourcePath == nil ||
+				*assignment.SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode) {
+				return errors.New("provider request observed before Workflow assignment commit")
+			}
+			providerSawAssignment = true
+			return nil
+		},
+	}
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
 	before := eng.transcriptRuntimeState().SnapshotItems()
 
-	_, err := eng.SubmitWorkflowTurn(context.Background())
-	if !errors.Is(err, errWorkflowResumeAssignmentUnavailable) {
-		t.Fatalf(
-			"submit resumed workflow turn error = %v, want missing assignment invariant",
-			err,
-		)
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit resumed workflow turn: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(client.calls))
+	}
+	if !providerSawAssignment {
+		t.Fatal("provider request did not observe the committed Workflow assignment")
+	}
+	if after := eng.transcriptRuntimeState().SnapshotItems(); reflect.DeepEqual(after, before) {
+		t.Fatal("Resume did not restore the missing assignment before model work")
+	}
+	assignments := workflowPromptMessages(requestMessages(client.calls[0]))
+	if len(assignments) != 1 ||
+		assignments[0].SourcePath == nil ||
+		*assignments[0].SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode) {
+		t.Fatalf("resumed workflow assignments = %+v, want one exact Current Node assignment", assignments)
+	}
+	if got := counter.calls.Load(); got != 1 {
+		t.Fatalf("TaskAwareness calls = %d, want one restored assignment", got)
+	}
+	assignment, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load restored assignment projection: %v", err)
+	}
+	if assignment == nil || assignment.SourcePath == nil ||
+		*assignment.SourcePath != *assignments[0].SourcePath {
+		t.Fatalf("restored assignment projection = %+v, want request assignment", assignment)
+	}
+}
+
+func TestWorkflowModePromptResumeRetriesAssignmentPersistenceBeforeProvider(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("workflow assignment persistence failed")
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	if _, _, err := appendTestEvent(t, store, "seed", llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeAgentsMD),
+		Content:     textutil.Value("existing base context"),
+	}); err != nil {
+		t.Fatalf("seed base context: %v", err)
+	}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.TaskPromptDelivery = workflowruntime.TaskPromptDeliveryResume
+	client := &fakeClient{responses: []llm.Response{commentaryResponse(
+		"complete",
+		completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+	)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
+	beforeAssignments := workflowModeRecordCount(t, store)
+	gate.FailNext(cause)
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); !errors.Is(err, cause) {
+		t.Fatalf("first resumed workflow turn error = %v, want %v", err, cause)
 	}
 	assertModelCallCount(t, client, 0)
-	if after := eng.transcriptRuntimeState().SnapshotItems(); !reflect.DeepEqual(after, before) {
-		t.Fatalf("Resume mutated model-visible history: before=%+v after=%+v", before, after)
+	afterFailureAssignments := workflowModeRecordCount(t, store)
+	if afterFailureAssignments < beforeAssignments || afterFailureAssignments > beforeAssignments+1 {
+		t.Fatalf("Workflow assignment records after failed Resume = %d, want %d or %d", afterFailureAssignments, beforeAssignments, beforeAssignments+1)
 	}
-	if got := counter.calls.Load(); got != 0 {
-		t.Fatalf("TaskAwareness calls = %d, want no assignment reconstruction", got)
+	assignmentAfterFailure, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load failed assignment projection: %v", err)
+	}
+	if assignmentAfterFailure != nil && (assignmentAfterFailure.SourcePath == nil ||
+		*assignmentAfterFailure.SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode)) {
+		t.Fatalf("failed assignment projection = %+v, want absent or exact Current Node assignment", assignmentAfterFailure)
+	}
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("retry resumed workflow turn: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	wantAfterRetry := afterFailureAssignments
+	if assignmentAfterFailure == nil {
+		wantAfterRetry++
+	}
+	if got := workflowModeRecordCount(t, store); got != wantAfterRetry {
+		t.Fatalf("Workflow assignment records after retry = %d, want %d", got, wantAfterRetry)
+	}
+	assignment, err := store.ActiveWorkflowAssignmentProjection()
+	if err != nil {
+		t.Fatalf("load retried assignment projection: %v", err)
+	}
+	if assignment == nil || assignment.SourcePath == nil ||
+		*assignment.SourcePath != workflowruntime.CurrentNodePromptIdentity(workflowCfg.Instructions.CurrentNode) {
+		t.Fatalf("retried assignment projection = %+v, want exact Current Node assignment", assignment)
 	}
 }
 

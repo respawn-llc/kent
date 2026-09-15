@@ -356,7 +356,12 @@
 - A direct Transition that continues the same Session without an Approval, pause, Session change, or intervening Node keeps that Active Session Runtime and Steers exactly one next assignment. Kent does not close and reopen the Runtime for that continuation.
 - Context-Preservation Mode selects the target Session and assignment template. It does not change the Transition's ownership of assignment delivery.
 - When a Node Transition continues a Session during an active model or tool turn, the target assignment must follow the source turn's durable tool result.
-- Resume must not steer or append a Current Node assignment.
+- Authorized Workflow activation, including ordinary Task Resume, must establish the authoritative Current Node assignment before accepting selected model-visible input or starting a provider request.
+- Workflow Execution must authorize activation from the Current Node's lifecycle, configuration, and retained Session ownership. Conversation contents must not authorize execution.
+- If the exact Current Node assignment is already present, activation must not append a duplicate assignment.
+- Missing assignment context after compaction must not by itself invalidate an otherwise eligible activation. Restoration must support both open and dormant retained Sessions, including a retained Session compacted before its first Current Node activation.
+- If assignment persistence fails, Kent must start no provider request and report the failure through the ordinary Workflow failure path. A later explicit Resume may retry and must not duplicate an exact assignment already committed.
+- Assignment restoration must preserve the Task, Current Node, retained Session, Execution Target, Worktree, locked Session Contract, completion mode, and provider cache lineage. Ordinary Resume must recover missing assignment context without an intervening Node, fabricated completion, or database edits.
 - When a Session's model context has no prior executable Node assignment, Kent uses the initial-assignment instructions.
 - When a Session's model context already contains another executable Node assignment, Kent uses the reassignment instructions.
 - Full-history fan-out clones use the reassignment instructions because they inherit the source Session's prior assignment context.
