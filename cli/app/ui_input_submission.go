@@ -332,13 +332,19 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		}
 		m.logf("step.error err=%q", detailErr)
 		m.layout().syncViewport()
+		var errorEntryCmd tea.Cmd
+		var rejection *serverapi.WorkflowContinuationRejectionError
+		if errors.As(msg.err, &rejection) && rejection != nil {
+			errorEntryCmd = m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
+		}
 		statusCmd := m.sendTransientStatusWithNoticeID(detailErr, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		presentationCmd := sequenceCmds(errorEntryCmd, statusCmd)
 		if notFound, ok := promptCommandNotFound(msg.err); ok && notFound.Command != nil {
 			if refreshCmd := m.startPromptCatalogRefresh(*notFound.Command); refreshCmd != nil {
-				return m, tea.Batch(restoreInjectedCmd, statusCmd, refreshCmd)
+				return m, tea.Batch(restoreInjectedCmd, presentationCmd, refreshCmd)
 			}
 		}
-		return m, tea.Batch(restoreInjectedCmd, statusCmd)
+		return m, tea.Batch(restoreInjectedCmd, presentationCmd)
 	}
 	if !m.runtimeActivityBusy() {
 		m.activity = uiActivityIdle
