@@ -177,7 +177,7 @@ var (
 	worktreeCreateUsage = leafCommandUsage(config.Command+" worktree create [--project <id>] [--workspace <id>] [--session <id>] [--base <ref>] [--json] <branch-or-ref> [path]", "Create and set up a worktree without entering it. No Session is required.")
 	worktreeEnterUsage  = leafCommandUsage(config.Command+" worktree enter [--session <id>] [--json] <selector>", "Schedule the session to enter a worktree.")
 	worktreeLeaveUsage  = leafCommandUsage(config.Command+" worktree leave [--session <id>] [--json]", "Schedule the session to return to the main workspace.")
-	worktreeDeleteUsage = leafCommandUsage(config.Command+" worktree delete [--project <id>] [--workspace <id>] [--session <id>] [--force] [--delete-branch] [--force-delete-branch] [--json] <selector>", "Delete a worktree without requiring a Session; agent shell commands always retain branches.")
+	worktreeDeleteUsage = leafCommandUsage(config.Command+" worktree delete [--project <id>] [--workspace <id>] [--session <id>] [--force] [--delete-branch] [--force-delete-branch] [--json] <selector>", "Delete a worktree without requiring a Session; branches are retained unless deletion is explicitly requested.")
 	workflowUsage       = commandUsage{helpFile: "workflow.txt"}
 	workflowCreateUsage = leafCommandUsage(config.Command+" workflow create [--description <text>] [--json] <name>", "Create a workflow with `backlog` start and `done` terminal nodes.")
 	workflowDeleteUsage = leafCommandUsage(config.Command+" workflow delete <uuid> [--confirm] [--json]", "Preview or permanently delete a workflow.", "", "Without `--confirm`, the command reports the deletion impact and makes no changes.")

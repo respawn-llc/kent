@@ -697,7 +697,6 @@ func TestWorktreeHeaderAndBranchCleanupPolicy(t *testing.T) {
 		name        string
 		delete      bool
 		forceDelete bool
-		agent       bool
 		want        worktreepb.BranchCleanupMode
 		wantError   bool
 	}{
@@ -705,10 +704,9 @@ func TestWorktreeHeaderAndBranchCleanupPolicy(t *testing.T) {
 		{name: "safe delete", delete: true, want: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE},
 		{name: "force delete", delete: true, forceDelete: true, want: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_FORCE},
 		{name: "force requires delete", forceDelete: true, wantError: true},
-		{name: "agent retains branch", delete: true, agent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := worktreeBranchCleanupPolicy(test.delete, test.forceDelete, test.agent)
+			got, err := worktreeBranchCleanupPolicy(test.delete, test.forceDelete)
 			if (err != nil) != test.wantError || got != test.want {
 				t.Fatalf("policy=%q err=%v", got, err)
 			}

@@ -379,8 +379,7 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, "worktree delete requires exactly one selector")
 		return 2
 	}
-	_, inAgentShell := sessionenv.LookupSessionID(os.LookupEnv)
-	policy, err := worktreeBranchCleanupPolicy(*deleteBranch, *forceDeleteBranch, inAgentShell)
+	policy, err := worktreeBranchCleanupPolicy(*deleteBranch, *forceDeleteBranch)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -426,12 +425,9 @@ func worktreeDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	return 0
 }
 
-func worktreeBranchCleanupPolicy(deleteBranch bool, forceDeleteBranch bool, inAgentShell bool) (worktreepb.BranchCleanupMode, error) {
+func worktreeBranchCleanupPolicy(deleteBranch bool, forceDeleteBranch bool) (worktreepb.BranchCleanupMode, error) {
 	if forceDeleteBranch && !deleteBranch {
 		return worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_UNSPECIFIED, errors.New("--force-delete-branch requires --delete-branch")
-	}
-	if inAgentShell && deleteBranch {
-		return worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_UNSPECIFIED, errors.New("agent worktree deletion always retains branches; --delete-branch is not allowed inside Kent shell commands")
 	}
 	if forceDeleteBranch {
 		return worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_FORCE, nil
