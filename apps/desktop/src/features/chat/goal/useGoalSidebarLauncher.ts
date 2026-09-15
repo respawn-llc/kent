@@ -9,13 +9,11 @@ export function useGoalSidebarLauncher(input: GoalSidebarInput): () => void {
   const active = useRef<Readonly<{
     key: string | object;
     generation: number;
-    close(): void;
   }> | null>(null);
   const key = input.kind === "session" ? `session:${input.target.sessionID}` : input.binding;
 
   useEffect(
     () => () => {
-      active.current?.close();
       active.current = null;
     },
     [],
@@ -26,24 +24,20 @@ export function useGoalSidebarLauncher(input: GoalSidebarInput): () => void {
     if (current?.key === key) {
       return;
     }
-    current?.close();
     const generation = (current?.generation ?? 0) + 1;
     const handle = open(goalSidebarDestination(input));
     active.current = {
       key,
       generation,
-      close: () => undefined,
     };
     void handle.lifecycle.then(
       () => {
         if (active.current?.generation === generation && active.current.key === key) {
-          active.current.close();
           active.current = null;
         }
       },
       () => {
         if (active.current?.generation === generation && active.current.key === key) {
-          active.current.close();
           active.current = null;
         }
       },

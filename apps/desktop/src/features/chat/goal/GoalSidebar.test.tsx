@@ -133,12 +133,14 @@ describe("Goal sidebar", () => {
     const saveResult = deferred<Awaited<ReturnType<GoalSidebarApi["setGoal"]>>>();
     const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
       handlers.push(handler);
-      queueMicrotask(() => handler.onEvent(hydration({ objective: "saved objective", status: "active" })));
+      queueMicrotask(() => {
+        handler.onEvent(hydration({ objective: "saved objective", status: "active" }));
+      });
       return { close: vi.fn() };
     };
     const api = createGoalSidebarApi({
       goal: goalValue("saved objective", "active"),
-      setGoal: vi.fn(() => saveResult.promise),
+      setGoal: vi.fn(async () => saveResult.promise),
       subscribeGoal,
     });
     render(

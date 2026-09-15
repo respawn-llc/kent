@@ -369,7 +369,7 @@ function useExactGoalSidebarModel(
   }, [observation.fact]);
 
   const reconciledDraftState = reconcileDraftState(localDraft, observation.fact, pendingIntent);
-  const derived = deriveGoalSidebarState(observation, pendingIntent, reconciledDraftState);
+  const derived = deriveGoalSidebarState(observation.observation, pendingIntent, reconciledDraftState);
   const {
     actionsDisabled,
     dirty,
