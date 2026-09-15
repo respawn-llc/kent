@@ -882,6 +882,18 @@ func (q *Queries) CountTaskEdgeReferences(ctx context.Context, edgeID string) (i
 	return ref_count, err
 }
 
+const countTaskManagedWorktreeReferences = `-- name: CountTaskManagedWorktreeReferences :one
+SELECT COUNT(*) FROM tasks WHERE managed_worktree_id = ?1
+`
+
+func (q *Queries) CountTaskManagedWorktreeReferences(ctx context.Context, managedWorktreeID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTaskManagedWorktreeReferences, managedWorktreeID)
+	var count int64
+	err := recordQueryError(ctx, row.Scan(&count), countTaskManagedWorktreeReferences, 1)
+
+	return count, err
+}
+
 const countTaskNodeReferences = `-- name: CountTaskNodeReferences :one
 SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (
@@ -8598,6 +8610,60 @@ func (q *Queries) RenameProjectLabel(ctx context.Context, arg RenameProjectLabel
 	), renameProjectLabel, 4)
 
 	return i, err
+}
+
+const replaceCompletedTaskExecutionTarget = `-- name: ReplaceCompletedTaskExecutionTarget :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = ?1,
+    pending_initial_managed_branch_name = NULL,
+    execution_target_mode = ?2,
+    execution_target_requested_ref = ?3,
+    execution_target_resolved_ref = ?4,
+    execution_target_commit_oid = ?5,
+    execution_target_provenance = ?6,
+    updated_at_unix_ms = ?7
+WHERE tasks.id = ?8
+  AND execution_target_mode IS NOT NULL
+  AND execution_target_mode != 'none'
+  AND managed_worktree_id IS ?9
+  AND EXISTS (
+      SELECT 1 FROM task_current_nodes current_node
+      JOIN workflow_nodes node ON node.id = current_node.node_id
+      WHERE current_node.task_id = tasks.id AND node.kind = 'terminal'
+  )
+`
+
+type ReplaceCompletedTaskExecutionTargetParams struct {
+	ManagedWorktreeID           sql.NullString
+	ExecutionTargetMode         sql.NullString
+	ExecutionTargetRequestedRef sql.NullString
+	ExecutionTargetResolvedRef  sql.NullString
+	ExecutionTargetCommitOid    sql.NullString
+	ExecutionTargetProvenance   sql.NullString
+	UpdatedAtUnixMs             int64
+	TaskID                      string
+	ExpectedManagedWorktreeID   sql.NullString
+}
+
+func (q *Queries) ReplaceCompletedTaskExecutionTarget(ctx context.Context, arg ReplaceCompletedTaskExecutionTargetParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replaceCompletedTaskExecutionTarget,
+		arg.ManagedWorktreeID,
+		arg.ExecutionTargetMode,
+		arg.ExecutionTargetRequestedRef,
+		arg.ExecutionTargetResolvedRef,
+		arg.ExecutionTargetCommitOid,
+		arg.ExecutionTargetProvenance,
+		arg.UpdatedAtUnixMs,
+		arg.TaskID,
+		arg.ExpectedManagedWorktreeID,
+	)
+	err = recordQueryError(ctx, err, replaceCompletedTaskExecutionTarget, 9)
+
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const replacePendingInitialManagedBranchName = `-- name: ReplacePendingInitialManagedBranchName :execrows

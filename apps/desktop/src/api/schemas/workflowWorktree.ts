@@ -119,7 +119,10 @@ export function parseTaskSetupRecoveryDetail(detailJSON: string | null): TaskSet
   return parsed.data.setup_recovery ?? null;
 }
 
+type SetupRecoveryDisposition = "retry_existing" | "fresh_replacement";
+
 export class WorktreeSetupRetainedError extends RpcError {
+  readonly recoveryDisposition: SetupRecoveryDisposition;
   readonly worktree: WorkflowRegisteredWorktree;
   readonly scriptPath: string;
   readonly diagnostic: string;
@@ -128,6 +131,7 @@ export class WorktreeSetupRetainedError extends RpcError {
   constructor(
     rpcError: RpcError,
     facts: Readonly<{
+      recoveryDisposition: SetupRecoveryDisposition;
       worktree: WorkflowRegisteredWorktree;
       scriptPath: string;
       diagnostic: string;
@@ -136,6 +140,7 @@ export class WorktreeSetupRetainedError extends RpcError {
   ) {
     super(rpcError);
     this.name = "WorktreeSetupRetainedError";
+    this.recoveryDisposition = facts.recoveryDisposition;
     this.worktree = facts.worktree;
     this.scriptPath = facts.scriptPath;
     this.diagnostic = facts.diagnostic;
@@ -145,6 +150,7 @@ export class WorktreeSetupRetainedError extends RpcError {
 const retainedErrorSchema = z
   .object({
     type: z.literal("worktree_setup_retained"),
+    recovery_disposition: z.enum(["retry_existing", "fresh_replacement"]),
     worktree: workflowRegisteredWorktreeSchema,
     script_path: nonBlankString,
     diagnostic: nonBlankString,
@@ -159,6 +165,7 @@ export function decodeWorktreeSetupRetainedError(error: unknown): WorktreeSetupR
   const parsed = retainedErrorSchema.safeParse(error.data);
   return parsed.success
     ? new WorktreeSetupRetainedError(error, {
+        recoveryDisposition: parsed.data.recovery_disposition,
         worktree: parsed.data.worktree,
         scriptPath: parsed.data.script_path,
         diagnostic: parsed.data.diagnostic,

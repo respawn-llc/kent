@@ -109,6 +109,19 @@ const configuredTargetSchema = z
 
 const selectionRequirementSchema: z.ZodType<WorkflowExecutionTargetSelectionRequirement> = z
   .discriminatedUnion("reason", [
+    z
+      .object({
+        reason: z.literal("original_target_unavailable"),
+        original_target_cause: z.enum([
+          "detached_head",
+          "invalid_root",
+          "root_inaccessible",
+          "missing_branch",
+          "conflict",
+          "git_failure",
+        ]),
+      })
+      .strict(),
     z.object({ reason: z.literal("policy_requires_selection") }).strict(),
     z
       .object({
@@ -121,6 +134,9 @@ const selectionRequirementSchema: z.ZodType<WorkflowExecutionTargetSelectionRequ
   .transform((value): WorkflowExecutionTargetSelectionRequirement => {
     if (value.reason === "policy_requires_selection") {
       return { reason: value.reason };
+    }
+    if (value.reason === "original_target_unavailable") {
+      return { reason: value.reason, originalTargetCause: value.original_target_cause };
     }
     return {
       reason: value.reason,

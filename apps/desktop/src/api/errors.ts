@@ -28,6 +28,48 @@ export class RpcError extends Error {
   }
 }
 
+const executionTargetChoiceFailureSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("workflow_task_initial_branch_error"),
+      reason: z.enum([
+        "invalid_name",
+        "local_collision",
+        "remote_tracking_collision",
+        "no_managed_target",
+        "operation_cannot_create_worktree",
+        "post_creation_mismatch",
+      ]),
+      branch_name: z.string().trim().min(1),
+      ref: z.string().trim().min(1).optional(),
+      remote: z.string().trim().min(1).optional(),
+      existing_branch_name: z.string().trim().min(1).optional(),
+    })
+    .strict()
+    .transform((value) => ({ kind: "branch" as const, reason: value.reason, value: value.branch_name })),
+  z
+    .object({
+      type: z.literal("workflow_execution_target_resolution_error"),
+      code: z.enum(["invalid_revision", "non_commit", "git_failure"]),
+      requested_ref: z.string().trim().min(1),
+    })
+    .strict()
+    .transform((value) => ({ kind: "revision" as const, reason: value.code, value: value.requested_ref })),
+]);
+
+export type ExecutionTargetChoiceFailure = z.infer<typeof executionTargetChoiceFailureSchema>;
+
+export function decodeExecutionTargetChoiceFailure(error: unknown): ExecutionTargetChoiceFailure | null {
+  if (
+    !(error instanceof RpcError) ||
+    (error.code !== rpcErrorCodes.workflowTaskInitialBranch &&
+      error.code !== rpcErrorCodes.workflowExecutionTargetResolution)
+  )
+    return null;
+  const parsed = executionTargetChoiceFailureSchema.safeParse(error.data);
+  return parsed.success ? parsed.data : null;
+}
+
 export function isTaskMissingError(error: unknown): boolean {
   return error instanceof RpcError && error.code === rpcErrorCodes.workflowTaskNotFound;
 }

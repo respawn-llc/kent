@@ -1083,7 +1083,15 @@ func (t WorkflowRegisteredWorktreeTopology) Validate() error {
 	return nil
 }
 
+type WorkflowSetupRecoveryDisposition string
+
+const (
+	WorkflowSetupRecoveryRetryExisting    WorkflowSetupRecoveryDisposition = "retry_existing"
+	WorkflowSetupRecoveryFreshReplacement WorkflowSetupRecoveryDisposition = "fresh_replacement"
+)
+
 type WorkflowSetupRetainedError struct {
+	RecoveryDisposition      WorkflowSetupRecoveryDisposition   `json:"recovery_disposition"`
 	Worktree                 WorkflowRegisteredWorktreeTopology `json:"worktree"`
 	ScriptPath               string                             `json:"script_path"`
 	Diagnostic               string                             `json:"diagnostic"`
@@ -1118,6 +1126,9 @@ func (e *WorkflowSetupRetainedError) RPCErrorData() json.RawMessage {
 func (e *WorkflowSetupRetainedError) Validate() error {
 	if e == nil {
 		return errors.New("retained setup error is required")
+	}
+	if e.RecoveryDisposition != WorkflowSetupRecoveryRetryExisting && e.RecoveryDisposition != WorkflowSetupRecoveryFreshReplacement {
+		return errors.New("retained setup error recovery disposition is invalid")
 	}
 	if err := e.Worktree.Validate(); err != nil {
 		return err

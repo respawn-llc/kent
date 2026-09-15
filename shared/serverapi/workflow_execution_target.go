@@ -54,6 +54,7 @@ type WorkflowExecutionTargetSelectionReason string
 const (
 	WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection     WorkflowExecutionTargetSelectionReason = "policy_requires_selection"
 	WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable WorkflowExecutionTargetSelectionReason = "configured_target_unavailable"
+	WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable   WorkflowExecutionTargetSelectionReason = "original_target_unavailable"
 )
 
 type WorkflowExecutionTargetUnavailableCause string
@@ -67,9 +68,10 @@ const (
 )
 
 type WorkflowExecutionTargetSelectionRequirement struct {
-	Reason           WorkflowExecutionTargetSelectionReason   `json:"reason"`
-	ConfiguredTarget *WorkflowExecutionTargetConfiguredTarget `json:"configured_target,omitempty"`
-	UnavailableCause WorkflowExecutionTargetUnavailableCause  `json:"unavailable_cause,omitempty"`
+	Reason              WorkflowExecutionTargetSelectionReason   `json:"reason"`
+	ConfiguredTarget    *WorkflowExecutionTargetConfiguredTarget `json:"configured_target,omitempty"`
+	UnavailableCause    WorkflowExecutionTargetUnavailableCause  `json:"unavailable_cause,omitempty"`
+	OriginalTargetCause *WorkflowLockedExecutionTargetCause      `json:"original_target_cause,omitempty"`
 }
 
 type WorkflowExecutionTargetActionOutcome string
@@ -261,11 +263,11 @@ func (t WorkflowExecutionTarget) Validate() error {
 func (r WorkflowExecutionTargetSelectionRequirement) Validate() error {
 	switch r.Reason {
 	case WorkflowExecutionTargetSelectionReasonPolicyRequiresSelection:
-		if r.ConfiguredTarget != nil || r.UnavailableCause != "" {
+		if r.ConfiguredTarget != nil || r.UnavailableCause != "" || r.OriginalTargetCause != nil {
 			return errors.New("policy selection requirement cannot include configured target failure")
 		}
 	case WorkflowExecutionTargetSelectionReasonConfiguredTargetUnavailable:
-		if r.ConfiguredTarget == nil || !validWorkflowExecutionTargetUnavailableCause(r.UnavailableCause) {
+		if r.ConfiguredTarget == nil || !validWorkflowExecutionTargetUnavailableCause(r.UnavailableCause) || r.OriginalTargetCause != nil {
 			return errors.New("configured target requirement requires configured target and unavailable cause")
 		}
 		if !validWorkflowManagedExecutionTargetMode(r.ConfiguredTarget.Mode) {
@@ -276,6 +278,10 @@ func (r WorkflowExecutionTargetSelectionRequirement) Validate() error {
 		}
 		if r.ConfiguredTarget.Mode != WorkflowExecutionTargetModeCustomRef && r.ConfiguredTarget.RequestedRef != nil {
 			return errors.New("configured non-custom requirement cannot include requested ref")
+		}
+	case WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable:
+		if r.ConfiguredTarget != nil || r.UnavailableCause != "" || r.OriginalTargetCause == nil || !validWorkflowLockedExecutionTargetCause(*r.OriginalTargetCause) {
+			return errors.New("original target requirement requires only an original target cause")
 		}
 	default:
 		return errors.New("execution target selection requirement reason is invalid")

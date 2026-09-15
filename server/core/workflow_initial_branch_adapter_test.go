@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,6 +25,11 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	ctx := context.Background()
 	workspace := t.TempDir()
 	testsetup.InitializeGitRepository(t, workspace)
+	if err := os.WriteFile(filepath.Join(workspace, "reopen.sh"), []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testsetup.RunGit(t, workspace, "add", "reopen.sh")
+	testsetup.RunGit(t, workspace, "commit", "-m", "replacement fixture")
 	t.Setenv("HOME", t.TempDir())
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
 	if err != nil {
@@ -117,6 +124,55 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 		mismatch.ExistingBranchName == nil ||
 		*mismatch.ExistingBranchName != branchA {
 		t.Fatalf("MaterializeExecutionTarget error = %T %+v, want %q versus %q mismatch", err, err, branchB, branchA)
+	}
+	currentNodes, err := store.ListCurrentNodes(ctx, taskID)
+	if err != nil || len(currentNodes) != 1 {
+		t.Fatalf("current Nodes = %+v: %v", currentNodes, err)
+	}
+	source := currentNodes[0].Reference
+	if _, err := store.CompleteCurrentNode(ctx, workflowstore.CurrentNodeCompletionRequest{Source: source, TransitionID: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	workflowfixture.SaveStoreGraph(t, ctx, store, targetContext.Task.WorkflowID, func(_ workflow.Definition, request *workflowstore.WorkflowGraphSaveRequest) {
+		for i := range request.Nodes {
+			if request.Nodes[i].ID == source.NodeID {
+				request.Nodes[i].Kind = workflow.NodeKindScript
+				request.Nodes[i].SubagentRole = ""
+				request.Nodes[i].CompletionMode = ""
+				request.Nodes[i].ScriptPath = "reopen.sh"
+			}
+		}
+		for i := range request.Edges {
+			if request.Edges[i].TargetNodeID == source.NodeID {
+				request.Edges[i].PromptTemplate = ""
+			}
+		}
+	})
+	originalRoot := materialized.Worktree.GetRegistered().GetGit().GetCanonicalRoot()
+	testsetup.RunGit(t, workspace, "worktree", "remove", originalRoot)
+	testsetup.RunGit(t, workspace, "branch", "-D", branchA)
+	request := serverapi.WorkflowTaskMoveRequest{TaskID: string(taskID), TargetNodeID: string(source.NodeID)}
+	selection, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
+	if err != nil || selection.SelectionRequired == nil || selection.SelectionRequired.Reason != serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable {
+		t.Fatalf("missing original selection = %+v: %v", selection, err)
+	}
+	request.ExecutionTarget = &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
+	request.BranchName = &branchB
+	applied, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
+	if err != nil || applied.Applied == nil {
+		t.Fatalf("real replacement Move = %+v: %v", applied, err)
+	}
+	updated, err := store.GetTaskExecutionTargetContext(ctx, taskID)
+	if err != nil || updated.Task.ManagedWorktreeID == nil ||
+		*updated.Task.ManagedWorktreeID == materialized.Worktree.GetRegistered().GetKent().GetWorktreeId() {
+		t.Fatalf("replacement binding = %+v: %v", updated.Task, err)
+	}
+	replacement, err := appCore.bundles.Persistence.metadataStore.GetWorktreeRecordByID(ctx, *updated.Task.ManagedWorktreeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testsetup.RunGit(t, replacement.CanonicalRoot, "branch", "--show-current"); got != branchB {
+		t.Fatalf("replacement branch = %q", got)
 	}
 }
 

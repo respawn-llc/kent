@@ -424,6 +424,8 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 			target = workflowConfiguredExecutionTargetSelector(*requirement.ConfiguredTarget)
 		}
 		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", target, requirement.UnavailableCause)
+	case requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable:
+		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). The Task remains Done; choose a replacement.\n", *requirement.OriginalTargetCause)
 	default:
 		fmt.Fprintf(stderr, "Execution target selection is required: %s.\n", requirement.Reason)
 	}
@@ -433,7 +435,14 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 		if prefix != "" {
 			prefix += " "
 		}
-		fmt.Fprintf(stderr, "  %s--execution-target %s\n", prefix, selection)
+		branch := ""
+		if requirement != nil && requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable && selection != "none" {
+			branch = " --branch-name <new-branch-name>"
+		}
+		fmt.Fprintf(stderr, "  %s--execution-target %s%s\n", prefix, selection, branch)
+	}
+	if requirement != nil && requirement.Reason == serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable {
+		fmt.Fprintln(stderr, "Managed replacements default to the Task Short ID when --branch-name is omitted. Existing branches are retained; choose another name if it collides.")
 	}
 }
 
@@ -807,6 +816,10 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		if err != nil {
 			var setupErr *serverapi.WorkflowSetupRetainedError
 			if errors.As(err, &setupErr) {
+				if *jsonOut {
+					_ = writeCommandJSON(stdout, stderr, setupErr.RPCErrorData())
+					return 1
+				}
 				guidance, projectionErr := projectMoveSetupGuidance(recoveryArgs, executionTarget, setupErr)
 				if projectionErr != nil {
 					fmt.Fprintln(stderr, projectionErr)
@@ -1044,6 +1057,7 @@ const (
 	taskSetupOutcomeStartInterruptedSetupFailure, taskSetupOutcomeStartInterruptedTargetPreparationFailure   taskSetupOutcomeKind        = "start_interrupted_setup_failure", "start_interrupted_target_preparation_failure"
 	taskSetupOutcomeResumeInterruptedSetupFailure, taskSetupOutcomeResumeInterruptedTargetPreparationFailure taskSetupOutcomeKind        = "resume_interrupted_setup_failure", "resume_interrupted_target_preparation_failure"
 	taskSetupOutcomeAlreadyStartedConflict, taskSetupOutcomeMoveSetupFailure                                 taskSetupOutcomeKind        = "already_started_conflict", "move_setup_failure"
+	taskSetupOutcomeMoveReplacementSetupFailure                                                              taskSetupOutcomeKind        = "move_replacement_setup_failure"
 	taskSetupObservedActionStart, taskSetupObservedActionResume                                              taskSetupObservedActionKind = "start", "resume"
 )
 
@@ -1130,16 +1144,22 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 }
 
 func taskTargetActions(base []string, current *string) []taskSetupAction {
+	actions := []taskSetupAction{{Kind: taskSetupActionRetry, Args: append([]string(nil), base...)}}
+	if current != nil {
+		actions[0].Args = append(actions[0].Args, "--execution-target", *current)
+	}
+	return append(actions, taskTargetChoiceActions(base)...)
+}
+
+func taskTargetChoiceActions(base []string) []taskSetupAction {
 	choices := []struct {
 		kind     taskSetupActionKind
-		selector *string
-	}{{taskSetupActionRetry, current}, {taskSetupActionChooseNone, taskSetupStringPointer("none")}, {taskSetupActionChooseHead, taskSetupStringPointer("head")}, {taskSetupActionChooseDefault, taskSetupStringPointer("default-branch")}, {taskSetupActionChooseRef, taskSetupStringPointer("ref:<revision>")}}
+		selector string
+	}{{taskSetupActionChooseNone, "none"}, {taskSetupActionChooseHead, "head"}, {taskSetupActionChooseDefault, "default-branch"}, {taskSetupActionChooseRef, "ref:<revision>"}}
 	actions := make([]taskSetupAction, 0, len(choices))
 	for _, choice := range choices {
 		args := append([]string(nil), base...)
-		if choice.selector != nil {
-			args = append(args, "--execution-target", *choice.selector)
-		}
+		args = append(args, "--execution-target", choice.selector)
 		actions = append(actions, taskSetupAction{Kind: choice.kind, Args: args})
 	}
 	return actions
@@ -1201,7 +1221,18 @@ func projectMoveSetupGuidance(base []string, target *serverapi.WorkflowExecution
 		value := retained.Worktree.Registered.Git.CanonicalRoot
 		previousRoot = &value
 	}
-	return taskSetupGuidance{Outcome: taskSetupOutcomeMoveSetupFailure, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: taskTargetActions(base, selector)}, nil
+	outcome := taskSetupOutcomeMoveSetupFailure
+	actions := taskTargetActions(base, selector)
+	if setupErr.RecoveryDisposition == serverapi.WorkflowSetupRecoveryFreshReplacement {
+		outcome = taskSetupOutcomeMoveReplacementSetupFailure
+		actions = taskTargetChoiceActions(base)
+		for index := range actions {
+			if actions[index].Kind != taskSetupActionChooseNone {
+				actions[index].Args = append(actions[index].Args, "--branch-name", "<new-branch-name>")
+			}
+		}
+	}
+	return taskSetupGuidance{Outcome: outcome, Diagnostic: &diagnostic, ScriptPath: &script, RetainedRoot: &root, RetainedPreviousRoot: previousRoot, Actions: actions}, nil
 }
 
 func taskSetupStringPointer(value string) *string { return &value }
@@ -1362,9 +1393,12 @@ func renderTaskSetupGuidance(stderr io.Writer, guidance taskSetupGuidance) {
 		fmt.Fprintln(stderr, "Worktree setup failed.")
 	case taskSetupOutcomeAlreadyStartedConflict:
 		fmt.Fprintln(stderr, "The Task is already started. Resume it if interrupted; otherwise move it.")
-	case taskSetupOutcomeMoveSetupFailure:
+	case taskSetupOutcomeMoveSetupFailure, taskSetupOutcomeMoveReplacementSetupFailure:
 		fmt.Fprintln(stderr, "Worktree setup failed.")
 		fmt.Fprintln(stderr, "The move was not applied.")
+		if guidance.Outcome == taskSetupOutcomeMoveReplacementSetupFailure {
+			fmt.Fprintln(stderr, "The replacement Worktree was retained unbound. Choose a fresh target with another branch name, or leave the Task Done; setup will not be retried in this root.")
+		}
 	default:
 		panic(fmt.Sprintf("render Task setup guidance with invalid outcome %q", guidance.Outcome))
 	}

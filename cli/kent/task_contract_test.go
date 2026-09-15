@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -619,6 +620,7 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 	}
 	target := serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
 	guidance, err := projectMoveSetupGuidance(base, &target, &serverapi.WorkflowSetupRetainedError{
+		RecoveryDisposition:      serverapi.WorkflowSetupRecoveryRetryExisting,
 		Worktree:                 taskContractWorkflowSetupWorktree("/tmp/retained"),
 		Diagnostic:               "failed twice",
 		ScriptPath:               "/repo/setup.sh",
@@ -632,6 +634,39 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 		len(guidance.Actions) != 5 ||
 		!slices.Contains(guidance.Actions[0].Args, `{"plan":{"summary":"done"}}`) {
 		t.Fatalf("move setup guidance=%+v err=%v", guidance, err)
+	}
+}
+
+func TestTaskMoveReplacementSetupFailureRequiresFreshBranch(t *testing.T) {
+	base := []string{config.Command, "task", "move", "task-1", "node-1"}
+	setupErr := &serverapi.WorkflowSetupRetainedError{
+		RecoveryDisposition: serverapi.WorkflowSetupRecoveryFreshReplacement,
+		Worktree:            taskContractWorkflowSetupWorktree("/tmp/retained"),
+		Diagnostic:          "setup process failed", ScriptPath: "/repo/setup.sh",
+	}
+	guidance, err := projectMoveSetupGuidance(base, nil, setupErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guidance.Actions) != 4 {
+		t.Fatalf("replacement choices = %+v", guidance.Actions)
+	}
+	for _, action := range guidance.Actions {
+		if action.Kind == taskSetupActionRetry {
+			t.Fatal("replacement failure offered retry in retained root")
+		}
+		if slices.Contains(action.Args, "--branch-name") != (action.Kind != taskSetupActionChooseNone) {
+			t.Fatalf("replacement branch flags = %+v", action)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := writeCommandJSON(&stdout, &stderr, setupErr.RPCErrorData()); code != 0 {
+		t.Fatalf("structured failure serialization = %d: %s", code, stderr.String())
+	}
+	var decoded *serverapi.WorkflowSetupRetainedError
+	if err := serverapi.DecodeWorkflowSetupRetainedError(stdout.Bytes(), "failed"); !errors.As(err, &decoded) ||
+		decoded.Diagnostic != setupErr.Diagnostic || decoded.Worktree.Registered.Git.CanonicalRoot != "/tmp/retained" {
+		t.Fatalf("structured replacement diagnostics lost: %v", err)
 	}
 }
 

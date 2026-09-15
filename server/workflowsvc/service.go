@@ -62,6 +62,7 @@ type preparedInitiatingActionTarget struct {
 }
 
 type initiatingActionTargetPreflight struct {
+	purpose                worktree.TaskExecutionRootPreparationPurpose
 	context                workflowstore.TaskExecutionTargetContext
 	selection              workflow.ExecutionTargetSelection
 	explicit               bool
@@ -134,6 +135,7 @@ type ExecutionTargetResolveRequest struct {
 }
 
 type ExecutionTargetMaterializeRequest struct {
+	Purpose                worktree.TaskExecutionRootPreparationPurpose
 	TaskID                 workflow.TaskID
 	SetupOperationID       *worktreecontract.SetupOperationID
 	Snapshot               workflowstore.ExecutionTargetSnapshot
@@ -1064,6 +1066,7 @@ func workflowSetupRetainedError(err error) error {
 		return err
 	}
 	return &serverapi.WorkflowSetupRetainedError{
+		RecoveryDisposition:      serverapi.WorkflowSetupRecoveryRetryExisting,
 		Worktree:                 workflowRegisteredWorktree(retained.Details.Worktree),
 		ScriptPath:               retained.Details.ScriptPath,
 		Diagnostic:               retained.Details.Diagnostic,
@@ -1204,22 +1207,85 @@ func (s *Service) initiatingActionTarget(ctx context.Context, taskID workflow.Ta
 	targetContext := preflight.context
 	if targetContext.Task.ExecutionTarget != nil {
 		if targetContext.Task.ExecutionTarget.Mode != workflow.ExecutionTargetModeNone {
+			branchAssertion := preflight.initialBranchAssertion
+			if preflight.purpose == worktree.TaskExecutionRootCompletedReplacement {
+				branchAssertion = nil
+			}
 			if err := s.executionTargets.RestoreExecutionTarget(ctx, ExecutionTargetRestoreRequest{
 				TaskID:                 taskID,
 				SetupOperationID:       setupOperationID,
-				InitialBranchAssertion: preflight.initialBranchAssertion,
+				InitialBranchAssertion: branchAssertion,
 			}); err != nil {
-				return initiatingActionTargetDecision{}, workflowLockedExecutionTargetError(err)
+				converted := workflowLockedExecutionTargetError(err)
+				var unavailable *serverapi.WorkflowLockedExecutionTargetError
+				if preflight.purpose != worktree.TaskExecutionRootCompletedReplacement || !errors.As(converted, &unavailable) {
+					return initiatingActionTargetDecision{}, converted
+				}
+				if !preflight.explicit {
+					return initiatingActionTargetDecision{selectionRequired: &serverapi.WorkflowExecutionTargetSelectionRequirement{
+						Reason:              serverapi.WorkflowExecutionTargetSelectionReasonOriginalTargetUnavailable,
+						OriginalTargetCause: &unavailable.Cause,
+					}}, nil
+				}
+				return s.resolveAndMaterializeInitiatingActionTarget(ctx, taskID, setupOperationID, preflight)
 			}
+		}
+		if preflight.purpose == worktree.TaskExecutionRootCompletedReplacement && (preflight.explicit || preflight.initialBranchAssertion != nil) {
+			return initiatingActionTargetDecision{}, workflowstore.ErrExecutionTargetAlreadyLocked
 		}
 		return initiatingActionTargetDecision{}, nil
 	}
+	return s.resolveAndMaterializeInitiatingActionTarget(ctx, taskID, setupOperationID, preflight)
+}
+
+func (s *Service) resolveAndMaterializeInitiatingActionTarget(ctx context.Context, taskID workflow.TaskID, setupOperationID *worktreecontract.SetupOperationID, preflight initiatingActionTargetPreflight) (initiatingActionTargetDecision, error) {
 	snapshot, selectionRequired, err := s.resolveInitiatingActionTarget(ctx, preflight)
 	if err != nil || selectionRequired != nil {
 		return initiatingActionTargetDecision{selectionRequired: selectionRequired}, err
 	}
 	prepared, err := s.materializeInitiatingActionTarget(ctx, taskID, setupOperationID, preflight, snapshot, worktreecontract.SetupRequirementRequired)
+	if preflight.purpose == worktree.TaskExecutionRootCompletedReplacement {
+		converted := workflowSetupRetainedError(err)
+		var retained *serverapi.WorkflowSetupRetainedError
+		if errors.As(converted, &retained) {
+			retained.RecoveryDisposition = serverapi.WorkflowSetupRecoveryFreshReplacement
+		}
+		err = converted
+	}
 	return initiatingActionTargetDecision{prepared: &prepared}, err
+}
+
+func (s *Service) preflightManualMoveTarget(ctx context.Context, prepared workflowstore.ManualMovePreparation, explicit *serverapi.WorkflowExecutionTargetSelection, branch *string) (initiatingActionTargetPreflight, error) {
+	if !prepared.ReopensCompletedTask() {
+		return s.preflightInitiatingActionTarget(ctx, prepared.TaskID(), explicit, branch)
+	}
+	target, err := s.store.GetTaskExecutionTargetContext(ctx, prepared.TaskID())
+	if err != nil {
+		return initiatingActionTargetPreflight{}, err
+	}
+	if target.Task.ExecutionTarget == nil || target.Task.ExecutionTarget.Mode == workflow.ExecutionTargetModeNone {
+		return s.preflightInitiatingActionTarget(ctx, prepared.TaskID(), explicit, branch)
+	}
+	if s.executionTargets == nil {
+		return initiatingActionTargetPreflight{}, errExecutionTargetInfrastructureRequired
+	}
+	preflight := initiatingActionTargetPreflight{
+		context: target, purpose: worktree.TaskExecutionRootCompletedReplacement,
+		explicit: explicit != nil, initialBranchAssertion: branch,
+		selection: workflow.ExecutionTargetSelection{Mode: target.Task.ExecutionTarget.Mode},
+	}
+	if preflight.selection.Mode == workflow.ExecutionTargetModeCustomRef {
+		preflight.selection.CustomRef = target.Task.ExecutionTarget.RequestedRef
+	}
+	if explicit != nil {
+		preflight.selection = workflow.ExecutionTargetSelection{Mode: workflow.ExecutionTargetMode(explicit.Mode), CustomRef: explicit.CustomRef}
+		if explicit.Mode == serverapi.WorkflowExecutionTargetModeNone && branch != nil {
+			return initiatingActionTargetPreflight{}, &serverapi.WorkflowTaskInitialBranchError{
+				Reason: serverapi.WorkflowTaskInitialBranchErrorReasonNoManagedTarget, BranchName: *branch,
+			}
+		}
+	}
+	return preflight, nil
 }
 
 func (s *Service) resolveInitiatingActionTarget(
@@ -1278,6 +1344,7 @@ func (s *Service) materializeInitiatingActionTarget(
 	targetContext := preflight.context
 	if snapshot != nil {
 		materialization, materializationErr := s.executionTargets.MaterializeExecutionTarget(ctx, ExecutionTargetMaterializeRequest{
+			Purpose:                preflight.purpose,
 			TaskID:                 taskID,
 			SetupOperationID:       setupOperationID,
 			Snapshot:               *snapshot,
@@ -1858,7 +1925,7 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req serverapi.WorkflowTa
 				}, nil
 			}
 		}
-		targetPreflight, err = s.preflightInitiatingActionTarget(ctx, moveRequest.TaskID, req.ExecutionTarget, req.BranchName)
+		targetPreflight, err = s.preflightManualMoveTarget(ctx, prepared, req.ExecutionTarget, req.BranchName)
 		if err != nil {
 			return serverapi.WorkflowTaskMoveResponse{}, err
 		}
@@ -1869,6 +1936,15 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req serverapi.WorkflowTa
 		targetPreflight:         targetPreflight,
 		afterTargetResolution: func() error {
 			return s.currentNodeExecution.InterruptForManualMove(ctx, moveRequest.TaskID, func() error {
+				if prepared.ReopensCompletedTask() && req.ExecutionTarget != nil {
+					current, err := s.store.PrepareManualMove(ctx, moveRequest)
+					if err != nil {
+						return err
+					}
+					if !current.ReopensCompletedTask() {
+						return workflowstore.ErrExecutionTargetAlreadyLocked
+					}
+				}
 				preview, err := s.store.PreviewManualMove(ctx, moveRequest)
 				if err != nil {
 					return err
