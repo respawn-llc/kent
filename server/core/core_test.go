@@ -663,6 +663,11 @@ func newCoreTestApp(t *testing.T, cfg brand.App, state auth.State) *Core {
 
 func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State, loadOptions brand.LoadOptions) *Core {
 	t.Helper()
+	return newCoreTestAppWithOptions(t, cfg, state, Options{WorkspaceConfigLoadOptions: loadOptions})
+}
+
+func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
+	t.Helper()
 	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(state), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
@@ -672,9 +677,7 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 		t.Fatalf("BuildRuntimeSupport: %v", err)
 	}
 	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, runtimeSupport, Options{
-		WorkspaceConfigLoadOptions: loadOptions,
-	})
+	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, runtimeSupport, options)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

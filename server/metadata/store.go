@@ -528,6 +528,10 @@ func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord)
 	if s == nil || s.queries == nil {
 		return errors.New("metadata store is required")
 	}
+	return WriteWorktreeRecord(ctx, s.queries, record)
+}
+
+func WriteWorktreeRecord(ctx context.Context, queries *sqlitegen.Queries, record WorktreeRecord) error {
 	if strings.TrimSpace(record.ID) == "" {
 		return ErrWorktreeIDRequired
 	}
@@ -566,7 +570,7 @@ func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord)
 		}
 		creationBaseCommitOID = sql.NullString{String: value, Valid: true}
 	}
-	if err := s.queries.UpsertWorktree(ctx, sqlitegen.UpsertWorktreeParams{
+	if err := queries.UpsertWorktree(ctx, sqlitegen.UpsertWorktreeParams{
 		ID:                    strings.TrimSpace(record.ID),
 		WorkspaceID:           strings.TrimSpace(record.WorkspaceID),
 		CanonicalRootPath:     canonicalRoot,

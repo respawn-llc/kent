@@ -8446,24 +8446,29 @@ SET
     execution_target_provenance = ?6,
     updated_at_unix_ms = ?7
 WHERE id = ?8
-  AND execution_target_mode IS NULL
-  AND execution_target_requested_ref IS NULL
-  AND execution_target_resolved_ref IS NULL
-  AND execution_target_commit_oid IS NULL
-  AND execution_target_provenance IS NULL
-  AND managed_worktree_id IS ?9
+  AND execution_target_mode IS ?9
+  AND execution_target_requested_ref IS ?10
+  AND execution_target_resolved_ref IS ?11
+  AND execution_target_commit_oid IS ?12
+  AND execution_target_provenance IS ?13
+  AND managed_worktree_id IS ?14
 `
 
 type LockTaskExecutionTargetParams struct {
-	ManagedWorktreeID           sql.NullString
-	ExecutionTargetMode         sql.NullString
-	ExecutionTargetRequestedRef sql.NullString
-	ExecutionTargetResolvedRef  sql.NullString
-	ExecutionTargetCommitOid    sql.NullString
-	ExecutionTargetProvenance   sql.NullString
-	UpdatedAtUnixMs             int64
-	TaskID                      string
-	ExpectedManagedWorktreeID   sql.NullString
+	ManagedWorktreeID                   sql.NullString
+	ExecutionTargetMode                 sql.NullString
+	ExecutionTargetRequestedRef         sql.NullString
+	ExecutionTargetResolvedRef          sql.NullString
+	ExecutionTargetCommitOid            sql.NullString
+	ExecutionTargetProvenance           sql.NullString
+	UpdatedAtUnixMs                     int64
+	TaskID                              string
+	ExpectedExecutionTargetMode         sql.NullString
+	ExpectedExecutionTargetRequestedRef sql.NullString
+	ExpectedExecutionTargetResolvedRef  sql.NullString
+	ExpectedExecutionTargetCommitOid    sql.NullString
+	ExpectedExecutionTargetProvenance   sql.NullString
+	ExpectedManagedWorktreeID           sql.NullString
 }
 
 func (q *Queries) LockTaskExecutionTarget(ctx context.Context, arg LockTaskExecutionTargetParams) (int64, error) {
@@ -8476,9 +8481,14 @@ func (q *Queries) LockTaskExecutionTarget(ctx context.Context, arg LockTaskExecu
 		arg.ExecutionTargetProvenance,
 		arg.UpdatedAtUnixMs,
 		arg.TaskID,
+		arg.ExpectedExecutionTargetMode,
+		arg.ExpectedExecutionTargetRequestedRef,
+		arg.ExpectedExecutionTargetResolvedRef,
+		arg.ExpectedExecutionTargetCommitOid,
+		arg.ExpectedExecutionTargetProvenance,
 		arg.ExpectedManagedWorktreeID,
 	)
-	err = recordQueryError(ctx, err, lockTaskExecutionTarget, 9)
+	err = recordQueryError(ctx, err, lockTaskExecutionTarget, 14)
 
 	if err != nil {
 		return 0, err

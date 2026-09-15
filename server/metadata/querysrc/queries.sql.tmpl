@@ -2847,11 +2847,11 @@ SET
     execution_target_provenance = sqlc.narg(execution_target_provenance),
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
 WHERE id = sqlc.arg(task_id)
-  AND execution_target_mode IS NULL
-  AND execution_target_requested_ref IS NULL
-  AND execution_target_resolved_ref IS NULL
-  AND execution_target_commit_oid IS NULL
-  AND execution_target_provenance IS NULL
+  AND execution_target_mode IS sqlc.narg(expected_execution_target_mode)
+  AND execution_target_requested_ref IS sqlc.narg(expected_execution_target_requested_ref)
+  AND execution_target_resolved_ref IS sqlc.narg(expected_execution_target_resolved_ref)
+  AND execution_target_commit_oid IS sqlc.narg(expected_execution_target_commit_oid)
+  AND execution_target_provenance IS sqlc.narg(expected_execution_target_provenance)
   AND managed_worktree_id IS sqlc.narg(expected_managed_worktree_id);
 
 -- name: ReplaceCompletedTaskExecutionTarget :execrows

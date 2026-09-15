@@ -467,7 +467,7 @@ func (s *Store) startTask(ctx context.Context, taskID workflow.TaskID, candidate
 	}
 	var targetMutation preparedExecutionTargetMutation
 	if requireTarget {
-		targetMutation, err = s.prepareExecutionTargetMutation(ctx, prepared.task, candidate)
+		targetMutation, err = prepareExecutionTargetMutation(ctx, s.queries, prepared.task, candidate)
 		if err != nil {
 			return StartTaskResult{}, err
 		}
