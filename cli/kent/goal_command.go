@@ -154,7 +154,7 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			},
 			Objective:       objective,
 			Actor:           actor,
-			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
 			RunId:           runID,
 			StepId:          stepID,
 		})

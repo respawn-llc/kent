@@ -12,9 +12,13 @@ import (
 	"time"
 
 	"core/shared/client"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/sessionenv"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const goalSetTestSessionID = "123e4567-e89b-42d3-a456-426614174000"
 
 type goalTimeoutRemote struct {
 	goalCommandRemote
@@ -49,6 +53,103 @@ func (goalTimeoutRemote) ClearGoal(context.Context, *runtimepb.GoalClearRequest)
 }
 
 func (goalTimeoutRemote) Close() error { return nil }
+
+type goalSetCaptureRemote struct {
+	goalCommandRemote
+	request  *runtimepb.GoalSetRequest
+	response *runtimepb.GoalSetSuccess
+}
+
+func (r *goalSetCaptureRemote) SetGoal(_ context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
+	r.request = request
+	return r.response, nil
+}
+
+func (r *goalSetCaptureRemote) Close() error { return nil }
+
+func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessionEnv string
+		runEnv     string
+		stepEnv    string
+		args       []string
+		actor      string
+		runID      string
+		stepID     string
+	}{
+		{
+			name:  "human exact Session",
+			args:  []string{"set", "--session", goalSetTestSessionID, "finish", "the", "task"},
+			actor: "user",
+		},
+		{
+			name:       "agent without identity",
+			sessionEnv: goalSetTestSessionID,
+			args:       []string{"set", "finish", "the", "task"},
+			actor:      "agent",
+		},
+		{
+			name:       "agent with exact identity",
+			sessionEnv: goalSetTestSessionID,
+			runEnv:     "run-1",
+			stepEnv:    "step-1",
+			args:       []string{"set", "finish", "the", "task"},
+			actor:      "agent",
+			runID:      "run-1",
+			stepID:     "step-1",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(sessionenv.SessionIDEnv, test.sessionEnv)
+			t.Setenv(sessionenv.RunIDEnv, test.runEnv)
+			t.Setenv(sessionenv.StepIDEnv, test.stepEnv)
+			remote := &goalSetCaptureRemote{response: goalSetSuccessForTest(goalSetTestSessionID)}
+			previous := goalCommandRemoteOpener
+			t.Cleanup(func() { goalCommandRemoteOpener = previous })
+			goalCommandRemoteOpener = func(context.Context) (goalCommandRemote, error) {
+				return remote, nil
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := goalSubcommand(test.args, &stdout, &stderr); code != 0 {
+				t.Fatalf("exit code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			}
+			if remote.request == nil {
+				t.Fatal("Goal Set request was not sent")
+			}
+			if remote.request.ExecutionPolicy != runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
+				t.Fatalf("execution policy = %s, want preserve_runtime_state", remote.request.ExecutionPolicy)
+			}
+			if remote.request.Actor != test.actor {
+				t.Fatalf("actor = %q, want %q", remote.request.Actor, test.actor)
+			}
+			if remote.request.GetRunId() != test.runID || remote.request.GetStepId() != test.stepID {
+				t.Fatalf("run/step identity = (%q, %q), want (%q, %q)", remote.request.GetRunId(), remote.request.GetStepId(), test.runID, test.stepID)
+			}
+		})
+	}
+}
+
+func goalSetSuccessForTest(sessionID string) *runtimepb.GoalSetSuccess {
+	now := timestamppb.New(time.Unix(1, 0).UTC())
+	return &runtimepb.GoalSetSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID},
+		Outcome: &runtimepb.GoalSetSuccess_Mutation{
+			Mutation: &runtimepb.GoalMutationSuccess{
+				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
+				Goal: &runtimepb.Goal{
+					Id:        "goal-1",
+					Objective: "finish the task",
+					Status:    runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE,
+					CreatedAt: now,
+					UpdatedAt: now,
+				},
+			},
+		},
+	}
+}
 
 func TestGoalCommandsPresentTimeoutWithoutReportingSuccess(t *testing.T) {
 	unsetSessionIDEnvironmentForTest(t)
